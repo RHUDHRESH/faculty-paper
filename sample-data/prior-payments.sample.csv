@@ -1,0 +1,2 @@
+faculty_name,employee_id,paper_title,doi,issn,journal,year,amount,paid_at,claim_ref
+Dr. Sample,FAC001,Example Already Paid Paper,10.1000/example.doi,1234-5678,Example Journal,2023,50000,2023-12-01,OLD-001

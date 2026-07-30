@@ -2,22 +2,28 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { AnimatePresence, motion } from "framer-motion"
-import { Plus, Search } from "lucide-react"
+import { motion } from "framer-motion"
+import { FileText, Plus, Search } from "lucide-react"
 import { toast } from "sonner"
 
 import { useAuth } from "@/components/auth-provider"
 import {
+  EmptyState,
+  FilterBar,
   InsetList,
   InsetRow,
+  MasterDetail,
   PageHeader,
   Section,
+  StickyActions,
+  Stepper,
 } from "@/components/layout/page"
 import {
+  ContestCallout,
   Money,
+  StatusBanner,
   StatusChip,
   StatusTimeline,
-  facultyStatusMessage,
   statusLabel,
 } from "@/components/ticket-ui"
 import {
@@ -60,55 +66,74 @@ import { Textarea } from "@/components/ui/textarea"
 import { api, type Claim } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
+// ─── Shared claim detail ──────────────────────────────────────────────────────
+
 function TicketDetail({ claim }: { claim: Claim }) {
+  const isTerminal = claim.status === "REJECTED" || claim.status === "PAID"
   return (
     <div className="space-y-5">
-      <StatusTimeline status={claim.status} />
-      <div
-        className={cn(
-          "rounded-[var(--radius)] border px-4 py-3 text-sm",
-          claim.status === "PAID" && "border-emerald-200/80 bg-emerald-50 text-emerald-900",
-          claim.status === "REJECTED" && "border-rose-200/80 bg-rose-50 text-rose-900",
-          claim.status !== "PAID" &&
-            claim.status !== "REJECTED" &&
-            "border-border/80 bg-muted/40 text-foreground"
-        )}
-      >
-        {facultyStatusMessage(claim.status)}
-      </div>
+      {isTerminal ? (
+        <StatusBanner status={claim.status} note={claim.status_note} />
+      ) : (
+        <StatusTimeline status={claim.status} />
+      )}
+
+      {claim.contest_forward && <ContestCallout note={claim.contest_note} />}
+
       <div>
         <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold leading-snug">
-          {claim.paper_title}
+          {claim.paper_title || "Untitled"}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {claim.journal_title || "Journal not set"}
         </p>
       </div>
+
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <div className="text-xs text-muted-foreground">Year</div>
           <div className="mt-0.5">{claim.publication_year || "—"}</div>
         </div>
         <div>
-          <div className="text-xs text-muted-foreground">Amount</div>
+          <div className="text-xs text-muted-foreground">Estimated amount</div>
           <div className="mt-0.5 text-lg font-semibold text-primary">
             <Money value={claim.remuneration} />
           </div>
         </div>
+        {claim.quartile ? (
+          <div>
+            <div className="text-xs text-muted-foreground">Quartile</div>
+            <div className="mt-0.5">{claim.quartile}</div>
+          </div>
+        ) : null}
+        {claim.snip != null ? (
+          <div>
+            <div className="text-xs text-muted-foreground">SNIP</div>
+            <div className="mt-0.5">{claim.snip}</div>
+          </div>
+        ) : null}
       </div>
-      {claim.status_note && claim.status === "REJECTED" ? (
-        <div className="rounded-[var(--radius)] border border-rose-200/80 bg-rose-50 px-3 py-2.5 text-sm text-rose-900">
-          {claim.status_note}
-        </div>
-      ) : null}
+
       {(claim.status === "DRAFT" || claim.status === "REJECTED") && (
         <Button asChild className="w-full">
-          <Link to={`/faculty/new?edit=${claim.id}`}>Edit & resubmit</Link>
+          <Link to={`/faculty/new?edit=${claim.id}`}>Edit &amp; resubmit</Link>
         </Button>
       )}
     </div>
   )
 }
+
+// ─── Claims list ──────────────────────────────────────────────────────────────
+
+const STATUS_OPTIONS = [
+  "ALL",
+  "DRAFT",
+  "SUBMITTED",
+  "HOD_APPROVED",
+  "PRINCIPAL_APPROVED",
+  "PAID",
+  "REJECTED",
+]
 
 export function FacultyClaimsPage() {
   const [claims, setClaims] = useState<Claim[]>([])
@@ -159,6 +184,111 @@ export function FacultyClaimsPage() {
     setSheetOpen(true)
   }
 
+  const listPanel = (
+    <div className="space-y-3">
+      <FilterBar>
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search tickets…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <Select value={filter} onValueChange={setFilter}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            {STATUS_OPTIONS.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s === "ALL" ? "All statuses" : statusLabel(s)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FilterBar>
+
+      {loading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-[var(--radius)]" />
+          ))}
+        </div>
+      ) : shown.length === 0 ? (
+        <EmptyState
+          title="No tickets yet"
+          description="Submit a publication to get a ticket number."
+          icon={<FileText className="size-5" />}
+          action={
+            <Button asChild>
+              <Link to="/faculty/new">
+                <Plus className="size-4" />
+                New ticket
+              </Link>
+            </Button>
+          }
+        />
+      ) : (
+        <div className="overflow-hidden rounded-[var(--radius)] border border-border/80 bg-card">
+          <div className="hidden grid-cols-[7rem_1fr_8rem_5rem] gap-3 border-b border-border/80 bg-muted/40 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:grid">
+            <span>Ticket</span>
+            <span>Paper</span>
+            <span>Status</span>
+            <span className="text-right">Amount</span>
+          </div>
+          {shown.map((c, i) => (
+            <motion.button
+              key={c.id}
+              type="button"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: Math.min(i * 0.03, 0.2), duration: 0.2 }}
+              onClick={() => openClaim(c.id)}
+              className={cn(
+                "grid w-full grid-cols-1 gap-1 border-b border-border/60 px-4 py-3.5 text-left transition-colors hover:bg-accent/40 active:bg-accent/70 md:grid-cols-[7rem_1fr_8rem_5rem] md:items-center md:gap-3",
+                selected?.id === c.id && "bg-accent/30"
+              )}
+            >
+              <span className="font-mono text-xs text-muted-foreground">
+                {c.ticket_number || "—"}
+              </span>
+              <span className="min-w-0">
+                <span className="line-clamp-1 text-sm font-medium text-foreground">
+                  {c.paper_title || "Untitled"}
+                </span>
+                <span className="line-clamp-1 text-xs text-muted-foreground">
+                  {c.journal_title || "No journal"}
+                </span>
+              </span>
+              <StatusChip status={c.status} contest={c.contest_forward} />
+              <span className="text-left text-sm font-medium md:text-right">
+                <Money value={c.remuneration} />
+              </span>
+            </motion.button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
+  const detailPanel = selected ? (
+    <div className="rounded-[var(--radius)] border border-border/80 bg-card p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <span className="font-mono text-sm text-muted-foreground">
+          {selected.ticket_number || "—"}
+        </span>
+        <StatusChip status={selected.status} contest={selected.contest_forward} />
+      </div>
+      <TicketDetail claim={selected} />
+    </div>
+  ) : (
+    <div className="hidden lg:flex lg:flex-col lg:items-center lg:justify-center lg:rounded-[var(--radius)] lg:border lg:border-dashed lg:border-border/80 lg:bg-card/40 lg:p-12 lg:text-center">
+      <p className="text-sm text-muted-foreground">Select a ticket to see details</p>
+    </div>
+  )
+
   return (
     <div>
       <PageHeader
@@ -174,101 +304,14 @@ export function FacultyClaimsPage() {
         }
       />
 
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-9"
-            placeholder="Search tickets…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            {["ALL", "DRAFT", "SUBMITTED", "HOD_APPROVED", "PRINCIPAL_APPROVED", "PAID", "REJECTED"].map(
-              (s) => (
-                <SelectItem key={s} value={s}>
-                  {s === "ALL" ? "All statuses" : statusLabel(s)}
-                </SelectItem>
-              )
-            )}
-          </SelectContent>
-        </Select>
-      </div>
+      <MasterDetail list={listPanel} detail={detailPanel} />
 
-      {loading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-[var(--radius)]" />
-          ))}
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-[var(--radius)] border border-border/80 bg-card">
-          <div className="hidden grid-cols-[7rem_1fr_8rem_5rem] gap-3 border-b border-border/80 bg-muted/40 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:grid">
-            <span>Ticket</span>
-            <span>Paper</span>
-            <span>Status</span>
-            <span className="text-right">Amount</span>
-          </div>
-          <AnimatePresence initial={false}>
-            {shown.map((c, i) => (
-              <motion.button
-                key={c.id}
-                type="button"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: Math.min(i * 0.03, 0.2), duration: 0.2 }}
-                onClick={() => openClaim(c.id)}
-                className="grid w-full grid-cols-1 gap-1 border-b border-border/60 px-4 py-3.5 text-left transition-colors hover:bg-accent/40 active:bg-accent/70 md:grid-cols-[7rem_1fr_8rem_5rem] md:items-center md:gap-3"
-              >
-                <span className="font-mono text-xs text-muted-foreground">
-                  {c.ticket_number || "—"}
-                </span>
-                <span className="min-w-0">
-                  <span className="line-clamp-1 text-sm font-medium text-foreground">
-                    {c.paper_title || "Untitled"}
-                  </span>
-                  <span className="line-clamp-1 text-xs text-muted-foreground">
-                    {c.journal_title || "No journal"}
-                  </span>
-                </span>
-                <StatusChip status={c.status} contest={c.contest_forward} />
-                <span className="text-left text-sm font-medium md:text-right">
-                  <Money value={c.remuneration} />
-                </span>
-              </motion.button>
-            ))}
-          </AnimatePresence>
-          {!shown.length ? (
-            <div className="px-4 py-16 text-center">
-              <p className="text-sm font-medium text-foreground">No tickets yet</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Submit a publication to get a ticket number.
-              </p>
-              <Button asChild className="mt-4">
-                <Link to="/faculty/new">Create ticket</Link>
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      )}
-
-      {/* Desktop detail panel */}
-      <div className="mt-6 hidden lg:block">
-        {selected ? (
-          <div className="rounded-[var(--radius)] border border-border/80 bg-card p-6">
-            <TicketDetail claim={selected} />
-          </div>
-        ) : null}
-      </div>
-
-      {/* Mobile sheet */}
+      {/* Mobile bottom sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="bottom" className="max-h-[88vh] overflow-y-auto rounded-t-[1.25rem] md:hidden">
+        <SheetContent
+          side="bottom"
+          className="max-h-[88vh] overflow-y-auto rounded-t-[1.25rem] lg:hidden"
+        >
           <SheetHeader className="text-left">
             <SheetTitle className="font-mono text-base text-primary">
               {selected?.ticket_number || "Ticket"}
@@ -284,24 +327,39 @@ export function FacultyClaimsPage() {
   )
 }
 
+// ─── New / edit claim ─────────────────────────────────────────────────────────
+
+const STEPS = ["Publication", "Authors", "Review"] as const
+
 export function FacultyNewClaimPage() {
   const { user } = useAuth()
   const [params] = useSearchParams()
   const editId = params.get("edit")
+
+  // Step state
+  const [step, setStep] = useState(0)
+
+  // Publication fields
   const [title, setTitle] = useState("")
   const [journal, setJournal] = useState("")
   const [issn, setIssn] = useState("")
   const [year, setYear] = useState("")
-  const [snip, setSnip] = useState("")
-  const [quartile, setQuartile] = useState("")
+  const [doi, setDoi] = useState("")
+  const [aggType, setAggType] = useState("Journal")
   const [subject, setSubject] = useState("")
+
+  // Enrichment fields (filled by quietFill)
   const [eid, setEid] = useState("")
   const [coverDate, setCoverDate] = useState("")
   const [scopusUrl, setScopusUrl] = useState("")
-  const [aggType, setAggType] = useState("Journal")
-  const [doi, setDoi] = useState("")
+
+  // Authors & ranking fields
+  const [quartile, setQuartile] = useState("")
+  const [snip, setSnip] = useState("")
   const [totalAuthors, setTotalAuthors] = useState(1)
   const [authorPosition, setAuthorPosition] = useState(1)
+
+  // Calculation + dialogs
   const [calc, setCalc] = useState<{ remuneration?: number | null; error?: string | null } | null>(null)
   const [sendAnywayOpen, setSendAnywayOpen] = useState(false)
   const [sendNote, setSendNote] = useState("")
@@ -312,6 +370,7 @@ export function FacultyNewClaimPage() {
   const [issuedAmount, setIssuedAmount] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // Load existing claim when editing
   useEffect(() => {
     if (!editId) return
     api<Claim>(`/api/claims/${editId}`)
@@ -342,6 +401,7 @@ export function FacultyNewClaimPage() {
         quartile: q !== undefined ? q : quartile || null,
         total_authors: totalAuthors,
         author_position: authorPosition,
+        publication_type: aggType,
       },
     })
     setCalc(c)
@@ -526,174 +586,256 @@ export function FacultyNewClaimPage() {
     }
   }
 
+  // ── Step panels ──────────────────────────────────────────────────────────────
+
+  const publicationStep = (
+    <Section title="Publication details">
+      <InsetList>
+        <div className="space-y-2 p-4">
+          <Label htmlFor="title">Paper title</Label>
+          <Textarea
+            id="title"
+            required
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={() => {
+              if (title.trim()) quietFill()
+            }}
+            rows={3}
+            placeholder="Full paper title"
+            className="resize-none"
+          />
+        </div>
+        <InsetRow label="Where published">
+          <Input
+            className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+            value={journal}
+            onChange={(e) => setJournal(e.target.value)}
+            placeholder="Journal or conference name"
+          />
+        </InsetRow>
+        <InsetRow label="Year">
+          <Input
+            className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
+            type="number"
+            value={year}
+            onChange={(e) => setYear(e.target.value)}
+            placeholder="YYYY"
+          />
+        </InsetRow>
+        <InsetRow label="ISSN">
+          <Input
+            className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
+            value={issn}
+            onChange={(e) => setIssn(e.target.value)}
+            placeholder="Optional"
+          />
+        </InsetRow>
+        <InsetRow label="DOI">
+          <Input
+            className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
+            value={doi}
+            onChange={(e) => setDoi(e.target.value)}
+            placeholder="Optional"
+          />
+        </InsetRow>
+        <InsetRow label="Type">
+          <Select value={aggType} onValueChange={setAggType}>
+            <SelectTrigger className="border-0 bg-transparent shadow-none focus:ring-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {["Journal", "Conference Proceeding", "Book Series", "Other"].map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </InsetRow>
+        <InsetRow label="Subject">
+          <Input
+            className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Optional"
+          />
+        </InsetRow>
+      </InsetList>
+    </Section>
+  )
+
+  const authorsStep = (
+    <Section title="Authors &amp; ranking">
+      <InsetList>
+        <InsetRow label="Journal ranking">
+          <Select
+            value={quartile}
+            onValueChange={(v) => {
+              setQuartile(v)
+              setTimeout(() => recalc(undefined, v), 0)
+            }}
+          >
+            <SelectTrigger className="border-0 bg-transparent shadow-none focus:ring-0">
+              <SelectValue placeholder="Q1–Q4" />
+            </SelectTrigger>
+            <SelectContent>
+              {["Q1", "Q2", "Q3", "Q4", "Others"].map((q) => (
+                <SelectItem key={q} value={q}>
+                  {q}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </InsetRow>
+        <InsetRow label="SNIP (if known)">
+          <Input
+            className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
+            value={snip}
+            onChange={(e) => setSnip(e.target.value)}
+            onBlur={() => recalc()}
+            placeholder="Optional"
+          />
+        </InsetRow>
+        <InsetRow label="Total authors">
+          <Input
+            className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
+            type="number"
+            min={1}
+            value={totalAuthors}
+            onChange={(e) => setTotalAuthors(Number(e.target.value) || 1)}
+            onBlur={() => recalc()}
+          />
+        </InsetRow>
+        <InsetRow label="Your author position">
+          <Input
+            className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
+            type="number"
+            min={1}
+            value={authorPosition}
+            onChange={(e) => setAuthorPosition(Number(e.target.value) || 1)}
+            onBlur={() => recalc()}
+          />
+        </InsetRow>
+      </InsetList>
+    </Section>
+  )
+
+  const reviewStep = (
+    <div className="space-y-4">
+      <Section title="Review your submission">
+        <InsetList>
+          <div className="space-y-1 p-4">
+            <p className="text-xs text-muted-foreground">Paper title</p>
+            <p className="text-sm font-medium leading-snug">{title || "—"}</p>
+          </div>
+          <InsetRow label="Journal">
+            <span className="text-sm">{journal || "—"}</span>
+          </InsetRow>
+          <InsetRow label="Year">
+            <span className="text-sm">{year || "—"}</span>
+          </InsetRow>
+          {issn ? (
+            <InsetRow label="ISSN">
+              <span className="text-sm">{issn}</span>
+            </InsetRow>
+          ) : null}
+          {doi ? (
+            <InsetRow label="DOI">
+              <span className="truncate text-sm">{doi}</span>
+            </InsetRow>
+          ) : null}
+          <InsetRow label="Type">
+            <span className="text-sm">{aggType}</span>
+          </InsetRow>
+          <InsetRow label="Quartile">
+            <span className="text-sm">{quartile || "—"}</span>
+          </InsetRow>
+          {snip ? (
+            <InsetRow label="SNIP">
+              <span className="text-sm">{snip}</span>
+            </InsetRow>
+          ) : null}
+          <InsetRow label="Total authors">
+            <span className="text-sm">{totalAuthors}</span>
+          </InsetRow>
+          <InsetRow label="Your position">
+            <span className="text-sm">{authorPosition}</span>
+          </InsetRow>
+        </InsetList>
+      </Section>
+
+      {calc?.remuneration != null && (
+        <div className="rounded-[var(--radius)] border border-border/80 bg-card px-4 py-4">
+          <div className="text-xs text-muted-foreground">Estimated amount</div>
+          <div className="mt-1 font-[family-name:var(--font-display)] text-3xl font-semibold text-primary">
+            <Money value={calc.remuneration} size="lg" />
+          </div>
+          {calc.error ? (
+            <p className="mt-2 text-xs text-rose-600">{calc.error}</p>
+          ) : null}
+        </div>
+      )}
+    </div>
+  )
+
+  const stepContent = [publicationStep, authorsStep, reviewStep][step]
+
+  const isFirst = step === 0
+  const isLast = step === STEPS.length - 1
+
   return (
-    <div>
+    <div className="pb-24">
       <PageHeader
         title={editId ? "Edit ticket" : "New ticket"}
         subtitle="Enter your paper details and submit — we handle the checks"
       />
 
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault()
-          save(true, false)
-        }}
-      >
-        <Section title="Publication">
-          <InsetList>
-            <div className="space-y-2 p-4">
-              <Label htmlFor="title">Paper title</Label>
-              <Textarea
-                id="title"
-                required
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onBlur={() => {
-                  if (title.trim()) quietFill()
-                }}
-                rows={3}
-                placeholder="Full paper title"
-                className="resize-none"
-              />
-            </div>
-            <InsetRow label="Where published">
-              <Input
-                className="border-0 bg-transparent shadow-none focus-visible:ring-0"
-                value={journal}
-                onChange={(e) => setJournal(e.target.value)}
-                placeholder="Journal or conference name"
-                required
-              />
-            </InsetRow>
-            <InsetRow label="Year">
-              <Input
-                className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
-                type="number"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-                placeholder="YYYY"
-              />
-            </InsetRow>
-            <InsetRow label="ISSN">
-              <Input
-                className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
-                value={issn}
-                onChange={(e) => setIssn(e.target.value)}
-                placeholder="Optional"
-              />
-            </InsetRow>
-            <InsetRow label="DOI">
-              <Input
-                className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
-                value={doi}
-                onChange={(e) => setDoi(e.target.value)}
-                placeholder="Optional"
-              />
-            </InsetRow>
-            <InsetRow label="Type">
-              <Select value={aggType} onValueChange={setAggType}>
-                <SelectTrigger className="border-0 bg-transparent shadow-none focus:ring-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {["Journal", "Conference Proceeding", "Book Series", "Other"].map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </InsetRow>
-            <InsetRow label="Subject">
-              <Input
-                className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="Optional"
-              />
-            </InsetRow>
-          </InsetList>
-        </Section>
+      <div className="mb-6">
+        <Stepper steps={[...STEPS]} current={step} />
+      </div>
 
-        <Section title="Authors & ranking">
-          <InsetList>
-            <InsetRow label="Journal ranking">
-              <Select
-                value={quartile}
-                onValueChange={(v) => {
-                  setQuartile(v)
-                  setTimeout(() => recalc(undefined, v), 0)
-                }}
-              >
-                <SelectTrigger className="border-0 bg-transparent shadow-none focus:ring-0">
-                  <SelectValue placeholder="Q1–Q4" />
-                </SelectTrigger>
-                <SelectContent>
-                  {["Q1", "Q2", "Q3", "Q4", "Others"].map((q) => (
-                    <SelectItem key={q} value={q}>
-                      {q}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </InsetRow>
-            <InsetRow label="SNIP (if known)">
-              <Input
-                className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
-                value={snip}
-                onChange={(e) => setSnip(e.target.value)}
-                onBlur={() => recalc()}
-                placeholder="Optional"
-              />
-            </InsetRow>
-            <InsetRow label="Total authors">
-              <Input
-                className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
-                type="number"
-                min={1}
-                value={totalAuthors}
-                onChange={(e) => setTotalAuthors(Number(e.target.value) || 1)}
-                onBlur={() => recalc()}
-              />
-            </InsetRow>
-            <InsetRow label="Your author position">
-              <Input
-                className="border-0 bg-transparent text-right shadow-none focus-visible:ring-0"
-                type="number"
-                min={1}
-                value={authorPosition}
-                onChange={(e) => setAuthorPosition(Number(e.target.value) || 1)}
-                onBlur={() => recalc()}
-              />
-            </InsetRow>
-          </InsetList>
-        </Section>
+      <div className="space-y-4">{stepContent}</div>
 
-        {calc?.remuneration != null ? (
-          <div className="rounded-[var(--radius)] border border-border/80 bg-card px-4 py-4">
-            <div className="text-xs text-muted-foreground">Estimated amount</div>
-            <div className="mt-1 font-[family-name:var(--font-display)] text-3xl font-semibold text-primary">
-              <Money value={calc.remuneration} />
-            </div>
-          </div>
-        ) : null}
-
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+      <StickyActions>
+        {!isFirst && (
           <Button
             type="button"
-            variant="secondary"
-            disabled={busy || !title.trim()}
-            onClick={() => save(false)}
+            variant="ghost"
+            disabled={busy}
+            onClick={() => setStep((s) => s - 1)}
           >
-            Save draft
+            ← Back
           </Button>
-          <Button type="submit" disabled={busy || !title.trim()}>
+        )}
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={busy || !title.trim()}
+          onClick={() => save(false)}
+        >
+          Save draft
+        </Button>
+        {isLast ? (
+          <Button
+            type="button"
+            disabled={busy || !title.trim()}
+            onClick={() => save(true, false)}
+          >
             {busy ? "Submitting…" : "Submit"}
           </Button>
-        </div>
-      </form>
+        ) : (
+          <Button
+            type="button"
+            disabled={busy || !title.trim()}
+            onClick={() => setStep((s) => s + 1)}
+          >
+            Continue →
+          </Button>
+        )}
+      </StickyActions>
 
+      {/* Send-anyway alert */}
       <AlertDialog open={sendAnywayOpen} onOpenChange={setSendAnywayOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -729,6 +871,7 @@ export function FacultyNewClaimPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Success dialog */}
       <Dialog open={successOpen} onOpenChange={setSuccessOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

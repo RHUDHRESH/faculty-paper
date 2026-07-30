@@ -2,7 +2,7 @@
 
 import { type FormEvent, useState } from "react"
 import { motion } from "framer-motion"
-import { Link, Navigate, useNavigate } from "react-router-dom"
+import { Navigate, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { useAuth } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
@@ -17,11 +17,13 @@ const DEMOS = [
   { role: "Finance", email: "finance@college.edu", password: "finance123" },
 ]
 
+const showDemos = import.meta.env.DEV
+
 export function LoginPage() {
   const { user, loading, login } = useAuth()
   const nav = useNavigate()
-  const [email, setEmail] = useState("faculty@college.edu")
-  const [password, setPassword] = useState("faculty123")
+  const [email, setEmail] = useState(showDemos ? "faculty@college.edu" : "")
+  const [password, setPassword] = useState(showDemos ? "faculty123" : "")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
 
@@ -52,10 +54,9 @@ export function LoginPage() {
 
   return (
     <div className="relative flex min-h-svh items-center justify-center overflow-hidden px-4">
-      {/* Full-bleed soft atmosphere */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_80%_at_50%_-10%,hsl(191_35%_88%)_0%,hsl(210_20%_97%)_45%,hsl(210_16%_94%)_100%)]"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_80%_at_50%_-10%,hsl(191_35%_88%)_0%,hsl(210_22%_97%)_45%,hsl(210_16%_94%)_100%)]"
       />
       <div
         aria-hidden
@@ -88,7 +89,7 @@ export function LoginPage() {
 
         <form
           onSubmit={onSubmit}
-          className="space-y-4 rounded-[1.25rem] border border-border/80 bg-card/80 p-6 backdrop-blur-xl"
+          className="space-y-4 rounded-[1.25rem] border border-border/80 bg-card/85 p-6 shadow-[0_12px_40px_-24px_hsl(191_72%_20%/0.35)] backdrop-blur-xl"
         >
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
@@ -124,27 +125,29 @@ export function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-8 space-y-2">
-          <p className="text-center text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Demo accounts
-          </p>
-          <div className="grid gap-1.5">
-            {DEMOS.map((d) => (
-              <button
-                key={d.email}
-                type="button"
-                onClick={() => {
-                  setEmail(d.email)
-                  setPassword(d.password)
-                }}
-                className="flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground active:scale-[0.99]"
-              >
-                <span className="font-medium">{d.role}</span>
-                <span className="font-mono text-[11px] opacity-70">{d.email}</span>
-              </button>
-            ))}
+        {showDemos ? (
+          <div className="mt-8 space-y-2">
+            <p className="text-center text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Demo accounts
+            </p>
+            <div className="grid gap-1.5">
+              {DEMOS.map((d) => (
+                <button
+                  key={d.email}
+                  type="button"
+                  onClick={() => {
+                    setEmail(d.email)
+                    setPassword(d.password)
+                  }}
+                  className="flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground active:scale-[0.99]"
+                >
+                  <span className="font-medium">{d.role}</span>
+                  <span className="font-mono text-[11px] opacity-70">{d.email}</span>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : null}
       </motion.div>
     </div>
   )

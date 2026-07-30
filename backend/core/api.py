@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -16,6 +17,8 @@ from django.utils import timezone
 from ninja import NinjaAPI, Schema, UploadedFile, File, Form
 from ninja.errors import HttpError
 from ninja.security import SessionAuth
+
+logger = logging.getLogger("core.api")
 
 from core.models import (
     AuditLog,
@@ -40,9 +43,12 @@ from core.services.monthly_processor import start_batch_async
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.remuneration import (
     DEFAULT_AUTHOR_POINTS,
+    DEFAULT_PUB_TYPE_MULTIPLIERS,
     calculate_remuneration,
     formula_from_model,
+    snapshot_formula,
 )
+from core.services.notify_email import send_optional_email
 from core.services.scimago import lookup_scimago, parse_categories_field
 from core.services.scopus import ScopusError, lookup_paper_by_doi, lookup_serial_by_issn, search_by_title
 from core.services.tickets import next_ticket_number
@@ -50,6 +56,16 @@ from core.services.verify import apply_verify_to_claim, check_already_paid, veri
 
 api = NinjaAPI(title="Faculty Remuneration", version="1.0.0")
 session_auth = SessionAuth()
+
+
+def _require_admin_ops(user: User) -> None:
+    if not rbac.can_admin_portal(user.role):
+        raise HttpError(403, "Forbidden")
+
+
+@api.get("/health", auth=None)
+def health(request: HttpRequest):
+    return {"ok": True, "service": "faculty-paper-api", "time": timezone.now().isoformat()}
 
 
 def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
@@ -248,6 +264,13 @@ class CalcIn(Schema):
     quartile: Optional[str] = None
     total_authors: int = 1
     author_position: int = 1
+    publication_type: Optional[str] = None
+    is_student_publication: bool = False
+
+
+class ResetPasswordByEmailIn(Schema):
+    email: str
+    password: str
 
 
 class ScopusLookupIn(Schema):
@@ -331,6 +354,13 @@ class FormulaIn(Schema):
     qf_others: float = 4000
     author_point_json: str
     notes: Optional[str] = None
+    name: Optional[str] = "Policy"
+    snip_cap: float = 30
+    publication_type_multipliers_json: Optional[str] = None
+    student_remuneration_zero: bool = True
+    qf_only_for_no_snip: bool = True
+    effective_from: Optional[str] = None
+    effective_to: Optional[str] = None
 
 
 class MonthlyCreateIn(Schema):
@@ -644,7 +674,13 @@ def calculate(request: HttpRequest, payload: CalcIn):
     cfg_obj = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
     cfg = formula_from_model(cfg_obj) if cfg_obj else None
     result = calculate_remuneration(
-        payload.snip, payload.quartile, payload.total_authors, payload.author_position, cfg
+        payload.snip,
+        payload.quartile,
+        payload.total_authors,
+        payload.author_position,
+        cfg,
+        is_student_publication=payload.is_student_publication,
+        publication_type=payload.publication_type,
     )
     return {
         "base": result.base,
@@ -652,6 +688,7 @@ def calculate(request: HttpRequest, payload: CalcIn):
         "remuneration": result.remuneration,
         "qf": result.qf,
         "error": result.error,
+        "policy": snapshot_formula(cfg) if cfg else None,
     }
 
 
@@ -684,6 +721,7 @@ def _claims_queryset(user: User):
 def _apply_calc(claim: Claim) -> None:
     cfg_obj = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
     cfg = formula_from_model(cfg_obj) if cfg_obj else None
+    pub_type = claim.aggregation_type or claim.publication_type
     result = calculate_remuneration(
         claim.snip,
         claim.quartile,
@@ -691,14 +729,18 @@ def _apply_calc(claim: Claim) -> None:
         claim.author_position,
         cfg,
         is_student_publication=claim.is_student_publication,
+        publication_type=pub_type,
     )
     claim.base_amount = result.base
     claim.author_point = result.point
     claim.remuneration = result.remuneration
     claim.qf_amount = result.qf
     claim.calc_error = result.error
-    if cfg_obj:
+    if cfg_obj and cfg:
         claim.formula_config = cfg_obj
+        claim.formula_snapshot_json = json.dumps(snapshot_formula(cfg))
+    elif cfg:
+        claim.formula_snapshot_json = json.dumps(snapshot_formula(cfg))
 
 
 @api.get("/claims", auth=session_auth)
@@ -919,6 +961,28 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
         action=action,
         note=note,
     )
+    AuditLog.objects.create(
+        actor=user,
+        action=action,
+        entity="Claim",
+        entity_id=claim.id,
+        detail_json=json.dumps(
+            {
+                "from": from_status,
+                "to": to_status,
+                "ticket": claim.ticket_number,
+                "note": note,
+            }
+        ),
+    )
+    logger.info(
+        "claim_transition ticket=%s action=%s from=%s to=%s actor=%s",
+        claim.ticket_number,
+        action,
+        from_status,
+        to_status,
+        user.email,
+    )
     title, body = _faculty_status_copy(to_status, note)
     Notification.objects.create(
         user=claim.owner,
@@ -926,6 +990,11 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
         body=body,
         href=f"/faculty?claim={claim.id}",
         claim_id=claim.id,
+    )
+    send_optional_email(
+        claim.owner.email,
+        f"{claim.ticket_number or 'Ticket'} · {title}",
+        body,
     )
 
 
@@ -1209,13 +1278,33 @@ def admin_reset_password(request: HttpRequest, user_id: str, payload: ResetPassw
     return {"ok": True}
 
 
+@api.post("/admin/users/reset-password", auth=session_auth)
+def admin_reset_password_by_email(request: HttpRequest, payload: ResetPasswordByEmailIn):
+    actor = require_user(request)
+    if not rbac.can_manage_users(actor.role):
+        raise HttpError(403, "Forbidden")
+    if len(payload.password) < 8:
+        raise HttpError(400, "Password must be at least 8 characters")
+    u = get_object_or_404(User, email=payload.email.strip().lower())
+    u.set_password(payload.password)
+    u.must_change_password = True
+    u.save()
+    AuditLog.objects.create(
+        actor=actor, action="USER_RESET_PASSWORD", entity="User", entity_id=u.id
+    )
+    return {"ok": True}
+
+
 @api.get("/admin/formula", auth=session_auth)
 def get_formula(request: HttpRequest):
     require_user(request)
     cfg = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
     if not cfg:
         return {
+            "name": "Policy v1",
+            "version": 1,
             "snip_multiplier": 55000,
+            "snip_cap": 30,
             "qf_q1": 50000,
             "qf_q2": 30000,
             "qf_q3": 15000,
@@ -1224,10 +1313,18 @@ def get_formula(request: HttpRequest):
             "qf_snip_only": 0,
             "qf_others": 4000,
             "author_point_json": json.dumps(DEFAULT_AUTHOR_POINTS),
+            "publication_type_multipliers_json": json.dumps(DEFAULT_PUB_TYPE_MULTIPLIERS),
+            "student_remuneration_zero": True,
+            "qf_only_for_no_snip": True,
         }
     return {
         "id": cfg.id,
+        "name": cfg.name,
+        "version": cfg.version,
+        "effective_from": cfg.effective_from.isoformat() if cfg.effective_from else None,
+        "effective_to": cfg.effective_to.isoformat() if cfg.effective_to else None,
         "snip_multiplier": cfg.snip_multiplier,
+        "snip_cap": cfg.snip_cap,
         "qf_q1": cfg.qf_q1,
         "qf_q2": cfg.qf_q2,
         "qf_q3": cfg.qf_q3,
@@ -1236,6 +1333,9 @@ def get_formula(request: HttpRequest):
         "qf_snip_only": cfg.qf_snip_only,
         "qf_others": cfg.qf_others,
         "author_point_json": cfg.author_point_json,
+        "publication_type_multipliers_json": cfg.publication_type_multipliers_json,
+        "student_remuneration_zero": cfg.student_remuneration_zero,
+        "qf_only_for_no_snip": cfg.qf_only_for_no_snip,
         "notes": cfg.notes,
     }
 
@@ -1245,9 +1345,37 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
     user = require_user(request)
     if not rbac.can_edit_formula(user.role):
         raise HttpError(403, "Forbidden")
+    prev = FormulaConfig.objects.filter(active=True).order_by("-version").first()
+    next_version = (prev.version + 1) if prev else 1
     FormulaConfig.objects.filter(active=True).update(active=False)
+    eff_from = None
+    eff_to = None
+    if payload.effective_from:
+        try:
+            eff_from = date.fromisoformat(payload.effective_from)
+        except ValueError:
+            raise HttpError(400, "Invalid effective_from")
+    if payload.effective_to:
+        try:
+            eff_to = date.fromisoformat(payload.effective_to)
+        except ValueError:
+            raise HttpError(400, "Invalid effective_to")
+    pub_json = payload.publication_type_multipliers_json or json.dumps(DEFAULT_PUB_TYPE_MULTIPLIERS)
+    try:
+        json.loads(pub_json)
+    except Exception:
+        raise HttpError(400, "Invalid publication_type_multipliers_json")
+    try:
+        json.loads(payload.author_point_json)
+    except Exception:
+        raise HttpError(400, "Invalid author_point_json")
     cfg = FormulaConfig.objects.create(
+        name=payload.name or f"Policy v{next_version}",
+        version=next_version,
+        effective_from=eff_from or timezone.now().date(),
+        effective_to=eff_to,
         snip_multiplier=payload.snip_multiplier,
+        snip_cap=payload.snip_cap,
         qf_q1=payload.qf_q1,
         qf_q2=payload.qf_q2,
         qf_q3=payload.qf_q3,
@@ -1256,11 +1384,21 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
         qf_snip_only=payload.qf_snip_only,
         qf_others=payload.qf_others,
         author_point_json=payload.author_point_json,
+        publication_type_multipliers_json=pub_json,
+        student_remuneration_zero=payload.student_remuneration_zero,
+        qf_only_for_no_snip=payload.qf_only_for_no_snip,
         notes=payload.notes,
         updated_by=user,
         active=True,
     )
-    return {"id": cfg.id}
+    AuditLog.objects.create(
+        actor=user,
+        action="FORMULA_UPDATE",
+        entity="FormulaConfig",
+        entity_id=cfg.id,
+        detail_json=json.dumps({"version": cfg.version, "name": cfg.name}),
+    )
+    return {"id": cfg.id, "version": cfg.version, "name": cfg.name}
 
 
 @api.get("/admin/audit", auth=session_auth)
@@ -1302,7 +1440,9 @@ def admin_payouts(request: HttpRequest, status: str = "PRINCIPAL_APPROVED"):
 
 @api.get("/admin/scimago/stats", auth=session_auth)
 def scimago_stats(request: HttpRequest):
-    require_user(request)
+    user = require_user(request)
+    if not rbac.can_import_prior(user.role):
+        raise HttpError(403, "Forbidden")
     count = ScimagoJournal.objects.count()
     years = list(ScimagoJournal.objects.values_list("year", flat=True).distinct().order_by("-year"))
     return {"count": count, "years": years}
@@ -1437,7 +1577,9 @@ def admin_process_batch(request: HttpRequest, payload: BatchProcessIn):
 
 @api.get("/admin/snip/stats", auth=session_auth)
 def snip_stats(request: HttpRequest):
-    require_user(request)
+    user = require_user(request)
+    if not rbac.can_import_prior(user.role):
+        raise HttpError(403, "Forbidden")
     count = SnipSource.objects.count()
     years = list(SnipSource.objects.values_list("year", flat=True).distinct().order_by("-year"))
     return {"count": count, "years": years}
@@ -1630,7 +1772,8 @@ def admin_ledger_export(request: HttpRequest, month: Optional[str] = None, depar
 
 @api.get("/monthly", auth=session_auth)
 def list_batches(request: HttpRequest):
-    require_user(request)
+    user = require_user(request)
+    _require_admin_ops(user)
     batches = MonthlyBatch.objects.select_related("created_by").order_by("-created_at")[:50]
     return [
         {
@@ -1649,6 +1792,7 @@ def list_batches(request: HttpRequest):
 @api.post("/monthly", auth=session_auth)
 def create_batch(request: HttpRequest, payload: MonthlyCreateIn):
     user = require_user(request)
+    _require_admin_ops(user)
     batch = MonthlyBatch.objects.create(name=payload.name, created_by=user)
     for i, r in enumerate(payload.rows, start=1):
         MonthlyRow.objects.create(
@@ -1664,6 +1808,7 @@ def create_batch(request: HttpRequest, payload: MonthlyCreateIn):
 @api.post("/monthly/upload", auth=session_auth)
 def upload_batch(request: HttpRequest, name: str = Form(...), file: UploadedFile = File(...)):
     user = require_user(request)
+    _require_admin_ops(user)
     content = file.read().decode("utf-8", errors="ignore")
     reader = csv.DictReader(io.StringIO(content))
     batch = MonthlyBatch.objects.create(name=name, created_by=user)
@@ -1679,7 +1824,8 @@ def upload_batch(request: HttpRequest, name: str = Form(...), file: UploadedFile
 
 @api.get("/monthly/{batch_id}", auth=session_auth)
 def get_batch(request: HttpRequest, batch_id: str):
-    require_user(request)
+    user = require_user(request)
+    _require_admin_ops(user)
     batch = get_object_or_404(MonthlyBatch, pk=batch_id)
     rows = [
         {
@@ -1715,7 +1861,8 @@ def get_batch(request: HttpRequest, batch_id: str):
 
 @api.post("/monthly/{batch_id}/start", auth=session_auth)
 def start_batch(request: HttpRequest, batch_id: str):
-    require_user(request)
+    user = require_user(request)
+    _require_admin_ops(user)
     batch = get_object_or_404(MonthlyBatch, pk=batch_id)
     if batch.status == "RUNNING":
         raise HttpError(400, "Already running")
@@ -1725,7 +1872,8 @@ def start_batch(request: HttpRequest, batch_id: str):
 
 @api.get("/monthly/{batch_id}/export", auth=session_auth)
 def export_batch(request: HttpRequest, batch_id: str):
-    require_user(request)
+    user = require_user(request)
+    _require_admin_ops(user)
     batch = get_object_or_404(MonthlyBatch, pk=batch_id)
     buf = io.StringIO()
     w = csv.writer(buf)

@@ -60,6 +60,32 @@ function initials(name?: string) {
     .join("")
 }
 
+function BrandMark({ title }: { title: string }) {
+  return (
+    <div className="px-5 py-6">
+      <div className="flex items-center gap-3">
+        <div
+          className="flex size-9 items-center justify-center rounded-xl bg-sidebar-accent text-sm font-semibold text-sidebar-accent-foreground"
+          aria-hidden
+        >
+          SP
+        </div>
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/50">
+            Saveetha
+          </div>
+          <div className="truncate font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-sidebar-accent-foreground">
+            {title}
+          </div>
+        </div>
+      </div>
+      <p className="mt-3 text-[11px] leading-snug text-sidebar-foreground/45">
+        Publication remuneration
+      </p>
+    </div>
+  )
+}
+
 function NavItems({
   tabs,
   onNavigate,
@@ -70,7 +96,7 @@ function NavItems({
   className?: string
 }) {
   return (
-    <nav className={cn("flex flex-col gap-1", className)}>
+    <nav className={cn("flex flex-col gap-0.5", className)} aria-label="Main">
       {tabs.map((t) => {
         const Icon = t.icon
         return (
@@ -83,12 +109,12 @@ function NavItems({
               cn(
                 "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-[var(--duration-fast)] ease-[var(--ease-spring)] active:scale-[0.98]",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
               )
             }
           >
-            <Icon className="size-4 shrink-0 opacity-80" />
+            <Icon className="size-4 shrink-0 opacity-80" aria-hidden />
             <span>{t.label}</span>
           </NavLink>
         )
@@ -109,6 +135,7 @@ function UserMenu() {
           <Button
             variant="ghost"
             className="h-auto w-full justify-start gap-3 rounded-xl px-2 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            aria-label="Account menu"
           >
             <Avatar className="size-9 border border-sidebar-border">
               <AvatarFallback className="bg-sidebar-accent text-xs text-sidebar-accent-foreground">
@@ -165,22 +192,23 @@ function UserMenu() {
   )
 }
 
-export function AppShell({ tabs, title }: { tabs: Tab[]; title: string }) {
+export function AppShell({
+  tabs,
+  title,
+  wide,
+}: {
+  tabs: Tab[]
+  title: string
+  wide?: boolean
+}) {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <div className="flex min-h-svh bg-background">
+    <div className="flex min-h-svh bg-transparent">
       <ChangePasswordGate />
-      <aside className="sticky top-0 hidden h-svh w-[240px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
-        <div className="px-5 py-6">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/50">
-            Saveetha
-          </div>
-          <div className="mt-1 font-[family-name:var(--font-display)] text-xl font-semibold tracking-tight text-sidebar-accent-foreground">
-            {title}
-          </div>
-        </div>
+      <aside className="sticky top-0 hidden h-svh w-[248px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
+        <BrandMark title={title} />
         <ScrollArea className="flex-1 px-3">
           <NavItems tabs={tabs} />
         </ScrollArea>
@@ -197,7 +225,7 @@ export function AppShell({ tabs, title }: { tabs: Tab[]; title: string }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/70 bg-background/80 px-4 backdrop-blur-xl md:hidden">
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/70 bg-background/85 px-4 backdrop-blur-xl md:hidden">
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="shrink-0" aria-label="Open menu">
@@ -206,17 +234,11 @@ export function AppShell({ tabs, title }: { tabs: Tab[]; title: string }) {
             </SheetTrigger>
             <SheetContent
               side="left"
-              className="flex w-[280px] flex-col border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
+              className="flex w-[288px] flex-col border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
             >
-              <SheetHeader className="px-5 py-6 text-left">
-                <SheetTitle className="text-sidebar-accent-foreground">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/50">
-                    Saveetha
-                  </div>
-                  <div className="mt-1 font-[family-name:var(--font-display)] text-xl">
-                    {title}
-                  </div>
-                </SheetTitle>
+              <SheetHeader className="p-0 text-left">
+                <SheetTitle className="sr-only">{title} navigation</SheetTitle>
+                <BrandMark title={title} />
               </SheetHeader>
               <div className="flex-1 px-3 pb-4">
                 <NavItems tabs={tabs} onNavigate={() => setMobileOpen(false)} />
@@ -240,7 +262,12 @@ export function AppShell({ tabs, title }: { tabs: Tab[]; title: string }) {
           <NotificationBell />
         </header>
 
-        <div className="mx-auto w-full max-w-5xl flex-1 px-4 py-4 md:px-6 md:py-6">
+        <div
+          className={cn(
+            "mx-auto w-full flex-1 px-4 py-4 md:px-6 md:py-6",
+            wide ? "max-w-6xl" : "max-w-5xl"
+          )}
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}
@@ -296,13 +323,14 @@ export function AdminShell() {
   return (
     <AppShell
       title="Admin"
+      wide
       tabs={[
         { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
-        { to: "/admin/monthly", label: "Monthly", icon: FileSpreadsheet },
-        { to: "/admin/scimago", label: "Scimago", icon: BookOpen },
-        { to: "/admin/prior", label: "Prior payments", icon: Receipt },
         { to: "/admin/users", label: "Users", icon: Users },
         { to: "/admin/formula", label: "Formula", icon: Settings2 },
+        { to: "/admin/scimago", label: "Imports", icon: BookOpen },
+        { to: "/admin/prior", label: "Prior payments", icon: Receipt },
+        { to: "/admin/monthly", label: "Monthly", icon: FileSpreadsheet },
         { to: "/admin/audit", label: "Audit", icon: ClipboardCheck },
       ]}
     />
@@ -313,6 +341,7 @@ export function FinanceShell() {
   return (
     <AppShell
       title="Finance"
+      wide
       tabs={[
         { to: "/finance", label: "Payment orders", icon: Wallet, end: true },
         { to: "/finance/paid", label: "Processed", icon: Receipt },

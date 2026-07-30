@@ -91,7 +91,12 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 class FormulaConfig(models.Model):
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    name = models.CharField(max_length=128, default="Policy v1")
+    version = models.PositiveIntegerField(default=1)
+    effective_from = models.DateField(blank=True, null=True)
+    effective_to = models.DateField(blank=True, null=True)
     snip_multiplier = models.FloatField(default=55000)
+    snip_cap = models.FloatField(default=30)
     qf_q1 = models.FloatField(default=50000)
     qf_q2 = models.FloatField(default=30000)
     qf_q3 = models.FloatField(default=15000)
@@ -100,6 +105,12 @@ class FormulaConfig(models.Model):
     qf_snip_only = models.FloatField(default=0)
     qf_others = models.FloatField(default=4000)  # conference / others from Accounts sheet
     author_point_json = models.TextField()
+    # e.g. {"Journal": 1, "Conference Proceeding": 0.8, "Book Series": 0.5, "Other": 0.5}
+    publication_type_multipliers_json = models.TextField(
+        default='{"Journal":1,"Conference Proceeding":1,"Book Series":1,"Other":1}'
+    )
+    student_remuneration_zero = models.BooleanField(default=True)
+    qf_only_for_no_snip = models.BooleanField(default=True)
     active = models.BooleanField(default=True)
     notes = models.TextField(blank=True, null=True)
     updated_by = models.ForeignKey(

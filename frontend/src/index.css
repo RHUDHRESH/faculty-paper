@@ -14,6 +14,9 @@
   --duration-normal: 200ms;
   --duration-slow: 280ms;
 
+  --spacing-page: 1.5rem;
+  --spacing-section: 1.5rem;
+
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
@@ -38,36 +41,49 @@
   --color-sidebar-accent: hsl(var(--sidebar-accent));
   --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
   --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
 }
 
 :root {
-  /* Soft warm-cool Notion canvas + deep teal brand */
-  --background: 210 20% 97%;
-  --foreground: 210 24% 10%;
+  /* Soft cool canvas + deep teal brand */
+  --background: 210 22% 97%;
+  --foreground: 210 28% 9%;
   --card: 0 0% 100%;
-  --card-foreground: 210 24% 10%;
+  --card-foreground: 210 28% 9%;
   --popover: 0 0% 100%;
-  --popover-foreground: 210 24% 10%;
-  --primary: 191 68% 21%;
-  --primary-foreground: 180 20% 98%;
+  --popover-foreground: 210 28% 9%;
+  --primary: 191 72% 20%;
+  --primary-foreground: 180 24% 98%;
   --secondary: 210 16% 94%;
   --secondary-foreground: 210 24% 14%;
   --muted: 210 14% 93%;
-  --muted-foreground: 215 12% 42%;
-  --accent: 191 28% 94%;
-  --accent-foreground: 191 68% 18%;
+  --muted-foreground: 215 12% 40%;
+  --accent: 191 32% 94%;
+  --accent-foreground: 191 72% 16%;
   --destructive: 0 72% 46%;
   --destructive-foreground: 0 0% 100%;
-  --border: 214 18% 88%;
-  --input: 214 18% 88%;
-  --ring: 191 68% 21%;
+  --success: 152 48% 36%;
+  --success-foreground: 152 40% 98%;
+  --warning: 38 92% 42%;
+  --warning-foreground: 38 100% 12%;
+  --border: 214 18% 87%;
+  --input: 214 18% 87%;
+  --ring: 191 72% 20%;
   --radius: 0.875rem;
-  --sidebar: 191 72% 15%;
+  --sidebar: 191 74% 13%;
   --sidebar-foreground: 180 20% 96%;
-  --sidebar-accent: 191 40% 22%;
-  --sidebar-accent-foreground: 180 20% 98%;
-  --sidebar-border: 191 40% 22%;
+  --sidebar-accent: 191 42% 20%;
+  --sidebar-accent-foreground: 180 24% 98%;
+  --sidebar-border: 191 40% 18%;
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --surface-glow: radial-gradient(
+    120% 80% at 50% -10%,
+    hsl(191 35% 88% / 0.55) 0%,
+    transparent 50%
+  );
 }
 
 * {
@@ -83,10 +99,14 @@ body,
 body {
   margin: 0;
   font-family: var(--font-sans);
-  background: hsl(var(--background));
+  background:
+    var(--surface-glow),
+    hsl(var(--background));
+  background-attachment: fixed;
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01" on, "cv11" on;
 }
 
 ::selection {
@@ -110,4 +130,12 @@ a {
 }
 .pressable:active {
   transform: scale(0.98);
+}
+
+/* Density helpers */
+.density-compact {
+  --row-min-h: 2.75rem;
+}
+.density-comfortable {
+  --row-min-h: 3.5rem;
 }

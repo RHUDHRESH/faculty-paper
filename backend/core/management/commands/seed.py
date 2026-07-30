@@ -129,12 +129,19 @@ class Command(BaseCommand):
 
         if not FormulaConfig.objects.filter(active=True).exists():
             FormulaConfig.objects.create(
+                name="Policy v1",
+                version=1,
                 author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS),
                 qf_others=4000,
+                snip_cap=30,
+                student_remuneration_zero=True,
+                qf_only_for_no_snip=True,
                 active=True,
-                notes="Default seed formula",
+                notes="Default seed formula — Policy v1",
             )
-            self.stdout.write("Created formula config")
+            self.stdout.write("Created formula config Policy v1")
+        else:
+            self.stdout.write("Formula config already present")
 
         year = 2024
         sample_journals = [

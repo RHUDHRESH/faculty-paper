@@ -53,7 +53,7 @@ export function FacultyProfilePage() {
     <div>
       <PageHeader
         title="Profile"
-        subtitle="Staff ID and Scopus link autofill on new tickets"
+        subtitle="Your identity details autofill on every new ticket"
       />
       <form onSubmit={onSubmit} className="mx-auto max-w-lg space-y-6">
         <Section title="Account">

@@ -17,6 +17,18 @@
 # next.js (legacy — not deployed)
 /.next/
 /out/
+/eslint.config.mjs
+/next.config.ts
+/playwright.config.ts
+/postcss.config.mjs
+/vitest.config.ts
+/prisma/
+# stray root app leftovers (real app lives in frontend/ + backend/)
+/public/
+/src/
+/package.json
+/package-lock.json
+/tsconfig.json
 
 # production
 /build

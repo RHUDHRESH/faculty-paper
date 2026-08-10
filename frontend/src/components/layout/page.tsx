@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
 export function PageHeader({
@@ -15,12 +16,12 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "sticky top-0 z-20 -mx-4 mb-6 flex items-start justify-between gap-4 border-b border-border/60 bg-background/80 px-4 py-4 backdrop-blur-xl md:-mx-6 md:px-6",
+        "mb-6 flex items-start justify-between gap-4 border-b border-border pb-4",
         className
       )}
     >
       <div className="min-w-0 space-y-1">
-        <h1 className="truncate font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
+        <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
           {title}
         </h1>
         {subtitle ? (
@@ -51,9 +52,7 @@ export function Section({
         <div className="flex items-end justify-between gap-3 px-1">
           <div className="min-w-0">
             {title ? (
-              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                {title}
-              </h2>
+              <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
             ) : null}
             {description ? (
               <p className="mt-1 text-sm text-muted-foreground">{description}</p>
@@ -75,13 +74,8 @@ export function InsetList({
   className?: string
 }) {
   return (
-    <div
-      className={cn(
-        "overflow-hidden rounded-[var(--radius)] border border-border/80 bg-card shadow-[0_1px_0_hsl(214_18%_88%/0.6)]",
-        className
-      )}
-    >
-      <div className="divide-y divide-border/80">{children}</div>
+    <div className={cn("overflow-hidden rounded-lg border border-border bg-card", className)}>
+      <div className="divide-y divide-border">{children}</div>
     </div>
   )
 }
@@ -98,7 +92,7 @@ export function InsetRow({
   return (
     <div
       className={cn(
-        "flex min-h-14 items-center justify-between gap-4 px-4 py-3 transition-colors active:bg-muted/60",
+        "flex min-h-11 items-center justify-between gap-4 px-4 py-2.5 transition-colors hover:bg-muted/40",
         className
       )}
     >
@@ -119,7 +113,7 @@ export function StatStrip({
     <div className="flex gap-8 overflow-x-auto pb-1">
       {items.map((item) => (
         <div key={item.label} className="min-w-[4.5rem] shrink-0">
-          <div className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+          <div className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
             {item.value}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">{item.label}</div>
@@ -145,22 +139,20 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-[var(--radius)] border border-dashed border-border/90 bg-card/60 px-6 py-14 text-center",
+        "flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card/60 px-6 py-10 text-center",
         className
       )}
     >
       {icon ? (
-        <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-accent text-accent-foreground">
+        <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
           {icon}
         </div>
       ) : null}
-      <h3 className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight">
-        {title}
-      </h3>
+      <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
       {description ? (
         <p className="mt-2 max-w-sm text-sm text-muted-foreground">{description}</p>
       ) : null}
-      {action ? <div className="mt-5">{action}</div> : null}
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   )
 }
@@ -215,7 +207,7 @@ export function StickyActions({
   return (
     <div
       className={cn(
-        "sticky bottom-0 z-20 -mx-4 mt-6 border-t border-border/70 bg-background/90 px-4 py-3 backdrop-blur-xl md:-mx-6 md:px-6",
+        "sticky bottom-0 z-20 -mx-4 mt-6 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm md:-mx-6 md:px-6",
         className
       )}
     >
@@ -239,25 +231,14 @@ export function Stepper({
         const done = i < current
         const active = i === current
         return (
-          <li
-            key={label}
-            aria-current={active ? "step" : undefined}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-[var(--duration-normal)]",
-              done && "bg-primary/15 text-primary",
-              active && "bg-primary text-primary-foreground",
-              !done && !active && "bg-muted text-muted-foreground"
-            )}
-          >
-            <span
-              className={cn(
-                "flex size-5 items-center justify-center rounded-full text-[10px] font-semibold",
-                active ? "bg-primary-foreground/20" : "bg-background/60"
-              )}
+          <li key={label} aria-current={active ? "step" : undefined}>
+            <Badge
+              variant={active ? "default" : done ? "secondary" : "outline"}
+              className="gap-1.5 px-2.5 py-1"
             >
-              {i + 1}
-            </span>
-            {label}
+              <span className="text-[10px] font-semibold tabular-nums">{i + 1}</span>
+              {label}
+            </Badge>
           </li>
         )
       })}

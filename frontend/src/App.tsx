@@ -22,6 +22,7 @@ import {
   AdminScimagoPage,
   AdminUsersPage,
 } from "@/pages/portals/admin";
+import { AdminSubmitClaimPage } from "@/pages/portals/admin-submit";
 import { FinanceLedgerPage, FinancePaidPage, FinancePayoutsPage } from "@/pages/portals/finance";
 
 function RequireAuth({
@@ -123,6 +124,7 @@ export default function App() {
           }
         >
           <Route index element={<AdminApprovalsPage />} />
+          <Route path="submit" element={<AdminSubmitClaimPage />} />
           <Route path="monthly" element={<AdminMonthlyPage />} />
           <Route path="scimago" element={<AdminScimagoPage />} />
           <Route path="prior" element={<AdminPriorPage />} />

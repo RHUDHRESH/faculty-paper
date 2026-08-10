@@ -1,8 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom"
-import { AnimatePresence, motion } from "framer-motion"
+import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import {
   BookOpen,
   ClipboardCheck,
@@ -14,6 +13,7 @@ import {
   Settings2,
   Shield,
   Ticket,
+  UserPlus,
   Users,
   Wallet,
 } from "lucide-react"
@@ -62,26 +62,12 @@ function initials(name?: string) {
 
 function BrandMark({ title }: { title: string }) {
   return (
-    <div className="px-5 py-6">
-      <div className="flex items-center gap-3">
-        <div
-          className="flex size-9 items-center justify-center rounded-xl bg-sidebar-accent text-sm font-semibold text-sidebar-accent-foreground"
-          aria-hidden
-        >
-          SP
-        </div>
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/50">
-            Saveetha
-          </div>
-          <div className="truncate font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-sidebar-accent-foreground">
-            {title}
-          </div>
-        </div>
-      </div>
-      <p className="mt-3 text-[11px] leading-snug text-sidebar-foreground/45">
-        Publication remuneration
+    <div className="border-b border-sidebar-border px-4 py-5">
+      <p className="text-xs text-muted-foreground">Saveetha Engineering College</p>
+      <p className="mt-1 truncate text-base font-semibold tracking-tight text-sidebar-foreground">
+        {title}
       </p>
+      <p className="mt-1 text-xs text-muted-foreground">Publication remuneration</p>
     </div>
   )
 }
@@ -96,7 +82,7 @@ function NavItems({
   className?: string
 }) {
   return (
-    <nav className={cn("flex flex-col gap-0.5", className)} aria-label="Main">
+    <nav className={cn("flex flex-col gap-1 p-2", className)} aria-label="Main">
       {tabs.map((t) => {
         const Icon = t.icon
         return (
@@ -107,10 +93,10 @@ function NavItems({
             onClick={onNavigate}
             className={({ isActive }) =>
               cn(
-                "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-[var(--duration-fast)] ease-[var(--ease-spring)] active:scale-[0.98]",
+                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
-                  : "text-sidebar-foreground/75 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
               )
             }
           >
@@ -134,17 +120,17 @@ function UserMenu() {
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="h-auto w-full justify-start gap-3 rounded-xl px-2 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="h-auto w-full justify-start gap-3 px-2 py-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             aria-label="Account menu"
           >
-            <Avatar className="size-9 border border-sidebar-border">
+            <Avatar className="size-8 border border-sidebar-border">
               <AvatarFallback className="bg-sidebar-accent text-xs text-sidebar-accent-foreground">
                 {initials(user?.name)}
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1 text-left">
               <div className="truncate text-sm font-medium">{user?.name}</div>
-              <div className="truncate text-[11px] text-sidebar-foreground/60">
+              <div className="truncate text-xs text-muted-foreground">
                 {user?.role?.replace(/_/g, " ")}
               </div>
             </div>
@@ -201,22 +187,19 @@ export function AppShell({
   title: string
   wide?: boolean
 }) {
-  const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <div className="flex min-h-svh bg-transparent">
+    <div className="flex min-h-svh bg-background">
       <ChangePasswordGate />
-      <aside className="sticky top-0 hidden h-svh w-[248px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
+      <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
         <BrandMark title={title} />
-        <ScrollArea className="flex-1 px-3">
+        <ScrollArea className="flex-1">
           <NavItems tabs={tabs} />
         </ScrollArea>
-        <div className="space-y-3 p-3">
+        <div className="space-y-3 border-t border-sidebar-border p-3">
           <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">
-              Alerts
-            </span>
+            <span className="text-xs text-muted-foreground">Notifications</span>
             <NotificationBell />
           </div>
           <Separator className="bg-sidebar-border" />
@@ -225,7 +208,7 @@ export function AppShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/70 bg-background/85 px-4 backdrop-blur-xl md:hidden">
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background px-4 md:hidden">
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="shrink-0" aria-label="Open menu">
@@ -234,20 +217,18 @@ export function AppShell({
             </SheetTrigger>
             <SheetContent
               side="left"
-              className="flex w-[288px] flex-col border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
+              className="flex w-72 flex-col border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"
             >
               <SheetHeader className="p-0 text-left">
                 <SheetTitle className="sr-only">{title} navigation</SheetTitle>
                 <BrandMark title={title} />
               </SheetHeader>
-              <div className="flex-1 px-3 pb-4">
+              <div className="flex-1">
                 <NavItems tabs={tabs} onNavigate={() => setMobileOpen(false)} />
               </div>
               <div className="mt-auto space-y-3 border-t border-sidebar-border p-3">
                 <div className="flex items-center justify-between px-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">
-                    Alerts
-                  </span>
+                  <span className="text-xs text-muted-foreground">Notifications</span>
                   <NotificationBell />
                 </div>
                 <UserMenu />
@@ -255,31 +236,19 @@ export function AppShell({
             </SheetContent>
           </Sheet>
           <div className="min-w-0 flex-1">
-            <div className="truncate font-[family-name:var(--font-display)] text-base font-semibold">
-              {title}
-            </div>
+            <div className="truncate text-base font-semibold tracking-tight">{title}</div>
           </div>
           <NotificationBell />
         </header>
 
-        <div
+        <main
           className={cn(
-            "mx-auto w-full flex-1 px-4 py-4 md:px-6 md:py-6",
+            "mx-auto w-full flex-1 px-4 py-5 md:px-6 md:py-6",
             wide ? "max-w-6xl" : "max-w-5xl"
           )}
         >
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={location.pathname}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
-        </div>
+          <Outlet />
+        </main>
       </div>
     </div>
   )
@@ -326,6 +295,7 @@ export function AdminShell() {
       wide
       tabs={[
         { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
+        { to: "/admin/submit", label: "Submit for faculty", icon: UserPlus },
         { to: "/admin/users", label: "Users", icon: Users },
         { to: "/admin/formula", label: "Formula", icon: Settings2 },
         { to: "/admin/scimago", label: "Imports", icon: BookOpen },

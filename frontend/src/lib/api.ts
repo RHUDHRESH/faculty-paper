@@ -59,6 +59,7 @@ export type User = {
 
 export type Claim = {
   id: string;
+  owner_id?: string | null;
   status: string;
   ticket_number?: string | null;
   contest_forward?: boolean;
@@ -71,10 +72,27 @@ export type Claim = {
   issn?: string | null;
   snip?: number | null;
   quartile?: string | null;
+  self_reported_quartile?: string | null;
   remuneration?: number | null;
   owner_name?: string;
   owner_email?: string;
   owner_department?: string | null;
+  staff_id?: string | null;
+  biometric_id?: string | null;
+  designation?: string | null;
+  scopus_author_url?: string | null;
+  publication_date?: string | null;
+  publication_type?: string | null;
+  indexing_level?: string | null;
+  indexing_ref?: string | null;
+  yukthi_id?: string | null;
+  impact_factor?: string | null;
+  proof_url?: string | null;
+  sec_refs?: string | null;
+  sec_proof_url?: string | null;
+  is_student_publication?: boolean;
+  affiliation_ok?: boolean;
+  subject_category?: string | null;
   total_authors?: number;
   author_position?: number;
   authors_json?: string | null;

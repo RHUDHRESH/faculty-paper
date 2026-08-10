@@ -241,12 +241,13 @@ export function AdminMonthlyPage() {
                 <td className="px-4 py-3 font-medium">{String(b.name)}</td>
                 <td className="px-4 py-3">
                   <Badge
-                    variant={
+                    variant="secondary"
+                    className={
                       b.status === "RUNNING"
-                        ? "warning"
+                        ? "border-warning/20 bg-warning/10 text-warning-foreground"
                         : b.status === "DONE"
-                          ? "success"
-                          : "secondary"
+                          ? "border-success/20 bg-success/10 text-success"
+                          : undefined
                     }
                   >
                     {String(b.status)}
@@ -299,12 +300,13 @@ export function AdminMonthlyPage() {
           <FormPanel className="overflow-auto">
             <div className="mb-3">
               <Badge
-                variant={
+                variant="secondary"
+                className={
                   selected.status === "RUNNING"
-                    ? "warning"
+                    ? "border-warning/20 bg-warning/10 text-warning-foreground"
                     : selected.status === "DONE"
-                      ? "success"
-                      : "secondary"
+                      ? "border-success/20 bg-success/10 text-success"
+                      : undefined
                 }
               >
                 {String(selected.status)}

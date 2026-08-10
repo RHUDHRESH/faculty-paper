@@ -1,11 +1,11 @@
 "use client"
 
 import { type FormEvent, useState } from "react"
-import { motion } from "framer-motion"
 import { Navigate, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { useAuth } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { portalPath } from "@/lib/utils"
@@ -53,84 +53,63 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-svh items-center justify-center overflow-hidden px-4">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_80%_at_50%_-10%,hsl(191_35%_88%)_0%,hsl(210_22%_97%)_45%,hsl(210_16%_94%)_100%)]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.35]"
-        style={{
-          backgroundImage:
-            "radial-gradient(hsl(191 20% 70% / 0.25) 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-        }}
-      />
-
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-        className="relative w-full max-w-[400px]"
-      >
-        <div className="mb-10 text-center">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary/70">
-            Saveetha Engineering College
-          </p>
-          <h1 className="mt-3 font-[family-name:var(--font-display)] text-4xl font-semibold tracking-tight text-foreground">
-            Publication
-            <span className="block text-primary">Tickets</span>
-          </h1>
-          <p className="mt-3 text-sm text-muted-foreground">
+    <div className="flex min-h-svh items-center justify-center bg-muted/30 px-4 py-10">
+      <div className="w-full max-w-md space-y-6">
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">Saveetha Engineering College</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight">Publication Tickets</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Submit once. Track every approval.
           </p>
         </div>
 
-        <form
-          onSubmit={onSubmit}
-          className="space-y-4 rounded-[1.25rem] border border-border/80 bg-card/85 p-6 shadow-[0_12px_40px_-24px_hsl(191_72%_20%/0.35)] backdrop-blur-xl"
-        >
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="h-12"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="h-12"
-            />
-          </div>
-          {error ? (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          ) : null}
-          <Button type="submit" size="lg" className="w-full" disabled={busy}>
-            {busy ? "Signing in…" : "Sign in"}
-          </Button>
-        </form>
+        <Card>
+          <CardHeader>
+            <CardTitle>Sign in</CardTitle>
+            <CardDescription>Use your college email and password.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={onSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              {error ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <Button type="submit" className="w-full" disabled={busy}>
+                {busy ? "Signing in…" : "Sign in"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
         {showDemos ? (
-          <div className="mt-8 space-y-2">
-            <p className="text-center text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          <details className="rounded-lg border border-border bg-card px-4 py-3 text-sm">
+            <summary className="cursor-pointer font-medium text-muted-foreground">
               Demo accounts
-            </p>
-            <div className="grid gap-1.5">
+            </summary>
+            <div className="mt-3 grid gap-1">
               {DEMOS.map((d) => (
                 <button
                   key={d.email}
@@ -139,16 +118,16 @@ export function LoginPage() {
                     setEmail(d.email)
                     setPassword(d.password)
                   }}
-                  className="flex items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/70 hover:text-accent-foreground active:scale-[0.99]"
+                  className="flex items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <span className="font-medium">{d.role}</span>
-                  <span className="font-mono text-[11px] opacity-70">{d.email}</span>
+                  <span className="font-mono opacity-80">{d.email}</span>
                 </button>
               ))}
             </div>
-          </div>
+          </details>
         ) : null}
-      </motion.div>
+      </div>
     </div>
   )
 }

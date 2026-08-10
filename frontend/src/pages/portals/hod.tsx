@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { AnimatePresence, motion } from "framer-motion"
 import { AlertTriangle, CheckCircle2, Inbox, MousePointerClick, Search } from "lucide-react"
 import { toast } from "sonner"
 
@@ -14,6 +13,7 @@ import {
   Section,
   StatStrip,
 } from "@/components/layout/page"
+import { ClaimDetailFields } from "@/components/claim-detail-fields"
 import {
   ContestCallout,
   Money,
@@ -62,50 +62,18 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
       <StatusTimeline status={claim.status} />
 
       <div>
-        <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold leading-snug">
+        <h2 className="text-lg font-semibold leading-snug tracking-tight">
           {claim.paper_title}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {claim.owner_name}
           {claim.owner_department ? ` · ${claim.owner_department}` : ""}
         </p>
-        {claim.journal_title ? (
-          <p className="text-sm text-muted-foreground">{claim.journal_title}</p>
-        ) : null}
       </div>
 
-      {/* Contest note: first-class callout */}
       <ContestCallout note={claim.contest_note} />
 
-      {/* Metrics grid */}
-      <div className="grid grid-cols-2 gap-2.5 rounded-[var(--radius)] bg-muted/50 p-3.5 text-sm">
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            SNIP
-          </div>
-          <div className="mt-0.5 font-medium">{claim.snip ?? "—"}</div>
-        </div>
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Quartile
-          </div>
-          <div className="mt-0.5 font-medium">{claim.quartile || "—"}</div>
-        </div>
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Indexing
-          </div>
-          <div className="mt-0.5 font-medium">{claim.indexing_status || "—"}</div>
-        </div>
-        <div>
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Amount
-          </div>
-          <div className="mt-0.5 text-base font-semibold text-primary">
-            <Money value={claim.remuneration} />
-          </div>
-        </div>
-      </div>
+      <ClaimDetailFields claim={claim} showOwner />
 
       {/* Verification issues — shown prominently */}
       {snap?.issues?.length ? (
@@ -264,18 +232,15 @@ function ApprovalQueue({
           className="border-0 rounded-none"
         />
       ) : (
-        <AnimatePresence initial={false}>
-          {filtered.map((c, i) => (
-            <motion.button
+        <>
+          {filtered.map((c) => (
+            <button
               key={c.id}
               type="button"
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(i * 0.025, 0.12) }}
               onClick={() => openClaim(c.id)}
               className={cn(
-                "flex w-full items-center gap-3 border-b border-border/60 px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-accent/40 active:bg-accent/60",
-                selected?.id === c.id && "bg-accent/50"
+                "flex w-full items-center gap-3 border-b border-border px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-muted/50",
+                selected?.id === c.id && "bg-muted/40"
               )}
             >
               <div className="min-w-0 flex-1">
@@ -296,9 +261,9 @@ function ApprovalQueue({
               <div className="shrink-0 text-sm font-semibold tabular-nums">
                 <Money value={c.remuneration} />
               </div>
-            </motion.button>
+            </button>
           ))}
-        </AnimatePresence>
+        </>
       )}
     </div>
   )
@@ -503,7 +468,7 @@ export function PrincipalOverviewPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Total paid to date
             </p>
-            <p className="mt-1 font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight">
+            <p className="mt-1 text-2xl font-semibold tracking-tight">
               <Money value={dash?.total_paid ?? 0} size="lg" />
             </p>
           </div>

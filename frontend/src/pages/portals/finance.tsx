@@ -1,5 +1,4 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react"
-import { AnimatePresence, motion } from "framer-motion"
 import {
   BadgeCheck,
   BookOpenText,
@@ -95,7 +94,7 @@ function AmountPill({ value }: { value?: number | null }) {
   return (
     <div className="flex items-baseline gap-1">
       <span className="text-xs font-medium text-muted-foreground">₹</span>
-      <span className="font-[family-name:var(--font-display)] text-2xl font-semibold tabular-nums text-foreground">
+      <span className="text-2xl font-semibold tabular-nums text-foreground">
         <Money value={value} />
       </span>
     </div>
@@ -122,13 +121,7 @@ function PaymentOrderCard({
   onReject: () => void
 }) {
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.97 }}
-      className="rounded-[var(--radius)] border border-border/80 bg-card p-4 shadow-sm"
-    >
+    <div className="rounded-lg border border-border bg-card p-4">
       {/* Header */}
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -187,7 +180,7 @@ function PaymentOrderCard({
           Return
         </Button>
       </div>
-    </motion.div>
+    </div>
   )
 }
 
@@ -311,34 +304,27 @@ export function FinancePayoutsPage() {
         <>
           {/* Mobile card stack */}
           <div className="block space-y-3 md:hidden">
-            <AnimatePresence initial={false}>
-              {filtered.map((r) => (
-                <PaymentOrderCard
-                  key={r.id}
-                  claim={r}
-                  voucher={voucher[r.id] || ""}
-                  onVoucherChange={(v) => setVoucher({ ...voucher, [r.id]: v })}
-                  busy={busyId === r.id}
-                  onMarkPaid={() => setConfirmPayId(r.id)}
-                  onReject={() => setRejectId(r.id)}
-                />
-              ))}
-            </AnimatePresence>
+            {filtered.map((r) => (
+              <PaymentOrderCard
+                key={r.id}
+                claim={r}
+                voucher={voucher[r.id] || ""}
+                onVoucherChange={(v) => setVoucher({ ...voucher, [r.id]: v })}
+                busy={busyId === r.id}
+                onMarkPaid={() => setConfirmPayId(r.id)}
+                onReject={() => setRejectId(r.id)}
+              />
+            ))}
           </div>
 
           {/* Desktop table */}
           <div className="hidden md:block">
             <TableShell headers={["Order", "Paper / Formula", "Faculty", "Amount", "Voucher", "Process"]}>
-              <AnimatePresence initial={false}>
-                {filtered.map((r, i) => (
-                  <motion.tr
-                    key={r.id}
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ delay: Math.min(i * 0.03, 0.12) }}
-                    className="border-b border-border/50 last:border-0 hover:bg-accent/30"
-                  >
+              {filtered.map((r) => (
+                <tr
+                  key={r.id}
+                  className="border-b border-border last:border-0 hover:bg-muted/40"
+                >
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                       {r.ticket_number}
                     </td>
@@ -386,9 +372,8 @@ export function FinancePayoutsPage() {
                         </Button>
                       </div>
                     </td>
-                  </motion.tr>
-                ))}
-              </AnimatePresence>
+                </tr>
+              ))}
             </TableShell>
           </div>
         </>

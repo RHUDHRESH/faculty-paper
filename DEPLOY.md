@@ -80,6 +80,19 @@ Set Render `CORS_*` / `CSRF_*` to the final Vercel domain and redeploy API. Rede
 - Weak `DJANGO_SECRET_KEY` refused in production
 - **Change all demo passwords** before real users; force `must_change_password` if needed
 - Contested tickets still need HoD eyes — “send anyway” is intentional, not a silent bypass of approval
+- **PDF uploads** on free Render disk are ephemeral (lost on redeploy). Historical Excel proofs are stored as URL strings (`proof_url`). Add S3/R2 later for durable new uploads.
+
+## ERP Excel → SQL
+
+```bash
+# Local (SQLite): set DJANGO_USE_SQLITE=true
+python manage.py import_erp_excel ../data/Publication_Processing_ERP_V3.0.xlsx
+python manage.py sync_faculty_users
+
+# Faster first bring-up (masters + claims, skip huge SJR/SNIP):
+python manage.py import_erp_excel ../data/Publication_Processing_ERP_V3.0.xlsx --skip-sjr --skip-snip
+# Then full journal dumps in a Shell session when ready (no --skip-*).
+```
 
 ## Smoke after deploy
 

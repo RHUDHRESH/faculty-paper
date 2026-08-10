@@ -4,9 +4,12 @@ import csv
 import io
 import json
 import logging
+import os
+import uuid as uuid_lib
 from datetime import date, datetime
 from typing import Any, Optional
 
+from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
 from django.db import transaction
 from django.db.models import Q
@@ -65,7 +68,25 @@ def _require_admin_ops(user: User) -> None:
 
 @api.get("/health", auth=None)
 def health(request: HttpRequest):
-    return {"ok": True, "service": "faculty-paper-api", "time": timezone.now().isoformat()}
+    db_ok = False
+    try:
+        from django.db import connection
+
+        with connection.cursor() as c:
+            c.execute("SELECT 1")
+            c.fetchone()
+        db_ok = True
+    except Exception:
+        db_ok = False
+    payload = {
+        "ok": db_ok,
+        "db": db_ok,
+        "service": "faculty-paper-api",
+        "time": timezone.now().isoformat(),
+    }
+    if not db_ok:
+        raise HttpError(503, "database unavailable")
+    return payload
 
 
 def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
@@ -147,6 +168,7 @@ class UserOut(Schema):
 
 
 class ClaimIn(Schema):
+    owner_id: Optional[str] = None
     doi: Optional[str] = None
     issn: Optional[str] = None
     journal_title: Optional[str] = None
@@ -155,6 +177,7 @@ class ClaimIn(Schema):
     publication_date: Optional[str] = None
     publication_type: Optional[str] = None
     indexing_level: Optional[str] = None
+    indexing_ref: Optional[str] = None
     yukthi_id: Optional[str] = None
     self_reported_quartile: Optional[str] = None
     impact_factor: Optional[str] = None
@@ -196,6 +219,7 @@ _FACULTY_WRITABLE = {
     "publication_date",
     "publication_type",
     "indexing_level",
+    "indexing_ref",
     "yukthi_id",
     "self_reported_quartile",
     "impact_factor",
@@ -226,7 +250,7 @@ _FACULTY_WRITABLE = {
 
 
 def _apply_faculty_payload(claim: Claim, payload: ClaimIn) -> None:
-    data = payload.dict(exclude={"submit", "contest_forward", "contest_note"}, exclude_unset=True)
+    data = payload.dict(exclude={"submit", "contest_forward", "contest_note", "owner_id"}, exclude_unset=True)
     for k, v in data.items():
         if k not in _FACULTY_WRITABLE:
             continue
@@ -436,6 +460,7 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "publication_date": c.publication_date,
         "publication_type": c.publication_type,
         "indexing_level": c.indexing_level,
+        "indexing_ref": c.indexing_ref,
         "yukthi_id": c.yukthi_id,
         "self_reported_quartile": c.self_reported_quartile,
         "impact_factor": c.impact_factor,
@@ -704,6 +729,29 @@ def prior_check(request: HttpRequest, payload: PriorCheckIn):
     return result
 
 
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+@api.post("/claims/upload", auth=session_auth)
+def upload_claim_file(request: HttpRequest, file: UploadedFile = File(...)):
+    user = require_user(request)
+    if user.role not in (Role.FACULTY, Role.SUPER_ADMIN, Role.RESEARCH_CELL):
+        raise HttpError(403, "Forbidden")
+    if not file.name or not file.name.lower().endswith(".pdf"):
+        raise HttpError(400, "Only PDF files are allowed")
+    content = file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HttpError(400, "File too large (max 10MB)")
+    dest_dir = settings.MEDIA_ROOT / "claims"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"{uuid_lib.uuid4().hex}.pdf"
+    path = dest_dir / fname
+    with open(path, "wb") as f:
+        f.write(content)
+    url = f"{settings.MEDIA_URL}claims/{fname}"
+    return {"url": url}
+
+
 # ---------- claims ----------
 
 
@@ -776,11 +824,22 @@ def get_claim(request: HttpRequest, claim_id: str):
 @api.post("/claims", auth=session_auth)
 def create_claim(request: HttpRequest, payload: ClaimIn):
     user = require_user(request)
-    if user.role not in (Role.FACULTY, Role.SUPER_ADMIN):
+    owner = user
+    admin_proxy = False
+
+    if payload.owner_id:
+        if user.role not in (Role.SUPER_ADMIN, Role.RESEARCH_CELL):
+            raise HttpError(403, "Only admin can submit on behalf of faculty")
+        owner = get_object_or_404(User, pk=payload.owner_id, role=Role.FACULTY, active=True)
+        admin_proxy = True
+    elif user.role not in (Role.FACULTY, Role.SUPER_ADMIN, Role.RESEARCH_CELL):
         raise HttpError(403, "Only faculty can create tickets")
-    claim = Claim(owner=user)
+    elif user.role in (Role.SUPER_ADMIN, Role.RESEARCH_CELL) and not payload.owner_id:
+        raise HttpError(400, "Select a faculty member to submit on their behalf")
+
+    claim = Claim(owner=owner)
     _apply_faculty_payload(claim, payload)
-    _bind_identity_from_user(claim, user)
+    _bind_identity_from_user(claim, owner)
 
     paid_check = check_already_paid(
         title=claim.paper_title,
@@ -801,7 +860,8 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
             actor=user,
             from_status=None,
             to_status=claim.status,
-            action="CREATE_DRAFT",
+            action="ADMIN_CREATE" if admin_proxy else "CREATE_DRAFT",
+            note=f"submitted_by={user.email}" if admin_proxy else None,
         )
     return claim_to_dict(claim)
 
@@ -1649,6 +1709,68 @@ def faculty_master_list(request: HttpRequest):
         }
         for f in FacultyMaster.objects.order_by("department", "name")
     ]
+
+
+@api.get("/admin/faculty-options", auth=session_auth)
+def faculty_options(request: HttpRequest, q: Optional[str] = None):
+    user = require_user(request)
+    if not rbac.can_admin_portal(user.role):
+        raise HttpError(403, "Forbidden")
+    users_by_staff = {u.staff_id: u for u in User.objects.filter(role=Role.FACULTY, active=True) if u.staff_id}
+    users_by_email = {u.email.lower(): u for u in User.objects.filter(role=Role.FACULTY, active=True) if u.email}
+    results = []
+    seen = set()
+    for f in FacultyMaster.objects.order_by("department", "name"):
+        if q:
+            needle = q.lower()
+            hay = f"{f.name} {f.staff_id} {f.email} {f.department}".lower()
+            if needle not in hay:
+                continue
+        linked = users_by_staff.get(f.staff_id) or (users_by_email.get((f.email or "").lower()) if f.email else None)
+        key = linked.id if linked else f"master:{f.id}"
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(
+            {
+                "owner_id": linked.id if linked else None,
+                "master_id": f.id,
+                "name": f.name,
+                "email": f.email or (linked.email if linked else None),
+                "department": f.department or (linked.department if linked else None),
+                "staff_id": f.staff_id,
+                "biometric_id": f.biometric_id or (linked.biometric_id if linked else None),
+                "designation": f.designation or (linked.designation if linked else None),
+                "scopus_author_url": linked.scopus_author_url if linked else None,
+                "scopus_author_id": f.scopus_author_id or (linked.scopus_author_id if linked else None),
+                "has_user_account": linked is not None,
+            }
+        )
+    for u in User.objects.filter(role=Role.FACULTY, active=True).order_by("name"):
+        if u.id in seen:
+            continue
+        if q:
+            needle = q.lower()
+            hay = f"{u.name} {u.email} {u.staff_id} {u.department}".lower()
+            if needle not in hay:
+                continue
+        seen.add(u.id)
+        results.append(
+            {
+                "owner_id": u.id,
+                "master_id": None,
+                "name": u.name,
+                "email": u.email,
+                "department": u.department,
+                "staff_id": u.staff_id,
+                "biometric_id": u.biometric_id,
+                "designation": u.designation,
+                "scopus_author_url": u.scopus_author_url,
+                "scopus_author_id": u.scopus_author_id,
+                "has_user_account": True,
+            }
+        )
+    return results
 
 
 @api.post("/admin/faculty-master/import", auth=session_auth)

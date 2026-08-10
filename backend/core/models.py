@@ -168,6 +168,7 @@ class Claim(models.Model):
     publication_date = models.CharField(max_length=64, blank=True, null=True)
     publication_type = models.CharField(max_length=128, blank=True, null=True)
     indexing_level = models.CharField(max_length=128, blank=True, null=True)
+    indexing_ref = models.CharField(max_length=255, blank=True, null=True)
     yukthi_id = models.CharField(max_length=64, blank=True, null=True)
     self_reported_quartile = models.CharField(max_length=32, blank=True, null=True)
     impact_factor = models.CharField(max_length=64, blank=True, null=True)

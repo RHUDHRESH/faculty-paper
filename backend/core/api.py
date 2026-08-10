@@ -1806,6 +1806,104 @@ def faculty_master_import(request: HttpRequest, file: UploadedFile = File(...)):
     return {"imported": n}
 
 
+@api.get("/admin/erp-stats", auth=session_auth)
+def erp_stats(request: HttpRequest):
+    user = require_user(request)
+    if not rbac.can_admin_portal(user.role):
+        raise HttpError(403, "Forbidden")
+    return {
+        "faculty_master": FacultyMaster.objects.count(),
+        "claims": Claim.objects.count(),
+        "claims_paid": Claim.objects.filter(status=ClaimStatus.PAID).count(),
+        "prior_payments": PriorPayment.objects.count(),
+        "paid_ledger": PaidLedger.objects.count(),
+        "scimago": ScimagoJournal.objects.count(),
+        "snip": SnipSource.objects.count(),
+        "users": User.objects.count(),
+    }
+
+
+@api.post("/admin/erp-import", auth=session_auth)
+def erp_import_xlsx(
+    request: HttpRequest,
+    file: UploadedFile = File(...),
+    skip_sjr: bool = Form(True),
+    skip_snip: bool = Form(True),
+    skip_faculty: bool = Form(False),
+    skip_accounts: bool = Form(False),
+    skip_claims: bool = Form(False),
+    claims_only: bool = Form(False),
+    sync_users: bool = Form(True),
+    year: int = Form(2025),
+):
+    """Upload Publication_Processing_ERP *.xlsx and run import_erp_excel (for prod Shell-less load)."""
+    user = require_user(request)
+    if not rbac.can_import_prior(user.role):
+        raise HttpError(403, "Forbidden")
+    name = (file.name or "").lower()
+    if not name.endswith((".xlsx", ".xlsm")):
+        raise HttpError(400, "Upload an .xlsx ERP workbook")
+
+    import tempfile
+    from django.core.management import call_command
+
+    raw = file.read()
+    if len(raw) > 40 * 1024 * 1024:
+        raise HttpError(400, "File too large (max 40MB)")
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp.write(raw)
+            tmp_path = tmp.name
+        args = [tmp_path, f"--year={year}"]
+        if skip_sjr:
+            args.append("--skip-sjr")
+        if skip_snip:
+            args.append("--skip-snip")
+        if skip_faculty:
+            args.append("--skip-faculty")
+        if skip_accounts:
+            args.append("--skip-accounts")
+        if skip_claims:
+            args.append("--skip-claims")
+        if claims_only:
+            args.append("--claims-only")
+        call_command("import_erp_excel", *args)
+        synced = None
+        if sync_users:
+            out = io.StringIO()
+            call_command("sync_faculty_users", stdout=out)
+            synced = out.getvalue()[-500:]
+    except Exception as e:
+        logger.exception("erp_import failed")
+        raise HttpError(500, f"Import failed: {e}") from e
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    stats = {
+        "faculty_master": FacultyMaster.objects.count(),
+        "claims": Claim.objects.count(),
+        "claims_paid": Claim.objects.filter(status=ClaimStatus.PAID).count(),
+        "prior_payments": PriorPayment.objects.count(),
+        "paid_ledger": PaidLedger.objects.count(),
+        "scimago": ScimagoJournal.objects.count(),
+        "snip": SnipSource.objects.count(),
+        "users": User.objects.count(),
+    }
+    AuditLog.objects.create(
+        actor=user,
+        action="ERP_XLSX_IMPORT",
+        entity="Workbook",
+        detail_json=json.dumps({"filename": file.name, "stats": stats, "skip_sjr": skip_sjr, "skip_snip": skip_snip}),
+    )
+    return {"ok": True, "stats": stats, "sync_users": bool(sync_users), "sync_tail": synced}
+
+
 # ---------- finance ledger ----------
 
 

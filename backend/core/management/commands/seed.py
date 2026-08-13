@@ -112,18 +112,32 @@ class Command(BaseCommand):
                     "must_change_password": role == Role.SUPER_ADMIN,
                 },
             )
-            if created or not u.check_password(password):
+            if created:
                 u.set_password(password)
-                u.name = name
-                u.role = role
-                u.department = dept
-                u.employee_id = emp
-                u.staff_id = staff_id
-                u.biometric_id = bio_id
-                u.designation = designation
                 u.active = True
                 u.save()
-                self.stdout.write(f"{'Created' if created else 'Updated'} {email}")
+                self.stdout.write(f"Created {email}")
+                continue
+
+            # Never re-set the password or reactivate an existing account. Re-running
+            # seed used to revert a password that had been deliberately changed after
+            # deployment, and switch a disabled account back on.
+            changed = False
+            for attr, val in (
+                ("name", name),
+                ("role", role),
+                ("department", dept),
+                ("employee_id", emp),
+                ("staff_id", staff_id),
+                ("biometric_id", bio_id),
+                ("designation", designation),
+            ):
+                if getattr(u, attr) != val:
+                    setattr(u, attr, val)
+                    changed = True
+            if changed:
+                u.save()
+                self.stdout.write(f"Updated {email} (password and status left alone)")
             else:
                 self.stdout.write(f"OK {email}")
 

@@ -144,6 +144,9 @@ export default function App() {
           <Route index element={<FinancePayoutsPage />} />
           <Route path="paid" element={<FinancePaidPage />} />
           <Route path="ledger" element={<FinanceLedgerPage />} />
+          {/* Editing the pay policy needs FINANCE or SUPER_ADMIN, so the screen
+              has to be reachable from the Finance portal too. */}
+          <Route path="formula" element={<AdminFormulaPage />} />
         </Route>
 
         <Route path="*" element={<HomeRedirect />} />

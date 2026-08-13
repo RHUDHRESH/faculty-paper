@@ -154,6 +154,9 @@ function ApprovalQueue({
   const [busy, setBusy] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [confirm, setConfirm] = useState<"approve" | "reject" | null>(null)
+  // Mirrors the server rule in reject_claim: sending a ticket back without a
+  // reason leaves the faculty member with nothing to act on.
+  const rejectReasonTooShort = confirm === "reject" && note.trim().length < 10
   const [params] = useSearchParams()
 
   async function load() {
@@ -276,7 +279,7 @@ function ApprovalQueue({
       {/* Sticky actions footer inside the detail panel */}
       <div className="shrink-0 space-y-2.5 border-t border-border/70 bg-card/95 px-4 py-3 backdrop-blur">
         <Textarea
-          placeholder="Note (optional)"
+          placeholder="Note — required to reject, optional to approve"
           value={note}
           onChange={(e) => setNote(e.target.value)}
           rows={2}
@@ -343,7 +346,7 @@ function ApprovalQueue({
           <div className="mt-4 space-y-4 pb-8">
             {selected ? <TicketDetailBody claim={selected} /> : null}
             <Textarea
-              placeholder="Note (optional)"
+              placeholder="Note — required to reject, optional to approve"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={3}
@@ -379,13 +382,15 @@ function ApprovalQueue({
             <AlertDialogDescription>
               {confirm === "approve"
                 ? "This advances the ticket to the next stage."
-                : "The faculty member will be notified and can edit and resubmit."}
+                : rejectReasonTooShort
+                  ? "Write a note of at least 10 characters first — it is the only thing the faculty member sees explaining what to fix."
+                  : "The faculty member will be notified and can edit and resubmit."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={busy}
+              disabled={busy || rejectReasonTooShort}
               className={
                 confirm === "reject"
                   ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"

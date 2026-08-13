@@ -5,82 +5,108 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Brand hue lives in one place — every neutral is tinted from it so the UI
+   reads as a considered surface rather than raw greyscale. */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --hue-brand: 262;
+  --hue-support: 196;
+
+  --background: oklch(0.985 0.004 var(--hue-brand));
+  --foreground: oklch(0.19 0.02 var(--hue-brand));
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.19 0.02 var(--hue-brand));
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --success: oklch(0.62 0.12 155);
-  --success-foreground: oklch(0.98 0.02 155);
-  --warning: oklch(0.75 0.14 75);
-  --warning-foreground: oklch(0.25 0.05 75);
-  --info: oklch(0.62 0.1 240);
-  --info-foreground: oklch(0.98 0.02 240);
+  --popover-foreground: oklch(0.19 0.02 var(--hue-brand));
+  --primary: oklch(0.48 0.17 var(--hue-brand));
+  --primary-foreground: oklch(0.99 0.008 var(--hue-brand));
+  --secondary: oklch(0.955 0.012 var(--hue-brand));
+  --secondary-foreground: oklch(0.32 0.09 var(--hue-brand));
+  --muted: oklch(0.965 0.008 var(--hue-brand));
+  --muted-foreground: oklch(0.52 0.03 var(--hue-brand));
+  --accent: oklch(0.95 0.03 var(--hue-brand));
+  --accent-foreground: oklch(0.38 0.13 var(--hue-brand));
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.99 0.01 25);
+  /* --border is decorative (card dividers, rules) and exempt from 1.4.11.
+     --input outlines an actual control, so it has to clear 3:1 on the page
+     ground — the stock value sat at 1.29:1 and was effectively invisible. */
+  --border: oklch(0.84 0.014 var(--hue-brand));
+  --input: oklch(0.6 0.03 var(--hue-brand));
+  --ring: oklch(0.58 0.16 var(--hue-brand));
+  --radius: 0.75rem;
+  --sidebar: oklch(0.975 0.008 var(--hue-brand));
+  --sidebar-foreground: oklch(0.19 0.02 var(--hue-brand));
+  --sidebar-accent: oklch(0.95 0.03 var(--hue-brand));
+  --sidebar-accent-foreground: oklch(0.38 0.13 var(--hue-brand));
+  --sidebar-border: oklch(0.9 0.012 var(--hue-brand));
+  --sidebar-primary: oklch(0.48 0.17 var(--hue-brand));
+  --sidebar-primary-foreground: oklch(0.99 0.008 var(--hue-brand));
+  --sidebar-ring: oklch(0.58 0.16 var(--hue-brand));
+  --chart-1: oklch(0.55 0.18 var(--hue-brand));
+  --chart-2: oklch(0.6 0.13 var(--hue-support));
+  --chart-3: oklch(0.66 0.14 155);
+  --chart-4: oklch(0.75 0.14 75);
+  --chart-5: oklch(0.62 0.17 25);
+  /* success and info are rendered as text in status badges and callouts, so they
+     are held to 4.5:1 rather than the 3:1 that would do for a fill. */
+  --success: oklch(0.5 0.12 155);
+  --success-foreground: oklch(0.99 0.02 155);
+  --warning: oklch(0.72 0.15 75);
+  --warning-foreground: oklch(0.28 0.06 75);
+  --info: oklch(0.48 0.11 var(--hue-support));
+  --info-foreground: oklch(0.99 0.02 var(--hue-support));
+
+  /* Tinted wash for callouts and selected states, safe under text */
+  --surface-brand: oklch(0.96 0.028 var(--hue-brand));
+  --surface-success: oklch(0.96 0.04 155);
+  --surface-warning: oklch(0.96 0.05 75);
+  --surface-danger: oklch(0.96 0.035 25);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-  --success: oklch(0.55 0.12 155);
-  --success-foreground: oklch(0.95 0.02 155);
-  --warning: oklch(0.7 0.14 75);
-  --warning-foreground: oklch(0.95 0.02 75);
-  --info: oklch(0.55 0.1 240);
-  --info-foreground: oklch(0.95 0.02 240);
+  --background: oklch(0.17 0.016 var(--hue-brand));
+  --foreground: oklch(0.97 0.006 var(--hue-brand));
+  --card: oklch(0.215 0.02 var(--hue-brand));
+  --card-foreground: oklch(0.97 0.006 var(--hue-brand));
+  --popover: oklch(0.235 0.022 var(--hue-brand));
+  --popover-foreground: oklch(0.97 0.006 var(--hue-brand));
+  --primary: oklch(0.72 0.15 var(--hue-brand));
+  --primary-foreground: oklch(0.18 0.03 var(--hue-brand));
+  --secondary: oklch(0.29 0.026 var(--hue-brand));
+  --secondary-foreground: oklch(0.95 0.01 var(--hue-brand));
+  --muted: oklch(0.28 0.022 var(--hue-brand));
+  --muted-foreground: oklch(0.72 0.025 var(--hue-brand));
+  --accent: oklch(0.33 0.055 var(--hue-brand));
+  --accent-foreground: oklch(0.93 0.04 var(--hue-brand));
+  --destructive: oklch(0.72 0.17 25);
+  --destructive-foreground: oklch(0.99 0.01 25);
+  --border: oklch(0.98 0.02 var(--hue-brand) / 12%);
+  --input: oklch(0.98 0.02 var(--hue-brand) / 16%);
+  --ring: oklch(0.66 0.15 var(--hue-brand));
+  --sidebar: oklch(0.2 0.019 var(--hue-brand));
+  --sidebar-foreground: oklch(0.97 0.006 var(--hue-brand));
+  --sidebar-primary: oklch(0.72 0.15 var(--hue-brand));
+  --sidebar-primary-foreground: oklch(0.18 0.03 var(--hue-brand));
+  --sidebar-accent: oklch(0.33 0.055 var(--hue-brand));
+  --sidebar-accent-foreground: oklch(0.93 0.04 var(--hue-brand));
+  --sidebar-border: oklch(0.98 0.02 var(--hue-brand) / 12%);
+  --sidebar-ring: oklch(0.66 0.15 var(--hue-brand));
+  --chart-1: oklch(0.7 0.16 var(--hue-brand));
+  --chart-2: oklch(0.72 0.12 var(--hue-support));
+  --chart-3: oklch(0.72 0.13 155);
+  --chart-4: oklch(0.78 0.13 75);
+  --chart-5: oklch(0.7 0.16 25);
+  --success: oklch(0.7 0.14 155);
+  --success-foreground: oklch(0.17 0.03 155);
+  --warning: oklch(0.79 0.14 75);
+  --warning-foreground: oklch(0.2 0.04 75);
+  --info: oklch(0.7 0.12 var(--hue-support));
+  --info-foreground: oklch(0.17 0.03 var(--hue-support));
+
+  --surface-brand: oklch(0.31 0.05 var(--hue-brand));
+  --surface-success: oklch(0.29 0.05 155);
+  --surface-warning: oklch(0.3 0.05 75);
+  --surface-danger: oklch(0.3 0.05 25);
 }
 
 @theme inline {
@@ -124,6 +150,10 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-surface-brand: var(--surface-brand);
+  --color-surface-success: var(--surface-success);
+  --color-surface-warning: var(--surface-warning);
+  --color-surface-danger: var(--surface-danger);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);

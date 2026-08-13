@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+/** Single source of truth — every fetch in the app must go through this. */
+export const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 export async function ensureCsrf(): Promise<string> {
   const res = await fetch(`${API_BASE}/api/auth/csrf`, { credentials: "include" });
@@ -57,6 +58,14 @@ export type User = {
   portal?: "faculty" | "admin" | "finance" | "hod" | "principal";
 };
 
+export type ClaimAttachment = {
+  id: string;
+  kind: "PUBLISHED_PAPER" | "SEC_REFERENCE";
+  url: string;
+  filename?: string | null;
+  size_bytes?: number;
+};
+
 export type Claim = {
   id: string;
   owner_id?: string | null;
@@ -90,6 +99,9 @@ export type Claim = {
   proof_url?: string | null;
   sec_refs?: string | null;
   sec_proof_url?: string | null;
+  reference_articles?: string | null;
+  claim_reason?: "INCENTIVE" | "COUNT_ONLY" | null;
+  attachments?: ClaimAttachment[];
   is_student_publication?: boolean;
   affiliation_ok?: boolean;
   subject_category?: string | null;

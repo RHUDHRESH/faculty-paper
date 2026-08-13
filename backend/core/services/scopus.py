@@ -117,11 +117,22 @@ def parse_search_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "eid": entry.get("eid"),
         "scopus_url": scopus_url,
         "aggregation_type": entry.get("prism:aggregationType"),
+        "author_count": _intish(entry.get("author-count")),
         "subjects": [],
         "authors": [],
         "scopus_id": entry.get("dc:identifier"),
         "raw": entry,
     }
+
+
+def _intish(value: Any) -> int | None:
+    if isinstance(value, dict):
+        value = value.get("$") or value.get("@total") or value.get("#")
+    try:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
 
 
 def clean_title_for_query(title: str) -> str:

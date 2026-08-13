@@ -19,16 +19,19 @@
 /out/
 /eslint.config.mjs
 /next.config.ts
-/playwright.config.ts
 /postcss.config.mjs
 /vitest.config.ts
 /prisma/
 # stray root app leftovers (real app lives in frontend/ + backend/)
 /public/
 /src/
-/package.json
 /package-lock.json
 /tsconfig.json
+
+# The root now legitimately hosts the Playwright e2e harness, so these two are
+# real project files rather than the Next.js leftovers the rules above target.
+!/playwright.config.ts
+!/package.json
 
 # production
 /build
@@ -76,3 +79,6 @@ next-env.d.ts
 !sample-data/**
 /data/
 /data/**
+
+# uploaded claim documents — real faculty papers, never belong in the repo
+/backend/media/

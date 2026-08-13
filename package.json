@@ -1,0 +1,12 @@
+{
+  "name": "faculty-paper-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "End-to-end tests. The app itself lives in frontend/ and backend/.",
+  "scripts": {
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  }
+}

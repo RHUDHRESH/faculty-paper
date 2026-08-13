@@ -10,7 +10,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from django.conf import settings
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
@@ -24,9 +24,12 @@ from ninja.security import SessionAuth
 logger = logging.getLogger("core.api")
 
 from core.models import (
+    AttachmentKind,
     AuditLog,
     Claim,
     ClaimAction,
+    ClaimAttachment,
+    ClaimReason,
     ClaimStatus,
     FacultyMaster,
     FormulaConfig,
@@ -43,7 +46,7 @@ from core.models import (
 )
 from core.services import rbac
 from core.services.monthly_processor import start_batch_async
-from core.services.normalize import normalize_doi, normalize_title
+from core.services.normalize import normalize_doi, normalize_issn, normalize_title
 from core.services.remuneration import (
     DEFAULT_AUTHOR_POINTS,
     DEFAULT_PUB_TYPE_MULTIPLIERS,
@@ -53,12 +56,40 @@ from core.services.remuneration import (
 )
 from core.services.notify_email import send_optional_email
 from core.services.scimago import lookup_scimago, parse_categories_field
-from core.services.scopus import ScopusError, lookup_paper_by_doi, lookup_serial_by_issn, search_by_title
+from core.services.scopus import (
+    ScopusError,
+    extract_author_id,
+    lookup_paper_by_doi,
+    lookup_serial_by_issn,
+    search_by_title,
+)
 from core.services.tickets import next_ticket_number
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
 
-api = NinjaAPI(title="Faculty Remuneration", version="1.0.0")
+api = NinjaAPI(
+    title="Faculty Remuneration",
+    version="1.0.0",
+    # Swagger and the OpenAPI schema publish the whole endpoint surface, so they
+    # stay off outside development.
+    docs_url="/docs" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
+)
 session_auth = SessionAuth()
+
+
+def _csv_safe(value: Any) -> Any:
+    """Neutralise spreadsheet formula injection in exported free text.
+
+    Paper titles and faculty names are user-supplied and land straight in a file
+    someone opens in Excel, where a leading = + - or @ is executed as a formula.
+    """
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+def _csv_row(values: list[Any]) -> list[Any]:
+    return [_csv_safe(v) for v in values]
 
 
 def _require_admin_ops(user: User) -> None:
@@ -167,6 +198,13 @@ class UserOut(Schema):
     portal: Optional[str] = None
 
 
+class AttachmentIn(Schema):
+    kind: str
+    url: str
+    filename: Optional[str] = None
+    size_bytes: int = 0
+
+
 class ClaimIn(Schema):
     owner_id: Optional[str] = None
     doi: Optional[str] = None
@@ -184,6 +222,12 @@ class ClaimIn(Schema):
     proof_url: Optional[str] = None
     sec_refs: Optional[str] = None
     sec_proof_url: Optional[str] = None
+    reference_articles: Optional[str] = None
+    claim_reason: Optional[str] = None
+    # Handled by _bind_identity_from_user, not _FACULTY_WRITABLE
+    scopus_author_url: Optional[str] = None
+    designation: Optional[str] = None
+    attachments: Optional[list[AttachmentIn]] = None
     is_student_publication: bool = False
     affiliation_ok: bool = True
     payout_month: Optional[str] = None
@@ -226,6 +270,8 @@ _FACULTY_WRITABLE = {
     "proof_url",
     "sec_refs",
     "sec_proof_url",
+    "reference_articles",
+    "claim_reason",
     "is_student_publication",
     "affiliation_ok",
     "payout_month",
@@ -262,20 +308,97 @@ def _apply_faculty_payload(claim: Claim, payload: ClaimIn) -> None:
             claim.author_position = max(1, min(int(v or 1), 50))
         elif k == "snip" and v is not None:
             claim.snip = float(v)
+        elif k == "claim_reason":
+            claim.claim_reason = v if v in ClaimReason.values else ClaimReason.INCENTIVE
         elif hasattr(claim, k):
             setattr(claim, k, v)
+    # Count-only filings carry no money: force SNIP to 0 so the formula pays nothing,
+    # regardless of what the client sent.
+    if claim.claim_reason == ClaimReason.COUNT_ONLY:
+        claim.is_student_publication = True
+        claim.snip = 0.0
     # Never trust client verification / override flags
     claim.scimago_verified = False
     claim.override_duplicate = False
     claim.override_reason = None
 
 
-def _bind_identity_from_user(claim: Claim, user: User) -> None:
+def _validated_attachments(payload: ClaimIn) -> list[dict[str, Any]] | None:
+    """Check the attachment set before anything is written.
+
+    Returns None when the client omitted the key entirely, meaning "leave the
+    existing set alone". Validation is split from persistence so a cap violation
+    cannot surface after the claim has already been ticketed and notified.
+    """
+    if payload.attachments is None:
+        return None
+    limits = {AttachmentKind.PUBLISHED_PAPER: 1, AttachmentKind.SEC_REFERENCE: 5}
+    kept: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for a in payload.attachments:
+        if a.kind not in AttachmentKind.values:
+            continue
+        url = (a.url or "").strip()
+        if not url or not url.startswith(settings.MEDIA_URL):
+            continue
+        counts[a.kind] = counts.get(a.kind, 0) + 1
+        if counts[a.kind] > limits[a.kind]:
+            raise HttpError(400, f"At most {limits[a.kind]} file(s) allowed for {a.kind}")
+        kept.append(
+            {
+                "kind": a.kind,
+                "url": url,
+                "filename": (a.filename or "")[:255] or None,
+                "size_bytes": max(0, int(a.size_bytes or 0)),
+            }
+        )
+    return kept
+
+
+def _persist_attachments(claim: Claim, kept: list[dict[str, Any]] | None, actor: User) -> None:
+    """Replace the claim's attachment set. The claim row must already exist."""
+    if kept is None:
+        return
+    claim.attachments.all().delete()
+    if kept:
+        ClaimAttachment.objects.bulk_create(
+            [ClaimAttachment(claim=claim, uploaded_by=actor, **k) for k in kept]
+        )
+    # Keep the legacy single-URL columns in step for older screens and exports
+    paper = next((k for k in kept if k["kind"] == AttachmentKind.PUBLISHED_PAPER), None)
+    refs = [k for k in kept if k["kind"] == AttachmentKind.SEC_REFERENCE]
+    claim.proof_url = paper["url"] if paper else None
+    claim.sec_proof_url = refs[0]["url"] if refs else None
+    Claim.objects.filter(pk=claim.pk).update(
+        proof_url=claim.proof_url, sec_proof_url=claim.sec_proof_url
+    )
+
+
+def _bind_identity_from_user(claim: Claim, user: User, payload: ClaimIn | None = None) -> None:
+    # Payment identity and department stay server-owned: a wrong biometric ID pays the
+    # wrong person, and department decides which HoD approves the ticket.
     claim.staff_id = user.staff_id
     claim.biometric_id = user.biometric_id
-    claim.designation = user.designation
-    claim.scopus_author_url = user.scopus_author_url
-    claim.scopus_author_id = user.scopus_author_id
+
+    changed: list[str] = []
+
+    # The Scopus author link is per-submission on the form; fall back to the profile.
+    link = ((payload.scopus_author_url if payload else None) or "").strip() or user.scopus_author_url
+    claim.scopus_author_url = link
+    claim.scopus_author_id = extract_author_id(link or "") or user.scopus_author_id
+    if link and link != user.scopus_author_url:
+        user.scopus_author_url = link
+        user.scopus_author_id = claim.scopus_author_id
+        changed += ["scopus_author_url", "scopus_author_id"]
+
+    designation = ((payload.designation if payload else None) or "").strip()
+    claim.designation = designation or user.designation
+    if designation and designation != user.designation:
+        user.designation = designation
+        changed.append("designation")
+
+    if changed:
+        user.save(update_fields=[*changed, "updated_at"])
 
 
 class ActionIn(Schema):
@@ -392,12 +515,20 @@ class MonthlyCreateIn(Schema):
     rows: list[dict[str, Any]]
 
 
+# Endpoints a user must still reach while they are being forced to set a password.
+_PASSWORD_CHANGE_EXEMPT = {"/api/auth/change-password", "/api/auth/me"}
+
+
 def require_user(request: HttpRequest) -> User:
     if not request.user.is_authenticated:
         raise HttpError(401, "Unauthorized")
     user: User = request.user  # type: ignore
     if not user.active:
         raise HttpError(403, "Inactive")
+    # must_change_password used to be advertised in the profile payload and
+    # enforced only by the frontend, so an API client could ignore it entirely.
+    if user.must_change_password and request.path not in _PASSWORD_CHANGE_EXEMPT:
+        raise HttpError(403, "Set a new password before continuing")
     return user
 
 
@@ -472,6 +603,20 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "proof_url": c.proof_url,
         "sec_refs": c.sec_refs,
         "sec_proof_url": c.sec_proof_url,
+        "reference_articles": c.reference_articles,
+        "claim_reason": c.claim_reason,
+        "attachments": [
+            {
+                "id": a.id,
+                "kind": a.kind,
+                "url": a.url,
+                "filename": a.filename,
+                "size_bytes": a.size_bytes,
+            }
+            for a in c.attachments.all()
+        ]
+        if c.pk
+        else [],
         "indexing_status": c.indexing_status,
         "linkage_status": c.linkage_status,
         "is_student_publication": c.is_student_publication,
@@ -549,10 +694,15 @@ def auth_me(request: HttpRequest):
 
 
 class ProfileUpdateIn(Schema):
+    """Deliberately excludes staff_id, biometric_id, and department.
+
+    Those three decide who gets paid and which HoD approves the ticket, and
+    _bind_identity_from_user copies them onto every claim as server-owned values.
+    Letting the claimant edit them on their own profile would make that guard
+    meaningless. They are changed by an admin, via PATCH /admin/users/{id}.
+    """
+
     name: Optional[str] = None
-    department: Optional[str] = None
-    staff_id: Optional[str] = None
-    biometric_id: Optional[str] = None
     designation: Optional[str] = None
     scopus_author_url: Optional[str] = None
     scopus_author_id: Optional[str] = None
@@ -562,9 +712,18 @@ class ProfileUpdateIn(Schema):
 def update_profile(request: HttpRequest, payload: ProfileUpdateIn):
     u = require_user(request)
     data = payload.dict(exclude_unset=True)
+    changed = {k: v for k, v in data.items() if getattr(u, k, None) != v}
     for k, v in data.items():
         setattr(u, k, v)
     u.save()
+    if changed:
+        AuditLog.objects.create(
+            actor=u,
+            action="PROFILE_UPDATE",
+            entity="User",
+            entity_id=u.id,
+            detail_json=json.dumps({"fields": sorted(changed)}),
+        )
     return _user_dict(u)
 
 
@@ -578,6 +737,12 @@ def change_password(request: HttpRequest, payload: ChangePasswordIn):
     u.set_password(payload.new_password)
     u.must_change_password = False
     u.save(update_fields=["password", "must_change_password", "updated_at"])
+    # Changing the password rotates the session auth hash, which would log the
+    # user out on their very next request. Keep the current session valid.
+    update_session_auth_hash(request, u)
+    AuditLog.objects.create(
+        actor=u, action="PASSWORD_CHANGE", entity="User", entity_id=u.id
+    )
     return {"ok": True}
 
 
@@ -606,56 +771,84 @@ def lookup_scopus(request: HttpRequest, payload: ScopusLookupIn):
         raise HttpError(502, f"{e.code}: {e}")
 
 
+def _empty_enrich(*, code: str, message: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "code": code,
+        "message": message,
+        "paper": None,
+        "serial": None,
+        "scimago": None,
+        "matched_title": None,
+        "doi": None,
+        "issn": None,
+        "eid": None,
+        "journal": None,
+        "cover_date": None,
+        "publication_year": None,
+        "aggregation_type": None,
+        "author_count": None,
+        "snip": None,
+        "snip_year": None,
+        "quartile": None,
+        "subject_category": None,
+        "scimago_found": False,
+    }
+
+
+def _pack_enrich(paper: dict[str, Any] | None, serial: dict[str, Any] | None, scimago: dict[str, Any] | None) -> dict[str, Any]:
+    paper = paper or {}
+    serial = serial or {}
+    scimago = scimago or {}
+    found_scimago = bool(scimago.get("found"))
+    return {
+        "ok": True,
+        "code": "ok",
+        "message": None,
+        "paper": paper or None,
+        "serial": serial or None,
+        "scimago": scimago or None,
+        "matched_title": paper.get("title"),
+        "doi": paper.get("doi"),
+        "issn": paper.get("issn") or serial.get("issn") or scimago.get("issn"),
+        "eid": paper.get("eid"),
+        "journal": paper.get("journal_title") or serial.get("journal_title") or scimago.get("title"),
+        "cover_date": paper.get("cover_date"),
+        "publication_year": paper.get("publication_year"),
+        "aggregation_type": paper.get("aggregation_type"),
+        "author_count": paper.get("author_count"),
+        "snip": serial.get("snip"),
+        "snip_year": serial.get("snip_year"),
+        "quartile": scimago.get("matched_quartile") if found_scimago else None,
+        "subject_category": scimago.get("matched_category") if found_scimago else None,
+        "scimago_found": found_scimago,
+    }
+
+
 @api.post("/lookup/enrich", auth=session_auth)
 def lookup_enrich(request: HttpRequest, payload: ScopusLookupIn):
-    """One-shot: Scopus paper + SNIP + Scimago quartile for Faculty form."""
+    """One-shot: Scopus paper + SNIP + Scimago quartile for the claim form.
+
+    DOI or title finds the article. ISSN alone still fills journal, SNIP, and quartile.
+    """
     require_user(request)
-    if not payload.doi and not payload.title:
-        return {
-            "ok": False,
-            "code": "bad_payload",
-            "message": "Provide DOI or title",
-            "paper": None,
-            "serial": None,
-            "scimago": None,
-        }
+    issn = normalize_issn(payload.issn) if payload.issn else None
+    if not payload.doi and not payload.title and not issn:
+        return _empty_enrich(code="bad_payload", message="Provide DOI, title, or ISSN")
     try:
         paper = lookup_paper_by_doi(payload.doi) if payload.doi else None
         if not paper and payload.title:
             paper, _ = search_by_title(payload.title)
-        if not paper:
-            return {
-                "ok": False,
-                "code": "not_found",
-                "message": "Not found in Scopus",
-                "paper": None,
-                "serial": None,
-                "scimago": None,
-            }
-        serial = lookup_serial_by_issn(paper.get("issn") or "") if paper.get("issn") else None
+        issn = (paper.get("issn") if paper else None) or issn
+        serial = lookup_serial_by_issn(issn) if issn else None
         scimago = lookup_scimago(
-            issn=paper.get("issn"),
-            title=paper.get("journal_title"),
+            issn=issn,
+            title=(paper.get("journal_title") if paper else None) or payload.title,
             subject=None,
         )
-        return {
-            "ok": True,
-            "code": "ok",
-            "message": None,
-            "paper": paper,
-            "serial": serial,
-            "scimago": scimago,
-            "matched_title": paper.get("title"),
-            "doi": paper.get("doi"),
-            "issn": paper.get("issn"),
-            "eid": paper.get("eid"),
-            "journal": paper.get("journal_title"),
-            "cover_date": paper.get("cover_date"),
-            "snip": (serial or {}).get("snip") if serial else None,
-            "snip_year": (serial or {}).get("snip_year") if serial else None,
-            "quartile": (scimago or {}).get("matched_quartile") if scimago and scimago.get("found") else None,
-            "scimago_found": bool(scimago and scimago.get("found")),
-        }
+        if not paper and not serial and not (scimago and scimago.get("found")):
+            return _empty_enrich(code="not_found", message="Not found in Scopus")
+        return _pack_enrich(paper, serial, scimago)
     except ScopusError as e:
         raise HttpError(502, f"{e.code}: {e}")
 
@@ -749,7 +942,22 @@ def upload_claim_file(request: HttpRequest, file: UploadedFile = File(...)):
     with open(path, "wb") as f:
         f.write(content)
     url = f"{settings.MEDIA_URL}claims/{fname}"
-    return {"url": url}
+    return {"url": url, "filename": file.name, "size_bytes": len(content)}
+
+
+@api.get("/meta/departments", auth=session_auth)
+def list_departments(request: HttpRequest):
+    """Departments actually present in the faculty master — keeps the picker honest."""
+    require_user(request)
+    names = set()
+    for source in (
+        FacultyMaster.objects.values_list("department", flat=True),
+        User.objects.filter(role=Role.FACULTY).values_list("department", flat=True),
+    ):
+        for d in source:
+            if d and d.strip():
+                names.add(d.strip())
+    return sorted(names)
 
 
 # ---------- claims ----------
@@ -837,9 +1045,13 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
     elif user.role in (Role.SUPER_ADMIN, Role.RESEARCH_CELL) and not payload.owner_id:
         raise HttpError(400, "Select a faculty member to submit on their behalf")
 
+    # Validate before any write, so a rejected attachment set cannot leave a
+    # half-created claim behind.
+    attachments = _validated_attachments(payload)
+
     claim = Claim(owner=owner)
     _apply_faculty_payload(claim, payload)
-    _bind_identity_from_user(claim, owner)
+    _bind_identity_from_user(claim, owner, payload)
 
     paid_check = check_already_paid(
         title=claim.paper_title,
@@ -851,10 +1063,14 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
     claim.duplicate_matches_json = json.dumps(paid_check.get("matches") or [])
 
     _apply_calc(claim)
+    # Persist the claim and its files first: the submission gate reads the stored
+    # attachments, so syncing afterwards made an attachments-only payload fail.
+    claim.save()
+    _persist_attachments(claim, attachments, user)
+
     if payload.submit:
         _submit_claim(claim, user, contest=bool(payload.contest_forward), contest_note=payload.contest_note)
     else:
-        claim.save()
         ClaimAction.objects.create(
             claim=claim,
             actor=user,
@@ -866,9 +1082,55 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
     return claim_to_dict(claim)
 
 
+_ANNEXURE_LEVELS = {"AU Annexure", "UGC Care"}
+
+
+def _check_mandatory_fields(claim: Claim) -> None:
+    """Rules the claim form itself imposes, independent of Scopus verification."""
+    missing: list[str] = []
+    if not (claim.journal_title or "").strip():
+        missing.append("Journal name")
+    if not (claim.issn or "").strip():
+        missing.append("ISSN")
+    if not (claim.publication_date or "").strip():
+        missing.append("Date of publication")
+    if not (claim.indexing_level or "").strip():
+        missing.append("Journal indexing level")
+    if not (claim.yukthi_id or "").strip():
+        missing.append("Yukthi ID")
+    if not (claim.scopus_author_url or "").strip():
+        missing.append("Author Scopus link")
+    if not (claim.sec_refs or "").strip():
+        missing.append("Reference numbers with SEC affiliation")
+    if missing:
+        raise HttpError(400, "Complete these before submitting: " + ", ".join(missing))
+
+    if (claim.indexing_level or "").strip() in _ANNEXURE_LEVELS and not (
+        claim.indexing_ref or ""
+    ).strip():
+        raise HttpError(
+            400, f"{claim.indexing_level} requires a reference number (enter NA if none)"
+        )
+
+    if not claim.affiliation_ok:
+        raise HttpError(400, "The article must be affiliated to Saveetha Engineering College")
+
+    if claim.author_position > claim.total_authors:
+        raise HttpError(400, "Author position cannot exceed the total number of authors")
+
+    kinds = set(claim.attachments.values_list("kind", flat=True)) if claim.pk else set()
+    has_paper = AttachmentKind.PUBLISHED_PAPER in kinds or bool((claim.proof_url or "").strip())
+    has_refs = AttachmentKind.SEC_REFERENCE in kinds or bool((claim.sec_proof_url or "").strip())
+    if not has_paper:
+        raise HttpError(400, "Upload the full-length published paper (PDF)")
+    if not has_refs:
+        raise HttpError(400, "Upload at least one cited reference with SEC affiliation (PDF)")
+
+
 def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str | None) -> None:
     if not (claim.paper_title or "").strip():
         raise HttpError(400, "Paper title is required")
+    _check_mandatory_fields(claim)
 
     result = verify_publication(
         title=claim.paper_title or "",
@@ -886,13 +1148,10 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
         if not (claim.manual_quartile_reason or "").strip():
             claim.manual_quartile_reason = "Faculty-provided journal details"
 
-    if not claim.quartile:
-        if contest:
-            # allow forward without quartile only with a note; leave blank for HoD
-            pass
-        else:
-            raise HttpError(400, "Pick a journal ranking (Q1–Q4), or send with a note")
-
+    # A missing quartile is already one of the contestable verification issues, so
+    # it falls through to the "Could not auto-confirm" response below. Raising a
+    # separate message here produced wording the client could not recognise, and
+    # the user was told to send a note by an error that offered no way to do so.
     issues = _verification_issues(result, claim)
     if claim.duplicate_warning and not claim.override_duplicate and not contest:
         issues.append("Payment history may already include this paper")
@@ -951,8 +1210,9 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
     claim = get_object_or_404(Claim, pk=claim_id, owner=user)
     if claim.status not in (ClaimStatus.DRAFT, ClaimStatus.REJECTED):
         raise HttpError(400, "Only draft/rejected claims can be edited")
+    attachments = _validated_attachments(payload)
     _apply_faculty_payload(claim, payload)
-    _bind_identity_from_user(claim, user)
+    _bind_identity_from_user(claim, user, payload)
     paid_check = check_already_paid(
         title=claim.paper_title,
         doi=claim.doi,
@@ -962,6 +1222,9 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
     claim.duplicate_warning = bool(paid_check.get("warning"))
     claim.duplicate_matches_json = json.dumps(paid_check.get("matches") or [])
     _apply_calc(claim)
+    # Files land before the submission gate reads them.
+    claim.save()
+    _persist_attachments(claim, attachments, user)
     if payload.submit:
         from_status = claim.status
         claim.status = ClaimStatus.DRAFT
@@ -980,8 +1243,6 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
                 action="RESUBMIT",
                 note=payload.contest_note,
             )
-    else:
-        claim.save()
     return claim_to_dict(claim)
 
 
@@ -1167,14 +1428,25 @@ def reject_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         ClaimStatus.FINANCE_APPROVED,
     ):
         raise HttpError(400, "Invalid status for reject")
-    if payload.note:
-        claim.status_note = payload.note[:255]
-        claim.save(update_fields=["status_note"])
-    _transition(claim, user, ClaimStatus.REJECTED, "REJECT", payload.note)
+    # The faculty member has to write 10 characters to contest a failed check;
+    # sending their claim back without saying why was the cheaper action. The
+    # reason is also what the rejection notification shows them.
+    note = (payload.note or "").strip()
+    if len(note) < 10:
+        raise HttpError(
+            400, "Add a reason (10+ characters) so the faculty member knows what to fix"
+        )
+    claim.status_note = note[:255]
+    claim.save(update_fields=["status_note"])
+    _transition(claim, user, ClaimStatus.REJECTED, "REJECT", note)
     return claim_to_dict(claim)
 
 
 def _verify_claim(claim: Claim) -> Claim:
+    # Re-verifying rewrites quartile, SNIP, and remuneration. Doing that after
+    # payment silently diverges the claim from its PaidLedger row.
+    if claim.status == ClaimStatus.PAID:
+        raise HttpError(400, "Claim is already paid — re-verifying would change a settled amount")
     result = verify_publication(
         title=claim.paper_title or "",
         scopus_author_url=claim.scopus_author_url,
@@ -1405,9 +1677,9 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
     user = require_user(request)
     if not rbac.can_edit_formula(user.role):
         raise HttpError(403, "Forbidden")
-    prev = FormulaConfig.objects.filter(active=True).order_by("-version").first()
-    next_version = (prev.version + 1) if prev else 1
-    FormulaConfig.objects.filter(active=True).update(active=False)
+    # Validate everything before touching any row. Deactivating first meant one bad
+    # date left zero active policies, silently falling back to the hard-coded
+    # defaults and resetting the version counter on the next successful save.
     eff_from = None
     eff_to = None
     if payload.effective_from:
@@ -1420,6 +1692,8 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
             eff_to = date.fromisoformat(payload.effective_to)
         except ValueError:
             raise HttpError(400, "Invalid effective_to")
+    if eff_from and eff_to and eff_to < eff_from:
+        raise HttpError(400, "effective_to cannot be before effective_from")
     pub_json = payload.publication_type_multipliers_json or json.dumps(DEFAULT_PUB_TYPE_MULTIPLIERS)
     try:
         json.loads(pub_json)
@@ -1429,35 +1703,52 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
         json.loads(payload.author_point_json)
     except Exception:
         raise HttpError(400, "Invalid author_point_json")
-    cfg = FormulaConfig.objects.create(
-        name=payload.name or f"Policy v{next_version}",
-        version=next_version,
-        effective_from=eff_from or timezone.now().date(),
-        effective_to=eff_to,
-        snip_multiplier=payload.snip_multiplier,
-        snip_cap=payload.snip_cap,
-        qf_q1=payload.qf_q1,
-        qf_q2=payload.qf_q2,
-        qf_q3=payload.qf_q3,
-        qf_q4=payload.qf_q4,
-        qf_no_snip=payload.qf_no_snip,
-        qf_snip_only=payload.qf_snip_only,
-        qf_others=payload.qf_others,
-        author_point_json=payload.author_point_json,
-        publication_type_multipliers_json=pub_json,
-        student_remuneration_zero=payload.student_remuneration_zero,
-        qf_only_for_no_snip=payload.qf_only_for_no_snip,
-        notes=payload.notes,
-        updated_by=user,
-        active=True,
-    )
-    AuditLog.objects.create(
-        actor=user,
-        action="FORMULA_UPDATE",
-        entity="FormulaConfig",
-        entity_id=cfg.id,
-        detail_json=json.dumps({"version": cfg.version, "name": cfg.name}),
-    )
+    if payload.snip_cap <= 0:
+        raise HttpError(400, "snip_cap must be greater than zero")
+    for label, amount in (
+        ("snip_multiplier", payload.snip_multiplier),
+        ("qf_q1", payload.qf_q1),
+        ("qf_q2", payload.qf_q2),
+        ("qf_q3", payload.qf_q3),
+        ("qf_q4", payload.qf_q4),
+        ("qf_others", payload.qf_others),
+    ):
+        if amount < 0:
+            raise HttpError(400, f"{label} cannot be negative")
+
+    with transaction.atomic():
+        prev = FormulaConfig.objects.filter(active=True).order_by("-version").first()
+        next_version = (prev.version + 1) if prev else 1
+        FormulaConfig.objects.filter(active=True).update(active=False)
+        cfg = FormulaConfig.objects.create(
+            name=payload.name or f"Policy v{next_version}",
+            version=next_version,
+            effective_from=eff_from or timezone.now().date(),
+            effective_to=eff_to,
+            snip_multiplier=payload.snip_multiplier,
+            snip_cap=payload.snip_cap,
+            qf_q1=payload.qf_q1,
+            qf_q2=payload.qf_q2,
+            qf_q3=payload.qf_q3,
+            qf_q4=payload.qf_q4,
+            qf_no_snip=payload.qf_no_snip,
+            qf_snip_only=payload.qf_snip_only,
+            qf_others=payload.qf_others,
+            author_point_json=payload.author_point_json,
+            publication_type_multipliers_json=pub_json,
+            student_remuneration_zero=payload.student_remuneration_zero,
+            qf_only_for_no_snip=payload.qf_only_for_no_snip,
+            notes=payload.notes,
+            updated_by=user,
+            active=True,
+        )
+        AuditLog.objects.create(
+            actor=user,
+            action="FORMULA_UPDATE",
+            entity="FormulaConfig",
+            entity_id=cfg.id,
+            detail_json=json.dumps({"version": cfg.version, "name": cfg.name}),
+        )
     return {"id": cfg.id, "version": cfg.version, "name": cfg.name}
 
 
@@ -1554,31 +1845,51 @@ def prior_import(request: HttpRequest, file: UploadedFile = File(...)):
         raise HttpError(403, "Forbidden")
     content = file.read().decode("utf-8", errors="ignore")
     reader = csv.DictReader(io.StringIO(content))
-    batch = PriorImport.objects.create(
-        filename=file.name or "upload.csv",
-        row_count=0,
-        mapping_json="{}",
-        imported_by=user,
-    )
     n = 0
-    for row in reader:
-        title = row.get("paper_title") or row.get("title") or row.get("Paper Title")
-        doi = row.get("doi") or row.get("DOI")
-        PriorPayment.objects.create(
-            faculty_name=row.get("faculty_name") or row.get("name"),
-            employee_id=row.get("employee_id"),
-            paper_title=title,
-            normalized_title=normalize_title(title) if title else None,
-            doi=normalize_doi(doi) if doi else None,
-            issn=row.get("issn"),
-            journal_title=row.get("journal"),
-            amount_paid=float(row["amount"]) if row.get("amount") else None,
-            raw_json=json.dumps(row),
-            import_batch=batch,
+    # These rows block future claims as duplicates, so a half-finished import is
+    # worse than none at all — one transaction, and an audit row like every
+    # other importer writes.
+    with transaction.atomic():
+        batch = PriorImport.objects.create(
+            filename=file.name or "upload.csv",
+            row_count=0,
+            mapping_json="{}",
+            imported_by=user,
         )
-        n += 1
-    batch.row_count = n
-    batch.save()
+        for line_no, row in enumerate(reader, start=2):
+            title = row.get("paper_title") or row.get("title") or row.get("Paper Title")
+            doi = row.get("doi") or row.get("DOI")
+            raw_amount = row.get("amount")
+            amount = None
+            if raw_amount:
+                try:
+                    amount = float(str(raw_amount).replace(",", "").strip())
+                except ValueError:
+                    raise HttpError(
+                        400, f"Row {line_no}: amount '{raw_amount}' is not a number"
+                    )
+            PriorPayment.objects.create(
+                faculty_name=row.get("faculty_name") or row.get("name"),
+                employee_id=row.get("employee_id"),
+                paper_title=title,
+                normalized_title=normalize_title(title) if title else None,
+                doi=normalize_doi(doi) if doi else None,
+                issn=row.get("issn"),
+                journal_title=row.get("journal"),
+                amount_paid=amount,
+                raw_json=json.dumps(row),
+                import_batch=batch,
+            )
+            n += 1
+        batch.row_count = n
+        batch.save()
+        AuditLog.objects.create(
+            actor=user,
+            action="PRIOR_PAYMENT_IMPORT",
+            entity="PriorImport",
+            entity_id=batch.id,
+            detail_json=json.dumps({"n": n, "filename": batch.filename}),
+        )
     return {"imported": n, "batch_id": batch.id}
 
 
@@ -1670,19 +1981,27 @@ def snip_import(request: HttpRequest, file: UploadedFile = File(...), year: int 
             sjr = None
         if not title:
             continue
-        issn_key = (print_issn or e_issn or f"TITLE:{title[:40]}").split(",")[0].strip()
-        SnipSource.objects.update_or_create(
-            print_issn=issn_key,
-            year=year,
-            defaults={
-                "title": title[:512],
-                "e_issn": e_issn,
-                "snip": snip,
-                "sjr": sjr,
-                "source_id": source_id,
-                "raw_json": json.dumps(row)[:50000],
-            },
-        )
+        # Column is CharField(32); the "TITLE:" fallback must fit inside it.
+        issn_key = (
+            (print_issn or e_issn or f"TITLE:{title[:24]}").split(",")[0].strip()
+        )[:32]
+        snip_defaults = {
+            "title": title[:512],
+            "e_issn": e_issn,
+            "snip": snip,
+            "sjr": sjr,
+            "source_id": source_id,
+            "raw_json": json.dumps(row)[:50000],
+        }
+        # No unique constraint on (print_issn, year), so update_or_create would
+        # raise MultipleObjectsReturned on already-duplicated data.
+        existing = SnipSource.objects.filter(print_issn=issn_key, year=year).first()
+        if existing is None:
+            SnipSource.objects.create(print_issn=issn_key, year=year, **snip_defaults)
+        else:
+            for k, v in snip_defaults.items():
+                setattr(existing, k, v)
+            existing.save()
         n += 1
     AuditLog.objects.create(
         actor=user, action="SNIP_IMPORT", entity="SnipSource", detail_json=json.dumps({"n": n, "year": year})
@@ -1968,18 +2287,20 @@ def admin_ledger_export(request: HttpRequest, month: Optional[str] = None, depar
     )
     for r in qs:
         w.writerow(
-            [
-                _format_payout_month(r.payout_month),
-                r.department,
-                r.faculty_name,
-                r.staff_id,
-                r.biometric_id,
-                r.paper_title,
-                r.journal_title,
-                r.amount,
-                r.voucher_number,
-                r.claim_id,
-            ]
+            _csv_row(
+                [
+                    _format_payout_month(r.payout_month),
+                    r.department,
+                    r.faculty_name,
+                    r.staff_id,
+                    r.biometric_id,
+                    r.paper_title,
+                    r.journal_title,
+                    r.amount,
+                    r.voucher_number,
+                    r.claim_id,
+                ]
+            )
         )
     resp = HttpResponse(buf.getvalue(), content_type="text/csv")
     suffix = month or "all"
@@ -2120,25 +2441,27 @@ def export_batch(request: HttpRequest, batch_id: str):
     )
     for r in batch.rows.all():
         w.writerow(
-            [
-                r.row_number,
-                r.author_id_raw,
-                r.paper_title,
-                r.index_status,
-                r.linkage,
-                r.matched_title,
-                r.journal,
-                r.aggregation_type,
-                r.issn,
-                r.cover_date,
-                r.eid,
-                r.doi,
-                r.scopus_url,
-                r.sjr_quartile,
-                r.subjects,
-                r.snip,
-                r.engineering_class,
-            ]
+            _csv_row(
+                [
+                    r.row_number,
+                    r.author_id_raw,
+                    r.paper_title,
+                    r.index_status,
+                    r.linkage,
+                    r.matched_title,
+                    r.journal,
+                    r.aggregation_type,
+                    r.issn,
+                    r.cover_date,
+                    r.eid,
+                    r.doi,
+                    r.scopus_url,
+                    r.sjr_quartile,
+                    r.subjects,
+                    r.snip,
+                    r.engineering_class,
+                ]
+            )
         )
     resp = HttpResponse(buf.getvalue(), content_type="text/csv")
     resp["Content-Disposition"] = f'attachment; filename="monthly-{batch.id}.csv"'

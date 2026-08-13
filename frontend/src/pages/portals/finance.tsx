@@ -33,10 +33,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import { api, type Claim } from "@/lib/api"
+import { API_BASE, api, type Claim } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-const API_BASE = import.meta.env.VITE_API_BASE || ""
 
 // ---------------------------------------------------------------------------
 // Shared primitives
@@ -240,7 +239,8 @@ export function FinancePayoutsPage() {
     try {
       await api(`/api/claims/${rejectId}/reject`, {
         method: "POST",
-        json: { note: rejectNote.trim() || "Finance could not process payment" },
+        // No canned fallback: a returned ticket must carry a real reason.
+        json: { note: rejectNote.trim() },
       })
       toast.success("Returned to faculty for correction")
       setRejectId(null)
@@ -450,7 +450,7 @@ export function FinancePayoutsPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="reject-note">Reason (optional)</Label>
+            <Label htmlFor="reject-note">Reason</Label>
             <Textarea
               id="reject-note"
               value={rejectNote}
@@ -458,12 +458,16 @@ export function FinancePayoutsPage() {
               rows={3}
               className="resize-none"
               placeholder="e.g. Missing bank details, amount mismatch…"
+              aria-describedby="reject-note-hint"
             />
+            <p id="reject-note-hint" className="text-xs text-muted-foreground">
+              At least 10 characters. This is what the faculty member sees.
+            </p>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={!!busyId}
+              disabled={!!busyId || rejectNote.trim().length < 10}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={(e) => {
                 e.preventDefault()

@@ -94,6 +94,10 @@ python manage.py import_erp_excel ../data/Publication_Processing_ERP_V3.0.xlsx -
 # Then full journal dumps in a Shell session when ready (no --skip-*).
 ```
 
+### Prod without Shell
+`POST /api/admin/erp-import` (session auth, SUPER_ADMIN / RESEARCH_CELL) accepts the `.xlsx` multipart upload.
+Defaults: `skip_sjr=true`, `skip_snip=true`, `sync_users=true`. Check counts via `GET /api/admin/erp-stats`.
+
 ## Smoke after deploy
 
 1. Open Vercel URL → login (then change password)

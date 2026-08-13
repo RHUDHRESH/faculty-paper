@@ -289,6 +289,10 @@ export function PrincipalShell() {
 }
 
 export function AdminShell() {
+  const { user } = useAuth()
+  // Only a super admin can actually use these two — the API refuses everyone
+  // else, so showing them to the research cell offered a screen that 403s.
+  const isSuperAdmin = user?.role === "SUPER_ADMIN"
   return (
     <AppShell
       title="Admin"
@@ -296,8 +300,12 @@ export function AdminShell() {
       tabs={[
         { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
         { to: "/admin/submit", label: "Submit for faculty", icon: UserPlus },
-        { to: "/admin/users", label: "Users", icon: Users },
-        { to: "/admin/formula", label: "Formula", icon: Settings2 },
+        ...(isSuperAdmin
+          ? [
+              { to: "/admin/users", label: "Users", icon: Users },
+              { to: "/admin/formula", label: "Formula", icon: Settings2 },
+            ]
+          : []),
         { to: "/admin/scimago", label: "Imports", icon: BookOpen },
         { to: "/admin/prior", label: "Prior payments", icon: Receipt },
         { to: "/admin/monthly", label: "Monthly", icon: FileSpreadsheet },
@@ -316,6 +324,10 @@ export function FinanceShell() {
         { to: "/finance", label: "Payment orders", icon: Wallet, end: true },
         { to: "/finance/paid", label: "Processed", icon: Receipt },
         { to: "/finance/ledger", label: "Ledger", icon: FileSpreadsheet },
+        // Finance owns the remuneration policy — can_edit_formula is FINANCE or
+        // SUPER_ADMIN — but the only screen for it lived under /admin, which the
+        // portal guard keeps Finance out of.
+        { to: "/finance/formula", label: "Formula", icon: Settings2 },
       ]}
     />
   )

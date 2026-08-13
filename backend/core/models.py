@@ -45,6 +45,18 @@ class BatchStatus(models.TextChoices):
     FAILED = "FAILED"
 
 
+class ClaimReason(models.TextChoices):
+    """Why the article is being filed — drives whether money is payable."""
+
+    INCENTIVE = "INCENTIVE", "Faculty Publication Incentive"
+    COUNT_ONLY = "COUNT_ONLY", "Publication count only"
+
+
+class AttachmentKind(models.TextChoices):
+    PUBLISHED_PAPER = "PUBLISHED_PAPER", "Full-length published paper"
+    SEC_REFERENCE = "SEC_REFERENCE", "Cited reference with SEC affiliation"
+
+
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra):
         if not email:
@@ -182,6 +194,11 @@ class Claim(models.Model):
     proof_url = models.TextField(blank=True, null=True)
     sec_refs = models.TextField(blank=True, null=True)
     sec_proof_url = models.TextField(blank=True, null=True)
+    # Citations of SEC-affiliated work, listed long-hand by the author
+    reference_articles = models.TextField(blank=True, null=True)
+    claim_reason = models.CharField(
+        max_length=32, choices=ClaimReason.choices, default=ClaimReason.INCENTIVE
+    )
 
     total_authors = models.IntegerField(default=1)
     author_position = models.IntegerField(default=1)
@@ -243,6 +260,25 @@ class Claim(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     submitted_at = models.DateTimeField(blank=True, null=True)
     paid_at = models.DateTimeField(blank=True, null=True)
+
+
+class ClaimAttachment(models.Model):
+    """Uploaded PDFs for a claim. One published paper, up to five SEC references."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="attachments")
+    kind = models.CharField(max_length=32, choices=AttachmentKind.choices)
+    url = models.TextField()
+    filename = models.CharField(max_length=255, blank=True, null=True)
+    size_bytes = models.IntegerField(default=0)
+    uploaded_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="claim_uploads"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["claim", "kind"])]
 
 
 class ClaimAction(models.Model):

@@ -2,7 +2,10 @@ import { InsetList, InsetRow, Section } from "@/components/layout/page"
 import { Money } from "@/components/ticket-ui"
 import type { Claim } from "@/lib/api"
 
-function parseReferenceArticles(authorsJson?: string | null): string {
+/** Older claims stored this inside authors_json, before it had its own column. */
+function parseReferenceArticles(claim: Claim): string {
+  if (claim.reference_articles) return claim.reference_articles
+  const authorsJson = claim.authors_json
   if (!authorsJson) return ""
   try {
     const parsed = JSON.parse(authorsJson)
@@ -28,8 +31,40 @@ function DocLink({ url, label }: { url?: string | null; label: string }) {
   )
 }
 
+/** Every uploaded PDF of a kind, falling back to the legacy single-URL column. */
+function DocLinks({
+  claim,
+  kind,
+  fallbackUrl,
+  label,
+}: {
+  claim: Claim
+  kind: "PUBLISHED_PAPER" | "SEC_REFERENCE"
+  fallbackUrl?: string | null
+  label: string
+}) {
+  const files = (claim.attachments || []).filter((a) => a.kind === kind)
+  if (!files.length) return <DocLink url={fallbackUrl} label={label} />
+  return (
+    <span className="flex flex-wrap justify-end gap-x-3 gap-y-1">
+      {files.map((f, i) => (
+        <a
+          key={f.id}
+          className="text-sm text-primary underline-offset-4 hover:underline"
+          href={f.url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {f.filename || `${label} ${i + 1}`}
+        </a>
+      ))}
+    </span>
+  )
+}
+
 export function ClaimDetailFields({ claim, showOwner = false }: { claim: Claim; showOwner?: boolean }) {
-  const referenceArticles = parseReferenceArticles(claim.authors_json)
+  const referenceArticles = parseReferenceArticles(claim)
+  const countOnly = claim.claim_reason === "COUNT_ONLY"
 
   return (
     <div className="space-y-4">
@@ -77,6 +112,9 @@ export function ClaimDetailFields({ claim, showOwner = false }: { claim: Claim; 
 
       <Section title="Authors & metrics">
         <InsetList>
+          <InsetRow label="Claim reason">
+            {countOnly ? "Option B — publication count only" : "Option A — incentive claim"}
+          </InsetRow>
           <InsetRow label="Total authors">{claim.total_authors ?? "—"}</InsetRow>
           <InsetRow label="Author position">{claim.author_position ?? "—"}</InsetRow>
           <InsetRow label="SNIP">{claim.snip ?? "—"}</InsetRow>
@@ -91,13 +129,25 @@ export function ClaimDetailFields({ claim, showOwner = false }: { claim: Claim; 
 
       <Section title="Documents & references">
         <InsetList>
-          <InsetRow label="Proof PDF">
-            <DocLink url={claim.proof_url} label="View proof" />
+          <InsetRow label="Published paper">
+            <DocLinks
+              claim={claim}
+              kind="PUBLISHED_PAPER"
+              fallbackUrl={claim.proof_url}
+              label="View proof"
+            />
           </InsetRow>
           <InsetRow label="SEC reference numbers">{claim.sec_refs || "—"}</InsetRow>
-          <InsetRow label="Reference articles">{referenceArticles || "—"}</InsetRow>
-          <InsetRow label="SEC reference PDF">
-            <DocLink url={claim.sec_proof_url} label="View references" />
+          <InsetRow label="Reference articles">
+            <span className="whitespace-pre-line">{referenceArticles || "—"}</span>
+          </InsetRow>
+          <InsetRow label="SEC reference PDFs">
+            <DocLinks
+              claim={claim}
+              kind="SEC_REFERENCE"
+              fallbackUrl={claim.sec_proof_url}
+              label="Reference"
+            />
           </InsetRow>
         </InsetList>
       </Section>

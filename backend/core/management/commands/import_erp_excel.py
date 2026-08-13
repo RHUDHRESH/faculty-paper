@@ -26,6 +26,31 @@ from core.services.normalize import normalize_doi, normalize_title
 from core.services.scimago import parse_categories_field
 
 
+def _snip_upsert(*, print_issn, year, defaults):
+    """update_or_create for a table with no unique constraint on the key."""
+    row = SnipSource.objects.filter(print_issn=print_issn, year=year).first()
+    if row is None:
+        return SnipSource.objects.create(print_issn=print_issn, year=year, **defaults)
+    for k, v in defaults.items():
+        setattr(row, k, v)
+    row.save()
+    return row
+
+
+def _month(val):
+    """First of the month for a payout column; None when unparseable."""
+    if isinstance(val, datetime):
+        return val.date().replace(day=1)
+    if not val:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y-%m", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(str(val).strip()[:10], fmt).date().replace(day=1)
+        except ValueError:
+            continue
+    return None
+
+
 def _cell(row, *keys):
     for k in keys:
         if k in row and row[k] is not None and str(row[k]).strip() != "":
@@ -47,11 +72,19 @@ def _i(val):
     return int(f) if f is not None else None
 
 
-def _s(val, n=None):
+def _s(val, n=None, *, drop_na=True):
+    """Trimmed string, with placeholder values normalised to None.
+
+    Pass drop_na=False where the sheet asks the user to type "NA" on purpose —
+    the annexure reference column instructs exactly that, so stripping it turned
+    a correctly-filled cell into a missing one.
+    """
     if val is None:
         return None
     s = str(val).strip()
-    if not s or s.lower() in ("nan", "none", "na", "nil", "n/a"):
+    if not s:
+        return None
+    if drop_na and s.lower() in ("nan", "none", "na", "nil", "n/a"):
         return None
     return s[:n] if n else s
 
@@ -196,22 +229,24 @@ class Command(BaseCommand):
                 continue
             doi = _s(_cell(row, "DOI"), 255)
             amount = _f(_cell(row, "Amount", "amount"))
-            month_raw = _cell(row, "Month")
-            payout = None
-            if isinstance(month_raw, datetime):
-                payout = month_raw.date().replace(day=1)
-            elif month_raw:
-                try:
-                    payout = datetime.strptime(str(month_raw)[:10], "%Y-%m-%d").date().replace(day=1)
-                except ValueError:
-                    payout = None
+            payout = _month(_cell(row, "Month"))
+            norm_title = normalize_title(title)
+            norm_doi = normalize_doi(doi) if doi else None
+
+            # These rows drive the already-paid duplicate warning on every future
+            # claim, so importing the workbook twice used to make legitimate new
+            # submissions look like duplicates.
+            if PriorPayment.objects.filter(
+                normalized_title=norm_title, doi=norm_doi, amount_paid=amount
+            ).exists():
+                continue
 
             PriorPayment.objects.create(
                 faculty_name=_s(_cell(row, "Faculty Name"), 255),
                 employee_id=_s(_cell(row, "Faculty ID"), 64),
                 paper_title=title,
-                normalized_title=normalize_title(title),
-                doi=normalize_doi(doi) if doi else None,
+                normalized_title=norm_title,
+                doi=norm_doi,
                 issn=_s(_cell(row, "ISSN"), 32),
                 journal_title=_s(_cell(row, "Source Title"), 512),
                 amount_paid=amount,
@@ -286,8 +321,13 @@ class Command(BaseCommand):
                 continue
             print_issn = _s(_cell(row, "Print ISSN", "Print_ISSN"), 32)
             e_issn = _s(_cell(row, "E-ISSN", "E_ISSN"), 32)
-            issn_key = (print_issn or e_issn or f"TITLE:{title[:40]}")[:64]
-            SnipSource.objects.update_or_create(
+            # print_issn is CharField(32). Truncating to 64 let the 46-character
+            # "TITLE:" fallback through, which SQLite accepts and Postgres kills
+            # the whole import over — so the bug only ever fired in production.
+            issn_key = (print_issn or e_issn or f"TITLE:{title[:24]}")[:32]
+            # SnipSource has no unique constraint, so update_or_create raises
+            # MultipleObjectsReturned on data that already has duplicates.
+            _snip_upsert(
                 print_issn=issn_key,
                 year=year,
                 defaults={
@@ -537,6 +577,8 @@ class Command(BaseCommand):
                 "yukthi_id": _s(_cell(row, "Yukthi ID"), 64),
                 "publication_type": _s(_cell(row, "Publication Type"), 128),
                 "indexing_level": _s(_cell(row, "Journal Indexing Level"), 128),
+                # The column literally instructs "else mark NA", so a stored "NA"
+                # is a filled answer, not a blank one.
                 "indexing_ref": _s(
                     _cell(
                         row,
@@ -544,6 +586,7 @@ class Command(BaseCommand):
                         "indexing_ref",
                     ),
                     255,
+                    drop_na=False,
                 ),
                 "proof_url": _s(
                     _cell(row, "Upload Proof (Full length Published Paper as pdf )", "Upload Proof")
@@ -684,12 +727,15 @@ class Command(BaseCommand):
             )
 
             if rem is not None:
-                # Avoid duplicate ledger rows for same claim+month
-                exists = PaidLedger.objects.filter(claim=claim, payout_month=payout_fallback).exists()
+                # One ledger row per claim, full stop. Keying the guard on the
+                # import month meant re-running the workbook in a later calendar
+                # month wrote a second row and double-counted the payment.
+                payout = _month(_cell(row, "Month", "Payout Month", "Paid Month")) or payout_fallback
+                exists = PaidLedger.objects.filter(claim=claim).exists()
                 if not exists:
                     PaidLedger.objects.create(
                         claim=claim,
-                        payout_month=payout_fallback,
+                        payout_month=payout,
                         department=department,
                         faculty_name=name,
                         staff_id=staff_id,

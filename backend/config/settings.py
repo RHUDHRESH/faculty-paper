@@ -110,6 +110,14 @@ if not _use_sqlite and not _db_url and os.getenv("DJANGO_FORCE_POSTGRES", "").lo
     "true",
     "yes",
 ):
+    # Fail loudly rather than silently starting on an empty local SQLite file:
+    # a production deploy that loses DATABASE_URL should not come up looking
+    # like a working install with no data in it.
+    if not DEBUG:
+        raise RuntimeError(
+            "DATABASE_URL is not set and DJANGO_DEBUG=false. Set DATABASE_URL, "
+            "or set DJANGO_USE_SQLITE=true if SQLite really is intended."
+        )
     _use_sqlite = True
 
 if _use_sqlite:

@@ -11,11 +11,10 @@ import { api } from "@/lib/api"
 
 export function FacultyProfilePage() {
   const { user, refresh } = useAuth()
+  // Department, Staff ID, and Biometric ID are shown but not editable here: they
+  // decide who gets paid and which HoD approves, so only an admin can change them.
   const [form, setForm] = useState({
     name: "",
-    department: "",
-    staff_id: "",
-    biometric_id: "",
     designation: "",
     scopus_author_url: "",
     scopus_author_id: "",
@@ -26,9 +25,6 @@ export function FacultyProfilePage() {
     if (!user) return
     setForm({
       name: user.name || "",
-      department: user.department || "",
-      staff_id: user.staff_id || "",
-      biometric_id: user.biometric_id || "",
       designation: user.designation || "",
       scopus_author_url: user.scopus_author_url || "",
       scopus_author_id: user.scopus_author_id || "",
@@ -66,9 +62,6 @@ export function FacultyProfilePage() {
             {(
               [
                 ["name", "Name"],
-                ["department", "Department"],
-                ["staff_id", "Staff ID"],
-                ["biometric_id", "Biometric ID"],
                 ["designation", "Designation"],
               ] as const
             ).map(([key, label]) => (
@@ -80,6 +73,16 @@ export function FacultyProfilePage() {
                 />
               </InsetRow>
             ))}
+          </InsetList>
+        </Section>
+        <Section
+          title="Payment record"
+          description="Held by the research cell. Ask them to correct anything wrong here."
+        >
+          <InsetList>
+            <InsetRow label="Department">{user?.department || "Not set"}</InsetRow>
+            <InsetRow label="Staff ID">{user?.staff_id || "Not set"}</InsetRow>
+            <InsetRow label="Biometric ID">{user?.biometric_id || "Not set"}</InsetRow>
           </InsetList>
         </Section>
         <Section title="Scopus">

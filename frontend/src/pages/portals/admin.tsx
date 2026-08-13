@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { api, ensureCsrf } from "@/lib/api"
+import { API_BASE, api, ensureCsrf } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Shared layout primitives
@@ -73,12 +73,17 @@ function DataTable({
 
 async function multipartPost(path: string, fd: FormData): Promise<unknown> {
   const csrfToken = await ensureCsrf()
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     credentials: "include",
     headers: { "X-CSRFToken": csrfToken },
     body: fd,
   })
+  // A misrouted upload comes back as the SPA's index.html with a 200, so check the
+  // content type before parsing rather than surfacing a JSON syntax error.
+  if (!res.headers.get("content-type")?.includes("application/json")) {
+    throw new Error(`Upload went to the wrong host — expected JSON, got ${res.status}`)
+  }
   const data = await res.json()
   if (!res.ok) throw new Error(data?.detail || JSON.stringify(data))
   return data
@@ -290,7 +295,7 @@ export function AdminMonthlyPage() {
         <Section
           title={`Batch · ${String(selected.name || selected.id)}`}
           actions={
-            <a href={`/api/monthly/${selected.id}/export`}>
+            <a href={`${API_BASE}/api/monthly/${selected.id}/export`}>
               <Button size="sm" variant="outline">
                 Export
               </Button>
@@ -517,6 +522,10 @@ const EMPTY_FORM = {
   password: "",
   role: "FACULTY",
   department: "",
+  // Faculty cannot file a claim without these, and cannot set them themselves.
+  staff_id: "",
+  biometric_id: "",
+  designation: "",
 }
 
 export function AdminUsersPage() {
@@ -624,6 +633,36 @@ export function AdminUsersPage() {
                 placeholder="Computer Engineering"
                 value={form.department}
                 onChange={(e) => setForm({ ...form, department: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="u-staff">Staff ID</Label>
+              <Input
+                id="u-staff"
+                placeholder="STF-001"
+                value={form.staff_id}
+                onChange={(e) => setForm({ ...form, staff_id: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="u-bio">Biometric ID</Label>
+              <Input
+                id="u-bio"
+                placeholder="BIO-001"
+                value={form.biometric_id}
+                onChange={(e) => setForm({ ...form, biometric_id: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Faculty cannot submit a claim until this is set, and cannot set it themselves.
+              </p>
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label htmlFor="u-desig">Designation</Label>
+              <Input
+                id="u-desig"
+                placeholder="Assistant Professor"
+                value={form.designation}
+                onChange={(e) => setForm({ ...form, designation: e.target.value })}
               />
             </div>
             <div className="space-y-1.5 md:col-span-2">

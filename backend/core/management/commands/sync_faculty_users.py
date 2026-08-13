@@ -53,9 +53,15 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f"Created {email}"))
             else:
                 changed = False
+                # Never rewrite the role. An HoD, Principal, or Finance user whose
+                # email also sits in the faculty master would otherwise be demoted
+                # to FACULTY and silently lose their approval rights.
                 if user.role != Role.FACULTY:
-                    user.role = Role.FACULTY
-                    changed = True
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"Keeping role {user.role} for {email} (in faculty master)"
+                        )
+                    )
                 for attr, val in [
                     ("name", f.name),
                     ("department", f.department),

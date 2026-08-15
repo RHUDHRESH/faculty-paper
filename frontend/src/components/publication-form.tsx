@@ -60,7 +60,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { API_BASE, api, ensureCsrf, readJson, type Claim } from "@/lib/api"
+import { api, apiFetch, ensureCsrf, readJson, type Claim, SLOW_TIMEOUT_MS } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
 
@@ -116,11 +116,11 @@ async function uploadPdf(file: File): Promise<UploadedFileRef> {
   const fd = new FormData()
   fd.append("file", file)
   const csrf = await ensureCsrf()
-  const res = await fetch(`${API_BASE}/api/claims/upload`, {
+  const res = await apiFetch("/api/claims/upload", {
     method: "POST",
-    credentials: "include",
     headers: { "X-CSRFToken": csrf },
     body: fd,
+    timeoutMs: SLOW_TIMEOUT_MS,
   })
   if (!res.ok) {
     let msg = "Upload failed"

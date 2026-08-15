@@ -31,6 +31,46 @@ export function mediaUrl(url?: string | null): string {
 const HTML_AS_JSON =
   "Cannot reach the API (got a web page instead of data). Try again in a moment.";
 
+const DEFAULT_TIMEOUT_MS = 25_000;
+export const SLOW_TIMEOUT_MS = 90_000;
+
+function isAbortError(e: unknown): boolean {
+  return (
+    (typeof DOMException !== "undefined" && e instanceof DOMException && e.name === "AbortError") ||
+    (e instanceof Error && e.name === "AbortError")
+  );
+}
+
+/** fetch() with a timeout. Without this a sleeping Render instance left the
+ *  SPA on a spinner until the proxy gave up — two to three minutes. */
+export async function apiFetch(
+  path: string,
+  init: RequestInit & { timeoutMs?: number } = {}
+): Promise<Response> {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, ...rest } = init;
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+  const onOuterAbort = () => ctrl.abort();
+  signal?.addEventListener("abort", onOuterAbort);
+  try {
+    return await fetch(`${API_BASE}${path}`, {
+      ...rest,
+      credentials: rest.credentials ?? "include",
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if (isAbortError(e)) {
+      throw new Error(
+        "The server did not respond in time. It may be waking up — wait a few seconds and try again."
+      );
+    }
+    throw e;
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener("abort", onOuterAbort);
+  }
+}
+
 /** Parse a JSON response. HTML (SPA fallback, Render wake page) must never
  * surface as `Unexpected token '<'`. */
 export async function readJson<T = unknown>(res: Response): Promise<T> {
@@ -47,14 +87,14 @@ export async function readJson<T = unknown>(res: Response): Promise<T> {
 }
 
 export async function ensureCsrf(): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/auth/csrf`, { credentials: "include" });
+  const res = await apiFetch("/api/auth/csrf");
   const data = await readJson<{ csrfToken?: string }>(res);
   return data.csrfToken as string;
 }
 
 export async function api<T = unknown>(
   path: string,
-  opts: RequestInit & { json?: unknown } = {}
+  opts: RequestInit & { json?: unknown; timeoutMs?: number } = {}
 ): Promise<T> {
   const headers = new Headers(opts.headers || {});
   if (opts.json !== undefined) {
@@ -65,11 +105,12 @@ export async function api<T = unknown>(
     const csrf = await ensureCsrf();
     if (csrf) headers.set("X-CSRFToken", csrf);
   }
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...opts,
+  const { json, timeoutMs, ...rest } = opts;
+  const res = await apiFetch(path, {
+    ...rest,
     headers,
-    credentials: "include",
-    body: opts.json !== undefined ? JSON.stringify(opts.json) : opts.body,
+    timeoutMs,
+    body: json !== undefined ? JSON.stringify(json) : opts.body,
   });
   if (!res.ok) {
     // An expired session used to surface as a cryptic red toast on whatever

@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { NavLink, Outlet, useNavigate } from "react-router-dom"
+import { useEffect, useState } from "react"
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import {
   BarChart3,
   BookOpen,
@@ -232,6 +232,13 @@ export function AppShell({
   wide?: boolean
 }) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const location = useLocation()
+  // Radix sheets/dialogs set pointer-events:none on body. A leftover overlay
+  // from My tickets made New ticket look frozen after the route had changed.
+  useEffect(() => {
+    document.body.style.pointerEvents = ""
+    setMobileOpen(false)
+  }, [location.pathname])
 
   return (
     <div className="flex min-h-svh bg-background">

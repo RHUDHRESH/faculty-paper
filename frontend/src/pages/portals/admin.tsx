@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { API_BASE, api, ensureCsrf, readJson } from "@/lib/api"
+import { API_BASE, api, apiFetch, ensureCsrf, readJson, SLOW_TIMEOUT_MS } from "@/lib/api"
 import { useApiQuery } from "@/lib/queries"
 import { pollJob } from "@/lib/use-job"
 
@@ -84,11 +84,11 @@ function DataTable({
 
 async function multipartPost(path: string, fd: FormData): Promise<unknown> {
   const csrfToken = await ensureCsrf()
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(path, {
     method: "POST",
-    credentials: "include",
     headers: { "X-CSRFToken": csrfToken },
     body: fd,
+    timeoutMs: SLOW_TIMEOUT_MS,
   })
   const data = await readJson<{ detail?: string }>(res)
   if (!res.ok) throw new Error(data?.detail || JSON.stringify(data))

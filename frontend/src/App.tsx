@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/components/auth-provider";
 import {
@@ -26,6 +27,24 @@ import {
 import { AdminSubmitClaimPage } from "@/pages/portals/admin-submit";
 import { FinanceLedgerPage, FinancePaidPage, FinancePayoutsPage } from "@/pages/portals/finance";
 
+function BootSpinner() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const t = window.setTimeout(() => setSlow(true), 2500)
+    return () => window.clearTimeout(t)
+  }, [])
+  return (
+    <div className="flex min-h-svh flex-col items-center justify-center gap-3 bg-background p-8">
+      <div className="h-8 w-8 animate-pulse rounded-full bg-primary/20" />
+      {slow ? (
+        <p className="max-w-sm text-center text-sm text-muted-foreground">
+          Waking the server. The first request after idle can take up to half a minute.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function RequireAuth({
   children,
   portal,
@@ -34,13 +53,7 @@ function RequireAuth({
   portal: "faculty" | "admin" | "finance" | "principal";
 }) {
   const { user, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="flex min-h-svh items-center justify-center bg-background p-8">
-        <div className="h-8 w-8 animate-pulse rounded-full bg-primary/20" />
-      </div>
-    );
-  }
+  if (loading) return <BootSpinner />;
   if (!user) return <Navigate to="/login" replace />;
   const userPortal = user.portal || portalPathFromRole(user.role);
   if (
@@ -61,13 +74,7 @@ function portalPathFromRole(role: string) {
 
 function HomeRedirect() {
   const { user, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="flex min-h-svh items-center justify-center bg-background p-8">
-        <div className="h-8 w-8 animate-pulse rounded-full bg-primary/20" />
-      </div>
-    );
-  }
+  if (loading) return <BootSpinner />;
   if (!user) return <Navigate to="/login" replace />;
   return <Navigate to={portalPath(user.portal || portalPathFromRole(user.role))} replace />;
 }

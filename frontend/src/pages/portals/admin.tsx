@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { API_BASE, api, ensureCsrf } from "@/lib/api"
+import { API_BASE, api, ensureCsrf, readJson } from "@/lib/api"
 import { useApiQuery } from "@/lib/queries"
 import { pollJob } from "@/lib/use-job"
 
@@ -90,12 +90,7 @@ async function multipartPost(path: string, fd: FormData): Promise<unknown> {
     headers: { "X-CSRFToken": csrfToken },
     body: fd,
   })
-  // A misrouted upload comes back as the SPA's index.html with a 200, so check the
-  // content type before parsing rather than surfacing a JSON syntax error.
-  if (!res.headers.get("content-type")?.includes("application/json")) {
-    throw new Error(`Upload went to the wrong host — expected JSON, got ${res.status}`)
-  }
-  const data = await res.json()
+  const data = await readJson<{ detail?: string }>(res)
   if (!res.ok) throw new Error(data?.detail || JSON.stringify(data))
   return data
 }

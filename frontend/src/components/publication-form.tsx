@@ -60,7 +60,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { API_BASE, api, ensureCsrf, type Claim } from "@/lib/api"
+import { API_BASE, api, ensureCsrf, readJson, type Claim } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
 
@@ -125,14 +125,14 @@ async function uploadPdf(file: File): Promise<UploadedFileRef> {
   if (!res.ok) {
     let msg = "Upload failed"
     try {
-      const err = await res.json()
+      const err = await readJson<{ detail?: string }>(res)
       msg = err.detail || msg
-    } catch {
-      /* ignore */
+    } catch (e) {
+      if (e instanceof Error) msg = e.message
     }
     throw new Error(msg)
   }
-  const data = await res.json()
+  const data = await readJson<{ url: string; filename?: string; size_bytes?: number }>(res)
   return {
     url: data.url as string,
     filename: (data.filename as string) || file.name,

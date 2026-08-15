@@ -36,7 +36,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import { API_BASE, api, type Claim, type Paginated } from "@/lib/api"
+import { API_BASE, api, ensureCsrf, type Claim, type Paginated } from "@/lib/api"
 import { Pager } from "@/components/ui/pagination"
 import { useApiQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
@@ -1168,12 +1168,10 @@ export function FinanceLedgerPage() {
       const qs = new URLSearchParams()
       if (month) qs.set("month", month)
       if (department) qs.set("department", department)
-      const csrf = await (
-        await fetch(`${API_BASE}/api/auth/csrf`, { credentials: "include" })
-      ).json()
+      const csrf = await ensureCsrf()
       const res = await fetch(`${API_BASE}/api/admin/ledger/export?${qs}`, {
         credentials: "include",
-        headers: { "X-CSRFToken": csrf.csrfToken || "" },
+        headers: { "X-CSRFToken": csrf || "" },
       })
       if (!res.ok) throw new Error("Export failed")
       const blob = await res.blob()

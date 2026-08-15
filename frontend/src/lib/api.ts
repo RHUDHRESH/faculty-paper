@@ -15,9 +15,27 @@ export function mediaUrl(url?: string | null): string {
   return `${API_BASE}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 
+const HTML_AS_JSON =
+  "Cannot reach the API (got a web page instead of data). Try again in a moment.";
+
+/** Parse a JSON response. HTML (SPA fallback, Render wake page) must never
+ * surface as `Unexpected token '<'`. */
+export async function readJson<T = unknown>(res: Response): Promise<T> {
+  const ct = res.headers.get("content-type") || "";
+  const text = await res.text();
+  if (!ct.includes("application/json") || text.trimStart().startsWith("<")) {
+    throw new Error(HTML_AS_JSON);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(HTML_AS_JSON);
+  }
+}
+
 export async function ensureCsrf(): Promise<string> {
   const res = await fetch(`${API_BASE}/api/auth/csrf`, { credentials: "include" });
-  const data = await res.json();
+  const data = await readJson<{ csrfToken?: string }>(res);
   return data.csrfToken as string;
 }
 
@@ -53,17 +71,19 @@ export async function api<T = unknown>(
     }
     let msg = res.statusText;
     try {
-      const err = await res.json();
-      msg = err.detail || JSON.stringify(err);
-    } catch {
-      /* ignore */
+      const err = await readJson<{ detail?: unknown }>(res);
+      msg = (typeof err.detail === "string" ? err.detail : JSON.stringify(err)) || msg;
+    } catch (e) {
+      if (e instanceof Error && e.message === HTML_AS_JSON) msg = e.message;
     }
     throw new Error(typeof msg === "string" ? msg : "Request failed");
   }
   if (res.status === 204) return undefined as T;
   const ct = res.headers.get("content-type") || "";
-  if (ct.includes("application/json")) return res.json();
-  return (await res.text()) as T;
+  if (ct.includes("application/json")) return readJson<T>(res);
+  const text = await res.text();
+  if (text.trimStart().startsWith("<")) throw new Error(HTML_AS_JSON);
+  return text as T;
 }
 
 /** Shape of the paginated list endpoints (/api/claims, /api/admin/payouts). */

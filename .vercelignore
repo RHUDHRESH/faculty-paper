@@ -1,0 +1,8 @@
+# CLI deploys from the repo root. The Vercel project root is frontend/.
+backend
+docs
+media
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc

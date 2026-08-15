@@ -40,7 +40,7 @@ Free Render may sleep; first request can take 30–60s. Hit `/api/health` after 
 
 ## Smoke checklist
 1. Faculty login → new ticket stepped form → submit → ticket number
-2. HoD approve → Principal approve → Finance mark paid
-3. Faculty sees “Payment cleared”
+2. Admin clearing queue: Clear (confirm recalculated amount) → Finance mark paid
+3. Faculty sees “Payment processed”
 4. Admin Formula preview calculator returns an amount
 5. CORS: browser Network tab shows `access-control-allow-origin` for Vercel

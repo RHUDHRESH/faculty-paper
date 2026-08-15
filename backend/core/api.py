@@ -183,17 +183,6 @@ def _notify_admins(claim: Claim, title: str, body: str) -> None:
         send_optional_email(u.email, title, body)
 
 
-def _notify_principals(claim: Claim, title: str, body: str) -> None:
-    for u in User.objects.filter(role=Role.PRINCIPAL, active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/principal?claim={claim.id}",
-            claim_id=claim.id,
-        )
-
-
 def _notify_finance(claim: Claim, title: str, body: str) -> None:
     for u in User.objects.filter(role=Role.FINANCE, active=True):
         Notification.objects.create(

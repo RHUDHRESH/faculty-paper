@@ -102,12 +102,5 @@ Defaults: `skip_sjr=true`, `skip_snip=true`, `sync_users=true`. Check counts via
 
 1. Open Vercel URL → login (then change password)
 2. Faculty: New ticket → ticket number + amount
-3. HoD → Principal → Finance **Yes**
-4. Faculty sees payment-cleared message; Finance ledger has the row
-
-## Helper
-
-```bash
-./scripts/deploy.sh backend   # checklist
-./scripts/deploy.sh frontend  # build + vercel --prod (needs login)
-```
+3. Admin clearing queue: Clear (confirm the recalculated amount) → Finance **Yes**
+4. Faculty sees the payment-processed message; Finance ledger has the row

@@ -7,18 +7,19 @@ Vite React SPA + Django Ninja API + Postgres.
 | Portal | Role | URL |
 |--------|------|-----|
 | Faculty | FACULTY | `/faculty` |
-| HoD | HOD | `/hod` |
-| Principal | PRINCIPAL | `/principal` |
+| Principal (oversight) | PRINCIPAL | `/principal` |
 | Finance | FINANCE | `/finance` |
-| Admin | SUPER_ADMIN / RESEARCH_CELL | `/admin` |
+| Admin / research cell | SUPER_ADMIN | `/admin` |
 
-**Workflow:** Faculty submit (auto-verify) → HoD → Principal → Finance mark paid.  
-On verify mismatch: **Edit & retry** or **Contest & forward** to HoD with a note.
+**Workflow:** Faculty submit (auto-verify) → research cell clears (amount re-verified
+and confirmed) → Finance marks paid. High-value claims need a second, distinct approver.
+On verify mismatch: **Edit & retry** or **Contest & forward** with a note, or the research
+cell enters manually verified values.
 
 ## Local run
 
 ```bash
-# Postgres (docker)
+# Postgres (docker, optional — SQLite is the default local fallback)
 docker compose up -d db
 
 # Backend

@@ -1,10 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api, type User, ensureCsrf } from "@/lib/api";
+import { clearNotifications } from "@/lib/use-notifications";
 
 type AuthCtx = {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -31,6 +32,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refresh();
   }, []);
 
+  useEffect(() => {
+    // api() fires this on any 401: the session expired mid-use. Clearing the
+    // user makes RequireAuth redirect to /login instead of leaving the person
+    // stranded on a portal where every button errors.
+    const onUnauthorized = () => {
+      setUser(null);
+      clearNotifications();
+    };
+    window.addEventListener("auth:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("auth:unauthorized", onUnauthorized);
+  }, []);
+
   const value = useMemo<AuthCtx>(
     () => ({
       user,
@@ -43,10 +56,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           json: { email, password },
         });
         setUser(u);
+        return u;
       },
       logout: async () => {
         await api("/api/auth/logout", { method: "POST", json: {} });
         setUser(null);
+        // Module-level cache; the next sign-in on this tab must not inherit it.
+        clearNotifications();
       },
     }),
     [user, loading]

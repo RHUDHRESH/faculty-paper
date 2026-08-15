@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 import time
 from datetime import datetime
 
@@ -29,14 +28,21 @@ def process_batch(batch_id: str) -> None:
         return
 
     batch.status = BatchStatus.RUNNING
-    batch.started_at = timezone.now()
+    batch.started_at = batch.started_at or timezone.now()
+    batch.heartbeat_at = timezone.now()
     batch.error_message = None
-    batch.save(update_fields=["status", "started_at", "error_message", "updated_at"])
+    batch.save(update_fields=["status", "started_at", "heartbeat_at", "error_message", "updated_at"])
 
     try:
         rows = list(batch.rows.order_by("row_number"))
         for row in rows:
+            # Resumable: a restart re-enqueues the batch and rows that already
+            # resolved are skipped, so only the interrupted tail is re-fetched.
+            if row.index_status and row.index_status != "Checking...":
+                continue
             _process_row(row)
+            batch.heartbeat_at = timezone.now()
+            batch.save(update_fields=["heartbeat_at", "updated_at"])
             time.sleep(SLEEP_BETWEEN_ROWS)
         batch.status = BatchStatus.DONE
         batch.finished_at = timezone.now()
@@ -50,8 +56,16 @@ def process_batch(batch_id: str) -> None:
 
 
 def start_batch_async(batch_id: str) -> None:
-    t = threading.Thread(target=process_batch, args=(batch_id,), daemon=True)
-    t.start()
+    """Enqueue on the django-q2 cluster.
+
+    This used to be a bare daemon thread inside a gunicorn worker: a deploy or
+    an idle spin-down killed it silently and the batch sat in RUNNING forever.
+    The queue survives restarts, and recover_stale_batches re-enqueues any
+    batch whose heartbeat went quiet.
+    """
+    from django_q.tasks import async_task
+
+    async_task("core.tasks.run_monthly_batch", batch_id)
 
 
 def _process_row(row: MonthlyRow) -> None:

@@ -3,13 +3,18 @@
 import { useState } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import {
+  BarChart3,
   BookOpen,
   ClipboardCheck,
   FileSpreadsheet,
   LayoutDashboard,
   LogOut,
   Menu,
+  Monitor,
+  Moon,
   Receipt,
+  Search,
+  Sun,
   Settings2,
   Shield,
   Ticket,
@@ -20,6 +25,7 @@ import {
 import { toast } from "sonner"
 
 import { useAuth } from "@/components/auth-provider"
+import { useTheme } from "@/lib/use-theme"
 import { ChangePasswordDialog, ChangePasswordGate } from "@/components/change-password"
 import { NotificationBell } from "@/components/notification-bell"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -113,6 +119,7 @@ function UserMenu() {
   const { user, logout, refresh } = useAuth()
   const nav = useNavigate()
   const [pwdOpen, setPwdOpen] = useState(false)
+  const { theme, setTheme } = useTheme()
 
   return (
     <>
@@ -155,6 +162,43 @@ function UserMenu() {
             Change password
           </DropdownMenuItem>
           <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+            Appearance
+          </DropdownMenuLabel>
+          <div className="px-1 pb-1">
+            <div
+              role="radiogroup"
+              aria-label="Appearance"
+              className="flex gap-1 rounded-lg bg-muted/60 p-1"
+            >
+              {(
+                [
+                  { value: "light", label: "Light", Icon: Sun },
+                  { value: "dark", label: "Dark", Icon: Moon },
+                  { value: "system", label: "Auto", Icon: Monitor },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={theme === opt.value}
+                  onClick={() => setTheme(opt.value)}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors outline-none",
+                    "focus-visible:ring-2 focus-visible:ring-ring/40",
+                    theme === opt.value
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <opt.Icon className="size-3.5" aria-hidden />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={async () => {
               await logout()
@@ -192,6 +236,20 @@ export function AppShell({
   return (
     <div className="flex min-h-svh bg-background">
       <ChangePasswordGate />
+      {/* First tab stop on every page: without it a keyboard user walks the
+          whole nav rail again on each navigation before reaching the form. */}
+      <a
+        href="#main-content"
+        className="sr-only left-4 top-4 z-50 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground focus:not-sr-only focus:absolute focus:outline-none focus:ring-3 focus:ring-ring/40"
+        onClick={(e) => {
+          e.preventDefault()
+          const main = document.getElementById("main-content")
+          main?.focus()
+          main?.scrollIntoView({ block: "start" })
+        }}
+      >
+        Skip to main content
+      </a>
       <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
         <BrandMark title={title} />
         <ScrollArea className="flex-1">
@@ -242,8 +300,10 @@ export function AppShell({
         </header>
 
         <main
+          id="main-content"
+          tabIndex={-1}
           className={cn(
-            "mx-auto w-full flex-1 px-4 py-5 md:px-6 md:py-6",
+            "mx-auto w-full flex-1 px-4 py-5 outline-none md:px-6 md:py-6",
             wide ? "max-w-6xl" : "max-w-5xl"
           )}
         >
@@ -267,22 +327,15 @@ export function FacultyShell() {
   )
 }
 
-export function HodShell() {
-  return (
-    <AppShell
-      title="HoD"
-      tabs={[{ to: "/hod", label: "Approvals", icon: ClipboardCheck, end: true }]}
-    />
-  )
-}
-
 export function PrincipalShell() {
   return (
     <AppShell
       title="Principal"
       tabs={[
-        { to: "/principal", label: "Approvals", icon: Shield, end: true },
+        { to: "/principal", label: "All tickets", icon: Shield, end: true },
         { to: "/principal/overview", label: "Overview", icon: LayoutDashboard },
+        { to: "/principal/query", label: "Query", icon: Search },
+        { to: "/principal/reports", label: "Reports", icon: BarChart3 },
       ]}
     />
   )
@@ -299,6 +352,7 @@ export function AdminShell() {
       wide
       tabs={[
         { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
+        { to: "/admin/clearing", label: "Clearing queue", icon: ClipboardCheck },
         { to: "/admin/submit", label: "Submit for faculty", icon: UserPlus },
         ...(isSuperAdmin
           ? [
@@ -309,6 +363,8 @@ export function AdminShell() {
         { to: "/admin/scimago", label: "Imports", icon: BookOpen },
         { to: "/admin/prior", label: "Prior payments", icon: Receipt },
         { to: "/admin/monthly", label: "Monthly", icon: FileSpreadsheet },
+        { to: "/admin/query", label: "Query", icon: Search },
+        { to: "/admin/reports", label: "Reports", icon: BarChart3 },
         { to: "/admin/audit", label: "Audit", icon: ClipboardCheck },
       ]}
     />
@@ -324,6 +380,8 @@ export function FinanceShell() {
         { to: "/finance", label: "Payment orders", icon: Wallet, end: true },
         { to: "/finance/paid", label: "Processed", icon: Receipt },
         { to: "/finance/ledger", label: "Ledger", icon: FileSpreadsheet },
+        { to: "/finance/query", label: "Query", icon: Search },
+        { to: "/finance/reports", label: "Reports", icon: BarChart3 },
         // Finance owns the remuneration policy — can_edit_formula is FINANCE or
         // SUPER_ADMIN — but the only screen for it lived under /admin, which the
         // portal guard keeps Finance out of.

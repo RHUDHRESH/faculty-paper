@@ -438,12 +438,14 @@ class Command(BaseCommand):
                 # avoid unique collision
                 if not Claim.objects.filter(ticket_number=ticket).exclude(pk=existing.pk).exists():
                     existing.ticket_number = ticket
+            existing.normalized_title = normalize_title(existing.paper_title)[:512]
             existing.save()
             return existing
 
         if Claim.objects.filter(ticket_number=ticket).exists():
             ticket = f"{ticket}-{secrets.token_hex(2)}"[:32]
         defaults = {**defaults, "ticket_number": ticket}
+        defaults.setdefault("normalized_title", normalize_title(defaults.get("paper_title"))[:512])
         return Claim.objects.create(**defaults)
 
     def _import_processed(self, ws, limit: int) -> int:

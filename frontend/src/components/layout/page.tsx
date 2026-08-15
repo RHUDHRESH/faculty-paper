@@ -1,6 +1,9 @@
-import type { ReactNode } from "react"
+import { useEffect, type ReactNode } from "react"
+import { Link } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+
+const APP_NAME = "Publication Tickets"
 
 export function PageHeader({
   title,
@@ -13,6 +16,16 @@ export function PageHeader({
   actions?: ReactNode
   className?: string
 }) {
+  // Every screen renders this header, so it is the one place that knows what
+  // the page is called. Without it the tab, history, and window switcher all
+  // read "Publication Tickets" no matter where you are.
+  useEffect(() => {
+    document.title = `${title} · ${APP_NAME}`
+    return () => {
+      document.title = APP_NAME
+    }
+  }, [title])
+
   return (
     <header
       className={cn(
@@ -107,18 +120,35 @@ export function InsetRow({
 export function StatStrip({
   items,
 }: {
-  items: { label: string; value: string | number }[]
+  items: { label: string; value: string | number; to?: string }[]
 }) {
   return (
     <div className="flex gap-8 overflow-x-auto pb-1">
-      {items.map((item) => (
-        <div key={item.label} className="min-w-[4.5rem] shrink-0">
-          <div className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
-            {item.value}
+      {items.map((item) => {
+        const body = (
+          <>
+            <div className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+              {item.value}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">{item.label}</div>
+          </>
+        )
+        // A number the reader can act on links to where the action happens —
+        // "To clear: 47" with nothing to click was a dead end.
+        return item.to ? (
+          <Link
+            key={item.label}
+            to={item.to}
+            className="min-w-[4.5rem] shrink-0 rounded-md transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {body}
+          </Link>
+        ) : (
+          <div key={item.label} className="min-w-[4.5rem] shrink-0">
+            {body}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">{item.label}</div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -153,6 +183,41 @@ export function EmptyState({
         <p className="mt-2 max-w-sm text-sm text-muted-foreground">{description}</p>
       ) : null}
       {action ? <div className="mt-4">{action}</div> : null}
+    </div>
+  )
+}
+
+/** A failed load must never masquerade as "you have nothing" — it says what
+ * happened and offers a retry. */
+export function ErrorState({
+  title = "Could not load",
+  description = "Something went wrong talking to the server.",
+  onRetry,
+  className,
+}: {
+  title?: string
+  description?: string
+  onRetry?: () => void
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-center justify-center rounded-lg border border-dashed border-destructive/40 bg-card/60 px-6 py-10 text-center",
+        className
+      )}
+    >
+      <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
+      <p className="mt-2 max-w-sm text-sm text-muted-foreground">{description}</p>
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          Try again
+        </button>
+      ) : null}
     </div>
   )
 }

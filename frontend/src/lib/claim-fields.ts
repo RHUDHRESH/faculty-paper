@@ -6,6 +6,39 @@ export type UploadedFileRef = {
   size_bytes: number
 }
 
+/**
+ * One cited reference authored by SEC faculty.
+ *
+ * Previously the number, the title, and the PDF were three parallel fields, so
+ * nothing said which file proved which citation — the approver had to guess and
+ * the claimant typed the same set out three times.
+ */
+export type SecCitation = {
+  /** As printed in the manuscript's reference list. */
+  number: string
+  title: string
+  file: UploadedFileRef | null
+}
+
+export function emptyCitation(): SecCitation {
+  return { number: "", title: "", file: null }
+}
+
+/** The ERP sheets read these two columns; the server derives them the same way. */
+export function citationNumbers(citations: SecCitation[]): string {
+  return citations
+    .map((c) => c.number.trim())
+    .filter(Boolean)
+    .join(", ")
+}
+
+export function citationTitles(citations: SecCitation[]): string {
+  return citations
+    .map((c) => c.title.trim())
+    .filter(Boolean)
+    .join("\n")
+}
+
 export type PublicationFormState = {
   owner_id?: string | null
   email: string
@@ -23,10 +56,14 @@ export type PublicationFormState = {
   yukthi_id: string
   publication_date: string
   publication_year: string
-  publication_type: string
+  /** An article can be filed under more than one type. */
+  publication_types: string[]
   aggregation_type: string
-  indexing_level: string
-  indexing_ref: string
+  /** A journal is often in several indexes at once — Scopus and UGC Care, say. */
+  indexing_levels: string[]
+  /** Separate registers, separate numbers. */
+  au_annexure_ref: string
+  ugc_care_ref: string
   doi: string
   total_authors: number
   author_position: number
@@ -34,12 +71,11 @@ export type PublicationFormState = {
   impact_factor: string
   is_student_publication: boolean
   affiliation_ok: boolean
-  sec_refs: string
-  reference_articles: string
+  /** Number + title + file, kept together. Replaces sec_refs / reference_articles. */
+  sec_citations: SecCitation[]
   proof_url: string
   sec_proof_url: string
   proof_files: UploadedFileRef[]
-  sec_proof_files: UploadedFileRef[]
   claim_reason: ClaimReason
   subject_category: string
 }
@@ -54,6 +90,17 @@ export const PUBLICATION_STEPS = [
 
 export const QUARTILE_OPTIONS = ["Q1", "Q2", "Q3", "Q4", "Others"]
 
+/**
+ * Evidence caps, mirroring ATTACHMENT_LIMITS in core/api.py. These are abuse
+ * ceilings rather than editorial limits — a paper can cite many SEC-affiliated
+ * references, and the published article sometimes arrives split across files.
+ */
+export const MAX_PAPER_FILES = 10
+export const MAX_REFERENCE_FILES = 50
+
+/** Policy minimum: fewer than this is counted but carries no remuneration. */
+export const EXPECTED_SEC_REFERENCES = 2
+
 /** Wording matches the official claim form; the value is what the ERP stores. */
 export const PUBLICATION_TYPES = [
   { value: "Journal", label: "Regular Research Article" },
@@ -63,11 +110,15 @@ export const PUBLICATION_TYPES = [
 ] as const
 
 export const INDEXING_LEVELS = [
-  { value: "SCI", label: "SCI", hint: "Science Citation Index" },
   { value: "Scopus", label: "Scopus", hint: "Elsevier Scopus indexed" },
+  { value: "SCIE", label: "Web of Science — SCIE", hint: "Science Citation Index Expanded" },
+  { value: "ESCI", label: "Web of Science — ESCI", hint: "Emerging Sources Citation Index" },
   { value: "AU Annexure", label: "AU Annexure", hint: "Reference number required" },
   { value: "UGC Care", label: "UGC Care", hint: "Reference number required" },
 ] as const
+
+/** Max authors the scheme pays for; beyond this the publication is not eligible. */
+export const MAX_ELIGIBLE_AUTHORS = 9
 
 /** Indexing levels where the form demands a reference number (or an explicit NA). */
 export const ANNEXURE_LEVELS = ["AU Annexure", "UGC Care"]
@@ -164,8 +215,8 @@ const ENRICH_LABELS: Record<string, string> = {
   issn: "ISSN",
   publication_date: "Publication date",
   publication_year: "Year",
-  publication_type: "Publication type",
-  indexing_level: "Indexing",
+  publication_types: "Publication type",
+  indexing_levels: "Indexing",
   snip: "SNIP",
   quartile: "Quartile",
   subject_category: "Subject",
@@ -177,6 +228,18 @@ export function formatIssn(raw: string): string {
   const cleaned = raw.replace(/[^0-9Xx]/g, "").toUpperCase().slice(0, 8)
   if (cleaned.length <= 4) return cleaned
   return `${cleaned.slice(0, 4)}-${cleaned.slice(4)}`
+}
+
+/**
+ * Pull the numeric author ID out of a pasted Scopus profile link.
+ * Mirrors core/services/scopus.py::extract_author_id so the profile stores the
+ * same value the linkage check queries with.
+ */
+export function extractScopusAuthorId(raw: string): string {
+  const s = String(raw || "").trim()
+  const m = s.match(/authorId[s]?=(\d+)/i)
+  if (m) return m[1]
+  return /^\d{6,}$/.test(s) ? s : ""
 }
 
 /** Strip doi.org URLs so a paste becomes a bare DOI. */
@@ -256,13 +319,18 @@ export function applyEnrichment(
   }
 
   const pubType = mapAggregationType(res.aggregation_type || paper.aggregation_type)
-  if (pubType && (overwrite || next.publication_type === "Journal")) {
-    mark("publication_type", next.publication_type, (next.publication_type = pubType))
-    next.aggregation_type = pubType
+  if (pubType && !next.publication_types.includes(pubType)) {
+    // Added, not substituted — the index knows one of the types, not all of them.
+    next.publication_types = [...next.publication_types, pubType]
+    next.aggregation_type = next.aggregation_type || pubType
+    changed.push("publication_types")
   }
 
-  if ((res.paper || res.serial) && (overwrite || !next.indexing_level)) {
-    mark("indexing_level", next.indexing_level, (next.indexing_level = next.indexing_level || "Scopus"))
+  // A Scopus hit proves Scopus indexing; it says nothing about the others, so
+  // it is added to the set rather than replacing what the claimant ticked.
+  if ((res.paper || res.serial) && !next.indexing_levels.includes("Scopus")) {
+    next.indexing_levels = [...next.indexing_levels, "Scopus"]
+    changed.push("indexing_levels")
   }
 
   const quartile = (res.quartile || "").trim()
@@ -321,8 +389,12 @@ export function validateStep(step: number, form: PublicationFormState): FieldErr
   if (step === 1) {
     if (!form.paper_title.trim()) e.paper_title = "Title of the paper is required"
     if (!form.journal_title.trim()) e.journal_title = "Journal name is required"
-    if (!form.publication_type) e.publication_type = "Select a publication type"
-    if (!form.indexing_level) e.indexing_level = "Select the journal indexing level"
+    if (!form.publication_types.length) {
+      e.publication_types = "Select the publication type"
+    }
+    if (!form.indexing_levels.length) {
+      e.indexing_levels = "Select every index the journal is listed in"
+    }
     if (!form.issn.trim()) {
       e.issn = "ISSN is required"
     } else if (!ISSN_RE.test(form.issn.trim())) {
@@ -330,8 +402,11 @@ export function validateStep(step: number, form: PublicationFormState): FieldErr
     }
     if (!form.publication_date.trim()) e.publication_date = "Date of publication is required"
     if (!form.yukthi_id.trim()) e.yukthi_id = "Yukthi ID is required"
-    if (ANNEXURE_LEVELS.includes(form.indexing_level) && !form.indexing_ref.trim()) {
-      e.indexing_ref = `${form.indexing_level} requires a reference number — enter NA if none`
+    if (form.indexing_levels.includes("AU Annexure") && !form.au_annexure_ref.trim()) {
+      e.au_annexure_ref = "AU Annexure requires its reference number — enter NA if none"
+    }
+    if (form.indexing_levels.includes("UGC Care") && !form.ugc_care_ref.trim()) {
+      e.ugc_care_ref = "UGC Care requires its reference number — enter NA if none"
     }
   }
 
@@ -365,12 +440,21 @@ export function validateStep(step: number, form: PublicationFormState): FieldErr
     if (!form.affiliation_ok) {
       e.affiliation_ok = "The article must be affiliated to Saveetha Engineering College"
     }
-    if (!form.sec_refs.trim()) {
-      e.sec_refs = "Enter the reference numbers cited with SEC affiliation"
-    }
     if (!form.proof_files.length) e.proof_files = "Upload the full-length published paper"
-    if (!form.sec_proof_files.length) {
-      e.sec_proof_files = "Upload at least one cited reference with SEC affiliation"
+
+    const filled = form.sec_citations.filter(
+      (c) => c.number.trim() || c.title.trim() || c.file
+    )
+    if (!filled.length) {
+      e.sec_citations = "Add the SEC-affiliated references you cited"
+    } else {
+      // Each citation is one thing; a half-filled one helps nobody downstream.
+      const incomplete = filled.findIndex(
+        (c) => !c.number.trim() || !c.title.trim() || !c.file
+      )
+      if (incomplete >= 0) {
+        e.sec_citations = `Reference ${incomplete + 1} needs a number, a title, and its file`
+      }
     }
   }
 
@@ -402,23 +486,26 @@ export function emptyFormState(): PublicationFormState {
     yukthi_id: "",
     publication_date: "",
     publication_year: "",
-    publication_type: "Journal",
-    aggregation_type: "Journal",
-    indexing_level: "",
-    indexing_ref: "",
+    publication_types: [],
+    aggregation_type: "",
+    indexing_levels: [],
+    au_annexure_ref: "",
+    ugc_care_ref: "",
     doi: "",
     total_authors: 1,
     author_position: 1,
     snip: "",
     impact_factor: "",
     is_student_publication: false,
-    affiliation_ok: true,
-    sec_refs: "",
-    reference_articles: "",
+    // Off by default: the claimant affirms this, the form does not affirm it
+    // for them.
+    affiliation_ok: false,
+    // Two are expected, so the form opens with two blanks rather than an
+    // empty area and an "add" button the claimant has to discover.
+    sec_citations: [emptyCitation(), emptyCitation()],
     proof_url: "",
     sec_proof_url: "",
     proof_files: [],
-    sec_proof_files: [],
     claim_reason: "INCENTIVE",
     subject_category: "",
   }
@@ -504,9 +591,32 @@ export function claimToFormState(claim: Claim): PublicationFormState {
   const proof_files = pick("PUBLISHED_PAPER").length
     ? pick("PUBLISHED_PAPER")
     : legacy(claim.proof_url)
-  const sec_proof_files = pick("SEC_REFERENCE").length
-    ? pick("SEC_REFERENCE")
-    : legacy(claim.sec_proof_url)
+
+  // Rebuild the citations. New claims carry number and title on the attachment
+  // row; older ones only have the two free-text columns, so line those up by
+  // position — imperfect, but it is all the old shape recorded.
+  const refRows = attachments.filter((a) => a.kind === "SEC_REFERENCE")
+  const legacyNumbers = parseRefNumbers(sec_refs)
+  const legacyTitles = reference_articles.split("\n").map((t) => t.trim()).filter(Boolean)
+  let sec_citations: SecCitation[] = refRows.map((a, i) => ({
+    number: a.ref_number || legacyNumbers[i] || "",
+    title: a.ref_title || legacyTitles[i] || "",
+    file: {
+      url: a.url,
+      filename: a.filename || "Document",
+      size_bytes: a.size_bytes || 0,
+    },
+  }))
+  if (!sec_citations.length) {
+    // No files at all: keep whatever numbers/titles were recorded.
+    const rows = Math.max(legacyNumbers.length, legacyTitles.length)
+    sec_citations = Array.from({ length: rows }, (_, i) => ({
+      number: legacyNumbers[i] || "",
+      title: legacyTitles[i] || "",
+      file: i === 0 ? (legacy(claim.sec_proof_url)[0] ?? null) : null,
+    }))
+  }
+  if (!sec_citations.length) sec_citations = [emptyCitation(), emptyCitation()]
 
   return {
     ...base,
@@ -526,10 +636,17 @@ export function claimToFormState(claim: Claim): PublicationFormState {
     yukthi_id: claim.yukthi_id || "",
     publication_date: claim.publication_date || "",
     publication_year: claim.publication_year ? String(claim.publication_year) : "",
-    publication_type: claim.publication_type || claim.aggregation_type || "Journal",
-    aggregation_type: claim.aggregation_type || claim.publication_type || "Journal",
-    indexing_level: claim.indexing_level || "",
-    indexing_ref: claim.indexing_ref || "",
+    publication_types: (claim.publication_type || claim.aggregation_type || "")
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean),
+    aggregation_type: claim.aggregation_type || claim.publication_type || "",
+    indexing_levels: (claim.indexing_level || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    au_annexure_ref: claim.au_annexure_ref || "",
+    ugc_care_ref: claim.ugc_care_ref || "",
     doi: claim.doi || "",
     total_authors: claim.total_authors || 1,
     author_position: claim.author_position || 1,
@@ -537,12 +654,10 @@ export function claimToFormState(claim: Claim): PublicationFormState {
     impact_factor: claim.impact_factor || "",
     is_student_publication: claim.is_student_publication || false,
     affiliation_ok: claim.affiliation_ok !== false,
-    sec_refs,
-    reference_articles,
+    sec_citations,
     proof_url: claim.proof_url || "",
     sec_proof_url: claim.sec_proof_url || "",
     proof_files,
-    sec_proof_files,
     claim_reason: claim.claim_reason === "COUNT_ONLY" ? "COUNT_ONLY" : "INCENTIVE",
     subject_category: claim.subject_category || "",
   }
@@ -567,9 +682,17 @@ export function buildClaimPayload(
   const quartile = form.quartile || form.self_reported_quartile || null
   const countOnly = form.claim_reason === "COUNT_ONLY"
 
+  // A citation only travels once it has its file; number and title ride along
+  // on the same row so nothing downstream has to pair them up again.
+  const citations = form.sec_citations.filter((c) => c.file)
   const attachments = [
     ...form.proof_files.map((f) => ({ ...f, kind: "PUBLISHED_PAPER" })),
-    ...form.sec_proof_files.map((f) => ({ ...f, kind: "SEC_REFERENCE" })),
+    ...citations.map((c) => ({
+      ...(c.file as UploadedFileRef),
+      kind: "SEC_REFERENCE",
+      ref_number: c.number.trim() || null,
+      ref_title: c.title.trim() || null,
+    })),
   ]
 
   return {
@@ -582,18 +705,21 @@ export function buildClaimPayload(
     doi: form.doi.trim() || null,
     publication_date: form.publication_date.trim() || null,
     publication_year: parseYear(form.publication_date, form.publication_year),
-    publication_type: form.publication_type || null,
-    aggregation_type: form.aggregation_type || form.publication_type || null,
-    indexing_level: form.indexing_level || null,
-    indexing_ref: form.indexing_ref.trim() || null,
+    publication_type: form.publication_types.join(", ") || null,
+    // One value for the ERP's aggregation column; the set lives in publication_type.
+    aggregation_type: form.aggregation_type || form.publication_types[0] || null,
+    indexing_level: form.indexing_levels.join(", ") || null,
+    au_annexure_ref: form.au_annexure_ref.trim() || null,
+    ugc_care_ref: form.ugc_care_ref.trim() || null,
     yukthi_id: form.yukthi_id.trim() || null,
     self_reported_quartile: form.self_reported_quartile || quartile,
     quartile,
     impact_factor: form.impact_factor.trim() || null,
     proof_url: form.proof_files[0]?.url || form.proof_url.trim() || null,
-    sec_refs: form.sec_refs.trim() || null,
-    sec_proof_url: form.sec_proof_files[0]?.url || form.sec_proof_url.trim() || null,
-    reference_articles: form.reference_articles.trim() || null,
+    // Derived, and the server derives them again from the same citations.
+    sec_refs: citationNumbers(citations) || null,
+    sec_proof_url: citations[0]?.file?.url || form.sec_proof_url.trim() || null,
+    reference_articles: citationTitles(citations) || null,
     claim_reason: form.claim_reason,
     attachments,
     scopus_author_url: form.scopus_author_url.trim() || null,

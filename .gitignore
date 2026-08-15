@@ -67,6 +67,9 @@ backend/db.sqlite3
 .vscode/
 *.swp
 
+# Claude Code: launch.json is shared project config; local permission grants are not
+.claude/settings.local.json
+
 # vercel / render
 .vercel
 

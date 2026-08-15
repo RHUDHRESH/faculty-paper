@@ -4,11 +4,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from django.db.models import Q
+
 from core.models import Claim, ClaimStatus, PriorPayment, SnipSource
 from core.services.normalize import (
     normalize_doi,
     normalize_issn,
     normalize_title,
+    title_tokens,
     titles_rough_match,
 )
 from core.services.scimago import engineering_class, lookup_scimago, scimago_official_search_url
@@ -49,39 +52,56 @@ def check_already_paid(
     staff_id: str | None = None,
     exclude_claim_id: str | None = None,
 ) -> dict[str, Any]:
+    # All matching narrows in the database first. The old version scanned the
+    # first 400 prior payments and 80 paid claims in Python, so a genuine
+    # duplicate past those rows produced no warning at all.
     matches: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(source: str, obj_id: str, paper_title: str | None, amount: float | None) -> None:
+        if obj_id not in seen:
+            seen.add(obj_id)
+            matches.append({"source": source, "id": obj_id, "title": paper_title, "amount": amount})
+
+    def paid_claims():
+        qs = Claim.objects.filter(status=ClaimStatus.PAID)
+        if exclude_claim_id:
+            qs = qs.exclude(pk=exclude_claim_id)
+        return qs
+
     if doi:
         d = normalize_doi(doi)
         if d:
             for m in PriorPayment.objects.filter(doi__iexact=d)[:10]:
-                matches.append({"source": "prior", "id": m.id, "title": m.paper_title, "amount": m.amount_paid})
-            qs = Claim.objects.filter(doi__iexact=d, status=ClaimStatus.PAID)
-            if exclude_claim_id:
-                qs = qs.exclude(pk=exclude_claim_id)
-            for c in qs[:10]:
-                matches.append({"source": "claim", "id": c.id, "title": c.paper_title, "amount": c.remuneration})
+                add("prior", m.id, m.paper_title, m.amount_paid)
+            for c in paid_claims().filter(doi__iexact=d)[:10]:
+                add("claim", c.id, c.paper_title, c.remuneration)
     if title:
         nt = normalize_title(title)
         if nt:
-            # Exact normalized first, then rough case-insensitive overlap
+            # Exact normalized-title hits are indexed lookups on both tables.
             for m in PriorPayment.objects.filter(normalized_title=nt)[:10]:
-                if not any(x["id"] == m.id for x in matches):
-                    matches.append({"source": "prior", "id": m.id, "title": m.paper_title, "amount": m.amount_paid})
-            for m in PriorPayment.objects.exclude(normalized_title="")[:400]:
-                if any(x["id"] == m.id for x in matches):
-                    continue
-                if titles_rough_match(title, m.paper_title):
-                    matches.append({"source": "prior", "id": m.id, "title": m.paper_title, "amount": m.amount_paid})
-            qs = Claim.objects.filter(status=ClaimStatus.PAID)
-            if exclude_claim_id:
-                qs = qs.exclude(pk=exclude_claim_id)
-            if staff_id:
-                qs = qs.filter(staff_id=staff_id)
-            for c in qs[:80]:
-                if any(x["id"] == c.id for x in matches):
-                    continue
-                if titles_rough_match(title, c.paper_title):
-                    matches.append({"source": "claim", "id": c.id, "title": c.paper_title, "amount": c.remuneration})
+                add("prior", m.id, m.paper_title, m.amount_paid)
+            for c in paid_claims().filter(normalized_title=nt)[:10]:
+                add("claim", c.id, c.paper_title, c.remuneration)
+            # Rough matching runs only over DB-narrowed candidates: rows that
+            # share at least one of the title's most distinctive tokens.
+            tokens = sorted(title_tokens(title), key=len, reverse=True)[:3]
+            if tokens:
+                cond = Q()
+                for t in tokens:
+                    cond |= Q(normalized_title__icontains=t)
+                prior_candidates = (
+                    PriorPayment.objects.exclude(normalized_title="")
+                    .exclude(normalized_title__isnull=True)
+                    .filter(cond)[:50]
+                )
+                for m in prior_candidates:
+                    if m.id not in seen and titles_rough_match(title, m.paper_title):
+                        add("prior", m.id, m.paper_title, m.amount_paid)
+                for c in paid_claims().filter(cond)[:50]:
+                    if c.id not in seen and titles_rough_match(title, c.paper_title):
+                        add("claim", c.id, c.paper_title, c.remuneration)
     return {"warning": len(matches) > 0, "matches": matches[:15]}
 
 
@@ -130,13 +150,18 @@ def verify_publication(
 
         issn_use = paper.get("issn") or issn
         snip = None
+        snip_source = None
         if issn_use:
             serial = lookup_serial_by_issn(issn_use)
             if serial and serial.get("snip") is not None:
                 snip = serial["snip"]
+                snip_source = "SCOPUS"
             if snip is None:
                 snip = lookup_snip_dump(issn_use, paper.get("journal_title"))
+                if snip is not None:
+                    snip_source = "SNIP_DUMP"
         out["snip"] = snip
+        out["snip_source"] = snip_source
 
         scimago = lookup_scimago(issn=issn_use, title=paper.get("journal_title"))
         if scimago and scimago.get("found"):
@@ -196,19 +221,32 @@ def apply_verify_to_claim(claim: Claim, result: dict[str, Any]) -> Claim:
     else:
         claim.indexing_status = "Not yet indexed"
 
+    # Verified values carry their provenance. A miss clears the previous value
+    # unless an admin entered it manually — otherwise a stale or injected
+    # number would quietly survive into the payout.
     if result.get("snip") is not None:
         claim.snip = float(result["snip"])
+        claim.snip_source = result.get("snip_source") or "SCOPUS"
+    elif claim.snip_source != "MANUAL":
+        claim.snip = None
+        claim.snip_source = None
     scimago = result.get("scimago") or {}
     if scimago.get("found") and scimago.get("quartile"):
         claim.quartile = scimago["quartile"]
+        claim.quartile_source = "SCIMAGO"
         claim.scimago_verified = True
         claim.scimago_sjr = scimago.get("sjr")
         claim.scimago_categories_json = json.dumps(scimago.get("categories") or [])
         claim.scimago_dataset_year = scimago.get("year")
+    elif claim.quartile_source != "MANUAL":
+        claim.quartile = None
+        claim.quartile_source = None
+        claim.scimago_verified = False
     if result.get("engineering_class"):
         claim.engineering_class = result["engineering_class"]
     if result.get("subjects"):
         claim.subjects_json = result["subjects"]
+    claim.normalized_title = normalize_title(claim.paper_title)[:512]
 
     paid = result.get("paid") or {}
     claim.duplicate_warning = bool(paid.get("warning"))

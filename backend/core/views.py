@@ -16,10 +16,11 @@ from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonRe
 
 from core.models import Claim, Role
 from core.services import rbac
+from core.services.uploads import kind_for_stored_name
 
-# Uploads are written as uuid4().hex + ".pdf" (core/api.py). Anything else is
-# either a traversal attempt or a file this app did not create.
-_SAFE_NAME = re.compile(r"^[0-9a-f]{32}\.pdf$")
+# Uploads are written as uuid4().hex + a sniffed extension (core/api.py).
+# Anything else is either a traversal attempt or a file this app did not create.
+_SAFE_NAME = re.compile(r"^[0-9a-f]{32}\.[a-z0-9]{2,5}$")
 
 
 def _claims_referencing(url: str):
@@ -34,13 +35,9 @@ def _may_read(user, url: str) -> bool:
         # Freshly uploaded and not yet attached to a saved claim. The form links to
         # it before the claim exists, so let the roles that can upload read it back.
         # The name carries 128 bits of entropy, so it is not enumerable.
-        return user.role in (Role.FACULTY, Role.SUPER_ADMIN, Role.RESEARCH_CELL)
+        return rbac.can_issue_claims(user.role)
     if rbac.can_view_college_wide(user.role):
         return True
-    if user.role == Role.HOD:
-        if not user.department:
-            return False
-        return qs.filter(owner__department__iexact=user.department).exists()
     return qs.filter(owner=user).exists()
 
 
@@ -51,6 +48,12 @@ def claim_media(request: HttpRequest, filename: str) -> HttpResponse:
     if not _SAFE_NAME.match(filename):
         raise Http404
 
+    # Serving every file as application/pdf meant an uploaded scan or photo
+    # arrived as a PDF the browser could not render.
+    kind = kind_for_stored_name(filename)
+    if kind is None:
+        raise Http404
+
     root = (Path(settings.MEDIA_ROOT) / "claims").resolve()
     path = (root / filename).resolve()
     if not str(path).startswith(str(root)) or not path.is_file():
@@ -59,7 +62,10 @@ def claim_media(request: HttpRequest, filename: str) -> HttpResponse:
     if not _may_read(request.user, f"{settings.MEDIA_URL}claims/{filename}"):
         return JsonResponse({"detail": "Forbidden"}, status=403)
 
-    response = FileResponse(open(path, "rb"), content_type="application/pdf")
-    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    response = FileResponse(open(path, "rb"), content_type=kind.content_type)
+    disposition = "inline" if kind.inline else "attachment"
+    # The claimant's original name lives on the attachment row; the file on disk
+    # is a uuid, which is what a download should be named to stay unambiguous.
+    response["Content-Disposition"] = f'{disposition}; filename="{filename}"'
     response["X-Content-Type-Options"] = "nosniff"
     return response

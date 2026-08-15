@@ -139,9 +139,11 @@ def clean_title_for_query(title: str) -> str:
     return re.sub(r"[\'\"“”‘’]", "", str(title)).strip()
 
 
-def _search(query: str, count: int = 1) -> dict[str, Any]:
-    qs = urlencode({"query": query, "count": str(count)})
-    return scopus_fetch(f"{SCOPUS_BASE}/search/scopus?{qs}")
+def _search(query: str, count: int = 1, sort: str | None = None) -> dict[str, Any]:
+    params = {"query": query, "count": str(count)}
+    if sort:
+        params["sort"] = sort
+    return scopus_fetch(f"{SCOPUS_BASE}/search/scopus?{urlencode(params)}")
 
 
 def search_by_title(title: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
@@ -163,6 +165,81 @@ def search_by_title(title: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     if not entry:
         return None, data
     return parse_search_entry(entry), data
+
+
+def _build_query(
+    *,
+    title: str | None = None,
+    doi: str | None = None,
+    author_id: str | None = None,
+    exact_title: bool = True,
+) -> str:
+    parts: list[str] = []
+    if doi:
+        parts.append(f"DOI({doi})")
+    if title:
+        clean = clean_title_for_query(title)
+        if exact_title:
+            parts.append(f'TITLE("{clean}")')
+        else:
+            loose = re.sub(r"\s+", " ", clean).strip()
+            parts.append(f"TITLE({loose})")
+    if author_id:
+        parts.append(f"AU-ID({author_id})")
+    return " AND ".join(parts)
+
+
+def search_candidates(
+    *,
+    title: str | None = None,
+    doi: str | None = None,
+    author_id: str | None = None,
+    limit: int = 10,
+    sort: str | None = None,
+) -> list[dict[str, Any]]:
+    """Every Scopus match for the query, not only the first.
+
+    search_by_title returns entry[0], which is right when the caller already
+    knows the article. Picking one is a different job: a title alone also matches
+    errata, translations, and same-titled work by other groups, and silently
+    taking the top hit is how a wrong DOI ends up on a claim.
+
+    With `author_id` alone this becomes "everything on that Scopus profile",
+    which is the list a claimant actually recognises their own paper from.
+    """
+    count = max(1, min(int(limit or 10), 25))
+    queries: list[str] = [_build_query(title=title, doi=doi, author_id=author_id)]
+    if title:
+        # Quoted TITLE misses on punctuation and subtitle differences; the
+        # unquoted form is the same fallback search_by_title uses.
+        queries.append(
+            _build_query(title=title, doi=doi, author_id=author_id, exact_title=False)
+        )
+
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for query in queries:
+        if not query:
+            continue
+        data = _search(query, count=count, sort=sort)
+        entries = ((data.get("search-results") or {}).get("entry")) or []
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            # A zero-result Scopus search still returns one entry — an error stub.
+            if not isinstance(entry, dict) or entry.get("error"):
+                continue
+            parsed = parse_search_entry(entry)
+            key = str(parsed.get("eid") or parsed.get("doi") or parsed.get("title") or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(parsed)
+            if len(out) >= count:
+                return out
+        if out:
+            break
+    return out
 
 
 def check_author_linkage(author_id: str, title: str) -> tuple[bool, dict[str, Any]]:

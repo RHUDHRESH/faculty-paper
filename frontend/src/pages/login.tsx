@@ -12,7 +12,8 @@ import { portalPath } from "@/lib/utils"
 
 const DEMOS = [
   { role: "Faculty", email: "faculty@college.edu", password: "faculty123" },
-  { role: "HoD", email: "hod@college.edu", password: "hod123" },
+  // Admin, not HoD: the HoD role was removed, and clearing is where tickets move.
+  { role: "Admin", email: "research@college.edu", password: "research123" },
   { role: "Principal", email: "principal@college.edu", password: "principal123" },
   { role: "Finance", email: "finance@college.edu", password: "finance123" },
 ]
@@ -36,12 +37,10 @@ export function LoginPage() {
     setBusy(true)
     setError("")
     try {
-      await login(email.trim(), password)
+      // login() already returns the authenticated user — the extra raw /me
+      // fetch here was a second round-trip for data we were holding.
+      const me = await login(email.trim(), password)
       toast.success("Welcome back")
-      const me = await fetch(
-        `${import.meta.env.VITE_API_BASE || ""}/api/auth/me`,
-        { credentials: "include" }
-      ).then((r) => r.json())
       nav(portalPath(me.portal))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Login failed"
@@ -100,6 +99,10 @@ export function LoginPage() {
               <Button type="submit" className="w-full" disabled={busy}>
                 {busy ? "Signing in…" : "Sign in"}
               </Button>
+              <p className="text-center text-xs text-muted-foreground">
+                Forgotten your password? The research cell can reset it and unlock
+                your account.
+              </p>
             </form>
           </CardContent>
         </Card>

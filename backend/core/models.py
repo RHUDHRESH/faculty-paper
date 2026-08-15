@@ -18,14 +18,34 @@ class Role(models.TextChoices):
 
 
 class ClaimStatus(models.TextChoices):
+    """Live chain: DRAFT → SUBMITTED → CLEARED → PAID, or REJECTED.
+
+    Admin clears a submitted ticket; Finance pays a cleared one. The HoD and
+    Principal statuses below belong to the old chain and are kept only so
+    tickets filed under it still load, report, and can be paid out.
+    """
+
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
-    HOD_APPROVED = "HOD_APPROVED"
-    PRINCIPAL_APPROVED = "PRINCIPAL_APPROVED"
-    RESEARCH_APPROVED = "RESEARCH_APPROVED"  # legacy alias kept for old rows
-    FINANCE_APPROVED = "FINANCE_APPROVED"  # legacy — Principal queue feeds Finance directly
+    CLEARED = "CLEARED"
     PAID = "PAID"
     REJECTED = "REJECTED"
+
+    # Legacy — no new claim enters these.
+    HOD_APPROVED = "HOD_APPROVED"
+    PRINCIPAL_APPROVED = "PRINCIPAL_APPROVED"
+    RESEARCH_APPROVED = "RESEARCH_APPROVED"
+    FINANCE_APPROVED = "FINANCE_APPROVED"
+
+
+#: Cleared for payment — the new status plus the old chain's terminal approvals,
+#: so tickets already approved under the previous flow are still payable.
+PAYABLE_STATUSES = (
+    ClaimStatus.CLEARED,
+    ClaimStatus.PRINCIPAL_APPROVED,
+    ClaimStatus.RESEARCH_APPROVED,
+    ClaimStatus.FINANCE_APPROVED,
+)
 
 
 class QuartileMode(models.TextChoices):
@@ -109,13 +129,25 @@ class FormulaConfig(models.Model):
     effective_to = models.DateField(blank=True, null=True)
     snip_multiplier = models.FloatField(default=55000)
     snip_cap = models.FloatField(default=30)
+    # Additional Quartile Incentive (QFA), Engineering journals only.
     qf_q1 = models.FloatField(default=50000)
     qf_q2 = models.FloatField(default=30000)
     qf_q3 = models.FloatField(default=15000)
-    qf_q4 = models.FloatField(default=5000)
+    qf_q4 = models.FloatField(default=7000)
     qf_no_snip = models.FloatField(default=0)
     qf_snip_only = models.FloatField(default=0)
     qf_others = models.FloatField(default=4000)  # conference / others from Accounts sheet
+    # Fixed rates for the categories that carry no SNIP (Step 8, II–IV).
+    fixed_journal_no_snip = models.FloatField(default=5000)
+    fixed_other_no_snip = models.FloatField(default=4000)
+    fixed_web_of_science = models.FloatField(default=5000)
+    #: "Publications with more than nine authors shall not be eligible."
+    max_authors = models.PositiveIntegerField(default=9)
+    #: "a minimum of two (2) SEC-affiliated references" for remuneration.
+    min_sec_references = models.PositiveIntegerField(default=2)
+    #: Claims at or above this amount need a second, distinct approver
+    #: before Finance can pay them.
+    high_value_threshold = models.FloatField(default=100000)
     author_point_json = models.TextField()
     # e.g. {"Journal": 1, "Conference Proceeding": 0.8, "Book Series": 0.5, "Other": 0.5}
     publication_type_multipliers_json = models.TextField(
@@ -179,11 +211,24 @@ class Claim(models.Model):
     publication_year = models.IntegerField(blank=True, null=True)
     publication_date = models.CharField(max_length=64, blank=True, null=True)
     publication_type = models.CharField(max_length=128, blank=True, null=True)
+    # Comma-separated sets: a journal sits in several indexes at once, and an
+    # article can be filed under more than one type.
     indexing_level = models.CharField(max_length=128, blank=True, null=True)
+    #: Legacy combined column, derived from the two below for ERP exports.
     indexing_ref = models.CharField(max_length=255, blank=True, null=True)
+    # AU Annexure and UGC Care are separate registers with separate numbers;
+    # one shared box could only ever hold one of them.
+    au_annexure_ref = models.CharField(max_length=128, blank=True, null=True)
+    ugc_care_ref = models.CharField(max_length=128, blank=True, null=True)
     yukthi_id = models.CharField(max_length=64, blank=True, null=True)
     self_reported_quartile = models.CharField(max_length=32, blank=True, null=True)
+    #: The claimant's own SNIP declaration. Kept apart from `snip` because the
+    #: payout must only ever be computed from server-verified values.
+    self_reported_snip = models.FloatField(blank=True, null=True)
     impact_factor = models.CharField(max_length=64, blank=True, null=True)
+    #: normalize_title(paper_title), indexed so duplicate detection is a lookup
+    #: rather than a scan.
+    normalized_title = models.CharField(max_length=512, blank=True, null=True, db_index=True)
 
     staff_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
     biometric_id = models.CharField(max_length=64, blank=True, null=True)
@@ -220,6 +265,17 @@ class Claim(models.Model):
     snip = models.FloatField(blank=True, null=True)
     snip_year = models.IntegerField(blank=True, null=True)
     quartile = models.CharField(max_length=16, blank=True, null=True)
+    # Where the verified value came from. Money is computed only from values
+    # with a source: SCOPUS / SNIP_DUMP / MANUAL for snip, SCIMAGO / MANUAL
+    # for quartile. MANUAL entries survive re-verification; everything else is
+    # overwritten (or cleared) by the next verify run.
+    snip_source = models.CharField(max_length=16, blank=True, null=True)
+    quartile_source = models.CharField(max_length=16, blank=True, null=True)
+    manual_verified_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="manual_verifications"
+    )
+    manual_verified_at = models.DateTimeField(blank=True, null=True)
+    manual_verification_note = models.TextField(blank=True, null=True)
     scimago_verified = models.BooleanField(default=False)
     scimago_sjr = models.FloatField(blank=True, null=True)
     scimago_categories_json = models.TextField(blank=True, null=True)
@@ -228,13 +284,19 @@ class Claim(models.Model):
     manual_quartile_reason = models.TextField(blank=True, null=True)
 
     is_student_publication = models.BooleanField(default=False)
-    affiliation_ok = models.BooleanField(default=True)
+    #: An affirmation the claimant has to make. Defaulting it true would assert
+    #: it on their behalf, which is the one thing a confirmation must not do.
+    affiliation_ok = models.BooleanField(default=False)
 
     qf_amount = models.FloatField(blank=True, null=True)
     base_amount = models.FloatField(blank=True, null=True)
     author_point = models.FloatField(blank=True, null=True)
     remuneration = models.FloatField(blank=True, null=True)
     calc_error = models.TextField(blank=True, null=True)
+    #: Which of the policy's four Step 8 categories produced the amount, and why.
+    #: An unexplained number is the thing faculty and Finance both query.
+    remuneration_category = models.CharField(max_length=8, blank=True, null=True)
+    remuneration_note = models.TextField(blank=True, null=True)
 
     formula_config = models.ForeignKey(
         FormulaConfig, null=True, blank=True, on_delete=models.SET_NULL, related_name="claims"
@@ -253,6 +315,16 @@ class Claim(models.Model):
     voucher_number = models.CharField(max_length=64, blank=True, null=True)
     payout_month = models.DateField(blank=True, null=True)
 
+    # Who moved the money along. A high-value claim needs a second approver
+    # distinct from the person who cleared it.
+    cleared_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="cleared_claims"
+    )
+    second_approved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="second_approvals"
+    )
+    second_approved_at = models.DateTimeField(blank=True, null=True)
+
     scopus_raw_json = models.TextField(blank=True, null=True)
     scimago_raw_json = models.TextField(blank=True, null=True)
 
@@ -261,9 +333,23 @@ class Claim(models.Model):
     submitted_at = models.DateTimeField(blank=True, null=True)
     paid_at = models.DateTimeField(blank=True, null=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["status", "-updated_at"]),
+            models.Index(fields=["owner", "status"]),
+            models.Index(fields=["payout_month"]),
+            models.Index(fields=["-submitted_at"]),
+        ]
+
 
 class ClaimAttachment(models.Model):
-    """Uploaded PDFs for a claim. One published paper, up to five SEC references."""
+    """An uploaded evidence file for a claim.
+
+    A SEC_REFERENCE row also carries which citation it is: the number as printed
+    in the manuscript's reference list, and the article's title. Those used to
+    live in two unrelated free-text columns on Claim, so nothing connected
+    reference 14 to its title or to the file that proved it.
+    """
 
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
     claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="attachments")
@@ -271,6 +357,8 @@ class ClaimAttachment(models.Model):
     url = models.TextField()
     filename = models.CharField(max_length=255, blank=True, null=True)
     size_bytes = models.IntegerField(default=0)
+    ref_number = models.CharField(max_length=32, blank=True, null=True)
+    ref_title = models.TextField(blank=True, null=True)
     uploaded_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="claim_uploads"
     )
@@ -391,6 +479,9 @@ class MonthlyBatch(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     started_at = models.DateTimeField(blank=True, null=True)
     finished_at = models.DateTimeField(blank=True, null=True)
+    #: Touched per row while processing. A RUNNING batch whose heartbeat has
+    #: gone stale was killed mid-run (deploy, spin-down) and can be resumed.
+    heartbeat_at = models.DateTimeField(blank=True, null=True)
 
 
 class MonthlyRow(models.Model):

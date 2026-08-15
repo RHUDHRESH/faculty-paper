@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "react-router-dom"
 import {
   BadgeCheck,
   BookOpenText,
@@ -13,6 +14,7 @@ import { toast } from "sonner"
 
 import {
   EmptyState,
+  ErrorState,
   FilterBar,
   PageHeader,
 } from "@/components/layout/page"
@@ -29,11 +31,14 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import { API_BASE, api, type Claim } from "@/lib/api"
+import { API_BASE, api, type Claim, type Paginated } from "@/lib/api"
+import { Pager } from "@/components/ui/pagination"
+import { useApiQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 
@@ -137,6 +142,11 @@ function PaymentOrderCard({
             ) : null}
           </p>
           <FormulaSnap claim={claim} />
+          {claim.needs_second_approval ? (
+            <Badge variant="secondary" className="mt-1 text-[10px]">
+              Awaiting 2nd approval
+            </Badge>
+          ) : null}
         </div>
         <div className="shrink-0 text-right">
           <AmountPill value={claim.remuneration} />
@@ -162,7 +172,7 @@ function PaymentOrderCard({
         <Button
           size="sm"
           className="flex-1 gap-1.5"
-          disabled={busy}
+          disabled={busy || claim.needs_second_approval}
           onClick={onMarkPaid}
         >
           <BadgeCheck className="size-4" />
@@ -187,12 +197,63 @@ function PaymentOrderCard({
 // FinancePayoutsPage
 // ---------------------------------------------------------------------------
 
+/** Selection + typed vouchers survive navigation: they used to live in plain
+ * component state, so typing thirty voucher numbers and switching pages lost
+ * all thirty. Cleared when the batch is actually paid. */
+const BULK_PAY_STORE = "finance-bulk-pay"
+
+function readBulkStore(): { picked: string[]; voucher: Record<string, string> } {
+  try {
+    const raw = sessionStorage.getItem(BULK_PAY_STORE)
+    if (raw) return JSON.parse(raw)
+  } catch {
+    /* fresh start */
+  }
+  return { picked: [], voucher: {} }
+}
+
 export function FinancePayoutsPage() {
-  const [rows, setRows] = useState<Claim[]>([])
-  const [voucher, setVoucher] = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState(true)
+  const [voucher, setVoucherState] = useState<Record<string, string>>(
+    () => readBulkStore().voucher
+  )
+  const [picked, setPickedState] = useState<Set<string>>(
+    () => new Set(readBulkStore().picked)
+  )
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkNote, setBulkNote] = useState("")
+  const [bulkBusy, setBulkBusy] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [q, setQ] = useState("")
+
+  function persistBulk(nextPicked: Set<string>, nextVoucher: Record<string, string>) {
+    try {
+      sessionStorage.setItem(
+        BULK_PAY_STORE,
+        JSON.stringify({ picked: [...nextPicked], voucher: nextVoucher })
+      )
+    } catch {
+      /* storage full or blocked — selection just becomes per-visit */
+    }
+  }
+
+  function setVoucher(next: Record<string, string>) {
+    setVoucherState(next)
+    persistBulk(picked, next)
+  }
+
+  function setPicked(next: Set<string>) {
+    setPickedState(next)
+    persistBulk(next, voucher)
+  }
+
+  function togglePick(id: string) {
+    const next = new Set(picked)
+    next.has(id) ? next.delete(id) : next.add(id)
+    setPicked(next)
+  }
+  // Notification deep links arrive as /finance?claim=… — highlight that row.
+  const [params] = useSearchParams()
+  const [highlightId, setHighlightId] = useState<string | null>(null)
 
   // Confirm-paid dialog
   const [confirmPayId, setConfirmPayId] = useState<string | null>(null)
@@ -201,26 +262,53 @@ export function FinancePayoutsPage() {
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [rejectNote, setRejectNote] = useState("")
 
-  async function load() {
-    setLoading(true)
-    try {
-      setRows(await api<Claim[]>("/api/admin/payouts?status=PRINCIPAL_APPROVED"))
-    } finally {
-      setLoading(false)
-    }
-  }
+  // Cleared tickets, including any still carrying an old-chain status.
+  const [offset, setOffset] = useState(0)
+  const PAGE = 50
+  const {
+    data: page,
+    isLoading: loading,
+    isError,
+    refetch,
+  } = useApiQuery<Paginated<Claim>>(
+    ["claims", "payouts", "CLEARED", offset],
+    `/api/admin/payouts?status=CLEARED&limit=${PAGE}&offset=${offset}`
+  )
+  const rows = page?.results ?? []
+  const load = () => refetch()
 
   useEffect(() => {
-    load().catch(() => toast.error("Could not load payment orders"))
-  }, [])
+    const id = params.get("claim")
+    if (!id || loading) return
+    const match = rows.find((r) => r.id === id)
+    if (match) {
+      setHighlightId(id)
+      // Desktop table row and mobile card carry different ids — scroll the
+      // one that is actually visible at this breakpoint.
+      const el = [
+        document.getElementById(`payout-${id}`),
+        document.getElementById(`payout-m-${id}`),
+      ].find((e) => e && e.offsetParent !== null)
+      el?.scrollIntoView({ block: "center" })
+    } else {
+      toast.info("That ticket is not in the payment queue — it may already be processed.")
+    }
+  }, [params, loading, rows])
 
   async function processYes(id: string) {
     setBusyId(id)
     setConfirmPayId(null)
     try {
+      const claim = rows.find((r) => r.id === id)
       await api(`/api/claims/${id}/mark-paid`, {
         method: "POST",
-        json: { voucher_number: voucher[id] || "", note: "processed" },
+        json: {
+          voucher_number: voucher[id] || "",
+          note: "processed",
+          // The amount on screen is the amount that gets paid — the server
+          // recomputes and refuses if they no longer match.
+          expected_amount: claim?.remuneration ?? null,
+        },
       })
       toast.success("Payment marked — faculty has been notified", {
         description: voucher[id] ? `Voucher: ${voucher[id]}` : undefined,
@@ -253,6 +341,49 @@ export function FinancePayoutsPage() {
     }
   }
 
+  async function payBulk() {
+    const selectedRows = rows.filter((r) => picked.has(r.id))
+    if (!selectedRows.length) return
+    setBulkBusy(true)
+    try {
+      const res = await api<{
+        paid: number
+        paid_ids: string[]
+        skipped: { id: string; reason: string }[]
+      }>("/api/admin/bulk-mark-paid", {
+        method: "POST",
+        json: {
+          items: selectedRows.map((r) => ({
+            claim_id: r.id,
+            voucher_number: voucher[r.id] || null,
+            // The amount on screen is the amount that gets paid — the server
+            // recomputes per row and skips anything that drifted.
+            expected_amount: r.remuneration ?? null,
+          })),
+          note: bulkNote.trim() || "processed (batch)",
+        },
+      })
+      toast.success(`${res.paid} payment${res.paid === 1 ? "" : "s"} processed`)
+      for (const s of res.skipped.slice(0, 3)) toast.error(`Skipped: ${s.reason}`)
+      if (res.skipped.length > 3) toast.error(`${res.skipped.length - 3} more were skipped`)
+      // Keep only what was skipped selected, so it is easy to fix and retry.
+      const remaining = new Set(res.skipped.map((s) => s.id))
+      const nextVoucher: Record<string, string> = {}
+      for (const id of remaining) if (voucher[id]) nextVoucher[id] = voucher[id]
+      setPickedState(remaining)
+      setVoucherState(nextVoucher)
+      if (remaining.size) persistBulk(remaining, nextVoucher)
+      else sessionStorage.removeItem(BULK_PAY_STORE)
+      setBulkOpen(false)
+      setBulkNote("")
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Bulk payment failed")
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
     if (!s) return rows
@@ -264,13 +395,21 @@ export function FinancePayoutsPage() {
     )
   }, [rows, q])
 
+  // Only rows that are actually payable can join a batch.
+  const selectable = useMemo(
+    () => filtered.filter((r) => !r.needs_second_approval),
+    [filtered]
+  )
+  const selectedRows = rows.filter((r) => picked.has(r.id))
+  const selectedTotal = selectedRows.reduce((s, r) => s + (r.remuneration || 0), 0)
+
   const confirmClaim = confirmPayId ? rows.find((r) => r.id === confirmPayId) : null
 
   return (
     <div>
       <PageHeader
         title="Payment orders"
-        subtitle="Principal-approved tickets — process or return"
+        subtitle="Cleared tickets — process the payment or send one back"
         actions={
           <div className="relative w-44 sm:w-56">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -290,6 +429,12 @@ export function FinancePayoutsPage() {
             <Skeleton key={i} className="h-36 w-full rounded-[var(--radius)] md:h-14" />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState
+          title="Could not load payment orders"
+          description="The server did not respond — no payments were affected."
+          onRetry={() => refetch()}
+        />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={<Inbox className="size-6" />}
@@ -297,16 +442,41 @@ export function FinancePayoutsPage() {
           description={
             q
               ? "No results match your search."
-              : "All principal-approved tickets have been processed."
+              : "Every cleared ticket has been paid."
           }
         />
       ) : (
         <>
+          {/* Bulk selection bar */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius)] border border-border/80 bg-muted/40 px-4 py-2">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={picked.size > 0 && selectable.every((r) => picked.has(r.id))}
+                onCheckedChange={(v) =>
+                  setPicked(v === true ? new Set(selectable.map((r) => r.id)) : new Set())
+                }
+                aria-label="Select every payable order shown"
+              />
+              {picked.size
+                ? `${picked.size} selected · ` : `Select all ${selectable.length} payable`}
+              {picked.size ? <Money value={selectedTotal} /> : null}
+            </label>
+            {picked.size ? (
+              <Button type="button" size="sm" disabled={bulkBusy} onClick={() => setBulkOpen(true)}>
+                Pay selected ({picked.size})
+              </Button>
+            ) : null}
+          </div>
+
           {/* Mobile card stack */}
           <div className="block space-y-3 md:hidden">
             {filtered.map((r) => (
-              <PaymentOrderCard
+              <div
                 key={r.id}
+                id={`payout-m-${r.id}`}
+                className={cn(highlightId === r.id && "rounded-lg ring-2 ring-primary")}
+              >
+              <PaymentOrderCard
                 claim={r}
                 voucher={voucher[r.id] || ""}
                 onVoucherChange={(v) => setVoucher({ ...voucher, [r.id]: v })}
@@ -314,17 +484,30 @@ export function FinancePayoutsPage() {
                 onMarkPaid={() => setConfirmPayId(r.id)}
                 onReject={() => setRejectId(r.id)}
               />
+              </div>
             ))}
           </div>
 
           {/* Desktop table */}
           <div className="hidden md:block">
-            <TableShell headers={["Order", "Paper / Formula", "Faculty", "Amount", "Voucher", "Process"]}>
+            <TableShell headers={["", "Order", "Paper / Formula", "Faculty", "Amount", "Voucher", "Process"]}>
               {filtered.map((r) => (
                 <tr
                   key={r.id}
-                  className="border-b border-border last:border-0 hover:bg-muted/40"
+                  id={`payout-${r.id}`}
+                  className={cn(
+                    "border-b border-border last:border-0 hover:bg-muted/40",
+                    highlightId === r.id && "bg-primary/10"
+                  )}
                 >
+                    <td className="px-4 py-3">
+                      <Checkbox
+                        checked={picked.has(r.id)}
+                        disabled={r.needs_second_approval}
+                        onCheckedChange={() => togglePick(r.id)}
+                        aria-label={`Select ${r.ticket_number || "order"}`}
+                      />
+                    </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                       {r.ticket_number}
                     </td>
@@ -340,6 +523,11 @@ export function FinancePayoutsPage() {
                       <span className="text-base font-semibold">
                         <Money value={r.remuneration} />
                       </span>
+                      {r.needs_second_approval ? (
+                        <Badge variant="secondary" className="mt-1 block w-fit text-[10px]">
+                          Awaiting 2nd approval
+                        </Badge>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3">
                       <Input
@@ -355,7 +543,12 @@ export function FinancePayoutsPage() {
                       <div className="flex flex-wrap justify-end gap-2">
                         <Button
                           size="sm"
-                          disabled={busyId === r.id}
+                          disabled={busyId === r.id || r.needs_second_approval}
+                          title={
+                            r.needs_second_approval
+                              ? "High-value claim — needs a second approver before payment"
+                              : undefined
+                          }
                           onClick={() => setConfirmPayId(r.id)}
                         >
                           <BadgeCheck className="mr-1.5 size-4" />
@@ -376,8 +569,87 @@ export function FinancePayoutsPage() {
               ))}
             </TableShell>
           </div>
+
+          {page ? (
+            <Pager
+              total={page.total}
+              limit={page.limit}
+              offset={page.offset}
+              onOffsetChange={setOffset}
+            />
+          ) : null}
         </>
       )}
+
+      {/* ── Bulk pay review dialog ── */}
+      <AlertDialog open={bulkOpen} onOpenChange={(o) => !o && setBulkOpen(false)}>
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Pay {selectedRows.length} order{selectedRows.length === 1 ? "" : "s"} —{" "}
+              <Money value={selectedTotal} />
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Review each row before confirming. Every payment still passes the full checks
+              individually — anything whose amount changed or that needs a second approval is
+              skipped and listed, never silently paid.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="max-h-72 overflow-y-auto rounded-md border border-border/70">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-3 py-2 font-medium">Order</th>
+                  <th className="px-3 py-2 font-medium">Faculty</th>
+                  <th className="px-3 py-2 font-medium">Amount</th>
+                  <th className="px-3 py-2 font-medium">Voucher</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedRows.map((r) => (
+                  <tr key={r.id} className="border-b border-border/50 last:border-0">
+                    <td className="px-3 py-2 font-mono text-xs">{r.ticket_number}</td>
+                    <td className="px-3 py-2">{r.owner_name}</td>
+                    <td className="px-3 py-2 font-semibold tabular-nums">
+                      <Money value={r.remuneration} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        className="h-8 min-w-[8rem] text-xs"
+                        value={voucher[r.id] || ""}
+                        onChange={(e) => setVoucher({ ...voucher, [r.id]: e.target.value })}
+                        placeholder="Voucher # (opt.)"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="bulk-note">Batch note (optional)</Label>
+            <Input
+              id="bulk-note"
+              value={bulkNote}
+              onChange={(e) => setBulkNote(e.target.value)}
+              placeholder="e.g. August 2026 payout run"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={bulkBusy || !selectedRows.length}
+              onClick={(e) => {
+                e.preventDefault()
+                payBulk()
+              }}
+            >
+              <BadgeCheck className="mr-1.5 size-4" />
+              Confirm {selectedRows.length} payment{selectedRows.length === 1 ? "" : "s"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Confirm Mark-Paid dialog ── */}
       <AlertDialog
@@ -488,17 +760,44 @@ export function FinancePayoutsPage() {
 // ---------------------------------------------------------------------------
 
 export function FinancePaidPage() {
-  const [rows, setRows] = useState<Claim[]>([])
-  const [loading, setLoading] = useState(true)
   const [q, setQ] = useState("")
   const [dept, setDept] = useState("")
+  const [voidId, setVoidId] = useState<string | null>(null)
+  const [voidNote, setVoidNote] = useState("")
+  const [voiding, setVoiding] = useState(false)
 
-  useEffect(() => {
-    api<Claim[]>("/api/admin/payouts?status=PAID")
-      .then(setRows)
-      .catch(() => toast.error("Could not load paid history"))
-      .finally(() => setLoading(false))
-  }, [])
+  const [offset, setOffset] = useState(0)
+  const PAGE = 50
+  const {
+    data: page,
+    isLoading: loading,
+    isError,
+    refetch,
+  } = useApiQuery<Paginated<Claim>>(
+    ["claims", "payouts", "PAID", offset],
+    `/api/admin/payouts?status=PAID&limit=${PAGE}&offset=${offset}`
+  )
+  const rows = page?.results ?? []
+  const load = () => refetch()
+
+  async function voidPayment() {
+    if (!voidId) return
+    setVoiding(true)
+    try {
+      await api(`/api/claims/${voidId}/void-payment`, {
+        method: "POST",
+        json: { note: voidNote.trim() },
+      })
+      toast.success("Payment voided — the ticket is back with payment orders")
+      setVoidId(null)
+      setVoidNote("")
+      await load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not void the payment")
+    } finally {
+      setVoiding(false)
+    }
+  }
 
   const filtered = useMemo(() => {
     const sq = q.trim().toLowerCase()
@@ -521,7 +820,7 @@ export function FinancePaidPage() {
     <div>
       <PageHeader
         title="Processed payments"
-        subtitle="Tickets marked cleared"
+        subtitle="Tickets marked paid — void a payment here if it was made in error"
         actions={
           <div className="flex items-baseline gap-1.5 text-sm">
             <span className="text-muted-foreground">Total:</span>
@@ -570,6 +869,12 @@ export function FinancePaidPage() {
             <Skeleton key={i} className="h-12 w-full rounded-[var(--radius)]" />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState
+          title="Could not load paid history"
+          description="The server did not respond — the ledger is unaffected."
+          onRetry={() => refetch()}
+        />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={<ReceiptText className="size-6" />}
@@ -654,14 +959,73 @@ export function FinancePaidPage() {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs">{r.voucher_number || "—"}</td>
                   <td className="px-4 py-3">
-                    <StatusChip status={r.status} />
+                    <div className="flex items-center gap-2">
+                      <StatusChip status={r.status} />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:bg-destructive/10"
+                        onClick={() => setVoidId(r.id)}
+                      >
+                        Void
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </TableShell>
           </div>
+
+          {page ? (
+            <Pager
+              total={page.total}
+              limit={page.limit}
+              offset={page.offset}
+              onOffsetChange={setOffset}
+            />
+          ) : null}
         </>
       )}
+
+      {/* ── Void payment dialog ── */}
+      <AlertDialog open={!!voidId} onOpenChange={(o) => !o && setVoidId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Void this payment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A reversing entry is written to the ledger — nothing is deleted — and the
+              ticket returns to the payment queue so it can be corrected and paid again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="void-note">Reason</Label>
+            <Textarea
+              id="void-note"
+              value={voidNote}
+              onChange={(e) => setVoidNote(e.target.value)}
+              rows={3}
+              className="resize-none"
+              placeholder="e.g. Wrong voucher number, duplicate disbursement…"
+            />
+            <p className="text-xs text-muted-foreground">
+              At least 10 characters. Recorded on the ledger row and in the audit trail.
+            </p>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={voiding || voidNote.trim().length < 10}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault()
+                voidPayment()
+              }}
+            >
+              Void payment
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -687,6 +1051,12 @@ export function FinanceLedgerPage() {
   const [rows, setRows] = useState<LedgerRow[]>([])
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
+  // The same list that already backs the dropdowns on Reports and Query —
+  // this page asked users to type "YYYY-MM" and a department string by hand.
+  const { data: departments = [] } = useApiQuery<string[]>(
+    ["meta", "departments"],
+    "/api/meta/departments"
+  )
 
   async function load() {
     setLoading(true)
@@ -775,23 +1145,29 @@ export function FinanceLedgerPage() {
           </Label>
           <Input
             id="ledger-month"
+            type="month"
             value={month}
             onChange={(e) => setMonth(e.target.value)}
-            placeholder="YYYY-MM"
-            className="w-36"
+            className="w-40"
           />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="ledger-dept" className="text-xs">
             Department
           </Label>
-          <Input
+          <select
             id="ledger-dept"
+            className="h-9 w-44 rounded-md border border-input bg-transparent px-2 text-sm"
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
-            placeholder="e.g. CSE"
-            className="w-36"
-          />
+          >
+            <option value="">All departments</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="flex items-end gap-2">
           <Button type="button" size="sm" onClick={() => load()} disabled={loading}>

@@ -1,17 +1,18 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/components/auth-provider";
 import {
   AdminShell,
   FacultyShell,
   FinanceShell,
-  HodShell,
   PrincipalShell,
   portalPath,
 } from "@/components/app-shell";
 import { LoginPage } from "@/pages/login";
 import { FacultyClaimsPage, FacultyNewClaimPage } from "@/pages/portals/faculty";
 import { FacultyProfilePage } from "@/pages/portals/profile";
-import { HodQueuePage } from "@/pages/portals/hod";
+import { AdminClearingQueuePage } from "@/pages/portals/review-queue";
+import { ReportsPage } from "@/pages/portals/reports";
+import { SearchPage } from "@/pages/portals/search";
 import { PrincipalOverviewPage, PrincipalQueuePage } from "@/pages/portals/principal";
 import {
   AdminApprovalsPage,
@@ -30,7 +31,7 @@ function RequireAuth({
   portal,
 }: {
   children: React.ReactNode;
-  portal: "faculty" | "admin" | "finance" | "hod" | "principal";
+  portal: "faculty" | "admin" | "finance" | "principal";
 }) {
   const { user, loading } = useAuth();
   if (loading) {
@@ -44,7 +45,7 @@ function RequireAuth({
   const userPortal = user.portal || portalPathFromRole(user.role);
   if (
     userPortal !== portal &&
-    !(user.role === "SUPER_ADMIN" && (portal === "admin" || portal === "finance" || portal === "hod" || portal === "principal"))
+    !(user.role === "SUPER_ADMIN" && (portal === "admin" || portal === "finance" || portal === "principal"))
   ) {
     return <Navigate to={portalPath(userPortal)} replace />;
   }
@@ -53,7 +54,6 @@ function RequireAuth({
 
 function portalPathFromRole(role: string) {
   if (role === "FINANCE") return "finance";
-  if (role === "HOD") return "hod";
   if (role === "PRINCIPAL") return "principal";
   if (role === "FACULTY") return "faculty";
   return "admin";
@@ -70,6 +70,30 @@ function HomeRedirect() {
   }
   if (!user) return <Navigate to="/login" replace />;
   return <Navigate to={portalPath(user.portal || portalPathFromRole(user.role))} replace />;
+}
+
+/** A typo'd URL used to bounce silently to the portal index, which made bad
+ * links (in emails, chats, bookmarks) indistinguishable from working ones. */
+function NotFoundPage() {
+  const { user, loading } = useAuth();
+  const home =
+    user ? portalPath(user.portal || portalPathFromRole(user.role)) : "/login";
+  if (loading) return null;
+  return (
+    <div className="flex min-h-svh flex-col items-center justify-center gap-4 bg-background p-8 text-center">
+      <p className="font-mono text-sm text-muted-foreground">404</p>
+      <h1 className="text-2xl font-semibold tracking-tight">This page does not exist</h1>
+      <p className="max-w-sm text-sm text-muted-foreground">
+        The link may be misspelt or out of date. Your tickets and queues are unaffected.
+      </p>
+      <Link
+        to={home}
+        className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+      >
+        {user ? "Go to my portal" : "Go to sign in"}
+      </Link>
+    </div>
+  );
 }
 
 export default function App() {
@@ -92,16 +116,6 @@ export default function App() {
           <Route path="profile" element={<FacultyProfilePage />} />
         </Route>
 
-        <Route
-          path="/hod"
-          element={
-            <RequireAuth portal="hod">
-              <HodShell />
-            </RequireAuth>
-          }
-        >
-          <Route index element={<HodQueuePage />} />
-        </Route>
 
         <Route
           path="/principal"
@@ -113,6 +127,8 @@ export default function App() {
         >
           <Route index element={<PrincipalQueuePage />} />
           <Route path="overview" element={<PrincipalOverviewPage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="query" element={<SearchPage />} />
         </Route>
 
         <Route
@@ -124,12 +140,16 @@ export default function App() {
           }
         >
           <Route index element={<AdminApprovalsPage />} />
+          {/* The one approval step in the chain. */}
+          <Route path="clearing" element={<AdminClearingQueuePage />} />
           <Route path="submit" element={<AdminSubmitClaimPage />} />
           <Route path="monthly" element={<AdminMonthlyPage />} />
           <Route path="scimago" element={<AdminScimagoPage />} />
           <Route path="prior" element={<AdminPriorPage />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="formula" element={<AdminFormulaPage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="query" element={<SearchPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
         </Route>
 
@@ -144,12 +164,14 @@ export default function App() {
           <Route index element={<FinancePayoutsPage />} />
           <Route path="paid" element={<FinancePaidPage />} />
           <Route path="ledger" element={<FinanceLedgerPage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="query" element={<SearchPage />} />
           {/* Editing the pay policy needs FINANCE or SUPER_ADMIN, so the screen
               has to be reachable from the Finance portal too. */}
           <Route path="formula" element={<AdminFormulaPage />} />
         </Route>
 
-        <Route path="*" element={<HomeRedirect />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </AuthProvider>
   );

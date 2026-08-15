@@ -17,6 +17,13 @@ export default defineConfig({
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
       },
+      // Uploaded evidence is served by Django behind an access check. Without
+      // this, /media/... fell through to the SPA and every attachment link
+      // returned index.html instead of the file.
+      "/media": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
     },
   },
 });

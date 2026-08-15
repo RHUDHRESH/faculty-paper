@@ -31,8 +31,24 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "corsheaders",
+    "django_q",
     "core",
 ]
+
+# Background jobs: django-q2 on the ORM broker — no Redis, and the qcluster
+# process shares the web container (scripts/start.sh) because the free tier
+# offers no separate worker service. Q_SYNC=true runs tasks inline (tests/dev).
+Q_CLUSTER = {
+    "name": "faculty_paper",
+    "workers": 1,  # 512 MB is shared with two gunicorn workers
+    "timeout": 3300,
+    "retry": 3600,
+    "max_attempts": 2,
+    "orm": "default",
+    "poll": 5,
+    "catch_up": False,
+    "sync": os.getenv("Q_SYNC", "false").lower() == "true",
+}
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -158,7 +174,11 @@ STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# Uploaded evidence outlives a deploy only if it is written somewhere that
+# survives one. Render's container filesystem does not: without DJANGO_MEDIA_ROOT
+# pointing at a mounted disk (or object storage), every claim's proof PDFs are
+# silently lost on the next restart while the ticket still lists them.
+MEDIA_ROOT = Path(os.getenv("DJANGO_MEDIA_ROOT") or (BASE_DIR / "media"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "core.User"
@@ -213,6 +233,12 @@ if not DEBUG:
     X_FRAME_OPTIONS = "DENY"
     SESSION_COOKIE_AGE = int(os.getenv("SESSION_COOKIE_AGE", str(60 * 60 * 12)))  # 12h
     SESSION_SAVE_EVERY_REQUEST = True
+    # HSTS: modest default so a misconfigured deploy is recoverable; raise via
+    # env once the domain has been stable on HTTPS for a while.
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", str(60 * 60 * 24 * 30)))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv(
+        "SECURE_HSTS_INCLUDE_SUBDOMAINS", "false"
+    ).lower() in ("1", "true", "yes")
 
 # Optional email notifications (off by default — set EMAIL_NOTIFICATIONS=true)
 EMAIL_NOTIFICATIONS = os.getenv("EMAIL_NOTIFICATIONS", "false").lower() in ("1", "true", "yes")

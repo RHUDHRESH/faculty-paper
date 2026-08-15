@@ -8,7 +8,6 @@ export function cn(...inputs: ClassValue[]) {
 export function portalPath(portal?: string | null) {
   if (portal === "admin") return "/admin";
   if (portal === "finance") return "/finance";
-  if (portal === "hod") return "/hod";
   if (portal === "principal") return "/principal";
   return "/faculty";
 }

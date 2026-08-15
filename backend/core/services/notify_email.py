@@ -22,7 +22,7 @@ def send_optional_email(to: str | None, subject: str, body: str) -> None:
             message=body,
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@localhost"),
             recipient_list=[to],
-            fail_silently=True,
+            fail_silently=False,
         )
     except Exception:
         logger.exception("email_failed to=%s subject=%s", to, subject)

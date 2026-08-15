@@ -4,7 +4,9 @@ import {
   Check,
   FileText,
   Info,
+  Lock,
   Minus,
+  Pencil,
   Plus,
   ShieldAlert,
   UploadCloud,
@@ -13,6 +15,8 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { mediaUrl } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 /* ------------------------------------------------------------------ *
@@ -276,6 +280,90 @@ export function ChoiceCards<T extends string>({
 }
 
 /* ------------------------------------------------------------------ *
+ * CheckCards — ChoiceCards for sets, where more than one answer is true
+ * ------------------------------------------------------------------ */
+
+export function CheckCards<T extends string>({
+  options,
+  value,
+  onChange,
+  name,
+  columns = 1,
+  className,
+}: {
+  options: Choice<T>[]
+  value: T[]
+  onChange: (value: T[]) => void
+  name: string
+  columns?: 1 | 2 | 3
+  className?: string
+}) {
+  const toggle = (v: T) =>
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v])
+
+  return (
+    <div
+      role="group"
+      aria-label={name}
+      className={cn(
+        "grid gap-2.5",
+        columns === 2 && "sm:grid-cols-2",
+        columns === 3 && "sm:grid-cols-3",
+        className
+      )}
+    >
+      {options.map((opt) => {
+        const selected = value.includes(opt.value)
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="checkbox"
+            aria-checked={selected}
+            onClick={() => toggle(opt.value)}
+            className={cn(
+              "group relative flex items-start gap-3 rounded-xl border p-3.5 text-left transition-all outline-none",
+              "focus-visible:ring-3 focus-visible:ring-ring/30",
+              selected
+                ? "border-primary/60 bg-surface-brand shadow-[0_1px_0_0_var(--primary)_inset]"
+                : "border-border bg-card hover:border-primary/35 hover:bg-muted/50"
+            )}
+          >
+            {/* Square, not round — the shape is the cue that several can be on. */}
+            <span
+              aria-hidden
+              className={cn(
+                "mt-0.5 flex size-4.5 shrink-0 items-center justify-center rounded-[5px] border-2 transition-colors",
+                selected ? "border-primary bg-primary" : "border-muted-foreground/40"
+              )}
+            >
+              {selected ? <Check className="size-2.5 text-primary-foreground" /> : null}
+            </span>
+            <span className="min-w-0 space-y-1">
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium leading-tight text-foreground">
+                  {opt.label}
+                </span>
+                {opt.badge ? (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {opt.badge}
+                  </span>
+                ) : null}
+              </span>
+              {opt.description ? (
+                <span className="block text-xs leading-relaxed text-muted-foreground">
+                  {opt.description}
+                </span>
+              ) : null}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
  * SegmentedControl — short, mutually exclusive option sets
  * ------------------------------------------------------------------ */
 
@@ -419,8 +507,8 @@ export function TagInput({
   return (
     <div
       className={cn(
-        "flex min-h-9 flex-wrap items-center gap-1.5 rounded-2xl border bg-input/50 px-2 py-1.5 transition-[color,box-shadow] focus-within:ring-3 focus-within:ring-ring/30",
-        invalid ? "border-destructive" : "border-transparent focus-within:border-ring"
+        "flex min-h-9 flex-wrap items-center gap-1.5 rounded-2xl border bg-card px-2 py-1.5 transition-[color,box-shadow] focus-within:ring-3 focus-within:ring-ring/30",
+        invalid ? "border-destructive" : "border-input focus-within:border-ring"
       )}
       onClick={() => document.getElementById(id || "")?.focus()}
     >
@@ -504,10 +592,10 @@ export function DateField({
       aria-describedby={describedBy}
       onChange={(e) => onChange(e.target.value)}
       className={cn(
-        "flex h-9 w-full items-center rounded-2xl border bg-input/50 px-3 text-sm",
+        "flex h-9 w-full items-center rounded-2xl border bg-card px-3 text-sm",
         "transition-[color,box-shadow] outline-none",
         "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30",
-        invalid ? "border-destructive" : "border-transparent",
+        invalid ? "border-destructive" : "border-input",
         !value && "text-muted-foreground"
       )}
     />
@@ -524,6 +612,24 @@ export type UploadedFileRef = {
   size_bytes: number
 }
 
+/** Mirrors core/services/uploads.py. Scans and photos are evidence too. */
+export const ACCEPTED_EXTENSIONS = [
+  "pdf",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "gif",
+  "tif",
+  "tiff",
+  "doc",
+  "docx",
+]
+
+const ACCEPT_ATTR = ACCEPTED_EXTENSIONS.map((e) => `.${e}`).join(",")
+
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"])
+
 export function formatBytes(bytes: number) {
   if (!bytes) return "—"
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
@@ -534,18 +640,23 @@ export function FileDropzone({
   files,
   onAdd,
   onRemove,
+  onClear,
   max = 1,
   maxBytes = 10 * 1024 * 1024,
   busy,
+  progress,
   id,
   invalid,
 }: {
   files: UploadedFileRef[]
   onAdd: (files: File[]) => void
   onRemove: (url: string) => void
+  /** Shown once the list is long enough that removing one at a time is a chore. */
+  onClear?: () => void
   max?: number
   maxBytes?: number
   busy?: boolean
+  progress?: { done: number; total: number } | null
   id?: string
   invalid?: boolean
 }) {
@@ -562,9 +673,11 @@ export function FileDropzone({
     if (!list) return
     const reasons: string[] = []
     const eligible = Array.from(list).filter((f) => {
-      const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")
-      if (!isPdf) {
-        reasons.push(`${f.name} is not a PDF`)
+      // A cheap client-side filter only. The server identifies every upload by
+      // its own bytes, so this exists to fail fast, not to be trusted.
+      const ext = f.name.split(".").pop()?.toLowerCase() || ""
+      if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+        reasons.push(`${f.name} is not an accepted file type`)
         return false
       }
       if (f.size > maxBytes) {
@@ -622,7 +735,7 @@ export function FileDropzone({
             className={cn("mb-2 size-5", dragging ? "text-primary" : "text-muted-foreground")}
           />
           <p className="text-sm font-medium text-foreground">
-            Drop PDF{max > 1 ? "s" : ""} here, or{" "}
+            Drop file{max > 1 ? "s" : ""} here, or{" "}
             <button
               type="button"
               className="text-primary underline underline-offset-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
@@ -633,14 +746,14 @@ export function FileDropzone({
             </button>
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            PDF only · max {formatBytes(maxBytes)} each
+            PDF, image, or Word · max {formatBytes(maxBytes)} each
             {max > 1 ? ` · ${remaining} of ${max} remaining` : ""}
           </p>
           <input
             id={id}
             ref={inputRef}
             type="file"
-            accept="application/pdf"
+            accept={ACCEPT_ATTR}
             multiple={max > 1}
             className="sr-only"
             onChange={(e) => {
@@ -666,23 +779,48 @@ export function FileDropzone({
       ) : null}
 
       {files.length ? (
-        <ul className="space-y-1.5">
-          {files.map((f) => (
+        <>
+          <div className="flex items-center justify-between gap-3 px-0.5">
+            <p className="text-xs font-medium text-muted-foreground" aria-live="polite">
+              {files.length} file{files.length === 1 ? "" : "s"} attached
+              {max > 1 ? ` · ${remaining} slot${remaining === 1 ? "" : "s"} left` : ""}
+            </p>
+            {onClear && files.length > 1 ? (
+              <Button type="button" variant="ghost" size="xs" onClick={onClear} disabled={busy}>
+                Remove all
+              </Button>
+            ) : null}
+          </div>
+          {/* A long list would otherwise push the submit button off the page. */}
+          <ul className={cn("space-y-1.5", files.length > 6 && "max-h-80 overflow-y-auto pr-1")}>
+            {files.map((f) => (
             <li
               key={f.url}
               className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2"
             >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-brand text-primary">
-                <FileText className="size-4" />
-              </span>
+              {IMAGE_EXTENSIONS.has(
+                (f.filename || f.url).split(".").pop()?.toLowerCase() || ""
+              ) ? (
+                // Proof that the right page was attached, without opening it.
+                <img
+                  src={mediaUrl(f.url)}
+                  alt={f.filename || "Uploaded image"}
+                  loading="lazy"
+                  className="size-8 shrink-0 rounded-lg border border-border object-cover"
+                />
+              ) : (
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-surface-brand text-primary">
+                  <FileText className="size-4" />
+                </span>
+              )}
               <span className="min-w-0 flex-1">
                 <a
-                  href={f.url}
+                  href={mediaUrl(f.url)}
                   target="_blank"
                   rel="noreferrer"
                   className="block truncate text-sm font-medium text-foreground hover:text-primary hover:underline"
                 >
-                  {f.filename || "Document.pdf"}
+                  {f.filename || "Document"}
                 </a>
                 <span className="text-xs text-muted-foreground">{formatBytes(f.size_bytes)}</span>
               </span>
@@ -696,11 +834,28 @@ export function FileDropzone({
                 <X />
               </Button>
             </li>
-          ))}
-        </ul>
+            ))}
+          </ul>
+        </>
       ) : null}
 
-      {busy ? <p className="text-xs text-muted-foreground">Uploading…</p> : null}
+      {busy ? (
+        <div className="space-y-1.5" role="status" aria-live="polite">
+          <p className="text-xs text-muted-foreground">
+            {progress
+              ? `Uploading ${progress.done} of ${progress.total}…`
+              : "Uploading…"}
+          </p>
+          {progress && progress.total > 1 ? (
+            <div className="h-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-200"
+                style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -715,26 +870,75 @@ export function ReadOnlyField({
   hint,
   mono,
   error,
+  manageHint,
+  manageLabel = "Change this",
+  onManage,
 }: {
   label: string
   value?: string | null
   hint?: React.ReactNode
   mono?: boolean
   error?: string | null
+  /** Tooltip shown on hover and on keyboard focus, saying where this comes from. */
+  manageHint?: React.ReactNode
+  manageLabel?: string
+  /** Given, the whole field becomes a button that opens the place to change it. */
+  onManage?: () => void
 }) {
+  const boxClass = cn(
+    "flex h-9 w-full items-center gap-2 rounded-2xl border px-3 text-left text-sm",
+    error ? "border-destructive/50 bg-surface-danger/40" : "border-border bg-muted/60",
+    value ? "text-foreground" : "text-muted-foreground",
+    mono && "font-mono tabular-nums"
+  )
+  const content = (
+    <>
+      <span className="min-w-0 flex-1 truncate">{value || "Not set"}</span>
+      {onManage ? (
+        <Pencil aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      ) : manageHint ? (
+        <Lock aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      ) : null}
+    </>
+  )
+
+  // The value box itself is the tooltip trigger so the prompt appears wherever
+  // the user actually points. Without `manageHint` it stays a plain div — a
+  // focusable element with nothing to say is just an extra tab stop.
+  let box: React.ReactNode = <div className={boxClass}>{content}</div>
+  if (manageHint) {
+    box = (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {onManage ? (
+            <button
+              type="button"
+              onClick={onManage}
+              className={cn(
+                boxClass,
+                "transition-colors outline-none hover:border-primary/40 hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
+              )}
+            >
+              {content}
+              <span className="sr-only">— {manageLabel}</span>
+            </button>
+          ) : (
+            <div tabIndex={0} className={cn(boxClass, "outline-none focus-visible:ring-3 focus-visible:ring-ring/30")}>
+              {content}
+            </div>
+          )}
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs whitespace-normal py-2 leading-relaxed">
+          {manageHint}
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+
   return (
     <div className="space-y-1.5">
       <Label className="text-sm font-medium text-foreground">{label}</Label>
-      <div
-        className={cn(
-          "flex h-9 items-center rounded-2xl border px-3 text-sm",
-          error ? "border-destructive/50 bg-surface-danger/40" : "border-border bg-muted/60",
-          value ? "text-foreground" : "text-muted-foreground",
-          mono && "font-mono tabular-nums"
-        )}
-      >
-        {value || "Not set"}
-      </div>
+      {box}
       {error ? (
         <p role="alert" className="flex items-start gap-1.5 text-xs font-medium text-destructive">
           <AlertTriangle className="mt-px size-3.5 shrink-0" />

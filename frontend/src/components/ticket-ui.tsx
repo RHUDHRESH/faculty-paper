@@ -1,41 +1,88 @@
-import { AlertTriangle, CheckCircle2 } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Link2 } from "lucide-react"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-const FLOW = ["SUBMITTED", "HOD_APPROVED", "PRINCIPAL_APPROVED", "PAID"] as const
+/** Submitted → cleared by admin → paid by Finance. */
+const FLOW = ["SUBMITTED", "CLEARED", "PAID"] as const
 
 const LABELS: Record<string, string> = {
   DRAFT: "Draft",
-  SUBMITTED: "With HoD",
-  HOD_APPROVED: "Approved by HoD",
-  PRINCIPAL_APPROVED: "Approved",
-  FINANCE_APPROVED: "Approved",
-  RESEARCH_APPROVED: "Verified",
-  PAID: "Payment cleared",
+  SUBMITTED: "Awaiting clearance",
+  CLEARED: "Cleared — with Finance",
+  // "Payment cleared" collided with CLEARED's "Cleared — with Finance";
+  // the same word meant two different stages.
+  PAID: "Paid",
   REJECTED: "Needs changes",
+  // Old chain. Tickets filed before the change still carry these.
+  HOD_APPROVED: "Approved by HoD (old flow)",
+  PRINCIPAL_APPROVED: "Cleared — with Finance",
+  FINANCE_APPROVED: "Cleared — with Finance",
+  RESEARCH_APPROVED: "Cleared — with Finance",
 }
 
 const FLOW_STEP_LABELS: Record<(typeof FLOW)[number], string> = {
-  SUBMITTED: "HoD",
-  HOD_APPROVED: "Principal",
-  PRINCIPAL_APPROVED: "Finance",
+  SUBMITTED: "Submitted",
+  CLEARED: "Cleared",
   PAID: "Paid",
+}
+
+/** Statuses that sit at the "cleared, awaiting payment" point of the flow. */
+const CLEARED_STATUSES = [
+  "CLEARED",
+  "PRINCIPAL_APPROVED",
+  "FINANCE_APPROVED",
+  "RESEARCH_APPROVED",
+]
+
+/** Map an old-chain status onto its position in the current flow. */
+function flowStatus(status: string): string {
+  if (CLEARED_STATUSES.includes(status)) return "CLEARED"
+  if (status === "HOD_APPROVED") return "SUBMITTED"
+  return status
 }
 
 export function statusLabel(status: string) {
   return LABELS[status] || status.replace(/_/g, " ")
 }
 
+/** Copies a deep link to this ticket on the current portal page — the URL
+ * every portal already knows how to open via its ?claim= handler. */
+export function CopyTicketLink({ claimId, className }: { claimId: string; className?: string }) {
+  async function copy() {
+    const url = `${window.location.origin}${window.location.pathname}?claim=${claimId}`
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success("Link copied — paste it in chat or email")
+    } catch {
+      toast.error("Could not copy — your browser blocked clipboard access")
+    }
+  }
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className={cn("h-7 gap-1.5 px-2 text-xs text-muted-foreground", className)}
+      onClick={copy}
+    >
+      <Link2 className="size-3.5" aria-hidden />
+      Copy link
+    </Button>
+  )
+}
+
 export function facultyStatusMessage(status: string): string {
+  if (CLEARED_STATUSES.includes(status)) {
+    return "Cleared. Finance has your ticket and will process the payment."
+  }
   switch (status) {
     case "DRAFT":
       return "Draft — verify and submit when ready."
     case "SUBMITTED":
-      return "Submitted — waiting for HoD approval."
     case "HOD_APPROVED":
-      return "Approved by HoD — waiting for Principal."
-    case "PRINCIPAL_APPROVED":
-      return "Approved. Finance has been ordered to process your payment."
+      return "Submitted — waiting to be cleared."
     case "PAID":
       return "Your payment has been cleared and will be processed shortly."
     case "REJECTED":
@@ -60,8 +107,11 @@ function statusBadgeClass(status: string) {
       return ""
     case "SUBMITTED":
       return "border-info/20 bg-info/10 text-info hover:bg-info/10"
+    case "CLEARED":
     case "HOD_APPROVED":
     case "PRINCIPAL_APPROVED":
+    case "FINANCE_APPROVED":
+    case "RESEARCH_APPROVED":
       return "border-warning/20 bg-warning/10 text-warning-foreground hover:bg-warning/10"
     default:
       return ""
@@ -167,7 +217,9 @@ export function StatusTimeline({ status }: { status: string }) {
     return <StatusBanner status={status} />
   }
 
-  const idx = FLOW.indexOf(status as (typeof FLOW)[number])
+  // Old-chain tickets map onto the current three steps so their timeline still
+  // reads as progress rather than falling off the start.
+  const idx = FLOW.indexOf(flowStatus(status) as (typeof FLOW)[number])
 
   return (
     <div className="space-y-3">

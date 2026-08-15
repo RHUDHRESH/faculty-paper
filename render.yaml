@@ -6,11 +6,23 @@ services:
     region: oregon
     rootDir: backend
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    # migrate on start so Neon schema never drifts if preDeploy is skipped
-    startCommand: python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 300
+    # migrate on start so Neon schema never drifts if preDeploy is skipped;
+    # start.sh also launches the django-q2 job worker beside gunicorn.
+    startCommand: bash scripts/start.sh
     preDeployCommand: python manage.py migrate --noinput
     healthCheckPath: /api/health
+    # Claim evidence is written to disk. Without a mounted volume it lives on the
+    # container filesystem and is wiped by every deploy and restart, so uploaded
+    # proofs disappear while the tickets still list them. Render disks need a
+    # paid instance type; on the free plan use object storage instead and point
+    # DJANGO_MEDIA_ROOT at the mount.
+    disk:
+      name: claim-media
+      mountPath: /var/data/media
+      sizeGB: 5
     envVars:
+      - key: DJANGO_MEDIA_ROOT
+        value: /var/data/media
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DJANGO_DEBUG

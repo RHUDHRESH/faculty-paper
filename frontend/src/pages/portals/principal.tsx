@@ -1,1 +1,1 @@
-export { PrincipalQueuePage, PrincipalOverviewPage } from "./hod";
+export { PrincipalQueuePage, PrincipalOverviewPage } from "./review-queue";

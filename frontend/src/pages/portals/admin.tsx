@@ -5,7 +5,16 @@ import { EmptyState, PageHeader, Section, StatStrip } from "@/components/layout/
 import { Money } from "@/components/ticket-ui"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Pager } from "@/components/ui/pagination"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -121,9 +130,22 @@ export function AdminApprovalsPage() {
         <Section title="Claim pipeline">
           <StatStrip
             items={[
-              { label: "Submitted", value: by.SUBMITTED || 0 },
-              { label: "HoD approved", value: by.HOD_APPROVED || 0 },
-              { label: "Principal approved", value: by.PRINCIPAL_APPROVED || 0 },
+              { label: "Drafts", value: by.DRAFT || 0 },
+              // HOD_APPROVED is a stranded legacy status the clearing queue
+              // refuses — counting it under "To clear" promised work the
+              // button could not do. It has its own bucket.
+              { label: "To clear", value: by.SUBMITTED || 0, to: "/admin/clearing" },
+              ...(by.HOD_APPROVED
+                ? [{ label: "Stranded (legacy)", value: by.HOD_APPROVED }]
+                : []),
+              {
+                label: "With Finance",
+                value:
+                  (by.CLEARED || 0) +
+                  (by.PRINCIPAL_APPROVED || 0) +
+                  (by.FINANCE_APPROVED || 0) +
+                  (by.RESEARCH_APPROVED || 0),
+              },
               { label: "Paid", value: by.PAID || 0 },
             ]}
           />
@@ -360,6 +382,7 @@ export function AdminScimagoPage() {
   const [year, setYear] = useState(new Date().getFullYear())
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [syncing, setSyncing] = useState(false)
 
   async function loadStats() {
     return api<{ count: number; years: number[] }>("/api/admin/scimago/stats").then(setStats)
@@ -391,12 +414,61 @@ export function AdminScimagoPage() {
     }
   }
 
+  async function syncFromScimago() {
+    setSyncing(true)
+    const tid = toast.loading(`Downloading the SCImago ${year} dump…`)
+    try {
+      const data = (await api("/api/admin/scimago/sync", {
+        method: "POST",
+        json: { year },
+      })) as Record<string, unknown>
+      toast.dismiss(tid)
+      toast.success(`Loaded ${data.imported} journals for ${year}`)
+      await loadStats()
+    } catch (err) {
+      toast.dismiss(tid)
+      toast.error(err instanceof Error ? err.message : "Download failed")
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Scimago import"
-        subtitle="Imports · Official yearly CSV for quartile resolution"
+        subtitle="Imports · Official yearly dump for quartile resolution"
       />
+
+      <Section
+        title="Fetch from scimagojr.com"
+        description="Pulls the official rank dump for the year directly. No manual download needed."
+      >
+        <FormPanel>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="scimago-sync-year">Dataset year</Label>
+              <Input
+                id="scimago-sync-year"
+                type="number"
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+                className="w-28"
+              />
+            </div>
+            <Button type="button" onClick={syncFromScimago} disabled={syncing}>
+              {syncing ? "Downloading…" : "Download & load"}
+            </Button>
+            <p className="max-w-md text-xs text-muted-foreground">
+              The current year's dump is published partway through the next one — if it fails, try
+              the previous year. SCImago also serves a bot-protection challenge to servers at
+              times; when that happens, download the CSV in a browser and use the upload below. Both
+              paths run the same parser.
+            </p>
+          </div>
+        </FormPanel>
+      </Section>
+
       <Section title="Current data">
         <FormPanel className="text-sm">
           <div className="flex flex-wrap gap-6">
@@ -505,15 +577,18 @@ export function AdminPriorPage() {
 // Users
 // ---------------------------------------------------------------------------
 
-const ROLES = ["FACULTY", "HOD", "PRINCIPAL", "RESEARCH_CELL", "FINANCE", "SUPER_ADMIN"] as const
+/** HOD was removed from the system; it is not assignable to anyone new. */
+/** Four roles. HOD and RESEARCH_CELL were removed and are not assignable. */
+const ROLES = ["FACULTY", "PRINCIPAL", "FINANCE", "SUPER_ADMIN"] as const
 
 const ROLE_LABELS: Record<string, string> = {
   FACULTY: "Faculty",
-  HOD: "Head of Department",
+  // Retired, but old accounts still render their label in the table.
+  HOD: "Head of Department (retired)",
   PRINCIPAL: "Principal",
-  RESEARCH_CELL: "Research Cell",
+  RESEARCH_CELL: "Research Cell (merged into Admin)",
   FINANCE: "Finance",
-  SUPER_ADMIN: "Super Admin",
+  SUPER_ADMIN: "Admin",
 }
 
 const EMPTY_FORM = {
@@ -528,12 +603,135 @@ const EMPTY_FORM = {
   designation: "",
 }
 
+/** Everything an admin owns on a faculty record, in the order the form shows it. */
+const EDITABLE_USER_FIELDS: { key: string; label: string; hint?: string; mono?: boolean }[] = [
+  { key: "name", label: "Full name" },
+  { key: "department", label: "Department", hint: "The department this person's tickets are filed under." },
+  { key: "staff_id", label: "Staff ID", mono: true },
+  {
+    key: "biometric_id",
+    label: "Biometric ID",
+    hint: "Decides which account is paid. Faculty cannot submit a claim until this is set.",
+    mono: true,
+  },
+  { key: "designation", label: "Designation" },
+  { key: "scopus_author_url", label: "Scopus author URL" },
+  { key: "scopus_author_id", label: "Scopus author ID", mono: true },
+]
+
+type UserRow = Record<string, unknown>
+
+/**
+ * Edit a faculty record on their behalf.
+ *
+ * Department, staff ID and biometric ID are deliberately not editable on the
+ * faculty's own profile — they route the approval and pick the bank account —
+ * so this dialog is the only place they can be corrected.
+ */
+function EditUserDialog({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: UserRow | null
+  onClose: () => void
+  onSaved: () => Promise<void>
+}) {
+  const [form, setForm] = useState<Record<string, string>>({})
+  const [role, setRole] = useState("FACULTY")
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    const next: Record<string, string> = {}
+    for (const f of EDITABLE_USER_FIELDS) next[f.key] = String(user[f.key] ?? "")
+    setForm(next)
+    setRole(String(user.role || "FACULTY"))
+  }, [user])
+
+  async function save() {
+    if (!user) return
+    setBusy(true)
+    try {
+      // Blank a field to clear it, rather than storing an empty string that
+      // reads as "set" everywhere downstream.
+      const payload: Record<string, unknown> = { role }
+      for (const f of EDITABLE_USER_FIELDS) payload[f.key] = form[f.key]?.trim() || null
+      await api(`/api/admin/users/${user.id}`, { method: "PATCH", json: payload })
+      toast.success(`Saved ${String(user.email)}`)
+      await onSaved()
+      onClose()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!user} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit {String(user?.name || user?.email || "user")}</DialogTitle>
+          <DialogDescription>
+            {String(user?.email || "")} — changes apply to tickets filed from now on.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {EDITABLE_USER_FIELDS.map((f) => (
+            <div key={f.key} className={`space-y-1.5 ${f.hint ? "sm:col-span-2" : ""}`}>
+              <Label htmlFor={`eu-${f.key}`}>{f.label}</Label>
+              <Input
+                id={`eu-${f.key}`}
+                className={f.mono ? "font-mono" : undefined}
+                value={form[f.key] ?? ""}
+                onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+              />
+              {f.hint ? <p className="text-xs text-muted-foreground">{f.hint}</p> : null}
+            </div>
+          ))}
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="eu-role">Role</Label>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger id="eu-role">
+                <SelectValue placeholder="Select role" />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {ROLE_LABELS[r] ?? r}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={busy} onClick={save}>
+            {busy ? "Saving…" : "Save changes"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function AdminUsersPage() {
   const [users, setUsers] = useState<Array<Record<string, unknown>>>([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ ...EMPTY_FORM })
   const [resetEmail, setResetEmail] = useState("")
   const [resetPw, setResetPw] = useState("")
+  const [editing, setEditing] = useState<UserRow | null>(null)
+  const [userSearch, setUserSearch] = useState("")
+  // A refused load is not an empty list. Swallowing the 403 made this screen
+  // tell a research-cell user there were no accounts at all.
+  const [denied, setDenied] = useState(false)
 
   async function load() {
     setUsers(await api("/api/admin/users"))
@@ -541,9 +739,25 @@ export function AdminUsersPage() {
 
   useEffect(() => {
     load()
-      .catch(() => toast.error("Could not load users"))
+      .catch((e) => {
+        const forbidden = e instanceof Error && /forbidden/i.test(e.message)
+        setDenied(forbidden)
+        if (!forbidden) toast.error("Could not load users")
+      })
       .finally(() => setLoading(false))
   }, [])
+
+  if (denied) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Users" subtitle="Users · Create accounts, assign roles and reset passwords" />
+        <EmptyState
+          title="Only a super admin can manage accounts"
+          description="Your role can clear tickets and run imports, but not create users or change roles. Ask a super admin if someone needs an account."
+        />
+      </div>
+    )
+  }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault()
@@ -561,20 +775,16 @@ export function AdminUsersPage() {
     e.preventDefault()
     if (!resetEmail || !resetPw) return
     try {
-      const match = users.find(
-        (u) => String(u.email || "").toLowerCase() === resetEmail.trim().toLowerCase()
-      )
-      if (!match?.id) {
-        toast.error("No user with that email")
-        return
-      }
-      await api(`/api/admin/users/${match.id}/reset-password`, {
+      // The server resolves the email itself — matching against the loaded
+      // list failed for any account the table had not fetched. A reset also
+      // clears a sign-in lockout on that account.
+      await api("/api/admin/reset-password", {
         method: "POST",
-        json: { password: resetPw },
+        json: { email: resetEmail.trim(), password: resetPw },
       })
       setResetEmail("")
       setResetPw("")
-      toast.success(`Password reset for ${resetEmail}`)
+      toast.success(`Password reset for ${resetEmail} — the account is unlocked`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Reset failed")
     }
@@ -724,28 +934,83 @@ export function AdminUsersPage() {
         </FormPanel>
       </Section>
 
-      <Section title="All users">
+      <Section
+        title="All users"
+        description="Edit a record to fill in the details faculty cannot set themselves."
+        actions={
+          <Input
+            className="w-full sm:w-64"
+            placeholder="Search name, email, staff ID…"
+            value={userSearch}
+            onChange={(e) => setUserSearch(e.target.value)}
+            aria-label="Search users"
+          />
+        }
+      >
         {loading ? (
           <Skeleton className="h-40 w-full rounded-[var(--radius)]" />
         ) : users.length === 0 ? (
           <EmptyState title="No users yet" description="Create the first account above." />
         ) : (
-          <DataTable headers={["Email", "Name", "Role", "Department"]}>
-            {users.map((u) => (
-              <tr key={String(u.id)} className="border-b border-border/50 last:border-0">
-                <td className="px-4 py-3">{String(u.email)}</td>
-                <td className="px-4 py-3">{String(u.name || "—")}</td>
-                <td className="px-4 py-3">
-                  <Badge variant="outline">{ROLE_LABELS[String(u.role)] ?? String(u.role)}</Badge>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">
-                  {String(u.department || "—")}
-                </td>
-              </tr>
-            ))}
+          <DataTable
+            headers={["Email", "Name", "Role", "Department", "Staff ID", "Biometric ID", ""]}
+          >
+            {users
+              .filter((u) => {
+                const q = userSearch.trim().toLowerCase()
+                if (!q) return true
+                return ["email", "name", "staff_id", "biometric_id", "department"].some((k) =>
+                  String(u[k] || "").toLowerCase().includes(q)
+                )
+              })
+              .map((u) => {
+                // A faculty account without these can log in but cannot file.
+                const incomplete =
+                  String(u.role) === "FACULTY" && (!u.biometric_id || !u.department)
+                return (
+                  <tr key={String(u.id)} className="border-b border-border/50 last:border-0">
+                    <td className="px-4 py-3">{String(u.email)}</td>
+                    <td className="px-4 py-3">{String(u.name || "—")}</td>
+                    <td className="px-4 py-3">
+                      <Badge variant="outline">
+                        {ROLE_LABELS[String(u.role)] ?? String(u.role)}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {String(u.department || "—")}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                      {String(u.staff_id || "—")}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {u.biometric_id ? (
+                        <span className="text-muted-foreground">{String(u.biometric_id)}</span>
+                      ) : (
+                        <span className="text-destructive">missing</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        type="button"
+                        variant={incomplete ? "secondary" : "ghost"}
+                        size="xs"
+                        onClick={() => setEditing(u)}
+                      >
+                        {incomplete ? "Complete" : "Edit"}
+                      </Button>
+                    </td>
+                  </tr>
+                )
+              })}
           </DataTable>
         )}
       </Section>
+
+      <EditUserDialog
+        user={editing}
+        onClose={() => setEditing(null)}
+        onSaved={load}
+      />
     </div>
   )
 }
@@ -794,6 +1059,12 @@ const FORMULA_FIELD_META: { key: string; label: string; description: string }[] 
     key: "qf_no_snip",
     label: "QF — NO_SNIP mode",
     description: "Quartile factor when NO_SNIP is selected",
+  },
+  {
+    key: "high_value_threshold",
+    label: "Second-approval threshold (₹)",
+    description:
+      "Claims at or above this amount need a second, distinct approver before Finance can pay",
   },
 ]
 
@@ -1051,39 +1322,127 @@ export function AdminFormulaPage() {
 // Audit log
 // ---------------------------------------------------------------------------
 
+type AuditRow = {
+  id: string
+  action: string
+  entity?: string | null
+  entity_id?: string | null
+  actor?: string | null
+  detail_json?: string | null
+  created_at: string
+}
+
+/** Pretty-print the recorded before/after detail. It was stored on every row
+ * and never shown anywhere. */
+function auditDetail(raw?: string | null): string | null {
+  if (!raw) return null
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
+
 export function AdminAuditPage() {
-  const [rows, setRows] = useState<Array<Record<string, unknown>>>([])
+  const [rows, setRows] = useState<AuditRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [offset, setOffset] = useState(0)
+  const [q, setQ] = useState("")
+  const [action, setAction] = useState("")
   const [loading, setLoading] = useState(true)
+  const PAGE = 100
 
   useEffect(() => {
-    api<Array<Record<string, unknown>>>("/api/admin/audit")
-      .then(setRows)
-      .catch(() => toast.error("Could not load audit log"))
-      .finally(() => setLoading(false))
-  }, [])
+    const t = setTimeout(() => {
+      setLoading(true)
+      const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset) })
+      if (q.trim()) params.set("q", q.trim())
+      if (action.trim()) params.set("action", action.trim())
+      api<{ total: number; results: AuditRow[] }>(`/api/admin/audit?${params}`)
+        .then((body) => {
+          setRows(body.results)
+          setTotal(body.total)
+        })
+        .catch(() => toast.error("Could not load audit log"))
+        .finally(() => setLoading(false))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [q, action, offset])
 
   return (
     <div className="space-y-6">
       <PageHeader title="Audit log" subtitle="Audit · Chronological record of all system actions" />
+
+      <div className="flex flex-wrap gap-2">
+        <Input
+          className="w-56"
+          placeholder="Search actor, entity, ticket id…"
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value)
+            setOffset(0)
+          }}
+        />
+        <Input
+          className="w-44"
+          placeholder="Action, e.g. CLEAR"
+          value={action}
+          onChange={(e) => {
+            setAction(e.target.value)
+            setOffset(0)
+          }}
+        />
+      </div>
+
       {loading ? (
         <Skeleton className="h-40 w-full rounded-[var(--radius)]" />
       ) : rows.length === 0 ? (
         <EmptyState
-          title="No audit events yet"
-          description="Actions taken by admin, HoD, and Principal will appear here."
+          title={q || action ? "No matching events" : "No audit events yet"}
+          description={
+            q || action
+              ? "Try a different search or action filter."
+              : "Actions taken by admin and finance will appear here."
+          }
         />
       ) : (
-        <DataTable headers={["When", "Action", "Actor"]}>
-          {rows.map((r) => (
-            <tr key={String(r.id)} className="border-b border-border/50 last:border-0">
-              <td className="px-4 py-3 text-muted-foreground">
-                {r.created_at ? new Date(String(r.created_at)).toLocaleString() : "—"}
-              </td>
-              <td className="px-4 py-3 font-medium">{String(r.action)}</td>
-              <td className="px-4 py-3">{String(r.actor || "—")}</td>
-            </tr>
-          ))}
-        </DataTable>
+        <>
+          <DataTable headers={["When", "Action", "Entity", "Actor", "Detail"]}>
+            {rows.map((r) => {
+              const detail = auditDetail(r.detail_json)
+              return (
+                <tr key={r.id} className="border-b border-border/50 last:border-0 align-top">
+                  <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                    {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
+                  </td>
+                  <td className="px-4 py-3 font-medium">{r.action}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {r.entity || "—"}
+                    {r.entity_id ? (
+                      <span className="block font-mono text-[11px] opacity-80">{r.entity_id}</span>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">{r.actor || "—"}</td>
+                  <td className="max-w-[22rem] px-4 py-3">
+                    {detail ? (
+                      <details>
+                        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                          Show
+                        </summary>
+                        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/40 p-2 text-[11px]">
+                          {detail}
+                        </pre>
+                      </details>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </DataTable>
+          <Pager total={total} limit={PAGE} offset={offset} onOffsetChange={setOffset} />
+        </>
       )}
     </div>
   )

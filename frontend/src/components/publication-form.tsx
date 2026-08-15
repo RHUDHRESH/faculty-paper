@@ -9,14 +9,24 @@ import {
   IdCard,
   Search,
   Sparkles,
+  UserCog,
   Users,
 } from "lucide-react"
 
 import { useAuth } from "@/components/auth-provider"
+import {
+  ClaimEligibilityGate,
+  ClaimRulesDialog,
+} from "@/components/claim-eligibility-notice"
+import { ClaimVerificationPanel } from "@/components/claim-verification-panel"
+import { ProfileDetailsDialog } from "@/components/profile-details-dialog"
+import { ScopusArticlePicker, type ScopusCandidate } from "@/components/scopus-article-picker"
+import { SecCitationList } from "@/components/sec-citation-list"
 import { Money } from "@/components/ticket-ui"
 import { StickyActions } from "@/components/layout/page"
 import {
   Callout,
+  CheckCards,
   ChoiceCards,
   DateField,
   Field,
@@ -26,7 +36,6 @@ import {
   NumberStepper,
   ReadOnlyField,
   SegmentedControl,
-  TagInput,
 } from "@/components/form/fields"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -54,21 +63,24 @@ import {
 import { API_BASE, api, ensureCsrf, type Claim } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
-  ANNEXURE_LEVELS,
+
   applyEnrichment,
   buildClaimPayload,
   CLAIM_REASONS,
   claimToFormState,
+  coverDateToIso,
   DESIGNATIONS,
+  EXPECTED_SEC_REFERENCES,
   formatIssn,
   formStateFromFacultyOption,
   formStateFromUser,
   INDEXING_LEVELS,
   isIssnComplete,
   isLikelyDoi,
-  joinRefNumbers,
+  MAX_ELIGIBLE_AUTHORS,
+  MAX_PAPER_FILES,
+  MAX_REFERENCE_FILES,
   normalizeDoiInput,
-  parseRefNumbers,
   PUBLICATION_TYPES,
   QUARTILE_OPTIONS,
   validateStep,
@@ -204,7 +216,7 @@ const STEP_HEADING_ID = "wizard-step-heading"
 /** Field keys whose rendered control uses a different element id. */
 const ERROR_TARGET_ID: Record<string, string> = {
   proof_files: "proof-upload",
-  sec_proof_files: "sec-proof-upload",
+  sec_citations: "sec_citations",
   affiliation_ok: "affiliation-ok",
 }
 
@@ -322,9 +334,14 @@ export function PublicationForm({
   const [facultyQuery, setFacultyQuery] = useState("")
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [calc, setCalc] = useState<{ remuneration?: number | null; error?: string | null } | null>(
-    null
-  )
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null)
+  const [calc, setCalc] = useState<{
+    remuneration?: number | null
+    error?: string | null
+    note?: string | null
+    category?: string | null
+    category_label?: string | null
+  } | null>(null)
   const [enriching, setEnriching] = useState(false)
   const [filledLabels, setFilledLabels] = useState<string[]>([])
   const lastSuccess = useRef({ doi: "", title: "", issn: "" })
@@ -337,6 +354,18 @@ export function PublicationForm({
   const [issuedTicket, setIssuedTicket] = useState<string | null>(null)
   const [issuedId, setIssuedId] = useState<string | null>(null)
   const [issuedAmount, setIssuedAmount] = useState<number | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  // The conditions gate a new faculty claim only: an admin filing on behalf has
+  // already been through it, and an edit is a ticket that cleared it once.
+  const [acknowledged, setAcknowledged] = useState(mode === "admin" || !!claimId)
+  // Autosave target: starts as the claim being edited (if any); the first
+  // autosave of a brand-new form creates the draft and pins its id here.
+  const [draftId, setDraftId] = useState<string | null>(claimId || null)
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
+  const dirtyRef = useRef(false)
+  const autosaveBusyRef = useRef(false)
+  const submittedRef = useRef(false)
 
   useEffect(() => {
     if (mode === "faculty" && user) setForm(formStateFromUser(user))
@@ -357,13 +386,56 @@ export function PublicationForm({
 
   useEffect(() => {
     if (!claimId) return
+    setDraftId(claimId)
     api<Claim>(`/api/claims/${claimId}`)
       .then((c) => {
         setForm(claimToFormState(c))
         setFurthest(STEPS.length - 1)
+        // The load itself is not an edit.
+        dirtyRef.current = false
       })
       .catch(() => toast.error("Could not load ticket"))
   }, [claimId])
+
+  // Debounced autosave. The wizard held twenty minutes of typing in memory
+  // only — a closed tab or accidental navigation lost all of it. Faculty
+  // only: an admin proxy draft belongs to the faculty member, so the admin
+  // cannot PATCH it afterwards.
+  useEffect(() => {
+    if (mode !== "faculty" || !acknowledged || successOpen) return
+    if (!form.paper_title.trim()) return
+    dirtyRef.current = true
+    const t = setTimeout(async () => {
+      if (autosaveBusyRef.current || busy || uploading || submittedRef.current) return
+      autosaveBusyRef.current = true
+      try {
+        const payload = buildClaimPayload(formRef.current, { submit: false })
+        const claim = draftId
+          ? await api<Claim>(`/api/claims/${draftId}`, { method: "PATCH", json: payload })
+          : await api<Claim>("/api/claims", { method: "POST", json: payload })
+        if (!draftId) setDraftId(claim.id)
+        dirtyRef.current = false
+        setLastSavedAt(new Date())
+      } catch {
+        /* stays dirty; the beforeunload warning still covers the person */
+      } finally {
+        autosaveBusyRef.current = false
+      }
+    }, 2500)
+    return () => clearTimeout(t)
+  }, [form, mode, acknowledged, successOpen, draftId, busy, uploading])
+
+  // Browser-level guard for the gap before the debounce fires.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current && !submittedRef.current) {
+        e.preventDefault()
+        e.returnValue = ""
+      }
+    }
+    window.addEventListener("beforeunload", handler)
+    return () => window.removeEventListener("beforeunload", handler)
+  }, [])
 
   useEffect(() => {
     if (mode !== "admin") return
@@ -388,19 +460,28 @@ export function PublicationForm({
   }, [form])
 
   const countOnly = form.claim_reason === "COUNT_ONLY"
+  const isFaculty = mode === "faculty"
 
   function set<K extends keyof PublicationFormState>(key: K, value: PublicationFormState[K]) {
     setForm((f) => ({ ...f, [key]: value }))
   }
 
   async function recalc(next?: Partial<PublicationFormState>) {
-    const f = { ...form, ...next }
+    // formRef, not form: callers do setForm(...) then recalc(...) in the same
+    // handler, where the `form` closure still holds the previous render.
+    const f = { ...formRef.current, ...next }
     if (f.claim_reason === "COUNT_ONLY") {
       setCalc({ remuneration: 0 })
       return
     }
     try {
-      const c = await api<{ remuneration?: number | null; error?: string | null }>(
+      const c = await api<{
+        remuneration?: number | null
+        error?: string | null
+        note?: string | null
+        category?: string | null
+        category_label?: string | null
+      }>(
         "/api/calculate",
         {
           method: "POST",
@@ -409,7 +490,11 @@ export function PublicationForm({
             quartile: f.quartile || f.self_reported_quartile || null,
             total_authors: f.total_authors,
             author_position: f.author_position,
-            publication_type: f.aggregation_type || f.publication_type,
+            publication_type: f.publication_types.join(", ") || f.aggregation_type,
+            indexing_level: f.indexing_levels.join(", ") || null,
+            sec_reference_count: f.sec_citations.filter(
+              (c) => c.number.trim() && c.title.trim() && c.file
+            ).length,
           },
         }
       )
@@ -477,26 +562,97 @@ export function PublicationForm({
     }
   }
 
+  /** Take the record the claimant chose, then enrich it for SNIP and quartile. */
+  async function applyCandidate(c: ScopusCandidate) {
+    const next: PublicationFormState = { ...formRef.current }
+    if (c.title) next.paper_title = c.title
+    if (c.journal_title) next.journal_title = c.journal_title
+    if (c.doi) next.doi = normalizeDoiInput(c.doi)
+    if (c.issn) next.issn = formatIssn(c.issn)
+    const iso = coverDateToIso(c.cover_date)
+    if (iso) next.publication_date = iso
+    if (c.publication_year) next.publication_year = String(c.publication_year)
+    if (c.author_count && c.author_count >= 1) {
+      next.total_authors = Math.max(1, Math.min(50, c.author_count))
+      next.author_position = Math.min(next.author_position, next.total_authors)
+    }
+    if (!next.indexing_levels.includes("Scopus")) {
+      next.indexing_levels = [...next.indexing_levels, "Scopus"]
+    }
+    setForm(next)
+    // quietFill reads formRef, and React has not committed the state yet.
+    formRef.current = next
+    await quietFill(true, next)
+  }
+
+  /** One file for one citation — the list needs the ref back to attach it. */
+  async function uploadOne(file: File): Promise<UploadedFileRef | null> {
+    setUploading(true)
+    try {
+      return await uploadPdf(file)
+    } catch (e) {
+      toast.error(`${file.name}: ${e instanceof Error ? e.message : "upload failed"}`)
+      return null
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  /** Uploads run a few at a time; one bad file must not sink the batch. */
   async function handleUpload(
-    field: "proof_files" | "sec_proof_files",
+    field: "proof_files",
     incoming: File[],
     max: number
   ) {
+    const room = max - formRef.current[field].length
+    const batch = incoming.slice(0, Math.max(0, room))
+    if (!batch.length) return
+
     setUploading(true)
+    setUploadProgress({ done: 0, total: batch.length })
+    const failures: string[] = []
+    let done = 0
+
+    // Sequential uploads made a 20-file drop feel broken; unbounded parallel
+    // ones stall the dev server. Four at a time is the compromise, and each
+    // file appears as it finishes rather than all at the end.
+    const CONCURRENCY = 4
+    const existing = formRef.current[field]
+    // Uploads finish out of order, but a claimant dropping reference-01…12
+    // expects to read them back in that order, so each keeps its own slot.
+    const slots: (UploadedFileRef | null)[] = new Array(batch.length).fill(null)
+    const indexed = batch.map((file, i) => ({ file, i }))
+
+    async function worker() {
+      for (;;) {
+        const next = indexed.shift()
+        if (!next) return
+        try {
+          slots[next.i] = await uploadPdf(next.file)
+          const landed = slots.filter((s): s is UploadedFileRef => s !== null)
+          setForm((f) => ({ ...f, [field]: [...existing, ...landed] }))
+        } catch (e) {
+          failures.push(`${next.file.name}: ${e instanceof Error ? e.message : "upload failed"}`)
+        } finally {
+          done += 1
+          setUploadProgress({ done, total: batch.length })
+        }
+      }
+    }
+
     try {
-      const room = max - form[field].length
-      const uploaded: UploadedFileRef[] = []
-      for (const file of incoming.slice(0, Math.max(0, room))) {
-        uploaded.push(await uploadPdf(file))
-      }
-      if (uploaded.length) {
-        setForm((f) => ({ ...f, [field]: [...f[field], ...uploaded] }))
-        toast.success(uploaded.length > 1 ? `${uploaded.length} files uploaded` : "File uploaded")
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed")
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, batch.length) }, () => worker())
+      )
+      const ok = batch.length - failures.length
+      if (ok) toast.success(ok === 1 ? "File uploaded" : `${ok} files uploaded`)
+      // Name the files that failed — "Upload failed" alone leaves the user
+      // guessing which of twenty is missing.
+      for (const message of failures.slice(0, 3)) toast.error(message)
+      if (failures.length > 3) toast.error(`${failures.length - 3} more failed to upload`)
     } finally {
       setUploading(false)
+      setUploadProgress(null)
     }
   }
 
@@ -538,11 +694,18 @@ export function PublicationForm({
         contest_note: sendNote,
         owner_id: mode === "admin" ? latest.owner_id : undefined,
       })
-      const claim = claimId
-        ? await api<Claim>(`/api/claims/${claimId}`, { method: "PATCH", json: payload })
+      // Admin proxy drafts belong to the faculty member, so the admin cannot
+      // PATCH them afterwards — that flow keeps its original POST-only shape.
+      const targetId = mode === "faculty" ? draftId || claimId : claimId
+      const claim = targetId
+        ? await api<Claim>(`/api/claims/${targetId}`, { method: "PATCH", json: payload })
         : await api<Claim>("/api/claims", { method: "POST", json: payload })
+      if (mode === "faculty") setDraftId(claim.id)
+      dirtyRef.current = false
+      setLastSavedAt(new Date())
 
       if (submit && claim.ticket_number) {
+        submittedRef.current = true
         setIssuedTicket(claim.ticket_number)
         setIssuedId(claim.id)
         setIssuedAmount(claim.remuneration ?? calc?.remuneration ?? null)
@@ -631,9 +794,27 @@ export function PublicationForm({
         </div>
       ) : null}
 
+      {isFaculty ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
+          <p className="text-xs text-muted-foreground">
+            These details come from your account. Hover any locked field to see who can change it.
+          </p>
+          <Button type="button" variant="secondary" size="sm" onClick={() => setProfileOpen(true)}>
+            <UserCog className="size-3.5" />
+            Edit profile details
+          </Button>
+        </div>
+      ) : null}
+
       <FieldGrid>
         <FieldSpan>
-          <ReadOnlyField label="Email" value={form.email} />
+          <ReadOnlyField
+            label="Email"
+            value={form.email}
+            manageHint={
+              isFaculty ? "Your login address. The research cell changes this." : undefined
+            }
+          />
         </FieldSpan>
 
         <Field
@@ -657,10 +838,28 @@ export function PublicationForm({
           label="Department"
           value={form.department}
           error={visibleErrors.department}
-          hint="Set from your staff record — it decides which HoD approves this ticket."
+          hint="Set from your staff record — it is the department every ticket is filed under."
+          manageHint={
+            isFaculty
+              ? "Comes from your staff record and is the department this ticket is filed under. Open your profile details to see how to get it corrected."
+              : undefined
+          }
+          manageLabel="Open profile details"
+          onManage={isFaculty ? () => setProfileOpen(true) : undefined}
         />
 
-        <ReadOnlyField label="Staff ID" value={form.staff_id} mono />
+        <ReadOnlyField
+          label="Staff ID"
+          value={form.staff_id}
+          mono
+          manageHint={
+            isFaculty
+              ? "Held by the research cell. Open your profile details to copy a correction request."
+              : undefined
+          }
+          manageLabel="Open profile details"
+          onManage={isFaculty ? () => setProfileOpen(true) : undefined}
+        />
 
         <ReadOnlyField
           label="Biometric ID"
@@ -668,6 +867,13 @@ export function PublicationForm({
           mono
           error={visibleErrors.biometric_id}
           hint="Linked to your bank account for disbursement."
+          manageHint={
+            isFaculty
+              ? "Decides which account is paid, so only the research cell can change it. Open your profile details to copy a correction request."
+              : undefined
+          }
+          manageLabel="Open profile details"
+          onManage={isFaculty ? () => setProfileOpen(true) : undefined}
         />
 
         <FieldSpan>
@@ -675,7 +881,7 @@ export function PublicationForm({
             label="Designation"
             required
             error={visibleErrors.designation}
-            hint="Saved to your profile when you submit."
+            hint="Yours to set — saved to your profile when you submit."
           >
             <ChoiceCards
               name="Designation"
@@ -713,7 +919,7 @@ export function PublicationForm({
 
   /* ---------------- step 1 — publication ---------------- */
 
-  const needsIndexingRef = ANNEXURE_LEVELS.includes(form.indexing_level)
+  // Each annexure now has its own field, so the sections key off the level directly.
 
   const publicationStep = (
     <StepCard step={STEPS[1]}>
@@ -724,9 +930,21 @@ export function PublicationForm({
       ) : (
         <Callout tone="info" title="Paste a DOI or the paper title, then leave the field">
           Journal, ISSN, date, SNIP, and quartile fill in automatically when the article is in
-          Scopus. Use Autofill if you want to overwrite what is already there.
+          Scopus. Autofill overwrites what is already there; search Scopus instead when several
+          papers share a title.
         </Callout>
       )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
+        <p className="text-xs text-muted-foreground">
+          Not sure which Scopus record is yours? Search and choose from the matches.
+        </p>
+        <Button type="button" variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>
+          <Search className="size-3.5" />
+          Find my article in Scopus
+        </Button>
+      </div>
+
       <FieldGrid>
         <FieldSpan>
           <Field
@@ -783,16 +1001,16 @@ export function PublicationForm({
           <Field
             label="Publication type"
             required
-            error={visibleErrors.publication_type}
+            error={visibleErrors.publication_types}
+            hint="Select every one that applies. Where they pay differently, the best-qualifying type is used."
           >
-            <ChoiceCards
+            <CheckCards
               name="Publication type"
               columns={2}
-              value={form.publication_type}
+              value={form.publication_types}
               onChange={(v) => {
-                set("publication_type", v)
-                set("aggregation_type", v)
-                recalc({ publication_type: v, aggregation_type: v })
+                setForm((f) => ({ ...f, publication_types: v, aggregation_type: v[0] || "" }))
+                recalc({ publication_types: v, aggregation_type: v[0] || "" })
               }}
               options={PUBLICATION_TYPES.map((t) => ({ value: t.value, label: t.label }))}
             />
@@ -801,15 +1019,16 @@ export function PublicationForm({
 
         <FieldSpan>
           <Field
-            label="Journal indexing level"
+            label="Where the journal is indexed"
             required
-            error={visibleErrors.indexing_level}
+            error={visibleErrors.indexing_levels}
+            hint="Select every one that applies — a journal is often listed in more than one."
           >
-            <ChoiceCards
-              name="Journal indexing level"
+            <CheckCards
+              name="Where the journal is indexed"
               columns={2}
-              value={form.indexing_level}
-              onChange={(v) => set("indexing_level", v)}
+              value={form.indexing_levels}
+              onChange={(v) => set("indexing_levels", v)}
               options={INDEXING_LEVELS.map((l) => ({
                 value: l.value,
                 label: l.label,
@@ -819,25 +1038,44 @@ export function PublicationForm({
           </Field>
         </FieldSpan>
 
-        {needsIndexingRef ? (
-          <FieldSpan>
-            <Field
-              label={`${form.indexing_level} reference number`}
-              htmlFor="indexing_ref"
-              required
-              error={visibleErrors.indexing_ref}
-              hint="Enter NA if the journal has no reference number."
-            >
-              <Input
-                id="indexing_ref"
-                className="h-9"
-                placeholder="Ref no or NA"
-                value={form.indexing_ref}
-                aria-invalid={!!visibleErrors.indexing_ref}
-                onChange={(e) => set("indexing_ref", e.target.value)}
-              />
-            </Field>
-          </FieldSpan>
+        {/* One box each: AU Annexure and UGC Care are separate registers with
+            separate numbers, so a single shared field could only hold one. */}
+        {form.indexing_levels.includes("AU Annexure") ? (
+          <Field
+            label="AU Annexure reference number"
+            htmlFor="au_annexure_ref"
+            required
+            error={visibleErrors.au_annexure_ref}
+            hint="Enter NA if there is none."
+          >
+            <Input
+              id="au_annexure_ref"
+              className="h-9"
+              placeholder="Ref no or NA"
+              value={form.au_annexure_ref}
+              aria-invalid={!!visibleErrors.au_annexure_ref}
+              onChange={(e) => set("au_annexure_ref", e.target.value)}
+            />
+          </Field>
+        ) : null}
+
+        {form.indexing_levels.includes("UGC Care") ? (
+          <Field
+            label="UGC Care reference number"
+            htmlFor="ugc_care_ref"
+            required
+            error={visibleErrors.ugc_care_ref}
+            hint="Enter NA if there is none."
+          >
+            <Input
+              id="ugc_care_ref"
+              className="h-9"
+              placeholder="Ref no or NA"
+              value={form.ugc_care_ref}
+              aria-invalid={!!visibleErrors.ugc_care_ref}
+              onChange={(e) => set("ugc_care_ref", e.target.value)}
+            />
+          </Field>
         ) : null}
 
         <Field
@@ -964,6 +1202,8 @@ export function PublicationForm({
             value={form.total_authors}
             min={1}
             max={50}
+            /* The policy ceiling is 9; above it the estimate says "not eligible"
+               rather than the form silently rewriting the author list. */
             onChange={(n) => {
               setForm((f) => ({
                 ...f,
@@ -1042,6 +1282,14 @@ export function PublicationForm({
         </Field>
       </FieldGrid>
 
+      {/* Policy Step 6/8 eligibility, said before the ticket is filed. */}
+      {!countOnly && form.total_authors > MAX_ELIGIBLE_AUTHORS ? (
+        <Callout tone="danger" title={`More than ${MAX_ELIGIBLE_AUTHORS} authors — not eligible`}>
+          The scheme pays for up to {MAX_ELIGIBLE_AUTHORS} authors. This publication can still be
+          filed and counted, but it carries no remuneration.
+        </Callout>
+      ) : null}
+
       {!countOnly && calc?.remuneration != null ? (
         <div className="flex items-center justify-between rounded-xl border border-primary/25 bg-surface-brand px-4 py-3">
           <div>
@@ -1049,7 +1297,7 @@ export function PublicationForm({
               Estimated incentive
             </p>
             <p className="text-xs text-muted-foreground">
-              Indicative only — Finance confirms the final amount.
+              {calc.category_label || "Indicative only — Finance confirms the final amount."}
             </p>
           </div>
           <p className="text-2xl font-semibold tabular-nums text-primary">
@@ -1058,6 +1306,12 @@ export function PublicationForm({
         </div>
       ) : null}
       {calc?.error ? <Callout tone="warning">{calc.error}</Callout> : null}
+      {/* A bare ₹0.00 reads as a broken formula — say which policy rule produced it. */}
+      {!calc?.error && calc?.note ? (
+        <Callout tone="info" title="Why this comes to nothing">
+          {calc.note}
+        </Callout>
+      ) : null}
     </StepCard>
   )
 
@@ -1078,75 +1332,54 @@ export function PublicationForm({
           label="Full-length published paper"
           required
           error={visibleErrors.proof_files}
-          hint="One PDF of the published article."
+          hint="The published article as PDF. Add more files if it came split, or with supplementary material."
         >
           <FileDropzone
             id="proof-upload"
             files={form.proof_files}
-            max={1}
+            max={MAX_PAPER_FILES}
             busy={uploading}
+            progress={uploadProgress}
             invalid={!!visibleErrors.proof_files}
-            onAdd={(files) => handleUpload("proof_files", files, 1)}
+            onAdd={(files) => handleUpload("proof_files", files, MAX_PAPER_FILES)}
             onRemove={(url) =>
               set(
                 "proof_files",
                 form.proof_files.filter((f) => f.url !== url)
               )
             }
+            onClear={() => set("proof_files", [])}
           />
         </Field>
 
         <Field
-          label="Reference numbers cited with SEC affiliation"
+          label="SEC-affiliated references you cited"
           required
-          error={visibleErrors.sec_refs}
-          hint="The reference numbers as they appear in your manuscript's reference list. Press Enter or comma after each."
+          error={visibleErrors.sec_citations}
+          hint={`For each one: its number in your reference list, the article, and its full text. The policy requires ${EXPECTED_SEC_REFERENCES} — with fewer, the publication is counted but carries no remuneration.`}
         >
-          <TagInput
-            id="sec_refs"
-            numericOnly
-            placeholder="14, 15, 57"
-            invalid={!!visibleErrors.sec_refs}
-            value={parseRefNumbers(form.sec_refs)}
-            onChange={(tags) => set("sec_refs", joinRefNumbers(tags))}
+          <SecCitationList
+            id="sec_citations"
+            citations={form.sec_citations}
+            uploading={uploading}
+            invalid={!!visibleErrors.sec_citations}
+            expected={EXPECTED_SEC_REFERENCES}
+            max={MAX_REFERENCE_FILES}
+            onChange={(next) => set("sec_citations", next)}
+            onUpload={uploadOne}
           />
         </Field>
 
-        <Field
-          label="Reference articles cited with SEC affiliation"
-          htmlFor="reference_articles"
-          hint="List the cited articles authored by Saveetha Engineering College faculty, one per line."
-        >
-          <Textarea
-            id="reference_articles"
-            rows={3}
-            className="resize-y"
-            value={form.reference_articles}
-            onChange={(e) => set("reference_articles", e.target.value)}
-          />
-        </Field>
-
-        <Field
-          label="Reference papers with SEC affiliation"
-          required
-          error={visibleErrors.sec_proof_files}
-          hint="Up to 5 PDFs. At least two cited references authored by SEC faculty are expected."
-        >
-          <FileDropzone
-            id="sec-proof-upload"
-            files={form.sec_proof_files}
-            max={5}
-            busy={uploading}
-            invalid={!!visibleErrors.sec_proof_files}
-            onAdd={(files) => handleUpload("sec_proof_files", files, 5)}
-            onRemove={(url) =>
-              set(
-                "sec_proof_files",
-                form.sec_proof_files.filter((f) => f.url !== url)
-              )
-            }
-          />
-        </Field>
+        {/* Policy Step 6: fewer than two SEC references means count-only. */}
+        {!countOnly &&
+        form.sec_citations.filter((c) => c.number.trim() && c.title.trim() && c.file).length > 0 &&
+        form.sec_citations.filter((c) => c.number.trim() && c.title.trim() && c.file).length <
+          EXPECTED_SEC_REFERENCES ? (
+          <Callout tone="warning" title="Below the minimum for remuneration">
+            The policy requires {EXPECTED_SEC_REFERENCES} SEC-affiliated references. With fewer, the
+            publication is still recorded in the institutional count, but no remuneration is paid.
+          </Callout>
+        ) : null}
 
         <div
           className={cn(
@@ -1190,14 +1423,17 @@ export function PublicationForm({
     {
       label: "Type",
       value:
-        PUBLICATION_TYPES.find((t) => t.value === form.publication_type)?.label ||
-        form.publication_type ||
-        "—",
+        form.publication_types
+          .map((v) => PUBLICATION_TYPES.find((t) => t.value === v)?.label || v)
+          .join(", ") || "—",
       step: 1,
     },
-    { label: "Indexing", value: form.indexing_level || "—", step: 1 },
-    ...(needsIndexingRef
-      ? [{ label: "Indexing ref", value: form.indexing_ref || "—", step: 1 }]
+    { label: "Indexed in", value: form.indexing_levels.join(", ") || "—", step: 1 },
+    ...(form.indexing_levels.includes("AU Annexure")
+      ? [{ label: "AU Annexure ref", value: form.au_annexure_ref || "—", step: 1 }]
+      : []),
+    ...(form.indexing_levels.includes("UGC Care")
+      ? [{ label: "UGC Care ref", value: form.ugc_care_ref || "—", step: 1 }]
       : []),
     { label: "ISSN", value: form.issn || "—", step: 1 },
     { label: "Published", value: form.publication_date || "—", step: 1 },
@@ -1214,12 +1450,21 @@ export function PublicationForm({
     },
     { label: "Quartile", value: form.quartile || form.self_reported_quartile || "—", step: 2 },
     { label: "SNIP", value: form.snip || "—", step: 2 },
-    { label: "SEC references", value: form.sec_refs || "—", step: 3 },
+    {
+      label: "SEC references",
+      value: (() => {
+        const done = form.sec_citations.filter((c) => c.number.trim() && c.title.trim() && c.file)
+        return done.length
+          ? `${done.length} cited · ref ${done.map((c) => c.number.trim()).join(", ")}`
+          : "—"
+      })(),
+      step: 3,
+    },
     {
       label: "Documents",
-      value: `${form.proof_files.length} paper · ${form.sec_proof_files.length} reference${
-        form.sec_proof_files.length === 1 ? "" : "s"
-      }`,
+      value: `${form.proof_files.length} paper · ${
+        form.sec_citations.filter((c) => c.file).length
+      } reference file(s)`,
       step: 3,
     },
   ]
@@ -1250,9 +1495,17 @@ export function PublicationForm({
         </Callout>
       ) : (
         <Callout tone="success" title="Everything required is filled in">
-          Submitting raises a ticket and sends it to your HoD for approval.
+          Submitting raises a ticket and sends it to the research cell to be cleared.
         </Callout>
       )}
+
+      <ClaimVerificationPanel
+        title={form.paper_title}
+        issn={form.issn}
+        scopusAuthorUrl={form.scopus_author_url}
+        staffId={form.staff_id}
+        excludeClaimId={claimId}
+      />
 
       <dl className="overflow-hidden rounded-xl border border-border">
         {reviewRows.map((row, i) => (
@@ -1298,6 +1551,12 @@ export function PublicationForm({
   const isFirst = step === 0
   const isLast = step === STEPS.length - 1
 
+  // The conditions are the ticket's own preconditions, so they are read before
+  // the form exists rather than as a banner above it that scrolls away.
+  if (!acknowledged) {
+    return <ClaimEligibilityGate onAcknowledge={() => setAcknowledged(true)} />
+  }
+
   return (
     <form
       noValidate
@@ -1309,9 +1568,27 @@ export function PublicationForm({
         if (!isLast) goNext()
       }}
     >
-      <Callout tone="info" title="Before you start" className="mb-5">
-        File this only after the article is indexed in Scopus and linked to your author profile, and
-        only once per article. The affiliation on the article must read Saveetha Engineering College.
+      <Callout
+        tone="warning"
+        title="File only after the article is indexed in Scopus and linked to your author profile"
+        className="mb-5"
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>
+            One claim per article. The affiliation on the article must read Saveetha Engineering
+            College.
+          </span>
+          <ClaimRulesDialog
+            trigger={
+              <button
+                type="button"
+                className="font-medium text-primary underline underline-offset-2 outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+              >
+                Read the full conditions
+              </button>
+            }
+          />
+        </div>
       </Callout>
 
       <div className="mb-5">
@@ -1336,6 +1613,12 @@ export function PublicationForm({
       {stepViews[step]}
 
       <StickyActions>
+        {lastSavedAt ? (
+          <span className="mr-auto self-center text-xs text-muted-foreground tabular-nums">
+            Draft saved ·{" "}
+            {lastSavedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        ) : null}
         {!isFirst ? (
           <Button
             type="button"
@@ -1369,6 +1652,34 @@ export function PublicationForm({
         )}
       </StickyActions>
 
+      <ScopusArticlePicker
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        initialQuery={form.paper_title || form.doi}
+        scopusAuthorUrl={form.scopus_author_url}
+        onPick={(c) => applyCandidate(c)}
+      />
+
+      {isFaculty ? (
+        <ProfileDetailsDialog
+          open={profileOpen}
+          onOpenChange={setProfileOpen}
+          onSaved={(updated) =>
+            // Re-bind only the identity half — the publication fields on screen
+            // are the claimant's work in progress and must survive the save.
+            setForm((f) => ({
+              ...f,
+              faculty_name: updated.name || f.faculty_name,
+              department: updated.department || f.department,
+              staff_id: updated.staff_id || f.staff_id,
+              biometric_id: updated.biometric_id || f.biometric_id,
+              designation: updated.designation || f.designation,
+              scopus_author_url: updated.scopus_author_url || f.scopus_author_url,
+            }))
+          }
+        />
+      ) : null}
+
       <AlertDialog open={sendAnywayOpen} onOpenChange={setSendAnywayOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1376,7 +1687,7 @@ export function PublicationForm({
             <AlertDialogDescription>{blockReason}</AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="send-note">Note for your HoD (10+ characters)</Label>
+            <Label htmlFor="send-note">Note for the research cell (10+ characters)</Label>
             <Textarea
               id="send-note"
               rows={3}
@@ -1404,7 +1715,7 @@ export function PublicationForm({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Claim submitted</DialogTitle>
-            <DialogDescription>Your ticket is with the HoD for approval.</DialogDescription>
+            <DialogDescription>Your ticket is with the research cell to be cleared.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 rounded-xl bg-surface-brand py-5 text-center">
             <p className="font-mono text-3xl font-semibold tracking-tight text-primary">

@@ -1,8 +1,14 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { Bell } from "lucide-react"
-import { api } from "@/lib/api"
+import {
+  markAllNotificationsRead,
+  markNotificationRead,
+  refreshNotifications,
+  useNotifications,
+} from "@/lib/use-notifications"
 import { Button } from "@/components/ui/button"
 import {
   Popover,
@@ -13,42 +19,33 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 
-type Note = {
-  id: string
-  title: string
-  body?: string | null
-  href?: string | null
-  read: boolean
-  created_at: string
-}
-
 export function NotificationBell({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
-  const [items, setItems] = useState<Note[]>([])
-
-  const load = useCallback(async () => {
-    try {
-      setItems(await api<Note[]>("/api/notifications"))
-    } catch {
-      /* ignore when logged out */
-    }
-  }, [])
-
-  useEffect(() => {
-    load()
-    const t = setInterval(load, 45000)
-    return () => clearInterval(t)
-  }, [load])
-
-  const unread = items.filter((n) => !n.read).length
+  const navigate = useNavigate()
+  // Shared across every bell the shell renders — see lib/use-notifications.
+  const { items, unread } = useNotifications()
 
   async function markAll() {
-    await api("/api/notifications/read-all", { method: "POST", json: {} })
-    await load()
+    await markAllNotificationsRead()
+  }
+
+  function openItem(id: string, href?: string | null) {
+    markNotificationRead(id)
+    setOpen(false)
+    // SPA navigation — an <a href> here forced a full page reload and re-auth.
+    if (href) navigate(href)
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o)
+        // The poll only tracks the unread count; the list itself is fetched
+        // when someone actually looks at it.
+        if (o) refreshNotifications()
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -57,7 +54,7 @@ export function NotificationBell({ className }: { className?: string }) {
             "relative text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
             className
           )}
-          aria-label="Notifications"
+          aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
         >
           <Bell className="size-4" />
           {unread > 0 ? (
@@ -84,13 +81,13 @@ export function NotificationBell({ className }: { className?: string }) {
             <ul className="divide-y divide-border">
               {items.map((n) => (
                 <li key={n.id}>
-                  <a
-                    href={n.href || "#"}
+                  <button
+                    type="button"
                     className={cn(
-                      "block px-4 py-3 transition-colors hover:bg-accent/60 active:bg-accent",
+                      "block w-full px-4 py-3 text-left transition-colors hover:bg-accent/60 active:bg-accent",
                       !n.read && "bg-accent/40"
                     )}
-                    onClick={() => setOpen(false)}
+                    onClick={() => openItem(n.id, n.href)}
                   >
                     <div className="text-sm font-medium text-foreground">{n.title}</div>
                     {n.body ? (
@@ -101,7 +98,7 @@ export function NotificationBell({ className }: { className?: string }) {
                     <p className="mt-1.5 text-[10px] text-muted-foreground">
                       {new Date(n.created_at).toLocaleString()}
                     </p>
-                  </a>
+                  </button>
                 </li>
               ))}
             </ul>

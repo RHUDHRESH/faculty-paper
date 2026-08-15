@@ -5,14 +5,16 @@ import io
 import json
 import logging
 import os
+import re
 import uuid as uuid_lib
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Optional
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -31,6 +33,7 @@ from core.models import (
     ClaimAttachment,
     ClaimReason,
     ClaimStatus,
+    PAYABLE_STATUSES,
     FacultyMaster,
     FormulaConfig,
     MonthlyBatch,
@@ -48,22 +51,32 @@ from core.services import rbac
 from core.services.monthly_processor import start_batch_async
 from core.services.normalize import normalize_doi, normalize_issn, normalize_title
 from core.services.remuneration import (
+    CATEGORY_LABELS,
     DEFAULT_AUTHOR_POINTS,
     DEFAULT_PUB_TYPE_MULTIPLIERS,
+    MAX_ELIGIBLE_AUTHORS,
     calculate_remuneration,
     formula_from_model,
     snapshot_formula,
 )
 from core.services.notify_email import send_optional_email
-from core.services.scimago import lookup_scimago, parse_categories_field
+from core.services.scimago import lookup_scimago
+from core.services.scimago_sync import (
+    SCIMAGO_RANK_URL,
+    ScimagoSyncError,
+    import_csv_text,
+    sync_year,
+)
 from core.services.scopus import (
     ScopusError,
     extract_author_id,
     lookup_paper_by_doi,
     lookup_serial_by_issn,
     search_by_title,
+    search_candidates,
 )
-from core.services.tickets import next_ticket_number
+from core.services.tickets import assign_ticket_number
+from core.services.uploads import ACCEPTED_LABEL, sniff
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
 
 api = NinjaAPI(
@@ -109,12 +122,29 @@ def health(request: HttpRequest):
         db_ok = True
     except Exception:
         db_ok = False
+    # Uploads written inside the app directory do not survive a deploy. That
+    # failure is invisible — the ticket still lists its attachments — so the
+    # health check is the one place it can be noticed before someone looks for
+    # a proof that is no longer there.
+    media_root = Path(settings.MEDIA_ROOT).resolve()
+    media_is_ephemeral = not settings.DEBUG and str(media_root).startswith(
+        str(Path(settings.BASE_DIR).resolve())
+    )
     payload = {
         "ok": db_ok,
         "db": db_ok,
         "service": "faculty-paper-api",
+        "media_root": str(media_root),
+        "media_persistent": not media_is_ephemeral,
         "time": timezone.now().isoformat(),
     }
+    if media_is_ephemeral:
+        payload["warnings"] = [
+            "MEDIA_ROOT is inside the application directory — uploaded claim "
+            "evidence will be lost on the next deploy. Set DJANGO_MEDIA_ROOT to "
+            "a mounted disk or object storage."
+        ]
+        logger.warning("media_root_ephemeral path=%s", media_root)
     if not db_ok:
         raise HttpError(503, "database unavailable")
     return payload
@@ -136,19 +166,21 @@ def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
     return issues
 
 
-def _notify_hods(claim: Claim, title: str, body: str) -> None:
-    dept = claim.owner.department
-    qs = User.objects.filter(role=Role.HOD, active=True)
-    if dept:
-        qs = qs.filter(department__iexact=dept)
-    for u in qs:
+def _notify_admins(claim: Claim, title: str, body: str) -> None:
+    """A submitted ticket waits on admin clearing, so admins are who hear about it."""
+    for u in User.objects.filter(
+        role__in=rbac.ADMIN_ROLES, active=True
+    ):
         Notification.objects.create(
             user=u,
             title=title,
             body=body,
-            href=f"/hod?claim={claim.id}",
+            # /admin is the overview, which ignores ?claim — the clearing queue
+            # is the page that actually opens the ticket.
+            href=f"/admin/clearing?claim={claim.id}",
             claim_id=claim.id,
         )
+        send_optional_email(u.email, title, body)
 
 
 def _notify_principals(claim: Claim, title: str, body: str) -> None:
@@ -203,6 +235,9 @@ class AttachmentIn(Schema):
     url: str
     filename: Optional[str] = None
     size_bytes: int = 0
+    # SEC_REFERENCE only: which citation this file proves.
+    ref_number: Optional[str] = None
+    ref_title: Optional[str] = None
 
 
 class ClaimIn(Schema):
@@ -216,6 +251,8 @@ class ClaimIn(Schema):
     publication_type: Optional[str] = None
     indexing_level: Optional[str] = None
     indexing_ref: Optional[str] = None
+    au_annexure_ref: Optional[str] = None
+    ugc_care_ref: Optional[str] = None
     yukthi_id: Optional[str] = None
     self_reported_quartile: Optional[str] = None
     impact_factor: Optional[str] = None
@@ -229,11 +266,13 @@ class ClaimIn(Schema):
     designation: Optional[str] = None
     attachments: Optional[list[AttachmentIn]] = None
     is_student_publication: bool = False
-    affiliation_ok: bool = True
+    # Not defaulted true: a confirmation the claimant has to make themselves.
+    affiliation_ok: bool = False
     payout_month: Optional[str] = None
     subject_category: Optional[str] = None
     subjects_json: Optional[str] = None
     snip: Optional[float] = None
+    self_reported_snip: Optional[float] = None
     snip_year: Optional[int] = None
     quartile: Optional[str] = None
     manual_quartile_reason: Optional[str] = None
@@ -253,7 +292,12 @@ class ClaimIn(Schema):
     submit: bool = False
 
 
-# Fields faculty may set — verification / money / identity are server-owned
+# Fields faculty may set — verification / money / identity are server-owned.
+# The money-determining columns (snip, quartile, engineering_class,
+# aggregation_type) and the Scopus identity columns (eid, scopus_url,
+# cover_date, subjects) are deliberately absent: they only ever come from
+# verification or an admin's audited manual entry. Faculty declarations go to
+# the self_reported_* columns instead.
 _FACULTY_WRITABLE = {
     "doi",
     "issn",
@@ -264,8 +308,11 @@ _FACULTY_WRITABLE = {
     "publication_type",
     "indexing_level",
     "indexing_ref",
+    "au_annexure_ref",
+    "ugc_care_ref",
     "yukthi_id",
     "self_reported_quartile",
+    "self_reported_snip",
     "impact_factor",
     "proof_url",
     "sec_refs",
@@ -275,11 +322,6 @@ _FACULTY_WRITABLE = {
     "is_student_publication",
     "affiliation_ok",
     "payout_month",
-    "subject_category",
-    "subjects_json",
-    "snip",
-    "snip_year",
-    "quartile",
     "manual_quartile_reason",
     "total_authors",
     "author_position",
@@ -287,40 +329,81 @@ _FACULTY_WRITABLE = {
     "year_mismatch",
     "year_mismatch_override",
     "year_mismatch_reason",
-    "eid",
-    "scopus_url",
-    "cover_date",
-    "aggregation_type",
-    "engineering_class",
 }
+
+# Legacy form keys that used to write the verified columns directly. They are
+# accepted for wizard compatibility but land in self_reported_*.
+_SELF_REPORT_ALIASES = {"snip": "self_reported_snip", "quartile": "self_reported_quartile"}
 
 
 def _apply_faculty_payload(claim: Claim, payload: ClaimIn) -> None:
     data = payload.dict(exclude={"submit", "contest_forward", "contest_note", "owner_id"}, exclude_unset=True)
     for k, v in data.items():
+        k = _SELF_REPORT_ALIASES.get(k, k)
         if k not in _FACULTY_WRITABLE:
             continue
         if k == "payout_month":
             claim.payout_month = _parse_payout_month(v)
         elif k == "total_authors":
-            claim.total_authors = max(1, min(int(v or 1), 50))
+            # Not clamped to the eligibility ceiling: a paper really can have
+            # more than nine authors, and the calculation says so plainly
+            # instead of the form quietly rewriting the author list.
+            claim.total_authors = max(1, min(int(v or 1), 200))
         elif k == "author_position":
-            claim.author_position = max(1, min(int(v or 1), 50))
-        elif k == "snip" and v is not None:
-            claim.snip = float(v)
+            claim.author_position = max(1, min(int(v or 1), 200))
+        elif k == "self_reported_snip" and v is not None:
+            claim.self_reported_snip = float(v)
         elif k == "claim_reason":
             claim.claim_reason = v if v in ClaimReason.values else ClaimReason.INCENTIVE
         elif hasattr(claim, k):
             setattr(claim, k, v)
+    # The ERP sheets read one combined indexing_ref column, so keep it derived
+    # from the two registers rather than asking for the same numbers twice.
+    parts = [
+        f"{label} {value.strip()}"
+        for label, value in (
+            ("AU Annexure", claim.au_annexure_ref or ""),
+            ("UGC Care", claim.ugc_care_ref or ""),
+        )
+        if value.strip()
+    ]
+    if parts:
+        claim.indexing_ref = "; ".join(parts)[:255]
+
     # Count-only filings carry no money: force SNIP to 0 so the formula pays nothing,
     # regardless of what the client sent.
     if claim.claim_reason == ClaimReason.COUNT_ONLY:
         claim.is_student_publication = True
         claim.snip = 0.0
-    # Never trust client verification / override flags
-    claim.scimago_verified = False
+        claim.self_reported_snip = 0.0
+    claim.normalized_title = normalize_title(claim.paper_title)[:512]
+    # Never trust client override flags. (scimago_verified no longer needs a
+    # reset here: quartile itself is not faculty-writable, and wiping the flag
+    # on an attachments-only PATCH used to orphan a verified quartile.)
     claim.override_duplicate = False
     claim.override_reason = None
+
+
+# Evidence caps. A claim can legitimately cite many SEC-affiliated references,
+# and the published article sometimes arrives split across files or with
+# supplementary material — so these are abuse ceilings, not editorial limits.
+ATTACHMENT_LIMITS = {
+    AttachmentKind.PUBLISHED_PAPER: 10,
+    AttachmentKind.SEC_REFERENCE: 50,
+}
+
+#: An attachment URL may only be one this server minted in upload_claim_file:
+#: MEDIA_URL + "claims/" + uuid4().hex + a sniffed extension. A startswith check
+#: on MEDIA_URL is not enough — "/media/../../../etc/passwd" satisfies it, and
+#: the client decides this string, which then ends up in an href and an iframe.
+_ATTACHMENT_NAME = re.compile(r"^claims/[0-9a-f]{32}\.[a-z0-9]{2,5}$")
+
+
+def _is_own_media_url(url: str) -> bool:
+    prefix = settings.MEDIA_URL
+    if not url.startswith(prefix):
+        return False
+    return bool(_ATTACHMENT_NAME.match(url[len(prefix):]))
 
 
 def _validated_attachments(payload: ClaimIn) -> list[dict[str, Any]] | None:
@@ -332,24 +415,34 @@ def _validated_attachments(payload: ClaimIn) -> list[dict[str, Any]] | None:
     """
     if payload.attachments is None:
         return None
-    limits = {AttachmentKind.PUBLISHED_PAPER: 1, AttachmentKind.SEC_REFERENCE: 5}
+    limits = ATTACHMENT_LIMITS
     kept: list[dict[str, Any]] = []
     counts: dict[str, int] = {}
+    seen_urls: set[str] = set()
     for a in payload.attachments:
         if a.kind not in AttachmentKind.values:
             continue
         url = (a.url or "").strip()
-        if not url or not url.startswith(settings.MEDIA_URL):
+        if not _is_own_media_url(url):
             continue
+        # Uploading many files at once makes a repeated URL easy; the same PDF
+        # listed twice would read to an approver as two separate references.
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
         counts[a.kind] = counts.get(a.kind, 0) + 1
         if counts[a.kind] > limits[a.kind]:
             raise HttpError(400, f"At most {limits[a.kind]} file(s) allowed for {a.kind}")
+        is_reference = a.kind == AttachmentKind.SEC_REFERENCE
         kept.append(
             {
                 "kind": a.kind,
                 "url": url,
                 "filename": (a.filename or "")[:255] or None,
                 "size_bytes": max(0, int(a.size_bytes or 0)),
+                # Only a cited reference carries a citation identity.
+                "ref_number": ((a.ref_number or "").strip()[:32] or None) if is_reference else None,
+                "ref_title": ((a.ref_title or "").strip() or None) if is_reference else None,
             }
         )
     return kept
@@ -369,9 +462,20 @@ def _persist_attachments(claim: Claim, kept: list[dict[str, Any]] | None, actor:
     refs = [k for k in kept if k["kind"] == AttachmentKind.SEC_REFERENCE]
     claim.proof_url = paper["url"] if paper else None
     claim.sec_proof_url = refs[0]["url"] if refs else None
-    Claim.objects.filter(pk=claim.pk).update(
-        proof_url=claim.proof_url, sec_proof_url=claim.sec_proof_url
-    )
+    # sec_refs and reference_articles are what the ERP sheets and every existing
+    # export read. Where the attachments carry citation data they are derived
+    # from it, so the two can no longer disagree. Uploads that carry none — the
+    # ERP importer, older clients — keep whatever the caller set.
+    updates = {"proof_url": claim.proof_url, "sec_proof_url": claim.sec_proof_url}
+    numbers = [k["ref_number"] for k in refs if k.get("ref_number")]
+    titles = [k["ref_title"] for k in refs if k.get("ref_title")]
+    if numbers:
+        claim.sec_refs = ", ".join(numbers)
+        updates["sec_refs"] = claim.sec_refs
+    if titles:
+        claim.reference_articles = "\n".join(titles)
+        updates["reference_articles"] = claim.reference_articles
+    Claim.objects.filter(pk=claim.pk).update(**updates)
 
 
 def _bind_identity_from_user(claim: Claim, user: User, payload: ClaimIn | None = None) -> None:
@@ -404,6 +508,28 @@ def _bind_identity_from_user(claim: Claim, user: User, payload: ClaimIn | None =
 class ActionIn(Schema):
     note: Optional[str] = None
     voucher_number: Optional[str] = None
+    #: The amount the actor saw when they confirmed. Money moves only when the
+    #: recomputed amount still matches it.
+    expected_amount: Optional[float] = None
+
+
+class RecalcIn(Schema):
+    #: Super-admin escape hatch for a Scopus outage: recompute from the stored
+    #: verified values without calling out. Audited.
+    skip_external: bool = False
+
+
+class OverrideStatusIn(Schema):
+    to_status: str
+    note: str
+
+
+class ManualVerifyIn(Schema):
+    snip: Optional[float] = None
+    quartile: Optional[str] = None
+    engineering_class: Optional[str] = None
+    #: Where the values came from — a citation the auditor can follow.
+    note: str
 
 
 class CalcIn(Schema):
@@ -413,6 +539,11 @@ class CalcIn(Schema):
     author_position: int = 1
     publication_type: Optional[str] = None
     is_student_publication: bool = False
+    # Both decide the category and whether the quartile incentive applies, so
+    # the preview needs them or it quietly estimates a different category.
+    indexing_level: Optional[str] = None
+    engineering_class: Optional[str] = None
+    sec_reference_count: Optional[int] = None
 
 
 class ResetPasswordByEmailIn(Schema):
@@ -424,6 +555,18 @@ class ScopusLookupIn(Schema):
     doi: Optional[str] = None
     title: Optional[str] = None
     issn: Optional[str] = None
+
+
+class CandidateSearchIn(Schema):
+    """Free-text "find my article" search — several matches, the user picks one."""
+
+    title: Optional[str] = None
+    doi: Optional[str] = None
+    author_id: Optional[str] = None
+    scopus_author_url: Optional[str] = None
+    # Admin filing on behalf: whose already-filed claims to check against.
+    owner_id: Optional[str] = None
+    limit: int = 10
 
 
 class ScimagoLookupIn(Schema):
@@ -508,6 +651,7 @@ class FormulaIn(Schema):
     qf_only_for_no_snip: bool = True
     effective_from: Optional[str] = None
     effective_to: Optional[str] = None
+    high_value_threshold: float = 100000
 
 
 class MonthlyCreateIn(Schema):
@@ -592,6 +736,8 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "publication_type": c.publication_type,
         "indexing_level": c.indexing_level,
         "indexing_ref": c.indexing_ref,
+        "au_annexure_ref": c.au_annexure_ref,
+        "ugc_care_ref": c.ugc_care_ref,
         "yukthi_id": c.yukthi_id,
         "self_reported_quartile": c.self_reported_quartile,
         "impact_factor": c.impact_factor,
@@ -612,6 +758,8 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
                 "url": a.url,
                 "filename": a.filename,
                 "size_bytes": a.size_bytes,
+                "ref_number": a.ref_number,
+                "ref_title": a.ref_title,
             }
             for a in c.attachments.all()
         ]
@@ -626,7 +774,16 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "subjects_json": c.subjects_json,
         "snip": c.snip,
         "snip_year": c.snip_year,
+        "snip_source": c.snip_source,
+        "self_reported_snip": c.self_reported_snip,
         "quartile": c.quartile,
+        "quartile_source": c.quartile_source,
+        "manual_verified_by_name": c.manual_verified_by.name if c.manual_verified_by else None,
+        "manual_verification_note": c.manual_verification_note,
+        # A draft's amount may be computed from the claimant's own declarations;
+        # anything past submission is verified-values only.
+        "remuneration_is_estimate": c.status == ClaimStatus.DRAFT
+        and (c.snip is None or not c.quartile),
         "scimago_verified": c.scimago_verified,
         "scimago_sjr": c.scimago_sjr,
         "scimago_categories_json": c.scimago_categories_json,
@@ -640,6 +797,8 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "author_point": c.author_point,
         "remuneration": c.remuneration,
         "calc_error": c.calc_error,
+        "remuneration_category": c.remuneration_category,
+        "remuneration_note": c.remuneration_note,
         "duplicate_warning": c.duplicate_warning,
         "duplicate_matches_json": c.duplicate_matches_json,
         "override_duplicate": c.override_duplicate,
@@ -648,6 +807,12 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "year_mismatch_override": c.year_mismatch_override,
         "year_mismatch_reason": c.year_mismatch_reason,
         "voucher_number": c.voucher_number,
+        "cleared_by_name": c.cleared_by.name if c.cleared_by_id else None,
+        "second_approved_by_name": c.second_approved_by.name if c.second_approved_by_id else None,
+        "second_approved_at": c.second_approved_at.isoformat() if c.second_approved_at else None,
+        "needs_second_approval": _needs_second_approval(
+            c, _high_value_threshold(fresh=False)
+        ),
         "eid": c.eid,
         "scopus_url": c.scopus_url,
         "cover_date": c.cover_date,
@@ -668,15 +833,79 @@ def csrf(request: HttpRequest):
     return {"csrfToken": get_token(request)}
 
 
+#: Failed sign-ins per (email, source IP) before the account is briefly locked.
+_LOGIN_MAX_FAILURES = 10
+_LOGIN_LOCKOUT_SECONDS = 15 * 60
+#: After this many misses the error starts telling the person how to recover.
+_LOGIN_HINT_AFTER = 3
+
+
+def _login_unlock_epoch(email: str) -> str:
+    from django.core.cache import cache
+
+    return str(cache.get(f"login-unlock:{email}", "0"))
+
+
+def clear_login_lockout(email: str) -> None:
+    """Unlock an account immediately — used by the admin password resets.
+
+    Rotating the epoch orphans every failure counter for the email without
+    needing to know which IPs the failures came from.
+    """
+    from django.core.cache import cache
+
+    cache.set(
+        f"login-unlock:{email.strip().lower()}",
+        uuid_lib.uuid4().hex,
+        _LOGIN_LOCKOUT_SECONDS * 2,
+    )
+
+
+def _login_throttle_key(request: HttpRequest, email: str) -> str:
+    ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() or request.META.get(
+        "REMOTE_ADDR", ""
+    )
+    return f"login-fail:{_login_unlock_epoch(email)}:{email}:{ip}"
+
+
 @api.post("/auth/login")
 def auth_login(request: HttpRequest, payload: LoginIn):
-    user = authenticate(
-        request, username=payload.email.strip().lower(), password=payload.password
-    )
+    import time as _time
+
+    from django.core.cache import cache
+
+    email = payload.email.strip().lower()
+    key = _login_throttle_key(request, email)
+    state = cache.get(key) or {"n": 0, "ts": 0.0}
+    now = _time.time()
+    if state["n"] >= _LOGIN_MAX_FAILURES:
+        remaining = int(max(0.0, state["ts"] + _LOGIN_LOCKOUT_SECONDS - now))
+        if remaining > 0:
+            minutes = max(1, -(-remaining // 60))
+            logger.warning("login_throttled email=%s remaining=%ss", email, remaining)
+            raise HttpError(
+                429,
+                f"Too many failed sign-ins — locked for about {minutes} more "
+                f"minute{'s' if minutes != 1 else ''}. The research cell can reset "
+                "your password to unlock it immediately.",
+            )
+        state = {"n": 0, "ts": 0.0}
+    user = authenticate(request, username=email, password=payload.password)
     if not user:
+        state = {"n": state["n"] + 1, "ts": now}
+        cache.set(key, state, _LOGIN_LOCKOUT_SECONDS)
+        if state["n"] >= _LOGIN_MAX_FAILURES:
+            logger.warning("login_failed_lockout email=%s", email)
+        if state["n"] >= _LOGIN_HINT_AFTER:
+            raise HttpError(
+                401,
+                "Invalid credentials. Forgotten your password? "
+                "The research cell can reset it for you.",
+            )
         raise HttpError(401, "Invalid credentials")
     if not getattr(user, "active", True):
         raise HttpError(403, "Inactive account")
+    cache.delete(key)
     login(request, user)
     return _user_dict(user)
 
@@ -696,7 +925,7 @@ def auth_me(request: HttpRequest):
 class ProfileUpdateIn(Schema):
     """Deliberately excludes staff_id, biometric_id, and department.
 
-    Those three decide who gets paid and which HoD approves the ticket, and
+    Those three decide who gets paid and which department the ticket sits in, and
     _bind_identity_from_user copies them onto every claim as server-owned values.
     Letting the claimant edit them on their own profile would make that guard
     meaningless. They are changed by an admin, via PATCH /admin/users/{id}.
@@ -769,6 +998,117 @@ def lookup_scopus(request: HttpRequest, payload: ScopusLookupIn):
         return {"ok": True, "code": "ok", "message": None, "paper": paper, "serial": serial}
     except ScopusError as e:
         raise HttpError(502, f"{e.code}: {e}")
+
+
+@api.post("/lookup/candidates", auth=session_auth)
+def lookup_candidates(request: HttpRequest, payload: CandidateSearchIn):
+    """Search Scopus and hand back the matches for the claimant to choose from.
+
+    Linkage is resolved in one extra query (AU-ID AND TITLE) rather than one per
+    row: the claim rules require the article to sit on the author's own Scopus
+    profile, so which candidates are already linked is the deciding detail.
+    """
+    user = require_user(request)
+    title = (payload.title or "").strip()
+    doi = normalize_doi(payload.doi) if payload.doi else None
+    # Fall back to the caller's own profile so "show me my papers" needs no
+    # arguments at all — the Scopus ID is already on the account.
+    author_id = (
+        (payload.author_id or "").strip()
+        or extract_author_id(payload.scopus_author_url or "")
+        or (user.scopus_author_id or "").strip()
+        or extract_author_id(user.scopus_author_url or "")
+        or ""
+    )
+    # Author-only is the "show me everything on my profile" mode.
+    by_author_only = not title and not doi and bool(author_id)
+    if not title and not doi and not author_id:
+        return {
+            "ok": False,
+            "code": "bad_payload",
+            "message": "Enter a title or DOI, or set your Scopus author link, to search",
+            "author_id": None,
+            "candidates": [],
+        }
+
+    limit = max(1, min(payload.limit or 10, 25))
+    try:
+        if by_author_only:
+            # Newest first — a claim is nearly always for a recent paper.
+            found = search_candidates(author_id=author_id, limit=limit, sort="-coverDate")
+            linked_eids = {str(c.get("eid")) for c in found if c.get("eid")}
+        else:
+            found = search_candidates(title=title or None, doi=doi, limit=limit)
+            linked_eids = set()
+            if author_id and found:
+                linked = search_candidates(
+                    title=title or None, doi=doi, author_id=author_id, limit=limit
+                )
+                linked_eids = {str(c.get("eid")) for c in linked if c.get("eid")}
+    except ScopusError as e:
+        raise HttpError(502, f"{e.code}: {e}")
+
+    # Rule 2 of the submission conditions is one claim per article, and the
+    # claimant cannot see their own filed tickets from here — so say it on the row.
+    dois = [d for d in (c.get("doi") for c in found) if d]
+    eids = [e for e in (c.get("eid") for c in found) if e]
+    claimed_q = Q()
+    if dois:
+        claimed_q |= Q(doi__in=dois)
+    if eids:
+        claimed_q |= Q(eid__in=eids)
+    claimed_dois: set[str] = set()
+    claimed_eids: set[str] = set()
+    if claimed_q:
+        # Only an admin proxy may ask about someone else's claims; for anyone
+        # else owner_id is ignored rather than trusted.
+        owner = user.id
+        if payload.owner_id and rbac.can_clear_claims(user.role):
+            owner = payload.owner_id
+        for c in Claim.objects.filter(claimed_q, owner_id=owner).exclude(
+            status=ClaimStatus.REJECTED
+        ).only("doi", "eid"):
+            if c.doi:
+                claimed_dois.add(c.doi)
+            if c.eid:
+                claimed_eids.add(c.eid)
+
+    candidates = [
+        {
+            "title": c.get("title"),
+            "doi": c.get("doi"),
+            "issn": c.get("issn"),
+            "eid": c.get("eid"),
+            "journal_title": c.get("journal_title"),
+            "publication_year": c.get("publication_year"),
+            "cover_date": c.get("cover_date"),
+            "aggregation_type": c.get("aggregation_type"),
+            "author_count": c.get("author_count"),
+            "scopus_url": c.get("scopus_url"),
+            # None (not False) when we have no author ID to check against, so the
+            # UI can say "unknown" instead of wrongly claiming "not linked".
+            "linked_to_author": (str(c.get("eid")) in linked_eids) if author_id else None,
+            "already_claimed": bool(
+                (c.get("doi") and c["doi"] in claimed_dois)
+                or (c.get("eid") and c["eid"] in claimed_eids)
+            ),
+        }
+        for c in found
+    ]
+    return {
+        "ok": bool(candidates),
+        "code": "ok" if candidates else "not_found",
+        "message": None
+        if candidates
+        else (
+            "No papers found on that Scopus author profile"
+            if by_author_only
+            else "No Scopus record matched that search"
+        ),
+        "author_id": author_id,
+        "by_author": by_author_only,
+        "candidates": candidates,
+    }
 
 
 def _empty_enrich(*, code: str, message: str) -> dict[str, Any]:
@@ -886,6 +1226,35 @@ def lookup_verify(request: HttpRequest, payload: VerifyIn):
     )
 
 
+def _zero_payout_note(payload: CalcIn, result, cfg) -> str | None:
+    """Why a valid calculation still came out at nothing.
+
+    "Base Amount: Rs. 0.00" with no error next to it reads as a broken formula.
+    Every zero here is a policy outcome, so name which one it was.
+    """
+    if result.error or result.remuneration is None or result.remuneration > 0:
+        return None
+    if payload.is_student_publication:
+        return (
+            "Count-only submissions carry no incentive — the ticket still runs through "
+            "approval so the publication is counted."
+        )
+    q = (payload.quartile or "").strip()
+    snip = payload.snip
+    if q == "NO_SNIP":
+        return "The quartile is set to NO_SNIP, whose quartile factor is zero in the active policy."
+    if not snip:
+        qf = result.qf or 0
+        if qf == 0:
+            return (
+                f"SNIP is {snip if snip is not None else 'empty'} and the quartile factor for "
+                f"{q or 'this quartile'} is ₹0 in the active policy, so SNIP × "
+                f"{(cfg.snip_multiplier if cfg else 55000):g} + QF comes to zero."
+            )
+        return "SNIP is zero, so the amount is the quartile factor alone."
+    return "The active policy produces no payable amount for this combination."
+
+
 @api.post("/calculate", auth=session_auth)
 def calculate(request: HttpRequest, payload: CalcIn):
     require_user(request)
@@ -899,6 +1268,9 @@ def calculate(request: HttpRequest, payload: CalcIn):
         cfg,
         is_student_publication=payload.is_student_publication,
         publication_type=payload.publication_type,
+        indexing_level=payload.indexing_level,
+        engineering_class=payload.engineering_class,
+        sec_reference_count=payload.sec_reference_count,
     )
     return {
         "base": result.base,
@@ -906,6 +1278,11 @@ def calculate(request: HttpRequest, payload: CalcIn):
         "remuneration": result.remuneration,
         "qf": result.qf,
         "error": result.error,
+        # The engine now explains itself; _zero_payout_note stays as a fallback
+        # for combinations it has nothing to say about.
+        "note": result.note or _zero_payout_note(payload, result, cfg),
+        "category": result.category,
+        "category_label": CATEGORY_LABELS.get(result.category or "", None),
         "policy": snapshot_formula(cfg) if cfg else None,
     }
 
@@ -927,22 +1304,43 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 @api.post("/claims/upload", auth=session_auth)
 def upload_claim_file(request: HttpRequest, file: UploadedFile = File(...)):
+    """Store one evidence file, identified by its own bytes.
+
+    The old check was `name.endswith(".pdf")`, which accepted anything renamed
+    and rejected the scans and photos people actually hold. Sniffing decides
+    both whether we take the file and what extension it is stored under, so
+    what comes back out is what went in.
+    """
     user = require_user(request)
-    if user.role not in (Role.FACULTY, Role.SUPER_ADMIN, Role.RESEARCH_CELL):
+    if not rbac.can_issue_claims(user.role):
         raise HttpError(403, "Forbidden")
-    if not file.name or not file.name.lower().endswith(".pdf"):
-        raise HttpError(400, "Only PDF files are allowed")
     content = file.read()
+    if not content:
+        raise HttpError(400, "That file is empty")
     if len(content) > MAX_UPLOAD_BYTES:
         raise HttpError(400, "File too large (max 10MB)")
+
+    kind = sniff(content)
+    if kind is None:
+        raise HttpError(
+            400,
+            f"That file is not a {ACCEPTED_LABEL}. "
+            "Renaming a file does not change its type — export or scan it instead.",
+        )
+
     dest_dir = settings.MEDIA_ROOT / "claims"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    fname = f"{uuid_lib.uuid4().hex}.pdf"
-    path = dest_dir / fname
-    with open(path, "wb") as f:
+    fname = f"{uuid_lib.uuid4().hex}.{kind.extension}"
+    with open(dest_dir / fname, "wb") as f:
         f.write(content)
-    url = f"{settings.MEDIA_URL}claims/{fname}"
-    return {"url": url, "filename": file.name, "size_bytes": len(content)}
+    return {
+        "url": f"{settings.MEDIA_URL}claims/{fname}",
+        # The claimant's own name, shown in the UI; the stored name is a uuid.
+        "filename": (file.name or f"document.{kind.extension}")[:255],
+        "size_bytes": len(content),
+        "content_type": kind.content_type,
+        "kind_label": kind.label,
+    }
 
 
 @api.get("/meta/departments", auth=session_auth)
@@ -964,34 +1362,72 @@ def list_departments(request: HttpRequest):
 
 
 def _claims_queryset(user: User):
-    qs = Claim.objects.select_related("owner").all()
-    if user.role == Role.HOD:
-        if user.department:
-            return qs.filter(owner__department__iexact=user.department)
-        return qs.none()
+    """Claims this user may see.
+
+    A draft is unsubmitted, half-typed work that its author has not shown to
+    anyone yet, so nobody else sees it — not an admin, not the Principal. The
+    oversight portals list whole pipelines, which is exactly the view that would
+    otherwise expose them.
+    """
+    qs = (
+        Claim.objects.select_related(
+            "owner", "manual_verified_by", "cleared_by", "second_approved_by"
+        )
+        .prefetch_related("attachments")
+        .all()
+    )
     if rbac.can_view_college_wide(user.role):
-        return qs
+        return qs.filter(~Q(status=ClaimStatus.DRAFT) | Q(owner=user))
     return qs.filter(owner=user)
 
 
-def _apply_calc(claim: Claim) -> None:
+def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
+    """Recompute the money columns.
+
+    `allow_self_reported` lets a draft show an estimate from the claimant's own
+    SNIP/quartile declarations. Every path that moves money — submit, verify,
+    clear, pay — computes from the server-verified columns only.
+    """
     cfg_obj = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
     cfg = formula_from_model(cfg_obj) if cfg_obj else None
-    pub_type = claim.aggregation_type or claim.publication_type
+    # publication_type carries the full set; aggregation_type is the ERP's single
+    # value and would hide a second type from the category rules.
+    pub_type = claim.publication_type or claim.aggregation_type
+    # Only citations the claimant actually evidenced count towards the minimum.
+    sec_refs = (
+        claim.attachments.filter(kind=AttachmentKind.SEC_REFERENCE)
+        .exclude(ref_number__isnull=True)
+        .exclude(ref_number="")
+        .count()
+        if claim.pk
+        else None
+    )
+    snip = claim.snip
+    quartile = claim.quartile
+    if allow_self_reported:
+        if snip is None:
+            snip = claim.self_reported_snip
+        if not quartile:
+            quartile = claim.self_reported_quartile
     result = calculate_remuneration(
-        claim.snip,
-        claim.quartile,
+        snip,
+        quartile,
         claim.total_authors,
         claim.author_position,
         cfg,
         is_student_publication=claim.is_student_publication,
         publication_type=pub_type,
+        indexing_level=claim.indexing_level,
+        engineering_class=claim.engineering_class,
+        sec_reference_count=sec_refs,
     )
     claim.base_amount = result.base
     claim.author_point = result.point
     claim.remuneration = result.remuneration
     claim.qf_amount = result.qf
     claim.calc_error = result.error
+    claim.remuneration_category = result.category
+    claim.remuneration_note = result.note
     if cfg_obj and cfg:
         claim.formula_config = cfg_obj
         claim.formula_snapshot_json = json.dumps(snapshot_formula(cfg))
@@ -1000,12 +1436,27 @@ def _apply_calc(claim: Claim) -> None:
 
 
 @api.get("/claims", auth=session_auth)
-def list_claims(request: HttpRequest, status: Optional[str] = None):
+def list_claims(
+    request: HttpRequest,
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Paginated. The old shape silently truncated at 200 rows — beyond that,
+    tickets simply did not exist as far as the UI was concerned."""
     user = require_user(request)
     qs = _claims_queryset(user).order_by("-updated_at")
     if status:
         qs = qs.filter(status=status)
-    return [claim_to_dict(c) for c in qs[:200]]
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    total = qs.count()
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "results": [claim_to_dict(c) for c in qs[offset : offset + limit]],
+    }
 
 
 @api.get("/claims/{claim_id}", auth=session_auth)
@@ -1036,13 +1487,13 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
     admin_proxy = False
 
     if payload.owner_id:
-        if user.role not in (Role.SUPER_ADMIN, Role.RESEARCH_CELL):
+        if not rbac.can_clear_claims(user.role):
             raise HttpError(403, "Only admin can submit on behalf of faculty")
         owner = get_object_or_404(User, pk=payload.owner_id, role=Role.FACULTY, active=True)
         admin_proxy = True
-    elif user.role not in (Role.FACULTY, Role.SUPER_ADMIN, Role.RESEARCH_CELL):
+    elif not rbac.can_issue_claims(user.role):
         raise HttpError(403, "Only faculty can create tickets")
-    elif user.role in (Role.SUPER_ADMIN, Role.RESEARCH_CELL) and not payload.owner_id:
+    elif rbac.can_clear_claims(user.role) and not payload.owner_id:
         raise HttpError(400, "Select a faculty member to submit on their behalf")
 
     # Validate before any write, so a rejected attachment set cannot leave a
@@ -1062,7 +1513,7 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
     claim.duplicate_warning = bool(paid_check.get("warning"))
     claim.duplicate_matches_json = json.dumps(paid_check.get("matches") or [])
 
-    _apply_calc(claim)
+    _apply_calc(claim, allow_self_reported=True)
     # Persist the claim and its files first: the submission gate reads the stored
     # attachments, so syncing afterwards made an attachments-only payload fail.
     claim.save()
@@ -1105,12 +1556,20 @@ def _check_mandatory_fields(claim: Claim) -> None:
     if missing:
         raise HttpError(400, "Complete these before submitting: " + ", ".join(missing))
 
-    if (claim.indexing_level or "").strip() in _ANNEXURE_LEVELS and not (
-        claim.indexing_ref or ""
-    ).strip():
-        raise HttpError(
-            400, f"{claim.indexing_level} requires a reference number (enter NA if none)"
-        )
+    # A journal is often listed in several places at once — Scopus and UGC Care,
+    # say — so indexing_level holds a comma-separated set, and any annexure
+    # among them needs its reference number.
+    selected = [p.strip() for p in (claim.indexing_level or "").split(",") if p.strip()]
+    # Two separate registers, so two separate numbers — one shared box could
+    # only ever carry one of them.
+    for level, value in (
+        ("AU Annexure", claim.au_annexure_ref),
+        ("UGC Care", claim.ugc_care_ref),
+    ):
+        if level in selected and not (value or "").strip():
+            raise HttpError(
+                400, f"{level} requires its reference number (enter NA if none)"
+            )
 
     if not claim.affiliation_ok:
         raise HttpError(400, "The article must be affiliated to Saveetha Engineering College")
@@ -1183,8 +1642,10 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
             claim.override_duplicate = True
             claim.override_reason = claim.override_reason or contest_note.strip()
 
-    if not claim.ticket_number:
-        claim.ticket_number = next_ticket_number()
+    # assign_ticket_number retries on collision; next_ticket_number alone races,
+    # because the row lock is released before the claim is written. Two people
+    # submitting in the same instant got an IntegrityError and a lost claim.
+    assign_ticket_number(claim)
 
     claim.status = ClaimStatus.SUBMITTED
     claim.submitted_at = timezone.now()
@@ -1197,11 +1658,8 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
         action="CONTEST_FORWARD" if claim.contest_forward else "SUBMIT",
         note=claim.contest_note,
     )
-    _notify_hods(
-        claim,
-        f"Ticket {claim.ticket_number}",
-        f"{'Needs review: ' if claim.contest_forward else ''}{claim.paper_title}",
-    )
+    headline = f"{'Needs review: ' if claim.contest_forward else ''}{claim.paper_title}"
+    _notify_admins(claim, f"To clear · {claim.ticket_number}", headline)
 
 
 @api.patch("/claims/{claim_id}", auth=session_auth)
@@ -1221,7 +1679,7 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
     )
     claim.duplicate_warning = bool(paid_check.get("warning"))
     claim.duplicate_matches_json = json.dumps(paid_check.get("matches") or [])
-    _apply_calc(claim)
+    _apply_calc(claim, allow_self_reported=True)
     # Files land before the submission gate reads them.
     claim.save()
     _persist_attachments(claim, attachments, user)
@@ -1248,6 +1706,11 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
 
 def _faculty_status_copy(to_status: str, note: str | None = None) -> tuple[str, str]:
     """Short faculty-facing notification title/body — no internal process detail."""
+    if to_status == ClaimStatus.CLEARED:
+        return (
+            "Cleared — with Finance",
+            "Your ticket has been cleared and is with Finance for payment.",
+        )
     if to_status == ClaimStatus.HOD_APPROVED:
         return ("Approved by HoD", "Your ticket was approved by HoD and is with the Principal.")
     if to_status == ClaimStatus.PRINCIPAL_APPROVED:
@@ -1257,8 +1720,8 @@ def _faculty_status_copy(to_status: str, note: str | None = None) -> tuple[str, 
         )
     if to_status == ClaimStatus.PAID:
         return (
-            "Payment cleared",
-            "Your payment has been cleared and will be processed shortly.",
+            "Payment processed",
+            "Your remuneration has been processed by Finance.",
         )
     if to_status == ClaimStatus.REJECTED:
         return (
@@ -1319,77 +1782,285 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
     )
 
 
-@api.post("/claims/{claim_id}/hod-approve", auth=session_auth)
-def hod_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
+#: Display-path cache for the second-approval threshold, so serializing a
+#: 200-row list does not query the policy 200 times. Money guards always read
+#: fresh; put_formula invalidates.
+_THRESHOLD_CACHE: dict[str, float] = {}
+
+
+def _invalidate_threshold_cache() -> None:
+    _THRESHOLD_CACHE.clear()
+
+
+def _high_value_threshold(*, fresh: bool = True) -> float:
+    if not fresh and "value" in _THRESHOLD_CACHE:
+        return _THRESHOLD_CACHE["value"]
+    cfg = (
+        FormulaConfig.objects.filter(active=True)
+        .order_by("-updated_at")
+        .only("high_value_threshold")
+        .first()
+    )
+    value = float(cfg.high_value_threshold) if cfg else 100000.0
+    _THRESHOLD_CACHE["value"] = value
+    return value
+
+
+def _needs_second_approval(claim: Claim, threshold: float | None = None) -> bool:
+    """High-value live-chain claims need a second, distinct pair of eyes."""
+    if claim.status != ClaimStatus.CLEARED:
+        return False
+    if (claim.remuneration or 0) < (threshold if threshold is not None else _high_value_threshold()):
+        return False
+    return not (claim.second_approved_by_id and claim.second_approved_by_id != claim.cleared_by_id)
+
+
+def _guard_recomputed_amount(claim: Claim, expected: float | None) -> None:
+    """Recompute the money columns from the stored verified values and refuse
+    to move money unless the actor confirmed exactly this amount.
+
+    The recomputation mutates the claim; callers run inside the same
+    transaction that performs the transition, so a refused action rolls the
+    recalculation back too.
+    """
+    _apply_calc(claim)
+    amount = round(claim.remuneration or 0, 2)
+    if expected is None or abs(amount - round(float(expected), 2)) > 0.01:
+        raise HttpError(
+            409,
+            f"The recomputed amount is ₹{amount:,.2f}. Review it and confirm again — "
+            "money only moves at a confirmed amount.",
+        )
+
+
+@api.post("/claims/{claim_id}/recalculate", auth=session_auth)
+def recalculate_claim(request: HttpRequest, claim_id: str, payload: Optional[RecalcIn] = None):
+    """Re-verify against Scopus/Scimago and recompute the amount.
+
+    The clearing UI calls this first, shows the fresh amount, and then clears
+    with `expected_amount` — so what the approver saw is what gets cleared.
+    """
     user = require_user(request)
-    if not rbac.can_approve_as_hod(user.role):
+    if not (rbac.can_clear_claims(user.role) or rbac.can_approve_as_finance(user.role)):
         raise HttpError(403, "Forbidden")
-    with transaction.atomic():
-        claim = get_object_or_404(_claims_queryset(user).select_for_update(), pk=claim_id)
-        if claim.status != ClaimStatus.SUBMITTED:
-            raise HttpError(400, "Invalid status for HoD approve")
-        _transition(claim, user, ClaimStatus.HOD_APPROVED, "HOD_APPROVE", payload.note)
-    _notify_principals(claim, f"Ticket {claim.ticket_number}", f"HoD approved: {claim.paper_title}")
-    return claim_to_dict(claim)
+    claim = get_object_or_404(Claim, pk=claim_id)
+    if claim.status == ClaimStatus.PAID:
+        raise HttpError(400, "Claim is already paid — re-verifying would change a settled amount")
+    previous = claim.remuneration
+    skip_external = bool(payload and payload.skip_external)
+    if skip_external:
+        # Recompute from the stored verified values without touching Scopus —
+        # the escape hatch for an outage, and it is audited.
+        if user.role != Role.SUPER_ADMIN:
+            raise HttpError(403, "Only a super admin may skip external verification")
+        _apply_calc(claim)
+        claim.save()
+        AuditLog.objects.create(
+            actor=user,
+            action="CLAIM_RECALC_SKIP_EXTERNAL",
+            entity="Claim",
+            entity_id=claim.id,
+            detail_json=json.dumps({"previous": previous, "recomputed": claim.remuneration}),
+        )
+    else:
+        result = verify_publication(
+            title=claim.paper_title or "",
+            scopus_author_url=claim.scopus_author_url,
+            scopus_author_id=claim.scopus_author_id,
+            issn=claim.issn,
+            staff_id=claim.staff_id,
+            exclude_claim_id=claim.id,
+        )
+        if not result.get("ok"):
+            raise HttpError(
+                502,
+                "Scopus could not be reached, so the values were not refreshed. "
+                "Try again shortly; a super admin can recalculate from stored values.",
+            )
+        apply_verify_to_claim(claim, result)
+        _apply_calc(claim)
+        claim.save()
+    changed = round(previous or 0, 2) != round(claim.remuneration or 0, 2)
+    return {
+        "remuneration": claim.remuneration,
+        "previous": previous,
+        "changed": changed,
+        "base_amount": claim.base_amount,
+        "qf_amount": claim.qf_amount,
+        "remuneration_category": claim.remuneration_category,
+        "remuneration_note": claim.remuneration_note,
+        "calc_error": claim.calc_error,
+    }
 
 
-@api.post("/claims/{claim_id}/principal-approve", auth=session_auth)
-def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
+@api.post("/claims/{claim_id}/clear", auth=session_auth)
+def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Admin clearing — the one approval between submission and payment.
+
+    The amount is recomputed from the stored verified values inside the same
+    transaction, and clearing goes through only if the approver confirmed
+    exactly that amount (the UI shows it via /recalculate first).
+    """
     user = require_user(request)
-    if not rbac.can_approve_as_principal(user.role):
+    if not rbac.can_clear_claims(user.role):
         raise HttpError(403, "Forbidden")
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
-        if claim.status != ClaimStatus.HOD_APPROVED:
-            raise HttpError(400, "Invalid status for Principal approve")
-        _transition(claim, user, ClaimStatus.PRINCIPAL_APPROVED, "PRINCIPAL_APPROVE", payload.note)
+        if claim.status != ClaimStatus.SUBMITTED:
+            raise HttpError(400, "Only a submitted ticket can be cleared")
+        _guard_recomputed_amount(claim, payload.expected_amount)
+        claim.cleared_by = user
+        _transition(claim, user, ClaimStatus.CLEARED, "CLEAR", payload.note)
         amount = claim.remuneration or 0
     _notify_finance(
         claim,
-        f"Pay order · {claim.ticket_number}",
-        f"Please process payment of ₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
+        f"Cleared for payment · {claim.ticket_number}",
+        f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
     )
     return claim_to_dict(claim)
 
 
-# Legacy aliases
+class BulkClearIn(Schema):
+    claim_ids: list[str]
+    note: Optional[str] = None
+
+
+# Under /admin, not /claims: "/claims/bulk-clear" is swallowed by the
+# "/claims/{claim_id}" route registered above it and answers 405.
+@api.post("/admin/bulk-clear", auth=session_auth)
+def bulk_clear(request: HttpRequest, payload: BulkClearIn):
+    """Clear a batch of submitted tickets.
+
+    The queue is routinely dozens of straightforward tickets; opening each one
+    to press the same button is the bulk of the clearing effort. Each ticket is
+    still transitioned individually so one bad row cannot take the batch down,
+    and every one gets its own action and audit entry.
+    """
+    user = require_user(request)
+    if not rbac.can_clear_claims(user.role):
+        raise HttpError(403, "Forbidden")
+    ids = list(dict.fromkeys(payload.claim_ids or []))[:200]
+    if not ids:
+        raise HttpError(400, "Select at least one ticket")
+
+    cleared: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for claim_id in ids:
+        try:
+            with transaction.atomic():
+                claim = Claim.objects.select_for_update().filter(pk=claim_id).first()
+                if claim is None:
+                    skipped.append({"id": claim_id, "reason": "Not found"})
+                    continue
+                if claim.status != ClaimStatus.SUBMITTED:
+                    skipped.append(
+                        {"id": claim_id, "reason": f"Status is {claim.status}, not SUBMITTED"}
+                    )
+                    continue
+                # Same guard as a single clear, with the stored amount standing
+                # in for the confirmation: a row whose recomputed amount drifted
+                # from what the screen showed is skipped, never silently cleared
+                # at a different figure.
+                shown = claim.remuneration
+                _apply_calc(claim)
+                if round(shown or 0, 2) != round(claim.remuneration or 0, 2):
+                    skipped.append(
+                        {
+                            "id": claim_id,
+                            "reason": (
+                                f"{claim.ticket_number or claim_id}: amount changed on recalculation "
+                                f"(₹{(shown or 0):,.0f} → ₹{(claim.remuneration or 0):,.0f}) — open it to review"
+                            ),
+                        }
+                    )
+                    # Roll this row back so the recalculated figures are not
+                    # half-committed outside a clear.
+                    transaction.set_rollback(True)
+                    continue
+                claim.cleared_by = user
+                _transition(claim, user, ClaimStatus.CLEARED, "CLEAR", payload.note)
+                amount = claim.remuneration or 0
+            _notify_finance(
+                claim,
+                f"Cleared for payment · {claim.ticket_number}",
+                f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
+            )
+            cleared.append(claim_id)
+        except Exception as e:  # one bad ticket must not sink the batch
+            logger.exception("bulk_clear_failed id=%s", claim_id)
+            skipped.append({"id": claim_id, "reason": str(e)[:120]})
+    return {"cleared": len(cleared), "skipped": skipped}
+
+
+# Retired chain. Kept so an old client gets an explanation rather than a 404.
+_RETIRED_STEP = (
+    "That approval step no longer exists. A submitted ticket is cleared by the "
+    "admin, then paid by Finance."
+)
+
+
+@api.post("/claims/{claim_id}/hod-approve", auth=session_auth)
+def hod_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """The HoD role was removed from the system entirely."""
+    require_user(request)
+    raise HttpError(400, _RETIRED_STEP)
+
+
+@api.post("/claims/{claim_id}/principal-approve", auth=session_auth)
+def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
+    require_user(request)
+    raise HttpError(400, _RETIRED_STEP)
+
+
 @api.post("/claims/{claim_id}/approve", auth=session_auth)
 def admin_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
-    """Backward-compatible: route by current status + role."""
-    user = require_user(request)
-    claim = get_object_or_404(Claim, pk=claim_id)
-    if claim.status == ClaimStatus.SUBMITTED and rbac.can_approve_as_hod(user.role):
-        return hod_approve(request, claim_id, payload)
-    if claim.status == ClaimStatus.HOD_APPROVED and rbac.can_approve_as_principal(user.role):
-        return principal_approve(request, claim_id, payload)
-    raise HttpError(400, "Use role-specific approve endpoints")
+    """Legacy generic approve — now means "clear"."""
+    return clear_claim(request, claim_id, payload)
 
 
 @api.post("/claims/{claim_id}/research-approve", auth=session_auth)
 def research_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
-    return principal_approve(request, claim_id, payload)
+    return clear_claim(request, claim_id, payload)
 
 
 @api.post("/claims/{claim_id}/finance-approve", auth=session_auth)
 def finance_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
-    """No separate finance approve hop — Principal lands in Finance queue."""
-    raise HttpError(400, "Finance marks paid directly after Principal approval")
+    """No separate finance approve hop — a cleared ticket is marked paid."""
+    raise HttpError(400, "Finance marks a cleared ticket paid directly")
 
 
-@api.post("/claims/{claim_id}/mark-paid", auth=session_auth)
-def mark_paid(request: HttpRequest, claim_id: str, payload: ActionIn):
-    user = require_user(request)
-    if not rbac.can_approve_as_finance(user.role):
-        raise HttpError(403, "Forbidden")
+def _mark_one_paid(
+    claim_id: str,
+    user: User,
+    *,
+    voucher_number: str | None,
+    note: str | None,
+    expected_amount: float | None,
+) -> Claim:
+    """One payment, atomically, with every guard. Raises HttpError on refusal."""
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
-        if claim.status not in (ClaimStatus.PRINCIPAL_APPROVED, ClaimStatus.FINANCE_APPROVED):
-            raise HttpError(400, "Invalid status — Principal approval required")
-        if PaidLedger.objects.filter(claim=claim).exists():
+        if claim.status not in PAYABLE_STATUSES:
+            raise HttpError(400, "Invalid status — the ticket must be cleared first")
+        # Net of the ledger, not mere existence: a voided payment leaves a
+        # reversing row behind, and the claim must be payable again.
+        net_paid = claim.ledger_rows.aggregate(s=Sum("amount"))["s"] or 0
+        if net_paid > 0:
             raise HttpError(400, "Already processed")
-        if payload.voucher_number:
-            claim.voucher_number = payload.voucher_number[:64]
-        _transition(claim, user, ClaimStatus.PAID, "MARK_PAID", payload.note)
+        if claim.status == ClaimStatus.CLEARED:
+            # Live chain: recompute from stored verified values and require the
+            # confirmed amount. Legacy ERP-imported statuses are paid at their
+            # imported figures — they have no verified columns to recompute from.
+            if _needs_second_approval(claim):
+                raise HttpError(
+                    400,
+                    "High-value claim — a second approver (different from the person "
+                    "who cleared it) must approve before payment",
+                )
+            _guard_recomputed_amount(claim, expected_amount)
+        if voucher_number:
+            claim.voucher_number = voucher_number[:64]
+        _transition(claim, user, ClaimStatus.PAID, "MARK_PAID", note)
         payout = claim.payout_month
         if not payout:
             today = timezone.now().date()
@@ -1406,27 +2077,208 @@ def mark_paid(request: HttpRequest, claim_id: str, payload: ActionIn):
             paper_title=claim.paper_title,
             journal_title=claim.journal_title,
             amount=claim.remuneration or 0,
-            voucher_number=claim.voucher_number or payload.voucher_number,
+            voucher_number=claim.voucher_number or voucher_number,
         )
+    return claim
+
+
+@api.post("/claims/{claim_id}/mark-paid", auth=session_auth)
+def mark_paid(request: HttpRequest, claim_id: str, payload: ActionIn):
+    user = require_user(request)
+    if not rbac.can_approve_as_finance(user.role):
+        raise HttpError(403, "Forbidden")
+    claim = _mark_one_paid(
+        claim_id,
+        user,
+        voucher_number=payload.voucher_number,
+        note=payload.note,
+        expected_amount=payload.expected_amount,
+    )
+    return claim_to_dict(claim)
+
+
+class BulkMarkPaidItem(Schema):
+    claim_id: str
+    voucher_number: Optional[str] = None
+    expected_amount: Optional[float] = None
+
+
+class BulkMarkPaidIn(Schema):
+    items: list[BulkMarkPaidItem]
+    note: Optional[str] = None
+
+
+@api.post("/admin/bulk-mark-paid", auth=session_auth)
+def bulk_mark_paid(request: HttpRequest, payload: BulkMarkPaidIn):
+    """Pay a reviewed batch in one action.
+
+    A 200-claim payout month used to be 200 separate confirm dialogs. Every
+    row still goes through the full single-payment guards individually — an
+    amount that drifted, a missing second approval, or an already-paid row is
+    skipped with its reason, never silently paid.
+    """
+    user = require_user(request)
+    if not rbac.can_approve_as_finance(user.role):
+        raise HttpError(403, "Forbidden")
+    items = (payload.items or [])[:200]
+    if not items:
+        raise HttpError(400, "Select at least one payment")
+    seen: set[str] = set()
+    paid: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for item in items:
+        if item.claim_id in seen:
+            continue
+        seen.add(item.claim_id)
+        try:
+            claim = _mark_one_paid(
+                item.claim_id,
+                user,
+                voucher_number=item.voucher_number,
+                note=payload.note,
+                expected_amount=item.expected_amount,
+            )
+            paid.append(claim.id)
+        except HttpError as e:
+            skipped.append({"id": item.claim_id, "reason": str(e)[:160]})
+        except Exception as e:  # one bad row must not sink the batch
+            logger.exception("bulk_mark_paid_failed id=%s", item.claim_id)
+            skipped.append({"id": item.claim_id, "reason": str(e)[:160]})
+    return {"paid": len(paid), "paid_ids": paid, "skipped": skipped}
+
+
+@api.post("/claims/{claim_id}/second-approve", auth=session_auth)
+def second_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Second signature on a high-value cleared claim.
+
+    Must come from someone other than the person who cleared it — the whole
+    point is a second pair of eyes on large amounts.
+    """
+    user = require_user(request)
+    if not (rbac.can_clear_claims(user.role) or user.role == Role.PRINCIPAL):
+        raise HttpError(403, "Forbidden")
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if claim.status != ClaimStatus.CLEARED:
+            raise HttpError(400, "Only a cleared ticket can be second-approved")
+        threshold = _high_value_threshold()
+        if (claim.remuneration or 0) < threshold:
+            raise HttpError(
+                400, f"Below the second-approval threshold (₹{threshold:,.0f}) — no second signature needed"
+            )
+        if claim.cleared_by_id == user.id:
+            raise HttpError(400, "The second approver must be a different person from the one who cleared it")
+        if claim.second_approved_by_id:
+            raise HttpError(400, "Already second-approved")
+        claim.second_approved_by = user
+        claim.second_approved_at = timezone.now()
+        claim.save(update_fields=["second_approved_by", "second_approved_at"])
+        ClaimAction.objects.create(
+            claim=claim,
+            actor=user,
+            from_status=claim.status,
+            to_status=claim.status,
+            action="SECOND_APPROVE",
+            note=payload.note,
+        )
+        AuditLog.objects.create(
+            actor=user,
+            action="CLAIM_SECOND_APPROVE",
+            entity="Claim",
+            entity_id=claim.id,
+            detail_json=json.dumps(
+                {"ticket": claim.ticket_number, "amount": claim.remuneration, "note": payload.note}
+            ),
+        )
+    return claim_to_dict(claim)
+
+
+@api.post("/claims/{claim_id}/void-payment", auth=session_auth)
+def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Reverse a payment made in error.
+
+    The ledger is append-only: voiding writes a negative reversing row rather
+    than deleting anything, and the claim returns to CLEARED so it can be
+    corrected and paid again.
+    """
+    user = require_user(request)
+    if not rbac.can_approve_as_finance(user.role):
+        raise HttpError(403, "Forbidden")
+    note = (payload.note or "").strip()
+    if len(note) < 10:
+        raise HttpError(400, "Add a reason (10+ characters) — it goes to the audit trail and the ledger")
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if claim.status != ClaimStatus.PAID:
+            raise HttpError(400, "Only a paid ticket can be voided")
+        net_paid = claim.ledger_rows.aggregate(s=Sum("amount"))["s"] or 0
+        if net_paid <= 0:
+            raise HttpError(400, "No outstanding payment to void")
+        today = timezone.now().date()
+        PaidLedger.objects.create(
+            claim=claim,
+            payout_month=claim.payout_month or date(today.year, today.month, 1),
+            department=claim.owner.department,
+            faculty_name=claim.owner.name,
+            staff_id=claim.staff_id or claim.owner.staff_id,
+            biometric_id=claim.biometric_id or claim.owner.biometric_id,
+            paper_title=claim.paper_title,
+            journal_title=claim.journal_title,
+            amount=-net_paid,
+            voucher_number=f"{(claim.voucher_number or 'VOID')[:59]}-VOID",
+            raw_json=json.dumps({"voided_by": user.email, "reason": note}),
+        )
+        claim.paid_at = None
+        claim.save(update_fields=["paid_at"])
+        _transition(claim, user, ClaimStatus.CLEARED, "VOID_PAYMENT", note)
+    return claim_to_dict(claim)
+
+
+@api.post("/admin/claims/{claim_id}/override-status", auth=session_auth)
+def override_status(request: HttpRequest, claim_id: str, payload: OverrideStatusIn):
+    """Audited super-admin rescue for stranded statuses.
+
+    ERP imports arrive in legacy states like HOD_APPROVED that nothing in the
+    live chain can act on — they could not be cleared, paid, or even rejected.
+    """
+    user = require_user(request)
+    if user.role != Role.SUPER_ADMIN:
+        raise HttpError(403, "Forbidden")
+    allowed = (ClaimStatus.SUBMITTED, ClaimStatus.CLEARED, ClaimStatus.REJECTED)
+    if payload.to_status not in allowed:
+        raise HttpError(400, "Status can only be overridden to SUBMITTED, CLEARED, or REJECTED")
+    note = (payload.note or "").strip()
+    if len(note) < 10:
+        raise HttpError(400, "Add a reason (10+ characters) explaining the override")
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if claim.status == ClaimStatus.PAID:
+            raise HttpError(400, "A paid ticket cannot be overridden — void the payment first")
+        if claim.status == payload.to_status:
+            raise HttpError(400, f"The ticket is already {payload.to_status}")
+        _transition(claim, user, payload.to_status, "STATUS_OVERRIDE", note)
+    return claim_to_dict(claim)
+
+
+@api.post("/claims/{claim_id}/withdraw", auth=session_auth)
+def withdraw_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """The claimant pulls a submitted ticket back to draft to fix it."""
+    user = require_user(request)
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id, owner=user)
+        if claim.status != ClaimStatus.SUBMITTED:
+            raise HttpError(400, "Only a submitted ticket can be withdrawn")
+        _transition(claim, user, ClaimStatus.DRAFT, "WITHDRAW", payload.note)
     return claim_to_dict(claim)
 
 
 @api.post("/claims/{claim_id}/reject", auth=session_auth)
 def reject_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
     user = require_user(request)
-    if not (
-        rbac.can_approve_as_hod(user.role)
-        or rbac.can_approve_as_principal(user.role)
-        or rbac.can_approve_as_finance(user.role)
-    ):
+    if not rbac.can_reject_claims(user.role):
         raise HttpError(403, "Forbidden")
-    claim = get_object_or_404(_claims_queryset(user) if user.role == Role.HOD else Claim.objects.all(), pk=claim_id)
-    if claim.status not in (
-        ClaimStatus.SUBMITTED,
-        ClaimStatus.HOD_APPROVED,
-        ClaimStatus.PRINCIPAL_APPROVED,
-        ClaimStatus.FINANCE_APPROVED,
-    ):
+    claim = get_object_or_404(Claim.objects.all(), pk=claim_id)
+    if claim.status not in (ClaimStatus.SUBMITTED, *PAYABLE_STATUSES):
         raise HttpError(400, "Invalid status for reject")
     # The faculty member has to write 10 characters to contest a failed check;
     # sending their claim back without saying why was the cheaper action. The
@@ -1480,6 +2332,81 @@ def verify_claim_endpoint(request: HttpRequest, claim_id: str):
     return claim_to_dict(claim)
 
 
+@api.post("/admin/claims/{claim_id}/set-verified", auth=session_auth)
+def set_verified_values(request: HttpRequest, claim_id: str, payload: ManualVerifyIn):
+    """The manual-verification lane.
+
+    When Scopus/Scimago cannot confirm a paper, an admin enters the verified
+    SNIP/quartile here — with a source note — instead of the payout ever being
+    computed from the claimant's own declaration. MANUAL values survive
+    re-verification.
+    """
+    user = require_user(request)
+    if not rbac.can_clear_claims(user.role):
+        raise HttpError(403, "Forbidden")
+    claim = get_object_or_404(Claim, pk=claim_id)
+    if claim.status == ClaimStatus.PAID:
+        raise HttpError(400, "Claim is already paid — a settled amount cannot be changed")
+    note = (payload.note or "").strip()
+    if len(note) < 10:
+        raise HttpError(400, "Provide a source note (at least 10 characters) citing where the values come from")
+    if payload.snip is not None and payload.snip < 0:
+        raise HttpError(400, "SNIP cannot be negative")
+    if payload.quartile is not None and payload.quartile not in ("Q1", "Q2", "Q3", "Q4", ""):
+        raise HttpError(400, "Quartile must be one of Q1–Q4")
+
+    before = {
+        "snip": claim.snip,
+        "snip_source": claim.snip_source,
+        "quartile": claim.quartile,
+        "quartile_source": claim.quartile_source,
+        "engineering_class": claim.engineering_class,
+        "remuneration": claim.remuneration,
+    }
+    if payload.snip is not None:
+        claim.snip = float(payload.snip)
+        claim.snip_source = "MANUAL"
+    if payload.quartile:
+        claim.quartile = payload.quartile
+        claim.quartile_source = "MANUAL"
+    if payload.engineering_class:
+        claim.engineering_class = payload.engineering_class
+    claim.manual_verified_by = user
+    claim.manual_verified_at = timezone.now()
+    claim.manual_verification_note = note
+    _apply_calc(claim)
+    claim.save()
+    ClaimAction.objects.create(
+        claim=claim,
+        actor=user,
+        from_status=claim.status,
+        to_status=claim.status,
+        action="MANUAL_VERIFY",
+        note=note,
+    )
+    AuditLog.objects.create(
+        actor=user,
+        action="CLAIM_MANUAL_VERIFY",
+        entity="Claim",
+        entity_id=claim.id,
+        detail_json=json.dumps(
+            {
+                "before": before,
+                "after": {
+                    "snip": claim.snip,
+                    "snip_source": claim.snip_source,
+                    "quartile": claim.quartile,
+                    "quartile_source": claim.quartile_source,
+                    "engineering_class": claim.engineering_class,
+                    "remuneration": claim.remuneration,
+                },
+                "note": note,
+            }
+        ),
+    )
+    return claim_to_dict(claim)
+
+
 # ---------- dashboard ----------
 
 
@@ -1487,16 +2414,282 @@ def verify_claim_endpoint(request: HttpRequest, claim_id: str):
 def dashboard(request: HttpRequest):
     user = require_user(request)
     qs = _claims_queryset(user)
-    by_status = {}
-    for s in ClaimStatus.values:
-        by_status[s] = qs.filter(status=s).count()
+    counts = {row["status"]: row["n"] for row in qs.values("status").annotate(n=Count("id"))}
+    by_status = {s: counts.get(s, 0) for s in ClaimStatus.values}
     recent = [claim_to_dict(c) for c in qs.order_by("-updated_at")[:10]]
     total_paid = (
-        qs.filter(status=ClaimStatus.PAID).aggregate_sum
-        if False
-        else sum(c.remuneration or 0 for c in qs.filter(status=ClaimStatus.PAID))
+        qs.filter(status=ClaimStatus.PAID).aggregate(total=Sum("remuneration"))["total"] or 0
     )
     return {"by_status": by_status, "recent": recent, "total_paid": total_paid}
+
+
+def _reports_queryset(user: User, year: Optional[int], department: Optional[str]):
+    qs = _claims_queryset(user).exclude(status=ClaimStatus.DRAFT)
+    if year:
+        qs = qs.filter(publication_year=year)
+    if department:
+        qs = qs.filter(owner__department__iexact=department)
+    return qs
+
+
+@api.get("/reports", auth=session_auth)
+def reports(
+    request: HttpRequest,
+    year: Optional[int] = None,
+    department: Optional[str] = None,
+):
+    """Institutional publication and payout figures.
+
+    The scheme counts every publication but pays only some of them, so the two
+    numbers are reported side by side — a department's output and its spend are
+    different questions and were previously answerable only by exporting the
+    ledger and pivoting it by hand.
+    """
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+
+    qs = _reports_queryset(user, year, department)
+    paid = qs.filter(status=ClaimStatus.PAID)
+    payable = qs.filter(status__in=PAYABLE_STATUSES)
+
+    def rows(field: str, source=qs, label_blank: str = "Not recorded"):
+        out = []
+        for r in (
+            source.values(field)
+            .annotate(count=Count("id"), amount=Sum("remuneration"))
+            .order_by("-count")
+        ):
+            out.append(
+                {
+                    "key": r[field] or label_blank,
+                    "count": r["count"],
+                    "amount": round(r["amount"] or 0, 2),
+                }
+            )
+        return out
+
+    # A publication counts institutionally even when it carries no money.
+    count_only = qs.filter(
+        Q(claim_reason=ClaimReason.COUNT_ONLY) | Q(is_student_publication=True)
+    ).count()
+
+    by_month = []
+    for r in (
+        paid.exclude(payout_month__isnull=True)
+        .values("payout_month")
+        .annotate(count=Count("id"), amount=Sum("remuneration"))
+        .order_by("payout_month")
+    ):
+        by_month.append(
+            {
+                "key": r["payout_month"].strftime("%Y-%m"),
+                "count": r["count"],
+                "amount": round(r["amount"] or 0, 2),
+            }
+        )
+
+    return {
+        "filters": {"year": year, "department": department},
+        "totals": {
+            "publications": qs.count(),
+            "count_only": count_only,
+            "paid_claims": paid.count(),
+            "paid_amount": round(paid.aggregate(s=Sum("remuneration"))["s"] or 0, 2),
+            "awaiting_payment": payable.count(),
+            "committed_amount": round(payable.aggregate(s=Sum("remuneration"))["s"] or 0, 2),
+        },
+        "by_department": rows("owner__department", label_blank="No department"),
+        "by_quartile": rows("quartile", label_blank="No quartile"),
+        "by_category": [
+            {**r, "label": CATEGORY_LABELS.get(str(r["key"]), str(r["key"]))}
+            for r in rows("remuneration_category", label_blank="Not calculated")
+        ],
+        "by_engineering": rows("engineering_class", label_blank="Unclassified"),
+        "by_status": rows("status"),
+        "by_month": by_month,
+        "years": sorted(
+            {
+                y
+                for y in _claims_queryset(user)
+                .exclude(publication_year__isnull=True)
+                .values_list("publication_year", flat=True)
+                .distinct()
+            },
+            reverse=True,
+        ),
+    }
+
+
+def _search_queryset(user: User, **f):
+    """Every filter the query screen offers, applied to what the user may see."""
+    qs = _claims_queryset(user).exclude(status=ClaimStatus.DRAFT).select_related("owner")
+    if f.get("q"):
+        term = f["q"].strip()
+        qs = qs.filter(
+            Q(paper_title__icontains=term)
+            | Q(journal_title__icontains=term)
+            | Q(ticket_number__icontains=term)
+            | Q(doi__icontains=term)
+            | Q(issn__icontains=term)
+            | Q(owner__name__icontains=term)
+            | Q(owner__email__icontains=term)
+            | Q(staff_id__icontains=term)
+        )
+    if f.get("department"):
+        qs = qs.filter(owner__department__iexact=f["department"])
+    if f.get("status"):
+        qs = qs.filter(status=f["status"])
+    if f.get("quartile"):
+        qs = qs.filter(quartile__iexact=f["quartile"])
+    if f.get("category"):
+        qs = qs.filter(remuneration_category=f["category"])
+    if f.get("engineering_class"):
+        qs = qs.filter(engineering_class__iexact=f["engineering_class"])
+    if f.get("indexing"):
+        qs = qs.filter(indexing_level__icontains=f["indexing"])
+    if f.get("year"):
+        qs = qs.filter(publication_year=f["year"])
+    if f.get("year_from"):
+        qs = qs.filter(publication_year__gte=f["year_from"])
+    if f.get("year_to"):
+        qs = qs.filter(publication_year__lte=f["year_to"])
+    if f.get("min_amount") is not None:
+        qs = qs.filter(remuneration__gte=f["min_amount"])
+    return qs
+
+
+_SEARCH_SORTS = {
+    "recent": "-updated_at",
+    "amount": "-remuneration",
+    "year": "-publication_year",
+    "faculty": "owner__name",
+    "department": "owner__department",
+}
+
+
+# Under /reports, not /claims: "/claims/search" is swallowed by the
+# "/claims/{claim_id}" route registered above it and 404s.
+@api.get("/reports/search", auth=session_auth)
+def search_claims(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    department: Optional[str] = None,
+    status: Optional[str] = None,
+    quartile: Optional[str] = None,
+    category: Optional[str] = None,
+    engineering_class: Optional[str] = None,
+    indexing: Optional[str] = None,
+    year: Optional[int] = None,
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
+    min_amount: Optional[float] = None,
+    sort: str = "recent",
+    limit: int = 100,
+    offset: int = 0,
+):
+    """Query every publication the user may see, across the whole college.
+
+    The oversight portals could list and eyeball a pipeline but not ask it
+    anything — "which Q1 Engineering papers in ECE went unpaid last year" meant
+    exporting the ledger. This answers that directly, and reports the total and
+    sum for the matched set rather than only the page.
+    """
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+
+    qs = _search_queryset(
+        user,
+        q=q, department=department, status=status, quartile=quartile,
+        category=category, engineering_class=engineering_class,
+        indexing=indexing, year=year, year_from=year_from, year_to=year_to,
+        min_amount=min_amount,
+    )
+    total = qs.count()
+    total_amount = qs.aggregate(s=Sum("remuneration"))["s"] or 0
+    order = _SEARCH_SORTS.get(sort, "-updated_at")
+    limit = max(1, min(limit, 500))
+    rows = qs.order_by(order, "-id")[offset : offset + limit]
+    return {
+        "total": total,
+        "total_amount": round(total_amount, 2),
+        "limit": limit,
+        "offset": offset,
+        "results": [claim_to_dict(c) for c in rows],
+    }
+
+
+_EXPORT_HEADERS = [
+    "Ticket", "Status", "Faculty", "Department", "Staff ID",
+    "Paper title", "Journal", "ISSN", "DOI", "Year",
+    "Publication type", "Indexed in", "Quartile", "SNIP",
+    "Engineering class", "Authors", "Position", "Author point",
+    "Category", "Base amount", "QF amount", "Remuneration",
+    "Payout month", "Voucher",
+]
+
+
+def _export_row(c: Claim) -> list:
+    return [
+        c.ticket_number, c.status, c.owner.name, c.owner.department,
+        c.staff_id, c.paper_title, c.journal_title, c.issn, c.doi,
+        c.publication_year, c.publication_type, c.indexing_level,
+        c.quartile, c.snip, c.engineering_class, c.total_authors,
+        c.author_position, c.author_point, c.remuneration_category,
+        c.base_amount, c.qf_amount, c.remuneration,
+        _format_payout_month(c.payout_month), c.voucher_number,
+    ]
+
+
+@api.get("/reports/export", auth=session_auth)
+def reports_export(
+    request: HttpRequest,
+    year: Optional[int] = None,
+    department: Optional[str] = None,
+    fmt: str = "csv",
+):
+    """One row per publication — the sheet the R&D office actually files.
+
+    fmt=xlsx returns a real workbook: the office re-imported the CSV into
+    Excel by hand every month anyway, mangling ISSNs into dates on the way.
+    """
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+    qs = _reports_queryset(user, year, department).select_related("owner")
+    rows = qs.order_by("owner__department", "-publication_year")[:5000]
+    stem = f"publications-{year or 'all'}-{(department or 'all').replace(' ', '-')}"
+
+    if fmt == "xlsx":
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Publications"
+        ws.append(_EXPORT_HEADERS)
+        for c in rows:
+            # openpyxl treats a leading "=" as a formula, so the same
+            # injection guard as the CSV path applies.
+            ws.append(["" if v is None else v for v in _csv_row(_export_row(c))])
+        ws.freeze_panes = "A2"
+        out = io.BytesIO()
+        wb.save(out)
+        res = HttpResponse(
+            out.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        res["Content-Disposition"] = f'attachment; filename="{stem}.xlsx"'
+        return res
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(_csv_row(_EXPORT_HEADERS))
+    for c in rows:
+        w.writerow(_csv_row(_export_row(c)))
+    res = HttpResponse(buf.getvalue(), content_type="text/csv")
+    res["Content-Disposition"] = f'attachment; filename="{stem}.csv"'
+    return res
 
 
 # ---------- notifications ----------
@@ -1517,6 +2710,24 @@ def notifications(request: HttpRequest):
         }
         for n in items
     ]
+
+
+@api.get("/notifications/unread-count", auth=session_auth)
+def notifications_unread_count(request: HttpRequest):
+    """The 45-second poll only needs this number — the full list loads when
+    the bell is actually opened."""
+    user = require_user(request)
+    return {"unread": Notification.objects.filter(user=user, read=False).count()}
+
+
+@api.post("/notifications/{note_id}/read", auth=session_auth)
+def notification_read(request: HttpRequest, note_id: str):
+    user = require_user(request)
+    note = get_object_or_404(Notification, pk=note_id, user=user)
+    if not note.read:
+        note.read = True
+        note.save(update_fields=["read"])
+    return {"ok": True}
 
 
 @api.post("/notifications/read-all", auth=session_auth)
@@ -1586,11 +2797,24 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
         raise HttpError(403, "Forbidden")
     u = get_object_or_404(User, pk=user_id)
     data = payload.dict(exclude_unset=True)
+    # Self-lockout guard: an admin demoting or deactivating their own account
+    # can leave the system with nobody able to manage users.
+    if u.id == actor.id:
+        if "role" in data and data["role"] != actor.role:
+            raise HttpError(400, "You cannot change your own role — ask another admin")
+        if data.get("active") is False:
+            raise HttpError(400, "You cannot deactivate your own account")
+    before = {k: getattr(u, k, None) for k in data}
     for k, v in data.items():
         setattr(u, k, v)
     u.save()
+    changed = {k: {"from": before[k], "to": data[k]} for k in data if before[k] != data[k]}
     AuditLog.objects.create(
-        actor=actor, action="USER_UPDATE", entity="User", entity_id=u.id
+        actor=actor,
+        action="USER_UPDATE",
+        entity="User",
+        entity_id=u.id,
+        detail_json=json.dumps(changed) if changed else None,
     )
     return _user_dict(u)
 
@@ -1604,13 +2828,17 @@ def admin_reset_password(request: HttpRequest, user_id: str, payload: ResetPassw
     u.set_password(payload.password)
     u.must_change_password = True
     u.save()
+    # A reset is how a locked-out person recovers — clear the lockout with it.
+    clear_login_lockout(u.email)
     AuditLog.objects.create(
         actor=actor, action="USER_RESET_PASSWORD", entity="User", entity_id=u.id
     )
     return {"ok": True}
 
 
-@api.post("/admin/users/reset-password", auth=session_auth)
+# Under /admin, not /admin/users: "/admin/users/reset-password" is swallowed
+# by the "/admin/users/{user_id}" route registered above it and answers 405.
+@api.post("/admin/reset-password", auth=session_auth)
 def admin_reset_password_by_email(request: HttpRequest, payload: ResetPasswordByEmailIn):
     actor = require_user(request)
     if not rbac.can_manage_users(actor.role):
@@ -1621,6 +2849,8 @@ def admin_reset_password_by_email(request: HttpRequest, payload: ResetPasswordBy
     u.set_password(payload.password)
     u.must_change_password = True
     u.save()
+    # A reset is how a locked-out person recovers — clear the lockout with it.
+    clear_login_lockout(u.email)
     AuditLog.objects.create(
         actor=actor, action="USER_RESET_PASSWORD", entity="User", entity_id=u.id
     )
@@ -1629,7 +2859,11 @@ def admin_reset_password_by_email(request: HttpRequest, payload: ResetPasswordBy
 
 @api.get("/admin/formula", auth=session_auth)
 def get_formula(request: HttpRequest):
-    require_user(request)
+    user = require_user(request)
+    # Faculty preview their own amount through /api/calculate; the raw policy
+    # sheet is an oversight document, not something every login can read.
+    if not (rbac.can_view_reports(user.role) or rbac.can_edit_formula(user.role)):
+        raise HttpError(403, "Forbidden")
     cfg = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
     if not cfg:
         return {
@@ -1648,6 +2882,7 @@ def get_formula(request: HttpRequest):
             "publication_type_multipliers_json": json.dumps(DEFAULT_PUB_TYPE_MULTIPLIERS),
             "student_remuneration_zero": True,
             "qf_only_for_no_snip": True,
+            "high_value_threshold": 100000,
         }
     return {
         "id": cfg.id,
@@ -1668,6 +2903,7 @@ def get_formula(request: HttpRequest):
         "publication_type_multipliers_json": cfg.publication_type_multipliers_json,
         "student_remuneration_zero": cfg.student_remuneration_zero,
         "qf_only_for_no_snip": cfg.qf_only_for_no_snip,
+        "high_value_threshold": cfg.high_value_threshold,
         "notes": cfg.notes,
     }
 
@@ -1712,6 +2948,7 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
         ("qf_q3", payload.qf_q3),
         ("qf_q4", payload.qf_q4),
         ("qf_others", payload.qf_others),
+        ("high_value_threshold", payload.high_value_threshold),
     ):
         if amount < 0:
             raise HttpError(400, f"{label} cannot be negative")
@@ -1738,10 +2975,12 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
             publication_type_multipliers_json=pub_json,
             student_remuneration_zero=payload.student_remuneration_zero,
             qf_only_for_no_snip=payload.qf_only_for_no_snip,
+            high_value_threshold=payload.high_value_threshold,
             notes=payload.notes,
             updated_by=user,
             active=True,
         )
+        _invalidate_threshold_cache()
         AuditLog.objects.create(
             actor=user,
             action="FORMULA_UPDATE",
@@ -1753,40 +2992,83 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
 
 
 @api.get("/admin/audit", auth=session_auth)
-def admin_audit(request: HttpRequest):
+def admin_audit(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    action: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """Filterable, paginated audit trail.
+
+    The old shape was the last 100 rows with no filters and no detail — the
+    recorded before/after values were stored and never shown anywhere.
+    """
     user = require_user(request)
     if not rbac.can_view_audit(user.role):
         raise HttpError(403, "Forbidden")
-    logs = AuditLog.objects.select_related("actor").order_by("-created_at")[:100]
-    return [
-        {
-            "id": l.id,
-            "action": l.action,
-            "entity": l.entity,
-            "entity_id": l.entity_id,
-            "actor": l.actor.email if l.actor else None,
-            "created_at": l.created_at.isoformat(),
-        }
-        for l in logs
-    ]
+    qs = AuditLog.objects.select_related("actor").order_by("-created_at")
+    if action:
+        qs = qs.filter(action__icontains=action)
+    if q:
+        qs = qs.filter(
+            Q(entity_id__icontains=q)
+            | Q(entity__icontains=q)
+            | Q(actor__email__icontains=q)
+            | Q(actor__name__icontains=q)
+        )
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+    total = qs.count()
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "results": [
+            {
+                "id": l.id,
+                "action": l.action,
+                "entity": l.entity,
+                "entity_id": l.entity_id,
+                "actor": l.actor.email if l.actor else None,
+                "detail_json": l.detail_json,
+                "created_at": l.created_at.isoformat(),
+            }
+            for l in qs[offset : offset + limit]
+        ],
+    }
 
 
 @api.get("/admin/payouts", auth=session_auth)
-def admin_payouts(request: HttpRequest, status: str = "PRINCIPAL_APPROVED"):
+def admin_payouts(
+    request: HttpRequest,
+    status: str = "CLEARED",
+    limit: int = 50,
+    offset: int = 0,
+):
     user = require_user(request)
-    if not rbac.can_approve_as_finance(user.role):
+    if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
-    qs = Claim.objects.select_related("owner")
+    qs = Claim.objects.select_related(
+        "owner", "cleared_by", "second_approved_by"
+    ).prefetch_related("attachments")
     if status == "PAID":
         qs = qs.filter(status=ClaimStatus.PAID).order_by("-paid_at")
-    elif status == "FINANCE_APPROVED":
-        # legacy alias → Principal-approved queue
-        qs = qs.filter(
-            status__in=(ClaimStatus.PRINCIPAL_APPROVED, ClaimStatus.FINANCE_APPROVED)
-        ).order_by("-updated_at")
+    elif status in ("CLEARED", "PRINCIPAL_APPROVED", "FINANCE_APPROVED"):
+        # One payable queue. Tickets approved under the old chain sit in it too,
+        # otherwise they would be stranded with nobody able to pay them.
+        qs = qs.filter(status__in=PAYABLE_STATUSES).order_by("-updated_at")
     else:
         qs = qs.filter(status=status).order_by("-updated_at")
-    return [claim_to_dict(c) for c in qs[:200]]
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    total = qs.count()
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "results": [claim_to_dict(c) for c in qs[offset : offset + limit]],
+    }
 
 
 @api.get("/admin/scimago/stats", auth=session_auth)
@@ -1805,37 +3087,42 @@ def scimago_import(request: HttpRequest, file: UploadedFile = File(...), year: i
     if not rbac.can_import_prior(user.role):
         raise HttpError(403, "Forbidden")
     content = file.read().decode("utf-8", errors="ignore")
-    reader = csv.DictReader(io.StringIO(content))
-    n = 0
-    for row in reader:
-        title = row.get("Title") or row.get("title") or ""
-        issn = row.get("Issn") or row.get("ISSN") or row.get("issn")
-        eissn = row.get("EISSN") or row.get("eissn")
-        sjr_raw = row.get("SJR") or row.get("sjr")
-        cats = row.get("Categories") or row.get("categories") or ""
-        try:
-            sjr = float(str(sjr_raw).replace(",", "")) if sjr_raw else None
-        except ValueError:
-            sjr = None
-        if not title:
-            continue
-        issn_n = (issn or "").split(",")[0].strip() if issn else None
-        ScimagoJournal.objects.update_or_create(
-            issn=issn_n or f"TITLE:{title[:40]}",
-            year=year,
-            defaults={
-                "title": title[:512],
-                "eissn": eissn,
-                "sjr": sjr,
-                "categories_json": json.dumps(parse_categories_field(cats)),
-                "raw_json": json.dumps(row)[:50000],
-            },
-        )
-        n += 1
+    # Same parser as the automatic download, so an uploaded dump and a fetched
+    # one cannot disagree about ISSNs or the SJR decimal separator.
+    result = import_csv_text(content, year)
     AuditLog.objects.create(
-        actor=user, action="SCIMAGO_IMPORT", entity="ScimagoJournal", detail_json=json.dumps({"n": n, "year": year})
+        actor=user,
+        action="SCIMAGO_IMPORT",
+        entity="ScimagoJournal",
+        detail_json=json.dumps({**result, "filename": file.name or "upload.csv"}),
     )
-    return {"imported": n}
+    return {"imported": result["imported"], "skipped": result["skipped"], "year": year}
+
+
+class ScimagoSyncIn(Schema):
+    year: int
+
+
+@api.post("/admin/scimago/sync", auth=session_auth)
+def scimago_sync(request: HttpRequest, payload: ScimagoSyncIn):
+    """Pull the official SCImago rank dump for a year straight from the portal."""
+    user = require_user(request)
+    if not rbac.can_import_prior(user.role):
+        raise HttpError(403, "Forbidden")
+    year = payload.year
+    if year < 1999 or year > date.today().year:
+        raise HttpError(400, f"Year must be between 1999 and {date.today().year}")
+    try:
+        result = sync_year(year)
+    except ScimagoSyncError as e:
+        raise HttpError(502, str(e))
+    AuditLog.objects.create(
+        actor=user,
+        action="SCIMAGO_SYNC",
+        entity="ScimagoJournal",
+        detail_json=json.dumps(result),
+    )
+    return {**result, "source": SCIMAGO_RANK_URL}
 
 
 @api.post("/admin/prior/import", auth=session_auth)
@@ -1893,6 +3180,21 @@ def prior_import(request: HttpRequest, file: UploadedFile = File(...)):
     return {"imported": n, "batch_id": batch.id}
 
 
+@api.get("/admin/clearing-queue", auth=session_auth)
+def admin_clearing_queue(request: HttpRequest, status: Optional[str] = None):
+    """Submitted tickets waiting on admin clearing — the only approval step."""
+    user = require_user(request)
+    if not rbac.can_clear_claims(user.role):
+        raise HttpError(403, "Forbidden")
+    qs = Claim.objects.select_related("owner").prefetch_related("attachments")
+    if status and status != "ALL":
+        qs = qs.filter(status=status)
+    else:
+        qs = qs.filter(status=ClaimStatus.SUBMITTED)
+    # Oldest first: the ticket that has waited longest is the one to clear next.
+    return [claim_to_dict(c) for c in qs.order_by("submitted_at", "created_at")[:200]]
+
+
 # ---------- process queue ----------
 
 
@@ -1901,7 +3203,7 @@ def admin_process_queue(request: HttpRequest, status: Optional[str] = None):
     user = require_user(request)
     if not rbac.can_admin_portal(user.role):
         raise HttpError(403, "Forbidden")
-    qs = Claim.objects.select_related("owner").order_by("-updated_at")
+    qs = Claim.objects.select_related("owner").prefetch_related("attachments").order_by("-updated_at")
     if status:
         qs = qs.filter(status=status)
     else:
@@ -1916,31 +3218,21 @@ def admin_process_queue(request: HttpRequest, status: Optional[str] = None):
 
 @api.post("/admin/process/batch", auth=session_auth)
 def admin_process_batch(request: HttpRequest, payload: BatchProcessIn):
+    """Queue Scopus verification for a list of claims.
+
+    Each claim costs 2–4 external calls; a list of any size has no business
+    inside one HTTP request. Poll /api/admin/jobs/{job_id}.
+    """
     user = require_user(request)
     if not rbac.can_admin_portal(user.role):
         raise HttpError(403, "Forbidden")
-    results = []
-    for cid in payload.claim_ids:
-        claim = Claim.objects.filter(pk=cid).first()
-        if not claim:
-            results.append({"id": cid, "ok": False, "error": "Not found"})
-            continue
-        if not (claim.paper_title or "").strip():
-            results.append({"id": cid, "ok": False, "error": "No paper title"})
-            continue
-        try:
-            _verify_claim(claim)
-            ClaimAction.objects.create(
-                claim=claim,
-                actor=user,
-                from_status=claim.status,
-                to_status=claim.status,
-                action="VERIFY_BATCH",
-            )
-            results.append({"id": cid, "ok": True, "claim": claim_to_dict(claim)})
-        except Exception as e:
-            results.append({"id": cid, "ok": False, "error": str(e)})
-    return {"results": results}
+    from django_q.tasks import async_task
+
+    ids = list(dict.fromkeys(payload.claim_ids or []))[:500]
+    if not ids:
+        raise HttpError(400, "Select at least one claim")
+    job_id = async_task("core.tasks.run_bulk_verify", ids, user.id)
+    return {"queued": True, "job_id": job_id, "count": len(ids)}
 
 
 # ---------- SNIP / faculty master ----------
@@ -2035,16 +3327,32 @@ def faculty_options(request: HttpRequest, q: Optional[str] = None):
     user = require_user(request)
     if not rbac.can_admin_portal(user.role):
         raise HttpError(403, "Forbidden")
-    users_by_staff = {u.staff_id: u for u in User.objects.filter(role=Role.FACULTY, active=True) if u.staff_id}
-    users_by_email = {u.email.lower(): u for u in User.objects.filter(role=Role.FACULTY, active=True) if u.email}
+    # Filter in the database: this endpoint fires on every keystroke of the
+    # admin faculty picker, and loading both full tables into Python made each
+    # keystroke cost the whole master list.
+    limit = 30 if q else 200
+    masters_qs = FacultyMaster.objects.order_by("department", "name")
+    users_qs = User.objects.filter(role=Role.FACULTY, active=True)
+    if q:
+        match = (
+            Q(name__icontains=q)
+            | Q(staff_id__icontains=q)
+            | Q(email__icontains=q)
+            | Q(department__icontains=q)
+        )
+        masters_qs = masters_qs.filter(match)
+        users_qs = users_qs.filter(match)
+    masters = list(masters_qs[:limit])
+    staff_ids = [f.staff_id for f in masters if f.staff_id]
+    emails = {e for f in masters if f.email for e in (f.email, f.email.lower())}
+    linked_qs = User.objects.filter(role=Role.FACULTY, active=True).filter(
+        Q(staff_id__in=staff_ids) | Q(email__in=list(emails))
+    )
+    users_by_staff = {u.staff_id: u for u in linked_qs if u.staff_id}
+    users_by_email = {u.email.lower(): u for u in linked_qs if u.email}
     results = []
     seen = set()
-    for f in FacultyMaster.objects.order_by("department", "name"):
-        if q:
-            needle = q.lower()
-            hay = f"{f.name} {f.staff_id} {f.email} {f.department}".lower()
-            if needle not in hay:
-                continue
+    for f in masters:
         linked = users_by_staff.get(f.staff_id) or (users_by_email.get((f.email or "").lower()) if f.email else None)
         key = linked.id if linked else f"master:{f.id}"
         if key in seen:
@@ -2065,14 +3373,9 @@ def faculty_options(request: HttpRequest, q: Optional[str] = None):
                 "has_user_account": linked is not None,
             }
         )
-    for u in User.objects.filter(role=Role.FACULTY, active=True).order_by("name"):
+    for u in users_qs.order_by("name")[:limit]:
         if u.id in seen:
             continue
-        if q:
-            needle = q.lower()
-            hay = f"{u.name} {u.email} {u.staff_id} {u.department}".lower()
-            if needle not in hay:
-                continue
         seen.add(u.id)
         results.append(
             {
@@ -2155,7 +3458,11 @@ def erp_import_xlsx(
     sync_users: bool = Form(True),
     year: int = Form(2025),
 ):
-    """Upload Publication_Processing_ERP *.xlsx and run import_erp_excel (for prod Shell-less load)."""
+    """Upload Publication_Processing_ERP *.xlsx and queue import_erp_excel.
+
+    The 754-line workbook import used to run inline in this request against the
+    gunicorn timeout; it now runs on the job queue. Poll /api/admin/jobs/{job_id}.
+    """
     user = require_user(request)
     if not rbac.can_import_prior(user.role):
         raise HttpError(403, "Forbidden")
@@ -2163,64 +3470,60 @@ def erp_import_xlsx(
     if not name.endswith((".xlsx", ".xlsm")):
         raise HttpError(400, "Upload an .xlsx ERP workbook")
 
-    import tempfile
-    from django.core.management import call_command
+    from django_q.tasks import async_task
 
     raw = file.read()
     if len(raw) > 40 * 1024 * 1024:
         raise HttpError(400, "File too large (max 40MB)")
 
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            tmp.write(raw)
-            tmp_path = tmp.name
-        args = [tmp_path, f"--year={year}"]
-        if skip_sjr:
-            args.append("--skip-sjr")
-        if skip_snip:
-            args.append("--skip-snip")
-        if skip_faculty:
-            args.append("--skip-faculty")
-        if skip_accounts:
-            args.append("--skip-accounts")
-        if skip_claims:
-            args.append("--skip-claims")
-        if claims_only:
-            args.append("--claims-only")
-        call_command("import_erp_excel", *args)
-        synced = None
-        if sync_users:
-            out = io.StringIO()
-            call_command("sync_faculty_users", stdout=out)
-            synced = out.getvalue()[-500:]
-    except Exception as e:
-        logger.exception("erp_import failed")
-        raise HttpError(500, f"Import failed: {e}") from e
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+    imports_dir = Path(settings.MEDIA_ROOT) / "imports"
+    imports_dir.mkdir(parents=True, exist_ok=True)
+    saved = imports_dir / f"{uuid_lib.uuid4().hex}.xlsx"
+    saved.write_bytes(raw)
 
-    stats = {
-        "faculty_master": FacultyMaster.objects.count(),
-        "claims": Claim.objects.count(),
-        "claims_paid": Claim.objects.filter(status=ClaimStatus.PAID).count(),
-        "prior_payments": PriorPayment.objects.count(),
-        "paid_ledger": PaidLedger.objects.count(),
-        "scimago": ScimagoJournal.objects.count(),
-        "snip": SnipSource.objects.count(),
-        "users": User.objects.count(),
+    options = {
+        "year": year,
+        "skip_sjr": skip_sjr,
+        "skip_snip": skip_snip,
+        "skip_faculty": skip_faculty,
+        "skip_accounts": skip_accounts,
+        "skip_claims": skip_claims,
+        "claims_only": claims_only,
     }
+    job_id = async_task("core.tasks.run_erp_import", str(saved), options, user.id, bool(sync_users))
     AuditLog.objects.create(
         actor=user,
-        action="ERP_XLSX_IMPORT",
+        action="ERP_XLSX_IMPORT_QUEUED",
         entity="Workbook",
-        detail_json=json.dumps({"filename": file.name, "stats": stats, "skip_sjr": skip_sjr, "skip_snip": skip_snip}),
+        detail_json=json.dumps({"filename": file.name, "job_id": job_id, "options": options}),
     )
-    return {"ok": True, "stats": stats, "sync_users": bool(sync_users), "sync_tail": synced}
+    return {"ok": True, "queued": True, "job_id": job_id}
+
+
+@api.get("/admin/jobs/{job_id}", auth=session_auth)
+def job_status(request: HttpRequest, job_id: str):
+    """Status of a queued background job (ERP import, bulk verify)."""
+    user = require_user(request)
+    if not rbac.can_admin_portal(user.role):
+        raise HttpError(403, "Forbidden")
+    from django_q.models import OrmQ, Task as QTask
+
+    t = QTask.objects.filter(id=job_id).first()
+    if t is not None:
+        return {
+            "status": "done" if t.success else "failed",
+            "success": t.success,
+            "result": t.result if isinstance(t.result, (dict, list, str, int, float, bool, type(None))) else str(t.result),
+            "started": t.started.isoformat() if t.started else None,
+            "stopped": t.stopped.isoformat() if t.stopped else None,
+        }
+    for q in OrmQ.objects.all()[:100]:
+        try:
+            if q.task_id() == job_id:
+                return {"status": "queued"}
+        except Exception:
+            continue
+    return {"status": "running_or_unknown"}
 
 
 # ---------- finance ledger ----------
@@ -2257,7 +3560,7 @@ def _ledger_row_dict(row: PaidLedger) -> dict[str, Any]:
 @api.get("/admin/ledger", auth=session_auth)
 def admin_ledger(request: HttpRequest, month: Optional[str] = None, department: Optional[str] = None):
     user = require_user(request)
-    if not rbac.can_approve_as_finance(user.role):
+    if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
     qs = _ledger_queryset(month, department)
     return [_ledger_row_dict(r) for r in qs[:500]]
@@ -2266,7 +3569,7 @@ def admin_ledger(request: HttpRequest, month: Optional[str] = None, department: 
 @api.get("/admin/ledger/export", auth=session_auth)
 def admin_ledger_export(request: HttpRequest, month: Optional[str] = None, department: Optional[str] = None):
     user = require_user(request)
-    if not rbac.can_approve_as_finance(user.role):
+    if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
     qs = _ledger_queryset(month, department)
     buf = io.StringIO()
@@ -2406,7 +3709,13 @@ def start_batch(request: HttpRequest, batch_id: str):
     _require_admin_ops(user)
     batch = get_object_or_404(MonthlyBatch, pk=batch_id)
     if batch.status == "RUNNING":
-        raise HttpError(400, "Already running")
+        # A live batch heartbeats every row. No heartbeat for a while means the
+        # worker died mid-run — allow a restart instead of stranding it forever.
+        from core.tasks import STALE_BATCH_AFTER
+
+        last_beat = batch.heartbeat_at or batch.started_at
+        if last_beat and timezone.now() - last_beat < STALE_BATCH_AFTER:
+            raise HttpError(400, "Already running")
     start_batch_async(batch.id)
     return {"ok": True, "status": "RUNNING"}
 

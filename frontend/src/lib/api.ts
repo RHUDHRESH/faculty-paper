@@ -1,5 +1,18 @@
-/** Single source of truth — every fetch in the app must go through this. */
-export const API_BASE = import.meta.env.VITE_API_BASE || "";
+/** Same-origin in production (Vercel rewrites /api and /media to Render).
+ *  A BOM or trailing slash in VITE_API_BASE used to turn that into a relative
+ *  junk URL, so the SPA posted login at the static host and got HTML back. */
+function readApiBase(): string {
+  const raw = String(import.meta.env.VITE_API_BASE ?? "")
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (!raw || raw.toLowerCase() === "undefined") {
+    return "";
+  }
+  return raw;
+}
+
+export const API_BASE = readApiBase();
 
 /**
  * Absolute URL for an uploaded file.

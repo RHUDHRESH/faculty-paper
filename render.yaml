@@ -37,9 +37,9 @@ services:
       # the bare faculty-paper.vercel.app project belongs to another account
       # and is stale — kept in the list only until it is retired.
       - key: CORS_ALLOWED_ORIGINS
-        value: "https://faculty-paper-rhudhreshs-projects.vercel.app,https://faculty-paper.vercel.app"
+        value: "https://faculty-paper-rhudhreshs-projects.vercel.app,https://faculty-paper-self.vercel.app"
       - key: CSRF_TRUSTED_ORIGINS
-        value: "https://faculty-paper-rhudhreshs-projects.vercel.app,https://faculty-paper.vercel.app"
+        value: "https://faculty-paper-rhudhreshs-projects.vercel.app,https://faculty-paper-self.vercel.app,https://*.vercel.app"
       - key: CORS_ORIGIN_REGEX
         value: "https://.*\\.vercel\\.app"
       - key: LOG_LEVEL

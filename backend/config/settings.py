@@ -205,6 +205,10 @@ CSRF_TRUSTED_ORIGINS = [
     ).split(",")
     if o.strip()
 ]
+# Preview deploys use unique *.vercel.app hosts. CORS already allows them via
+# regex; CSRF does not, so login from a preview (or the -self alias) 403s.
+if "https://*.vercel.app" not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append("https://*.vercel.app")
 
 _cross_site = os.getenv("CROSS_SITE_COOKIES", "false").lower() in ("1", "true", "yes")
 if _cross_site:

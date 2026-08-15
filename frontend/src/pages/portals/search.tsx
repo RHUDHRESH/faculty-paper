@@ -1,11 +1,10 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { toast } from "sonner"
 import { Search as SearchIcon, X } from "lucide-react"
 
 import { ClaimDetailFields } from "@/components/claim-detail-fields"
-import { EmptyState, MasterDetail, PageHeader } from "@/components/layout/page"
+import { EmptyState, ErrorState, MasterDetail, PageHeader } from "@/components/layout/page"
 import { Money, StatusChip } from "@/components/ticket-ui"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,11 +17,19 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { api, type Claim } from "@/lib/api"
+import { Pager } from "@/components/ui/pagination"
+import { type Claim } from "@/lib/api"
+import { useApiQuery } from "@/lib/queries"
 import { useIsDesktop } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 
-type Results = { total: number; total_amount: number; results: Claim[] }
+type Results = {
+  total: number
+  total_amount: number
+  limit: number
+  offset: number
+  results: Claim[]
+}
 
 const ANY = "__any__"
 
@@ -94,6 +101,7 @@ function Picker({
 export function SearchPage() {
   const isDesktop = useIsDesktop()
   const [q, setQ] = useState("")
+  const [debouncedQ, setDebouncedQ] = useState("")
   const [department, setDepartment] = useState(ANY)
   const [status, setStatus] = useState(ANY)
   const [quartile, setQuartile] = useState(ANY)
@@ -102,14 +110,21 @@ export function SearchPage() {
   const [year, setYear] = useState("")
   const [sort, setSort] = useState("recent")
 
-  const [data, setData] = useState<Results | null>(null)
-  const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Claim | null>(null)
-  const [departments, setDepartments] = useState<string[]>([])
+  const [offset, setOffset] = useState(0)
+  const PAGE = 50
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQ(q)
+      setOffset(0)
+    }, 300)
+    return () => clearTimeout(t)
+  }, [q])
 
   const query = useMemo(() => {
     const p = new URLSearchParams()
-    if (q.trim()) p.set("q", q.trim())
+    if (debouncedQ.trim()) p.set("q", debouncedQ.trim())
     if (department !== ANY) p.set("department", department)
     if (status !== ANY) p.set("status", status)
     if (quartile !== ANY) p.set("quartile", quartile)
@@ -117,8 +132,19 @@ export function SearchPage() {
     if (engineering !== ANY) p.set("engineering_class", engineering)
     if (year.trim()) p.set("year", year.trim())
     p.set("sort", sort)
+    p.set("limit", String(PAGE))
+    p.set("offset", String(offset))
     return p.toString()
-  }, [q, department, status, quartile, category, engineering, year, sort])
+  }, [debouncedQ, department, status, quartile, category, engineering, year, sort, offset])
+
+  const { data, isLoading: loading, isError, refetch } = useApiQuery<Results>(
+    ["search", query],
+    `/api/reports/search?${query}`
+  )
+  const { data: departments = [] } = useApiQuery<string[]>(
+    ["meta", "departments"],
+    "/api/meta/departments"
+  )
 
   const activeCount = [
     q.trim(),
@@ -130,24 +156,9 @@ export function SearchPage() {
     year.trim(),
   ].filter(Boolean).length
 
-  // Debounced: the free-text box would otherwise fire a query per keystroke.
-  useEffect(() => {
-    setLoading(true)
-    const t = setTimeout(() => {
-      api<Results>(`/api/reports/search?${query}`)
-        .then(setData)
-        .catch((e) => toast.error(e instanceof Error ? e.message : "Search failed"))
-        .finally(() => setLoading(false))
-    }, 300)
-    return () => clearTimeout(t)
-  }, [query])
-
-  useEffect(() => {
-    api<string[]>("/api/meta/departments").then(setDepartments).catch(() => setDepartments([]))
-  }, [])
-
   function reset() {
     setQ("")
+    setDebouncedQ("")
     setDepartment(ANY)
     setStatus(ANY)
     setQuartile(ANY)
@@ -155,6 +166,7 @@ export function SearchPage() {
     setEngineering(ANY)
     setYear("")
     setSort("recent")
+    setOffset(0)
   }
 
   const listPanel = (
@@ -179,7 +191,10 @@ export function SearchPage() {
             id="s-dept"
             label="Department"
             value={department}
-            onChange={setDepartment}
+            onChange={(v) => {
+              setDepartment(v)
+              setOffset(0)
+            }}
             anyLabel="Any department"
             options={departments.map((d) => ({ value: d, label: d }))}
           />
@@ -187,7 +202,10 @@ export function SearchPage() {
             id="s-status"
             label="Status"
             value={status}
-            onChange={setStatus}
+            onChange={(v) => {
+              setStatus(v)
+              setOffset(0)
+            }}
             anyLabel="Any status"
             options={STATUSES.map((s) => ({ value: s, label: s }))}
           />
@@ -195,7 +213,10 @@ export function SearchPage() {
             id="s-quartile"
             label="Quartile"
             value={quartile}
-            onChange={setQuartile}
+            onChange={(v) => {
+              setQuartile(v)
+              setOffset(0)
+            }}
             anyLabel="Any quartile"
             options={QUARTILES.map((s) => ({ value: s, label: s }))}
           />
@@ -203,7 +224,10 @@ export function SearchPage() {
             id="s-category"
             label="Category"
             value={category}
-            onChange={setCategory}
+            onChange={(v) => {
+              setCategory(v)
+              setOffset(0)
+            }}
             anyLabel="Any category"
             options={CATEGORIES}
           />
@@ -211,7 +235,10 @@ export function SearchPage() {
             id="s-eng"
             label="Classification"
             value={engineering}
-            onChange={setEngineering}
+            onChange={(v) => {
+              setEngineering(v)
+              setOffset(0)
+            }}
             anyLabel="Any"
             options={[
               { value: "Engineering", label: "Engineering" },
@@ -228,14 +255,20 @@ export function SearchPage() {
               placeholder="Any"
               className="tabular-nums"
               value={year}
-              onChange={(e) => setYear(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              onChange={(e) => {
+                setYear(e.target.value.replace(/\D/g, "").slice(0, 4))
+                setOffset(0)
+              }}
             />
           </div>
           <Picker
             id="s-sort"
             label="Sort by"
             value={sort}
-            onChange={setSort}
+            onChange={(v) => {
+              setSort(v)
+              setOffset(0)
+            }}
             anyLabel="Most recent"
             options={SORTS}
             className="sm:col-span-2"
@@ -268,6 +301,13 @@ export function SearchPage() {
               <Skeleton key={i} className="h-16 w-full rounded-[calc(var(--radius)-2px)]" />
             ))}
           </div>
+        ) : isError ? (
+          <ErrorState
+            title="Search failed"
+            description="The server did not respond."
+            onRetry={() => refetch()}
+            className="rounded-none border-0"
+          />
         ) : !data?.results.length ? (
           <EmptyState
             title="No matches"
@@ -309,11 +349,13 @@ export function SearchPage() {
         )}
       </div>
 
-      {data && data.total > data.results.length ? (
-        <p className="px-1 text-xs text-muted-foreground">
-          Showing the first {data.results.length} of {data.total}. Narrow the filters, or export the
-          full set from Reports.
-        </p>
+      {data ? (
+        <Pager
+          total={data.total}
+          limit={data.limit ?? PAGE}
+          offset={data.offset ?? offset}
+          onOffsetChange={setOffset}
+        />
       ) : null}
     </div>
   )

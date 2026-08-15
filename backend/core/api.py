@@ -500,6 +500,8 @@ class ActionIn(Schema):
     #: The amount the actor saw when they confirmed. Money moves only when the
     #: recomputed amount still matches it.
     expected_amount: Optional[float] = None
+    #: Super-admin escape hatch for a Scopus outage. Same ACL as /recalculate.
+    skip_external: bool = False
 
 
 class RecalcIn(Schema):
@@ -1424,19 +1426,28 @@ def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
         claim.formula_snapshot_json = json.dumps(snapshot_formula(cfg))
 
 
+_CLAIM_SORTS = {
+    "recent": "-updated_at",
+    "amount": "-remuneration",
+    "title": "paper_title",
+}
+
+
 @api.get("/claims", auth=session_auth)
 def list_claims(
     request: HttpRequest,
     status: Optional[str] = None,
+    sort: str = "recent",
     limit: int = 50,
     offset: int = 0,
 ):
     """Paginated. The old shape silently truncated at 200 rows — beyond that,
     tickets simply did not exist as far as the UI was concerned."""
     user = require_user(request)
-    qs = _claims_queryset(user).order_by("-updated_at")
+    qs = _claims_queryset(user)
     if status:
         qs = qs.filter(status=status)
+    qs = qs.order_by(_CLAIM_SORTS.get(sort, "-updated_at"))
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
     total = qs.count()
@@ -1822,12 +1833,51 @@ def _guard_recomputed_amount(claim: Claim, expected: float | None) -> None:
         )
 
 
+def _reverify_or_recalc(claim: Claim, user, *, skip_external: bool) -> None:
+    """Refresh verified values from Scopus, or recompute from stored ones.
+
+    Mutates the claim in place and does not save — callers that move money
+    do so in the same transaction so a later 409 rolls the refresh back.
+    Scopus down raises 502 and leaves the claim untouched.
+    """
+    if skip_external:
+        if user.role != Role.SUPER_ADMIN:
+            raise HttpError(403, "Only a super admin may skip external verification")
+        previous = claim.remuneration
+        _apply_calc(claim)
+        AuditLog.objects.create(
+            actor=user,
+            action="CLAIM_RECALC_SKIP_EXTERNAL",
+            entity="Claim",
+            entity_id=claim.id,
+            detail_json=json.dumps({"previous": previous, "recomputed": claim.remuneration}),
+        )
+        return
+    result = verify_publication(
+        title=claim.paper_title or "",
+        scopus_author_url=claim.scopus_author_url,
+        scopus_author_id=claim.scopus_author_id,
+        issn=claim.issn,
+        staff_id=claim.staff_id,
+        exclude_claim_id=claim.id,
+    )
+    if not result.get("ok"):
+        raise HttpError(
+            502,
+            "Scopus could not be reached, so the values were not refreshed. "
+            "Try again shortly; a super admin can recalculate from stored values.",
+        )
+    apply_verify_to_claim(claim, result)
+    _apply_calc(claim)
+
+
 @api.post("/claims/{claim_id}/recalculate", auth=session_auth)
 def recalculate_claim(request: HttpRequest, claim_id: str, payload: Optional[RecalcIn] = None):
     """Re-verify against Scopus/Scimago and recompute the amount.
 
-    The clearing UI calls this first, shows the fresh amount, and then clears
-    with `expected_amount` — so what the approver saw is what gets cleared.
+    The clearing and pay UIs call this first, show the fresh amount, and then
+    confirm with `expected_amount`. clear / mark-paid re-verify again so a
+    stale tab or a raw API call cannot pay yesterday's number.
     """
     user = require_user(request)
     if not (rbac.can_clear_claims(user.role) or rbac.can_approve_as_finance(user.role)):
@@ -1836,39 +1886,8 @@ def recalculate_claim(request: HttpRequest, claim_id: str, payload: Optional[Rec
     if claim.status == ClaimStatus.PAID:
         raise HttpError(400, "Claim is already paid — re-verifying would change a settled amount")
     previous = claim.remuneration
-    skip_external = bool(payload and payload.skip_external)
-    if skip_external:
-        # Recompute from the stored verified values without touching Scopus —
-        # the escape hatch for an outage, and it is audited.
-        if user.role != Role.SUPER_ADMIN:
-            raise HttpError(403, "Only a super admin may skip external verification")
-        _apply_calc(claim)
-        claim.save()
-        AuditLog.objects.create(
-            actor=user,
-            action="CLAIM_RECALC_SKIP_EXTERNAL",
-            entity="Claim",
-            entity_id=claim.id,
-            detail_json=json.dumps({"previous": previous, "recomputed": claim.remuneration}),
-        )
-    else:
-        result = verify_publication(
-            title=claim.paper_title or "",
-            scopus_author_url=claim.scopus_author_url,
-            scopus_author_id=claim.scopus_author_id,
-            issn=claim.issn,
-            staff_id=claim.staff_id,
-            exclude_claim_id=claim.id,
-        )
-        if not result.get("ok"):
-            raise HttpError(
-                502,
-                "Scopus could not be reached, so the values were not refreshed. "
-                "Try again shortly; a super admin can recalculate from stored values.",
-            )
-        apply_verify_to_claim(claim, result)
-        _apply_calc(claim)
-        claim.save()
+    _reverify_or_recalc(claim, user, skip_external=bool(payload and payload.skip_external))
+    claim.save()
     changed = round(previous or 0, 2) != round(claim.remuneration or 0, 2)
     return {
         "remuneration": claim.remuneration,
@@ -1886,9 +1905,10 @@ def recalculate_claim(request: HttpRequest, claim_id: str, payload: Optional[Rec
 def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
     """Admin clearing — the one approval between submission and payment.
 
-    The amount is recomputed from the stored verified values inside the same
-    transaction, and clearing goes through only if the approver confirmed
-    exactly that amount (the UI shows it via /recalculate first).
+    Re-verifies against Scopus inside the same transaction, then clears only
+    if the approver confirmed exactly the fresh amount. A Scopus outage
+    returns 502 and leaves the ticket submitted; a super admin may pass
+    skip_external to recompute from stored values instead.
     """
     user = require_user(request)
     if not rbac.can_clear_claims(user.role):
@@ -1897,6 +1917,7 @@ def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         if claim.status != ClaimStatus.SUBMITTED:
             raise HttpError(400, "Only a submitted ticket can be cleared")
+        _reverify_or_recalc(claim, user, skip_external=bool(payload.skip_external))
         _guard_recomputed_amount(claim, payload.expected_amount)
         claim.cleared_by = user
         _transition(claim, user, ClaimStatus.CLEARED, "CLEAR", payload.note)
@@ -1924,6 +1945,9 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
     to press the same button is the bulk of the clearing effort. Each ticket is
     still transitioned individually so one bad row cannot take the batch down,
     and every one gets its own action and audit entry.
+
+    Bulk does not re-hit Scopus (200 rows would time out). It recomputes from
+    stored verified values and skips any row whose amount drifted.
     """
     user = require_user(request)
     if not rbac.can_clear_claims(user.role):
@@ -2025,8 +2049,14 @@ def _mark_one_paid(
     voucher_number: str | None,
     note: str | None,
     expected_amount: float | None,
+    skip_external: bool = False,
+    reverify: bool = True,
 ) -> Claim:
-    """One payment, atomically, with every guard. Raises HttpError on refusal."""
+    """One payment, atomically, with every guard. Raises HttpError on refusal.
+
+    `reverify=False` is for bulk mark-paid: that path recomputes from stored
+    values only so a 200-row payout month does not make 200 Scopus calls.
+    """
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         if claim.status not in PAYABLE_STATUSES:
@@ -2037,15 +2067,17 @@ def _mark_one_paid(
         if net_paid > 0:
             raise HttpError(400, "Already processed")
         if claim.status == ClaimStatus.CLEARED:
-            # Live chain: recompute from stored verified values and require the
-            # confirmed amount. Legacy ERP-imported statuses are paid at their
-            # imported figures — they have no verified columns to recompute from.
+            # Live chain: re-verify (unless bulk) then require the confirmed
+            # amount. Legacy ERP-imported statuses are paid at their imported
+            # figures — they have no verified columns to recompute from.
             if _needs_second_approval(claim):
                 raise HttpError(
                     400,
                     "High-value claim — a second approver (different from the person "
                     "who cleared it) must approve before payment",
                 )
+            if reverify:
+                _reverify_or_recalc(claim, user, skip_external=skip_external)
             _guard_recomputed_amount(claim, expected_amount)
         if voucher_number:
             claim.voucher_number = voucher_number[:64]
@@ -2082,6 +2114,7 @@ def mark_paid(request: HttpRequest, claim_id: str, payload: ActionIn):
         voucher_number=payload.voucher_number,
         note=payload.note,
         expected_amount=payload.expected_amount,
+        skip_external=bool(payload.skip_external),
     )
     return claim_to_dict(claim)
 
@@ -2105,6 +2138,9 @@ def bulk_mark_paid(request: HttpRequest, payload: BulkMarkPaidIn):
     row still goes through the full single-payment guards individually — an
     amount that drifted, a missing second approval, or an already-paid row is
     skipped with its reason, never silently paid.
+
+    Bulk does not re-hit Scopus (that would time out). It recomputes from
+    stored verified values and skips any row whose amount drifted.
     """
     user = require_user(request)
     if not rbac.can_approve_as_finance(user.role):
@@ -2126,6 +2162,7 @@ def bulk_mark_paid(request: HttpRequest, payload: BulkMarkPaidIn):
                 voucher_number=item.voucher_number,
                 note=payload.note,
                 expected_amount=item.expected_amount,
+                reverify=False,
             )
             paid.append(claim.id)
         except HttpError as e:
@@ -3032,6 +3069,7 @@ def admin_audit(
 def admin_payouts(
     request: HttpRequest,
     status: str = "CLEARED",
+    sort: str = "recent",
     limit: int = 50,
     offset: int = 0,
 ):
@@ -3042,13 +3080,17 @@ def admin_payouts(
         "owner", "cleared_by", "second_approved_by"
     ).prefetch_related("attachments")
     if status == "PAID":
-        qs = qs.filter(status=ClaimStatus.PAID).order_by("-paid_at")
+        qs = qs.filter(status=ClaimStatus.PAID)
+        default_order = "-paid_at"
     elif status in ("CLEARED", "PRINCIPAL_APPROVED", "FINANCE_APPROVED"):
         # One payable queue. Tickets approved under the old chain sit in it too,
         # otherwise they would be stranded with nobody able to pay them.
-        qs = qs.filter(status__in=PAYABLE_STATUSES).order_by("-updated_at")
+        qs = qs.filter(status__in=PAYABLE_STATUSES)
+        default_order = "-updated_at"
     else:
-        qs = qs.filter(status=status).order_by("-updated_at")
+        qs = qs.filter(status=status)
+        default_order = "-updated_at"
+    qs = qs.order_by(_CLAIM_SORTS.get(sort, default_order))
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
     total = qs.count()
@@ -3547,12 +3589,26 @@ def _ledger_row_dict(row: PaidLedger) -> dict[str, Any]:
 
 
 @api.get("/admin/ledger", auth=session_auth)
-def admin_ledger(request: HttpRequest, month: Optional[str] = None, department: Optional[str] = None):
+def admin_ledger(
+    request: HttpRequest,
+    month: Optional[str] = None,
+    department: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
     qs = _ledger_queryset(month, department)
-    return [_ledger_row_dict(r) for r in qs[:500]]
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+    total = qs.count()
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "results": [_ledger_row_dict(r) for r in qs[offset : offset + limit]],
+    }
 
 
 @api.get("/admin/ledger/export", auth=session_auth)
@@ -3705,8 +3761,12 @@ def start_batch(request: HttpRequest, batch_id: str):
         last_beat = batch.heartbeat_at or batch.started_at
         if last_beat and timezone.now() - last_beat < STALE_BATCH_AFTER:
             raise HttpError(400, "Already running")
-    start_batch_async(batch.id)
-    return {"ok": True, "status": "RUNNING"}
+    job_id = start_batch_async(batch.id)
+    return {
+        "ok": True,
+        "status": "RUNNING",
+        "job_id": job_id if isinstance(job_id, (str, int)) else None,
+    }
 
 
 @api.get("/monthly/{batch_id}/export", auth=session_auth)

@@ -1,10 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { toast } from "sonner"
+import { useMemo, useState } from "react"
 import { Download } from "lucide-react"
 
-import { EmptyState, PageHeader, Section, StatStrip } from "@/components/layout/page"
+import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
 import { Money } from "@/components/ticket-ui"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -16,7 +15,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { API_BASE, api } from "@/lib/api"
+import { API_BASE } from "@/lib/api"
+import { useApiQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
 type Row = { key: string; count: number; amount: number; label?: string }
@@ -99,11 +99,8 @@ function Breakdown({
 }
 
 export function ReportsPage() {
-  const [data, setData] = useState<ReportData | null>(null)
-  const [loading, setLoading] = useState(true)
   const [year, setYear] = useState(ALL)
   const [department, setDepartment] = useState(ALL)
-  const [departments, setDepartments] = useState<string[]>([])
 
   const query = useMemo(() => {
     const qs = new URLSearchParams()
@@ -113,19 +110,14 @@ export function ReportsPage() {
     return s ? `?${s}` : ""
   }, [year, department])
 
-  useEffect(() => {
-    setLoading(true)
-    api<ReportData>(`/api/reports${query}`)
-      .then(setData)
-      .catch((e) => toast.error(e instanceof Error ? e.message : "Could not load reports"))
-      .finally(() => setLoading(false))
-  }, [query])
-
-  useEffect(() => {
-    api<string[]>("/api/meta/departments")
-      .then(setDepartments)
-      .catch(() => setDepartments([]))
-  }, [])
+  const { data, isLoading: loading, isError, refetch } = useApiQuery<ReportData>(
+    ["reports", year, department],
+    `/api/reports${query}`
+  )
+  const { data: departments = [] } = useApiQuery<string[]>(
+    ["meta", "departments"],
+    "/api/meta/departments"
+  )
 
   const t = data?.totals
 
@@ -200,6 +192,12 @@ export function ReportsPage() {
           <Skeleton className="h-20 w-full rounded-[var(--radius)]" />
           <Skeleton className="h-64 w-full rounded-[var(--radius)]" />
         </div>
+      ) : isError ? (
+        <ErrorState
+          title="Could not load reports"
+          description="The server did not respond."
+          onRetry={() => refetch()}
+        />
       ) : !data ? (
         <EmptyState title="No report data" description="Nothing has been filed yet." />
       ) : (

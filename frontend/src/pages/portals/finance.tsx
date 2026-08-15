@@ -41,6 +41,14 @@ import { Pager } from "@/components/ui/pagination"
 import { useApiQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
+type RecalcResult = {
+  remuneration: number | null
+  previous: number | null
+  changed: boolean
+  calc_error?: string | null
+  remuneration_note?: string | null
+}
+
 
 // ---------------------------------------------------------------------------
 // Shared primitives
@@ -251,12 +259,17 @@ export function FinancePayoutsPage() {
     next.has(id) ? next.delete(id) : next.add(id)
     setPicked(next)
   }
-  // Notification deep links arrive as /finance?claim=… — highlight that row.
+  // Notification deep links arrive as /finance?claim=… — fetch that ticket,
+  // even when it is not on the current page of the queue.
   const [params] = useSearchParams()
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [deepClaim, setDeepClaim] = useState<Claim | null>(null)
 
-  // Confirm-paid dialog
+  // Confirm-paid dialog — amount comes from a fresh /recalculate, not the
+  // (possibly stale) figure sitting on the row.
   const [confirmPayId, setConfirmPayId] = useState<string | null>(null)
+  const [payRecalc, setPayRecalc] = useState<RecalcResult | null>(null)
+  const [sort, setSort] = useState("recent")
 
   // Reject dialog
   const [rejectId, setRejectId] = useState<string | null>(null)
@@ -271,43 +284,61 @@ export function FinancePayoutsPage() {
     isError,
     refetch,
   } = useApiQuery<Paginated<Claim>>(
-    ["claims", "payouts", "CLEARED", offset],
-    `/api/admin/payouts?status=CLEARED&limit=${PAGE}&offset=${offset}`
+    ["claims", "payouts", "CLEARED", offset, sort],
+    `/api/admin/payouts?status=CLEARED&sort=${sort}&limit=${PAGE}&offset=${offset}`
   )
   const rows = page?.results ?? []
   const load = () => refetch()
 
   useEffect(() => {
     const id = params.get("claim")
-    if (!id || loading) return
-    const match = rows.find((r) => r.id === id)
-    if (match) {
-      setHighlightId(id)
-      // Desktop table row and mobile card carry different ids — scroll the
-      // one that is actually visible at this breakpoint.
-      const el = [
-        document.getElementById(`payout-${id}`),
-        document.getElementById(`payout-m-${id}`),
-      ].find((e) => e && e.offsetParent !== null)
-      el?.scrollIntoView({ block: "center" })
-    } else {
-      toast.info("That ticket is not in the payment queue — it may already be processed.")
+    if (!id) return
+    api<Claim>(`/api/claims/${id}`)
+      .then((c) => {
+        setHighlightId(id)
+        setDeepClaim(c)
+      })
+      .catch(() => {
+        toast.info("That ticket is not available")
+      })
+  }, [params])
+
+  useEffect(() => {
+    if (!highlightId || loading) return
+    const el = [
+      document.getElementById(`payout-${highlightId}`),
+      document.getElementById(`payout-m-${highlightId}`),
+    ].find((e) => e && e.offsetParent !== null)
+    el?.scrollIntoView({ block: "center" })
+  }, [highlightId, loading, rows])
+
+  async function startPay(id: string) {
+    setBusyId(id)
+    try {
+      const r = await api<RecalcResult>(`/api/claims/${id}/recalculate`, {
+        method: "POST",
+        json: {},
+      })
+      setPayRecalc(r)
+      setConfirmPayId(id)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not recalculate the amount")
+    } finally {
+      setBusyId(null)
     }
-  }, [params, loading, rows])
+  }
 
   async function processYes(id: string) {
     setBusyId(id)
     setConfirmPayId(null)
     try {
-      const claim = rows.find((r) => r.id === id)
+      const claim = rows.find((r) => r.id === id) || (deepClaim?.id === id ? deepClaim : null)
       await api(`/api/claims/${id}/mark-paid`, {
         method: "POST",
         json: {
           voucher_number: voucher[id] || "",
           note: "processed",
-          // The amount on screen is the amount that gets paid — the server
-          // recomputes and refuses if they no longer match.
-          expected_amount: claim?.remuneration ?? null,
+          expected_amount: payRecalc?.remuneration ?? claim?.remuneration ?? null,
         },
       })
       toast.success("Payment marked — faculty has been notified", {
@@ -403,7 +434,13 @@ export function FinancePayoutsPage() {
   const selectedRows = rows.filter((r) => picked.has(r.id))
   const selectedTotal = selectedRows.reduce((s, r) => s + (r.remuneration || 0), 0)
 
-  const confirmClaim = confirmPayId ? rows.find((r) => r.id === confirmPayId) : null
+  const confirmClaim =
+    confirmPayId
+      ? rows.find((r) => r.id === confirmPayId) ||
+        (deepClaim?.id === confirmPayId ? deepClaim : null)
+      : null
+  const pinned =
+    deepClaim && !rows.some((r) => r.id === deepClaim.id) ? deepClaim : null
 
   return (
     <div>
@@ -411,14 +448,29 @@ export function FinancePayoutsPage() {
         title="Payment orders"
         subtitle="Cleared tickets — process the payment or send one back"
         actions={
-          <div className="relative w-44 sm:w-56">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="Search…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
+          <div className="flex items-center gap-2">
+            <select
+              className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+              value={sort}
+              onChange={(e) => {
+                setSort(e.target.value)
+                setOffset(0)
+              }}
+              aria-label="Sort payment orders"
+            >
+              <option value="recent">Most recent</option>
+              <option value="amount">Highest amount</option>
+              <option value="title">Title</option>
+            </select>
+            <div className="relative w-44 sm:w-56">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder="Search…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
           </div>
         }
       />
@@ -468,6 +520,22 @@ export function FinancePayoutsPage() {
             ) : null}
           </div>
 
+          {pinned ? (
+            <div className="mb-3 rounded-[var(--radius)] border border-primary/40 bg-primary/5 p-3">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                Opened from a notification — this ticket is not on the current page.
+              </p>
+              <PaymentOrderCard
+                claim={pinned}
+                voucher={voucher[pinned.id] || ""}
+                onVoucherChange={(v) => setVoucher({ ...voucher, [pinned.id]: v })}
+                busy={busyId === pinned.id}
+                onMarkPaid={() => startPay(pinned.id)}
+                onReject={() => setRejectId(pinned.id)}
+              />
+            </div>
+          ) : null}
+
           {/* Mobile card stack */}
           <div className="block space-y-3 md:hidden">
             {filtered.map((r) => (
@@ -481,7 +549,7 @@ export function FinancePayoutsPage() {
                 voucher={voucher[r.id] || ""}
                 onVoucherChange={(v) => setVoucher({ ...voucher, [r.id]: v })}
                 busy={busyId === r.id}
-                onMarkPaid={() => setConfirmPayId(r.id)}
+                onMarkPaid={() => startPay(r.id)}
                 onReject={() => setRejectId(r.id)}
               />
               </div>
@@ -549,7 +617,7 @@ export function FinancePayoutsPage() {
                               ? "High-value claim — needs a second approver before payment"
                               : undefined
                           }
-                          onClick={() => setConfirmPayId(r.id)}
+                          onClick={() => startPay(r.id)}
                         >
                           <BadgeCheck className="mr-1.5 size-4" />
                           Yes
@@ -675,9 +743,14 @@ export function FinancePayoutsPage() {
                     <div className="mt-2 flex items-baseline gap-1.5">
                       <span className="text-xs text-muted-foreground">Amount:</span>
                       <span className="text-lg font-semibold tabular-nums text-foreground">
-                        <Money value={confirmClaim.remuneration} />
+                        <Money value={payRecalc?.remuneration ?? confirmClaim.remuneration} />
                       </span>
                     </div>
+                    {payRecalc?.changed ? (
+                      <p className="mt-1 text-xs">
+                        Changed from <Money value={payRecalc.previous} /> on re-verification.
+                      </p>
+                    ) : null}
                     {voucher[confirmClaim.id] && (
                       <p className="mt-1 text-xs">
                         Voucher:{" "}
@@ -767,6 +840,7 @@ export function FinancePaidPage() {
   const [voiding, setVoiding] = useState(false)
 
   const [offset, setOffset] = useState(0)
+  const [sort, setSort] = useState("recent")
   const PAGE = 50
   const {
     data: page,
@@ -774,8 +848,8 @@ export function FinancePaidPage() {
     isError,
     refetch,
   } = useApiQuery<Paginated<Claim>>(
-    ["claims", "payouts", "PAID", offset],
-    `/api/admin/payouts?status=PAID&limit=${PAGE}&offset=${offset}`
+    ["claims", "payouts", "PAID", offset, sort],
+    `/api/admin/payouts?status=PAID&sort=${sort}&limit=${PAGE}&offset=${offset}`
   )
   const rows = page?.results ?? []
   const load = () => refetch()
@@ -850,6 +924,19 @@ export function FinancePaidPage() {
             onChange={(e) => setDept(e.target.value)}
           />
         </div>
+        <select
+          className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+          value={sort}
+          onChange={(e) => {
+            setSort(e.target.value)
+            setOffset(0)
+          }}
+          aria-label="Sort paid tickets"
+        >
+          <option value="recent">Most recent</option>
+          <option value="amount">Highest amount</option>
+          <option value="title">Title</option>
+        </select>
         {(q || dept) && (
           <Button
             size="sm"
@@ -1048,9 +1135,9 @@ type LedgerRow = {
 export function FinanceLedgerPage() {
   const [month, setMonth] = useState("")
   const [department, setDepartment] = useState("")
-  const [rows, setRows] = useState<LedgerRow[]>([])
-  const [loading, setLoading] = useState(false)
+  const [offset, setOffset] = useState(0)
   const [exporting, setExporting] = useState(false)
+  const PAGE = 50
   // The same list that already backs the dropdowns on Reports and Query —
   // this page asked users to type "YYYY-MM" and a department string by hand.
   const { data: departments = [] } = useApiQuery<string[]>(
@@ -1058,24 +1145,22 @@ export function FinanceLedgerPage() {
     "/api/meta/departments"
   )
 
-  async function load() {
-    setLoading(true)
-    try {
-      const qs = new URLSearchParams()
-      if (month) qs.set("month", month)
-      if (department) qs.set("department", department)
-      setRows(await api(`/api/admin/ledger?${qs}`))
-    } catch {
-      toast.error("Could not load ledger")
-    } finally {
-      setLoading(false)
-    }
-  }
+  const qs = new URLSearchParams()
+  if (month) qs.set("month", month)
+  if (department) qs.set("department", department)
+  qs.set("limit", String(PAGE))
+  qs.set("offset", String(offset))
 
-  useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const {
+    data: page,
+    isLoading: loading,
+    isError,
+    refetch,
+  } = useApiQuery<Paginated<LedgerRow>>(
+    ["ledger", month, department, offset],
+    `/api/admin/ledger?${qs}`
+  )
+  const rows = page?.results ?? []
 
   async function exportCsv() {
     setExporting(true)
@@ -1147,7 +1232,10 @@ export function FinanceLedgerPage() {
             id="ledger-month"
             type="month"
             value={month}
-            onChange={(e) => setMonth(e.target.value)}
+            onChange={(e) => {
+              setMonth(e.target.value)
+              setOffset(0)
+            }}
             className="w-40"
           />
         </div>
@@ -1159,7 +1247,10 @@ export function FinanceLedgerPage() {
             id="ledger-dept"
             className="h-9 w-44 rounded-md border border-input bg-transparent px-2 text-sm"
             value={department}
-            onChange={(e) => setDepartment(e.target.value)}
+            onChange={(e) => {
+              setDepartment(e.target.value)
+              setOffset(0)
+            }}
           >
             <option value="">All departments</option>
             {departments.map((d) => (
@@ -1170,10 +1261,6 @@ export function FinanceLedgerPage() {
           </select>
         </div>
         <div className="flex items-end gap-2">
-          <Button type="button" size="sm" onClick={() => load()} disabled={loading}>
-            <Filter className="mr-1.5 size-4" />
-            Apply
-          </Button>
           {(month || department) && (
             <Button
               type="button"
@@ -1183,6 +1270,7 @@ export function FinanceLedgerPage() {
               onClick={() => {
                 setMonth("")
                 setDepartment("")
+                setOffset(0)
               }}
             >
               <X className="size-4" />
@@ -1198,6 +1286,12 @@ export function FinanceLedgerPage() {
             <Skeleton key={i} className="h-12 w-full rounded-[var(--radius)]" />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState
+          title="Could not load the ledger"
+          description="The server did not respond."
+          onRetry={() => refetch()}
+        />
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<BookOpenText className="size-6" />}
@@ -1241,6 +1335,14 @@ export function FinanceLedgerPage() {
           ))}
         </TableShell>
       )}
+      {page ? (
+        <Pager
+          total={page.total}
+          limit={page.limit}
+          offset={page.offset}
+          onOffsetChange={setOffset}
+        />
+      ) : null}
     </div>
   )
 }

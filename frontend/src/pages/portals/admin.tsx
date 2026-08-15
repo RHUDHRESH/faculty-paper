@@ -1,7 +1,7 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react"
 import { toast } from "sonner"
 
-import { EmptyState, PageHeader, Section, StatStrip } from "@/components/layout/page"
+import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
 import { Money } from "@/components/ticket-ui"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { API_BASE, api, ensureCsrf } from "@/lib/api"
+import { useApiQuery } from "@/lib/queries"
+import { pollJob } from "@/lib/use-job"
 
 // ---------------------------------------------------------------------------
 // Shared layout primitives
@@ -103,18 +105,10 @@ async function multipartPost(path: string, fd: FormData): Promise<unknown> {
 // ---------------------------------------------------------------------------
 
 export function AdminApprovalsPage() {
-  const [dash, setDash] = useState<{
+  const { data: dash, isLoading: loading, isError, refetch } = useApiQuery<{
     by_status?: Record<string, number>
     total_paid?: number
-  } | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    api<{ by_status?: Record<string, number>; total_paid?: number }>("/api/dashboard")
-      .then(setDash)
-      .catch(() => toast.error("Could not load overview"))
-      .finally(() => setLoading(false))
-  }, [])
+  }>(["dashboard", "admin"], "/api/dashboard")
 
   const by = dash?.by_status || {}
 
@@ -126,6 +120,12 @@ export function AdminApprovalsPage() {
       />
       {loading ? (
         <Skeleton className="h-20 w-full rounded-[var(--radius)]" />
+      ) : isError ? (
+        <ErrorState
+          title="Could not load overview"
+          description="The pipeline numbers did not load."
+          onRetry={() => refetch()}
+        />
       ) : (
         <Section title="Claim pipeline">
           <StatStrip
@@ -136,7 +136,7 @@ export function AdminApprovalsPage() {
               // button could not do. It has its own bucket.
               { label: "To clear", value: by.SUBMITTED || 0, to: "/admin/clearing" },
               ...(by.HOD_APPROVED
-                ? [{ label: "Stranded (legacy)", value: by.HOD_APPROVED }]
+                ? [{ label: "Stranded (legacy)", value: by.HOD_APPROVED, to: "/admin/clearing" }]
                 : []),
               {
                 label: "With Finance",
@@ -145,8 +145,9 @@ export function AdminApprovalsPage() {
                   (by.PRINCIPAL_APPROVED || 0) +
                   (by.FINANCE_APPROVED || 0) +
                   (by.RESEARCH_APPROVED || 0),
+                to: "/finance",
               },
-              { label: "Paid", value: by.PAID || 0 },
+              { label: "Paid", value: by.PAID || 0, to: "/finance/paid" },
             ]}
           />
           <p className="mt-2 text-sm text-muted-foreground">
@@ -294,10 +295,20 @@ export function AdminMonthlyPage() {
                     onClick={async () => {
                       const tid = toast.loading("Starting batch…")
                       try {
-                        await api(`/api/monthly/${b.id}/start`, { method: "POST", json: {} })
+                        const started = await api<{ job_id?: string }>(
+                          `/api/monthly/${b.id}/start`,
+                          { method: "POST", json: {} }
+                        )
                         toast.dismiss(tid)
-                        toast.success("Batch started — refreshing every 2.5 s")
+                        toast.success("Batch queued — watching job status")
                         setSelected(await api(`/api/monthly/${b.id}`))
+                        if (started.job_id) {
+                          const job = await pollJob(started.job_id)
+                          if (job.status === "done") toast.success("Monthly batch finished")
+                          else if (job.status === "failed") toast.error("Monthly batch failed")
+                          setSelected(await api(`/api/monthly/${b.id}`))
+                          await refresh()
+                        }
                       } catch (err) {
                         toast.dismiss(tid)
                         toast.error(err instanceof Error ? err.message : "Start failed")
@@ -524,6 +535,9 @@ export function AdminScimagoPage() {
 export function AdminPriorPage() {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [erpFile, setErpFile] = useState<File | null>(null)
+  const [erpBusy, setErpBusy] = useState(false)
+  const [erpJob, setErpJob] = useState<string | null>(null)
 
   async function upload(e: FormEvent) {
     e.preventDefault()
@@ -545,11 +559,43 @@ export function AdminPriorPage() {
     }
   }
 
+  async function uploadErp(e: FormEvent) {
+    e.preventDefault()
+    if (!erpFile) return
+    setErpBusy(true)
+    const tid = toast.loading("Queueing ERP workbook…")
+    try {
+      const fd = new FormData()
+      fd.append("file", erpFile)
+      const data = (await multipartPost("/api/admin/erp-import", fd)) as {
+        job_id?: string
+      }
+      toast.dismiss(tid)
+      if (!data.job_id) {
+        toast.success("ERP import accepted")
+        setErpFile(null)
+        return
+      }
+      setErpJob("queued")
+      toast.success("ERP import queued — watching job status")
+      const job = await pollJob(data.job_id, (s) => setErpJob(s.status))
+      if (job.status === "done") toast.success("ERP import finished")
+      else if (job.status === "failed") toast.error("ERP import failed")
+      else toast.info("ERP import is still running in the background")
+      setErpFile(null)
+    } catch (err) {
+      toast.dismiss(tid)
+      toast.error(err instanceof Error ? err.message : "ERP import failed")
+    } finally {
+      setErpBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Prior payments"
-        subtitle="Imports · Upload a prior-payment CSV to pre-populate historical records"
+        subtitle="Imports · Upload a prior-payment CSV or queue an ERP workbook"
       />
       <Section title="Upload CSV">
         <FormPanel>
@@ -566,6 +612,32 @@ export function AdminPriorPage() {
             <Button type="submit" disabled={!file || uploading}>
               {uploading ? "Importing…" : "Import"}
             </Button>
+          </form>
+        </FormPanel>
+      </Section>
+      <Section
+        title="ERP workbook"
+        description="The 40 MB Publication_Processing_ERP file runs on the job queue. This page waits for SUCCESS or FAILED."
+      >
+        <FormPanel>
+          <form className="flex flex-wrap items-end gap-3" onSubmit={uploadErp}>
+            <div className="space-y-1.5">
+              <Label>XLSX file</Label>
+              <Input
+                type="file"
+                accept=".xlsx,.xlsm"
+                onChange={(e) => setErpFile(e.target.files?.[0] || null)}
+                className="max-w-xs"
+              />
+            </div>
+            <Button type="submit" disabled={!erpFile || erpBusy}>
+              {erpBusy ? "Working…" : "Queue import"}
+            </Button>
+            {erpJob ? (
+              <Badge variant="secondary" className="uppercase">
+                {erpJob}
+              </Badge>
+            ) : null}
           </form>
         </FormPanel>
       </Section>
@@ -1344,30 +1416,31 @@ function auditDetail(raw?: string | null): string | null {
 }
 
 export function AdminAuditPage() {
-  const [rows, setRows] = useState<AuditRow[]>([])
-  const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const [q, setQ] = useState("")
+  const [debouncedQ, setDebouncedQ] = useState("")
   const [action, setAction] = useState("")
-  const [loading, setLoading] = useState(true)
+  const [debouncedAction, setDebouncedAction] = useState("")
   const PAGE = 100
 
   useEffect(() => {
     const t = setTimeout(() => {
-      setLoading(true)
-      const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset) })
-      if (q.trim()) params.set("q", q.trim())
-      if (action.trim()) params.set("action", action.trim())
-      api<{ total: number; results: AuditRow[] }>(`/api/admin/audit?${params}`)
-        .then((body) => {
-          setRows(body.results)
-          setTotal(body.total)
-        })
-        .catch(() => toast.error("Could not load audit log"))
-        .finally(() => setLoading(false))
+      setDebouncedQ(q)
+      setDebouncedAction(action)
     }, 250)
     return () => clearTimeout(t)
-  }, [q, action, offset])
+  }, [q, action])
+
+  const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset) })
+  if (debouncedQ.trim()) params.set("q", debouncedQ.trim())
+  if (debouncedAction.trim()) params.set("action", debouncedAction.trim())
+
+  const { data, isLoading: loading, isError, refetch } = useApiQuery<{
+    total: number
+    results: AuditRow[]
+  }>(["audit", debouncedQ, debouncedAction, offset], `/api/admin/audit?${params}`)
+  const rows = data?.results ?? []
+  const total = data?.total ?? 0
 
   return (
     <div className="space-y-6">
@@ -1396,6 +1469,12 @@ export function AdminAuditPage() {
 
       {loading ? (
         <Skeleton className="h-40 w-full rounded-[var(--radius)]" />
+      ) : isError ? (
+        <ErrorState
+          title="Could not load the audit log"
+          description="The server did not respond."
+          onRetry={() => refetch()}
+        />
       ) : rows.length === 0 ? (
         <EmptyState
           title={q || action ? "No matching events" : "No audit events yet"}

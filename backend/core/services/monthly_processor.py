@@ -55,7 +55,7 @@ def process_batch(batch_id: str) -> None:
         batch.save(update_fields=["status", "error_message", "finished_at", "updated_at"])
 
 
-def start_batch_async(batch_id: str) -> None:
+def start_batch_async(batch_id: str):
     """Enqueue on the django-q2 cluster.
 
     This used to be a bare daemon thread inside a gunicorn worker: a deploy or
@@ -65,7 +65,7 @@ def start_batch_async(batch_id: str) -> None:
     """
     from django_q.tasks import async_task
 
-    async_task("core.tasks.run_monthly_batch", batch_id)
+    return async_task("core.tasks.run_monthly_batch", batch_id)
 
 
 def _process_row(row: MonthlyRow) -> None:

@@ -197,6 +197,7 @@ export function FacultyClaimsPage() {
   // A failed load renders ErrorState with a retry — it used to fall through
   // to the "No tickets yet" empty state.
   const [offset, setOffset] = useState(0)
+  const [sort, setSort] = useState("recent")
   const PAGE = 50
   const {
     data: page,
@@ -204,8 +205,8 @@ export function FacultyClaimsPage() {
     isError,
     refetch,
   } = useApiQuery<Paginated<Claim>>(
-    ["claims", "mine", filter, offset],
-    `/api/claims?limit=${PAGE}&offset=${offset}` +
+    ["claims", "mine", filter, offset, sort],
+    `/api/claims?limit=${PAGE}&offset=${offset}&sort=${sort}` +
       (filter === "ALL" ? "" : `&status=${filter}`)
   )
   const claims = page?.results ?? []
@@ -337,6 +338,22 @@ export function FacultyClaimsPage() {
                 {s.label}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={sort}
+          onValueChange={(v) => {
+            setSort(v)
+            setOffset(0)
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-[180px]" aria-label="Sort tickets">
+            <SelectValue placeholder="Sort" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="recent">Most recent</SelectItem>
+            <SelectItem value="amount">Highest amount</SelectItem>
+            <SelectItem value="title">Title</SelectItem>
           </SelectContent>
         </Select>
       </FilterBar>

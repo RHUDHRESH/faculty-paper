@@ -44,6 +44,48 @@ import json
 User = get_user_model()
 
 
+def _echo_verified(*args, exclude_claim_id=None, **kwargs):
+    """Replay the claim's stored SNIP/quartile so money-movement tests stay deterministic."""
+    claim = Claim.objects.filter(pk=exclude_claim_id).first() if exclude_claim_id else None
+    if claim is None:
+        return {
+            "ok": True,
+            "scopus": {"indexed": False, "linked": False, "message": "miss"},
+            "scimago": {"found": False, "quartile": None, "message": None},
+            "paid": {"warning": False, "matches": []},
+            "paper": None,
+            "snip": None,
+            "engineering_class": None,
+        }
+    return {
+        "ok": True,
+        "scopus": {"indexed": True, "linked": True, "message": "ok"},
+        "scimago": {
+            "found": bool(claim.quartile),
+            "quartile": claim.quartile,
+            "message": None,
+        },
+        "paid": {"warning": False, "matches": []},
+        "paper": {"journal_title": claim.journal_title} if claim.journal_title else None,
+        "snip": claim.snip,
+        "snip_source": claim.snip_source or "SCOPUS",
+        "engineering_class": claim.engineering_class,
+    }
+
+
+def _verify_hit(*, snip=1.0, quartile="Q2"):
+    return {
+        "ok": True,
+        "scopus": {"indexed": True, "linked": True, "message": "ok"},
+        "scimago": {"found": True, "quartile": quartile, "message": None},
+        "paid": {"warning": False, "matches": []},
+        "paper": {"journal_title": "Nature"},
+        "snip": snip,
+        "snip_source": "SCOPUS",
+        "engineering_class": "Engineering",
+    }
+
+
 class TicketHierarchyTests(TestCase):
     def setUp(self):
         FormulaConfig.objects.create(
@@ -84,6 +126,9 @@ class TicketHierarchyTests(TestCase):
             role=Role.SUPER_ADMIN,
         )
         self.client = Client()
+        verify_patch = patch("core.api.verify_publication", side_effect=_echo_verified)
+        verify_patch.start()
+        self.addCleanup(verify_patch.stop)
 
     def _login(self, user):
         self.client.force_login(user)
@@ -1216,6 +1261,9 @@ class PaymentLifecycleTests(TestCase):
             email="life-fin@test.edu", password="pass", name="Life Fin", role=Role.FINANCE
         )
         self.client = Client()
+        verify_patch = patch("core.api.verify_publication", side_effect=_echo_verified)
+        verify_patch.start()
+        self.addCleanup(verify_patch.stop)
 
     def _claim(self, *, status, remuneration, ticket, **kw):
         """A claim whose amount recomputes to exactly `remuneration`.
@@ -1270,6 +1318,93 @@ class PaymentLifecycleTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200, r.content)
+
+    def test_recalculate_refreshes_from_scopus(self):
+        claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-RC")
+        self.client.force_login(self.admin)
+        with patch("core.api.verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
+            r = self.client.post(
+                f"/api/claims/{claim.id}/recalculate",
+                data=json.dumps({}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertTrue(body["changed"])
+        self.assertEqual(body["remuneration"], 160000.0)
+        self.assertEqual(body["previous"], 85000.0)
+
+    def test_recalculate_skip_external_is_super_admin_only(self):
+        claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-SKIP")
+        self.client.force_login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/recalculate",
+            data=json.dumps({"skip_external": True}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 403, r.content)
+        self.client.force_login(self.admin)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/recalculate",
+            data=json.dumps({"skip_external": True}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertFalse(r.json()["changed"])
+
+    def test_clear_refuses_when_reverify_changes_the_amount(self):
+        claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-RV")
+        self.client.force_login(self.admin)
+        with patch("core.api.verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
+            r = self.client.post(
+                f"/api/claims/{claim.id}/clear",
+                data=json.dumps({"expected_amount": 85000.0}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 409, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
+        self.assertEqual(claim.snip, 1.0)
+
+    def test_mark_paid_refuses_when_reverify_changes_the_amount(self):
+        claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-PV")
+        self.client.force_login(self.finance)
+        with patch("core.api.verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
+            r = self.client.post(
+                f"/api/claims/{claim.id}/mark-paid",
+                data=json.dumps({"expected_amount": 85000.0}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 409, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+
+    def test_clear_scopus_down_leaves_status_untouched(self):
+        claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-502")
+        self.client.force_login(self.admin)
+        with patch("core.api.verify_publication", return_value={"ok": False}):
+            r = self.client.post(
+                f"/api/claims/{claim.id}/clear",
+                data=json.dumps({"expected_amount": 85000.0}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 502, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
+        self.assertEqual(claim.remuneration, 85000.0)
+
+    def test_mark_paid_scopus_down_leaves_status_untouched(self):
+        claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-P502")
+        self.client.force_login(self.finance)
+        with patch("core.api.verify_publication", return_value={"ok": False}):
+            r = self.client.post(
+                f"/api/claims/{claim.id}/mark-paid",
+                data=json.dumps({"expected_amount": 85000.0}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 502, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
 
     # ---- second signature ----
 
@@ -1571,6 +1706,33 @@ class PaginationTests(TestCase):
         self.client.force_login(self.faculty)
         body = self.client.get("/api/claims?limit=99999").json()
         self.assertEqual(body["limit"], 200)
+
+    def test_sort_by_title(self):
+        self.client.force_login(self.faculty)
+        body = self.client.get("/api/claims?sort=title&limit=10").json()
+        titles = [c["paper_title"] for c in body["results"]]
+        self.assertEqual(titles, sorted(titles))
+
+    def test_ledger_is_paginated(self):
+        finance = User.objects.create_user(
+            email="page-fin@test.edu", password="pass", name="Page Fin", role=Role.FINANCE,
+        )
+        for i in range(3):
+            claim = Claim.objects.create(
+                owner=self.faculty, status=ClaimStatus.PAID,
+                ticket_number=f"LD-{i}", paper_title=f"Ledger {i}",
+            )
+            PaidLedger.objects.create(
+                claim=claim, payout_month=date(2026, 8, 1), amount=1000 + i,
+                faculty_name=self.faculty.name,
+            )
+        self.client.force_login(finance)
+        body = self.client.get("/api/admin/ledger?limit=2").json()
+        self.assertEqual(body["total"], 3)
+        self.assertEqual(body["limit"], 2)
+        self.assertEqual(len(body["results"]), 2)
+        page2 = self.client.get("/api/admin/ledger?limit=2&offset=2").json()
+        self.assertEqual(len(page2["results"]), 1)
 
 
 class QualityOfLifeTests(TestCase):

@@ -356,6 +356,10 @@ function ApprovalQueue({
   // portals list the whole pipeline, not one queue. Background refetch means
   // two reviewers working the queue see each other's clears.
   const [offset, setOffset] = useState(0)
+  const [sort, setSort] = useState("recent")
+  const statusFromUrl = params.get("status")
+  const effectiveStatus =
+    statusFilter === "ALL" && statusFromUrl ? statusFromUrl : statusFilter
   const PAGE = 50
   const {
     data: page,
@@ -363,9 +367,9 @@ function ApprovalQueue({
     isError,
     refetch,
   } = useApiQuery<Paginated<Claim>>(
-    ["claims", "queue", statusFilter, offset],
-    `/api/claims?limit=${PAGE}&offset=${offset}` +
-      (statusFilter === "ALL" ? "" : `&status=${statusFilter}`)
+    ["claims", "queue", effectiveStatus, offset, sort],
+    `/api/claims?limit=${PAGE}&offset=${offset}&sort=${sort}` +
+      (effectiveStatus === "ALL" ? "" : `&status=${effectiveStatus}`)
   )
   const claims = page?.results ?? []
   const load = () => refetch()
@@ -719,6 +723,19 @@ function ApprovalQueue({
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
+        <select
+          className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+          value={sort}
+          onChange={(e) => {
+            setSort(e.target.value)
+            setOffset(0)
+          }}
+          aria-label="Sort tickets"
+        >
+          <option value="recent">Most recent</option>
+          <option value="amount">Highest amount</option>
+          <option value="title">Title</option>
+        </select>
       </FilterBar>
 
       <MasterDetail
@@ -908,16 +925,10 @@ export function PrincipalQueuePage() {
 }
 
 export function PrincipalOverviewPage() {
-  const [dash, setDash] = useState<{
+  const { data: dash, isError, refetch } = useApiQuery<{
     by_status?: Record<string, number>
     total_paid?: number
-  } | null>(null)
-
-  useEffect(() => {
-    api<{ by_status?: Record<string, number>; total_paid?: number }>("/api/dashboard")
-      .then(setDash)
-      .catch(() => toast.error("Could not load overview"))
-  }, [])
+  }>(["dashboard", "principal"], "/api/dashboard")
 
   const by = dash?.by_status || {}
 
@@ -925,6 +936,14 @@ export function PrincipalOverviewPage() {
     <div className="space-y-8">
       <PageHeader title="Overview" subtitle="Live pipeline across the college" />
 
+      {isError ? (
+        <ErrorState
+          title="Could not load overview"
+          description="The pipeline numbers did not load."
+          onRetry={() => refetch()}
+        />
+      ) : (
+      <>
       <Section
         title="Pipeline"
         description="How many claims are at each stage right now."
@@ -935,7 +954,7 @@ export function PrincipalOverviewPage() {
             {
               label: "Awaiting clearance",
               value: (by.SUBMITTED ?? 0) + (by.HOD_APPROVED ?? 0),
-              to: "/principal",
+              to: "/principal?status=SUBMITTED",
             },
             {
               label: "With Finance",
@@ -944,8 +963,9 @@ export function PrincipalOverviewPage() {
                 (by.PRINCIPAL_APPROVED ?? 0) +
                 (by.FINANCE_APPROVED ?? 0) +
                 (by.RESEARCH_APPROVED ?? 0),
+              to: "/principal?status=CLEARED",
             },
-            { label: "Paid out", value: by.PAID ?? 0 },
+            { label: "Paid out", value: by.PAID ?? 0, to: "/principal?status=PAID" },
           ]}
         />
       </Section>
@@ -965,6 +985,8 @@ export function PrincipalOverviewPage() {
           </Button>
         </div>
       </Section>
+      </>
+      )}
     </div>
   )
 }

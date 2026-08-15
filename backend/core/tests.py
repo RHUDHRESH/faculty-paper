@@ -504,6 +504,7 @@ class AdminProxyAndUploadTests(TestCase):
         body = r.json()
         self.assertTrue(body.get("ok"))
         self.assertTrue(body.get("db"))
+        self.assertIn("git", body)
 
 
 class ClaimSubmissionRuleTests(TestCase):

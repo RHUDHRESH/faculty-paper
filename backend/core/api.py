@@ -134,6 +134,7 @@ def health(request: HttpRequest):
         "ok": db_ok,
         "db": db_ok,
         "service": "faculty-paper-api",
+        "git": (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "")[:12] or None,
         "media_root": str(media_root),
         "media_persistent": not media_is_ephemeral,
         "time": timezone.now().isoformat(),

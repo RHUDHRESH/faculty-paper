@@ -11,4 +11,4 @@ python manage.py migrate --noinput
 
 python manage.py qcluster &
 
-exec gunicorn config.wsgi:application --bind "0.0.0.0:${PORT}" --workers 1 --threads 2 --timeout 90
+exec gunicorn config.wsgi:application --bind "0.0.0.0:${PORT}" --workers 1 --threads 4 --timeout 60 --keep-alive 5

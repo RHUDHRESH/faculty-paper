@@ -18,8 +18,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = async () => {
     try {
-      await ensureCsrf();
-      const me = await api<User>("/api/auth/me");
+      const [me] = await Promise.all([
+        api<User>("/api/auth/me"),
+        ensureCsrf(),
+      ]);
       setUser(me);
     } catch {
       setUser(null);

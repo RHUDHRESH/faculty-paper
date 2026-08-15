@@ -1,4 +1,4 @@
-/** Same-origin in production (Vercel rewrites /api and /media to Render).
+/** Same-origin in production (Netlify/Vercel proxy /api and /media to Render).
  *  A BOM or trailing slash in VITE_API_BASE used to turn that into a relative
  *  junk URL, so the SPA posted login at the static host and got HTML back. */
 function readApiBase(): string {
@@ -87,6 +87,11 @@ export async function readJson<T = unknown>(res: Response): Promise<T> {
 }
 
 export async function ensureCsrf(): Promise<string> {
+  const fromCookie = document.cookie
+    .split("; ")
+    .find((row) => row.startsWith("csrftoken="))
+    ?.slice("csrftoken=".length);
+  if (fromCookie) return decodeURIComponent(fromCookie);
   const res = await apiFetch("/api/auth/csrf");
   const data = await readJson<{ csrfToken?: string }>(res);
   return data.csrfToken as string;

@@ -1,0 +1,22 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Proxies must win over the SPA fallback. If /api falls through to index.html,
+# login parses HTML as JSON and dies the same way it did on Vercel.
+[[redirects]]
+  from = "/api/*"
+  to = "https://faculty-paper-api.onrender.com/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/media/*"
+  to = "https://faculty-paper-api.onrender.com/media/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

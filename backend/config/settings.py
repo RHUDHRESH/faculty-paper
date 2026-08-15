@@ -40,12 +40,12 @@ INSTALLED_APPS = [
 # offers no separate worker service. Q_SYNC=true runs tasks inline (tests/dev).
 Q_CLUSTER = {
     "name": "faculty_paper",
-    "workers": 1,  # 512 MB is shared with two gunicorn workers
+    "workers": 1,  # shares the free-tier 512 MB box with gunicorn
     "timeout": 3300,
     "retry": 3600,
     "max_attempts": 2,
     "orm": "default",
-    "poll": 5,
+    "poll": 15,
     "catch_up": False,
     "sync": os.getenv("Q_SYNC", "false").lower() == "true",
 }
@@ -145,6 +145,8 @@ if _use_sqlite:
     }
 elif _db_url.startswith("postgres"):
     DATABASES = {"default": _database_from_url(_db_url)}
+    DATABASES["default"]["CONN_MAX_AGE"] = int(os.getenv("CONN_MAX_AGE", "60"))
+    DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 else:
     DATABASES = {
         "default": {
@@ -192,8 +194,8 @@ CORS_ALLOWED_ORIGINS = [
     if o.strip()
 ]
 CORS_ALLOW_CREDENTIALS = True
-# Allow Vercel preview URLs when set
-_cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\.vercel\.app")
+# Allow Vercel and Netlify preview/prod hosts when set
+_cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\.(vercel|netlify)\.app")
 if _cors_regex:
     CORS_ALLOWED_ORIGIN_REGEXES = [_cors_regex]
 
@@ -205,10 +207,11 @@ CSRF_TRUSTED_ORIGINS = [
     ).split(",")
     if o.strip()
 ]
-# Preview deploys use unique *.vercel.app hosts. CORS already allows them via
-# regex; CSRF does not, so login from a preview (or the -self alias) 403s.
-if "https://*.vercel.app" not in CSRF_TRUSTED_ORIGINS:
-    CSRF_TRUSTED_ORIGINS.append("https://*.vercel.app")
+# Preview hosts are unique per deploy. CORS already allows them via regex;
+# CSRF does not, so login from a preview (or a -self / Netlify alias) 403s.
+for _csrf_host in ("https://*.vercel.app", "https://*.netlify.app"):
+    if _csrf_host not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(_csrf_host)
 
 _cross_site = os.getenv("CROSS_SITE_COOKIES", "false").lower() in ("1", "true", "yes")
 if _cross_site:
@@ -236,7 +239,9 @@ if not DEBUG:
     SECURE_REFERRER_POLICY = "same-origin"
     X_FRAME_OPTIONS = "DENY"
     SESSION_COOKIE_AGE = int(os.getenv("SESSION_COOKIE_AGE", str(60 * 60 * 12)))  # 12h
-    SESSION_SAVE_EVERY_REQUEST = True
+    # Sliding expiry used to rewrite the session row on every GET, which on
+    # Neon added a second round-trip to every click. 12h from last login is enough.
+    SESSION_SAVE_EVERY_REQUEST = False
     # HSTS: modest default so a misconfigured deploy is recoverable; raise via
     # env once the domain has been stable on HTTPS for a while.
     SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", str(60 * 60 * 24 * 30)))

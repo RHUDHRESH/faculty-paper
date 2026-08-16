@@ -5,6 +5,7 @@ import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/compon
 import { Money } from "@/components/ticket-ui"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { API_BASE, api, apiFetch, ensureCsrf, readJson, SLOW_TIMEOUT_MS } from "@/lib/api"
 import { useApiQuery } from "@/lib/queries"
+import { cn } from "@/lib/utils"
 import { pollJob } from "@/lib/use-job"
 
 // ---------------------------------------------------------------------------
@@ -688,6 +690,148 @@ const EDITABLE_USER_FIELDS: { key: string; label: string; hint?: string; mono?: 
 
 type UserRow = Record<string, unknown>
 
+/** Every field on the record, whether or not an admin may edit it. */
+const VIEW_USER_FIELDS: { key: string; label: string; mono?: boolean }[] = [
+  { key: "email", label: "Email" },
+  { key: "name", label: "Full name" },
+  { key: "department", label: "Department" },
+  { key: "designation", label: "Designation" },
+  { key: "staff_id", label: "Staff ID", mono: true },
+  { key: "employee_id", label: "Employee ID", mono: true },
+  { key: "biometric_id", label: "Biometric ID", mono: true },
+  { key: "scopus_author_id", label: "Scopus author ID", mono: true },
+  { key: "scopus_author_url", label: "Scopus profile" },
+]
+
+/**
+ * The whole account, including what it has actually done.
+ *
+ * Before deactivating someone or correcting a payment identity, an admin needs
+ * to know whether there are claims and payments standing behind the record —
+ * the list row alone cannot tell them that.
+ */
+function ViewUserDialog({
+  userId,
+  onClose,
+  onEdit,
+}: {
+  userId: string | null
+  onClose: () => void
+  onEdit: (u: UserRow) => void
+}) {
+  const [data, setData] = useState<UserRow | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!userId) {
+      setData(null)
+      setError(null)
+      return
+    }
+    let cancelled = false
+    setData(null)
+    setError(null)
+    api(`/api/admin/users/${userId}`)
+      .then((r) => !cancelled && setData(r as UserRow))
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "Load failed"))
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
+
+  const stats = (data?.stats ?? {}) as Record<string, unknown>
+
+  return (
+    <Dialog open={!!userId} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{String(data?.name || data?.email || "Account")}</DialogTitle>
+          <DialogDescription>
+            {data
+              ? `${ROLE_LABELS[String(data.role)] ?? String(data.role)}${
+                  data.active === false ? " — deactivated" : ""
+                }`
+              : "Loading the full record…"}
+          </DialogDescription>
+        </DialogHeader>
+
+        {error ? (
+          <ErrorState title="Could not load this account" description={error} />
+        ) : !data ? (
+          <Skeleton className="h-56 w-full rounded-[var(--radius)]" />
+        ) : (
+          <div className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                { label: "Tickets filed", value: String(stats.claims ?? 0) },
+                { label: "Paid", value: String(stats.paid_claims ?? 0) },
+                {
+                  label: "Total paid",
+                  value: <Money value={Number(stats.paid_amount ?? 0)} />,
+                },
+              ].map((t) => (
+                <div key={t.label} className="surface-card p-3.5">
+                  <div className="text-eyebrow">{t.label}</div>
+                  <div className="text-metric-sm">{t.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              {VIEW_USER_FIELDS.map((f) => {
+                const raw = data[f.key]
+                const value = raw === null || raw === undefined || raw === "" ? null : String(raw)
+                return (
+                  <div key={f.key} className="min-w-0">
+                    <dt className="text-eyebrow">{f.label}</dt>
+                    <dd
+                      className={cn(
+                        "truncate text-sm",
+                        f.mono && "font-mono text-xs",
+                        !value && "text-muted-foreground",
+                      )}
+                    >
+                      {value && f.key === "scopus_author_url" ? (
+                        <a
+                          className="underline underline-offset-2"
+                          href={value}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {value}
+                        </a>
+                      ) : (
+                        value ?? "Not set"
+                      )}
+                    </dd>
+                  </div>
+                )
+              })}
+            </dl>
+
+            <p className="text-xs text-muted-foreground">
+              {stats.drafts ? `${stats.drafts} draft(s) · ` : ""}
+              {stats.in_review ? `${stats.in_review} awaiting review · ` : ""}
+              {stats.last_claim_at
+                ? `last activity ${new Date(String(stats.last_claim_at)).toLocaleDateString()}`
+                : "no claim activity yet"}
+            </p>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+          <Button type="button" disabled={!data} onClick={() => data && onEdit(data)}>
+            Edit details
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 /**
  * Edit a faculty record on their behalf.
  *
@@ -706,6 +850,7 @@ function EditUserDialog({
 }) {
   const [form, setForm] = useState<Record<string, string>>({})
   const [role, setRole] = useState("FACULTY")
+  const [active, setActive] = useState(true)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -714,6 +859,7 @@ function EditUserDialog({
     for (const f of EDITABLE_USER_FIELDS) next[f.key] = String(user[f.key] ?? "")
     setForm(next)
     setRole(String(user.role || "FACULTY"))
+    setActive(user.active !== false)
   }, [user])
 
   async function save() {
@@ -722,7 +868,7 @@ function EditUserDialog({
     try {
       // Blank a field to clear it, rather than storing an empty string that
       // reads as "set" everywhere downstream.
-      const payload: Record<string, unknown> = { role }
+      const payload: Record<string, unknown> = { role, active }
       for (const f of EDITABLE_USER_FIELDS) payload[f.key] = form[f.key]?.trim() || null
       await api(`/api/admin/users/${user.id}`, { method: "PATCH", json: payload })
       toast.success(`Saved ${String(user.email)}`)
@@ -765,6 +911,14 @@ function EditUserDialog({
                 <SelectValue placeholder="Select role" />
               </SelectTrigger>
               <SelectContent>
+                {/* An account still on a retired role rendered a blank Select,
+                    which reads as "no role assigned". Show what it actually
+                    holds, disabled, alongside the roles it can move to. */}
+                {!ROLES.includes(role as (typeof ROLES)[number]) ? (
+                  <SelectItem value={role} disabled>
+                    {ROLE_LABELS[role] ?? role}
+                  </SelectItem>
+                ) : null}
                 {ROLES.map((r) => (
                   <SelectItem key={r} value={r}>
                     {ROLE_LABELS[r] ?? r}
@@ -772,6 +926,26 @@ function EditUserDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Leaving is the common case; deleting an account would take its
+              claims and audit trail with it, so accounts are stood down. */}
+          <div className="sm:col-span-2">
+            <label className="surface-card flex items-start gap-3 p-3.5">
+              <Checkbox
+                checked={active}
+                onCheckedChange={(v) => setActive(v === true)}
+                aria-label="Account is active"
+                className="mt-0.5"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Account is active</span>
+                <span className="block text-xs text-muted-foreground">
+                  Turn this off when someone leaves. They can no longer sign in, and
+                  their tickets and history stay exactly as they are.
+                </span>
+              </span>
+            </label>
           </div>
         </div>
 
@@ -795,24 +969,44 @@ export function AdminUsersPage() {
   const [resetEmail, setResetEmail] = useState("")
   const [resetPw, setResetPw] = useState("")
   const [editing, setEditing] = useState<UserRow | null>(null)
+  const [viewing, setViewing] = useState<string | null>(null)
   const [userSearch, setUserSearch] = useState("")
   // A refused load is not an empty list. Swallowing the 403 made this screen
   // tell a research-cell user there were no accounts at all.
   const [denied, setDenied] = useState(false)
 
+  const [offset, setOffset] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [roleFilter, setRoleFilter] = useState("ALL")
+  const PAGE = 50
+
   async function load() {
-    setUsers(await api("/api/admin/users"))
+    const qs = new URLSearchParams({ limit: String(PAGE), offset: String(offset) })
+    if (userSearch.trim()) qs.set("q", userSearch.trim())
+    if (roleFilter !== "ALL") qs.set("role", roleFilter)
+    const body = await api<{ total: number; results: Array<Record<string, unknown>> }>(
+      `/api/admin/users?${qs}`
+    )
+    setUsers(body.results)
+    setTotal(body.total)
   }
 
+  // Searching and paging happen on the server: the college has hundreds of
+  // faculty accounts, and loading all of them to filter in the browser meant
+  // the directory got slower every time someone was added.
   useEffect(() => {
-    load()
-      .catch((e) => {
-        const forbidden = e instanceof Error && /forbidden/i.test(e.message)
-        setDenied(forbidden)
-        if (!forbidden) toast.error("Could not load users")
-      })
-      .finally(() => setLoading(false))
-  }, [])
+    const t = setTimeout(() => {
+      setLoading(true)
+      load()
+        .catch((e) => {
+          const forbidden = e instanceof Error && /forbidden/i.test(e.message)
+          setDenied(forbidden)
+          if (!forbidden) toast.error("Could not load users")
+        })
+        .finally(() => setLoading(false))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [userSearch, roleFilter, offset])
 
   if (denied) {
     return (
@@ -1005,38 +1199,74 @@ export function AdminUsersPage() {
         title="All users"
         description="Edit a record to fill in the details faculty cannot set themselves."
         actions={
-          <Input
-            className="w-full sm:w-64"
-            placeholder="Search name, email, staff ID…"
-            value={userSearch}
-            onChange={(e) => setUserSearch(e.target.value)}
-            aria-label="Search users"
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              className="w-full sm:w-64"
+              placeholder="Search name, email, staff ID…"
+              value={userSearch}
+              onChange={(e) => {
+                setUserSearch(e.target.value)
+                setOffset(0)
+              }}
+              aria-label="Search users"
+            />
+            <Select
+              value={roleFilter}
+              onValueChange={(v) => {
+                setRoleFilter(v)
+                setOffset(0)
+              }}
+            >
+              <SelectTrigger className="w-44" aria-label="Filter by role">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All roles</SelectItem>
+                {ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {ROLE_LABELS[r] ?? r}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         }
       >
         {loading ? (
           <Skeleton className="h-40 w-full rounded-[var(--radius)]" />
         ) : users.length === 0 ? (
-          <EmptyState title="No users yet" description="Create the first account above." />
+          <EmptyState
+            title={userSearch || roleFilter !== "ALL" ? "No matching accounts" : "No users yet"}
+            description={
+              userSearch || roleFilter !== "ALL"
+                ? "Try a different search or role."
+                : "Create the first account above."
+            }
+          />
         ) : (
-          <DataTable
-            headers={["Email", "Name", "Role", "Department", "Staff ID", "Biometric ID", ""]}
-          >
-            {users
-              .filter((u) => {
-                const q = userSearch.trim().toLowerCase()
-                if (!q) return true
-                return ["email", "name", "staff_id", "biometric_id", "department"].some((k) =>
-                  String(u[k] || "").toLowerCase().includes(q)
-                )
-              })
-              .map((u) => {
+          <>
+            <DataTable
+              headers={["Email", "Name", "Role", "Department", "Staff ID", "Biometric ID", "Status", ""]}
+            >
+              {users.map((u) => {
                 // A faculty account without these can log in but cannot file.
                 const incomplete =
                   String(u.role) === "FACULTY" && (!u.biometric_id || !u.department)
+                const inactive = u.active === false
                 return (
-                  <tr key={String(u.id)} className="border-b border-border/50 last:border-0">
-                    <td className="px-4 py-3">{String(u.email)}</td>
+                  <tr
+                    key={String(u.id)}
+                    className={cn("interactive hover:bg-muted/40", inactive && "opacity-60")}
+                  >
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        className="interactive text-left underline-offset-2 hover:underline"
+                        onClick={() => setViewing(String(u.id))}
+                      >
+                        {String(u.email)}
+                      </button>
+                    </td>
                     <td className="px-4 py-3">{String(u.name || "—")}</td>
                     <td className="px-4 py-3">
                       <Badge variant="outline">
@@ -1056,6 +1286,17 @@ export function AdminUsersPage() {
                         <span className="text-destructive">missing</span>
                       )}
                     </td>
+                    <td className="px-4 py-3">
+                      {/* A stood-down account used to look identical to a live
+                          one, so nobody could tell who still had access. */}
+                      {inactive ? (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          Deactivated
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-success">Active</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <Button
                         type="button"
@@ -1069,9 +1310,20 @@ export function AdminUsersPage() {
                   </tr>
                 )
               })}
-          </DataTable>
+            </DataTable>
+            <Pager total={total} limit={PAGE} offset={offset} onOffsetChange={setOffset} />
+          </>
         )}
       </Section>
+
+      <ViewUserDialog
+        userId={viewing}
+        onClose={() => setViewing(null)}
+        onEdit={(u) => {
+          setViewing(null)
+          setEditing(u)
+        }}
+      />
 
       <EditUserDialog
         user={editing}
@@ -1129,7 +1381,7 @@ const FORMULA_FIELD_META: { key: string; label: string; description: string }[] 
   },
   {
     key: "high_value_threshold",
-    label: "Second-approval threshold (â‚¹)",
+    label: "Second-approval threshold (₹)",
     description:
       "0 = off. Above 0, claims at or over this amount need a second admin to approve them before Finance can pay — which requires two admin accounts",
   },
@@ -1276,7 +1528,7 @@ export function AdminFormulaPage() {
                   setForm({ ...form, student_remuneration_zero: e.target.checked })
                 }
               />
-              Student publications pay â‚¹0
+              Student publications pay ₹0
             </label>
             <label className="flex items-center gap-2 text-sm md:col-span-2">
               <input

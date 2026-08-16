@@ -69,7 +69,7 @@ import {
   CLAIM_REASONS,
   claimToFormState,
   coverDateToIso,
-  DESIGNATIONS,
+  designationOptions,
   EXPECTED_SEC_REFERENCES,
   formatIssn,
   formStateFromFacultyOption,
@@ -103,6 +103,10 @@ type FacultyOption = {
   scopus_author_url?: string | null
   has_user_account?: boolean
 }
+
+/** Cited SEC references are gathered here; the payout minimum only becomes a
+ *  fair thing to report once the claimant has reached it. */
+const EVIDENCE_STEP = 3
 
 const STEPS = [
   { title: "Identity", blurb: "Who is claiming", Icon: IdCard },
@@ -347,6 +351,10 @@ export function PublicationForm({
   const lastSuccess = useRef({ doi: "", title: "", issn: "" })
   const formRef = useRef(form)
   formRef.current = form
+  // recalc() runs from event handlers whose closure predates the current
+  // render, so the step it reads has to come from a ref.
+  const stepRef = useRef(step)
+  stepRef.current = step
   const [sendAnywayOpen, setSendAnywayOpen] = useState(false)
   const [sendNote, setSendNote] = useState("")
   const [blockReason, setBlockReason] = useState("")
@@ -380,6 +388,11 @@ export function PublicationForm({
     seededForUserId.current = user.id
     setForm(formStateFromUser(user))
   }, [mode, user])
+
+  const designations = useMemo(
+    () => designationOptions(form.designation, user?.designation),
+    [form.designation, user?.designation],
+  )
 
   // Move focus to the new step's heading. Without this the panel swaps while
   // focus stays on the Continue button, so nothing announces the change and the
@@ -495,6 +508,9 @@ export function PublicationForm({
       setCalc({ remuneration: 0 })
       return
     }
+    const secReferences = f.sec_citations.filter(
+      (c) => c.number.trim() && c.title.trim() && c.file
+    ).length
     try {
       const c = await api<{
         remuneration?: number | null
@@ -513,9 +529,20 @@ export function PublicationForm({
             author_position: f.author_position,
             publication_type: f.publication_types.join(", ") || f.aggregation_type,
             indexing_level: f.indexing_levels.join(", ") || null,
-            sec_reference_count: f.sec_citations.filter(
-              (c) => c.number.trim() && c.title.trim() && c.file
-            ).length,
+            // Cited references are collected on the Evidence step, which comes
+            // after this one. Reporting 0 before the claimant could possibly
+            // have added any made a perfectly good claim show "₹0 — why this
+            // comes to nothing" while they were still filling in metrics. The
+            // calculator reads null as "not counted yet" and still estimates;
+            // once Evidence is in play the real count is sent and the figure
+            // becomes the honest one.
+            //
+            // The form seeds two blank citation rows, so the question is never
+            // "are there rows" — it is whether any of them has been filled in.
+            sec_reference_count:
+              stepRef.current >= EVIDENCE_STEP || secReferences > 0
+                ? secReferences
+                : null,
           },
         }
       )
@@ -909,7 +936,7 @@ export function PublicationForm({
               columns={2}
               value={form.designation}
               onChange={(v) => set("designation", v)}
-              options={DESIGNATIONS.map((d) => ({ value: d, label: d }))}
+              options={designations}
             />
           </Field>
         </FieldSpan>
@@ -1332,9 +1359,15 @@ export function PublicationForm({
         </div>
       ) : null}
       {calc?.error ? <Callout tone="warning">{calc.error}</Callout> : null}
-      {/* A bare ₹0.00 reads as a broken formula — say which policy rule produced it. */}
+      {/* A bare ₹0.00 reads as a broken formula — say which policy rule produced
+          it. The engine also explains amounts it *did* pay, so the heading has
+          to follow the figure: "why this comes to nothing" over ₹3,000 reads as
+          a contradiction. */}
       {!calc?.error && calc?.note ? (
-        <Callout tone="info" title="Why this comes to nothing">
+        <Callout
+          tone="info"
+          title={calc.remuneration ? "How this is worked out" : "Why this comes to nothing"}
+        >
           {calc.note}
         </Callout>
       ) : null}

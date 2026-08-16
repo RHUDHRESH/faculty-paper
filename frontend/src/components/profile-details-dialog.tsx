@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { api, type User } from "@/lib/api"
-import { DESIGNATIONS, extractScopusAuthorId } from "@/lib/claim-fields"
+import { designationOptions, extractScopusAuthorId } from "@/lib/claim-fields"
 
 /** Fields the research cell owns — a faculty edit here would move the money. */
 const LOCKED_HINT =
@@ -110,7 +110,7 @@ export function ProfileDetailsDialog({
               columns={2}
               value={form.designation}
               onChange={(v) => setForm({ ...form, designation: v })}
-              options={DESIGNATIONS.map((d) => ({ value: d, label: d }))}
+              options={designationOptions(form.designation, user?.designation)}
             />
           </Field>
 

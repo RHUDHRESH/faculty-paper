@@ -130,6 +130,24 @@ export const DESIGNATIONS = [
   "Research Faculty",
 ]
 
+/**
+ * The four canonical designations, plus whatever this person's record already
+ * says.
+ *
+ * The staff roster carries grades these four do not cover — "Assistant
+ * Professor (OG)", "Professor & Head", "Lab-Technician". Offering only the four
+ * left the field blank for all but one person on the roster, forcing them to
+ * overwrite their real grade with a coarser one just to get past the step.
+ */
+export function designationOptions(
+  ...current: (string | null | undefined)[]
+): { value: string; label: string }[] {
+  const extra = current.filter(
+    (d): d is string => !!d && !DESIGNATIONS.includes(d),
+  )
+  return [...new Set([...extra, ...DESIGNATIONS])].map((d) => ({ value: d, label: d }))
+}
+
 export type ClaimReason = "INCENTIVE" | "COUNT_ONLY"
 
 export const CLAIM_REASONS: {

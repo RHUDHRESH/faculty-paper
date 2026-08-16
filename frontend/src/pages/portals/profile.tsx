@@ -19,7 +19,7 @@ import { PageHeader, Section } from "@/components/layout/page"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { api, type User } from "@/lib/api"
-import { DESIGNATIONS, extractScopusAuthorId } from "@/lib/claim-fields"
+import { designationOptions, extractScopusAuthorId } from "@/lib/claim-fields"
 
 /**
  * Held by the research cell on purpose: department routes the approval and the
@@ -134,7 +134,7 @@ export function FacultyProfilePage() {
                     columns={2}
                     value={form.designation}
                     onChange={(v) => setForm({ ...form, designation: v })}
-                    options={DESIGNATIONS.map((d) => ({ value: d, label: d }))}
+                    options={designationOptions(form.designation, user?.designation)}
                   />
                 </Field>
               </FieldSpan>

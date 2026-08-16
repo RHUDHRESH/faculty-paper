@@ -16,7 +16,7 @@ from django.contrib.auth import authenticate, login, logout, update_session_auth
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Case, Count, IntegerField, Q, Sum, Value, When
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -71,6 +71,7 @@ from core.services.scimago_sync import (
 )
 from core.services.scopus import (
     ScopusError,
+    author_profile_url,
     extract_author_id,
     lookup_paper_by_doi,
     lookup_serial_by_issn,
@@ -736,7 +737,10 @@ def _user_dict(u: User) -> dict[str, Any]:
         "staff_id": u.staff_id,
         "biometric_id": u.biometric_id,
         "designation": u.designation,
-        "scopus_author_url": u.scopus_author_url,
+        # The roster gives us IDs, not links. Derive the link so the claim form
+        # can pre-fill it instead of blocking on a field the person can't know.
+        "scopus_author_url": (u.scopus_author_url or "").strip()
+        or author_profile_url(u.scopus_author_id),
         "scopus_author_id": u.scopus_author_id,
         "must_change_password": u.must_change_password,
         "active": u.active,
@@ -2856,28 +2860,78 @@ def notifications_read_all(request: HttpRequest):
 
 
 @api.get("/admin/users", auth=session_auth)
-def admin_users(request: HttpRequest):
+def admin_users(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    role: Optional[str] = None,
+    active: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """The staff directory, searched and paged server-side.
+
+    It used to return every account as one array — the college has hundreds of
+    faculty, so the screen loaded them all and filtered in the browser.
+    """
     user = require_user(request)
     if not rbac.can_manage_users(user.role):
         raise HttpError(403, "Forbidden")
-    return [
-        {
-            "id": u.id,
-            "email": u.email,
-            "name": u.name,
-            "role": u.role,
-            "department": u.department,
-            "employee_id": u.employee_id,
-            "staff_id": u.staff_id,
-            "biometric_id": u.biometric_id,
-            "designation": u.designation,
-            "scopus_author_url": u.scopus_author_url,
-            "scopus_author_id": u.scopus_author_id,
-            "active": u.active,
-            "portal": rbac.portal_for_role(u.role),
-        }
-        for u in User.objects.order_by("email")
-    ]
+    qs = User.objects.all()
+    if q:
+        qs = qs.filter(
+            Q(email__icontains=q)
+            | Q(name__icontains=q)
+            | Q(staff_id__icontains=q)
+            | Q(employee_id__icontains=q)
+            | Q(department__icontains=q)
+        )
+    if role:
+        qs = qs.filter(role=role)
+    if active in ("true", "false"):
+        qs = qs.filter(active=(active == "true"))
+    # Staff accounts first, then faculty alphabetically: the people an admin
+    # opens this screen to find are never the 400 imported faculty.
+    qs = qs.annotate(
+        is_faculty=Case(
+            When(role=Role.FACULTY, then=Value(1)), default=Value(0),
+            output_field=IntegerField(),
+        )
+    ).order_by("is_faculty", "email")
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    total = qs.count()
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "results": [_user_dict(u) for u in qs[offset : offset + limit]],
+    }
+
+
+@api.get("/admin/users/{user_id}", auth=session_auth)
+def admin_user_detail(request: HttpRequest, user_id: str):
+    """One account, with what it has actually done — an admin fixing a record
+    needs to know whether it has claims and payments behind it."""
+    actor = require_user(request)
+    if not rbac.can_manage_users(actor.role):
+        raise HttpError(403, "Forbidden")
+    u = get_object_or_404(User, pk=user_id)
+    claims = Claim.objects.filter(owner=u)
+    paid = claims.filter(status=ClaimStatus.PAID)
+    row = _user_dict(u)
+    row["stats"] = {
+        "claims": claims.count(),
+        "paid_claims": paid.count(),
+        "paid_amount": paid.aggregate(s=Sum("remuneration"))["s"] or 0,
+        "drafts": claims.filter(status=ClaimStatus.DRAFT).count(),
+        "in_review": claims.filter(status=ClaimStatus.SUBMITTED).count(),
+        "last_claim_at": (
+            claims.order_by("-updated_at").values_list("updated_at", flat=True).first()
+        ),
+    }
+    if row["stats"]["last_claim_at"]:
+        row["stats"]["last_claim_at"] = row["stats"]["last_claim_at"].isoformat()
+    return row
 
 
 @api.post("/admin/users", auth=session_auth)

@@ -89,6 +89,21 @@ def _s(val, n=None, *, drop_na=True):
     return s[:n] if n else s
 
 
+def _id(val, n=None):
+    """An identifier from a spreadsheet cell.
+
+    Excel hands back whole numbers as floats, so a Scopus author ID arrived as
+    "57306678000.0" — which is not an author ID, and every linkage check
+    against it failed. Identifiers are digits, never decimals.
+    """
+    s = _s(val, None)
+    if s is None:
+        return None
+    if s.endswith(".0") and s[:-2].isdigit():
+        s = s[:-2]
+    return s[:n] if n else s
+
+
 def _truthy(val) -> bool:
     if val is None:
         return False
@@ -199,8 +214,8 @@ class Command(BaseCommand):
                 staff_id=staff_id,
                 defaults={
                     "department": _s(_cell(row, "Department"), 128),
-                    "biometric_id": _s(_cell(row, "Bio-ID", "Biometric ID"), 64),
-                    "scopus_author_id": _s(_cell(row, "Scopus ID", "Scopus Author ID"), 64),
+                    "biometric_id": _id(_cell(row, "Bio-ID", "Biometric ID"), 64),
+                    "scopus_author_id": _id(_cell(row, "Scopus ID", "Scopus Author ID"), 64),
                     "name": name,
                     "designation": _s(_cell(row, "Designation"), 128),
                     "email": _s(_cell(row, "Email ID", "Email"), 254),
@@ -264,7 +279,7 @@ class Command(BaseCommand):
                     department=_s(_cell(row, "Department"), 128),
                     faculty_name=_s(_cell(row, "Faculty Name"), 255),
                     staff_id=_s(_cell(row, "Faculty ID"), 64),
-                    biometric_id=_s(_cell(row, "Biometric ID"), 64),
+                    biometric_id=_id(_cell(row, "Biometric ID"), 64),
                     paper_title=title,
                     journal_title=_s(_cell(row, "Source Title"), 512),
                     amount=amount,
@@ -473,7 +488,7 @@ class Command(BaseCommand):
             staff_id = _s(_cell(row, "Faculty ID", "Staff ID", "Staff-ID"), 64)
             name = _s(_cell(row, "Faculty Name"), 255)
             department = _s(_cell(row, "Department"), 255)
-            biometric_id = _s(_cell(row, "Biometric ID"), 64)
+            biometric_id = _id(_cell(row, "Biometric ID"), 64)
             scopus_author_id = _s(_cell(row, "Scopus ID"), 64)
             doi = normalize_doi(_s(_cell(row, "DOI"), 255))
             raw_status = _s(_cell(row, "Status", "Remarks"))
@@ -567,7 +582,7 @@ class Command(BaseCommand):
             email = _s(_cell(row, "Email Address", "Email ID", "Email"), 254)
             name = _s(_cell(row, "Faculty Name", "Name of the Staff"), 255)
             department = _s(_cell(row, "Department"), 255)
-            biometric_id = _s(_cell(row, "Biometric ID", "Bio-ID"), 64)
+            biometric_id = _id(_cell(row, "Biometric ID", "Bio-ID"), 64)
             doi = normalize_doi(_s(_cell(row, "DOI"), 255))
 
             existing = find_existing_claim(doi=doi, staff_id=staff_id, title=title)
@@ -674,7 +689,7 @@ class Command(BaseCommand):
             staff_id = _s(_cell(row, "Faculty ID", "Staff ID"), 64)
             name = _s(_cell(row, "Faculty Name"), 255)
             department = _s(_cell(row, "Department"), 255)
-            biometric_id = _s(_cell(row, "Biometric ID"), 64)
+            biometric_id = _id(_cell(row, "Biometric ID"), 64)
             doi = normalize_doi(_s(_cell(row, "DOI"), 255))
             amount = _f(_cell(row, "Amount", "(SNIP * 55000)+QF"))
             qf = _f(_cell(row, "QF Amount"))

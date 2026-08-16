@@ -105,7 +105,7 @@ function FormulaSnap({ claim }: { claim: Claim }) {
 }
 
 /** Remuneration pill used in cards. Money already renders the rupee sign —
- * a second one here printed every mobile amount as "â‚¹â‚¹39,081". */
+ * a second one here printed every mobile amount as "₹₹39,081". */
 function AmountPill({ value }: { value?: number | null }) {
   return (
     <div className="flex items-baseline gap-1">

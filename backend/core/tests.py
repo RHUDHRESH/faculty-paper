@@ -3368,3 +3368,143 @@ class ErpImportHelperTests(TestCase):
         self.assertIsNone(
             find_existing_claim(doi=None, staff_id="STF-ERP", title="Completely Different Paper")
         )
+
+    def test_numeric_cells_do_not_become_floats(self):
+        """Excel hands back whole numbers as floats; an author ID is not 5730.0."""
+        from core.management.commands.import_erp_excel import _id
+
+        self.assertEqual(_id(57306678000.0), "57306678000")
+        self.assertEqual(_id("57306678000.0"), "57306678000")
+        self.assertEqual(_id("57306678000"), "57306678000")
+        self.assertEqual(_id("SEC.0"), "SEC.0")  # not a number — left alone
+        self.assertIsNone(_id(None))
+        self.assertIsNone(_id(""))
+
+
+class ScopusProfileDerivationTests(TestCase):
+    """The ERP roster carries author IDs but no profile links, and the claim
+    wizard demands the link — so every imported person was blocked from filing
+    until the link was derived for them."""
+
+    def test_url_derived_from_id(self):
+        from core.services.scopus import author_profile_url
+
+        self.assertEqual(
+            author_profile_url("57306678000"),
+            "https://www.scopus.com/authid/detail.uri?authorId=57306678000",
+        )
+        self.assertEqual(
+            author_profile_url("57306678000.0"),
+            "https://www.scopus.com/authid/detail.uri?authorId=57306678000",
+        )
+        self.assertIsNone(author_profile_url(None))
+        self.assertIsNone(author_profile_url("not-an-id"))
+
+    def test_me_fills_in_the_missing_profile_link(self):
+        fac = User.objects.create_user(
+            email="derive@test.edu", password="pass", name="Derive Faculty",
+            role=Role.FACULTY, scopus_author_id="57306678000",
+        )
+        c = Client()
+        c.force_login(fac)
+        body = c.get("/api/auth/me").json()
+        self.assertEqual(
+            body["scopus_author_url"],
+            "https://www.scopus.com/authid/detail.uri?authorId=57306678000",
+        )
+
+    def test_repair_migration_cleans_and_backfills(self):
+        """This runs once against 400+ live rows, so prove it before it does."""
+        import importlib
+
+        from django.apps import apps as django_apps
+
+        repair = importlib.import_module("core.migrations.0017_repair_scopus_identity")
+
+        fac = User.objects.create_user(
+            email="repair@test.edu", password="pass", name="Repair Faculty",
+            role=Role.FACULTY, scopus_author_id="57983494200.0",
+            biometric_id="4168.0",
+        )
+        keep = User.objects.create_user(
+            email="repair-keep@test.edu", password="pass", name="Keep Faculty",
+            role=Role.FACULTY, scopus_author_id="57983494201",
+            scopus_author_url="https://example.test/mine",
+        )
+
+        repair.forwards(django_apps, None)
+
+        fac.refresh_from_db()
+        self.assertEqual(fac.scopus_author_id, "57983494200")
+        self.assertEqual(fac.biometric_id, "4168")
+        self.assertEqual(
+            fac.scopus_author_url,
+            "https://www.scopus.com/authid/detail.uri?authorId=57983494200",
+        )
+        keep.refresh_from_db()
+        self.assertEqual(keep.scopus_author_url, "https://example.test/mine")
+
+    def test_stored_link_wins_over_derived(self):
+        fac = User.objects.create_user(
+            email="stored@test.edu", password="pass", name="Stored Faculty",
+            role=Role.FACULTY, scopus_author_id="57306678000",
+            scopus_author_url="https://www.scopus.com/authid/detail.uri?authorId=99999",
+        )
+        c = Client()
+        c.force_login(fac)
+        self.assertIn("99999", c.get("/api/auth/me").json()["scopus_author_url"])
+
+
+class AdminAccountAdminTests(TestCase):
+    """Admins manage 400+ imported accounts, so the directory has to be
+    searchable and paged rather than dumped whole."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="acct-admin@test.edu", password="pass", name="Acct Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        for i in range(5):
+            User.objects.create_user(
+                email=f"acct-fac{i}@test.edu", password="pass", name=f"Faculty {i}",
+                role=Role.FACULTY, department="EEE", staff_id=f"STF-{i}",
+                active=(i != 4),
+            )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def test_search_filter_and_paging(self):
+        body = self.client.get("/api/admin/users?q=STF-2").json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["results"][0]["staff_id"], "STF-2")
+
+        page = self.client.get("/api/admin/users?role=FACULTY&limit=2&offset=0").json()
+        self.assertEqual(page["total"], 5)
+        self.assertEqual(len(page["results"]), 2)
+        rest = self.client.get("/api/admin/users?role=FACULTY&limit=2&offset=4").json()
+        self.assertEqual(len(rest["results"]), 1)
+
+        inactive = self.client.get("/api/admin/users?active=false").json()
+        self.assertEqual([u["email"] for u in inactive["results"]], ["acct-fac4@test.edu"])
+
+    def test_detail_reports_claim_activity(self):
+        fac = User.objects.get(email="acct-fac0@test.edu")
+        Claim.objects.create(
+            owner=fac, paper_title="Paid Paper", status=ClaimStatus.PAID,
+            remuneration=1000, ticket_number="ACCT-1",
+        )
+        Claim.objects.create(
+            owner=fac, paper_title="Open Paper", status=ClaimStatus.SUBMITTED,
+            ticket_number="ACCT-2",
+        )
+        body = self.client.get(f"/api/admin/users/{fac.id}").json()
+        self.assertEqual(body["email"], "acct-fac0@test.edu")
+        self.assertEqual(body["stats"]["claims"], 2)
+        self.assertEqual(body["stats"]["paid_claims"], 1)
+        self.assertEqual(float(body["stats"]["paid_amount"]), 1000.0)
+
+    def test_directory_is_admin_only(self):
+        fac = User.objects.get(email="acct-fac0@test.edu")
+        c = Client()
+        c.force_login(fac)
+        self.assertEqual(c.get("/api/admin/users").status_code, 403)

@@ -296,3 +296,20 @@ def extract_author_id(raw: str) -> str | None:
     if m:
         return m.group(1)
     return raw_s if raw_s else None
+
+
+AUTHOR_PROFILE_URL = "https://www.scopus.com/authid/detail.uri?authorId={}"
+
+
+def author_profile_url(author_id: str | None) -> str | None:
+    """The Scopus profile link for an author ID.
+
+    The ERP roster carries IDs but no links, and the claim form asks for the
+    link — so derive it rather than making 400 people paste their own.
+    """
+    if not author_id:
+        return None
+    aid = str(author_id).strip()
+    if aid.endswith(".0") and aid[:-2].isdigit():
+        aid = aid[:-2]
+    return AUTHOR_PROFILE_URL.format(aid) if aid.isdigit() else None

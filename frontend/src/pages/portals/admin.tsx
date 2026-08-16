@@ -111,7 +111,7 @@ export function AdminApprovalsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Admin overview"
-        subtitle="Overview Â· Users Â· Formula Â· Imports Â· Monthly Â· Audit â€” manage the system from this hub"
+        subtitle="Overview · Users · Formula · Imports · Monthly · Audit — manage the system from this hub"
       />
       {loading ? (
         <Skeleton className="h-20 w-full rounded-[var(--radius)]" />
@@ -127,7 +127,7 @@ export function AdminApprovalsPage() {
             items={[
               { label: "Drafts", value: by.DRAFT || 0 },
               // HOD_APPROVED is a stranded legacy status the clearing queue
-              // refuses â€” counting it under "To clear" promised work the
+              // refuses — counting it under "To clear" promised work the
               // button could not do. It has its own bucket.
               { label: "To clear", value: by.SUBMITTED || 0, to: "/admin/clearing" },
               ...(by.HOD_APPROVED
@@ -196,14 +196,14 @@ export function AdminMonthlyPage() {
     e.preventDefault()
     if (!file) return
     setUploading(true)
-    const tid = toast.loading("Uploading CSVâ€¦")
+    const tid = toast.loading("Uploading CSV…")
     try {
       const fd = new FormData()
       fd.append("name", name)
       fd.append("file", file)
       const data = await multipartPost("/api/monthly/upload", fd) as Record<string, unknown>
       toast.dismiss(tid)
-      toast.success(`Upload complete Â· ${data.row_count} rows`)
+      toast.success(`Upload complete · ${data.row_count} rows`)
       setFile(null)
       await refresh()
       setSelected(await api(`/api/monthly/${data.id}`))
@@ -219,7 +219,7 @@ export function AdminMonthlyPage() {
     <div className="space-y-6">
       <PageHeader
         title="Monthly indexing"
-        subtitle="Imports Â· Upload a CSV, then start enrichment to resolve SNIP and quartile data"
+        subtitle="Imports · Upload a CSV, then start enrichment to resolve SNIP and quartile data"
       />
       <Section title="Upload batch">
         <FormPanel>
@@ -243,7 +243,7 @@ export function AdminMonthlyPage() {
               />
             </div>
             <Button type="submit" disabled={!file || uploading}>
-              {uploading ? "Uploadingâ€¦" : "Upload"}
+              {uploading ? "Uploading…" : "Upload"}
             </Button>
           </form>
         </FormPanel>
@@ -288,14 +288,14 @@ export function AdminMonthlyPage() {
                     size="sm"
                     disabled={b.status === "RUNNING"}
                     onClick={async () => {
-                      const tid = toast.loading("Starting batchâ€¦")
+                      const tid = toast.loading("Starting batch…")
                       try {
                         const started = await api<{ job_id?: string }>(
                           `/api/monthly/${b.id}/start`,
                           { method: "POST", json: {} }
                         )
                         toast.dismiss(tid)
-                        toast.success("Batch queued â€” watching job status")
+                        toast.success("Batch queued — watching job status")
                         setSelected(await api(`/api/monthly/${b.id}`))
                         if (started.job_id) {
                           const job = await pollJob(started.job_id)
@@ -321,7 +321,7 @@ export function AdminMonthlyPage() {
 
       {selected ? (
         <Section
-          title={`Batch Â· ${String(selected.name || selected.id)}`}
+          title={`Batch · ${String(selected.name || selected.id)}`}
           actions={
             <a href={`${API_BASE}/api/monthly/${selected.id}/export`}>
               <Button size="sm" variant="outline">
@@ -402,7 +402,7 @@ export function AdminScimagoPage() {
     e.preventDefault()
     if (!file) return
     setUploading(true)
-    const tid = toast.loading(`Importing Scimago ${year}â€¦`)
+    const tid = toast.loading(`Importing Scimago ${year}…`)
     try {
       const fd = new FormData()
       fd.append("file", file)
@@ -422,7 +422,7 @@ export function AdminScimagoPage() {
 
   async function syncFromScimago() {
     setSyncing(true)
-    const tid = toast.loading(`Downloading the SCImago ${year} dumpâ€¦`)
+    const tid = toast.loading(`Downloading the SCImago ${year} dump…`)
     try {
       const data = (await api("/api/admin/scimago/sync", {
         method: "POST",
@@ -443,7 +443,7 @@ export function AdminScimagoPage() {
     <div className="space-y-6">
       <PageHeader
         title="Scimago import"
-        subtitle="Imports Â· Official yearly dump for quartile resolution"
+        subtitle="Imports · Official yearly dump for quartile resolution"
       />
 
       <Section
@@ -463,10 +463,10 @@ export function AdminScimagoPage() {
               />
             </div>
             <Button type="button" onClick={syncFromScimago} disabled={syncing}>
-              {syncing ? "Downloadingâ€¦" : "Download & load"}
+              {syncing ? "Downloading…" : "Download & load"}
             </Button>
             <p className="max-w-md text-xs text-muted-foreground">
-              The current year's dump is published partway through the next one â€” if it fails, try
+              The current year's dump is published partway through the next one — if it fails, try
               the previous year. SCImago also serves a bot-protection challenge to servers at
               times; when that happens, download the CSV in a browser and use the upload below. Both
               paths run the same parser.
@@ -485,7 +485,7 @@ export function AdminScimagoPage() {
             <div>
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Years loaded</p>
               <p className="mt-1 text-sm font-medium">
-                {(stats?.years || []).join(", ") || "â€”"}
+                {(stats?.years || []).join(", ") || "—"}
               </p>
             </div>
           </div>
@@ -514,7 +514,7 @@ export function AdminScimagoPage() {
               />
             </div>
             <Button type="submit" disabled={!file || uploading}>
-              {uploading ? "Importingâ€¦" : "Import"}
+              {uploading ? "Importing…" : "Import"}
             </Button>
           </form>
         </FormPanel>
@@ -538,7 +538,7 @@ export function AdminPriorPage() {
     e.preventDefault()
     if (!file) return
     setUploading(true)
-    const tid = toast.loading("Importing prior paymentsâ€¦")
+    const tid = toast.loading("Importing prior payments…")
     try {
       const fd = new FormData()
       fd.append("file", file)
@@ -558,7 +558,7 @@ export function AdminPriorPage() {
     e.preventDefault()
     if (!erpFile) return
     setErpBusy(true)
-    const tid = toast.loading("Queueing ERP workbookâ€¦")
+    const tid = toast.loading("Queueing ERP workbook…")
     try {
       const fd = new FormData()
       fd.append("file", erpFile)
@@ -572,7 +572,7 @@ export function AdminPriorPage() {
         return
       }
       setErpJob("queued")
-      toast.success("ERP import queued â€” watching job status")
+      toast.success("ERP import queued — watching job status")
       const job = await pollJob(data.job_id, (s) => setErpJob(s.status))
       if (job.status === "done") toast.success("ERP import finished")
       else if (job.status === "failed") toast.error("ERP import failed")
@@ -590,7 +590,7 @@ export function AdminPriorPage() {
     <div className="space-y-6">
       <PageHeader
         title="Prior payments"
-        subtitle="Imports Â· Upload a prior-payment CSV or queue an ERP workbook"
+        subtitle="Imports · Upload a prior-payment CSV or queue an ERP workbook"
       />
       <Section title="Upload CSV">
         <FormPanel>
@@ -605,7 +605,7 @@ export function AdminPriorPage() {
               />
             </div>
             <Button type="submit" disabled={!file || uploading}>
-              {uploading ? "Importingâ€¦" : "Import"}
+              {uploading ? "Importing…" : "Import"}
             </Button>
           </form>
         </FormPanel>
@@ -626,7 +626,7 @@ export function AdminPriorPage() {
               />
             </div>
             <Button type="submit" disabled={!erpFile || erpBusy}>
-              {erpBusy ? "Workingâ€¦" : "Queue import"}
+              {erpBusy ? "Working…" : "Queue import"}
             </Button>
             {erpJob ? (
               <Badge variant="secondary" className="uppercase">
@@ -692,7 +692,7 @@ type UserRow = Record<string, unknown>
  * Edit a faculty record on their behalf.
  *
  * Department, staff ID and biometric ID are deliberately not editable on the
- * faculty's own profile â€” they route the approval and pick the bank account â€”
+ * faculty's own profile — they route the approval and pick the bank account —
  * so this dialog is the only place they can be corrected.
  */
 function EditUserDialog({
@@ -741,7 +741,7 @@ function EditUserDialog({
         <DialogHeader>
           <DialogTitle>Edit {String(user?.name || user?.email || "user")}</DialogTitle>
           <DialogDescription>
-            {String(user?.email || "")} â€” changes apply to tickets filed from now on.
+            {String(user?.email || "")} — changes apply to tickets filed from now on.
           </DialogDescription>
         </DialogHeader>
 
@@ -780,7 +780,7 @@ function EditUserDialog({
             Cancel
           </Button>
           <Button type="button" disabled={busy} onClick={save}>
-            {busy ? "Savingâ€¦" : "Save changes"}
+            {busy ? "Saving…" : "Save changes"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -817,7 +817,7 @@ export function AdminUsersPage() {
   if (denied) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Users" subtitle="Users Â· Create accounts, assign roles and reset passwords" />
+        <PageHeader title="Users" subtitle="Users · Create accounts, assign roles and reset passwords" />
         <EmptyState
           title="Only a super admin can manage accounts"
           description="Your role can clear tickets and run imports, but not create users or change roles. Ask a super admin if someone needs an account."
@@ -842,7 +842,7 @@ export function AdminUsersPage() {
     e.preventDefault()
     if (!resetEmail || !resetPw) return
     try {
-      // The server resolves the email itself â€” matching against the loaded
+      // The server resolves the email itself — matching against the loaded
       // list failed for any account the table had not fetched. A reset also
       // clears a sign-in lockout on that account.
       await api("/api/admin/reset-password", {
@@ -851,7 +851,7 @@ export function AdminUsersPage() {
       })
       setResetEmail("")
       setResetPw("")
-      toast.success(`Password reset for ${resetEmail} â€” the account is unlocked`)
+      toast.success(`Password reset for ${resetEmail} — the account is unlocked`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Reset failed")
     }
@@ -859,7 +859,7 @@ export function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Users" subtitle="Users Â· Create accounts, assign roles and reset passwords" />
+      <PageHeader title="Users" subtitle="Users · Create accounts, assign roles and reset passwords" />
 
       <Section title="Create account">
         <FormPanel>
@@ -890,7 +890,7 @@ export function AdminUsersPage() {
                 Initial password
                 {!import.meta.env.PROD && (
                   <span className="ml-2 text-[10px] font-normal text-muted-foreground">
-                    (dev only â€” hide in prod)
+                    (dev only — hide in prod)
                   </span>
                 )}
               </Label>
@@ -898,7 +898,7 @@ export function AdminUsersPage() {
                 id="u-pw"
                 required
                 type="password"
-                placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                placeholder="••••••••"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
@@ -988,7 +988,7 @@ export function AdminUsersPage() {
                 id="r-pw"
                 type="password"
                 required
-                placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                placeholder="••••••••"
                 value={resetPw}
                 onChange={(e) => setResetPw(e.target.value)}
                 className="w-48"
@@ -1007,7 +1007,7 @@ export function AdminUsersPage() {
         actions={
           <Input
             className="w-full sm:w-64"
-            placeholder="Search name, email, staff IDâ€¦"
+            placeholder="Search name, email, staff ID…"
             value={userSearch}
             onChange={(e) => setUserSearch(e.target.value)}
             aria-label="Search users"
@@ -1037,17 +1037,17 @@ export function AdminUsersPage() {
                 return (
                   <tr key={String(u.id)} className="border-b border-border/50 last:border-0">
                     <td className="px-4 py-3">{String(u.email)}</td>
-                    <td className="px-4 py-3">{String(u.name || "â€”")}</td>
+                    <td className="px-4 py-3">{String(u.name || "—")}</td>
                     <td className="px-4 py-3">
                       <Badge variant="outline">
                         {ROLE_LABELS[String(u.role)] ?? String(u.role)}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {String(u.department || "â€”")}
+                      {String(u.department || "—")}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {String(u.staff_id || "â€”")}
+                      {String(u.staff_id || "—")}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">
                       {u.biometric_id ? (
@@ -1090,7 +1090,7 @@ const FORMULA_FIELD_META: { key: string; label: string; description: string }[] 
   {
     key: "snip_multiplier",
     label: "SNIP multiplier",
-    description: "Rupees added per SNIP point (base = SNIP Ã— multiplier + QF)",
+    description: "Rupees added per SNIP point (base = SNIP × multiplier + QF)",
   },
   {
     key: "snip_cap",
@@ -1099,39 +1099,39 @@ const FORMULA_FIELD_META: { key: string; label: string; description: string }[] 
   },
   {
     key: "qf_q1",
-    label: "QF â€” Q1",
+    label: "QF — Q1",
     description: "Quartile factor for Q1 journals",
   },
   {
     key: "qf_q2",
-    label: "QF â€” Q2",
+    label: "QF — Q2",
     description: "Quartile factor for Q2 journals",
   },
   {
     key: "qf_q3",
-    label: "QF â€” Q3",
+    label: "QF — Q3",
     description: "Quartile factor for Q3 journals",
   },
   {
     key: "qf_q4",
-    label: "QF â€” Q4",
+    label: "QF — Q4",
     description: "Quartile factor for Q4 journals",
   },
   {
     key: "qf_others",
-    label: "QF â€” Others / conference",
+    label: "QF — Others / conference",
     description: "Used when ranking is Others or SNIP is N/A",
   },
   {
     key: "qf_no_snip",
-    label: "QF â€” NO_SNIP mode",
+    label: "QF — NO_SNIP mode",
     description: "Quartile factor when NO_SNIP is selected",
   },
   {
     key: "high_value_threshold",
     label: "Second-approval threshold (â‚¹)",
     description:
-      "0 = off. Above 0, claims at or over this amount need a second admin to approve them before Finance can pay â€” which requires two admin accounts",
+      "0 = off. Above 0, claims at or over this amount need a second admin to approve them before Finance can pay — which requires two admin accounts",
   },
 ]
 
@@ -1159,7 +1159,7 @@ export function AdminFormulaPage() {
   if (!form) {
     return (
       <div>
-        <PageHeader title="Formula" subtitle="Formula Â· Configure payout calculation parameters" />
+        <PageHeader title="Formula" subtitle="Formula · Configure payout calculation parameters" />
         <Skeleton className="h-48 w-full rounded-[var(--radius)]" />
       </div>
     )
@@ -1203,8 +1203,8 @@ export function AdminFormulaPage() {
         title="Formula"
         subtitle={
           form.name
-            ? `${String(form.name)} Â· v${String(form.version ?? 1)} â€” payout policy for new tickets`
-            : "Formula Â· Active remuneration policy"
+            ? `${String(form.name)} · v${String(form.version ?? 1)} — payout policy for new tickets`
+            : "Formula · Active remuneration policy"
         }
       />
 
@@ -1265,7 +1265,7 @@ export function AdminFormulaPage() {
                 }
               />
               <p className="text-xs text-muted-foreground">
-                e.g. Journal 1.0, Conference Proceeding 0.8 â€” applied to the base amount.
+                e.g. Journal 1.0, Conference Proceeding 0.8 — applied to the base amount.
               </p>
             </div>
             <label className="flex items-center gap-2 text-sm md:col-span-2">
@@ -1367,7 +1367,7 @@ export function AdminFormulaPage() {
             </div>
             <div className="flex items-end gap-4 md:col-span-2">
               <Button type="submit" variant="secondary" disabled={calcLoading}>
-                {calcLoading ? "Calculatingâ€¦" : "Calculate"}
+                {calcLoading ? "Calculating…" : "Calculate"}
               </Button>
               {calcResult !== null && (
                 <p className="text-sm">
@@ -1439,12 +1439,12 @@ export function AdminAuditPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Audit log" subtitle="Audit Â· Chronological record of all system actions" />
+      <PageHeader title="Audit log" subtitle="Audit · Chronological record of all system actions" />
 
       <div className="flex flex-wrap gap-2">
         <Input
           className="w-56"
-          placeholder="Search actor, entity, ticket idâ€¦"
+          placeholder="Search actor, entity, ticket id…"
           value={q}
           onChange={(e) => {
             setQ(e.target.value)
@@ -1487,16 +1487,16 @@ export function AdminAuditPage() {
               return (
                 <tr key={r.id} className="border-b border-border/50 last:border-0 align-top">
                   <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                    {r.created_at ? new Date(r.created_at).toLocaleString() : "â€”"}
+                    {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
                   </td>
                   <td className="px-4 py-3 font-medium">{r.action}</td>
                   <td className="px-4 py-3 text-muted-foreground">
-                    {r.entity || "â€”"}
+                    {r.entity || "—"}
                     {r.entity_id ? (
                       <span className="block font-mono text-[11px] opacity-80">{r.entity_id}</span>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3">{r.actor || "â€”"}</td>
+                  <td className="px-4 py-3">{r.actor || "—"}</td>
                   <td className="max-w-[22rem] px-4 py-3">
                     {detail ? (
                       <details>
@@ -1508,7 +1508,7 @@ export function AdminAuditPage() {
                         </pre>
                       </details>
                     ) : (
-                      <span className="text-xs text-muted-foreground">â€”</span>
+                      <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </td>
                 </tr>

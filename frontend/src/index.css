@@ -237,6 +237,17 @@
     background: var(--surface-brand);
     color: var(--foreground);
   }
+  /* Chrome paints autofilled fields a hard blue that ignores the theme, so a
+     restored password looked like a broken input. Repaint it with the app's
+     own surface — the inset shadow is the only way to override it. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--foreground);
+    -webkit-box-shadow: 0 0 0 100px var(--card) inset;
+    caret-color: var(--foreground);
+    transition: background-color 100000s ease-in-out 0s;
+  }
   /* Headings are a distinct voice: tighter tracking, tighter leading. */
   h1, h2, h3, h4 {
     letter-spacing: -0.018em;

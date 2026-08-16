@@ -82,7 +82,7 @@ function Breakdown({
                     ) : null}
                   </span>
                 </div>
-                {/* Proportion at a glance â€” the ranking matters more than the bar. */}
+                {/* Proportion at a glance — the ranking matters more than the bar. */}
                 <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full rounded-full bg-primary/60"
@@ -135,7 +135,7 @@ export function ReportsPage() {
               </a>
             </Button>
             <Button asChild variant="secondary">
-              {/* A real workbook â€” the office re-imported the CSV into Excel
+              {/* A real workbook — the office re-imported the CSV into Excel
                   by hand every month, mangling ISSNs into dates on the way. */}
               <a
                 href={`${API_BASE}/api/reports/export${query}${query ? "&" : "?"}fmt=xlsx`}

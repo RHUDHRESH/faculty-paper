@@ -161,13 +161,27 @@ def author_point(
     points = cfg.author_points or DEFAULT_AUTHOR_POINTS
     rule = points.get(str(total_authors))
     if rule is None:
+        # A policy may cover the small author counts explicitly and leave the
+        # rest to a "default" share — which is exactly what the formula
+        # editor's own placeholder suggests writing. Without this, every paper
+        # with more authors than the table lists priced at nothing and could
+        # not be cleared, while the policy looked perfectly valid.
+        rule = points.get("default")
+    if rule is None:
         return None, f"No author-point rule for {total_authors} authors"
     if isinstance(rule, (int, float)):
         return float(rule), None
+    if not isinstance(rule, (list, tuple)) or not rule:
+        return None, f"Author-point rule for {total_authors} authors is not a number or a list"
     idx = author_position - 1
     if idx >= len(rule):
+        # A "default" list is a shape for one specific author count; do not
+        # silently pay position 7 whatever position 2 was worth.
         return None, f"No author-point rule for position {author_position} of {total_authors}"
-    return float(rule[idx]), None
+    try:
+        return float(rule[idx]), None
+    except (TypeError, ValueError):
+        return None, f"Author-point rule for {total_authors} authors is not numeric"
 
 
 def _labels(raw: str | None) -> set[str]:

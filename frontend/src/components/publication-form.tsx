@@ -367,8 +367,18 @@ export function PublicationForm({
   const autosaveBusyRef = useRef(false)
   const submittedRef = useRef(false)
 
+  // Seed the identity fields once per signed-in person — NOT on every new
+  // `user` object. Saving the profile dialog calls refresh(), which replaces
+  // `user` with an equal-but-new object; keyed on identity alone this effect
+  // re-ran and reset the whole form to blank, wiping the paper details and the
+  // uploaded evidence mid-claim. The dialog's own onSaved merge is what keeps
+  // the identity half current.
+  const seededForUserId = useRef<string | null>(null)
   useEffect(() => {
-    if (mode === "faculty" && user) setForm(formStateFromUser(user))
+    if (mode !== "faculty" || !user) return
+    if (seededForUserId.current === user.id) return
+    seededForUserId.current = user.id
+    setForm(formStateFromUser(user))
   }, [mode, user])
 
   // Move focus to the new step's heading. Without this the panel swaps while
@@ -382,6 +392,10 @@ export function PublicationForm({
     if (prevStep.current === step) return
     prevStep.current = step
     document.getElementById(STEP_HEADING_ID)?.focus()
+    // Review is where the claimant reads the amount they expect to be paid,
+    // so recompute on arrival rather than showing whatever the last step-2
+    // edit produced.
+    if (step === STEPS.length - 1) recalc()
   }, [step])
 
   useEffect(() => {
@@ -1035,7 +1049,12 @@ export function PublicationForm({
               name="Where the journal is indexed"
               columns={2}
               value={form.indexing_levels}
-              onChange={(v) => set("indexing_levels", v)}
+              onChange={(v) => {
+                // Indexing decides the category (Scopus vs Web of Science),
+                // so the estimate is wrong until it is recalculated.
+                set("indexing_levels", v)
+                recalc({ indexing_levels: v })
+              }}
               options={INDEXING_LEVELS.map((l) => ({
                 value: l.value,
                 label: l.label,
@@ -1372,7 +1391,13 @@ export function PublicationForm({
             invalid={!!visibleErrors.sec_citations}
             expected={EXPECTED_SEC_REFERENCES}
             max={MAX_REFERENCE_FILES}
-            onChange={(next) => set("sec_citations", next)}
+            onChange={(next) => {
+              // The policy pays nothing below two evidenced SEC references, so
+              // the estimate stayed at zero — and told the claimant their valid
+              // claim was worth nothing — until these were counted.
+              set("sec_citations", next)
+              recalc({ sec_citations: next })
+            }}
             onUpload={uploadOne}
           />
         </Field>

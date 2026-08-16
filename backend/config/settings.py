@@ -235,13 +235,15 @@ _cross_site = os.getenv("CROSS_SITE_COOKIES", "false").lower() in ("1", "true", 
 if _cross_site:
     SESSION_COOKIE_SAMESITE = "None"
     CSRF_COOKIE_SAMESITE = "None"
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
 else:
     SESSION_COOKIE_SAMESITE = "Lax"
     CSRF_COOKIE_SAMESITE = "Lax"
-    SESSION_COOKIE_SECURE = False
-    CSRF_COOKIE_SECURE = False
+# Secure follows the environment, not the cookie's SameSite mode. Tying it to
+# CROSS_SITE_COOKIES meant the same-origin production deployment handed out a
+# finance session cookie with no Secure flag, so a first visit over plain http
+# (before HSTS is known) would put it on the wire in clear.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = False

@@ -101,11 +101,11 @@ function FormulaSnap({ claim }: { claim: Claim }) {
   )
 }
 
-/** Remuneration pill used in cards. */
+/** Remuneration pill used in cards. Money already renders the rupee sign —
+ * a second one here printed every mobile amount as "₹₹39,081". */
 function AmountPill({ value }: { value?: number | null }) {
   return (
     <div className="flex items-baseline gap-1">
-      <span className="text-xs font-medium text-muted-foreground">₹</span>
       <span className="text-2xl font-semibold tabular-nums text-foreground">
         <Money value={value} />
       </span>
@@ -318,6 +318,9 @@ export function FinancePayoutsPage() {
       const r = await api<RecalcResult>(`/api/claims/${id}/recalculate`, {
         method: "POST",
         json: {},
+        // Re-verification calls Scopus; the default 25s abort is shorter than
+        // the server's own timeout, so a slow lookup looked like a failure.
+        timeoutMs: SLOW_TIMEOUT_MS,
       })
       setPayRecalc(r)
       setConfirmPayId(id)
@@ -340,6 +343,9 @@ export function FinancePayoutsPage() {
           note: "processed",
           expected_amount: payRecalc?.remuneration ?? claim?.remuneration ?? null,
         },
+        // The payment commits server-side even if the browser gives up first,
+        // so aborting early told Finance a completed payment had failed.
+        timeoutMs: SLOW_TIMEOUT_MS,
       })
       toast.success("Payment marked — faculty has been notified", {
         description: voucher[id] ? `Voucher: ${voucher[id]}` : undefined,
@@ -383,6 +389,9 @@ export function FinancePayoutsPage() {
         skipped: { id: string; reason: string }[]
       }>("/api/admin/bulk-mark-paid", {
         method: "POST",
+        // A batch is many row locks and recalculations; the default abort was
+        // far shorter than the work.
+        timeoutMs: SLOW_TIMEOUT_MS,
         json: {
           items: selectedRows.map((r) => ({
             claim_id: r.id,
@@ -1191,7 +1200,10 @@ export function FinanceLedgerPage() {
     }
   }
 
-  const total = rows.reduce((s, r) => s + (r.amount || 0), 0)
+  // The sum the server computed over everything the filter matches. Summing
+  // `rows` totalled only the 50 loaded rows while Export CSV wrote all of
+  // them, so the header and the file disagreed about the same filter.
+  const total = page?.total_amount ?? 0
 
   return (
     <div>

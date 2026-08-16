@@ -112,6 +112,39 @@ def _require_admin_ops(user: User) -> None:
         raise HttpError(403, "Forbidden")
 
 
+def _worker_status() -> dict[str, Any]:
+    """Is the background job worker alive, and is anything stuck behind it?
+
+    qcluster shares this container with gunicorn. If it dies, the web service
+    keeps answering and the revision stays 'healthy' while queued imports and
+    monthly batches quietly stop running — including the schedule that is
+    supposed to recover interrupted work, since it runs on the cluster that
+    died. This is the one place that becomes visible.
+    """
+    try:
+        from django_q.models import OrmQ, Schedule, Success
+
+        queued = OrmQ.objects.count()
+        last_success = Success.objects.order_by("-stopped").values_list("stopped", flat=True).first()
+        next_run = (
+            Schedule.objects.filter(name="recover-stale-batches")
+            .values_list("next_run", flat=True)
+            .first()
+        )
+        now = timezone.now()
+        # The recovery schedule runs every 5 minutes, so a next_run that has
+        # been in the past for a while means nobody is draining the queue.
+        overdue_by = (now - next_run).total_seconds() if next_run and next_run < now else 0
+        return {
+            "queued": queued,
+            "schedule_overdue_seconds": int(overdue_by),
+            "alive": overdue_by < 900,
+            "last_success": last_success.isoformat() if last_success else None,
+        }
+    except Exception as e:  # never let the health probe itself fall over
+        return {"alive": None, "error": str(e)[:120]}
+
+
 @api.get("/health", auth=None)
 def health(request: HttpRequest):
     db_ok = False
@@ -135,6 +168,10 @@ def health(request: HttpRequest):
     else:
         media_backend = str(Path(settings.MEDIA_ROOT).resolve())
         media_is_ephemeral = not settings.DEBUG
+    # The job worker shares this container. If it dies, gunicorn keeps serving
+    # and the revision looks perfectly healthy while queued work — ERP imports,
+    # monthly batches — silently stops running. Nothing else would notice.
+    worker = _worker_status()
     payload = {
         "ok": db_ok,
         "db": db_ok,
@@ -142,6 +179,7 @@ def health(request: HttpRequest):
         "git": (os.getenv("GIT_COMMIT") or os.getenv("K_REVISION") or "")[:24] or None,
         "media_backend": media_backend,
         "media_persistent": not media_is_ephemeral,
+        "worker": worker,
         "time": timezone.now().isoformat(),
     }
     if media_is_ephemeral:
@@ -323,6 +361,11 @@ _FACULTY_WRITABLE = {
     "year_mismatch",
     "year_mismatch_override",
     "year_mismatch_reason",
+    # Descriptive only — it names the journal's subject area and feeds no part
+    # of the payout. It was accepted by the schema but dropped here, so the
+    # form saved a value that could never come back and the detail view showed
+    # a permanent "—".
+    "subject_category",
 }
 
 # Legacy form keys that used to write the verified columns directly. They are
@@ -648,6 +691,16 @@ class FormulaIn(Schema):
     effective_from: Optional[str] = None
     effective_to: Optional[str] = None
     high_value_threshold: float = 100000
+    # Category II-IV rates and the two eligibility limits. They were absent
+    # from both the GET payload and the create() below, so every "save as new
+    # version" quietly reset them to the model defaults — including the author
+    # ceiling and the SEC-reference minimum, which decide whether a claim pays
+    # anything at all.
+    fixed_journal_no_snip: float = 5000
+    fixed_other_no_snip: float = 4000
+    fixed_web_of_science: float = 5000
+    max_authors: int = 9
+    min_sec_references: int = 2
 
 
 class MonthlyCreateIn(Schema):
@@ -2944,6 +2997,11 @@ def get_formula(request: HttpRequest):
         "student_remuneration_zero": cfg.student_remuneration_zero,
         "qf_only_for_no_snip": cfg.qf_only_for_no_snip,
         "high_value_threshold": cfg.high_value_threshold,
+        "fixed_journal_no_snip": cfg.fixed_journal_no_snip,
+        "fixed_other_no_snip": cfg.fixed_other_no_snip,
+        "fixed_web_of_science": cfg.fixed_web_of_science,
+        "max_authors": cfg.max_authors,
+        "min_sec_references": cfg.min_sec_references,
         "notes": cfg.notes,
     }
 
@@ -2970,15 +3028,49 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
             raise HttpError(400, "Invalid effective_to")
     if eff_from and eff_to and eff_to < eff_from:
         raise HttpError(400, "effective_to cannot be before effective_from")
+    # Shape, not just syntax. Valid-but-wrong JSON here (a list, a string, a
+    # non-numeric share) produced an active policy that raised inside the
+    # calculator, so every submit, clear, payment and preview 500'd — and
+    # because saving deactivates the previous version, the editor needed a
+    # working calculation to repair itself. There is no way back from that.
     pub_json = payload.publication_type_multipliers_json or json.dumps(DEFAULT_PUB_TYPE_MULTIPLIERS)
     try:
-        json.loads(pub_json)
+        pub_m = json.loads(pub_json)
     except Exception:
         raise HttpError(400, "Invalid publication_type_multipliers_json")
+    if not isinstance(pub_m, dict) or not pub_m:
+        raise HttpError(
+            400,
+            'Publication type multipliers must be an object, e.g. {"Journal": 1, "Conference Proceeding": 1}',
+        )
+    for key, value in pub_m.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise HttpError(400, f'Publication type multiplier for "{key}" must be a number')
+
     try:
-        json.loads(payload.author_point_json)
+        points = json.loads(payload.author_point_json)
     except Exception:
         raise HttpError(400, "Invalid author_point_json")
+    if not isinstance(points, dict) or not points:
+        raise HttpError(
+            400,
+            'Author points must be an object keyed by author count, e.g. {"1": 1, "2": [0.7, 0.3]}',
+        )
+    for key, value in points.items():
+        if key != "default" and not str(key).isdigit():
+            raise HttpError(400, f'Author-point key "{key}" must be an author count, or "default"')
+        if isinstance(value, bool):
+            raise HttpError(400, f'Author-point rule for "{key}" must be a number or a list')
+        if isinstance(value, (int, float)):
+            continue
+        if isinstance(value, list) and value and all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) for v in value
+        ):
+            continue
+        raise HttpError(
+            400,
+            f'Author-point rule for "{key}" must be a number or a non-empty list of numbers',
+        )
     if payload.snip_cap <= 0:
         raise HttpError(400, "snip_cap must be greater than zero")
     for label, amount in (
@@ -3016,6 +3108,11 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
             student_remuneration_zero=payload.student_remuneration_zero,
             qf_only_for_no_snip=payload.qf_only_for_no_snip,
             high_value_threshold=payload.high_value_threshold,
+            fixed_journal_no_snip=payload.fixed_journal_no_snip,
+            fixed_other_no_snip=payload.fixed_other_no_snip,
+            fixed_web_of_science=payload.fixed_web_of_science,
+            max_authors=payload.max_authors,
+            min_sec_references=payload.min_sec_references,
             notes=payload.notes,
             updated_by=user,
             active=True,
@@ -3621,6 +3718,10 @@ def admin_ledger(
         "total": total,
         "limit": limit,
         "offset": offset,
+        # The sum of everything the filter matches, not of the page. The screen
+        # showed one page's worth beside an Export button that wrote all of
+        # them, so the page and the file disagreed about the same filter.
+        "total_amount": qs.aggregate(s=Sum("amount"))["s"] or 0,
         "results": [_ledger_row_dict(r) for r in qs[offset : offset + limit]],
     }
 

@@ -520,6 +520,12 @@ export function FacultyNewClaimPage() {
         subtitle="Complete all publication details aligned with the ERP form"
       />
       <PublicationForm
+        // Remount when the target ticket changes. Without this, going from
+        // "edit ticket A" to "New ticket" reused the same component instance:
+        // the old ticket's answers stayed on screen under a New ticket
+        // heading, the eligibility gate was skipped, and autosave wrote the
+        // edits back onto ticket A.
+        key={editId ?? "new"}
         mode="faculty"
         claimId={editId}
         onSuccess={(claim) => {

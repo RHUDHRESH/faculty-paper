@@ -1239,6 +1239,118 @@ class DuplicateDetectionTests(TestCase):
         )
 
 
+class PolicyRobustnessTests(TestCase):
+    """The payout policy must not be able to price a valid paper at nothing,
+    or be saved in a shape that breaks every calculation."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="pol-admin@test.edu", password="pass", name="Policy Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.client = Client()
+
+    def test_author_points_fall_back_to_a_default_share(self):
+        """The live policy covers 1-5 explicitly and leaves the rest to
+        "default". Without the fallback every 6-9 author paper priced at zero
+        and could not be cleared."""
+        from core.services.remuneration import FormulaConfigInput, author_point
+
+        cfg = FormulaConfigInput(
+            author_points={"1": 1, "2": [0.7, 0.3], "default": 0.5}
+        )
+        for total in (6, 7, 8, 9):
+            point, err = author_point(total, total, cfg)
+            self.assertIsNone(err, f"{total} authors should price via default: {err}")
+            self.assertEqual(point, 0.5)
+        # The explicit rules still win.
+        self.assertEqual(author_point(1, 1, cfg), (1.0, None))
+        self.assertEqual(author_point(2, 2, cfg), (0.3, None))
+        # And the eligibility ceiling is still enforced above it.
+        point, err = author_point(10, 1, cfg)
+        self.assertIsNone(point)
+        self.assertIn("not eligible", err)
+
+    def test_a_valid_six_author_paper_is_priced(self):
+        FormulaConfig.objects.create(
+            author_point_json=json.dumps({"1": 1, "default": 0.5}), active=True
+        )
+        self.client.force_login(self.admin)
+        r = self.client.post(
+            "/api/calculate",
+            data=json.dumps({
+                "snip": 1.5, "quartile": "Q1", "total_authors": 6,
+                "author_position": 3, "indexing_level": "Scopus",
+                "publication_type": "Journal", "engineering_class": "Engineering",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertIsNone(body.get("error"))
+        self.assertGreater(body["remuneration"], 0)
+
+    def _formula(self, **over):
+        payload = {
+            "snip_multiplier": 55000, "snip_cap": 30,
+            "qf_q1": 50000, "qf_q2": 30000, "qf_q3": 15000, "qf_q4": 7000,
+            "author_point_json": json.dumps(DEFAULT_AUTHOR_POINTS),
+        }
+        payload.update(over)
+        return payload
+
+    def test_a_wrongly_shaped_policy_is_refused(self):
+        FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True, version=1
+        )
+        self.client.force_login(self.admin)
+        bad = [
+            {"author_point_json": json.dumps([1, 2])},
+            {"author_point_json": json.dumps("nonsense")},
+            {"author_point_json": json.dumps({"1": "one"})},
+            {"author_point_json": json.dumps({"1": []})},
+            {"author_point_json": json.dumps({"first": 1})},
+            {"publication_type_multipliers_json": json.dumps([1, 2])},
+            {"publication_type_multipliers_json": json.dumps({"Journal": "x"})},
+        ]
+        for over in bad:
+            r = self.client.put(
+                "/api/admin/formula",
+                data=json.dumps(self._formula(**over)),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 400, f"{over} should be refused: {r.content}")
+        # The live policy survived every rejection.
+        self.assertEqual(FormulaConfig.objects.filter(active=True).count(), 1)
+        self.assertEqual(FormulaConfig.objects.get(active=True).version, 1)
+
+    def test_saving_a_policy_keeps_the_rates_it_was_given(self):
+        FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True
+        )
+        self.client.force_login(self.admin)
+        r = self.client.put(
+            "/api/admin/formula",
+            data=json.dumps(self._formula(
+                fixed_journal_no_snip=6000, fixed_other_no_snip=4500,
+                fixed_web_of_science=5500, max_authors=8, min_sec_references=3,
+            )),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        cfg = FormulaConfig.objects.get(active=True)
+        self.assertEqual(cfg.fixed_journal_no_snip, 6000)
+        self.assertEqual(cfg.fixed_other_no_snip, 4500)
+        self.assertEqual(cfg.fixed_web_of_science, 5500)
+        self.assertEqual(cfg.max_authors, 8)
+        self.assertEqual(cfg.min_sec_references, 3)
+        # And they come back out, so the editor can show what is in force.
+        body = self.client.get("/api/admin/formula").json()
+        self.assertEqual(body["max_authors"], 8)
+        self.assertEqual(body["min_sec_references"], 3)
+        self.assertEqual(body["fixed_journal_no_snip"], 6000)
+
+
 class PaymentLifecycleTests(TestCase):
     """Void, override, withdraw, and the second signature on big amounts."""
 

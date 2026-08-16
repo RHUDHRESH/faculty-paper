@@ -151,6 +151,9 @@ export type Paginated<T> = {
   total: number;
   limit: number;
   offset: number;
+  /** Sum across everything the filter matches, not just this page. Only the
+   *  ledger reports it today. */
+  total_amount?: number;
   results: T[];
 };
 

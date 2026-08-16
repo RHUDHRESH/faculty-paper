@@ -5,11 +5,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://faculty-paper-api.onrender.com/api/:path*"
+      "destination": "https://faculty-paper-api-635082195334.asia-south1.run.app/api/:path*"
     },
     {
       "source": "/media/:path*",
-      "destination": "https://faculty-paper-api.onrender.com/media/:path*"
+      "destination": "https://faculty-paper-api-635082195334.asia-south1.run.app/media/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useMemo, useState } from "react"
 import { Download } from "lucide-react"
@@ -62,7 +62,7 @@ function Breakdown({
   const max = Math.max(1, ...rows.map((r) => r.count))
   return (
     <Section title={title}>
-      <div className="overflow-hidden rounded-[var(--radius)] border border-border/80 bg-card">
+      <div className="overflow-hidden surface-card">
         {rows.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-muted-foreground">{empty}</p>
         ) : (
@@ -82,7 +82,7 @@ function Breakdown({
                     ) : null}
                   </span>
                 </div>
-                {/* Proportion at a glance — the ranking matters more than the bar. */}
+                {/* Proportion at a glance â€” the ranking matters more than the bar. */}
                 <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full rounded-full bg-primary/60"
@@ -135,7 +135,7 @@ export function ReportsPage() {
               </a>
             </Button>
             <Button asChild variant="secondary">
-              {/* A real workbook — the office re-imported the CSV into Excel
+              {/* A real workbook â€” the office re-imported the CSV into Excel
                   by hand every month, mangling ISSNs into dates on the way. */}
               <a
                 href={`${API_BASE}/api/reports/export${query}${query ? "&" : "?"}fmt=xlsx`}

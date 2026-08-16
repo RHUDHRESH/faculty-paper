@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react"
+﻿import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
   BadgeCheck,
@@ -64,19 +64,22 @@ function TableShell({
   empty?: ReactNode
 }) {
   return (
-    <div className="overflow-hidden rounded-[var(--radius)] border border-border/80 bg-card">
+    <div className="surface-card overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
-            <tr className="border-b border-border/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+            {/* The header is a quiet band, not another row of data: tinted
+                ground, small caps, and the same eyebrow treatment used for
+                section labels everywhere else. */}
+            <tr className="border-b border-border bg-muted/40 text-left">
               {headers.map((h) => (
-                <th key={h} className="px-4 py-3 font-medium">
+                <th key={h} className="text-eyebrow whitespace-nowrap px-4 py-2.5">
                   {h}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>{children}</tbody>
+          <tbody className="divide-y divide-border/70">{children}</tbody>
         </table>
       </div>
       {empty}
@@ -84,7 +87,7 @@ function TableShell({
   )
 }
 
-/** Formula snapshot badge row — only renders if there's something to show. */
+/** Formula snapshot badge row â€” only renders if there's something to show. */
 function FormulaSnap({ claim }: { claim: Claim }) {
   const parts: string[] = []
   if (claim.snip != null) parts.push(`SNIP ${claim.snip.toFixed(3)}`)
@@ -101,8 +104,8 @@ function FormulaSnap({ claim }: { claim: Claim }) {
   )
 }
 
-/** Remuneration pill used in cards. Money already renders the rupee sign —
- * a second one here printed every mobile amount as "₹₹39,081". */
+/** Remuneration pill used in cards. Money already renders the rupee sign â€”
+ * a second one here printed every mobile amount as "â‚¹â‚¹39,081". */
 function AmountPill({ value }: { value?: number | null }) {
   return (
     <div className="flex items-baseline gap-1">
@@ -146,7 +149,7 @@ function PaymentOrderCard({
           <p className="mt-1 text-xs text-muted-foreground">
             {claim.owner_name}
             {claim.owner_department ? (
-              <span className="ml-1.5 opacity-70">· {claim.owner_department}</span>
+              <span className="ml-1.5 opacity-70">Â· {claim.owner_department}</span>
             ) : null}
           </p>
           <FormulaSnap claim={claim} />
@@ -240,7 +243,7 @@ export function FinancePayoutsPage() {
         JSON.stringify({ picked: [...nextPicked], voucher: nextVoucher })
       )
     } catch {
-      /* storage full or blocked — selection just becomes per-visit */
+      /* storage full or blocked â€” selection just becomes per-visit */
     }
   }
 
@@ -259,13 +262,13 @@ export function FinancePayoutsPage() {
     next.has(id) ? next.delete(id) : next.add(id)
     setPicked(next)
   }
-  // Notification deep links arrive as /finance?claim=… — fetch that ticket,
+  // Notification deep links arrive as /finance?claim=â€¦ â€” fetch that ticket,
   // even when it is not on the current page of the queue.
   const [params] = useSearchParams()
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const [deepClaim, setDeepClaim] = useState<Claim | null>(null)
 
-  // Confirm-paid dialog — amount comes from a fresh /recalculate, not the
+  // Confirm-paid dialog â€” amount comes from a fresh /recalculate, not the
   // (possibly stale) figure sitting on the row.
   const [confirmPayId, setConfirmPayId] = useState<string | null>(null)
   const [payRecalc, setPayRecalc] = useState<RecalcResult | null>(null)
@@ -347,7 +350,7 @@ export function FinancePayoutsPage() {
         // so aborting early told Finance a completed payment had failed.
         timeoutMs: SLOW_TIMEOUT_MS,
       })
-      toast.success("Payment marked — faculty has been notified", {
+      toast.success("Payment marked â€” faculty has been notified", {
         description: voucher[id] ? `Voucher: ${voucher[id]}` : undefined,
       })
       await load()
@@ -396,7 +399,7 @@ export function FinancePayoutsPage() {
           items: selectedRows.map((r) => ({
             claim_id: r.id,
             voucher_number: voucher[r.id] || null,
-            // The amount on screen is the amount that gets paid — the server
+            // The amount on screen is the amount that gets paid â€” the server
             // recomputes per row and skips anything that drifted.
             expected_amount: r.remuneration ?? null,
           })),
@@ -455,7 +458,7 @@ export function FinancePayoutsPage() {
     <div>
       <PageHeader
         title="Payment orders"
-        subtitle="Cleared tickets — process the payment or send one back"
+        subtitle="Cleared tickets â€” process the payment or send one back"
         actions={
           <div className="flex items-center gap-2">
             <select
@@ -475,7 +478,7 @@ export function FinancePayoutsPage() {
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="pl-9"
-                placeholder="Search…"
+                placeholder="Searchâ€¦"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
@@ -493,7 +496,7 @@ export function FinancePayoutsPage() {
       ) : isError ? (
         <ErrorState
           title="Could not load payment orders"
-          description="The server did not respond — no payments were affected."
+          description="The server did not respond â€” no payments were affected."
           onRetry={() => refetch()}
         />
       ) : filtered.length === 0 ? (
@@ -519,7 +522,7 @@ export function FinancePayoutsPage() {
                 aria-label="Select every payable order shown"
               />
               {picked.size
-                ? `${picked.size} selected · ` : `Select all ${selectable.length} payable`}
+                ? `${picked.size} selected Â· ` : `Select all ${selectable.length} payable`}
               {picked.size ? <Money value={selectedTotal} /> : null}
             </label>
             {picked.size ? (
@@ -532,7 +535,7 @@ export function FinancePayoutsPage() {
           {pinned ? (
             <div className="mb-3 rounded-[var(--radius)] border border-primary/40 bg-primary/5 p-3">
               <p className="mb-2 text-xs font-medium text-muted-foreground">
-                Opened from a notification — this ticket is not on the current page.
+                Opened from a notification â€” this ticket is not on the current page.
               </p>
               <PaymentOrderCard
                 claim={pinned}
@@ -623,7 +626,7 @@ export function FinancePayoutsPage() {
                           disabled={busyId === r.id || r.needs_second_approval}
                           title={
                             r.needs_second_approval
-                              ? "High-value claim — needs a second approver before payment"
+                              ? "High-value claim â€” needs a second approver before payment"
                               : undefined
                           }
                           onClick={() => startPay(r.id)}
@@ -658,17 +661,17 @@ export function FinancePayoutsPage() {
         </>
       )}
 
-      {/* ── Bulk pay review dialog ── */}
+      {/* â”€â”€ Bulk pay review dialog â”€â”€ */}
       <AlertDialog open={bulkOpen} onOpenChange={(o) => !o && setBulkOpen(false)}>
         <AlertDialogContent className="max-w-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Pay {selectedRows.length} order{selectedRows.length === 1 ? "" : "s"} —{" "}
+              Pay {selectedRows.length} order{selectedRows.length === 1 ? "" : "s"} â€”{" "}
               <Money value={selectedTotal} />
             </AlertDialogTitle>
             <AlertDialogDescription>
               Review each row before confirming. Every payment still passes the full checks
-              individually — anything whose amount changed or that needs a second approval is
+              individually â€” anything whose amount changed or that needs a second approval is
               skipped and listed, never silently paid.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -728,7 +731,7 @@ export function FinancePayoutsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ── Confirm Mark-Paid dialog ── */}
+      {/* â”€â”€ Confirm Mark-Paid dialog â”€â”€ */}
       <AlertDialog
         open={!!confirmPayId}
         onOpenChange={(o) => !o && setConfirmPayId(null)}
@@ -746,7 +749,7 @@ export function FinancePayoutsPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {confirmClaim.owner_name}
                       {confirmClaim.owner_department
-                        ? ` · ${confirmClaim.owner_department}`
+                        ? ` Â· ${confirmClaim.owner_department}`
                         : ""}
                     </p>
                     <div className="mt-2 flex items-baseline gap-1.5">
@@ -793,7 +796,7 @@ export function FinancePayoutsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ── Reject dialog ── */}
+      {/* â”€â”€ Reject dialog â”€â”€ */}
       <AlertDialog open={!!rejectId} onOpenChange={(o) => !o && setRejectId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -811,7 +814,7 @@ export function FinancePayoutsPage() {
               onChange={(e) => setRejectNote(e.target.value)}
               rows={3}
               className="resize-none"
-              placeholder="e.g. Missing bank details, amount mismatch…"
+              placeholder="e.g. Missing bank details, amount mismatchâ€¦"
               aria-describedby="reject-note-hint"
             />
             <p id="reject-note-hint" className="text-xs text-muted-foreground">
@@ -871,7 +874,7 @@ export function FinancePaidPage() {
         method: "POST",
         json: { note: voidNote.trim() },
       })
-      toast.success("Payment voided — the ticket is back with payment orders")
+      toast.success("Payment voided â€” the ticket is back with payment orders")
       setVoidId(null)
       setVoidNote("")
       await load()
@@ -903,7 +906,7 @@ export function FinancePaidPage() {
     <div>
       <PageHeader
         title="Processed payments"
-        subtitle="Tickets marked paid — void a payment here if it was made in error"
+        subtitle="Tickets marked paid â€” void a payment here if it was made in error"
         actions={
           <div className="flex items-baseline gap-1.5 text-sm">
             <span className="text-muted-foreground">Total:</span>
@@ -919,7 +922,7 @@ export function FinancePaidPage() {
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Ticket / paper / faculty…"
+            placeholder="Ticket / paper / facultyâ€¦"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -928,7 +931,7 @@ export function FinancePaidPage() {
           <Filter className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Department…"
+            placeholder="Departmentâ€¦"
             value={dept}
             onChange={(e) => setDept(e.target.value)}
           />
@@ -968,7 +971,7 @@ export function FinancePaidPage() {
       ) : isError ? (
         <ErrorState
           title="Could not load paid history"
-          description="The server did not respond — the ledger is unaffected."
+          description="The server did not respond â€” the ledger is unaffected."
           onRetry={() => refetch()}
         />
       ) : filtered.length === 0 ? (
@@ -999,7 +1002,7 @@ export function FinancePaidPage() {
             {filtered.map((r) => (
               <div
                 key={r.id}
-                className="rounded-[var(--radius)] border border-border/80 bg-card p-4"
+                className="surface-card p-4"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -1011,7 +1014,7 @@ export function FinancePaidPage() {
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {r.owner_name}
-                      {r.owner_department ? ` · ${r.owner_department}` : ""}
+                      {r.owner_department ? ` Â· ${r.owner_department}` : ""}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
@@ -1053,7 +1056,7 @@ export function FinancePaidPage() {
                   <td className="px-4 py-3 text-base font-semibold">
                     <Money value={r.remuneration} />
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs">{r.voucher_number || "—"}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{r.voucher_number || "â€”"}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <StatusChip status={r.status} />
@@ -1083,13 +1086,13 @@ export function FinancePaidPage() {
         </>
       )}
 
-      {/* ── Void payment dialog ── */}
+      {/* â”€â”€ Void payment dialog â”€â”€ */}
       <AlertDialog open={!!voidId} onOpenChange={(o) => !o && setVoidId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Void this payment?</AlertDialogTitle>
             <AlertDialogDescription>
-              A reversing entry is written to the ledger — nothing is deleted — and the
+              A reversing entry is written to the ledger â€” nothing is deleted â€” and the
               ticket returns to the payment queue so it can be corrected and paid again.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1101,7 +1104,7 @@ export function FinancePaidPage() {
               onChange={(e) => setVoidNote(e.target.value)}
               rows={3}
               className="resize-none"
-              placeholder="e.g. Wrong voucher number, duplicate disbursement…"
+              placeholder="e.g. Wrong voucher number, duplicate disbursementâ€¦"
             />
             <p className="text-xs text-muted-foreground">
               At least 10 characters. Recorded on the ledger row and in the audit trail.
@@ -1147,7 +1150,7 @@ export function FinanceLedgerPage() {
   const [offset, setOffset] = useState(0)
   const [exporting, setExporting] = useState(false)
   const PAGE = 50
-  // The same list that already backs the dropdowns on Reports and Query —
+  // The same list that already backs the dropdowns on Reports and Query â€”
   // this page asked users to type "YYYY-MM" and a department string by hand.
   const { data: departments = [] } = useApiQuery<string[]>(
     ["meta", "departments"],
@@ -1226,14 +1229,14 @@ export function FinanceLedgerPage() {
               disabled={exporting || loading}
             >
               <Download className="size-4" />
-              {exporting ? "Exporting…" : "Export CSV"}
+              {exporting ? "Exportingâ€¦" : "Export CSV"}
             </Button>
           </div>
         }
       />
 
       {/* Filter bar */}
-      <FilterBar className="mb-4 rounded-[var(--radius)] border border-border/80 bg-card p-4">
+      <FilterBar className="mb-4 surface-card p-4">
         <div className="space-y-1.5">
           <Label htmlFor="ledger-month" className="text-xs">
             Month
@@ -1308,7 +1311,7 @@ export function FinanceLedgerPage() {
           title="No ledger entries"
           description={
             month || department
-              ? "No entries match these filters — try broadening the criteria."
+              ? "No entries match these filters â€” try broadening the criteria."
               : "Ledger entries will appear here once payments are processed."
           }
           action={
@@ -1330,8 +1333,8 @@ export function FinanceLedgerPage() {
               key={r.id}
               className="border-b border-border/50 last:border-0 hover:bg-accent/30"
             >
-              <td className="px-4 py-3 tabular-nums text-sm">{r.payout_month || "—"}</td>
-              <td className="px-4 py-3 text-sm">{r.department || "—"}</td>
+              <td className="px-4 py-3 tabular-nums text-sm">{r.payout_month || "â€”"}</td>
+              <td className="px-4 py-3 text-sm">{r.department || "â€”"}</td>
               <td className="px-4 py-3">
                 <div className="text-sm">{r.faculty_name}</div>
                 <div className="text-xs text-muted-foreground">{r.staff_id}</div>
@@ -1340,7 +1343,7 @@ export function FinanceLedgerPage() {
               <td className="px-4 py-3 text-base font-semibold">
                 <Money value={r.amount} />
               </td>
-              <td className="px-4 py-3 font-mono text-xs">{r.voucher_number || "—"}</td>
+              <td className="px-4 py-3 font-mono text-xs">{r.voucher_number || "â€”"}</td>
             </tr>
           ))}
         </TableShell>

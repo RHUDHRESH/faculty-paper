@@ -29,19 +29,24 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "mb-6 flex items-start justify-between gap-4 border-b border-border pb-4",
+        // No rule underneath: the size and weight of the title already
+        // separate it from the page, and a border here competed with every
+        // card edge below it.
+        "mb-7 flex flex-wrap items-end justify-between gap-x-6 gap-y-3",
         className
       )}
     >
-      <div className="min-w-0 space-y-1">
-        <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
-          {title}
-        </h1>
+      <div className="min-w-0 space-y-1.5">
+        <h1 className="text-display truncate text-foreground">{title}</h1>
         {subtitle ? (
-          <p className="max-w-2xl text-sm text-muted-foreground md:text-base">{subtitle}</p>
+          <p className="max-w-2xl text-[0.9375rem] leading-relaxed text-muted-foreground">
+            {subtitle}
+          </p>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div>
+      ) : null}
     </header>
   )
 }
@@ -60,15 +65,13 @@ export function Section({
   actions?: ReactNode
 }) {
   return (
-    <section className={cn("space-y-3", className)}>
+    <section className={cn("space-y-3.5", className)}>
       {(title || actions) && (
-        <div className="flex items-end justify-between gap-3 px-1">
+        <div className="flex items-end justify-between gap-3">
           <div className="min-w-0">
-            {title ? (
-              <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
-            ) : null}
+            {title ? <h2 className="text-eyebrow">{title}</h2> : null}
             {description ? (
-              <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+              <p className="mt-1.5 text-sm text-muted-foreground">{description}</p>
             ) : null}
           </div>
           {actions}
@@ -87,8 +90,8 @@ export function InsetList({
   className?: string
 }) {
   return (
-    <div className={cn("overflow-hidden rounded-lg border border-border bg-card", className)}>
-      <div className="divide-y divide-border">{children}</div>
+    <div className={cn("surface-card overflow-hidden", className)}>
+      <div className="divide-y divide-border/70">{children}</div>
     </div>
   )
 }
@@ -123,28 +126,33 @@ export function StatStrip({
   items: { label: string; value: string | number; to?: string }[]
 }) {
   return (
-    <div className="flex gap-8 overflow-x-auto pb-1">
+    // Each figure gets its own tile. Loose numbers floating on the page read
+    // as decoration; a tile says "this is a reading you can act on", and the
+    // linked ones lift on hover to say they go somewhere.
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {items.map((item) => {
         const body = (
           <>
-            <div className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
-              {item.value}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">{item.label}</div>
+            <div className="text-eyebrow">{item.label}</div>
+            <div className="text-metric mt-2 text-foreground">{item.value}</div>
           </>
         )
-        // A number the reader can act on links to where the action happens —
-        // "To clear: 47" with nothing to click was a dead end.
         return item.to ? (
           <Link
             key={item.label}
             to={item.to}
-            className="min-w-[4.5rem] shrink-0 rounded-md transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="surface-card interactive group relative min-w-0 px-4 py-3.5 hover:border-primary/30"
           >
             {body}
+            <span
+              aria-hidden
+              className="absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+            >
+              →
+            </span>
           </Link>
         ) : (
-          <div key={item.label} className="min-w-[4.5rem] shrink-0">
+          <div key={item.label} className="surface-card min-w-0 px-4 py-3.5">
             {body}
           </div>
         )
@@ -169,7 +177,7 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card/60 px-6 py-10 text-center",
+        "flex flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed border-border bg-card/40 px-6 py-14 text-center",
         className
       )}
     >

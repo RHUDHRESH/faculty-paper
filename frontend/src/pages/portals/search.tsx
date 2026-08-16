@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useMemo, useState } from "react"
 import { Search as SearchIcon, X } from "lucide-react"
@@ -36,11 +36,11 @@ const ANY = "__any__"
 const STATUSES = ["SUBMITTED", "CLEARED", "PAID", "REJECTED"]
 const QUARTILES = ["Q1", "Q2", "Q3", "Q4"]
 const CATEGORIES = [
-  { value: "I", label: "I — Scopus, with SNIP" },
-  { value: "II", label: "II — Scopus journal, no SNIP" },
-  { value: "III", label: "III — Conference / book, no SNIP" },
-  { value: "IV", label: "IV — Web of Science" },
-  { value: "—", label: "Not eligible" },
+  { value: "I", label: "I â€” Scopus, with SNIP" },
+  { value: "II", label: "II â€” Scopus journal, no SNIP" },
+  { value: "III", label: "III â€” Conference / book, no SNIP" },
+  { value: "IV", label: "IV â€” Web of Science" },
+  { value: "â€”", label: "Not eligible" },
 ]
 const SORTS = [
   { value: "recent", label: "Most recent" },
@@ -93,7 +93,7 @@ function Picker({
 /**
  * Ask the whole college a question.
  *
- * The oversight portals could list a pipeline but not interrogate it — "which
+ * The oversight portals could list a pipeline but not interrogate it â€” "which
  * Q1 Engineering papers in ECE went unpaid last year" meant exporting the
  * ledger and pivoting it. Totals are for the whole matched set, not the page,
  * so the answer is the number on screen.
@@ -171,7 +171,7 @@ export function SearchPage() {
 
   const listPanel = (
     <div className="space-y-3">
-      <div className="rounded-[var(--radius)] border border-border/80 bg-card p-4">
+      <div className="surface-card p-4">
         <div className="relative">
           <SearchIcon
             aria-hidden
@@ -179,7 +179,7 @@ export function SearchPage() {
           />
           <Input
             className="pl-9"
-            placeholder="Title, journal, DOI, ISSN, ticket, faculty, staff ID…"
+            placeholder="Title, journal, DOI, ISSN, ticket, faculty, staff IDâ€¦"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             aria-label="Search publications"
@@ -283,18 +283,18 @@ export function SearchPage() {
         ) : null}
       </div>
 
-      {/* Totals for the whole match, not the page — otherwise the number on
+      {/* Totals for the whole match, not the page â€” otherwise the number on
           screen answers a different question than the one asked. */}
       <div className="flex items-baseline justify-between gap-3 rounded-[var(--radius)] border border-border/80 bg-muted/40 px-4 py-2.5">
         <span className="text-sm text-muted-foreground">
-          {loading ? "Searching…" : `${data?.total ?? 0} publication${data?.total === 1 ? "" : "s"}`}
+          {loading ? "Searchingâ€¦" : `${data?.total ?? 0} publication${data?.total === 1 ? "" : "s"}`}
         </span>
         <span className="text-sm font-semibold tabular-nums">
           <Money value={data?.total_amount ?? 0} />
         </span>
       </div>
 
-      <div className="overflow-hidden rounded-[var(--radius)] border border-border/80 bg-card">
+      <div className="overflow-hidden surface-card">
         {loading ? (
           <div className="space-y-px p-1">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -327,7 +327,7 @@ export function SearchPage() {
             >
               <span className="flex items-center justify-between gap-2">
                 <span className="font-mono text-[11px] text-muted-foreground">
-                  {c.ticket_number || "—"}
+                  {c.ticket_number || "â€”"}
                 </span>
                 <StatusChip status={c.status} contest={c.contest_forward} />
               </span>
@@ -337,8 +337,8 @@ export function SearchPage() {
               <span className="flex items-baseline justify-between gap-2">
                 <span className="line-clamp-1 min-w-0 text-xs text-muted-foreground">
                   {c.owner_name}
-                  {c.owner_department ? ` · ${c.owner_department}` : ""}
-                  {c.publication_year ? ` · ${c.publication_year}` : ""}
+                  {c.owner_department ? ` Â· ${c.owner_department}` : ""}
+                  {c.publication_year ? ` Â· ${c.publication_year}` : ""}
                 </span>
                 <span className="shrink-0 text-sm font-medium tabular-nums">
                   <Money value={c.remuneration} />
@@ -361,10 +361,10 @@ export function SearchPage() {
   )
 
   const detailPanel = selected ? (
-    <div className="sticky top-20 max-h-[calc(100vh-5.5rem)] overflow-y-auto rounded-[var(--radius)] border border-border/80 bg-card p-5">
+    <div className="sticky top-20 max-h-[calc(100vh-5.5rem)] overflow-y-auto surface-card p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <span className="font-mono text-sm text-muted-foreground">
-          {selected.ticket_number || "—"}
+          {selected.ticket_number || "â€”"}
         </span>
         <StatusChip status={selected.status} contest={selected.contest_forward} />
       </div>

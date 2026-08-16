@@ -99,7 +99,7 @@ function TicketDetail({ claim, onChanged }: { claim: Claim; onChanged?: (c: Clai
       {/* Who did what, when — the claimant could not see their own ticket's
           history at all before this. */}
       {(claim.actions || []).length > 0 ? (
-        <div className="rounded-[var(--radius)] border border-border/80 bg-card p-4">
+        <div className="surface-card p-4">
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             History
           </p>
@@ -390,7 +390,7 @@ export function FacultyClaimsPage() {
         // old four-column grid — keyed off `md:`, a *viewport* breakpoint —
         // never had room: the fixed columns alone came to 320px and squeezed
         // the paper title down to 34px while the amount overflowed the card.
-        <div className="overflow-hidden rounded-[var(--radius)] border border-border/80 bg-card">
+        <div className="overflow-hidden surface-card">
           {shown.map((c) => (
             <button
               key={c.id}
@@ -437,7 +437,7 @@ export function FacultyClaimsPage() {
   )
 
   const detailPanel = selected ? (
-    <div className="rounded-[var(--radius)] border border-border/80 bg-card p-6">
+    <div className="surface-card p-6">
       <div className="mb-4 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1 font-mono text-sm text-muted-foreground">
           {selected.ticket_number || "—"}

@@ -53,17 +53,32 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/30 px-4 py-10">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground">Saveetha Engineering College</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">Publication Tickets</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Submit once. Track every approval.
+    <div className="relative flex min-h-svh items-center justify-center overflow-hidden px-4 py-10">
+      {/* A quiet wash of the brand hue behind the card, so the sign-in screen
+          belongs to the product rather than looking like a bare form. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 bg-background"
+        style={{
+          backgroundImage:
+            "radial-gradient(60rem 40rem at 50% -10%, var(--surface-brand), transparent 65%)",
+        }}
+      />
+      <div className="w-full max-w-[26rem] space-y-7">
+        <div className="flex flex-col items-center text-center">
+          <span
+            aria-hidden
+            className="grid size-12 place-items-center rounded-[calc(var(--radius)*0.9)] bg-primary text-primary-foreground shadow-e2"
+          >
+            <span className="text-lg font-semibold tracking-tight">SE</span>
+          </span>
+          <h1 className="text-display mt-4">Publication Tickets</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Saveetha Engineering College · submit once, track every approval
           </p>
         </div>
 
-        <Card>
+        <Card className="shadow-e3">
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
             <CardDescription>Use your college email and password.</CardDescription>

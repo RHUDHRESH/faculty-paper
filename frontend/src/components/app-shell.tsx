@@ -68,12 +68,23 @@ function initials(name?: string) {
 
 function BrandMark({ title }: { title: string }) {
   return (
-    <div className="border-b border-sidebar-border px-4 py-5">
-      <p className="text-xs text-muted-foreground">Saveetha Engineering College</p>
-      <p className="mt-1 truncate text-base font-semibold tracking-tight text-sidebar-foreground">
-        {title}
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">Publication remuneration</p>
+    <div className="flex items-center gap-3 px-4 py-5">
+      {/* A mark, not three stacked lines of text. It gives the sidebar a
+          fixed anchor point and lets the portal name carry the weight. */}
+      <span
+        aria-hidden
+        className="grid size-9 shrink-0 place-items-center rounded-[calc(var(--radius)*0.7)] bg-primary text-primary-foreground shadow-e1"
+      >
+        <span className="text-[0.9375rem] font-semibold tracking-tight">SE</span>
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-[0.9375rem] font-semibold leading-tight tracking-tight text-sidebar-foreground">
+          {title}
+        </span>
+        <span className="block truncate text-xs leading-tight text-muted-foreground">
+          Saveetha Engineering College
+        </span>
+      </span>
     </div>
   )
 }
@@ -99,15 +110,34 @@ function NavItems({
             onClick={onNavigate}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                "group relative flex items-center gap-2.5 rounded-[calc(var(--radius)*0.7)] px-3 py-2 text-sm transition-colors duration-[120ms]",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                  : "font-normal text-sidebar-foreground/75 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
               )
             }
           >
-            <Icon className="size-4 shrink-0 opacity-80" aria-hidden />
-            <span>{t.label}</span>
+            {({ isActive }) => (
+              <>
+                {/* A marker on the rail rather than only a filled pill: it
+                    survives at a glance and points at the page you are on. */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    "absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary transition-all duration-[160ms]",
+                    isActive ? "opacity-100" : "opacity-0"
+                  )}
+                />
+                <Icon
+                  className={cn(
+                    "size-4 shrink-0 transition-opacity",
+                    isActive ? "opacity-100" : "opacity-60 group-hover:opacity-90"
+                  )}
+                  aria-hidden
+                />
+                <span>{t.label}</span>
+              </>
+            )}
           </NavLink>
         )
       })}

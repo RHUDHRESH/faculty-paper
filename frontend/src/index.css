@@ -61,6 +61,32 @@
   --surface-success: oklch(0.96 0.04 155);
   --surface-warning: oklch(0.96 0.05 75);
   --surface-danger: oklch(0.96 0.035 25);
+
+  /* Elevation. Each level stacks a hairline, a contact shadow and an ambient
+     one — a single flat shadow is the thing that makes an interface look
+     stamped on rather than sitting on the page. Tinted with the brand hue so
+     shadows share the temperature of every other surface. */
+  --shadow-e1:
+    0 1px 1px oklch(0.22 0.04 var(--hue-brand) / 0.05),
+    0 1px 2px oklch(0.22 0.04 var(--hue-brand) / 0.04);
+  --shadow-e2:
+    0 1px 1px oklch(0.22 0.04 var(--hue-brand) / 0.04),
+    0 2px 4px oklch(0.22 0.04 var(--hue-brand) / 0.04),
+    0 6px 12px -4px oklch(0.22 0.04 var(--hue-brand) / 0.05);
+  --shadow-e3:
+    0 1px 1px oklch(0.22 0.04 var(--hue-brand) / 0.04),
+    0 4px 8px -2px oklch(0.22 0.04 var(--hue-brand) / 0.05),
+    0 12px 24px -8px oklch(0.22 0.04 var(--hue-brand) / 0.08);
+  --shadow-e4:
+    0 2px 4px oklch(0.22 0.04 var(--hue-brand) / 0.04),
+    0 8px 16px -4px oklch(0.22 0.04 var(--hue-brand) / 0.06),
+    0 24px 48px -12px oklch(0.22 0.04 var(--hue-brand) / 0.12);
+
+  /* Motion. Short and eased-out for anything the pointer triggered; the
+     longer curve is for things that travel a distance. */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
 }
 
 .dark {
@@ -107,6 +133,24 @@
   --surface-success: oklch(0.29 0.05 155);
   --surface-warning: oklch(0.3 0.05 75);
   --surface-danger: oklch(0.3 0.05 25);
+
+  /* Dark surfaces sit on a dark ground, so elevation reads through a light
+     top edge as much as through shadow — shadow alone is nearly invisible. */
+  --shadow-e1:
+    inset 0 1px 0 oklch(1 0 0 / 0.04),
+    0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-e2:
+    inset 0 1px 0 oklch(1 0 0 / 0.05),
+    0 2px 4px oklch(0 0 0 / 0.4),
+    0 6px 12px -4px oklch(0 0 0 / 0.45);
+  --shadow-e3:
+    inset 0 1px 0 oklch(1 0 0 / 0.06),
+    0 4px 8px -2px oklch(0 0 0 / 0.45),
+    0 12px 24px -8px oklch(0 0 0 / 0.55);
+  --shadow-e4:
+    inset 0 1px 0 oklch(1 0 0 / 0.07),
+    0 8px 16px -4px oklch(0 0 0 / 0.5),
+    0 24px 48px -12px oklch(0 0 0 / 0.6);
 }
 
 @theme inline {
@@ -161,6 +205,11 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --shadow-e1: var(--shadow-e1);
+  --shadow-e2: var(--shadow-e2);
+  --shadow-e3: var(--shadow-e3);
+  --shadow-e4: var(--shadow-e4);
+  --ease-out-soft: var(--ease-out-soft);
 }
 
 @layer base {
@@ -169,8 +218,100 @@
   }
   html {
     @apply font-sans;
+    /* Inter's disambiguated glyphs. The default single-storey shapes read as
+       a webfont default; these read as a chosen typeface. */
+    font-feature-settings: "cv05" 1, "cv11" 1, "ss03" 1;
+    text-rendering: optimizeLegibility;
   }
   body {
     @apply min-h-svh bg-background text-foreground antialiased;
+  }
+  /* One deliberate focus ring for the whole app, rather than each control
+     inheriting whatever the browser draws. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  ::selection {
+    background: var(--surface-brand);
+    color: var(--foreground);
+  }
+  /* Headings are a distinct voice: tighter tracking, tighter leading. */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.018em;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* A page's own name. Larger and tighter than a section heading so the eye
+     lands on it first without needing a rule underneath. */
+  .text-display {
+    font-size: clamp(1.5rem, 1.2rem + 1vw, 1.875rem);
+    font-weight: 640;
+    letter-spacing: -0.026em;
+    line-height: 1.15;
+  }
+
+  /* Numbers that ARE the content — totals, counts, payouts. A dashboard
+     figure is not a heading and should not borrow a heading's scale: it gets
+     lining tabular figures so columns line up and digits never reflow as
+     values change. */
+  .text-metric {
+    font-size: clamp(1.5rem, 1.1rem + 1.4vw, 2rem);
+    font-weight: 620;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1, "cv05" 1;
+  }
+  .text-metric-sm {
+    font-size: 1.125rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  /* The small capitalised label above a group. Carries hierarchy without
+     spending a heading level on it. */
+  .text-eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  /* A raised surface. Border for definition, layered shadow for depth. */
+  .surface-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-e1);
+  }
+  .surface-raised {
+    box-shadow: var(--shadow-e2);
+  }
+  /* Rows and cards that respond to the pointer lift very slightly. Enough to
+     feel physical, not enough to shift the layout. */
+  .interactive {
+    transition:
+      background-color var(--dur-fast) var(--ease-out-soft),
+      border-color var(--dur-fast) var(--ease-out-soft),
+      box-shadow var(--dur-base) var(--ease-out-soft),
+      transform var(--dur-base) var(--ease-out-soft);
+  }
+  .interactive:hover {
+    box-shadow: var(--shadow-e2);
   }
 }

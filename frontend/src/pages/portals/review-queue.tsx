@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
@@ -70,7 +70,7 @@ type QueueProps = {
   approvePath?: "clear"
   approveLabel?: string
   showDept?: boolean
-  /** No note box, no approve, no reject — the oversight portals are read-only. */
+  /** No note box, no approve, no reject â€” the oversight portals are read-only. */
   readOnly?: boolean
   emptyTitle?: string
   emptyDescription?: string
@@ -88,7 +88,7 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
         </h2>
         <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
           {claim.owner_name}
-          {claim.owner_department ? ` · ${claim.owner_department}` : ""}
+          {claim.owner_department ? ` Â· ${claim.owner_department}` : ""}
           <CopyTicketLink claimId={claim.id} />
         </p>
       </div>
@@ -97,7 +97,7 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
 
       <ClaimDetailFields claim={claim} showOwner />
 
-      {/* Verification issues — shown prominently. Dark-mode variants matter
+      {/* Verification issues â€” shown prominently. Dark-mode variants matter
           here: this panel is what an approver reads before clearing money,
           and it used to render as a glaring white-yellow slab in dark mode. */}
       {snap?.issues?.length ? (
@@ -113,7 +113,7 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
                 className="flex items-start gap-2 text-sm text-amber-900 dark:text-amber-100"
               >
                 <span className="mt-0.5 shrink-0 text-amber-500" aria-hidden>
-                  ›
+                  â€º
                 </span>
                 {issue}
               </li>
@@ -139,7 +139,7 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
           target="_blank"
           rel="noreferrer"
         >
-          Open Scopus record ↗
+          Open Scopus record â†—
         </a>
       ) : null}
 
@@ -151,7 +151,7 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
               <li key={a.id} className="text-muted-foreground">
                 <span className="font-medium text-foreground">{a.actor_name}</span>{" "}
                 {actionSentence(a.action)}
-                {a.note ? <span className="block pl-3 text-xs italic">“{a.note}”</span> : null}
+                {a.note ? <span className="block pl-3 text-xs italic">â€œ{a.note}â€</span> : null}
                 <span className="block pl-3 text-xs tabular-nums opacity-80">
                   {new Date(a.created_at).toLocaleString()}
                 </span>
@@ -165,7 +165,7 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
 }
 
 /** The manual-verification lane: when Scopus/Scimago cannot confirm a paper,
- * the research cell enters the verified SNIP/quartile with a source note —
+ * the research cell enters the verified SNIP/quartile with a source note â€”
  * the payout is never computed from the claimant's own declaration. */
 function ManualVerifyDialog({
   claim,
@@ -223,12 +223,12 @@ function ManualVerifyDialog({
           <DialogTitle>Set verified values</DialogTitle>
           <DialogDescription>
             Use this when the automatic checks could not confirm the journal. The amount is
-            recalculated from what you enter here — self-reported figures are never paid.
+            recalculated from what you enter here â€” self-reported figures are never paid.
             {claim.self_reported_snip != null || claim.self_reported_quartile ? (
               <span className="mt-1 block">
                 Claimant declared:{" "}
                 {claim.self_reported_snip != null ? `SNIP ${claim.self_reported_snip}` : ""}
-                {claim.self_reported_snip != null && claim.self_reported_quartile ? " · " : ""}
+                {claim.self_reported_snip != null && claim.self_reported_quartile ? " Â· " : ""}
                 {claim.self_reported_quartile || ""}
               </span>
             ) : null}
@@ -287,7 +287,7 @@ function ManualVerifyDialog({
             />
             {noteTooShort ? (
               <p className="text-xs text-muted-foreground">
-                Cite the source (at least 10 characters) — it goes into the audit log.
+                Cite the source (at least 10 characters) â€” it goes into the audit log.
               </p>
             ) : null}
           </div>
@@ -352,7 +352,7 @@ function ApprovalQueue({
       return next
     })
 
-  // "ALL" means every ticket the role is allowed to see — the read-only
+  // "ALL" means every ticket the role is allowed to see â€” the read-only
   // portals list the whole pipeline, not one queue. Background refetch means
   // two reviewers working the queue see each other's clears.
   const [offset, setOffset] = useState(0)
@@ -488,7 +488,7 @@ function ApprovalQueue({
             ? { note, expected_amount: recalc?.remuneration ?? null }
             : { note },
       })
-      toast.success(kind === "approve" ? "Cleared — sent to Finance" : "Sent back to the faculty")
+      toast.success(kind === "approve" ? "Cleared â€” sent to Finance" : "Sent back to the faculty")
       setSelected(null)
       setSheetOpen(false)
       setNote("")
@@ -502,7 +502,7 @@ function ApprovalQueue({
   }
 
   const listPanel = (
-    <div className="overflow-hidden rounded-[var(--radius)] border border-border/80 bg-card">
+    <div className="surface-card overflow-hidden">
       {loading ? (
         <div className="space-y-px p-1">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -512,7 +512,7 @@ function ApprovalQueue({
       ) : isError ? (
         <ErrorState
           title="Could not load the queue"
-          description="The server did not respond — nothing was lost."
+          description="The server did not respond â€” nothing was lost."
           onRetry={() => refetch()}
           className="border-0 rounded-none"
         />
@@ -541,7 +541,7 @@ function ApprovalQueue({
               </label>
               {picked.size ? (
                 <Button type="button" size="xs" disabled={busy} onClick={() => setConfirm("bulk")}>
-                  Clear {picked.size} → Finance
+                  Clear {picked.size} â†’ Finance
                 </Button>
               ) : null}
             </div>
@@ -580,7 +580,7 @@ function ApprovalQueue({
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {c.owner_name}
-                  {showDept && c.owner_department ? ` · ${c.owner_department}` : ""}
+                  {showDept && c.owner_department ? ` Â· ${c.owner_department}` : ""}
                 </div>
               </div>
               <div className="shrink-0 text-sm font-semibold tabular-nums">
@@ -595,7 +595,7 @@ function ApprovalQueue({
   )
 
   const detailPanel = selected ? (
-    <div className="sticky top-20 flex max-h-[calc(100vh-5.5rem)] flex-col overflow-hidden rounded-[var(--radius)] border border-border/80 bg-card">
+    <div className="sticky top-20 flex max-h-[calc(100vh-5.5rem)] flex-col overflow-hidden surface-card">
       <div className="flex-1 overflow-y-auto p-5">
         <TicketDetailBody claim={selected} />
       </div>
@@ -609,7 +609,7 @@ function ApprovalQueue({
       ) : selected && selected.status !== "SUBMITTED" && approvePath === "clear" ? (
         <div className="shrink-0 space-y-2.5 border-t border-border/70 bg-card/95 px-4 py-3">
           <p className="text-xs text-muted-foreground">
-            This ticket is in <span className="font-medium">{selected.status}</span> — outside
+            This ticket is in <span className="font-medium">{selected.status}</span> â€” outside
             the live chain, so it cannot be cleared or sent back from here. A super admin can
             move it with an audited override.
           </p>
@@ -646,11 +646,11 @@ function ApprovalQueue({
               className="w-full"
               onClick={() => setManualOpen(true)}
             >
-              Set verified values…
+              Set verified valuesâ€¦
             </Button>
           ) : null}
           <Textarea
-            placeholder="Note — required to send back, optional to clear"
+            placeholder="Note â€” required to send back, optional to clear"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
@@ -694,7 +694,7 @@ function ApprovalQueue({
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search ticket, paper, faculty…"
+            placeholder="Search ticket, paper, facultyâ€¦"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -762,11 +762,11 @@ function ApprovalQueue({
                     className="w-full"
                     onClick={() => setManualOpen(true)}
                   >
-                    Set verified values…
+                    Set verified valuesâ€¦
                   </Button>
                 ) : null}
                 <Textarea
-                  placeholder="Note — required to send back, optional to clear"
+                  placeholder="Note â€” required to send back, optional to clear"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={3}
@@ -840,7 +840,7 @@ function ApprovalQueue({
                   ) : null}
                 </>
               ) : rejectReasonTooShort ? (
-                "Write a note of at least 10 characters first — it is the only thing the faculty member sees explaining what to fix."
+                "Write a note of at least 10 characters first â€” it is the only thing the faculty member sees explaining what to fix."
               ) : (
                 "The faculty member will be notified and can edit and resubmit."
               )}
@@ -870,7 +870,7 @@ function ApprovalQueue({
   )
 }
 
-/** Admin clearing — the single approval between submission and payment. */
+/** Admin clearing â€” the single approval between submission and payment. */
 export function AdminClearingQueuePage() {
   return (
     <ApprovalQueue
@@ -878,7 +878,7 @@ export function AdminClearingQueuePage() {
       subtitle="Submitted tickets waiting to be cleared for payment"
       statusFilter="SUBMITTED"
       approvePath="clear"
-      approveLabel="Clear → Finance"
+      approveLabel="Clear â†’ Finance"
       showDept
       emptyTitle="Nothing waiting"
       emptyDescription="Every submitted ticket has been cleared or sent back."
@@ -947,7 +947,7 @@ export function PrincipalOverviewPage() {
       </Section>
 
       <Section title="Disbursements">
-        <div className="flex items-center justify-between rounded-[var(--radius)] border border-border/80 bg-card px-5 py-4">
+        <div className="flex items-center justify-between surface-card px-5 py-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Total paid to date

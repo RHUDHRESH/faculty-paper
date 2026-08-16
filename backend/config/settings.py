@@ -18,7 +18,8 @@ ALLOWED_HOSTS = [
     h.strip()
     for h in os.getenv(
         "DJANGO_ALLOWED_HOSTS",
-        "localhost,127.0.0.1,.onrender.com,.railway.app,.up.railway.app",
+        # .run.app covers Cloud Run's generated service URLs.
+        "localhost,127.0.0.1,.run.app",
     ).split(",")
     if h.strip()
 ]
@@ -36,11 +37,11 @@ INSTALLED_APPS = [
 ]
 
 # Background jobs: django-q2 on the ORM broker — no Redis, and the qcluster
-# process shares the web container (scripts/start.sh) because the free tier
-# offers no separate worker service. Q_SYNC=true runs tasks inline (tests/dev).
+# process shares the container with gunicorn (scripts/start.sh) rather than
+# running as a second paid service. Q_SYNC=true runs tasks inline (tests/dev).
 Q_CLUSTER = {
     "name": "faculty_paper",
-    "workers": 1,  # shares the free-tier 512 MB box with gunicorn
+    "workers": 1,  # shares one small container with gunicorn
     "timeout": 3300,
     "retry": 3600,
     "max_attempts": 2,
@@ -171,16 +172,33 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(os.getenv("DJANGO_MEDIA_ROOT") or (BASE_DIR / "media"))
+
+# Uploaded evidence outlives a deploy only if it is written somewhere that
+# survives one. A container filesystem does not: on Cloud Run it is in-memory
+# and discarded with the instance, so every claim's proof PDFs would vanish
+# while the ticket still lists them. Setting GS_BUCKET_NAME stores them in
+# Google Cloud Storage instead; files stay private and are served through the
+# existing authenticated /media view, never by a public bucket URL.
+GS_BUCKET_NAME = os.getenv("GS_BUCKET_NAME", "").strip()
+if GS_BUCKET_NAME:
+    _default_storage = {
+        "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
+        "OPTIONS": {
+            "bucket_name": GS_BUCKET_NAME,
+            "default_acl": None,  # bucket is uniform-access and private
+            "querystring_auth": False,
+            "max_memory_size": 10 * 1024 * 1024,
+        },
+    }
+else:
+    _default_storage = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+
 STORAGES = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "default": _default_storage,
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
-MEDIA_URL = "/media/"
-# Uploaded evidence outlives a deploy only if it is written somewhere that
-# survives one. Render's container filesystem does not: without DJANGO_MEDIA_ROOT
-# pointing at a mounted disk (or object storage), every claim's proof PDFs are
-# silently lost on the next restart while the ticket still lists them.
-MEDIA_ROOT = Path(os.getenv("DJANGO_MEDIA_ROOT") or (BASE_DIR / "media"))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "core.User"

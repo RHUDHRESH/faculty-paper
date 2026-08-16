@@ -1,6 +1,5 @@
 # Local Postgres only. The API runs natively (manage.py runserver, or SQLite
-# with no compose at all); production is Render's Python runtime — the old
-# containerised api service was an unused third deployment path.
+# with no compose at all); production builds backend/Dockerfile on Cloud Run.
 services:
   db:
     image: postgres:16-alpine

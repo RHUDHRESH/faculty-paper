@@ -13,6 +13,8 @@ from typing import Any, Optional
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.http import HttpRequest, HttpResponse
@@ -122,30 +124,32 @@ def health(request: HttpRequest):
         db_ok = True
     except Exception:
         db_ok = False
-    # Uploads written inside the app directory do not survive a deploy. That
+    # Uploads written to a container filesystem do not survive a deploy. That
     # failure is invisible — the ticket still lists its attachments — so the
     # health check is the one place it can be noticed before someone looks for
     # a proof that is no longer there.
-    media_root = Path(settings.MEDIA_ROOT).resolve()
-    media_is_ephemeral = not settings.DEBUG and str(media_root).startswith(
-        str(Path(settings.BASE_DIR).resolve())
-    )
+    bucket = getattr(settings, "GS_BUCKET_NAME", "")
+    if bucket:
+        media_backend = f"gs://{bucket}"
+        media_is_ephemeral = False
+    else:
+        media_backend = str(Path(settings.MEDIA_ROOT).resolve())
+        media_is_ephemeral = not settings.DEBUG
     payload = {
         "ok": db_ok,
         "db": db_ok,
         "service": "faculty-paper-api",
-        "git": (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "")[:12] or None,
-        "media_root": str(media_root),
+        "git": (os.getenv("GIT_COMMIT") or os.getenv("K_REVISION") or "")[:24] or None,
+        "media_backend": media_backend,
         "media_persistent": not media_is_ephemeral,
         "time": timezone.now().isoformat(),
     }
     if media_is_ephemeral:
         payload["warnings"] = [
-            "MEDIA_ROOT is inside the application directory — uploaded claim "
-            "evidence will be lost on the next deploy. Set DJANGO_MEDIA_ROOT to "
-            "a mounted disk or object storage."
+            "Uploads are on the container filesystem and will be lost on the "
+            "next deploy. Set GS_BUCKET_NAME to a Google Cloud Storage bucket."
         ]
-        logger.warning("media_root_ephemeral path=%s", media_root)
+        logger.warning("media_storage_ephemeral backend=%s", media_backend)
     if not db_ok:
         raise HttpError(503, "database unavailable")
     return payload
@@ -1320,11 +1324,11 @@ def upload_claim_file(request: HttpRequest, file: UploadedFile = File(...)):
             "Renaming a file does not change its type — export or scan it instead.",
         )
 
-    dest_dir = settings.MEDIA_ROOT / "claims"
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    # Through the storage API, not open(): the same code then writes to the
+    # local disk in development and to Google Cloud Storage in production,
+    # where the container filesystem does not survive a deploy.
     fname = f"{uuid_lib.uuid4().hex}.{kind.extension}"
-    with open(dest_dir / fname, "wb") as f:
-        f.write(content)
+    default_storage.save(f"claims/{fname}", ContentFile(content))
     return {
         "url": f"{settings.MEDIA_URL}claims/{fname}",
         # The claimant's own name, shown in the UI; the stored name is a uuid.

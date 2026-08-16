@@ -1,0 +1,13 @@
+# Keep local state out of the image. db.sqlite3 and media/ hold real imported
+# faculty data and uploaded papers — they must never ship inside a container.
+db.sqlite3
+*.sqlite3
+media/
+staticfiles/
+imports/
+
+.env
+.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/

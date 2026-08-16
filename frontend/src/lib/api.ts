@@ -1,4 +1,5 @@
-/** Same-origin in production (Netlify/Vercel proxy /api and /media to Render).
+/** Same-origin in production: vercel.json rewrites /api and /media to Cloud
+ *  Run, so cookies stay first-party and there is no CORS to configure.
  *  A BOM or trailing slash in VITE_API_BASE used to turn that into a relative
  *  junk URL, so the SPA posted login at the static host and got HTML back. */
 function readApiBase(): string {

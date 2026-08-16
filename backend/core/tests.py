@@ -2706,18 +2706,46 @@ class UploadTypeTests(TestCase):
                 self.assertEqual(served["Content-Type"], "application/pdf")
                 served.close()
 
-    def test_health_flags_evidence_that_will_not_survive_a_deploy(self):
-        with override_settings(DEBUG=False):
-            body = self.client.get("/api/health").json()
-        # Silent data loss otherwise: the ticket keeps listing files that are gone.
-        self.assertFalse(body["media_persistent"])
-        self.assertIn("warnings", body)
+    def test_upload_and_serve_go_through_the_storage_api(self):
+        """Uploads must not touch the filesystem directly.
+
+        open()/Path were how this worked before; on Cloud Run that writes to a
+        container filesystem that vanishes with the instance. Going through
+        default_storage is what lets the same code write to a bucket in
+        production — so this asserts the storage backend actually sees it.
+        """
+        from django.core.files.storage import default_storage
 
         with tempfile.TemporaryDirectory() as tmp:
-            with override_settings(DEBUG=False, MEDIA_ROOT=Path(tmp)):
-                body = self.client.get("/api/health").json()
+            with override_settings(MEDIA_ROOT=Path(tmp)):
+                r = self._upload("paper.pdf", PDF_BYTES, "application/pdf")
+                self.assertEqual(r.status_code, 200, r.content)
+                stored = r.json()["url"].rsplit("/", 1)[-1]
+                self.assertTrue(default_storage.exists(f"claims/{stored}"))
+                with default_storage.open(f"claims/{stored}", "rb") as fh:
+                    self.assertEqual(fh.read(), PDF_BYTES)
+                # And the authenticated view reads it back the same way.
+                served = self.client.get(r.json()["url"])
+                self.assertEqual(served.status_code, 200)
+                self.assertEqual(b"".join(served.streaming_content), PDF_BYTES)
+                served.close()
+
+    def test_health_flags_evidence_that_will_not_survive_a_deploy(self):
+        # A container filesystem is discarded with the instance, so any local
+        # MEDIA_ROOT in production means silent data loss: the ticket keeps
+        # listing files that are gone.
+        with override_settings(DEBUG=False, GS_BUCKET_NAME=""):
+            body = self.client.get("/api/health").json()
+        self.assertFalse(body["media_persistent"])
+        self.assertIn("warnings", body)
+        self.assertIn("GS_BUCKET_NAME", body["warnings"][0])
+
+        # A bucket is durable, so the warning goes away.
+        with override_settings(DEBUG=False, GS_BUCKET_NAME="faculty-paper-evidence"):
+            body = self.client.get("/api/health").json()
         self.assertTrue(body["media_persistent"])
         self.assertNotIn("warnings", body)
+        self.assertEqual(body["media_backend"], "gs://faculty-paper-evidence")
 
     def test_an_unknown_extension_is_not_served(self):
         # Path traversal and hand-crafted names both land here.

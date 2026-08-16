@@ -56,7 +56,8 @@ Use `--skip-sjr` / `--skip-snip` / `--limit 100` for faster trials.
 
 ## Deploy
 
-See [DEPLOY.md](DEPLOY.md): **Vercel** (frontend) + **Render** (Django + Postgres).
+See [DEPLOY.md](DEPLOY.md): **Vercel** (SPA) + **Google Cloud Run** (Django API)
++ **Neon** (Postgres) + **Cloud Storage** (uploads).
 
 ## Tests
 

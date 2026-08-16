@@ -8,9 +8,9 @@ static file serving never had.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from django.conf import settings
+from django.core.files.storage import default_storage
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse, JsonResponse
 
@@ -54,15 +54,19 @@ def claim_media(request: HttpRequest, filename: str) -> HttpResponse:
     if kind is None:
         raise Http404
 
-    root = (Path(settings.MEDIA_ROOT) / "claims").resolve()
-    path = (root / filename).resolve()
-    if not str(path).startswith(str(root)) or not path.is_file():
+    # _SAFE_NAME above already rejects anything but a 32-hex uuid plus a short
+    # extension, so the joined key cannot escape the claims/ prefix.
+    name = f"claims/{filename}"
+    if not default_storage.exists(name):
         raise Http404
 
     if not _may_read(request.user, f"{settings.MEDIA_URL}claims/{filename}"):
         return JsonResponse({"detail": "Forbidden"}, status=403)
 
-    response = FileResponse(open(path, "rb"), content_type=kind.content_type)
+    # Streamed through this view rather than handed out as a bucket URL: the
+    # access check above is the only thing standing between a proof PDF and
+    # anyone who guesses at it, so the file must never be publicly readable.
+    response = FileResponse(default_storage.open(name, "rb"), content_type=kind.content_type)
     disposition = "inline" if kind.inline else "attachment"
     # The claimant's original name lives on the attachment row; the file on disk
     # is a uuid, which is what a download should be named to stay unambiguous.

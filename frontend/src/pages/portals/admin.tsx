@@ -1131,7 +1131,7 @@ const FORMULA_FIELD_META: { key: string; label: string; description: string }[] 
     key: "high_value_threshold",
     label: "Second-approval threshold (₹)",
     description:
-      "Claims at or above this amount need a second, distinct approver before Finance can pay",
+      "0 = off. Above 0, claims at or over this amount need a second admin to approve them before Finance can pay — which requires two admin accounts",
   },
 ]
 

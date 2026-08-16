@@ -145,9 +145,10 @@ class FormulaConfig(models.Model):
     max_authors = models.PositiveIntegerField(default=9)
     #: "a minimum of two (2) SEC-affiliated references" for remuneration.
     min_sec_references = models.PositiveIntegerField(default=2)
-    #: Claims at or above this amount need a second, distinct approver
-    #: before Finance can pay them.
-    high_value_threshold = models.FloatField(default=100000)
+    #: Claims at or above this amount need a second, distinct approver before
+    #: Finance can pay them. Zero disables the rule — it needs two admin
+    #: accounts to satisfy, so it is opt-in rather than on by default.
+    high_value_threshold = models.FloatField(default=0)
     author_point_json = models.TextField()
     # e.g. {"Journal": 1, "Conference Proceeding": 0.8, "Book Series": 0.5, "Other": 0.5}
     publication_type_multipliers_json = models.TextField(

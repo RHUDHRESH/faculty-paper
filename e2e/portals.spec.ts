@@ -1,8 +1,8 @@
-/**
+﻿/**
  * Every page of every portal must render.
  *
- * This exists because the claim wizard once threw during render — a hook that
- * only works inside a data router — and shipped as a blank white page that no
+ * This exists because the claim wizard once threw during render â€” a hook that
+ * only works inside a data router â€” and shipped as a blank white page that no
  * unit test, typecheck or build could see. The API was perfectly healthy the
  * whole time. So each route is opened as the role that owns it, and the page
  * has to produce its heading and log no uncaught error.
@@ -12,7 +12,7 @@ import { expect, test, type Page } from "@playwright/test"
 type Role = { email: string; password: string }
 
 const FACULTY: Role = { email: "faculty@college.edu", password: "faculty123" }
-const ADMIN: Role = { email: "research@college.edu", password: "research123" }
+const ADMIN: Role = { email: "admin@college.edu", password: "admin123" }
 const FINANCE: Role = { email: "finance@college.edu", password: "finance123" }
 const PRINCIPAL: Role = { email: "principal@college.edu", password: "principal123" }
 
@@ -93,3 +93,4 @@ test.describe("routing guards", () => {
     await expect(page).toHaveURL(/\/login/)
   })
 })
+

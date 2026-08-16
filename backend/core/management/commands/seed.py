@@ -52,17 +52,10 @@ class Command(BaseCommand):
                 "BIO-001",
                 "Assistant Professor",
             ),
-            (
-                "research@college.edu",
-                "research123",
-                "Admin",
-                Role.SUPER_ADMIN,
-                None,
-                "EMP-RC",
-                "STF-RC",
-                "BIO-RC",
-                "Research Coordinator",
-            ),
+            # No separate research-cell or HoD login: the research cell works
+            # through the admin account and the HoD step no longer exists.
+            # Seeding them recreated logins the college had deliberately
+            # stood down.
             (
                 "finance@college.edu",
                 "finance123",

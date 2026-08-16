@@ -690,7 +690,7 @@ class FormulaIn(Schema):
     qf_only_for_no_snip: bool = True
     effective_from: Optional[str] = None
     effective_to: Optional[str] = None
-    high_value_threshold: float = 100000
+    high_value_threshold: float = 0
     # Category II-IV rates and the two eligibility limits. They were absent
     # from both the GET payload and the create() below, so every "save as new
     # version" quietly reset them to the model defaults — including the author
@@ -1842,8 +1842,11 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
 
 #: Display-path cache for the second-approval threshold, so serializing a
 #: 200-row list does not query the policy 200 times. Money guards always read
-#: fresh; put_formula invalidates.
-_THRESHOLD_CACHE: dict[str, float] = {}
+#: fresh; put_formula invalidates. It also expires on its own, because only
+#: the process that served the edit sees that invalidation — another instance
+#: would otherwise show a stale badge indefinitely.
+_THRESHOLD_CACHE: dict[str, Any] = {}
+_THRESHOLD_TTL_SECONDS = 30
 
 
 def _invalidate_threshold_cache() -> None:
@@ -1852,23 +1855,40 @@ def _invalidate_threshold_cache() -> None:
 
 def _high_value_threshold(*, fresh: bool = True) -> float:
     if not fresh and "value" in _THRESHOLD_CACHE:
-        return _THRESHOLD_CACHE["value"]
+        import time as _time
+
+        if _time.monotonic() - _THRESHOLD_CACHE.get("at", 0) < _THRESHOLD_TTL_SECONDS:
+            return _THRESHOLD_CACHE["value"]
     cfg = (
         FormulaConfig.objects.filter(active=True)
         .order_by("-updated_at")
         .only("high_value_threshold")
         .first()
     )
-    value = float(cfg.high_value_threshold) if cfg else 100000.0
+    # No policy configured means the rule is off, not that every large claim
+    # is blocked by an approval nobody can give.
+    value = float(cfg.high_value_threshold) if cfg else 0.0
+    import time as _time
+
     _THRESHOLD_CACHE["value"] = value
+    _THRESHOLD_CACHE["at"] = _time.monotonic()
     return value
 
 
 def _needs_second_approval(claim: Claim, threshold: float | None = None) -> bool:
-    """High-value live-chain claims need a second, distinct pair of eyes."""
+    """High-value live-chain claims need a second, distinct pair of eyes.
+
+    Off unless a positive threshold is set. It takes two admin accounts to
+    satisfy — the approver must differ from whoever cleared the ticket — so on
+    a single-admin setup an always-on rule simply jammed every large claim
+    with nobody able to release it.
+    """
+    limit = threshold if threshold is not None else _high_value_threshold()
+    if limit <= 0:
+        return False
     if claim.status != ClaimStatus.CLEARED:
         return False
-    if (claim.remuneration or 0) < (threshold if threshold is not None else _high_value_threshold()):
+    if (claim.remuneration or 0) < limit:
         return False
     return not (claim.second_approved_by_id and claim.second_approved_by_id != claim.cleared_by_id)
 
@@ -2239,7 +2259,9 @@ def second_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
     point is a second pair of eyes on large amounts.
     """
     user = require_user(request)
-    if not (rbac.can_clear_claims(user.role) or user.role == Role.PRINCIPAL):
+    # Admin only. The Principal oversees and reports; giving that account a
+    # money action was the one thing stopping it from being purely read-only.
+    if not rbac.can_clear_claims(user.role):
         raise HttpError(403, "Forbidden")
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
@@ -2975,7 +2997,7 @@ def get_formula(request: HttpRequest):
             "publication_type_multipliers_json": json.dumps(DEFAULT_PUB_TYPE_MULTIPLIERS),
             "student_remuneration_zero": True,
             "qf_only_for_no_snip": True,
-            "high_value_threshold": 100000,
+            "high_value_threshold": 0,
         }
     return {
         "id": cfg.id,

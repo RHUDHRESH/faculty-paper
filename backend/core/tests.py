@@ -1355,9 +1355,16 @@ class PaymentLifecycleTests(TestCase):
     """Void, override, withdraw, and the second signature on big amounts."""
 
     def setUp(self):
+        from core.api import _invalidate_threshold_cache
+
+        # The second-approval rule is opt-in (it needs two admin accounts), so
+        # these tests switch it on explicitly.
         FormulaConfig.objects.create(
-            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            high_value_threshold=100000,
         )
+        _invalidate_threshold_cache()
+        self.addCleanup(_invalidate_threshold_cache)
         self.faculty = User.objects.create_user(
             email="life-fac@test.edu", password="pass", name="Life Faculty",
             role=Role.FACULTY, department="CSE", staff_id="STF-LIFE",
@@ -1564,6 +1571,38 @@ class PaymentLifecycleTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200, r.content)
+
+    def test_second_approval_is_off_when_the_threshold_is_zero(self):
+        """It takes two admins to satisfy. With one admin an always-on rule
+        jammed every large claim with nobody able to release it."""
+        from core.api import _invalidate_threshold_cache
+
+        FormulaConfig.objects.filter(active=True).update(high_value_threshold=0)
+        _invalidate_threshold_cache()
+        claim = self._high_value_cleared("LC-OFF")
+        self.client.force_login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({"expected_amount": 160000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertFalse(r.json()["needs_second_approval"])
+
+    def test_principal_cannot_second_approve(self):
+        """The Principal observes and reports; it holds no money action."""
+        principal = User.objects.create_user(
+            email="life-principal@test.edu", password="pass", name="Principal",
+            role=Role.PRINCIPAL,
+        )
+        claim = self._high_value_cleared("LC-PRIN")
+        self.client.force_login(principal)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/second-approve",
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 403, r.content)
 
     def test_second_approval_refused_below_the_threshold(self):
         claim = self._claim(

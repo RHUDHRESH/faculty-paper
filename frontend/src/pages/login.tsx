@@ -10,12 +10,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { portalPath } from "@/lib/utils"
 
+// Four accounts, one per role. The research-cell and HoD logins were stood
+// down: the research cell works through Admin, and the HoD step is gone.
 const DEMOS = [
   { role: "Faculty", email: "faculty@college.edu", password: "faculty123" },
-  // Admin, not HoD: the HoD role was removed, and clearing is where tickets move.
-  { role: "Admin", email: "research@college.edu", password: "research123" },
-  { role: "Principal", email: "principal@college.edu", password: "principal123" },
+  { role: "Admin", email: "admin@college.edu", password: "" },
   { role: "Finance", email: "finance@college.edu", password: "finance123" },
+  { role: "Principal", email: "principal@college.edu", password: "principal123" },
 ]
 
 const showDemos = import.meta.env.DEV

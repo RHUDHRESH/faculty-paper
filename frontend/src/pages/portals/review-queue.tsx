@@ -452,25 +452,6 @@ function ApprovalQueue({
     }
   }
 
-  async function secondApprove() {
-    if (!selected) return
-    setBusy(true)
-    try {
-      const c = await api<Claim>(`/api/claims/${selected.id}/second-approve`, {
-        method: "POST",
-        json: { note: note.trim() || null },
-      })
-      toast.success("Second approval recorded — Finance can pay it now")
-      setSelected(c)
-      setNote("")
-      await load()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Second approval failed")
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function overrideStatus() {
     if (!selected) return
     if (note.trim().length < 10) {
@@ -621,13 +602,8 @@ function ApprovalQueue({
       {/* Sticky actions footer inside the detail panel */}
       {readOnly ? (
         <div className="shrink-0 space-y-2 border-t border-border/70 bg-muted/40 px-4 py-3">
-          {selected?.needs_second_approval ? (
-            <Button size="sm" className="w-full" disabled={busy} onClick={secondApprove}>
-              Second-approve <Money value={selected.remuneration} />
-            </Button>
-          ) : null}
           <p className="text-xs text-muted-foreground">
-            View only. Clearing and payment are handled by the research cell and Finance.
+            View only. Clearing is handled by Admin and payment by Finance.
           </p>
         </div>
       ) : selected && selected.status !== "SUBMITTED" && approvePath === "clear" ? (
@@ -774,7 +750,7 @@ function ApprovalQueue({
             {selected ? <TicketDetailBody claim={selected} /> : null}
             {readOnly ? (
               <p className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
-                View only. Clearing and payment are handled by the research cell and Finance.
+                View only. Clearing is handled by Admin and payment by Finance.
               </p>
             ) : (
               <>

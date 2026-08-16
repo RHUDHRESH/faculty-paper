@@ -2242,9 +2242,14 @@ def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         if claim.status != ClaimStatus.PAID:
             raise HttpError(400, "Only a paid ticket can be voided")
+        # Not "net > 0": a claim can legitimately be paid at zero — count-only
+        # filings, and claims that fall short of the SEC-reference minimum, are
+        # recorded as PAID carrying nothing. Refusing those left them stuck in
+        # PAID with no way back. Voiding twice is already impossible because
+        # this transition moves the ticket out of PAID.
         net_paid = claim.ledger_rows.aggregate(s=Sum("amount"))["s"] or 0
-        if net_paid <= 0:
-            raise HttpError(400, "No outstanding payment to void")
+        if not claim.ledger_rows.exists():
+            raise HttpError(400, "No payment on record to void")
         today = timezone.now().date()
         PaidLedger.objects.create(
             claim=claim,
@@ -2273,7 +2278,11 @@ def override_status(request: HttpRequest, claim_id: str, payload: OverrideStatus
     live chain can act on — they could not be cleared, paid, or even rejected.
     """
     user = require_user(request)
-    if user.role != Role.SUPER_ADMIN:
+    # Every other admin power accepts RESEARCH_CELL too — that role was folded
+    # into SUPER_ADMIN and unmigrated accounts still carry it, including the
+    # research cell's own login. Demanding the exact role here locked the
+    # people who run the clearing queue out of the one tool that unsticks it.
+    if user.role not in rbac.ADMIN_ROLES:
         raise HttpError(403, "Forbidden")
     allowed = (ClaimStatus.SUBMITTED, ClaimStatus.CLEARED, ClaimStatus.REJECTED)
     if payload.to_status not in allowed:

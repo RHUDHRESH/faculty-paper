@@ -1497,6 +1497,49 @@ class PaymentLifecycleTests(TestCase):
         # The ledger is append-only: nothing was deleted.
         self.assertEqual(sum(r.amount for r in rows), 0.0)
 
+    def test_a_zero_value_payment_can_still_be_voided(self):
+        """Count-only filings and claims short of the SEC-reference minimum are
+        recorded as PAID carrying nothing. Requiring a positive ledger total to
+        void left those stuck in PAID with no way back."""
+        claim = self._claim(
+            status=ClaimStatus.PAID, remuneration=0.0, ticket="LC-ZERO",
+        )
+        PaidLedger.objects.create(
+            claim=claim, payout_month=date(2026, 8, 1), amount=0.0,
+            faculty_name=self.faculty.name, voucher_number="V-ZERO",
+        )
+        self.client.force_login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/void-payment",
+            data=json.dumps({"note": "Paid at zero against the wrong ticket"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+        self.assertEqual(claim.ledger_rows.count(), 2, "the reversal is still recorded")
+
+    def test_research_cell_can_override_a_stranded_status(self):
+        """RESEARCH_CELL is folded into the admin role everywhere else, and the
+        research cell's own login still carries it."""
+        cell = User.objects.create_user(
+            email="life-cell@test.edu", password="pass", name="Research Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        claim = Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.HOD_APPROVED,
+            ticket_number="ERP-CELL-1", paper_title="Stranded For The Cell",
+        )
+        self.client.force_login(cell)
+        r = self.client.post(
+            f"/api/admin/claims/{claim.id}/override-status",
+            data=json.dumps({"to_status": "SUBMITTED", "note": "Rescue stranded import"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
+
     def test_void_requires_a_reason_and_a_paid_claim(self):
         claim = self._paid_claim("LC-PAID2")
         self.client.force_login(self.finance)

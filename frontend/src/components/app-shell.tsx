@@ -350,9 +350,12 @@ export function PrincipalShell() {
 
 export function AdminShell() {
   const { user } = useAuth()
-  // Only a super admin can actually use these two — the API refuses everyone
-  // else, so showing them to the research cell offered a screen that 403s.
-  const isSuperAdmin = user?.role === "SUPER_ADMIN"
+  // These two do not share a rule. can_manage_users accepts the whole admin
+  // group, RESEARCH_CELL included — hiding Users from the research cell kept
+  // them out of a screen the API grants them. can_edit_formula really is
+  // FINANCE or SUPER_ADMIN only, so Formula stays behind the narrower check.
+  const canManageUsers = user?.role === "SUPER_ADMIN" || user?.role === "RESEARCH_CELL"
+  const canEditFormula = user?.role === "SUPER_ADMIN"
   return (
     <AppShell
       title="Admin"
@@ -361,11 +364,9 @@ export function AdminShell() {
         { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
         { to: "/admin/clearing", label: "Clearing queue", icon: ClipboardCheck },
         { to: "/admin/submit", label: "Submit for faculty", icon: UserPlus },
-        ...(isSuperAdmin
-          ? [
-              { to: "/admin/users", label: "Users", icon: Users },
-              { to: "/admin/formula", label: "Formula", icon: Settings2 },
-            ]
+        ...(canManageUsers ? [{ to: "/admin/users", label: "Users", icon: Users }] : []),
+        ...(canEditFormula
+          ? [{ to: "/admin/formula", label: "Formula", icon: Settings2 }]
           : []),
         { to: "/admin/scimago", label: "Imports", icon: BookOpen },
         { to: "/admin/prior", label: "Prior payments", icon: Receipt },

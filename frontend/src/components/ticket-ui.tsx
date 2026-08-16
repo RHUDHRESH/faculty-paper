@@ -84,7 +84,10 @@ export function facultyStatusMessage(status: string): string {
     case "HOD_APPROVED":
       return "Submitted — waiting to be cleared."
     case "PAID":
-      return "Your payment has been cleared and will be processed shortly."
+      // Past tense: this banner only ever shows on a ticket that is already
+      // paid, and "will be processed shortly" read as though it still owed
+      // the claimant something.
+      return "Paid. Your remuneration has been processed by Finance."
     case "REJECTED":
       return "Sent back — edit details and submit again."
     default:
@@ -288,9 +291,25 @@ export function Money({
         className
       )}
     >
-      ₹{value.toLocaleString("en-IN")}
+      {formatMoney(value)}
     </span>
   )
+}
+
+/**
+ * Rupees, formatted like money rather than like a float.
+ *
+ * Amounts come off the formula as plain numbers, so a payout of 52377.5
+ * rendered as "₹52,377.5" — a single stray decimal that reads as a rounding
+ * mistake next to "₹39,081". Paise are shown only when there are any, and
+ * then always as two digits.
+ */
+export function formatMoney(value: number): string {
+  const hasPaise = Math.round(value * 100) % 100 !== 0
+  return `₹${value.toLocaleString("en-IN", {
+    minimumFractionDigits: hasPaise ? 2 : 0,
+    maximumFractionDigits: 2,
+  })}`
 }
 
 export function VerificationSnapshot({

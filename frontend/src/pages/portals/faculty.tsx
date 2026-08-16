@@ -27,6 +27,7 @@ import {
 import {
   ContestCallout,
   CopyTicketLink,
+  formatMoney,
   Money,
   StatusBanner,
   StatusChip,
@@ -287,7 +288,7 @@ export function FacultyClaimsPage() {
           items={[
             {
               label: "Received to date",
-              value: `₹${(dash.total_paid || 0).toLocaleString("en-IN")}`,
+              value: formatMoney(dash.total_paid || 0),
             },
             {
               label: "In review",

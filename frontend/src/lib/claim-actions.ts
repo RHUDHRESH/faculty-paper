@@ -21,8 +21,20 @@ const ACTION_SENTENCES: Record<string, string> = {
   REJECT: "sent the ticket back for changes",
   STATUS_OVERRIDE: "moved the ticket with an admin override",
   CONTEST_FORWARD: "forwarded the ticket despite verification issues",
+  // The retired HoD -> Principal -> Finance chain. Every ticket filed before
+  // the change still carries these, so leaving them out rendered real history
+  // as "Demo HOD hod approve".
+  HOD_APPROVE: "approved the ticket (under the earlier HoD step)",
+  PRINCIPAL_APPROVE: "approved the ticket (under the earlier Principal step)",
+  RESEARCH_APPROVE: "cleared the ticket and sent it to Finance",
+  FINANCE_APPROVE: "approved the payment (under the earlier Finance step)",
+  UNPAY: "reversed the payment",
 }
 
 export function actionSentence(code: string): string {
-  return ACTION_SENTENCES[code] || code.replaceAll("_", " ").toLowerCase()
+  const known = ACTION_SENTENCES[code]
+  if (known) return known
+  // Unknown code: read it as a phrase rather than shouting the constant, but
+  // keep it recognisable so an operator can still match it to the audit log.
+  return `recorded "${code.replaceAll("_", " ").toLowerCase()}"`
 }

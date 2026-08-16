@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Link, useBlocker } from "react-router-dom"
+import { Link } from "react-router-dom"
 import { toast } from "sonner"
 import {
   BadgeCheck,
@@ -437,10 +437,12 @@ export function PublicationForm({
     return () => window.removeEventListener("beforeunload", handler)
   }, [])
 
-  // In-app navigation (sidebar, back, a link) does not fire beforeunload.
-  const blocker = useBlocker(
-    () => dirtyRef.current && !submittedRef.current
-  )
+  // No in-app navigation guard here: useBlocker only works inside a data
+  // router, and this app mounts <BrowserRouter>, so calling it threw on mount
+  // and took the whole claim form down with it — a blank page where the New
+  // ticket wizard should be. The draft is written to the server every 2.5
+  // seconds and beforeunload covers closing the tab, so clicking away in-app
+  // risks a couple of seconds of typing rather than the form.
 
   useEffect(() => {
     if (mode !== "admin") return
@@ -1742,26 +1744,6 @@ export function PublicationForm({
         </DialogContent>
       </Dialog>
 
-      <AlertDialog
-        open={blocker.state === "blocked"}
-        onOpenChange={(o) => {
-          if (!o && blocker.state === "blocked") blocker.reset()
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This form has unsaved changes. A draft is saved automatically every few seconds —
-              leaving now may lose what you typed since the last save.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => blocker.reset?.()}>Stay</AlertDialogCancel>
-            <AlertDialogAction onClick={() => blocker.proceed?.()}>Leave</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </form>
   )
 }

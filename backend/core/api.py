@@ -682,7 +682,10 @@ class FormulaIn(Schema):
     qf_q4: float
     qf_no_snip: float = 0
     qf_snip_only: float = 0
-    qf_others: float = 4000
+    #: Retired — the policy's QFA table is Q1-Q4 only. The editor no longer
+    #: sends it, and a 4,000 default here would have written the retired
+    #: incentive straight back into every new policy version.
+    qf_others: float = 0
     author_point_json: str
     notes: Optional[str] = None
     name: Optional[str] = "Policy"

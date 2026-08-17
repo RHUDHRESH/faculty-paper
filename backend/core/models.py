@@ -136,7 +136,9 @@ class FormulaConfig(models.Model):
     qf_q4 = models.FloatField(default=7000)
     qf_no_snip = models.FloatField(default=0)
     qf_snip_only = models.FloatField(default=0)
-    qf_others = models.FloatField(default=4000)  # conference / others from Accounts sheet
+    #: Retired. The QFA table in the policy has rows for Q1-Q4 and nothing else,
+    #: so an "Others" incentive is not authorised; the calculator ignores this.
+    qf_others = models.FloatField(default=0)
     # Fixed rates for the categories that carry no SNIP (Step 8, II–IV).
     fixed_journal_no_snip = models.FloatField(default=5000)
     fixed_other_no_snip = models.FloatField(default=4000)

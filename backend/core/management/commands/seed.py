@@ -124,18 +124,31 @@ class Command(BaseCommand):
                 self.stdout.write(f"OK {email}")
 
         if not FormulaConfig.objects.filter(active=True).exists():
+            # Every figure here comes from Step 8 of the Publication Processing
+            # Workflow. The old seed set qf_others=4000, which the calculator
+            # then paid as a quartile incentive on unranked Engineering
+            # journals — money the policy's QFA table does not provide for.
             FormulaConfig.objects.create(
-                name="Policy v1",
+                name="Publication Processing Workflow — Step 8",
                 version=1,
                 author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS),
-                qf_others=4000,
+                snip_multiplier=55000,
                 snip_cap=30,
+                qf_q1=50000,
+                qf_q2=30000,
+                qf_q3=15000,
+                qf_q4=7000,
+                qf_others=0,
+                fixed_journal_no_snip=5000,
+                fixed_other_no_snip=4000,
+                fixed_web_of_science=5000,
+                max_authors=9,
+                min_sec_references=2,
                 student_remuneration_zero=True,
-                qf_only_for_no_snip=True,
                 active=True,
-                notes="Default seed formula — Policy v1",
+                notes="Seeded from the Publication Processing Workflow document",
             )
-            self.stdout.write("Created formula config Policy v1")
+            self.stdout.write("Created formula config from the workflow document")
         else:
             self.stdout.write("Formula config already present")
 

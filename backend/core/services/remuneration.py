@@ -81,9 +81,12 @@ class FormulaConfigInput:
     qf_q3: float = 15000
     #: The policy table says Q4 is 7,000.
     qf_q4: float = 7000
+    #: Retained so stored policy versions still load, but no longer priced: the
+    #: policy's QFA table has rows for Q1-Q4 and nothing else. Kept at 0 so a
+    #: reader of a saved snapshot is not told a rate that is never paid.
     qf_no_snip: float = 0
     qf_snip_only: float = 0
-    qf_others: float = 4000
+    qf_others: float = 0
     #: Category II — a Scopus journal article with no SNIP.
     fixed_journal_no_snip: float = 5000
     #: Category III — a Scopus conference proceeding or book chapter, no SNIP.
@@ -97,6 +100,9 @@ class FormulaConfigInput:
         default_factory=lambda: dict(DEFAULT_PUB_TYPE_MULTIPLIERS)
     )
     student_remuneration_zero: bool = True
+    #: Dead. The calculator has never read it, so the formula editor's checkbox
+    #: changed nothing while looking like a money control. Kept only so saved
+    #: versions deserialise; the editor no longer offers it.
     qf_only_for_no_snip: bool = True
     name: str = "Policy v1"
     version: int = 1
@@ -126,19 +132,20 @@ def round2(n: float) -> float:
 
 
 def qf_for(quartile: str, cfg: FormulaConfigInput) -> float:
-    q = (quartile or "").strip()
-    mapping = {
+    """The Additional Quartile Incentive for a quartile.
+
+    The policy's QFA table has exactly four rows — Q1 ₹50,000, Q2 ₹30,000,
+    Q3 ₹15,000, Q4 ₹7,000. Anything else (Others, No Quartile, the NO_SNIP and
+    SNIP_ONLY modes) has no row, so no incentive is authorised. The old mapping
+    paid `qf_others` — ₹4,000 by default — on every unranked Engineering
+    journal, money the document does not provide for.
+    """
+    return {
         "Q1": cfg.qf_q1,
         "Q2": cfg.qf_q2,
         "Q3": cfg.qf_q3,
         "Q4": cfg.qf_q4,
-        "NO_SNIP": cfg.qf_no_snip,
-        "SNIP_ONLY": cfg.qf_snip_only,
-        "Others": cfg.qf_others,
-        "OTHERS": cfg.qf_others,
-        "No Quartile": cfg.qf_others,
-    }
-    return mapping.get(q, 0.0)
+    }.get((quartile or "").strip(), 0.0)
 
 
 def author_point(
@@ -305,14 +312,23 @@ def calculate_remuneration(
                 None, point, None, None, f"SNIP value looks invalid (max {cap:g})", None, None
             )
 
-    # The quartile incentive is for Engineering journals only.
+    # "The Quartile Incentive shall be applicable only to Engineering journals
+    # that possess a valid SNIP value and are indexed in Scopus." Both halves
+    # matter: a conference proceeding or book chapter earns no QFA even when its
+    # subject area is Engineering and it carries a SNIP.
     engineering = (engineering_class or ENGINEERING) != NON_ENGINEERING
+    journal = _is_journal(publication_type) and not _is_conference_or_book(publication_type)
     pub_m = _pub_multiplier(publication_type, cfg)
 
     if scopus and has_snip:
-        qf = qf_for(quartile or "", cfg) if engineering else 0.0
+        qf = qf_for(quartile or "", cfg) if (engineering and journal) else 0.0
         base = (float(snip) * cfg.snip_multiplier + qf) * pub_m
-        note = None if engineering else "Non-Engineering: no quartile incentive is added."
+        if not engineering:
+            note = "Non-Engineering: no quartile incentive is added."
+        elif not journal:
+            note = "The quartile incentive applies to journals only."
+        else:
+            note = None
         return CalcResult(round2(base), point, round2(base * point), qf, None, Category.SNIP, note)
 
     if scopus and not has_snip:
@@ -342,7 +358,13 @@ def calculate_remuneration(
     if wos:
         # The policy writes Category IV as [5000 + QFA] x APP. QFA still only
         # applies to Engineering journals.
-        qf = qf_for(quartile or "", cfg) if engineering else 0.0
+        #
+        # Category IV and the QFA paragraph disagree on one point: Category IV's
+        # formula includes QFA, while the QFA paragraph restricts the incentive
+        # to journals "indexed in Scopus" — which a Category IV article is not.
+        # The Category IV formula is the more specific statement about Category
+        # IV, so it wins here.
+        qf = qf_for(quartile or "", cfg) if (engineering and journal) else 0.0
         base = (float(cfg.fixed_web_of_science) + qf) * pub_m
         return CalcResult(
             round2(base), point, round2(base * point), qf, None, Category.WEB_OF_SCIENCE, None
@@ -380,7 +402,7 @@ def formula_from_model(obj) -> FormulaConfigInput:
         qf_q4=obj.qf_q4,
         qf_no_snip=obj.qf_no_snip,
         qf_snip_only=obj.qf_snip_only,
-        qf_others=getattr(obj, "qf_others", 4000) or 4000,
+        qf_others=float(getattr(obj, "qf_others", 0) or 0),
         fixed_journal_no_snip=float(getattr(obj, "fixed_journal_no_snip", 5000) or 5000),
         fixed_other_no_snip=float(getattr(obj, "fixed_other_no_snip", 4000) or 4000),
         fixed_web_of_science=float(getattr(obj, "fixed_web_of_science", 5000) or 5000),

@@ -57,6 +57,7 @@ from core.services.remuneration import (
     DEFAULT_AUTHOR_POINTS,
     DEFAULT_PUB_TYPE_MULTIPLIERS,
     MAX_ELIGIBLE_AUTHORS,
+    MIN_SEC_REFERENCES,
     calculate_remuneration,
     formula_from_model,
     snapshot_formula,
@@ -2132,12 +2133,16 @@ def _mark_one_paid(
     note: str | None,
     expected_amount: float | None,
     skip_external: bool = False,
-    reverify: bool = True,
+    reverify: bool = False,
 ) -> Claim:
     """One payment, atomically, with every guard. Raises HttpError on refusal.
 
-    `reverify=False` is for bulk mark-paid: that path recomputes from stored
-    values only so a 200-row payout month does not make 200 Scopus calls.
+    Recomputes from the stored verified columns and never calls Scopus. External
+    re-verification belongs at clearing, which is the step that decides whether
+    the figures are trustworthy; repeating it here made Finance a hostage to
+    Scopus. A single payment used to re-verify and answer 502 during an outage,
+    and `skip_external` is super-admin only, so a Finance user had no way
+    through at all — while bulk mark-paid, which never called out, worked fine.
     """
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
@@ -2149,9 +2154,10 @@ def _mark_one_paid(
         if net_paid > 0:
             raise HttpError(400, "Already processed")
         if claim.status == ClaimStatus.CLEARED:
-            # Live chain: re-verify (unless bulk) then require the confirmed
-            # amount. Legacy ERP-imported statuses are paid at their imported
-            # figures — they have no verified columns to recompute from.
+            # Live chain: recompute from the stored verified columns, then
+            # require the confirmed amount. Legacy ERP-imported statuses are
+            # paid at their imported figures — they have no verified columns to
+            # recompute from.
             if _needs_second_approval(claim):
                 raise HttpError(
                     400,
@@ -2160,6 +2166,8 @@ def _mark_one_paid(
                 )
             if reverify:
                 _reverify_or_recalc(claim, user, skip_external=skip_external)
+            else:
+                _apply_calc(claim)
             _guard_recomputed_amount(claim, expected_amount)
         if voucher_number:
             claim.voucher_number = voucher_number[:64]
@@ -3043,15 +3051,22 @@ def get_formula(request: HttpRequest):
             "qf_q1": 50000,
             "qf_q2": 30000,
             "qf_q3": 15000,
-            "qf_q4": 5000,
+            # The policy's QFA table says Q4 is 7,000; this fallback said 5,000
+            # and is what prices every claim when no policy row is active.
+            "qf_q4": 7000,
             "qf_no_snip": 0,
             "qf_snip_only": 0,
-            "qf_others": 4000,
+            "qf_others": 0,
             "author_point_json": json.dumps(DEFAULT_AUTHOR_POINTS),
             "publication_type_multipliers_json": json.dumps(DEFAULT_PUB_TYPE_MULTIPLIERS),
             "student_remuneration_zero": True,
             "qf_only_for_no_snip": True,
             "high_value_threshold": 0,
+            "fixed_journal_no_snip": 5000,
+            "fixed_other_no_snip": 4000,
+            "fixed_web_of_science": 5000,
+            "max_authors": MAX_ELIGIBLE_AUTHORS,
+            "min_sec_references": MIN_SEC_REFERENCES,
         }
     return {
         "id": cfg.id,

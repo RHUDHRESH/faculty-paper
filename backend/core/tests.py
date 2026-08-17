@@ -1486,15 +1486,21 @@ class PaymentLifecycleTests(TestCase):
         self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
         self.assertEqual(claim.snip, 1.0)
 
-    def test_mark_paid_refuses_when_reverify_changes_the_amount(self):
-        claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-PV")
+    def test_mark_paid_refuses_when_the_stored_values_recompute_differently(self):
+        """The amount guard still bites — it just no longer calls Scopus to do it.
+
+        The stored remuneration says 85,000 while the verified columns price to
+        something else, so confirming 85,000 must be refused.
+        """
+        claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0,
+                            ticket="LC-PV", snip=1.0, quartile="Q2")
+        Claim.objects.filter(pk=claim.id).update(remuneration=85000.0, snip=2.0)
         self.client.force_login(self.finance)
-        with patch("core.api.verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
-            r = self.client.post(
-                f"/api/claims/{claim.id}/mark-paid",
-                data=json.dumps({"expected_amount": 85000.0}),
-                content_type="application/json",
-            )
+        r = self.client.post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({"expected_amount": 85000.0}),
+            content_type="application/json",
+        )
         self.assertEqual(r.status_code, 409, r.content)
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.CLEARED)
@@ -1513,18 +1519,27 @@ class PaymentLifecycleTests(TestCase):
         self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
         self.assertEqual(claim.remuneration, 85000.0)
 
-    def test_mark_paid_scopus_down_leaves_status_untouched(self):
+    def test_mark_paid_does_not_depend_on_scopus(self):
+        """Payment recomputes from stored verified values, so an outage cannot
+        stop Finance paying a claim that clearing already verified.
+
+        This used to answer 502. `skip_external` is super-admin only, so a
+        Finance user had no way through — while bulk mark-paid, which has never
+        called out, paid the very same claim. A guard that bulk skips is not a
+        guard, and clearing is where external re-verification belongs.
+        """
         claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-P502")
         self.client.force_login(self.finance)
-        with patch("core.api.verify_publication", return_value={"ok": False}):
+        with patch("core.api.verify_publication", return_value={"ok": False}) as called:
             r = self.client.post(
                 f"/api/claims/{claim.id}/mark-paid",
                 data=json.dumps({"expected_amount": 85000.0}),
                 content_type="application/json",
             )
-        self.assertEqual(r.status_code, 502, r.content)
+        self.assertEqual(r.status_code, 200, r.content)
+        called.assert_not_called()
         claim.refresh_from_db()
-        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+        self.assertEqual(claim.status, ClaimStatus.PAID)
 
     # ---- second signature ----
 
@@ -3257,7 +3272,31 @@ class PolicyStep8Tests(TestCase):
         r = self.calc(quartile="Q2", indexing_level="Scopus", publication_type="Journal",
                       engineering_class="Engineering")
         self.assertEqual(r.category, "II")
-        self.assertEqual(r.remuneration, 5000)  # 5000 x APP(1) â€” no QFA
+        self.assertEqual(r.remuneration, 5000)  # 5000 x APP(1) — no QFA
+
+    def test_no_quartile_incentive_outside_the_q1_q4_table(self):
+        """The QFA table has four rows. "Others" is not one of them.
+
+        `qf_others` defaulted to 4,000 and the calculator paid it as a quartile
+        incentive, so every unranked Engineering journal was overpaid by
+        ₹4,000 x APP against a policy that authorises nothing for it.
+        """
+        for quartile in ("Others", "No Quartile", "NO_SNIP", "SNIP_ONLY", ""):
+            r = self.calc(snip=2.0, quartile=quartile, indexing_level="Scopus",
+                          publication_type="Journal", engineering_class="Engineering")
+            self.assertEqual(r.qf, 0, quartile)
+            self.assertEqual(r.remuneration, 110000, quartile)
+
+    def test_quartile_incentive_is_journals_only(self):
+        """"...applicable only to Engineering journals..." — a conference paper
+        or book chapter earns no QFA even with a SNIP and an Engineering subject."""
+        for kind in ("Conference Proceeding", "Book Chapter", "Book Series"):
+            r = self.calc(snip=2.0, quartile="Q1", indexing_level="Scopus",
+                          publication_type=kind, engineering_class="Engineering")
+            self.assertEqual(r.category, "I", kind)
+            self.assertEqual(r.qf, 0, kind)
+            self.assertEqual(r.remuneration, 110000, kind)
+            self.assertIn("journals only", r.note)
 
     def test_category_three_conference_or_book_without_snip(self):
         for kind in ("Conference Proceeding", "Book Series"):
@@ -3327,6 +3366,200 @@ class PolicyStep8Tests(TestCase):
         self.assertEqual(engineering_class("Journal", "Nursing"), "Non-Engineering")
         # "For publication types other than Journal, treat as Engineering."
         self.assertEqual(engineering_class("Conference Proceeding", "Nursing"), "Engineering")
+
+
+class PolicyUseCaseTests(TestCase):
+    """Three worked claims, priced through the live API against the stored policy.
+
+    PolicyStep8Tests exercises the engine directly. These go through
+    /api/calculate with a real FormulaConfig row, so a policy row that has
+    drifted from the document fails here even when the engine is right.
+    """
+
+    def setUp(self):
+        import importlib
+        import json as _json
+
+        reset = importlib.import_module(
+            "core.migrations.0018_reset_policy_to_workflow_document"
+        )
+        FormulaConfig.objects.all().delete()
+        FormulaConfig.objects.create(
+            **{
+                **reset.POLICY,
+                "version": 1,
+                "author_point_json": _json.dumps(reset.AUTHOR_POINTS),
+                "active": True,
+            }
+        )
+        self.user = User.objects.create_user(
+            email="usecase@test.edu", password="pass", name="Use Case",
+            role=Role.FACULTY,
+        )
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def price(self, **payload):
+        r = self.client.post(
+            "/api/calculate", data=json.dumps(payload), content_type="application/json"
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()
+
+    def test_use_case_1_q1_engineering_journal_third_of_three(self):
+        """Dr X, 3 authors, 3rd position, SNIP 2.4, Q1 Engineering journal.
+
+        [(2.4 x 55000) + 50000] x 0.2 = 36,400
+        """
+        body = self.price(
+            snip=2.4, quartile="Q1", total_authors=3, author_position=3,
+            indexing_level="Scopus", publication_type="Journal",
+            engineering_class="Engineering", sec_reference_count=2,
+        )
+        self.assertEqual(body["category"], "I")
+        self.assertEqual(body["qf"], 50000)
+        self.assertAlmostEqual(body["remuneration"], (2.4 * 55000 + 50000) * 0.2, places=2)
+
+    def test_use_case_2_scopus_journal_without_snip_sole_author(self):
+        """A Scopus journal article with no SNIP on record: 5000 x 1 = 5,000."""
+        body = self.price(
+            snip=None, quartile="Others", total_authors=1, author_position=1,
+            indexing_level="Scopus", publication_type="Journal",
+            engineering_class="Engineering", sec_reference_count=2,
+        )
+        self.assertEqual(body["category"], "II")
+        self.assertEqual(body["qf"], 0)
+        self.assertEqual(body["remuneration"], 5000)
+
+    def test_use_case_3_web_of_science_esci_two_authors(self):
+        """An ESCI journal outside Scopus, 2 authors, 1st: [5000 + 15000] x 0.6 = 12,000."""
+        body = self.price(
+            snip=None, quartile="Q3", total_authors=2, author_position=1,
+            indexing_level="ESCI", publication_type="Journal",
+            engineering_class="Engineering", sec_reference_count=3,
+        )
+        self.assertEqual(body["category"], "IV")
+        self.assertEqual(body["qf"], 15000)
+        self.assertEqual(body["remuneration"], (5000 + 15000) * 0.6)
+
+    def test_a_use_case_survives_clear_and_payment(self):
+        """The number the wizard shows is the number the ledger records.
+
+        Clearing and paying both recompute and refuse a drifted amount, so this
+        is where a policy that prices differently from the estimate would bite.
+        """
+        admin = User.objects.create_user(
+            email="uc-admin@test.edu", password="pass", name="UC Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        finance = User.objects.create_user(
+            email="uc-fin@test.edu", password="pass", name="UC Finance",
+            role=Role.FINANCE,
+        )
+        # UC1 again, this time as a real claim: [(2.4 x 55000) + 50000] x 0.2
+        expected = (2.4 * 55000 + 50000) * 0.2
+        claim = Claim.objects.create(
+            owner=self.user, status=ClaimStatus.SUBMITTED, ticket_number="UC-PAY-1",
+            paper_title="Use case one, all the way to the ledger",
+            publication_type="Journal", indexing_level="Scopus",
+            engineering_class="Engineering",
+            # MANUAL sources survive re-verification, which is what an
+            # admin-verified claim looks like by the time it reaches clearing.
+            quartile="Q1", quartile_source="MANUAL",
+            snip=2.4, snip_source="MANUAL",
+            total_authors=3, author_position=3, remuneration=expected,
+        )
+        for n in ("14", "15"):
+            ClaimAttachment.objects.create(
+                claim=claim, kind=AttachmentKind.SEC_REFERENCE,
+                url=f"/media/claims/{'u' * 31}{n[-1]}.pdf", ref_number=n,
+            )
+
+        c = Client()
+        with patch("core.api.verify_publication", side_effect=_echo_verified):
+            c.force_login(admin)
+            r = c.post(
+                f"/api/claims/{claim.id}/clear",
+                data=json.dumps({"note": "Cleared in the use-case test",
+                                 "expected_amount": expected}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 200, r.content)
+
+        # Deliberately outside the patch: payment must not depend on Scopus.
+        c.force_login(finance)
+        r = c.post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({"note": "Paid in the use-case test",
+                             "voucher_number": "VCH-UC-1",
+                             "expected_amount": expected}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.PAID)
+        self.assertAlmostEqual(float(claim.remuneration), expected, places=2)
+        ledger = PaidLedger.objects.filter(claim=claim)
+        self.assertEqual(ledger.count(), 1)
+        self.assertAlmostEqual(float(ledger.first().amount), expected, places=2)
+
+    def test_finance_can_pay_while_scopus_is_down(self):
+        """Payment recomputes from stored values, so an outage cannot block it.
+
+        A single mark-paid used to re-verify externally and answer 502 when
+        Scopus was unreachable. `skip_external` is super-admin only, so a
+        Finance user had no way through — while bulk mark-paid, which never
+        called out, paid the same claim happily.
+        """
+        finance = User.objects.create_user(
+            email="uc-fin2@test.edu", password="pass", name="UC Finance 2",
+            role=Role.FINANCE,
+        )
+        expected = 5000.0 * 0.6
+        claim = Claim.objects.create(
+            owner=self.user, status=ClaimStatus.CLEARED, ticket_number="UC-PAY-2",
+            paper_title="Payable while the index is unreachable",
+            publication_type="Journal", indexing_level="Scopus",
+            engineering_class="Engineering",
+            total_authors=2, author_position=1, remuneration=expected,
+        )
+        for n in ("21", "22"):
+            ClaimAttachment.objects.create(
+                claim=claim, kind=AttachmentKind.SEC_REFERENCE,
+                url=f"/media/claims/{'d' * 31}{n[-1]}.pdf", ref_number=n,
+            )
+
+        c = Client()
+        c.force_login(finance)
+        with patch("core.api.verify_publication", side_effect=AssertionError(
+            "payment must not call Scopus"
+        )):
+            r = c.post(
+                f"/api/claims/{claim.id}/mark-paid",
+                data=json.dumps({"note": "Paid during an outage",
+                                 "voucher_number": "VCH-UC-2",
+                                 "expected_amount": expected}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.PAID)
+        self.assertAlmostEqual(float(claim.remuneration), expected, places=2)
+
+    def test_stored_policy_matches_the_document(self):
+        """Guards the row itself, so a hand-edit that drifts is caught here."""
+        cfg = FormulaConfig.objects.get(active=True)
+        self.assertEqual(cfg.snip_multiplier, 55000)
+        self.assertEqual(
+            [cfg.qf_q1, cfg.qf_q2, cfg.qf_q3, cfg.qf_q4], [50000, 30000, 15000, 7000]
+        )
+        self.assertEqual(cfg.qf_others, 0)
+        self.assertEqual(cfg.fixed_journal_no_snip, 5000)
+        self.assertEqual(cfg.fixed_other_no_snip, 4000)
+        self.assertEqual(cfg.fixed_web_of_science, 5000)
+        self.assertEqual(cfg.max_authors, 9)
+        self.assertEqual(cfg.min_sec_references, 2)
 
 
 class ErpImportHelperTests(TestCase):

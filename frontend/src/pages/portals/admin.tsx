@@ -1338,54 +1338,102 @@ export function AdminUsersPage() {
 // Formula editor + preview calculator
 // ---------------------------------------------------------------------------
 
-const FORMULA_FIELD_META: { key: string; label: string; description: string }[] = [
+/**
+ * The knobs Step 8 of the Publication Processing Workflow actually defines,
+ * grouped the way the document groups them.
+ *
+ * Two fields used to sit here that the policy has no rows for — "QF — Others /
+ * conference" and "QF — NO_SNIP mode". The first was paying ₹4,000 on every
+ * unranked Engineering journal; the QFA table stops at Q4. Meanwhile the four
+ * category rates and the two ceilings the policy *does* define were not
+ * editable at all.
+ */
+const FORMULA_FIELD_META: {
+  key: string
+  label: string
+  description: string
+  group: string
+  step?: string
+}[] = [
   {
     key: "snip_multiplier",
     label: "SNIP multiplier",
-    description: "Rupees added per SNIP point (base = SNIP × multiplier + QF)",
+    description: "Category I: [(SNIP × this) + QFA] × APP",
+    group: "Category I — Scopus indexed, with SNIP",
   },
   {
     key: "snip_cap",
     label: "SNIP cap",
-    description: "Reject SNIP values above this (default 30)",
+    description: "Reject SNIP values above this. A guard, not a policy figure.",
+    group: "Category I — Scopus indexed, with SNIP",
+  },
+  {
+    key: "fixed_journal_no_snip",
+    label: "Category II rate (₹)",
+    description: "Scopus journal article with no SNIP: this × APP",
+    group: "Fixed category rates",
+  },
+  {
+    key: "fixed_other_no_snip",
+    label: "Category III rate (₹)",
+    description: "Scopus conference proceeding or book chapter, no SNIP: this × APP",
+    group: "Fixed category rates",
+  },
+  {
+    key: "fixed_web_of_science",
+    label: "Category IV base (₹)",
+    description: "Web of Science (SCIE/ESCI), not in Scopus: [this + QFA] × APP",
+    group: "Fixed category rates",
   },
   {
     key: "qf_q1",
-    label: "QF — Q1",
-    description: "Quartile factor for Q1 journals",
+    label: "QFA — Q1 (₹)",
+    description: "Additional quartile incentive. Engineering journals only.",
+    group: "Additional Quartile Incentive (QFA)",
   },
   {
     key: "qf_q2",
-    label: "QF — Q2",
-    description: "Quartile factor for Q2 journals",
+    label: "QFA — Q2 (₹)",
+    description: "Additional quartile incentive. Engineering journals only.",
+    group: "Additional Quartile Incentive (QFA)",
   },
   {
     key: "qf_q3",
-    label: "QF — Q3",
-    description: "Quartile factor for Q3 journals",
+    label: "QFA — Q3 (₹)",
+    description: "Additional quartile incentive. Engineering journals only.",
+    group: "Additional Quartile Incentive (QFA)",
   },
   {
     key: "qf_q4",
-    label: "QF — Q4",
-    description: "Quartile factor for Q4 journals",
+    label: "QFA — Q4 (₹)",
+    description: "Additional quartile incentive. Engineering journals only.",
+    group: "Additional Quartile Incentive (QFA)",
   },
   {
-    key: "qf_others",
-    label: "QF — Others / conference",
-    description: "Used when ranking is Others or SNIP is N/A",
+    key: "max_authors",
+    label: "Maximum eligible authors",
+    description: "Publications with more authors than this are not eligible at all",
+    group: "Eligibility",
+    step: "1",
   },
   {
-    key: "qf_no_snip",
-    label: "QF — NO_SNIP mode",
-    description: "Quartile factor when NO_SNIP is selected",
+    key: "min_sec_references",
+    label: "Minimum SEC references",
+    description:
+      "Below this the publication is counted but carries no remuneration. 0 turns the check off.",
+    group: "Eligibility",
+    step: "1",
   },
   {
     key: "high_value_threshold",
     label: "Second-approval threshold (₹)",
     description:
       "0 = off. Above 0, claims at or over this amount need a second admin to approve them before Finance can pay — which requires two admin accounts",
+    group: "Controls (not from the policy document)",
   },
 ]
+
+const FORMULA_GROUPS = [...new Set(FORMULA_FIELD_META.map((f) => f.group))]
 
 const QUARTILE_OPTIONS = ["Q1", "Q2", "Q3", "Q4", "Others"] as const
 
@@ -1482,17 +1530,28 @@ export function AdminFormulaPage() {
       <Section title="Parameters">
         <FormPanel>
           <form className="grid gap-5 md:grid-cols-2" onSubmit={save}>
-            {FORMULA_FIELD_META.map(({ key, label, description }) => (
-              <div key={key} className="space-y-1.5">
-                <Label htmlFor={key}>{label}</Label>
-                <Input
-                  id={key}
-                  type="number"
-                  step="any"
-                  value={Number(form[key] ?? 0)}
-                  onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })}
-                />
-                <p className="text-xs text-muted-foreground">{description}</p>
+            {/* Grouped by the policy's own categories: eleven unlabelled money
+                boxes in one grid gave no clue which formula each fed. */}
+            {FORMULA_GROUPS.map((group) => (
+              <div key={group} className="space-y-4 md:col-span-2">
+                <p className="text-eyebrow">{group}</p>
+                <div className="grid gap-5 md:grid-cols-2">
+                  {FORMULA_FIELD_META.filter((f) => f.group === group).map(
+                    ({ key, label, description, step }) => (
+                      <div key={key} className="space-y-1.5">
+                        <Label htmlFor={key}>{label}</Label>
+                        <Input
+                          id={key}
+                          type="number"
+                          step={step || "any"}
+                          value={Number(form[key] ?? 0)}
+                          onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })}
+                        />
+                        <p className="text-xs text-muted-foreground">{description}</p>
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
             ))}
             <div className="space-y-1.5 md:col-span-2">
@@ -1530,14 +1589,9 @@ export function AdminFormulaPage() {
               />
               Student publications pay ₹0
             </label>
-            <label className="flex items-center gap-2 text-sm md:col-span-2">
-              <input
-                type="checkbox"
-                checked={Boolean(form.qf_only_for_no_snip)}
-                onChange={(e) => setForm({ ...form, qf_only_for_no_snip: e.target.checked })}
-              />
-              NO_SNIP / Others use QF only when SNIP is missing
-            </label>
+            {/* "NO_SNIP / Others use QF only when SNIP is missing" used to sit
+                here. The calculator never read the flag, so ticking it changed
+                nothing while looking like a money control. */}
             <div className="md:col-span-2">
               <Button type="submit">Save as new policy version</Button>
             </div>

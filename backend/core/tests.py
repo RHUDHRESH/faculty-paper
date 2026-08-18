@@ -232,20 +232,26 @@ class TicketHierarchyTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
 
-    def test_a_ticket_cleared_under_the_old_chain_is_still_payable(self):
-        """Rows approved before the chain changed must not be stranded."""
+    def test_a_ticket_on_the_old_chain_must_be_cleared_before_payment(self):
+        """Paying one of these skipped clearing altogether.
+
+        No re-verification, no recomputed amount, no confirmation guard -- it
+        paid whatever figure the spreadsheet carried. A super admin moves it to
+        Cleared first, which is a deliberate act and leaves a record.
+        """
         claim = self._submitted_claim("FP-2026-000011")
         claim.status = ClaimStatus.PRINCIPAL_APPROVED
         claim.save(update_fields=["status"])
         self._login(self.finance)
         r = self.client.post(
             f"/api/claims/{claim.id}/mark-paid",
-            data=json.dumps({"voucher_number": "V3"}),
+            data=json.dumps({}),
             content_type="application/json",
         )
-        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("retired approval status", r.json()["detail"])
         claim.refresh_from_db()
-        self.assertEqual(claim.status, ClaimStatus.PAID)
+        self.assertEqual(claim.status, ClaimStatus.PRINCIPAL_APPROVED)
 
     def test_only_admins_can_clear(self):
         claim = self._submitted_claim("FP-2026-000012")
@@ -366,22 +372,32 @@ class TicketHierarchyTests(TestCase):
             journal_title="Nature",
             quartile="Q1",
             snip=1.0,
-            status=ClaimStatus.PRINCIPAL_APPROVED,
+            status=ClaimStatus.CLEARED,
             ticket_number="FP-2026-000099",
             total_authors=1,
             author_position=1,
-            remuneration=5000,
+            indexing_level="Scopus",
+            publication_type="Journal",
+            engineering_class="Engineering",
+            remuneration=105000,
         )
+        # Two cited SEC references, or the policy prices it at nothing and the
+        # amount guard refuses the payment before we get to the double-pay check.
+        for n in ("14", "15"):
+            ClaimAttachment.objects.create(
+                claim=claim, kind=AttachmentKind.SEC_REFERENCE,
+                url=f"/media/claims/{'d' * 31}{n[-1]}.pdf", ref_number=n,
+            )
         self._login(self.finance)
         r1 = self.client.post(
             f"/api/claims/{claim.id}/mark-paid",
-            data=json.dumps({"voucher_number": "V1", "note": "paid"}),
+            data=json.dumps({"note": "paid", "expected_amount": 105000}),
             content_type="application/json",
         )
         self.assertEqual(r1.status_code, 200, r1.content)
         r2 = self.client.post(
             f"/api/claims/{claim.id}/mark-paid",
-            data=json.dumps({"voucher_number": "V2", "note": "again"}),
+            data=json.dumps({"note": "again", "expected_amount": 105000}),
             content_type="application/json",
         )
         self.assertEqual(r2.status_code, 400)
@@ -2781,7 +2797,9 @@ class IdentityBoundaryTests(TestCase):
         )
         self.client = Client()
 
-    def test_profile_cannot_change_payment_identity(self):
+    def test_a_claimant_cannot_change_any_profile_detail(self):
+        """Every field on a profile is identity -- the name on the payment, and
+        the Scopus link deciding whose record a paper is checked against."""
         self.client.force_login(self.faculty)
         r = self.client.patch(
             "/api/auth/profile",
@@ -2793,22 +2811,59 @@ class IdentityBoundaryTests(TestCase):
             }),
             content_type="application/json",
         )
-        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.status_code, 403, r.content)
         self.faculty.refresh_from_db()
-        self.assertEqual(self.faculty.name, "New Name")       # allowed
-        self.assertEqual(self.faculty.staff_id, "STF-REAL")   # rejected
+        self.assertEqual(self.faculty.name, "Identity Faculty")
+        self.assertEqual(self.faculty.staff_id, "STF-REAL")
         self.assertEqual(self.faculty.biometric_id, "BIO-REAL")
         self.assertEqual(self.faculty.department, "CSE")
 
-    def test_profile_update_is_audited(self):
+    def test_a_correction_can_be_requested_instead(self):
+        """Locking the profile without a route means chasing somebody by email,
+        so the detail stays wrong and the claim stays blocked."""
         from core.models import AuditLog
 
         self.client.force_login(self.faculty)
-        self.client.patch(
+        r = self.client.post(
+            "/api/auth/profile/correction",
+            data=json.dumps({
+                "field": "scopus_author_url",
+                "proposed": "https://www.scopus.com/authid/detail.uri?authorId=123",
+                "note": "This points at a different S. Kumar",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        log = AuditLog.objects.filter(action="PROFILE_CORRECTION_REQUEST").first()
+        self.assertIsNotNone(log)
+        self.assertEqual(json.loads(log.detail_json)["field"], "scopus_author_url")
+        # Asking does not change it.
+        self.faculty.refresh_from_db()
+        self.assertIsNone(self.faculty.scopus_author_url)
+
+    def test_an_unknown_field_cannot_be_requested(self):
+        self.client.force_login(self.faculty)
+        r = self.client.post(
+            "/api/auth/profile/correction",
+            data=json.dumps({"field": "role", "proposed": "SUPER_ADMIN"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+
+    def test_a_super_admin_editing_a_profile_is_audited(self):
+        from core.models import AuditLog
+
+        admin = User.objects.create_user(
+            email="identity-admin@test.edu", password="pass", name="Identity Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.client.force_login(admin)
+        r = self.client.patch(
             "/api/auth/profile",
             data=json.dumps({"designation": "Professor"}),
             content_type="application/json",
         )
+        self.assertEqual(r.status_code, 200, r.content)
         self.assertTrue(AuditLog.objects.filter(action="PROFILE_UPDATE").exists())
 
 

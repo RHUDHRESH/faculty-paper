@@ -28,6 +28,7 @@ from ninja.security import SessionAuth
 logger = logging.getLogger("core.api")
 
 from core.models import (
+    ClaimNote,
     AttachmentKind,
     AuditLog,
     Claim,
@@ -80,6 +81,7 @@ from core.services.scopus import (
     search_candidates,
 )
 from core.services.tickets import assign_ticket_number
+from core.services.pdfmeta import content_digest, guess_title
 from core.services.uploads import ACCEPTED_LABEL, sniff
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
 
@@ -211,6 +213,13 @@ def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
     return issues
 
 
+def _notify_admin_users(title: str, body: str, href: str) -> None:
+    """An admin notification that is not about a particular ticket."""
+    for u in User.objects.filter(role__in=rbac.ADMIN_ROLES, active=True):
+        Notification.objects.create(user=u, title=title, body=body, href=href)
+        send_optional_email(u.email, title, body)
+
+
 def _notify_admins(claim: Claim, title: str, body: str) -> None:
     """A submitted ticket waits on admin clearing, so admins are who hear about it."""
     for u in User.objects.filter(
@@ -272,6 +281,8 @@ class AttachmentIn(Schema):
     # SEC_REFERENCE only: which citation this file proves.
     ref_number: Optional[str] = None
     ref_title: Optional[str] = None
+    #: Returned by /claims/upload; carried back so the file stays identifiable.
+    content_hash: Optional[str] = None
 
 
 class ClaimIn(Schema):
@@ -486,6 +497,9 @@ def _validated_attachments(payload: ClaimIn) -> list[dict[str, Any]] | None:
                 # Only a cited reference carries a citation identity.
                 "ref_number": ((a.ref_number or "").strip()[:32] or None) if is_reference else None,
                 "ref_title": ((a.ref_title or "").strip() or None) if is_reference else None,
+                # Carried from the upload so the same file is recognisable on
+                # the next claim, not just within this one.
+                "content_hash": (a.content_hash or "").strip()[:64] or None,
             }
         )
     return kept
@@ -1017,23 +1031,45 @@ def auth_me(request: HttpRequest):
 
 
 class ProfileUpdateIn(Schema):
-    """Deliberately excludes staff_id, biometric_id, and department.
+    """Nothing on a profile is self-service any more.
 
-    Those three decide who gets paid and which department the ticket sits in, and
-    _bind_identity_from_user copies them onto every claim as server-owned values.
-    Letting the claimant edit them on their own profile would make that guard
-    meaningless. They are changed by an admin, via PATCH /admin/users/{id}.
+    staff_id, biometric_id and department were already server-owned: they decide
+    who gets paid and where the ticket sits. Name, designation and the Scopus
+    link have joined them, because they are equally identity — a Scopus link
+    pointed at somebody else's profile is how a claim gets attributed to the
+    wrong author. Every field is changed by a super admin via
+    PATCH /admin/users/{id}; a claimant raises a correction request instead.
     """
 
+    #: Retained so an existing client gets a clear refusal rather than a 422.
     name: Optional[str] = None
     designation: Optional[str] = None
     scopus_author_url: Optional[str] = None
     scopus_author_id: Optional[str] = None
 
 
+class CorrectionRequestIn(Schema):
+    field: str
+    proposed: str
+    note: Optional[str] = None
+
+
 @api.patch("/auth/profile", auth=session_auth)
 def update_profile(request: HttpRequest, payload: ProfileUpdateIn):
+    """Refused for everyone but a super admin.
+
+    Every field on a profile is identity: the name on the payment, the
+    designation on the claim, and the Scopus link that decides which author's
+    record a paper is checked against. A claimant editing their own is how a
+    claim ends up attributed to somebody else.
+    """
     u = require_user(request)
+    if u.role != Role.SUPER_ADMIN:
+        raise HttpError(
+            403,
+            "Profile details are set by the research cell. Use "
+            "“Request a correction” and an admin will action it.",
+        )
     data = payload.dict(exclude_unset=True)
     changed = {k: v for k, v in data.items() if getattr(u, k, None) != v}
     for k, v in data.items():
@@ -1048,6 +1084,56 @@ def update_profile(request: HttpRequest, payload: ProfileUpdateIn):
             detail_json=json.dumps({"fields": sorted(changed)}),
         )
     return _user_dict(u)
+
+
+#: What a claimant may ask to have corrected. Anything not here is not a
+#: profile field they can even see.
+CORRECTABLE = {
+    "name": "Full name",
+    "department": "Department",
+    "designation": "Designation",
+    "staff_id": "Staff ID",
+    "biometric_id": "Biometric ID",
+    "scopus_author_url": "Scopus author link",
+    "scopus_author_id": "Scopus author ID",
+}
+
+
+@api.post("/auth/profile/correction", auth=session_auth)
+def request_profile_correction(request: HttpRequest, payload: CorrectionRequestIn):
+    """Ask an admin to change a detail you cannot change yourself.
+
+    Without this, "the research cell owns your profile" means "chase somebody by
+    email and hope" — so the details stay wrong and the claim stays blocked.
+    """
+    u = require_user(request)
+    field = (payload.field or "").strip()
+    proposed = (payload.proposed or "").strip()
+    if field not in CORRECTABLE:
+        raise HttpError(400, "That is not a profile detail you can request a change to")
+    if not proposed:
+        raise HttpError(400, "Say what it should be")
+
+    current = getattr(u, field, None)
+    AuditLog.objects.create(
+        actor=u,
+        action="PROFILE_CORRECTION_REQUEST",
+        entity="User",
+        entity_id=u.id,
+        detail_json=json.dumps({
+            "field": field,
+            "label": CORRECTABLE[field],
+            "current": str(current or ""),
+            "proposed": proposed,
+            "note": (payload.note or "").strip()[:500],
+        }),
+    )
+    _notify_admin_users(
+        f"Profile correction requested · {u.name or u.email}",
+        f"{CORRECTABLE[field]}: “{current or 'not set'}” → “{proposed}”",
+        f"/admin/users?q={u.email}",
+    )
+    return {"ok": True, "field": field, "label": CORRECTABLE[field], "proposed": proposed}
 
 
 @api.post("/auth/change-password", auth=session_auth)
@@ -1427,6 +1513,28 @@ def upload_claim_file(request: HttpRequest, file: UploadedFile = File(...)):
     # where the container filesystem does not survive a deploy.
     fname = f"{uuid_lib.uuid4().hex}.{kind.extension}"
     default_storage.save(f"claims/{fname}", ContentFile(content))
+
+    # The file's own fingerprint, so the same document is recognised however it
+    # was renamed. Two references that are really one page scanned twice is the
+    # common case; the same paper already used on another claim is the one worth
+    # stopping.
+    digest = content_digest(content)
+    seen = (
+        ClaimAttachment.objects.filter(content_hash=digest)
+        .select_related("claim", "claim__owner")
+        .first()
+    )
+    duplicate = None
+    if seen:
+        duplicate = {
+            "claim_id": seen.claim_id,
+            "ticket_number": seen.claim.ticket_number,
+            "filename": seen.filename,
+            "uploaded_at": seen.created_at.isoformat(),
+            "same_owner": seen.claim.owner_id == user.id,
+            "owner_name": seen.claim.owner.name,
+        }
+
     return {
         "url": f"{settings.MEDIA_URL}claims/{fname}",
         # The claimant's own name, shown in the UI; the stored name is a uuid.
@@ -1434,6 +1542,11 @@ def upload_claim_file(request: HttpRequest, file: UploadedFile = File(...)):
         "size_bytes": len(content),
         "content_type": kind.content_type,
         "kind_label": kind.label,
+        "content_hash": digest,
+        # A suggestion for the title box, never written to the claim on its own:
+        # a wrong title picked up silently is worse than an empty field.
+        "suggested_title": guess_title(content),
+        "duplicate_of": duplicate,
     }
 
 
@@ -2204,7 +2317,21 @@ def _mark_one_paid(
     """
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
-        if claim.status not in PAYABLE_STATUSES:
+        # Only a cleared claim is payable. PAYABLE_STATUSES also carries three
+        # ERP-imported "approved" states, and paying one of those skipped the
+        # whole clearing step: no re-verification, no recomputed amount, no
+        # confirmation guard — it just paid whatever figure the spreadsheet
+        # carried. A stranded legacy row now goes through override-status to
+        # CLEARED first, which is a deliberate act by a super admin and leaves
+        # a record.
+        if claim.status != ClaimStatus.CLEARED:
+            if claim.status in PAYABLE_STATUSES:
+                raise HttpError(
+                    400,
+                    "This ticket is on a retired approval status from the old ERP. "
+                    "A super admin must move it to Cleared before it can be paid, "
+                    "so the amount is verified rather than taken from the import.",
+                )
             raise HttpError(400, "Invalid status — the ticket must be cleared first")
         # Net of the ledger, not mere existence: a voided payment leaves a
         # reversing row behind, and the claim must be payable again.
@@ -2212,10 +2339,8 @@ def _mark_one_paid(
         if net_paid > 0:
             raise HttpError(400, "Already processed")
         if claim.status == ClaimStatus.CLEARED:
-            # Live chain: recompute from the stored verified columns, then
-            # require the confirmed amount. Legacy ERP-imported statuses are
-            # paid at their imported figures — they have no verified columns to
-            # recompute from.
+            # Recompute from the stored verified columns, then require the
+            # confirmed amount.
             if _needs_second_approval(claim):
                 raise HttpError(
                     400,
@@ -2227,8 +2352,11 @@ def _mark_one_paid(
             else:
                 _apply_calc(claim)
             _guard_recomputed_amount(claim, expected_amount)
+        # Vouchers are no longer typed in: finance had a free-text box that could
+        # be left blank or reused, and the number carried no meaning. Imported
+        # history keeps whatever it came with.
         if voucher_number:
-            claim.voucher_number = voucher_number[:64]
+            claim.voucher_number = str(voucher_number)[:64]
         _transition(claim, user, ClaimStatus.PAID, "MARK_PAID", note)
         payout = claim.payout_month
         if not payout:
@@ -2980,6 +3108,184 @@ def notifications_read_all(request: HttpRequest):
     user = require_user(request)
     Notification.objects.filter(user=user, read=False).update(read=True)
     return {"ok": True}
+
+
+# ---------- notes on a ticket, and lookup ----------
+
+
+class ClaimNoteIn(Schema):
+    body: str
+
+
+def _may_read_notes(role: str) -> bool:
+    """Admins read them; the principal reads back what they wrote."""
+    return role in rbac.ADMIN_ROLES or role == Role.PRINCIPAL
+
+
+@api.get("/claims/{claim_id}/notes", auth=session_auth)
+def list_claim_notes(request: HttpRequest, claim_id: str):
+    """Notes raised on one ticket. Never the claimant, never finance."""
+    user = require_user(request)
+    if not _may_read_notes(user.role):
+        raise HttpError(403, "Forbidden")
+    claim = get_object_or_404(Claim, pk=claim_id)
+    return {
+        "results": [
+            {
+                "id": n.id,
+                "body": n.body,
+                "author_name": n.author.name if n.author else None,
+                "author_role": n.author.role if n.author else None,
+                "created_at": n.created_at.isoformat(),
+                "resolved_at": n.resolved_at.isoformat() if n.resolved_at else None,
+                "resolved_by_name": n.resolved_by.name if n.resolved_by else None,
+            }
+            for n in claim.notes.select_related("author", "resolved_by")
+        ]
+    }
+
+
+@api.post("/claims/{claim_id}/notes", auth=session_auth)
+def add_claim_note(request: HttpRequest, claim_id: str, payload: ClaimNoteIn):
+    """The principal raises something about a specific ticket, for the admin.
+
+    Tied to a ticket on purpose: a general message is a mail to somebody's inbox
+    and dies there, while a note on the ticket is in front of whoever picks that
+    ticket up.
+    """
+    user = require_user(request)
+    if user.role != Role.PRINCIPAL and user.role not in rbac.ADMIN_ROLES:
+        raise HttpError(403, "Forbidden")
+    body = (payload.body or "").strip()
+    if len(body) < 3:
+        raise HttpError(400, "Write the note first")
+
+    claim = get_object_or_404(Claim, pk=claim_id)
+    note = ClaimNote.objects.create(
+        claim=claim, author=user, body=body[:5000], audience=ClaimNote.Audience.ADMIN
+    )
+    _notify_admins(
+        claim,
+        f"{user.name or user.email} raised a note · {claim.ticket_number or 'draft'}",
+        body[:300],
+    )
+    AuditLog.objects.create(
+        actor=user, action="CLAIM_NOTE", entity="Claim", entity_id=claim.id,
+        detail_json=json.dumps({"note_id": note.id}),
+    )
+    return {"ok": True, "id": note.id}
+
+
+@api.post("/claims/notes/{note_id}/resolve", auth=session_auth)
+def resolve_claim_note(request: HttpRequest, note_id: str):
+    user = require_user(request)
+    if user.role not in rbac.ADMIN_ROLES:
+        raise HttpError(403, "Only the research cell closes a note")
+    note = get_object_or_404(ClaimNote, pk=note_id)
+    note.resolved_at = timezone.now()
+    note.resolved_by = user
+    note.save(update_fields=["resolved_at", "resolved_by"])
+    return {"ok": True}
+
+
+@api.get("/lookup/ticket", auth=session_auth)
+def lookup_ticket(request: HttpRequest, q: str):
+    """Find a ticket by its number, or a faculty member by id, name or email.
+
+    One box that takes whatever somebody has to hand — a ticket number off an
+    email, a staff id off a spreadsheet, or a name — instead of three screens
+    that each want a different key.
+    """
+    user = require_user(request)
+    term = (q or "").strip()
+    if len(term) < 2:
+        raise HttpError(400, "Type at least two characters")
+
+    scope = _claims_queryset(user)
+    tickets = scope.filter(
+        Q(ticket_number__iexact=term) | Q(ticket_number__icontains=term)
+    ).select_related("owner")[:20]
+
+    people = []
+    if rbac.can_view_reports(user.role) or rbac.can_manage_users(user.role):
+        people = User.objects.filter(role=Role.FACULTY).filter(
+            Q(staff_id__iexact=term)
+            | Q(biometric_id__iexact=term)
+            | Q(employee_id__iexact=term)
+            | Q(email__icontains=term)
+            | Q(name__icontains=term)
+        )[:20]
+
+    return {
+        "tickets": [
+            {
+                "id": c.id,
+                "ticket_number": c.ticket_number,
+                "paper_title": c.paper_title,
+                "status": c.status,
+                "owner_name": c.owner.name,
+                "remuneration": c.remuneration,
+            }
+            for c in tickets
+        ],
+        "faculty": [
+            {
+                "id": u.id,
+                "name": u.name,
+                "email": u.email,
+                "department": u.department,
+                "staff_id": u.staff_id,
+            }
+            for u in people
+        ],
+    }
+
+
+@api.get("/faculty/{user_id}/report", auth=session_auth)
+def faculty_report(request: HttpRequest, user_id: str):
+    """Everything one faculty member has published and been paid.
+
+    The oversight portals could count the college but not a person, so
+    "how has Dr X done" meant exporting the ledger and pivoting it by hand.
+    """
+    user = require_user(request)
+    if not (rbac.can_view_reports(user.role) or rbac.can_manage_users(user.role)):
+        raise HttpError(403, "Forbidden")
+    person = get_object_or_404(User, pk=user_id)
+    claims = Claim.objects.filter(owner=person).order_by("-updated_at")
+    paid = claims.filter(status=ClaimStatus.PAID)
+
+    by_month: dict[str, dict[str, Any]] = {}
+    for c in paid.exclude(payout_month__isnull=True):
+        key = c.payout_month.strftime("%Y-%m")
+        slot = by_month.setdefault(key, {"key": key, "count": 0, "amount": 0.0})
+        slot["count"] += 1
+        slot["amount"] += c.remuneration or 0
+
+    def group(field: str, blank: str):
+        out: dict[str, dict[str, Any]] = {}
+        for c in claims:
+            key = (getattr(c, field, None) or blank).strip() or blank
+            slot = out.setdefault(key, {"key": key, "count": 0, "amount": 0.0})
+            slot["count"] += 1
+            slot["amount"] += c.remuneration or 0
+        return sorted(out.values(), key=lambda r: -r["count"])
+
+    return {
+        "faculty": _user_dict(person),
+        "totals": {
+            "publications": claims.count(),
+            "paid_claims": paid.count(),
+            "paid_amount": round(
+                sum(c.remuneration or 0 for c in paid), 2
+            ),
+            "in_review": claims.filter(status=ClaimStatus.SUBMITTED).count(),
+        },
+        "by_month": sorted(by_month.values(), key=lambda r: r["key"]),
+        "by_quartile": group("quartile", "No quartile"),
+        "by_status": group("status", "—"),
+        "claims": [claim_to_dict(c) for c in claims[:200]],
+    }
 
 
 # ---------- super-admin powers ----------

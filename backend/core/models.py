@@ -360,6 +360,10 @@ class ClaimAttachment(models.Model):
     url = models.TextField()
     filename = models.CharField(max_length=255, blank=True, null=True)
     size_bytes = models.IntegerField(default=0)
+    #: sha256 of the file's own bytes. Renaming a PDF does not change it, so the
+    #: same document uploaded twice is recognisable — as two references that are
+    #: really one, or as evidence already used on another claim.
+    content_hash = models.CharField(max_length=64, blank=True, null=True, db_index=True)
     ref_number = models.CharField(max_length=32, blank=True, null=True)
     ref_title = models.TextField(blank=True, null=True)
     uploaded_by = models.ForeignKey(
@@ -470,6 +474,40 @@ class Notification(models.Model):
     read = models.BooleanField(default=False)
     claim_id = models.CharField(max_length=32, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ClaimNote(models.Model):
+    """A note about one ticket, written for a named audience.
+
+    Kept apart from ClaimAction because that is the claim's history and the
+    claimant can read it. A principal raising a concern with the research cell
+    is not part of the story the claimant is shown, and putting it there would
+    leak it the moment anyone opened their own ticket.
+    """
+
+    class Audience(models.TextChoices):
+        #: The research cell only. The claimant and finance never see it.
+        ADMIN = "ADMIN", "Admin only"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="notes")
+    author = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="claim_notes"
+    )
+    audience = models.CharField(
+        max_length=16, choices=Audience.choices, default=Audience.ADMIN
+    )
+    body = models.TextField()
+    resolved_at = models.DateTimeField(blank=True, null=True)
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="claim_notes_resolved",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["claim", "-created_at"])]
 
 
 class MonthlyBatch(models.Model):

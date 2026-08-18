@@ -1,8 +1,9 @@
-﻿import { type FormEvent, type ReactNode, useEffect, useState } from "react"
+import { type FormEvent, type ReactNode, useEffect, useState } from "react"
+import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
-import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
-import { Money, formatDate, formatDateTime } from "@/components/ticket-ui"
+import { EmptyState, ErrorState, InsetList, PageHeader, Section, StatStrip } from "@/components/layout/page"
+import { Money, StatusChip, formatDate, formatDateTime, formatMoney } from "@/components/ticket-ui"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -101,19 +102,31 @@ async function multipartPost(path: string, fd: FormData): Promise<unknown> {
 // Admin overview (index route)
 // ---------------------------------------------------------------------------
 
+type RecentClaim = {
+  id: string
+  ticket_number?: string | null
+  paper_title?: string | null
+  owner_name?: string | null
+  status?: string | null
+  remuneration?: number | null
+  updated_at?: string | null
+}
+
 export function AdminApprovalsPage() {
   const { data: dash, isLoading: loading, isError, refetch } = useApiQuery<{
     by_status?: Record<string, number>
     total_paid?: number
+    recent?: RecentClaim[]
   }>(["dashboard", "admin"], "/api/dashboard")
 
   const by = dash?.by_status || {}
+  const recent = dash?.recent || []
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Admin overview"
-        subtitle="Overview · Users · Formula · Imports · Monthly · Audit — manage the system from this hub"
+        subtitle="Where every ticket currently sits, and what moved most recently"
       />
       {loading ? (
         <Skeleton className="h-20 w-full rounded-[var(--radius)]" />
@@ -145,16 +158,55 @@ export function AdminApprovalsPage() {
                 to: "/finance",
               },
               { label: "Paid", value: by.PAID || 0, to: "/finance/paid" },
+              // The headline figure on the page was a footnote in body text
+              // under the tiles; it belongs with the other readings.
+              { label: "Total paid", value: formatMoney(dash?.total_paid || 0) },
             ]}
           />
-          <p className="mt-2 text-sm text-muted-foreground">
-            Total paid:{" "}
-            <span className="font-semibold text-foreground">
-              <Money value={dash?.total_paid || 0} />
-            </span>
-          </p>
         </Section>
       )}
+
+      {/* The endpoint has always returned the ten most recently touched
+          tickets, and this page threw them away — leaving an admin's landing
+          screen as four numbers above half a page of nothing. */}
+      {!loading && !isError ? (
+        <Section
+          title="Latest activity"
+          description="The ten tickets that moved most recently"
+        >
+          {recent.length === 0 ? (
+            <EmptyState
+              title="Nothing has moved yet"
+              description="Tickets appear here as faculty submit them and the queue is worked."
+            />
+          ) : (
+            <InsetList>
+              {recent.map((c) => (
+                <Link
+                  key={c.id}
+                  to={`/admin/clearing?claim=${c.id}`}
+                  className="interactive flex min-h-11 items-center justify-between gap-4 px-4 py-2.5 transition-colors hover:bg-muted/40"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm text-foreground">
+                      {c.paper_title || "Untitled"}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {c.ticket_number || "draft"}
+                      {c.owner_name ? ` · ${c.owner_name}` : ""}
+                      {c.updated_at ? ` · ${formatDateTime(c.updated_at)}` : ""}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-3">
+                    <Money value={c.remuneration} className="text-sm" />
+                    <StatusChip status={String(c.status || "")} />
+                  </span>
+                </Link>
+              ))}
+            </InsetList>
+          )}
+        </Section>
+      ) : null}
     </div>
   )
 }

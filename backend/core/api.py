@@ -2601,20 +2601,38 @@ def reports(
     paid = qs.filter(status=ClaimStatus.PAID)
     payable = qs.filter(status__in=PAYABLE_STATUSES)
 
+    #: Values that mean "nothing was recorded" rather than a real category.
+    _BLANKISH = {"", "-", "--", "n/a", "na", "none", "null", "nil", "—", "–"}
+
     def rows(field: str, source=qs, label_blank: str = "Not recorded"):
-        out = []
+        """Group by a field, folding the ways a blank can be spelt.
+
+        Grouping on the raw column split one idea across several bars: the
+        quartile chart carried "No quartile" (22), "No Quartile" (1) and "-" (1)
+        as three separate rows, so no line in the report was the real total.
+        """
+        buckets: dict[str, dict[str, Any]] = {}
         for r in (
             source.values(field)
             .annotate(count=Count("id"), amount=Sum("remuneration"))
             .order_by("-count")
         ):
-            out.append(
-                {
-                    "key": r[field] or label_blank,
-                    "count": r["count"],
-                    "amount": round(r["amount"] or 0, 2),
-                }
+            raw = (r[field] or "").strip() if isinstance(r[field], str) else r[field]
+            label = label_blank if (raw is None or str(raw).strip().lower() in _BLANKISH) else str(raw)
+            slot = buckets.setdefault(
+                label.casefold(), {"key": label, "count": 0, "amount": 0.0, "top": 0}
             )
+            # Keep the spelling that most rows actually used.
+            if r["count"] > slot["top"]:
+                slot["key"] = label
+                slot["top"] = r["count"]
+            slot["count"] += r["count"]
+            slot["amount"] += r["amount"] or 0
+        out = [
+            {"key": b["key"], "count": b["count"], "amount": round(b["amount"], 2)}
+            for b in buckets.values()
+        ]
+        out.sort(key=lambda b: -b["count"])
         return out
 
     # A publication counts institutionally even when it carries no money.

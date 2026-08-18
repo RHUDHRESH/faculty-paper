@@ -1,4 +1,4 @@
-﻿import os
+import os
 from datetime import date
 import tempfile
 from pathlib import Path
@@ -140,7 +140,7 @@ class TicketHierarchyTests(TestCase):
 
     def _submitted_claim(self, ticket="FP-2026-000001"):
         # Verified values + evidenced SEC references, so the amount recomputes
-        # deterministically: (1.0 Ã— 55000 + 30000) Ã— point 1.0 = 85000 â€” kept
+        # deterministically: (1.0 × 55000 + 30000) × point 1.0 = 85000 — kept
         # below the second-approval threshold, which has its own tests.
         claim = Claim.objects.create(
             owner=self.faculty,
@@ -600,7 +600,7 @@ class ClaimSubmissionRuleTests(TestCase):
         self.assertIn(body["remuneration"], (0, 0.0, None))
 
     def test_attachments_round_trip_and_cap_at_the_abuse_ceiling(self):
-        """A paper can cite many SEC references â€” the cap is an abuse ceiling."""
+        """A paper can cite many SEC references — the cap is an abuse ceiling."""
         self._login(self.faculty)
         refs = [
             {
@@ -684,7 +684,7 @@ class ClaimSubmissionRuleTests(TestCase):
         self.assertEqual(len(refs), 1)
 
     def test_attachments_alone_satisfy_the_upload_gate(self):
-        """No legacy proof_url â€” the attachments array must be enough to submit."""
+        """No legacy proof_url — the attachments array must be enough to submit."""
         self._login(self.faculty)
         r = self._post_claim(
             self._complete_payload(
@@ -792,7 +792,7 @@ class ClaimSubmissionRuleTests(TestCase):
         """AU Annexure and UGC Care are separate registers; one shared box could
         only ever carry one of the two numbers."""
         self._login(self.faculty)
-        # Both selected, only one number supplied â€” the missing one is named.
+        # Both selected, only one number supplied — the missing one is named.
         r = self._post_claim(
             self._complete_payload(
                 indexing_level="AU Annexure, UGC Care",
@@ -841,7 +841,7 @@ class ClaimSubmissionRuleTests(TestCase):
 
     def test_a_traversal_shaped_attachment_url_is_rejected(self):
         """"/media/../../../etc/passwd" satisfies a startswith check on MEDIA_URL,
-        and the client picks this string â€” it ends up in an href and an iframe."""
+        and the client picks this string — it ends up in an href and an iframe."""
         self._login(self.faculty)
         r = self._post_claim(
             self._complete_payload(
@@ -874,7 +874,7 @@ class ClaimSubmissionRuleTests(TestCase):
 
 
 class FacultyCreateContractTests(TestCase):
-    """The shape the browser actually posts â€” the endpoint tests alone missed a 403 here."""
+    """The shape the browser actually posts — the endpoint tests alone missed a 403 here."""
 
     def setUp(self):
         FormulaConfig.objects.create(
@@ -1055,7 +1055,7 @@ class TrustBoundaryTests(TestCase):
 
     def test_submission_never_pays_from_a_self_declared_snip(self):
         """The old hole: self-declared SNIP=30 survived a Scopus miss and one
-        clear made â‚¹16.5L payable."""
+        clear made ₹16.5L payable."""
         self.client.force_login(self.faculty)
         payload = {
             "paper_title": "A Self Declared Snip Paper",
@@ -1120,7 +1120,7 @@ class TrustBoundaryTests(TestCase):
         self.assertEqual(body["snip_source"], "MANUAL")
         self.assertEqual(body["quartile"], "Q2")
         self.assertEqual(body["quartile_source"], "MANUAL")
-        # (2 Ã— 55000 + 30000) Ã— author point 1.0 â€” from the verified values,
+        # (2 × 55000 + 30000) × author point 1.0 — from the verified values,
         # not the claimant's 30/Q1 declaration.
         self.assertEqual(body["remuneration"], 140000.0)
         log = AuditLog.objects.filter(action="CLAIM_MANUAL_VERIFY", entity_id=claim.id).first()
@@ -1945,6 +1945,49 @@ class PaginationTests(TestCase):
         self.assertEqual(len(page2["results"]), 1)
 
 
+class ReportGroupingTests(TestCase):
+    """One idea, one bar. The report grouped on the raw column, so the ways a
+    blank can be spelt each got a row of their own."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="rep-admin@test.edu", password="pass", name="Rep Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        fac = User.objects.create_user(
+            email="rep-fac@test.edu", password="pass", name="Rep Faculty",
+            role=Role.FACULTY, department="ECE",
+        )
+        # The same "no quartile" idea, written four different ways.
+        for i, q in enumerate(["No quartile", "no quartile", "-", "", None]):
+            Claim.objects.create(
+                owner=fac, status=ClaimStatus.PAID, ticket_number=f"RG-{i}",
+                paper_title=f"Report grouping {i}", quartile=q, remuneration=100,
+            )
+        Claim.objects.create(
+            owner=fac, status=ClaimStatus.PAID, ticket_number="RG-Q1",
+            paper_title="A ranked one", quartile="Q1", remuneration=500,
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def test_blank_spellings_fold_into_one_row(self):
+        body = self.client.get("/api/reports").json()
+        rows = {r["key"]: r for r in body["by_quartile"]}
+        self.assertIn("Q1", rows)
+        self.assertEqual(rows["Q1"]["count"], 1)
+
+        blanks = [k for k in rows if k.lower() in ("no quartile", "-", "")]
+        self.assertEqual(len(blanks), 1, f"expected one blank bucket, got {blanks}")
+        self.assertEqual(rows[blanks[0]]["count"], 5)
+        self.assertEqual(rows[blanks[0]]["amount"], 500.0)
+
+    def test_rows_stay_sorted_by_count(self):
+        body = self.client.get("/api/reports").json()
+        counts = [r["count"] for r in body["by_quartile"]]
+        self.assertEqual(counts, sorted(counts, reverse=True))
+
+
 class ClaimSearchTests(TestCase):
     """Search has to reach the whole queue, not the page already on screen."""
 
@@ -2615,7 +2658,7 @@ class ScopusParseTests(TestCase):
 
 
 class ScopusCandidateSearchTests(TestCase):
-    """Picking the right record is the point â€” one silent best guess is not enough."""
+    """Picking the right record is the point — one silent best guess is not enough."""
 
     def setUp(self):
         self.faculty = User.objects.create_user(
@@ -2645,7 +2688,7 @@ class ScopusCandidateSearchTests(TestCase):
                     "entry": [
                         self._entry("Deep Learning for X", "2-s2.0-a", "10.1000/a"),
                         self._entry("Deep Learning for X", "2-s2.0-a", "10.1000/a"),  # dupe
-                        self._entry("Deep Learning for X â€” Erratum", "2-s2.0-b"),
+                        self._entry("Deep Learning for X — Erratum", "2-s2.0-b"),
                     ]
                 }
             }
@@ -2704,7 +2747,7 @@ class ScopusCandidateSearchTests(TestCase):
                 data=json.dumps({"title": "Mine"}),
                 content_type="application/json",
             )
-        # None, not False â€” "not checked" must not read as "not linked".
+        # None, not False — "not checked" must not read as "not linked".
         self.assertIsNone(r.json()["candidates"][0]["linked_to_author"])
 
     def test_endpoint_needs_something_to_search_on(self):
@@ -2877,7 +2920,7 @@ class AuthorProfileBrowseTests(TestCase):
 
 
 class ZeroPayoutExplanationTests(TestCase):
-    """A bare â‚¹0.00 reads as a broken formula."""
+    """A bare ₹0.00 reads as a broken formula."""
 
     def setUp(self):
         self.faculty = User.objects.create_user(
@@ -3173,7 +3216,7 @@ class ReportsAndBulkClearTests(TestCase):
 
 
 class FourRoleModelTests(TestCase):
-    """Faculty, Admin, Finance, Principal â€” and nothing else."""
+    """Faculty, Admin, Finance, Principal — and nothing else."""
 
     def setUp(self):
         self.admin = User.objects.create_user(

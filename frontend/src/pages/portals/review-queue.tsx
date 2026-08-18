@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
@@ -54,6 +54,17 @@ import { Pager } from "@/components/ui/pagination"
 import { useApiQuery } from "@/lib/queries"
 import { useIsDesktop } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
+/** Radix Select cannot hold an empty string as a value, so "leave this
+ * unset" needs a sentinel that maps back to "" on the way out. */
+const NOT_SET = "__unset__"
 
 type QueueProps = {
   title: string
@@ -132,7 +143,7 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
           target="_blank"
           rel="noreferrer"
         >
-          Open Scopus record â†—
+          Open Scopus record ↗
         </a>
       ) : null}
 
@@ -241,33 +252,39 @@ function ManualVerifyDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="mv-quartile">Quartile</Label>
-              <select
-                id="mv-quartile"
-                className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                value={quartile}
-                onChange={(e) => setQuartile(e.target.value)}
+              <Select
+                value={quartile || NOT_SET}
+                onValueChange={(v) => setQuartile(v === NOT_SET ? "" : v)}
               >
-                <option value="">Not set</option>
-                {["Q1", "Q2", "Q3", "Q4"].map((qv) => (
-                  <option key={qv} value={qv}>
-                    {qv}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="mv-quartile" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NOT_SET}>Not set</SelectItem>
+                  {["Q1", "Q2", "Q3", "Q4"].map((qv) => (
+                    <SelectItem key={qv} value={qv}>
+                      {qv}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="mv-eng">Engineering classification</Label>
-            <select
-              id="mv-eng"
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              value={engineering}
-              onChange={(e) => setEngineering(e.target.value)}
+            <Select
+              value={engineering || NOT_SET}
+              onValueChange={(v) => setEngineering(v === NOT_SET ? "" : v)}
             >
-              <option value="">Not set</option>
-              <option value="Engineering">Engineering</option>
-              <option value="Non-Engineering">Non-Engineering</option>
-            </select>
+              <SelectTrigger id="mv-eng" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NOT_SET}>Not set</SelectItem>
+                <SelectItem value="Engineering">Engineering</SelectItem>
+                <SelectItem value="Non-Engineering">Non-Engineering</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="mv-note">Source note</Label>
@@ -545,7 +562,7 @@ function ApprovalQueue({
               </label>
               {picked.size ? (
                 <Button type="button" size="xs" disabled={busy} onClick={() => setConfirm("bulk")}>
-                  Clear {picked.size} â†’ Finance
+                  Clear {picked.size} → Finance
                 </Button>
               ) : null}
             </div>
@@ -618,16 +635,16 @@ function ApprovalQueue({
             move it with an audited override.
           </p>
           <div className="flex gap-2">
-            <select
-              className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-              value={overrideTo}
-              onChange={(e) => setOverrideTo(e.target.value)}
-              aria-label="Override target status"
-            >
-              <option value="SUBMITTED">SUBMITTED</option>
-              <option value="CLEARED">CLEARED</option>
-              <option value="REJECTED">REJECTED</option>
-            </select>
+            <Select value={overrideTo} onValueChange={setOverrideTo}>
+              <SelectTrigger className="w-40" aria-label="Override target status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="SUBMITTED">SUBMITTED</SelectItem>
+                <SelectItem value="CLEARED">CLEARED</SelectItem>
+                <SelectItem value="REJECTED">REJECTED</SelectItem>
+              </SelectContent>
+            </Select>
             <Button className="flex-1" variant="outline" disabled={busy} onClick={overrideStatus}>
               Override status
             </Button>
@@ -704,19 +721,16 @@ function ApprovalQueue({
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        <select
-          className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-          value={sort}
-          onChange={(e) => {
-            setSort(e.target.value)
-            setOffset(0)
-          }}
-          aria-label="Sort tickets"
-        >
-          <option value="recent">Most recent</option>
-          <option value="amount">Highest amount</option>
-          <option value="title">Title</option>
-        </select>
+        <Select value={sort} onValueChange={(v) => { setSort(v); setOffset(0) }}>
+          <SelectTrigger className="w-40" aria-label="Sort tickets">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="recent">Most recent</SelectItem>
+            <SelectItem value="amount">Highest amount</SelectItem>
+            <SelectItem value="title">Title</SelectItem>
+          </SelectContent>
+        </Select>
       </FilterBar>
 
       <MasterDetail
@@ -883,7 +897,7 @@ export function AdminClearingQueuePage() {
       subtitle="Submitted tickets waiting to be cleared for payment"
       statusFilter="SUBMITTED"
       approvePath="clear"
-      approveLabel="Clear â†’ Finance"
+      approveLabel="Clear → Finance"
       showDept
       emptyTitle="Nothing waiting"
       emptyDescription="Every submitted ticket has been cleared or sent back."

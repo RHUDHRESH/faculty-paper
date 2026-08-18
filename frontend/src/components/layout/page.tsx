@@ -129,34 +129,42 @@ export function StatStrip({
     // Each figure gets its own tile. Loose numbers floating on the page read
     // as decoration; a tile says "this is a reading you can act on", and the
     // linked ones lift on hover to say they go somewhere.
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {items.map((item) => {
-        const body = (
-          <>
-            <div className="text-eyebrow">{item.label}</div>
-            <div className="text-metric mt-2 text-foreground">{item.value}</div>
-          </>
-        )
-        return item.to ? (
-          <Link
-            key={item.label}
-            to={item.to}
-            className="surface-card interactive group relative min-w-0 px-4 py-3.5 hover:border-primary/30"
-          >
-            {body}
-            <span
-              aria-hidden
-              className="absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+    //
+    // Auto-fit rather than a fixed column count. A fixed `lg:grid-cols-4` keyed
+    // off the *window*, so inside the 380px master column on the faculty portal
+    // each tile got 84px and "₹1,62,961" was clipped to "₹1,62" — and a fifth
+    // tile orphaned onto a row of its own on the wide pages. Tiles now take
+    // whatever space there is, however many of them there are.
+    <div className="@container">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3">
+        {items.map((item) => {
+          const body = (
+            <>
+              <div className="text-eyebrow">{item.label}</div>
+              <div className="text-metric-fluid mt-2 text-foreground">{item.value}</div>
+            </>
+          )
+          return item.to ? (
+            <Link
+              key={item.label}
+              to={item.to}
+              className="surface-card interactive group relative @container min-w-0 px-4 py-3.5 hover:border-primary/30"
             >
-              →
-            </span>
-          </Link>
-        ) : (
-          <div key={item.label} className="surface-card min-w-0 px-4 py-3.5">
-            {body}
-          </div>
-        )
-      })}
+              {body}
+              <span
+                aria-hidden
+                className="absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                →
+              </span>
+            </Link>
+          ) : (
+            <div key={item.label} className="surface-card @container min-w-0 px-4 py-3.5">
+              {body}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

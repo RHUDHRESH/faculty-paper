@@ -1,4 +1,4 @@
-﻿import { type ReactNode, useEffect, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
   BadgeCheck,
@@ -40,6 +40,17 @@ import { API_BASE, api, apiFetch, ensureCsrf, type Claim, type Paginated, SLOW_T
 import { Pager } from "@/components/ui/pagination"
 import { useApiQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
+/** Radix Select cannot hold an empty string as a value, so "no filter"
+ * needs a sentinel of its own. */
+const ALL_DEPARTMENTS = "__all__"
 
 type RecalcResult = {
   remuneration: number | null
@@ -461,19 +472,16 @@ export function FinancePayoutsPage() {
         subtitle="Cleared tickets — process the payment or send one back"
         actions={
           <div className="flex items-center gap-2">
-            <select
-              className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-              value={sort}
-              onChange={(e) => {
-                setSort(e.target.value)
-                setOffset(0)
-              }}
-              aria-label="Sort payment orders"
-            >
-              <option value="recent">Most recent</option>
-              <option value="amount">Highest amount</option>
-              <option value="title">Title</option>
-            </select>
+            <Select value={sort} onValueChange={(v) => { setSort(v); setOffset(0) }}>
+              <SelectTrigger className="w-40" aria-label="Sort payment orders">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recent">Most recent</SelectItem>
+                <SelectItem value="amount">Highest amount</SelectItem>
+                <SelectItem value="title">Title</SelectItem>
+              </SelectContent>
+            </Select>
             <div className="relative w-44 sm:w-56">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -663,7 +671,7 @@ export function FinancePayoutsPage() {
         </>
       )}
 
-      {/* â”€â”€ Bulk pay review dialog â”€â”€ */}
+      {/* ── Bulk pay review dialog ── */}
       <AlertDialog open={bulkOpen} onOpenChange={(o) => !o && setBulkOpen(false)}>
         <AlertDialogContent className="max-w-2xl">
           <AlertDialogHeader>
@@ -734,7 +742,7 @@ export function FinancePayoutsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* â”€â”€ Confirm Mark-Paid dialog â”€â”€ */}
+      {/* ── Confirm Mark-Paid dialog ── */}
       <AlertDialog
         open={!!confirmPayId}
         onOpenChange={(o) => !o && setConfirmPayId(null)}
@@ -799,7 +807,7 @@ export function FinancePayoutsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* â”€â”€ Reject dialog â”€â”€ */}
+      {/* ── Reject dialog ── */}
       <AlertDialog open={!!rejectId} onOpenChange={(o) => !o && setRejectId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -941,19 +949,16 @@ export function FinancePaidPage() {
             onChange={(e) => setDept(e.target.value)}
           />
         </div>
-        <select
-          className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-          value={sort}
-          onChange={(e) => {
-            setSort(e.target.value)
-            setOffset(0)
-          }}
-          aria-label="Sort paid tickets"
-        >
-          <option value="recent">Most recent</option>
-          <option value="amount">Highest amount</option>
-          <option value="title">Title</option>
-        </select>
+        <Select value={sort} onValueChange={(v) => { setSort(v); setOffset(0) }}>
+          <SelectTrigger className="w-40" aria-label="Sort paid tickets">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="recent">Most recent</SelectItem>
+            <SelectItem value="amount">Highest amount</SelectItem>
+            <SelectItem value="title">Title</SelectItem>
+          </SelectContent>
+        </Select>
         {(q || dept) && (
           <Button
             size="sm"
@@ -1091,7 +1096,7 @@ export function FinancePaidPage() {
         </>
       )}
 
-      {/* â”€â”€ Void payment dialog â”€â”€ */}
+      {/* ── Void payment dialog ── */}
       <AlertDialog open={!!voidId} onOpenChange={(o) => !o && setVoidId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1261,22 +1266,25 @@ export function FinanceLedgerPage() {
           <Label htmlFor="ledger-dept" className="text-xs">
             Department
           </Label>
-          <select
-            id="ledger-dept"
-            className="h-9 w-44 rounded-md border border-input bg-transparent px-2 text-sm"
-            value={department}
-            onChange={(e) => {
-              setDepartment(e.target.value)
+          <Select
+            value={department || ALL_DEPARTMENTS}
+            onValueChange={(v) => {
+              setDepartment(v === ALL_DEPARTMENTS ? "" : v)
               setOffset(0)
             }}
           >
-            <option value="">All departments</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger id="ledger-dept" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_DEPARTMENTS}>All departments</SelectItem>
+              {departments.map((d) => (
+                <SelectItem key={d} value={d}>
+                  {d}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex items-end gap-2">
           {(month || department) && (

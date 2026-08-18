@@ -1,8 +1,8 @@
 ﻿/**
  * Every page of every portal must render.
  *
- * This exists because the claim wizard once threw during render â€” a hook that
- * only works inside a data router â€” and shipped as a blank white page that no
+ * This exists because the claim wizard once threw during render — a hook that
+ * only works inside a data router — and shipped as a blank white page that no
  * unit test, typecheck or build could see. The API was perfectly healthy the
  * whole time. So each route is opened as the role that owns it, and the page
  * has to produce its heading and log no uncaught error.

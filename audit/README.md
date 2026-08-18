@@ -22,3 +22,15 @@ node audit/flow-wizard.mjs
 `pages.mjs` is the inventory. Keep it in step with the routes in `App.tsx` —
 two paths in it were wrong when it was written, and the audit reported the
 resulting 404s as "generic page title" rather than "this page does not exist".
+
+`shots.mjs` writes a full-page screenshot of every page to `audit/shots/`
+(git-ignored). `W`, `THEME` and `SUFFIX` env vars vary the capture:
+
+```bash
+node audit/shots.mjs                       # desktop, light
+W=390 THEME=dark SUFFIX=-dark node audit/shots.mjs
+```
+
+`mojibake.py` finds text that was UTF-8, read as cp1252, and written back —
+"₹" as "â‚¹", "→" as "â†'". It tests by decoding rather than matching a list,
+so it catches sequences nobody thought to grep for. `--fix` repairs in place.

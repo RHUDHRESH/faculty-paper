@@ -286,6 +286,18 @@
     font-variant-numeric: tabular-nums lining-nums;
     font-feature-settings: "tnum" 1, "lnum" 1, "cv05" 1;
   }
+  /* A metric sized against its own tile rather than the window.
+     StatStrip sits inside a ~355px master column on the faculty portal, where
+     a fixed 2rem figure clipped "₹1,62,961" down to "₹1,62" — the number that
+     matters most on the page, cut in half. */
+  .text-metric-fluid {
+    font-size: clamp(1.125rem, 13cqw, 2rem);
+    font-weight: 620;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1, "cv05" 1;
+  }
   .text-metric-sm {
     font-size: 1.125rem;
     font-weight: 600;

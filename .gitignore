@@ -86,3 +86,6 @@ next-env.d.ts
 # uploaded claim documents — real faculty papers, never belong in the repo
 /backend/media/
 .env*
+
+# Screenshots from the UI audit — regenerate with `node audit/shots.mjs`
+audit/shots/

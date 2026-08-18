@@ -23,6 +23,7 @@ import {
   Users,
   Wallet,
   UserSearch,
+  CheckCheck,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -375,7 +376,8 @@ export function PrincipalShell() {
     <AppShell
       title="Principal"
       tabs={[
-        { to: "/principal", label: "All tickets", icon: Shield, end: true },
+        { to: "/principal", label: "Approvals", icon: CheckCheck, end: true },
+        { to: "/principal/all", label: "All tickets", icon: Shield },
         { to: "/principal/overview", label: "Overview", icon: LayoutDashboard },
         // A ticket number off an email, or a staff id off a spreadsheet.
         { to: "/principal/find", label: "Find", icon: UserSearch },

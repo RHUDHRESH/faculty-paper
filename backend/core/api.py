@@ -16,7 +16,7 @@ from django.contrib.auth import authenticate, login, logout, update_session_auth
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
-from django.db.models import Case, Count, F, IntegerField, Q, Sum, Value, When
+from django.db.models import Case, Count, F, IntegerField, Min, Q, Sum, Value, When
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -924,12 +924,25 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "duplicate_matches_json": c.duplicate_matches_json,
         "override_duplicate": c.override_duplicate,
         "override_reason": c.override_reason,
+        "override_by_name": c.override_by.name if c.override_by_id else None,
+        "override_at": c.override_at.isoformat() if c.override_at else None,
+        "override_reason": c.override_reason,
         "year_mismatch": c.year_mismatch,
         "year_mismatch_override": c.year_mismatch_override,
         "year_mismatch_reason": c.year_mismatch_reason,
         "voucher_number": c.voucher_number,
         "cleared_by_name": c.cleared_by.name if c.cleared_by_id else None,
         "second_approved_by_name": c.second_approved_by.name if c.second_approved_by_id else None,
+        "cleared_at": c.cleared_at.isoformat() if c.cleared_at else None,
+        "principal_approved_by_name": (
+            c.principal_approved_by.name if c.principal_approved_by_id else None
+        ),
+        "principal_approved_at": (
+            c.principal_approved_at.isoformat() if c.principal_approved_at else None
+        ),
+        #: Whole days this ticket has sat where it is, for the queue that has
+        #: to decide what to look at first.
+        "waiting_days": _waiting_days(c),
         "second_approved_at": c.second_approved_at.isoformat() if c.second_approved_at else None,
         "needs_second_approval": _needs_second_approval(
             c, _high_value_threshold(fresh=False)
@@ -1604,7 +1617,8 @@ def _claims_queryset(user: User):
     """
     qs = (
         Claim.objects.select_related(
-            "owner", "manual_verified_by", "cleared_by", "second_approved_by"
+            "owner", "manual_verified_by", "cleared_by", "second_approved_by",
+            "override_by",
         )
         .prefetch_related("attachments")
         .all()
@@ -1872,7 +1886,14 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
     # separate message here produced wording the client could not recognise, and
     # the user was told to send a note by an error that offered no way to do so.
     issues = _verification_issues(result, claim)
-    if claim.duplicate_warning and not claim.override_duplicate and not contest:
+    # _verification_issues already reports the payment-history warning, so
+    # adding it here again showed the claimant the same sentence twice.
+    if (
+        claim.duplicate_warning
+        and not claim.override_duplicate
+        and not contest
+        and not any("Payment history" in i for i in issues)
+    ):
         issues.append("Payment history may already include this paper")
 
     snapshot = {
@@ -1901,6 +1922,10 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
         if claim.duplicate_warning:
             claim.override_duplicate = True
             claim.override_reason = claim.override_reason or contest_note.strip()
+            # Against a name and a time: the person who releases the money has
+            # to be somebody else, and cannot be if nobody recorded who this was.
+            claim.override_by = user
+            claim.override_at = timezone.now()
 
     # assign_ticket_number retries on collision; next_ticket_number alone races,
     # because the row lock is released before the claim is written. Two people
@@ -2055,6 +2080,25 @@ def _invalidate_threshold_cache() -> None:
     _THRESHOLD_CACHE.clear()
 
 
+def _waiting_days(claim: Claim) -> int | None:
+    """How long the ticket has waited at its current step.
+
+    Measured from when it arrived at this step, not from updated_at, which
+    moves for any edit and would reset the clock every time somebody looked
+    at it.
+    """
+    started = None
+    if claim.status == ClaimStatus.SUBMITTED:
+        started = claim.submitted_at
+    elif claim.status == ClaimStatus.CLEARED:
+        started = claim.cleared_at
+    elif claim.status == ClaimStatus.PRINCIPAL_APPROVED:
+        started = claim.principal_approved_at
+    if not started:
+        return None
+    return max(0, (timezone.now() - started).days)
+
+
 def _high_value_threshold(*, fresh: bool = True) -> float:
     if not fresh and "value" in _THRESHOLD_CACHE:
         import time as _time
@@ -2085,14 +2129,43 @@ def _needs_second_approval(claim: Claim, threshold: float | None = None) -> bool
     a single-admin setup an always-on rule simply jammed every large claim
     with nobody able to release it.
     """
+    if claim.status not in (ClaimStatus.CLEARED, ClaimStatus.PRINCIPAL_APPROVED):
+        return False
+
+    seconded = bool(
+        claim.second_approved_by_id and claim.second_approved_by_id != claim.cleared_by_id
+    )
+
+    # A duplicate at any amount is a duplicate, so this one ignores the
+    # threshold: somebody decided the college has not already paid for this
+    # paper, and that decision is worth a second reader however small it is.
+    if claim.duplicate_warning and claim.override_duplicate:
+        return not seconded
+
     limit = threshold if threshold is not None else _high_value_threshold()
     if limit <= 0:
         return False
-    if claim.status != ClaimStatus.CLEARED:
-        return False
     if (claim.remuneration or 0) < limit:
         return False
-    return not (claim.second_approved_by_id and claim.second_approved_by_id != claim.cleared_by_id)
+    return not seconded
+
+
+def _guard_self_cleared_override(claim: Claim, actor: User) -> None:
+    """The person who set the warning aside cannot also clear the ticket.
+
+    Waving a duplicate away and then clearing it is one person deciding, twice,
+    that the college has not already paid for this paper. Two admins is not a
+    hardship here: an override is rare, and the alternative is a second
+    payment nobody reviewed.
+    """
+    if not (claim.duplicate_warning and claim.override_duplicate):
+        return
+    if claim.override_by_id and claim.override_by_id == actor.id:
+        raise HttpError(
+            400,
+            "You set aside the payment-history warning on this ticket, so "
+            "somebody else has to clear it.",
+        )
 
 
 def _guard_recomputed_amount(claim: Claim, expected: float | None) -> None:
@@ -2197,9 +2270,11 @@ def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         if claim.status != ClaimStatus.SUBMITTED:
             raise HttpError(400, "Only a submitted ticket can be cleared")
+        _guard_self_cleared_override(claim, user)
         _reverify_or_recalc(claim, user, skip_external=bool(payload.skip_external))
         _guard_recomputed_amount(claim, payload.expected_amount)
         claim.cleared_by = user
+        claim.cleared_at = timezone.now()
         _transition(claim, user, ClaimStatus.CLEARED, "CLEAR", payload.note)
         amount = claim.remuneration or 0
     _notify_finance(
@@ -2250,6 +2325,24 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
                         {"id": claim_id, "reason": f"Status is {claim.status}, not SUBMITTED"}
                     )
                     continue
+                # A dismissed duplicate is exactly the row that must not go
+                # through in a batch of two hundred without being looked at.
+                if (
+                    claim.duplicate_warning
+                    and claim.override_duplicate
+                    and claim.override_by_id == user.id
+                ):
+                    skipped.append(
+                        {
+                            "id": claim_id,
+                            "reason": (
+                                f"{claim.ticket_number or claim_id}: you set aside the "
+                                "payment-history warning on this one, so somebody else "
+                                "has to clear it"
+                            ),
+                        }
+                    )
+                    continue
                 # Same guard as a single clear, with the stored amount standing
                 # in for the confirmation: a row whose recomputed amount drifted
                 # from what the screen showed is skipped, never silently cleared
@@ -2271,6 +2364,7 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
                     transaction.set_rollback(True)
                     continue
                 claim.cleared_by = user
+                claim.cleared_at = timezone.now()
                 _transition(claim, user, ClaimStatus.CLEARED, "CLEAR", payload.note)
                 amount = claim.remuneration or 0
             _notify_finance(
@@ -2299,10 +2393,234 @@ def hod_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
     raise HttpError(400, _RETIRED_STEP)
 
 
+def _may_approve_as_principal(role: str) -> bool:
+    """The principal, and a super admin who has to stand in for one."""
+    return role == Role.PRINCIPAL or role == Role.SUPER_ADMIN
+
+
 @api.post("/claims/{claim_id}/principal-approve", auth=session_auth)
 def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
-    require_user(request)
-    raise HttpError(400, _RETIRED_STEP)
+    """Approve the spend on a cleared ticket, which is what lets finance pay it.
+
+    The research cell checks that a claim is true; this step is somebody
+    accountable agreeing to spend the money on it. They were previously the
+    same decision, taken by the research cell alone.
+    """
+    user = require_user(request)
+    if not _may_approve_as_principal(user.role):
+        raise HttpError(403, "Forbidden")
+
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if claim.status != ClaimStatus.CLEARED:
+            raise HttpError(
+                400,
+                "Only a ticket the research cell has cleared can be approved"
+                f" — this one is {claim.status}",
+            )
+        # The amount on the screen is the amount being approved. Recomputing
+        # here means an approval cannot be given for one figure and paid at
+        # another.
+        _apply_calc(claim)
+        _guard_recomputed_amount(claim, payload.expected_amount)
+
+        claim.principal_approved_by = user
+        claim.principal_approved_at = timezone.now()
+        # The principal is, by definition, a different pair of eyes from the
+        # desk that cleared it, so their approval also satisfies the
+        # second-signature rule where one is outstanding.
+        if not claim.second_approved_by_id and claim.cleared_by_id != user.id:
+            claim.second_approved_by = user
+            claim.second_approved_at = timezone.now()
+        _transition(claim, user, ClaimStatus.PRINCIPAL_APPROVED, "PRINCIPAL_APPROVE", payload.note)
+        amount = claim.remuneration or 0
+
+    _notify_finance(
+        claim,
+        f"Approved for payment · {claim.ticket_number}",
+        f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
+    )
+    return claim_to_dict(claim)
+
+
+@api.get("/principal/queue", auth=session_auth)
+def principal_queue(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    department: Optional[str] = None,
+    quartile: Optional[str] = None,
+    min_amount: Optional[float] = None,
+    max_amount: Optional[float] = None,
+    waiting_over: Optional[int] = None,
+    sort: str = "waiting",
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Everything cleared and waiting on the principal, sliced.
+
+    The totals are returned for the whole filtered set, not the page: a
+    decision about a month's spend cannot be taken from the fifty rows that
+    happen to be on screen.
+    """
+    user = require_user(request)
+    if not _may_approve_as_principal(user.role):
+        raise HttpError(403, "Forbidden")
+
+    qs = (
+        Claim.objects.filter(status=ClaimStatus.CLEARED)
+        .select_related("owner", "cleared_by", "override_by")
+        .prefetch_related("attachments")
+    )
+    if q:
+        term = q.strip()
+        qs = qs.filter(
+            Q(paper_title__icontains=term)
+            | Q(ticket_number__icontains=term)
+            | Q(owner__name__icontains=term)
+            | Q(journal_title__icontains=term)
+        )
+    if department:
+        qs = qs.filter(owner__department__iexact=department)
+    if quartile:
+        qs = qs.filter(quartile__iexact=quartile)
+    if min_amount is not None:
+        qs = qs.filter(remuneration__gte=min_amount)
+    if max_amount is not None:
+        qs = qs.filter(remuneration__lte=max_amount)
+    if waiting_over:
+        qs = qs.filter(cleared_at__lte=timezone.now() - timedelta(days=int(waiting_over)))
+
+    sorts = {
+        "waiting": "cleared_at",          # longest wait first
+        "recent": "-cleared_at",
+        "amount": "-remuneration",
+        "amount_asc": "remuneration",
+        "department": "owner__department",
+        "title": "paper_title",
+    }
+    qs = qs.order_by(sorts.get(sort, "cleared_at"))
+
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    total = qs.count()
+    agg = qs.aggregate(amount=Sum("remuneration"), oldest=Min("cleared_at"))
+    oldest = agg["oldest"]
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "results": [claim_to_dict(c) for c in qs[offset : offset + limit]],
+        # Over everything the filter matched, not the page.
+        "totals": {
+            "count": total,
+            "amount": round(agg["amount"] or 0, 2),
+            "longest_wait_days": (timezone.now() - oldest).days if oldest else None,
+        },
+        "departments": sorted(
+            d
+            for d in Claim.objects.filter(status=ClaimStatus.CLEARED)
+            .values_list("owner__department", flat=True)
+            .distinct()
+            if d
+        ),
+    }
+
+
+class PrincipalBulkIn(Schema):
+    claim_ids: list[str]
+    note: Optional[str] = None
+
+
+@api.post("/principal/bulk-approve", auth=session_auth)
+def principal_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
+    """Approve a batch, one row at a time, skipping what does not qualify.
+
+    A batch that fails as a unit is a batch nobody dares run: one stale row out
+    of two hundred and the principal is back to clicking through them
+    individually.
+    """
+    user = require_user(request)
+    if not _may_approve_as_principal(user.role):
+        raise HttpError(403, "Forbidden")
+    ids = list(dict.fromkeys(payload.claim_ids or []))[:500]
+    if not ids:
+        raise HttpError(400, "Nothing selected")
+
+    approved = 0
+    total = 0.0
+    skipped: list[dict[str, str]] = []
+    for claim_id in ids:
+        with transaction.atomic():
+            claim = Claim.objects.select_for_update().filter(pk=claim_id).first()
+            if claim is None:
+                skipped.append({"id": claim_id, "reason": "Not found"})
+                continue
+            if claim.status != ClaimStatus.CLEARED:
+                skipped.append({
+                    "id": claim_id,
+                    "reason": f"{claim.ticket_number or claim_id}: status is {claim.status}",
+                })
+                continue
+            shown = claim.remuneration
+            _apply_calc(claim)
+            if round(shown or 0, 2) != round(claim.remuneration or 0, 2):
+                skipped.append({
+                    "id": claim_id,
+                    "reason": (
+                        f"{claim.ticket_number or claim_id}: amount changed on "
+                        f"recalculation (₹{(shown or 0):,.0f} → ₹{(claim.remuneration or 0):,.0f})"
+                        " — open it to review"
+                    ),
+                })
+                transaction.set_rollback(True)
+                continue
+            claim.principal_approved_by = user
+            claim.principal_approved_at = timezone.now()
+            if not claim.second_approved_by_id and claim.cleared_by_id != user.id:
+                claim.second_approved_by = user
+                claim.second_approved_at = timezone.now()
+            _transition(
+                claim, user, ClaimStatus.PRINCIPAL_APPROVED, "PRINCIPAL_APPROVE", payload.note
+            )
+            approved += 1
+            total += claim.remuneration or 0
+        _notify_finance(
+            claim,
+            f"Approved for payment · {claim.ticket_number}",
+            f"₹{(claim.remuneration or 0):,.0f} for {claim.owner.name}: {claim.paper_title}",
+        )
+    return {"approved": approved, "total": round(total, 2), "skipped": skipped}
+
+
+@api.post("/claims/{claim_id}/principal-reject", auth=session_auth)
+def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Send a cleared ticket back to the research cell with a reason.
+
+    Back to the cell rather than to the claimant: what the principal is
+    querying is the checking, and a claimant told "sent back" with no reason
+    they can act on simply resubmits the same thing.
+    """
+    user = require_user(request)
+    if not _may_approve_as_principal(user.role):
+        raise HttpError(403, "Forbidden")
+    note = (payload.note or "").strip()
+    if len(note) < 5:
+        raise HttpError(400, "Say why it is going back")
+
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if claim.status != ClaimStatus.CLEARED:
+            raise HttpError(400, "Only a cleared ticket can be sent back from here")
+        claim.status_note = note
+        _transition(claim, user, ClaimStatus.SUBMITTED, "PRINCIPAL_SEND_BACK", note)
+
+    _notify_admins(
+        claim,
+        f"Sent back by the principal · {claim.ticket_number}",
+        note[:300],
+    )
+    return claim_to_dict(claim)
 
 
 @api.post("/claims/{claim_id}/approve", auth=session_auth)
@@ -2343,14 +2661,23 @@ def _mark_one_paid(
     """
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
-        # Only a cleared claim is payable. PAYABLE_STATUSES also carries three
-        # ERP-imported "approved" states, and paying one of those skipped the
-        # whole clearing step: no re-verification, no recomputed amount, no
-        # confirmation guard — it just paid whatever figure the spreadsheet
-        # carried. A stranded legacy row now goes through override-status to
-        # CLEARED first, which is a deliberate act by a super admin and leaves
-        # a record.
-        if claim.status != ClaimStatus.CLEARED:
+        # Payable means the principal approved it on this system. Two things
+        # are deliberately not payable:
+        #
+        # - a merely cleared ticket, which the research cell has checked but
+        #   nobody has agreed to spend money on;
+        # - a row carrying an approval status from the old ERP import, which
+        #   has no verification, no recomputed amount and nobody's signature
+        #   behind it. Those are told apart by principal_approved_at, which
+        #   only a live approval sets.
+        approved_here = bool(claim.principal_approved_at)
+        if not (claim.status == ClaimStatus.PRINCIPAL_APPROVED and approved_here):
+            if claim.status == ClaimStatus.CLEARED:
+                raise HttpError(
+                    400,
+                    "Cleared, but not yet approved by the principal — payment "
+                    "needs that approval first.",
+                )
             if claim.status in PAYABLE_STATUSES:
                 raise HttpError(
                     400,
@@ -2358,16 +2685,26 @@ def _mark_one_paid(
                     "A super admin must move it to Cleared before it can be paid, "
                     "so the amount is verified rather than taken from the import.",
                 )
-            raise HttpError(400, "Invalid status — the ticket must be cleared first")
+            raise HttpError(
+                400, "Invalid status — the ticket must be approved by the principal first"
+            )
         # Net of the ledger, not mere existence: a voided payment leaves a
         # reversing row behind, and the claim must be payable again.
         net_paid = claim.ledger_rows.aggregate(s=Sum("amount"))["s"] or 0
         if net_paid > 0:
             raise HttpError(400, "Already processed")
-        if claim.status == ClaimStatus.CLEARED:
+        if claim.status == ClaimStatus.PRINCIPAL_APPROVED:
             # Recompute from the stored verified columns, then require the
             # confirmed amount.
             if _needs_second_approval(claim):
+                if claim.duplicate_warning and claim.override_duplicate:
+                    who = claim.override_by.name if claim.override_by else "somebody"
+                    raise HttpError(
+                        400,
+                        f"The payment-history warning on this ticket was set aside by "
+                        f"{who}. A second approver, different from the person who "
+                        "cleared it, must confirm before it is paid.",
+                    )
                 raise HttpError(
                     400,
                     "High-value claim — a second approver (different from the person "
@@ -2489,8 +2826,12 @@ def second_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
         raise HttpError(403, "Forbidden")
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
-        if claim.status != ClaimStatus.CLEARED:
-            raise HttpError(400, "Only a cleared ticket can be second-approved")
+        # Either side of the principal's approval: the second signature is
+        # about a large amount, not about which desk the ticket is sitting on.
+        if claim.status not in (ClaimStatus.CLEARED, ClaimStatus.PRINCIPAL_APPROVED):
+            raise HttpError(
+                400, "Only a cleared or principal-approved ticket can be second-approved"
+            )
         threshold = _high_value_threshold()
         if (claim.remuneration or 0) < threshold:
             raise HttpError(
@@ -2837,6 +3178,72 @@ def _pipeline_stages(qs) -> list[dict[str, Any]]:
     return out
 
 
+def _multi_rows(source, field: str) -> list[dict[str, Any]]:
+    """Count a comma-separated set field once per member.
+
+    The rows overlap -- one paper in both Scopus and SCIE is counted under
+    each -- so the total across the bars exceeds the number of papers. That is
+    the honest shape of the question, and the caption says as much.
+    """
+    buckets: dict[str, dict[str, Any]] = {}
+    for value, amount in source.values_list(field, "remuneration"):
+        parts = [p.strip() for p in (value or "").split(",") if p.strip()]
+        for part in parts or ["Not stated"]:
+            slot = buckets.setdefault(part, {"key": part, "count": 0, "amount": 0.0})
+            slot["count"] += 1
+            # Amount is deliberately not divided between the indexes: each bar
+            # answers "money on papers listed here", not a share of a total.
+            slot["amount"] += amount or 0
+    return sorted(
+        (
+            {"key": b["key"], "count": b["count"], "amount": round(b["amount"], 2)}
+            for b in buckets.values()
+        ),
+        key=lambda b: -b["count"],
+    )
+
+
+def _capped(bucket_rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
+    """The top rows, and an honest account of what was left out.
+
+    A silently truncated top-15 reads as "these are all of them", and the
+    reader draws a conclusion about a tail they were never shown.
+    """
+    kept = bucket_rows[:limit]
+    rest = bucket_rows[limit:]
+    return {
+        "rows": kept,
+        "hidden": len(rest),
+        "hidden_count": sum(r["count"] for r in rest),
+        "hidden_amount": round(sum(r["amount"] for r in rest), 2),
+    }
+
+
+def _per_paper(paid_qs) -> dict[str, Any]:
+    """What one paid paper is worth -- mean, median, and the range.
+
+    The mean alone is misleading here: the scheme pays a few Q1 papers many
+    times what it pays a Q4 one, so the average sits above almost every actual
+    payment. The median is the figure that describes a typical claim.
+    """
+    amounts = sorted(
+        a for a in paid_qs.values_list("remuneration", flat=True) if a is not None
+    )
+    if not amounts:
+        return {"count": 0, "mean": 0, "median": 0, "min": 0, "max": 0}
+    mid = len(amounts) // 2
+    median = (
+        amounts[mid] if len(amounts) % 2 else (amounts[mid - 1] + amounts[mid]) / 2
+    )
+    return {
+        "count": len(amounts),
+        "mean": round(sum(amounts) / len(amounts), 2),
+        "median": round(median, 2),
+        "min": round(amounts[0], 2),
+        "max": round(amounts[-1], 2),
+    }
+
+
 @api.get("/reports", auth=session_auth)
 def reports(
     request: HttpRequest,
@@ -2898,6 +3305,27 @@ def reports(
         Q(claim_reason=ClaimReason.COUNT_ONLY) | Q(is_student_publication=True)
     ).count()
 
+    year_rows = {
+        int(r["publication_year"]): {
+            "key": str(r["publication_year"]),
+            "count": r["count"],
+            "amount": round(r["amount"] or 0, 2),
+        }
+        for r in (
+            qs.exclude(publication_year__isnull=True)
+            .values("publication_year")
+            .annotate(count=Count("id"), amount=Sum("remuneration"))
+            .order_by("publication_year")
+        )
+    }
+    # A year with nothing in it is a real answer, and leaving it out of the
+    # series draws a straight climb from 2019 to 2023 across four years that
+    # never happened. Plotted as the zeros they were.
+    by_year = [
+        year_rows.get(y, {"key": str(y), "count": 0, "amount": 0.0})
+        for y in range(min(year_rows), max(year_rows) + 1)
+    ] if year_rows else []
+
     by_month = []
     for r in (
         paid.exclude(payout_month__isnull=True)
@@ -2932,6 +3360,24 @@ def reports(
         "by_engineering": rows("engineering_class", label_blank="Unclassified"),
         "by_status": rows("status"),
         "by_month": by_month,
+        "by_year": by_year,
+        "by_type": rows("aggregation_type", label_blank="Not stated"),
+        "by_indexing": _multi_rows(qs, "indexing_level"),
+        "by_designation": rows("owner__designation", label_blank="Not recorded"),
+        # Long tails, so these are cut to what a chart can carry legibly. The
+        # cut is reported rather than left to look like the whole set.
+        "by_journal": _capped(rows("journal_title", label_blank="Not recorded"), 15),
+        "top_by_publications": _capped(
+            rows("owner__name", source=qs, label_blank="Unknown"), 15
+        ),
+        "top_by_amount": _capped(
+            sorted(
+                rows("owner__name", source=paid, label_blank="Unknown"),
+                key=lambda r: -r["amount"],
+            ),
+            15,
+        ),
+        "per_paper": _per_paper(paid),
         "pipeline": _pipeline_stages(qs),
         "years": sorted(
             {
@@ -3319,6 +3765,44 @@ def lookup_ticket(request: HttpRequest, q: str):
     }
 
 
+def _authorship(claims) -> list[dict[str, Any]]:
+    """Where this person sits on the author list.
+
+    First authorship is what promotion panels ask about, and the scheme pays
+    on it, so it is worth its own answer rather than being inferred from the
+    per-claim author point.
+    """
+    buckets: dict[str, dict[str, Any]] = {}
+    for c in claims:
+        pos = c.author_position
+        if pos == 1:
+            label = "First author"
+        elif pos and c.total_authors and pos == c.total_authors:
+            label = "Last author"
+        elif pos:
+            label = f"Author {pos}"
+        else:
+            label = "Not stated"
+        slot = buckets.setdefault(label, {"key": label, "count": 0, "amount": 0.0})
+        slot["count"] += 1
+        slot["amount"] += c.remuneration or 0
+    rows = [
+        {"key": b["key"], "count": b["count"], "amount": round(b["amount"], 2)}
+        for b in buckets.values()
+    ]
+    #: First, last, then the middle positions in order, then the unknowns.
+    def rank(r: dict[str, Any]) -> tuple[int, int]:
+        if r["key"] == "First author":
+            return (0, 0)
+        if r["key"] == "Last author":
+            return (1, 0)
+        if r["key"] == "Not stated":
+            return (3, 0)
+        return (2, int(r["key"].split()[-1]))
+
+    return sorted(rows, key=rank)
+
+
 @api.get("/faculty/{user_id}/report", auth=session_auth)
 def faculty_report(request: HttpRequest, user_id: str):
     """Everything one faculty member has published and been paid.
@@ -3351,7 +3835,10 @@ def faculty_report(request: HttpRequest, user_id: str):
     def group(field: str, blank: str):
         out: dict[str, dict[str, Any]] = {}
         for c in claims:
-            key = (getattr(c, field, None) or blank).strip() or blank
+            # Not every groupable field is text: publication_year is an int,
+            # and calling .strip() on it took the whole record down.
+            raw = getattr(c, field, None)
+            key = (str(raw).strip() or blank) if raw not in (None, "") else blank
             slot = out.setdefault(key, {"key": key, "count": 0, "amount": 0.0})
             slot["count"] += 1
             slot["amount"] += c.remuneration or 0
@@ -3370,6 +3857,13 @@ def faculty_report(request: HttpRequest, user_id: str):
         "by_month": sorted(by_month.values(), key=lambda r: r["key"]),
         "by_quartile": group("quartile", "No quartile"),
         "by_status": group("status", "—"),
+        "by_year": sorted(
+            group("publication_year", "Not stated"), key=lambda r: str(r["key"])
+        ),
+        "by_journal": group("journal_title", "Not recorded")[:12],
+        "by_type": group("aggregation_type", "Not stated"),
+        "by_position": _authorship(claims),
+        "per_paper": _per_paper(paid),
         "claims": [claim_to_dict(c) for c in claims[:200]],
     }
 
@@ -4176,16 +4670,24 @@ def admin_payouts(
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
     qs = Claim.objects.select_related(
-        "owner", "cleared_by", "second_approved_by"
+        "owner", "cleared_by", "second_approved_by", "principal_approved_by", "override_by"
     ).prefetch_related("attachments")
     if status == "PAID":
         qs = qs.filter(status=ClaimStatus.PAID)
         default_order = "-paid_at"
     elif status in ("CLEARED", "PRINCIPAL_APPROVED", "FINANCE_APPROVED"):
-        # One payable queue. Tickets approved under the old chain sit in it too,
-        # otherwise they would be stranded with nobody able to pay them.
-        qs = qs.filter(status__in=PAYABLE_STATUSES)
-        default_order = "-updated_at"
+        # The payable queue: approved by the principal on this system. A merely
+        # cleared ticket is not in it, because finance cannot pay one -- and a
+        # queue full of rows whose pay button always refuses is worse than an
+        # empty queue, since it reads as work.
+        #
+        # Legacy import rows keep their own home in the faults screen, where a
+        # super admin unsticks them; they are deliberately not shown here as
+        # though they were ready to pay.
+        qs = qs.filter(
+            status=ClaimStatus.PRINCIPAL_APPROVED, principal_approved_at__isnull=False
+        )
+        default_order = "-principal_approved_at"
     else:
         qs = qs.filter(status=status)
         default_order = "-updated_at"

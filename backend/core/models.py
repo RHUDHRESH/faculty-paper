@@ -18,22 +18,26 @@ class Role(models.TextChoices):
 
 
 class ClaimStatus(models.TextChoices):
-    """Live chain: DRAFT → SUBMITTED → CLEARED → PAID, or REJECTED.
+    """Live chain: DRAFT → SUBMITTED → CLEARED → PRINCIPAL_APPROVED → PAID.
 
-    Admin clears a submitted ticket; Finance pays a cleared one. The HoD and
-    Principal statuses below belong to the old chain and are kept only so
-    tickets filed under it still load, report, and can be paid out.
+    The research cell clears a submitted ticket, the Principal approves the
+    spend, and Finance pays what the Principal approved. Rejection can happen
+    at either approval step.
+
+    PRINCIPAL_APPROVED was previously a relic of the old ERP chain. It is now
+    the live step before payment, which also means tickets imported under the
+    old chain sit at exactly the right place.
     """
 
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     CLEARED = "CLEARED"
+    PRINCIPAL_APPROVED = "PRINCIPAL_APPROVED"
     PAID = "PAID"
     REJECTED = "REJECTED"
 
     # Legacy — no new claim enters these.
     HOD_APPROVED = "HOD_APPROVED"
-    PRINCIPAL_APPROVED = "PRINCIPAL_APPROVED"
     RESEARCH_APPROVED = "RESEARCH_APPROVED"
     FINANCE_APPROVED = "FINANCE_APPROVED"
 
@@ -310,6 +314,27 @@ class Claim(models.Model):
     duplicate_matches_json = models.TextField(blank=True, null=True)
     override_duplicate = models.BooleanField(default=False)
     override_reason = models.TextField(blank=True, null=True)
+    #: Who waved the duplicate warning away, and when. Without a name against
+    #: it, the dismissal is anonymous by the time anyone reviews the payment.
+    #: When the research cell cleared it, and when the principal approved.
+    #: updated_at moves for any edit, so it cannot answer "waiting since".
+    cleared_at = models.DateTimeField(null=True, blank=True)
+    principal_approved_by = models.ForeignKey(
+        "User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="principal_approvals",
+    )
+    principal_approved_at = models.DateTimeField(null=True, blank=True)
+    override_by = models.ForeignKey(
+        "User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="duplicate_overrides",
+    )
+    override_at = models.DateTimeField(null=True, blank=True)
 
     year_mismatch = models.BooleanField(default=False)
     year_mismatch_override = models.BooleanField(default=False)

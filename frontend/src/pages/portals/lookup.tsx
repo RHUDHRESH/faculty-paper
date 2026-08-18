@@ -55,6 +55,11 @@ type FacultyReport = {
   by_month: Bucket[]
   by_quartile: Bucket[]
   by_status: Bucket[]
+  by_year?: Bucket[]
+  by_journal?: Bucket[]
+  by_type?: Bucket[]
+  by_position?: Bucket[]
+  per_paper?: { count: number; mean: number; median: number; min: number; max: number }
   claims: Claim[]
 }
 
@@ -117,6 +122,15 @@ function FacultyReportPanel({ id }: { id: string }) {
         />
       ) : null}
 
+      {data.by_year?.length ? (
+        <TrendChart
+          title="Publications by year"
+          caption="By year of publication"
+          data={data.by_year}
+        unit="year"
+        />
+      ) : null}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <RankedBars
           title="Where this person publishes"
@@ -129,6 +143,30 @@ function FacultyReportPanel({ id }: { id: string }) {
           caption="Share of what this person has been paid"
           data={data.by_quartile}
         />
+        {data.by_position?.length ? (
+          <RankedBars
+            title="Position on the author list"
+            caption="First authorship is what the policy pays on, and what panels ask about"
+            data={data.by_position}
+            unit="count"
+          />
+        ) : null}
+        {data.by_journal?.length ? (
+          <RankedBars
+            title="Journals used"
+            caption="Most-used first"
+            data={data.by_journal}
+            unit="count"
+          />
+        ) : null}
+        {data.by_type?.length ? (
+          <RankedBars
+            title="Kind of publication"
+            caption="Journal articles, conference proceedings, book chapters"
+            data={data.by_type}
+            unit="count"
+          />
+        ) : null}
         <RankedBars
           title="By status"
           caption="Where each ticket has got to"
@@ -136,6 +174,19 @@ function FacultyReportPanel({ id }: { id: string }) {
           unit="count"
         />
       </div>
+
+      {data.per_paper?.count ? (
+        <Section title="What one of their papers is worth" description="Across settled payments">
+          <StatStrip
+            items={[
+              { label: "Median", value: formatMoney(data.per_paper.median) },
+              { label: "Mean", value: formatMoney(data.per_paper.mean) },
+              { label: "Largest", value: formatMoney(data.per_paper.max) },
+              { label: "Smallest", value: formatMoney(data.per_paper.min) },
+            ]}
+          />
+        </Section>
+      ) : null}
 
       <Section title="Every ticket" description="Newest first">
         {data.claims.length === 0 ? (

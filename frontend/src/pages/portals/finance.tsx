@@ -37,6 +37,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { API_BASE, api, apiFetch, ensureCsrf, type Claim, type Paginated, SLOW_TIMEOUT_MS } from "@/lib/api"
+import { DuplicateWarning } from "@/components/duplicate-warning"
 import { Pager } from "@/components/ui/pagination"
 import { useApiQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
@@ -719,6 +720,10 @@ export function FinancePayoutsPage() {
                     ) : null}
                   </div>
                 )}
+                {/* Finance is the last desk before the money leaves, so a
+                    payment-history match belongs in front of them too — not
+                    only on the screen of whoever cleared it. */}
+                {confirmClaim ? <DuplicateWarning claim={confirmClaim} /> : null}
                 <p>
                   This will mark the ticket as <strong>Paid</strong>. The faculty
                   member will be notified. This action cannot be undone here.

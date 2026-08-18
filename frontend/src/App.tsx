@@ -16,6 +16,7 @@ import { ReportsPage } from "@/pages/portals/reports";
 import { SearchPage } from "@/pages/portals/search";
 import { AdminFaultsPage } from "@/pages/portals/faults";
 import { LookupPage } from "@/pages/portals/lookup";
+import { PrincipalApprovalsPage } from "@/pages/portals/principal-approvals";
 import { PrincipalOverviewPage, PrincipalQueuePage } from "@/pages/portals/principal";
 import {
   AdminApprovalsPage,
@@ -134,7 +135,9 @@ export default function App() {
             </RequireAuth>
           }
         >
-          <Route index element={<PrincipalQueuePage />} />
+          {/* Approvals first: it is the one thing only this account can do. */}
+          <Route index element={<PrincipalApprovalsPage />} />
+          <Route path="all" element={<PrincipalQueuePage />} />
           <Route path="overview" element={<PrincipalOverviewPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="find" element={<LookupPage />} />

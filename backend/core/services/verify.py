@@ -58,13 +58,46 @@ def check_already_paid(
     matches: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    def add(source: str, obj_id: str, paper_title: str | None, amount: float | None) -> None:
+    def add(
+        source: str,
+        obj_id: str,
+        paper_title: str | None,
+        amount: float | None,
+        *,
+        reference: str | None = None,
+        who: str | None = None,
+        when: str | None = None,
+    ) -> None:
         if obj_id not in seen:
             seen.add(obj_id)
-            matches.append({"source": source, "id": obj_id, "title": paper_title, "amount": amount})
+            matches.append({
+                "source": source,
+                "id": obj_id,
+                "title": paper_title,
+                "amount": amount,
+                # What the approver would look up: a ticket number or the ERP
+                # claim ref, the person paid, and the month it was settled.
+                "reference": reference,
+                "who": who,
+                "when": when,
+            })
+
+    def from_claim(c) -> dict:
+        return {
+            "reference": c.ticket_number,
+            "who": c.owner.name if c.owner_id else None,
+            "when": c.payout_month.strftime("%Y-%m") if c.payout_month else None,
+        }
+
+    def from_prior(m) -> dict:
+        return {
+            "reference": m.claim_ref,
+            "who": m.faculty_name,
+            "when": m.paid_at.strftime("%Y-%m") if m.paid_at else None,
+        }
 
     def paid_claims():
-        qs = Claim.objects.filter(status=ClaimStatus.PAID)
+        qs = Claim.objects.filter(status=ClaimStatus.PAID).select_related("owner")
         if exclude_claim_id:
             qs = qs.exclude(pk=exclude_claim_id)
         return qs
@@ -73,17 +106,17 @@ def check_already_paid(
         d = normalize_doi(doi)
         if d:
             for m in PriorPayment.objects.filter(doi__iexact=d)[:10]:
-                add("prior", m.id, m.paper_title, m.amount_paid)
+                add("prior", m.id, m.paper_title, m.amount_paid, **from_prior(m))
             for c in paid_claims().filter(doi__iexact=d)[:10]:
-                add("claim", c.id, c.paper_title, c.remuneration)
+                add("claim", c.id, c.paper_title, c.remuneration, **from_claim(c))
     if title:
         nt = normalize_title(title)
         if nt:
             # Exact normalized-title hits are indexed lookups on both tables.
             for m in PriorPayment.objects.filter(normalized_title=nt)[:10]:
-                add("prior", m.id, m.paper_title, m.amount_paid)
+                add("prior", m.id, m.paper_title, m.amount_paid, **from_prior(m))
             for c in paid_claims().filter(normalized_title=nt)[:10]:
-                add("claim", c.id, c.paper_title, c.remuneration)
+                add("claim", c.id, c.paper_title, c.remuneration, **from_claim(c))
             # Rough matching runs only over DB-narrowed candidates: rows that
             # share at least one of the title's most distinctive tokens.
             tokens = sorted(title_tokens(title), key=len, reverse=True)[:3]
@@ -98,10 +131,10 @@ def check_already_paid(
                 )
                 for m in prior_candidates:
                     if m.id not in seen and titles_rough_match(title, m.paper_title):
-                        add("prior", m.id, m.paper_title, m.amount_paid)
+                        add("prior", m.id, m.paper_title, m.amount_paid, **from_prior(m))
                 for c in paid_claims().filter(cond)[:50]:
                     if c.id not in seen and titles_rough_match(title, c.paper_title):
-                        add("claim", c.id, c.paper_title, c.remuneration)
+                        add("claim", c.id, c.paper_title, c.remuneration, **from_claim(c))
     return {"warning": len(matches) > 0, "matches": matches[:15]}
 
 

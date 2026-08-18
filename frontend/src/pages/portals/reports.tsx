@@ -4,7 +4,7 @@ import { useMemo, useState } from "react"
 import { Download } from "lucide-react"
 
 import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
-import { Money } from "@/components/ticket-ui"
+import { Money, formatMoney } from "@/components/ticket-ui"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
@@ -47,6 +47,21 @@ type ReportData = {
   years: number[]
   /** Months the college has settled in, newest first, as "2026-03". */
   payout_months?: string[]
+  by_year?: Row[]
+  by_type?: Row[]
+  by_indexing?: Row[]
+  by_designation?: Row[]
+  /** Long tails, cut to what a chart can carry, with the remainder declared. */
+  by_journal?: Capped
+  top_by_publications?: Capped
+  top_by_amount?: Capped
+  per_paper?: {
+    count: number
+    mean: number
+    median: number
+    min: number
+    max: number
+  }
 }
 
 const ALL = "__all__"
@@ -105,6 +120,27 @@ function Breakdown({
         )}
       </div>
     </Section>
+  )
+}
+
+/** A top-N slice that knows what it left out. */
+type Capped = {
+  rows: Row[]
+  hidden: number
+  hidden_count: number
+  hidden_amount: number
+}
+
+/** What a cut-off list is not showing, said plainly under it. */
+function HiddenTail({ cap, unit }: { cap?: Capped; unit: "count" | "money" }) {
+  if (!cap?.hidden) return null
+  return (
+    <p className="mt-2 text-xs text-muted-foreground">
+      {cap.hidden.toLocaleString()} more not shown
+      {unit === "count"
+        ? ` · ${cap.hidden_count.toLocaleString()} publications between them`
+        : ` · ${formatMoney(cap.hidden_amount)} between them`}
+    </p>
   )
 }
 
@@ -279,16 +315,49 @@ export function ReportsPage() {
             </div>
           </Section>
 
+          {data.per_paper?.count ? (
+            <Section
+              title="What one paper is worth"
+              description="Across every settled payment in this view"
+            >
+              <StatStrip
+                items={[
+                  { label: "Median", value: formatMoney(data.per_paper.median) },
+                  { label: "Mean", value: formatMoney(data.per_paper.mean) },
+                  { label: "Largest", value: formatMoney(data.per_paper.max) },
+                  { label: "Smallest", value: formatMoney(data.per_paper.min) },
+                ]}
+              />
+              {/* The scheme pays a Q1 paper many times what it pays a Q4 one,
+                  so the mean sits above almost every actual payment. Saying so
+                  is cheaper than watching somebody budget on it. */}
+              <p className="mt-2 text-xs text-muted-foreground">
+                The median is the typical claim. A few large payments pull the mean
+                well above it, so the mean describes the total, not a paper.
+              </p>
+            </Section>
+          ) : null}
+
           {/* The shapes first -- a reader looking for trend, concentration or a
               queue should not have to reconstruct it from a list. The lists stay
               underneath, because a specific number is a different question and
               a chart is a poor way to answer it. */}
           <Section title="Trend">
-            <TrendChart
-              title="Paid by month"
-              caption={`${data.by_month.length} months of settled payments`}
-              data={data.by_month}
-            />
+            <div className="grid gap-6">
+              <TrendChart
+                title="Paid by month"
+                caption={`${data.by_month.length} months of settled payments`}
+                data={data.by_month}
+              />
+              {data.by_year?.length ? (
+                <TrendChart
+                  title="Publications by year"
+                  caption="By the year of publication, not the year it was paid"
+                  data={data.by_year}
+                unit="year"
+                />
+              ) : null}
+            </div>
           </Section>
 
           <div className="grid gap-6 lg:grid-cols-2">
@@ -315,7 +384,83 @@ export function ReportsPage() {
               data={data.by_department}
               unit="count"
             />
+            {data.by_type?.length ? (
+              <RankedBars
+                title="Kind of publication"
+                caption="Journal articles, conference proceedings, book chapters"
+                data={data.by_type}
+                unit="count"
+              />
+            ) : null}
+            {data.by_indexing?.length ? (
+              <div>
+                <RankedBars
+                  title="Where the journals are indexed"
+                  caption="A journal is often listed in several places, so a paper counts under each"
+                  data={data.by_indexing}
+                  unit="count"
+                />
+              </div>
+            ) : null}
+            {data.by_category?.length ? (
+              <MixBar
+                title="By remuneration category"
+                caption="Share of spend by the rate the policy applied"
+                data={data.by_category}
+              />
+            ) : null}
+            {data.by_engineering?.length ? (
+              <MixBar
+                title="Engineering / Non-Engineering"
+                caption="The classification the policy pays on"
+                data={data.by_engineering}
+              />
+            ) : null}
+            {data.by_designation?.length ? (
+              <RankedBars
+                title="By designation"
+                caption="Who is publishing, by grade"
+                data={data.by_designation}
+                unit="count"
+              />
+            ) : null}
           </div>
+
+          {data.by_journal?.rows?.length ? (
+            <Section
+              title="Journals and people"
+              description="The long tails, cut to what a chart can carry"
+            >
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div>
+                  <RankedBars
+                    title="Most-used journals"
+                    caption="By number of publications"
+                    data={data.by_journal.rows}
+                    unit="count"
+                  />
+                  <HiddenTail cap={data.by_journal} unit="count" />
+                </div>
+                <div>
+                  <RankedBars
+                    title="Most published"
+                    caption="Faculty by number of publications"
+                    data={data.top_by_publications?.rows || []}
+                    unit="count"
+                  />
+                  <HiddenTail cap={data.top_by_publications} unit="count" />
+                </div>
+                <div className="lg:col-span-2">
+                  <RankedBars
+                    title="Most paid"
+                    caption="Faculty by amount received, largest first"
+                    data={data.top_by_amount?.rows || []}
+                  />
+                  <HiddenTail cap={data.top_by_amount} unit="money" />
+                </div>
+              </div>
+            </Section>
+          ) : null}
 
           <Section
             title="Every breakdown"
@@ -323,6 +468,11 @@ export function ReportsPage() {
           >
             <div className="grid gap-6 lg:grid-cols-2">
               <Breakdown title="By department" rows={data.by_department} />
+              <Breakdown title="By year of publication" rows={data.by_year || []} />
+              <Breakdown title="By kind of publication" rows={data.by_type || []} />
+              <Breakdown title="By indexing" rows={data.by_indexing || []} />
+              <Breakdown title="By designation" rows={data.by_designation || []} />
+              <Breakdown title="Most-used journals" rows={data.by_journal?.rows || []} />
               <Breakdown title="By remuneration category" rows={data.by_category} />
               <Breakdown title="By quartile" rows={data.by_quartile} />
               <Breakdown

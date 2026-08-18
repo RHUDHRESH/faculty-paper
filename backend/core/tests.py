@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from core.api import ATTACHMENT_LIMITS
+from core.services.verify import check_already_paid
 from core import api as api_module
 from core.models import (
     AttachmentKind,
@@ -191,7 +192,28 @@ class TicketHierarchyTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.CLEARED)
         self.assertEqual(claim.cleared_by, self.admin)
-        # Finance is told there is money to move.
+
+        # Cleared is not payable: the principal has not agreed to the spend.
+        self._login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({"note": "paid", "expected_amount": 85000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("principal", r.json()["detail"].lower())
+
+        self._login(self.principal)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/principal-approve",
+            data=json.dumps({"note": "approved", "expected_amount": 85000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.PRINCIPAL_APPROVED)
+        self.assertEqual(claim.principal_approved_by, self.principal)
+        # Finance is told there is money to move, once it actually can move.
         self.assertTrue(
             Notification.objects.filter(user=self.finance, claim_id=claim.id).exists()
         )
@@ -373,7 +395,8 @@ class TicketHierarchyTests(TestCase):
             journal_title="Nature",
             quartile="Q1",
             snip=1.0,
-            status=ClaimStatus.CLEARED,
+            status=ClaimStatus.PRINCIPAL_APPROVED,
+            principal_approved_at=timezone.now(),
             ticket_number="FP-2026-000099",
             total_authors=1,
             author_position=1,
@@ -1400,6 +1423,9 @@ class PaymentLifecycleTests(TestCase):
         self.finance = User.objects.create_user(
             email="life-fin@test.edu", password="pass", name="Life Fin", role=Role.FINANCE
         )
+        self.principal = User.objects.create_user(
+            email="life-head@test.edu", password="pass", name="Life Head", role=Role.PRINCIPAL
+        )
         self.client = Client()
         verify_patch = patch("core.api.verify_publication", side_effect=_echo_verified)
         verify_patch.start()
@@ -1411,6 +1437,11 @@ class PaymentLifecycleTests(TestCase):
         snip = (remuneration/point − QFA)/55000 is fiddly; instead build from a
         chosen snip: remuneration = snip × 55000 + qf(quartile).
         """
+        # A ticket sitting at PRINCIPAL_APPROVED only counts as approved if it
+        # was approved here: an imported ERP row carries the status with no
+        # signature behind it, and finance must not pay one of those.
+        if status == ClaimStatus.PRINCIPAL_APPROVED:
+            kw.setdefault("principal_approved_at", timezone.now())
         claim = Claim.objects.create(
             owner=self.faculty, status=status, ticket_number=ticket,
             paper_title=f"Lifecycle {ticket}", publication_type="Journal",
@@ -1444,7 +1475,7 @@ class PaymentLifecycleTests(TestCase):
         self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
 
     def test_mark_paid_requires_the_confirmed_amount_on_live_claims(self):
-        claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-2")
+        claim = self._claim(status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="LC-2")
         self.client.force_login(self.finance)
         r = self.client.post(
             f"/api/claims/{claim.id}/mark-paid",
@@ -1512,7 +1543,7 @@ class PaymentLifecycleTests(TestCase):
         The stored remuneration says 85,000 while the verified columns price to
         something else, so confirming 85,000 must be refused.
         """
-        claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0,
+        claim = self._claim(status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0,
                             ticket="LC-PV", snip=1.0, quartile="Q2")
         Claim.objects.filter(pk=claim.id).update(remuneration=85000.0, snip=2.0)
         self.client.force_login(self.finance)
@@ -1523,7 +1554,7 @@ class PaymentLifecycleTests(TestCase):
         )
         self.assertEqual(r.status_code, 409, r.content)
         claim.refresh_from_db()
-        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+        self.assertEqual(claim.status, ClaimStatus.PRINCIPAL_APPROVED)
 
     def test_clear_scopus_down_leaves_status_untouched(self):
         claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-502")
@@ -1548,7 +1579,7 @@ class PaymentLifecycleTests(TestCase):
         called out, paid the very same claim. A guard that bulk skips is not a
         guard, and clearing is where external re-verification belongs.
         """
-        claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-P502")
+        claim = self._claim(status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="LC-P502")
         self.client.force_login(self.finance)
         with patch("core.api.verify_publication", return_value={"ok": False}) as called:
             r = self.client.post(
@@ -1566,7 +1597,7 @@ class PaymentLifecycleTests(TestCase):
     def _high_value_cleared(self, ticket="LC-HV"):
         # snip 2.0 × 55000 + Q1 50000 = 160000, above the 100000 default.
         return self._claim(
-            status=ClaimStatus.CLEARED, remuneration=160000.0, ticket=ticket,
+            status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=160000.0, ticket=ticket,
             snip=2.0, quartile="Q1", cleared_by=self.admin,
         )
 
@@ -1752,6 +1783,28 @@ class PaymentLifecycleTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200, r.content)
+
+        # A void returns the ticket to Cleared, so paying it again needs the
+        # principal's approval afresh. Money that moved and was pulled back is
+        # exactly the case where a second look is worth the friction.
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({"voucher_number": "V101", "expected_amount": 85000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, "a voided ticket is not payable unapproved")
+
+        self.client.force_login(self.principal)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/principal-approve",
+            data=json.dumps({"expected_amount": 85000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+        self.client.force_login(self.finance)
         r = self.client.post(
             f"/api/claims/{claim.id}/mark-paid",
             data=json.dumps({"voucher_number": "V101", "expected_amount": 85000.0}),
@@ -1808,8 +1861,8 @@ class PaymentLifecycleTests(TestCase):
     # ---- bulk mark-paid ----
 
     def test_bulk_mark_paid_writes_a_ledger_row_per_claim(self):
-        a = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-BP1")
-        b = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-BP2")
+        a = self._claim(status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="LC-BP1")
+        b = self._claim(status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="LC-BP2")
         self.client.force_login(self.finance)
         r = self.client.post(
             "/api/admin/bulk-mark-paid",
@@ -1836,8 +1889,8 @@ class PaymentLifecycleTests(TestCase):
             self.assertEqual(claim.ledger_rows.first().voucher_number, voucher)
 
     def test_bulk_mark_paid_skips_bad_rows_with_reasons(self):
-        good = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-BP3")
-        drifted = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-BP4")
+        good = self._claim(status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="LC-BP3")
+        drifted = self._claim(status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="LC-BP4")
         high = self._high_value_cleared("LC-BP5")
         self.client.force_login(self.finance)
         r = self.client.post(
@@ -1864,9 +1917,9 @@ class PaymentLifecycleTests(TestCase):
         self.assertIn("second approver", reasons[high.id])
         self.assertIn("no-such-id", reasons)
         drifted.refresh_from_db()
-        self.assertEqual(drifted.status, ClaimStatus.CLEARED, "a skipped row is untouched")
+        self.assertEqual(drifted.status, ClaimStatus.PRINCIPAL_APPROVED, "a skipped row is untouched")
         high.refresh_from_db()
-        self.assertEqual(high.status, ClaimStatus.CLEARED)
+        self.assertEqual(high.status, ClaimStatus.PRINCIPAL_APPROVED)
 
     def test_bulk_mark_paid_is_finance_only(self):
         claim = self._claim(status=ClaimStatus.CLEARED, remuneration=85000.0, ticket="LC-BP6")
@@ -3247,6 +3300,420 @@ class RetractionFlagTests(TestCase):
         self.assertFalse([i for i in issues if "retracted" in i], issues)
 
 
+
+class DuplicateOverrideGuardTests(TestCase):
+    """One person must not dismiss a payment-history warning and then act on it.
+
+    The warning fired and submission was refused -- that part worked. What did
+    not was everything afterwards: the warning was waved away with a short
+    note, and nothing downstream knew it had ever been raised, so the same
+    person could clear the ticket and finance would pay a second time for one
+    paper.
+    """
+
+    def setUp(self):
+        self.cell = User.objects.create_user(
+            email="dup-cell@test.edu", password="pass", name="First Admin",
+            role=Role.RESEARCH_CELL,
+        )
+        self.other = User.objects.create_user(
+            email="dup-cell2@test.edu", password="pass", name="Second Admin",
+            role=Role.RESEARCH_CELL,
+        )
+        self.finance = User.objects.create_user(
+            email="dup-fin@test.edu", password="pass", name="Finance",
+            role=Role.FINANCE,
+        )
+        self.faculty = User.objects.create_user(
+            email="dup-fac@test.edu", password="pass", name="Claimant",
+            role=Role.FACULTY, department="CSE", staff_id="STF-D",
+            biometric_id="BIO-D",
+            scopus_author_url="https://scopus.com/authid/detail.uri?authorId=9",
+        )
+        # What the college already paid for.
+        PriorPayment.objects.create(
+            faculty_name="Claimant",
+            paper_title="A Paper Paid For Once Already",
+            normalized_title=normalize_title("A Paper Paid For Once Already"),
+            amount_paid=55000,
+            claim_ref="ERP-000123",
+        )
+        self.client = Client()
+        # Scopus is not what these tests are about, and calling it for real
+        # made them depend on the network -- which is how they started timing
+        # out in a full run while passing on their own. The payment-history
+        # check runs against the database either way, and that is the subject.
+        def _no_scopus_but_real_duplicate_check(*args, **kwargs):
+            out = _echo_verified(*args, **kwargs)
+            out["paid"] = check_already_paid(
+                title=kwargs.get("title"),
+                doi=kwargs.get("doi"),
+                staff_id=kwargs.get("staff_id"),
+                exclude_claim_id=kwargs.get("exclude_claim_id"),
+            )
+            return out
+
+        verify_patch = patch(
+            "core.api.verify_publication", side_effect=_no_scopus_but_real_duplicate_check
+        )
+        verify_patch.start()
+        self.addCleanup(verify_patch.stop)
+
+    def _refile(self, **overrides):
+        payload = {
+            "owner_id": str(self.faculty.id),
+            "paper_title": "A Paper Paid For Once Already",
+            "journal_title": "Journal of Testing",
+            "issn": "1234-5678",
+            "publication_date": "2026-03-01",
+            "indexing_level": "Scopus",
+            "yukthi_id": "YK-D",
+            "scopus_author_url": "https://scopus.com/authid/detail.uri?authorId=9",
+            "sec_refs": "14, 15",
+            "proof_url": "/media/claims/d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0.pdf",
+            "sec_proof_url": "/media/claims/d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1.pdf",
+            "quartile": "Q1",
+            "snip": 1.0,
+            "total_authors": 3,
+            "author_position": 1,
+            "affiliation_ok": True,
+            "submit": True,
+        }
+        payload.update(overrides)
+        return self.client.post(
+            "/api/claims", data=json.dumps(payload), content_type="application/json"
+        )
+
+    def test_re_filing_a_paid_paper_is_refused_and_says_so_once(self):
+        self.client.force_login(self.cell)
+        r = self._refile()
+        self.assertEqual(r.status_code, 400, r.content)
+        detail = r.json()["detail"]
+        self.assertIn("Payment history", detail)
+        # The same sentence used to be appended twice, from two places.
+        self.assertEqual(detail.count("Payment history may already include this paper"), 1)
+
+    def test_setting_the_warning_aside_records_who_did_it(self):
+        self.client.force_login(self.cell)
+        r = self._refile(contest_forward=True, contest_note="Filing this for the office.")
+        self.assertEqual(r.status_code, 200, r.content)
+        claim = Claim.objects.get(pk=r.json()["id"])
+        self.assertTrue(claim.duplicate_warning)
+        self.assertTrue(claim.override_duplicate)
+        self.assertEqual(claim.override_by_id, self.cell.id)
+        self.assertIsNotNone(claim.override_at)
+
+    def test_the_person_who_set_it_aside_cannot_clear_it(self):
+        self.client.force_login(self.cell)
+        claim_id = self._refile(
+            contest_forward=True, contest_note="Filing this for the office."
+        ).json()["id"]
+        claim = Claim.objects.get(pk=claim_id)
+
+        r = self.client.post(
+            f"/api/claims/{claim_id}/clear",
+            data=json.dumps({"expected_amount": claim.remuneration}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("somebody else", r.json()["detail"])
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
+
+        # Somebody else may.
+        self.client.force_login(self.other)
+        r = self.client.post(
+            f"/api/claims/{claim_id}/clear",
+            data=json.dumps({"expected_amount": claim.remuneration}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+    def test_a_bulk_clear_skips_it_rather_than_sweeping_it_through(self):
+        """A dismissed duplicate is exactly the row that must not go through in
+        a batch of two hundred without being looked at."""
+        self.client.force_login(self.cell)
+        claim_id = self._refile(
+            contest_forward=True, contest_note="Filing this for the office."
+        ).json()["id"]
+
+        r = self.client.post(
+            "/api/admin/bulk-clear",
+            data=json.dumps({"claim_ids": [claim_id]}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body.get("cleared", 0), 0, body)
+        self.assertTrue(
+            any("somebody else" in s["reason"] for s in body.get("skipped", [])), body
+        )
+
+    def test_finance_cannot_pay_it_without_a_second_approver(self):
+        self.client.force_login(self.cell)
+        claim_id = self._refile(
+            contest_forward=True, contest_note="Filing this for the office."
+        ).json()["id"]
+        claim = Claim.objects.get(pk=claim_id)
+
+        self.client.force_login(self.other)
+        self.client.post(
+            f"/api/claims/{claim_id}/clear",
+            data=json.dumps({"expected_amount": claim.remuneration}),
+            content_type="application/json",
+        )
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+
+        # Cleared is not payable at all now, so the first refusal names the
+        # missing approval rather than the missing second signature.
+        self.client.force_login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim_id}/mark-paid",
+            data=json.dumps({"expected_amount": claim.remuneration}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("principal", r.json()["detail"].lower())
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+
+        # The principal is a third person again, and their approval is what
+        # satisfies the second-signature rule the override raised. Three people
+        # have now looked at a ticket somebody said was not a duplicate.
+        head = User.objects.create_user(
+            email="dup-head@test.edu", password="pass", name="Head", role=Role.PRINCIPAL
+        )
+        self.client.force_login(head)
+        r = self.client.post(
+            f"/api/claims/{claim_id}/principal-approve",
+            data=json.dumps({"expected_amount": claim.remuneration}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.second_approved_by_id, head.id)
+
+        self.client.force_login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim_id}/mark-paid",
+            data=json.dumps({"expected_amount": claim.remuneration}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+    def test_an_ordinary_claim_is_not_caught_by_any_of_this(self):
+        """A contested claim with no payment-history match is untouched: the
+        guard keys on the duplicate warning, not on contesting."""
+        self.client.force_login(self.cell)
+        r = self._refile(
+            paper_title="A Paper Nobody Has Claimed Before",
+            contest_forward=True,
+            contest_note="Journal details provided by the faculty member.",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim = Claim.objects.get(pk=r.json()["id"])
+        self.assertFalse(claim.duplicate_warning)
+        self.assertFalse(claim.override_duplicate)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/clear",
+            data=json.dumps({"expected_amount": claim.remuneration}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+
+
+class FourStepChainTests(TestCase):
+    """Nothing reaches finance without the principal's approval.
+
+    The chain ran research cell → finance, so the person accountable for the
+    spend could read every figure and authorise none of them.
+    """
+
+    def setUp(self):
+        self.faculty = User.objects.create_user(
+            email="chain-fac@test.edu", password="pass", name="Chain Faculty",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.cell = User.objects.create_user(
+            email="chain-cell@test.edu", password="pass", name="Chain Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.head = User.objects.create_user(
+            email="chain-head@test.edu", password="pass", name="Chain Head",
+            role=Role.PRINCIPAL,
+        )
+        self.finance = User.objects.create_user(
+            email="chain-fin@test.edu", password="pass", name="Chain Fin",
+            role=Role.FINANCE,
+        )
+        self.client = Client()
+
+    def _cleared(self, ticket="CH-1", amount=105000.0, **kw):
+        claim = Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.CLEARED, ticket_number=ticket,
+            paper_title=f"Chain {ticket}", journal_title="J", issn="1111-0000",
+            quartile="Q1", quartile_source="SCIMAGO", snip=1.0, snip_source="SCOPUS",
+            engineering_class="Engineering", indexing_level="Scopus",
+            publication_type="Journal", total_authors=1, author_position=1,
+            remuneration=amount, cleared_by=self.cell, cleared_at=timezone.now(),
+            **kw,
+        )
+        for n in ("14", "15"):
+            ClaimAttachment.objects.create(
+                claim=claim, kind=AttachmentKind.SEC_REFERENCE,
+                url=f"/media/claims/{'f' * 31}{n[-1]}.pdf", ref_number=n,
+            )
+        return claim
+
+    def test_finance_cannot_pay_something_the_principal_has_not_approved(self):
+        claim = self._cleared()
+        self.client.force_login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({"expected_amount": 105000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("principal", r.json()["detail"].lower())
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+
+    def test_the_principal_approves_and_then_it_is_payable(self):
+        claim = self._cleared("CH-2")
+        self.client.force_login(self.head)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/principal-approve",
+            data=json.dumps({"expected_amount": 105000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.PRINCIPAL_APPROVED)
+        self.assertEqual(claim.principal_approved_by_id, self.head.id)
+        self.assertIsNotNone(claim.principal_approved_at)
+
+        self.client.force_login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({"expected_amount": 105000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+    def test_an_imported_erp_row_is_not_payable_just_because_of_its_status(self):
+        """The import carries PRINCIPAL_APPROVED with nobody behind it: no
+        verification, no recomputed amount, no signature. Only an approval
+        taken here sets principal_approved_at, and that is what the gate reads."""
+        claim = self._cleared("CH-3")
+        Claim.objects.filter(pk=claim.pk).update(
+            status=ClaimStatus.PRINCIPAL_APPROVED, principal_approved_at=None
+        )
+        self.client.force_login(self.finance)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({"expected_amount": 105000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("retired approval status", r.json()["detail"])
+
+    def test_only_the_principal_approves(self):
+        claim = self._cleared("CH-4")
+        for who in (self.cell, self.finance, self.faculty):
+            self.client.force_login(who)
+            r = self.client.post(
+                f"/api/claims/{claim.id}/principal-approve",
+                data=json.dumps({"expected_amount": 105000.0}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 403, f"{who.role}: {r.content}")
+
+    def test_the_approved_amount_is_the_amount_paid(self):
+        """An approval given for one figure must not be paid at another."""
+        claim = self._cleared("CH-5")
+        self.client.force_login(self.head)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/principal-approve",
+            data=json.dumps({"expected_amount": 12345.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 409, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+
+    def test_a_batch_approves_what_it_can_and_names_what_it_cannot(self):
+        good = self._cleared("CH-6")
+        already = self._cleared("CH-7")
+        Claim.objects.filter(pk=already.pk).update(status=ClaimStatus.SUBMITTED)
+
+        self.client.force_login(self.head)
+        r = self.client.post(
+            "/api/principal/bulk-approve",
+            data=json.dumps({"claim_ids": [good.id, already.id]}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body["approved"], 1)
+        self.assertEqual(body["total"], 105000.0)
+        self.assertEqual(len(body["skipped"]), 1)
+        self.assertIn("CH-7", body["skipped"][0]["reason"])
+
+    def test_the_queue_totals_cover_the_filter_not_the_page(self):
+        for i in range(3):
+            self._cleared(f"CH-Q{i}", amount=10000.0)
+        self.client.force_login(self.head)
+        r = self.client.get("/api/principal/queue?limit=1")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(len(body["results"]), 1, "one row on the page")
+        self.assertEqual(body["totals"]["count"], 3, "three in the total")
+        self.assertEqual(body["totals"]["amount"], 30000.0)
+
+    def test_the_queue_can_be_narrowed_by_how_long_something_has_waited(self):
+        fresh = self._cleared("CH-NEW", amount=1000.0)
+        old = self._cleared("CH-OLD", amount=2000.0)
+        Claim.objects.filter(pk=old.pk).update(
+            cleared_at=timezone.now() - timedelta(days=40)
+        )
+        self.client.force_login(self.head)
+        r = self.client.get("/api/principal/queue?waiting_over=30")
+        body = r.json()
+        self.assertEqual(body["totals"]["count"], 1)
+        self.assertEqual(body["results"][0]["ticket_number"], "CH-OLD")
+        self.assertGreaterEqual(body["results"][0]["waiting_days"], 40)
+        self.assertNotIn(fresh.ticket_number, [c["ticket_number"] for c in body["results"]])
+
+    def test_the_principal_sends_one_back_to_the_research_cell(self):
+        claim = self._cleared("CH-8")
+        self.client.force_login(self.head)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/principal-reject",
+            data=json.dumps({"note": "The quartile does not match that year"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
+        self.assertIn("quartile", claim.status_note)
+        # The research cell hears about it; it is their checking being queried.
+        self.assertTrue(
+            Notification.objects.filter(user=self.cell, claim_id=claim.id).exists()
+        )
+
+    def test_sending_it_back_needs_a_reason(self):
+        claim = self._cleared("CH-9")
+        self.client.force_login(self.head)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/principal-reject",
+            data=json.dumps({"note": "no"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+
+
 class MustChangePasswordTests(TestCase):
     """The flag was returned to the client and enforced only by the frontend."""
 
@@ -4325,6 +4792,18 @@ class PolicyUseCaseTests(TestCase):
             )
             self.assertEqual(r.status_code, 200, r.content)
 
+        # The principal approves the spend; without this nothing reaches finance.
+        head = User.objects.create_user(
+            email="uc-head@test.edu", password="pass", name="UC Head", role=Role.PRINCIPAL
+        )
+        c.force_login(head)
+        r = c.post(
+            f"/api/claims/{claim.id}/principal-approve",
+            data=json.dumps({"expected_amount": expected}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
         # Deliberately outside the patch: payment must not depend on Scopus.
         c.force_login(finance)
         r = c.post(
@@ -4357,7 +4836,8 @@ class PolicyUseCaseTests(TestCase):
         )
         expected = 5000.0 * 0.6
         claim = Claim.objects.create(
-            owner=self.user, status=ClaimStatus.CLEARED, ticket_number="UC-PAY-2",
+            owner=self.user, status=ClaimStatus.PRINCIPAL_APPROVED,
+            principal_approved_at=timezone.now(), ticket_number="UC-PAY-2",
             paper_title="Payable while the index is unreachable",
             publication_type="Journal", indexing_level="Scopus",
             engineering_class="Engineering",

@@ -122,10 +122,13 @@ export function TrendChart({
   data,
   title,
   caption,
+  /** What one point is. Names the table column and the spoken summary. */
+  unit = "month",
 }: {
   data: Point[]
   title: string
   caption?: string
+  unit?: "month" | "year"
 }) {
   const gid = useId()
   const [hover, setHover] = useState<number | null>(null)
@@ -158,7 +161,7 @@ export function TrendChart({
     <Figure
       title={title}
       caption={caption}
-      columns={["Month", "Claims", "Paid"]}
+      columns={[unit === "month" ? "Month" : "Year", "Claims", "Paid"]}
       rows={data.map((d) => [d.key, d.count, formatMoney(d.amount)])}
     >
       <div className="relative">
@@ -166,7 +169,7 @@ export function TrendChart({
           viewBox={`0 0 ${W} ${H}`}
           className="w-full"
           role="img"
-          aria-label={`${title}. ${data.length} months, peak ${formatMoney(peak.amount)} in ${peak.key}.`}
+          aria-label={`${title}. ${data.length} ${unit}s, peak ${formatMoney(peak.amount)} in ${peak.key}.`}
           onMouseLeave={() => setHover(null)}
         >
           <defs>
@@ -263,7 +266,7 @@ export function TrendChart({
                 textAnchor={i === last ? "end" : i === 0 ? "start" : "middle"}
                 className="fill-muted-foreground text-[10px]"
               >
-                {data[i].key.slice(2)}
+                {data[i].label || (unit === "month" ? data[i].key.slice(2) : data[i].key)}
               </text>
             ))
           })()}

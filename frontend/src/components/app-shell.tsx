@@ -14,10 +14,11 @@ import {
   Moon,
   Receipt,
   Search,
-  Sun,
   Settings2,
   Shield,
+  Sun,
   Ticket,
+  TriangleAlert,
   UserPlus,
   Users,
   Wallet,
@@ -404,6 +405,9 @@ export function AdminShell() {
         { to: "/admin/query", label: "Query", icon: Search },
         { to: "/admin/reports", label: "Reports", icon: BarChart3 },
         { to: "/admin/audit", label: "Audit", icon: ClipboardCheck },
+        ...(canManageUsers
+          ? [{ to: "/admin/faults", label: "Faults", icon: TriangleAlert }]
+          : []),
       ]}
     />
   )

@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import date, timedelta
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.test import TestCase, Client, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from core.api import ATTACHMENT_LIMITS
 from core.models import (
@@ -1945,6 +1946,73 @@ class PaginationTests(TestCase):
         self.assertEqual(len(body["results"]), 2)
         page2 = self.client.get("/api/admin/ledger?limit=2&offset=2").json()
         self.assertEqual(len(page2["results"]), 1)
+
+
+class FaultsReportTests(TestCase):
+    """The operations screen: each finding was a query somebody ran once by hand."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="faults-admin@test.edu", password="pass", name="Faults Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def faults(self):
+        r = self.client.get("/api/admin/faults")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        return {f["key"]: f for g in body["groups"] for f in g["faults"]}, body
+
+    def test_a_faculty_without_a_biometric_id_is_flagged_as_blocking(self):
+        User.objects.create_user(
+            email="nobio@test.edu", password="p", name="No Bio", role=Role.FACULTY,
+        )
+        found, _ = self.faults()
+        self.assertEqual(found["no_biometric"]["count"], 1)
+        # They cannot submit at all, so this is not merely "needs attention".
+        self.assertEqual(found["no_biometric"]["severity"], "critical")
+
+    def test_a_claim_stuck_in_review_is_flagged_with_its_ticket(self):
+        fac = User.objects.create_user(
+            email="stuck@test.edu", password="p", name="Stuck", role=Role.FACULTY,
+            biometric_id="BIO-1", department="ECE", scopus_author_id="1",
+        )
+        old = timezone.now() - timedelta(days=40)
+        c = Claim.objects.create(
+            owner=fac, status=ClaimStatus.SUBMITTED, ticket_number="STUCK-1",
+            paper_title="Waiting a long time",
+        )
+        Claim.objects.filter(pk=c.pk).update(updated_at=old)
+        found, _ = self.faults()
+        self.assertEqual(found["stale_submitted"]["count"], 1)
+        self.assertIn("STUCK-1", found["stale_submitted"]["sample"])
+
+    def test_a_payment_with_no_amount_is_reported(self):
+        fac = User.objects.create_user(
+            email="zero@test.edu", password="p", name="Zero", role=Role.FACULTY,
+            biometric_id="BIO-2", department="ECE", scopus_author_id="2",
+        )
+        Claim.objects.create(
+            owner=fac, status=ClaimStatus.PAID, ticket_number="ZERO-1",
+            paper_title="Paid nothing", remuneration=0,
+        )
+        found, _ = self.faults()
+        self.assertEqual(found["paid_zero"]["count"], 1)
+
+    def test_a_clean_database_reports_nothing(self):
+        found, body = self.faults()
+        self.assertEqual(body["total"], 0)
+        self.assertEqual(body["urgent"], 0)
+
+    def test_only_a_user_manager_may_read_it(self):
+        fac = User.objects.create_user(
+            email="nosy@test.edu", password="p", name="Nosy", role=Role.FACULTY,
+        )
+        c = Client()
+        c.force_login(fac)
+        self.assertEqual(c.get("/api/admin/faults").status_code, 403)
 
 
 class DatabaseUrlParsingTests(TestCase):

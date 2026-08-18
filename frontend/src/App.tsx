@@ -14,6 +14,7 @@ import { FacultyProfilePage } from "@/pages/portals/profile";
 import { AdminClearingQueuePage } from "@/pages/portals/review-queue";
 import { ReportsPage } from "@/pages/portals/reports";
 import { SearchPage } from "@/pages/portals/search";
+import { AdminFaultsPage } from "@/pages/portals/faults";
 import { PrincipalOverviewPage, PrincipalQueuePage } from "@/pages/portals/principal";
 import {
   AdminApprovalsPage,
@@ -158,6 +159,7 @@ export default function App() {
           <Route path="reports" element={<ReportsPage />} />
           <Route path="query" element={<SearchPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
+          <Route path="faults" element={<AdminFaultsPage />} />
         </Route>
 
         <Route

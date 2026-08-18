@@ -1,95 +1,200 @@
 "use client"
 
-import { type FormEvent, useEffect, useMemo, useState } from "react"
+import { useState } from "react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
-import { Copy, ExternalLink, Plus } from "lucide-react"
+import { ExternalLink, Plus, ShieldCheck } from "lucide-react"
 
 import { useAuth } from "@/components/auth-provider"
 import { SCOPUS_FEEDBACK_WIZARD } from "@/components/claim-eligibility-notice"
-import {
-  Callout,
-  ChoiceCards,
-  Field,
-  FieldGrid,
-  FieldSpan,
-  ReadOnlyField,
-} from "@/components/form/fields"
-import { PageHeader, Section } from "@/components/layout/page"
+import { Callout, ReadOnlyField } from "@/components/form/fields"
+import { InsetList, PageHeader, Section } from "@/components/layout/page"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { api, type User } from "@/lib/api"
-import { designationOptions, extractScopusAuthorId } from "@/lib/claim-fields"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { api } from "@/lib/api"
 
 /**
- * Held by the research cell on purpose: department routes the approval and the
- * biometric ID picks the bank account, and both are copied onto every claim as
- * server-owned values. A claimant who could edit them could redirect a payment.
+ * Your details, as the research cell holds them.
+ *
+ * Nothing here is editable any more. Every field is identity: the name on the
+ * payment, the department the ticket is filed under, the biometric ID that
+ * picks the account, and the Scopus link deciding whose record a paper is
+ * checked against. A claimant editing their own is how a claim gets attributed
+ * — or paid — to the wrong person.
+ *
+ * Locking it without a way to fix a mistake would just mean chasing somebody by
+ * email while the claim stays blocked, so a correction is requested from here
+ * and reaches the research cell as a notification and an audit entry.
  */
-const LOCKED_HINT =
-  "Held on your staff record by the research cell. It decides which department your tickets are filed under and which account is paid, so it cannot be edited here."
 
-function correctionRequest(user: User | null): string {
-  return [
-    `Profile correction request — ${user?.name || ""} (${user?.email || ""})`,
-    `Department: ${user?.department || "not set"}`,
-    `Staff ID: ${user?.staff_id || "not set"}`,
-    `Biometric ID: ${user?.biometric_id || "not set"}`,
-    "",
-    "Please correct: ",
-  ].join("\n")
-}
+/** Field key → what the claimant sees. Must match CORRECTABLE on the server. */
+const FIELDS: { key: string; label: string; hint?: string }[] = [
+  { key: "name", label: "Full name", hint: "As it should appear on the payment." },
+  {
+    key: "department",
+    label: "Department",
+    hint: "Decides which department your tickets are filed under.",
+  },
+  { key: "designation", label: "Designation" },
+  { key: "staff_id", label: "Staff ID" },
+  {
+    key: "biometric_id",
+    label: "Biometric ID",
+    hint: "Linked to the account that is paid. A claim cannot be submitted without it.",
+  },
+  {
+    key: "scopus_author_url",
+    label: "Scopus author link",
+    hint: "Your own author profile. A paper is only counted when it appears on it.",
+  },
+  { key: "scopus_author_id", label: "Scopus author ID" },
+]
 
-export function FacultyProfilePage() {
-  const { user, refresh } = useAuth()
-  const [form, setForm] = useState({
-    name: "",
-    designation: "",
-    scopus_author_url: "",
-    scopus_author_id: "",
-  })
+function CorrectionDialog({
+  open,
+  onClose,
+  initialField,
+  current,
+}: {
+  open: boolean
+  onClose: () => void
+  initialField: string
+  current: Record<string, unknown>
+}) {
+  const [field, setField] = useState(initialField)
+  const [proposed, setProposed] = useState("")
+  const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    if (!user) return
-    setForm({
-      name: user.name || "",
-      designation: user.designation || "",
-      scopus_author_url: user.scopus_author_url || "",
-      scopus_author_id: user.scopus_author_id || "",
-    })
-  }, [user])
+  const meta = FIELDS.find((f) => f.key === field)
 
-  /** What a claim needs before it can even be filed, listed where it can be fixed. */
-  const missing = useMemo(() => {
-    const gaps: string[] = []
-    if (!form.name.trim()) gaps.push("your name")
-    if (!form.designation.trim()) gaps.push("your designation")
-    if (!form.scopus_author_url.trim()) gaps.push("your Scopus author link")
-    if (!user?.department) gaps.push("your department (research cell)")
-    if (!user?.biometric_id) gaps.push("your Biometric ID (research cell)")
-    return gaps
-  }, [form, user])
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault()
+  async function send() {
+    if (!proposed.trim()) {
+      toast.error("Say what it should be")
+      return
+    }
     setBusy(true)
     try {
-      await api("/api/auth/profile", { method: "PATCH", json: form })
-      await refresh()
-      toast.success("Profile saved")
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed")
+      await api("/api/auth/profile/correction", {
+        method: "POST",
+        json: { field, proposed: proposed.trim(), note: note.trim() },
+      })
+      toast.success("Sent to the research cell")
+      setProposed("")
+      setNote("")
+      onClose()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not send the request")
     } finally {
       setBusy(false)
     }
   }
 
   return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Request a correction</DialogTitle>
+          <DialogDescription>
+            The research cell holds these details. Tell them what is wrong and they
+            will change it — you will see the update here once they have.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="corr-field">Which detail</Label>
+            <Select value={field} onValueChange={(v) => setField(v)}>
+              <SelectTrigger id="corr-field">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FIELDS.map((f) => (
+                  <SelectItem key={f.key} value={f.key}>
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Currently</Label>
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              {String(current[field] || "Not set")}
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="corr-proposed">Should be</Label>
+            <Input
+              id="corr-proposed"
+              value={proposed}
+              onChange={(e) => setProposed(e.target.value)}
+              placeholder={meta?.label}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="corr-note">Anything that helps (optional)</Label>
+            <Textarea
+              id="corr-note"
+              rows={2}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. this link points at a different S. Kumar"
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={busy} onClick={send}>
+            {busy ? "Sending…" : "Send request"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function FacultyProfilePage() {
+  const { user } = useAuth()
+  const [open, setOpen] = useState(false)
+  const [field, setField] = useState("name")
+
+  const current = (user || {}) as unknown as Record<string, unknown>
+  const scopusUrl = String(current.scopus_author_url || "")
+
+  function request(key: string) {
+    setField(key)
+    setOpen(true)
+  }
+
+  return (
     <div>
       <PageHeader
         title="Profile"
-        subtitle="Your identity details autofill on every new ticket"
+        subtitle="Your details as the research cell holds them — they autofill every new ticket"
         actions={
           <Button asChild variant="secondary">
             <Link to="/faculty/new">
@@ -100,162 +205,110 @@ export function FacultyProfilePage() {
         }
       />
 
-      <form onSubmit={onSubmit} className="mx-auto max-w-2xl space-y-6">
-        {missing.length ? (
-          <Callout tone="warning" title="Your profile is not ready for a claim yet">
-            Still missing: {missing.join(", ")}. Anything marked "research cell" has to be corrected
-            by them — everything else you can set below.
-          </Callout>
-        ) : (
-          <Callout tone="success" title="Your profile is complete">
-            Every new ticket starts pre-filled with these details.
-          </Callout>
-        )}
-
-        <Section title="Your details" description="Yours to edit. Saved to every future ticket.">
-          <div className="rounded-2xl border border-border bg-card p-5">
-            <FieldGrid>
-              <FieldSpan>
-                <Field label="Full name" htmlFor="p-name" required>
-                  <Input
-                    id="p-name"
-                    className="h-9"
-                    autoComplete="name"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  />
-                </Field>
-              </FieldSpan>
-
-              <FieldSpan>
-                <Field label="Designation" required>
-                  <ChoiceCards
-                    name="Designation"
-                    columns={2}
-                    value={form.designation}
-                    onChange={(v) => setForm({ ...form, designation: v })}
-                    options={designationOptions(form.designation, user?.designation)}
-                  />
-                </Field>
-              </FieldSpan>
-            </FieldGrid>
-          </div>
-        </Section>
+      <div className="mx-auto max-w-2xl space-y-6">
+        <Callout tone="info" title="These are held for you, not by you">
+          <span className="flex items-start gap-2">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>
+              Every detail here decides something: which department your ticket is
+              filed under, which account is paid, and whose Scopus record a paper is
+              checked against. The research cell keeps them so a typo cannot send a
+              payment to the wrong person. If any of it is wrong, ask them to fix it
+              and they will.
+            </span>
+          </span>
+        </Callout>
 
         <Section
-          title="Scopus"
-          description="The article on a claim must be indexed and linked to this author profile."
-        >
-          <div className="rounded-2xl border border-border bg-card p-5">
-            <FieldGrid>
-              <FieldSpan>
-                <Field
-                  label="Author profile link"
-                  htmlFor="p-scopus-url"
-                  required
-                  hint={
-                    <>
-                      Linked to the wrong or a duplicate ID? Merge it with the{" "}
-                      <a
-                        href={SCOPUS_FEEDBACK_WIZARD}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-primary underline underline-offset-2"
-                      >
-                        Scopus Author Feedback Wizard
-                        <ExternalLink className="size-3" aria-hidden />
-                      </a>{" "}
-                      before you file a claim.
-                    </>
-                  }
-                >
-                  <Input
-                    id="p-scopus-url"
-                    className="h-9"
-                    inputMode="url"
-                    placeholder="https://www.scopus.com/authid/detail.uri?authorId=…"
-                    value={form.scopus_author_url}
-                    onChange={(e) => {
-                      const url = e.target.value
-                      const derived = extractScopusAuthorId(url)
-                      setForm((f) => ({
-                        ...f,
-                        scopus_author_url: url,
-                        scopus_author_id:
-                          derived && !f.scopus_author_id ? derived : f.scopus_author_id,
-                      }))
-                    }}
-                  />
-                </Field>
-              </FieldSpan>
-
-              <FieldSpan>
-                <Field
-                  label="Author ID"
-                  htmlFor="p-scopus-id"
-                  hint="Read from the link above when left empty. Used to check an article really sits on your profile."
-                >
-                  <Input
-                    id="p-scopus-id"
-                    className="h-9 font-mono tabular-nums"
-                    inputMode="numeric"
-                    placeholder="57200000000"
-                    value={form.scopus_author_id}
-                    onChange={(e) => setForm({ ...form, scopus_author_id: e.target.value })}
-                  />
-                </Field>
-              </FieldSpan>
-            </FieldGrid>
-          </div>
-        </Section>
-
-        <Section
-          title="Payment record"
-          description="Held by the research cell. Ask them to correct anything wrong here."
+          title="Your details"
           actions={
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={() => {
-                navigator.clipboard
-                  ?.writeText(correctionRequest(user))
-                  .then(() => toast.success("Correction request copied"))
-                  .catch(() => toast.error("Could not copy — select the values manually"))
-              }}
-            >
-              <Copy className="size-3.5" />
-              Copy request
+            <Button type="button" size="sm" variant="secondary" onClick={() => request("name")}>
+              Request a correction
             </Button>
           }
         >
-          <div className="rounded-2xl border border-border bg-card p-5">
-            <FieldGrid>
-              <ReadOnlyField
-                label="Email"
-                value={user?.email}
-                manageHint="Your login address. The research cell changes this."
-              />
-              <ReadOnlyField
-                label="Department"
-                value={user?.department}
-                manageHint={LOCKED_HINT}
-              />
-              <ReadOnlyField label="Staff ID" value={user?.staff_id} mono manageHint={LOCKED_HINT} />
-              <ReadOnlyField
-                label="Biometric ID"
-                value={user?.biometric_id}
-                mono
-                manageHint={LOCKED_HINT}
-              />
-            </FieldGrid>
-          </div>
+          <InsetList>
+            {FIELDS.map((f) => (
+              <div
+                key={f.key}
+                className="flex min-h-11 items-start justify-between gap-4 px-4 py-3"
+              >
+                <span className="min-w-0">
+                  <span className="block text-sm text-foreground">{f.label}</span>
+                  {f.hint ? (
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {f.hint}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="flex shrink-0 items-center gap-3">
+                  <span
+                    className={
+                      current[f.key]
+                        ? "max-w-[16rem] truncate text-sm text-foreground"
+                        : "text-sm text-muted-foreground"
+                    }
+                  >
+                    {String(current[f.key] || "Not set")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => request(f.key)}
+                    className="interactive text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Fix
+                  </button>
+                </span>
+              </div>
+            ))}
+          </InsetList>
         </Section>
 
-        <Button type="submit" className="w-full" disabled={busy}>
-          {busy ? "Saving…" : "Save profile"}
-        </Button>
-      </form>
+        <Section title="Email">
+          <ReadOnlyField label="Sign-in email" value={String(current.email || "")} />
+        </Section>
+
+        {scopusUrl ? (
+          <Section
+            title="Your Scopus profile"
+            description="A paper is only counted once it appears on this profile"
+          >
+            <InsetList>
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <a
+                  href={scopusUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="interactive min-w-0 truncate text-sm text-primary underline-offset-4 hover:underline"
+                >
+                  {scopusUrl}
+                </a>
+                <ExternalLink className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              </div>
+              <div className="px-4 py-3 text-xs text-muted-foreground">
+                An article linked to the wrong Scopus ID is merged or relinked through
+                the{" "}
+                <a
+                  href={SCOPUS_FEEDBACK_WIZARD}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  Scopus Author Feedback Wizard
+                </a>
+                , not here.
+              </div>
+            </InsetList>
+          </Section>
+        ) : null}
+      </div>
+
+      <CorrectionDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        initialField={field}
+        current={current}
+      />
     </div>
   )
 }

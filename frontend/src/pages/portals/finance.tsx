@@ -133,15 +133,11 @@ function AmountPill({ value }: { value?: number | null }) {
 
 function PaymentOrderCard({
   claim,
-  voucher,
-  onVoucherChange,
   busy,
   onMarkPaid,
   onReject,
 }: {
   claim: Claim
-  voucher: string
-  onVoucherChange: (v: string) => void
   busy: boolean
   onMarkPaid: () => void
   onReject: () => void
@@ -175,20 +171,6 @@ function PaymentOrderCard({
         </div>
       </div>
 
-      {/* Voucher input */}
-      <div className="mb-3">
-        <Label htmlFor={`voucher-${claim.id}`} className="mb-1.5 block text-xs">
-          Voucher # (optional)
-        </Label>
-        <Input
-          id={`voucher-${claim.id}`}
-          value={voucher}
-          onChange={(e) => onVoucherChange(e.target.value)}
-          placeholder="e.g. FIN-2026-00123"
-          className="h-9 text-sm"
-        />
-      </div>
-
       {/* Actions */}
       <div className="flex gap-2">
         <Button
@@ -219,25 +201,21 @@ function PaymentOrderCard({
 // FinancePayoutsPage
 // ---------------------------------------------------------------------------
 
-/** Selection + typed vouchers survive navigation: they used to live in plain
- * component state, so typing thirty voucher numbers and switching pages lost
- * all thirty. Cleared when the batch is actually paid. */
+/** The selection survives navigation: ticking thirty rows and stepping to the
+ * next page used to lose all thirty. Cleared when the batch is actually paid. */
 const BULK_PAY_STORE = "finance-bulk-pay"
 
-function readBulkStore(): { picked: string[]; voucher: Record<string, string> } {
+function readBulkStore(): { picked: string[] } {
   try {
     const raw = sessionStorage.getItem(BULK_PAY_STORE)
-    if (raw) return JSON.parse(raw)
+    if (raw) return { picked: JSON.parse(raw).picked || [] }
   } catch {
     /* fresh start */
   }
-  return { picked: [], voucher: {} }
+  return { picked: [] }
 }
 
 export function FinancePayoutsPage() {
-  const [voucher, setVoucherState] = useState<Record<string, string>>(
-    () => readBulkStore().voucher
-  )
   const [picked, setPickedState] = useState<Set<string>>(
     () => new Set(readBulkStore().picked)
   )
@@ -247,25 +225,20 @@ export function FinancePayoutsPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [q, setQ] = useState("")
 
-  function persistBulk(nextPicked: Set<string>, nextVoucher: Record<string, string>) {
+  function persistBulk(nextPicked: Set<string>) {
     try {
       sessionStorage.setItem(
         BULK_PAY_STORE,
-        JSON.stringify({ picked: [...nextPicked], voucher: nextVoucher })
+        JSON.stringify({ picked: [...nextPicked] })
       )
     } catch {
       /* storage full or blocked — selection just becomes per-visit */
     }
   }
 
-  function setVoucher(next: Record<string, string>) {
-    setVoucherState(next)
-    persistBulk(picked, next)
-  }
-
   function setPicked(next: Set<string>) {
     setPickedState(next)
-    persistBulk(next, voucher)
+    persistBulk(next)
   }
 
   function togglePick(id: string) {
@@ -353,7 +326,6 @@ export function FinancePayoutsPage() {
       await api(`/api/claims/${id}/mark-paid`, {
         method: "POST",
         json: {
-          voucher_number: voucher[id] || "",
           note: "processed",
           expected_amount: payRecalc?.remuneration ?? claim?.remuneration ?? null,
         },
@@ -362,7 +334,6 @@ export function FinancePayoutsPage() {
         timeoutMs: SLOW_TIMEOUT_MS,
       })
       toast.success("Payment marked — faculty has been notified", {
-        description: voucher[id] ? `Voucher: ${voucher[id]}` : undefined,
       })
       await load()
     } catch (e) {
@@ -409,7 +380,6 @@ export function FinancePayoutsPage() {
         json: {
           items: selectedRows.map((r) => ({
             claim_id: r.id,
-            voucher_number: voucher[r.id] || null,
             // The amount on screen is the amount that gets paid — the server
             // recomputes per row and skips anything that drifted.
             expected_amount: r.remuneration ?? null,
@@ -422,11 +392,8 @@ export function FinancePayoutsPage() {
       if (res.skipped.length > 3) toast.error(`${res.skipped.length - 3} more were skipped`)
       // Keep only what was skipped selected, so it is easy to fix and retry.
       const remaining = new Set(res.skipped.map((s) => s.id))
-      const nextVoucher: Record<string, string> = {}
-      for (const id of remaining) if (voucher[id]) nextVoucher[id] = voucher[id]
       setPickedState(remaining)
-      setVoucherState(nextVoucher)
-      if (remaining.size) persistBulk(remaining, nextVoucher)
+      if (remaining.size) persistBulk(remaining)
       else sessionStorage.removeItem(BULK_PAY_STORE)
       setBulkOpen(false)
       setBulkNote("")
@@ -548,8 +515,6 @@ export function FinancePayoutsPage() {
               </p>
               <PaymentOrderCard
                 claim={pinned}
-                voucher={voucher[pinned.id] || ""}
-                onVoucherChange={(v) => setVoucher({ ...voucher, [pinned.id]: v })}
                 busy={busyId === pinned.id}
                 onMarkPaid={() => startPay(pinned.id)}
                 onReject={() => setRejectId(pinned.id)}
@@ -567,8 +532,6 @@ export function FinancePayoutsPage() {
               >
               <PaymentOrderCard
                 claim={r}
-                voucher={voucher[r.id] || ""}
-                onVoucherChange={(v) => setVoucher({ ...voucher, [r.id]: v })}
                 busy={busyId === r.id}
                 onMarkPaid={() => startPay(r.id)}
                 onReject={() => setRejectId(r.id)}
@@ -579,7 +542,7 @@ export function FinancePayoutsPage() {
 
           {/* Desktop table */}
           <div className="hidden md:block">
-            <TableShell headers={["", "Order", "Paper / Formula", "Faculty", "Amount", "Voucher", "Process"]}>
+            <TableShell headers={["", "Order", "Paper / Formula", "Faculty", "Amount", "Process"]}>
               {filtered.map((r) => (
                 <tr
                   key={r.id}
@@ -617,17 +580,6 @@ export function FinancePayoutsPage() {
                           Awaiting 2nd approval
                         </Badge>
                       ) : null}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Input
-                        className="h-9 min-w-[9rem] text-sm"
-                        value={voucher[r.id] || ""}
-                        onChange={(e) =>
-                          setVoucher({ ...voucher, [r.id]: e.target.value })
-                        }
-                        placeholder="Voucher # (opt.)"
-                        aria-label={`Voucher number for ${r.ticket_number}`}
-                      />
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap justify-end gap-2">
@@ -703,15 +655,6 @@ export function FinancePayoutsPage() {
                     <td className="px-3 py-2 font-semibold tabular-nums">
                       <Money value={r.remuneration} />
                     </td>
-                    <td className="px-3 py-2">
-                      <Input
-                        className="h-8 min-w-[8rem] text-xs"
-                        value={voucher[r.id] || ""}
-                        onChange={(e) => setVoucher({ ...voucher, [r.id]: e.target.value })}
-                        placeholder="Voucher # (opt.)"
-                        aria-label={`Voucher number for ${r.ticket_number}`}
-                      />
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -774,14 +717,6 @@ export function FinancePayoutsPage() {
                         Changed from <Money value={payRecalc.previous} /> on re-verification.
                       </p>
                     ) : null}
-                    {voucher[confirmClaim.id] && (
-                      <p className="mt-1 text-xs">
-                        Voucher:{" "}
-                        <span className="font-mono font-medium">
-                          {voucher[confirmClaim.id]}
-                        </span>
-                      </p>
-                    )}
                   </div>
                 )}
                 <p>

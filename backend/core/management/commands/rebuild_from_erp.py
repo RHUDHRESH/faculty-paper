@@ -191,7 +191,13 @@ class Command(BaseCommand):
     # ── entry point ──────────────────────────────────────────────────────
 
     def handle(self, *args, **opts):
-        path = Path(opts["xlsx"])
+        # The load has to run from inside Google Cloud -- this network blocks the
+        # Cloud SQL proxy's port -- so the workbook is read from the bucket.
+        raw = str(opts["xlsx"])
+        if raw.startswith("gs://"):
+            path = self._fetch_from_bucket(raw)
+        else:
+            path = Path(raw)
         if not path.exists():
             raise CommandError(f"File not found: {path}")
         if not opts["confirm"]:
@@ -222,6 +228,22 @@ class Command(BaseCommand):
 
         wb.close()
         self._report(created)
+
+    def _fetch_from_bucket(self, uri: str) -> Path:
+        """Stream a gs:// workbook to a temp file openpyxl can read."""
+        import tempfile
+
+        from google.cloud import storage
+
+        bucket_name, _, blob_name = uri[len("gs://"):].partition("/")
+        client = storage.Client()
+        blob = client.bucket(bucket_name).blob(blob_name)
+        if not blob.exists():
+            raise CommandError(f"Not in the bucket: {uri}")
+        tmp = Path(tempfile.gettempdir()) / Path(blob_name).name
+        self.stdout.write(f"Downloading {uri} …")
+        blob.download_to_filename(str(tmp))
+        return tmp
 
     # ── steps ────────────────────────────────────────────────────────────
 

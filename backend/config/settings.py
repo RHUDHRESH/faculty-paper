@@ -91,6 +91,7 @@ def _database_from_url(url: str) -> dict:
     if "?" in name:
         name = name.split("?", 1)[0]
     opts = {}
+    socket_dir = None
     if parsed.query:
         from urllib.parse import parse_qs
 
@@ -98,8 +99,12 @@ def _database_from_url(url: str) -> dict:
         sslmode = (qs.get("sslmode") or [None])[0]
         if sslmode:
             opts["sslmode"] = sslmode
+        # libpq spells a unix socket as ?host=/dir, which is how Cloud SQL is
+        # reached from Cloud Run. Reading the hostname alone left HOST empty and
+        # the connection fell back to a default socket that does not exist.
+        socket_dir = (qs.get("host") or [None])[0]
+    host = socket_dir or parsed.hostname or ""
     # Supabase always needs SSL
-    host = parsed.hostname or ""
     if "supabase" in host and "sslmode" not in opts:
         opts["sslmode"] = "require"
     return {
@@ -108,7 +113,8 @@ def _database_from_url(url: str) -> dict:
         "USER": unquote(parsed.username or ""),
         "PASSWORD": unquote(parsed.password or ""),
         "HOST": host,
-        "PORT": str(parsed.port or 5432),
+        # A socket has no port, and passing one makes libpq try TCP instead.
+        "PORT": "" if socket_dir else str(parsed.port or 5432),
         "OPTIONS": opts,
     }
 

@@ -6,6 +6,23 @@ import urllib.error
 import urllib.request
 
 FE = "https://faculty-paper-rhudhreshs-projects.vercel.app"
+
+import csv as _csv
+from pathlib import Path as _Path
+
+
+def _admin_password() -> str:
+    """Read the admin password from the local credential file, never hard-coded."""
+    f = _Path(__file__).resolve().parent.parent / "staff-credentials.csv"
+    if f.exists():
+        for row in _csv.DictReader(f.open(encoding="utf-8")):
+            if row["email"] == "admin@college.edu":
+                return row["password"]
+    raise SystemExit("staff-credentials.csv not found - cannot sign in")
+
+
+ADMIN_PW = _admin_password()
+
 cj = http.cookiejar.CookieJar()
 op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
 
@@ -28,7 +45,7 @@ print(f"  persistent    {h.get('media_persistent')}")
 csrf = get("/api/auth/csrf")["csrfToken"]
 op.open(urllib.request.Request(
     FE + "/api/auth/login",
-    data=json.dumps({"email": "admin@college.edu", "password": "SecAdmin@2026"}).encode(),
+    data=json.dumps({"email": "admin@college.edu", "password": ADMIN_PW}).encode(),
     headers={"Content-Type": "application/json", "X-CSRFToken": csrf,
              "Origin": FE, "Referer": FE + "/login"}))
 

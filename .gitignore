@@ -93,3 +93,5 @@ audit/shots/
 # Generated faculty logins — real credentials, never commit or deploy
 faculty-credentials.csv
 *-credentials.csv
+.tools/
+staff-credentials.csv

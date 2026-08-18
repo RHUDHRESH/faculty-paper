@@ -1947,6 +1947,34 @@ class PaginationTests(TestCase):
         self.assertEqual(len(page2["results"]), 1)
 
 
+class DatabaseUrlParsingTests(TestCase):
+    """Cloud SQL is reached over a unix socket, which libpq spells as a query
+    parameter rather than a hostname."""
+
+    def parse(self, url):
+        from config.settings import _database_from_url
+
+        return _database_from_url(url)
+
+    def test_a_unix_socket_url_becomes_the_host(self):
+        d = self.parse("postgres://u:p@/appdb?host=/cloudsql/proj:asia-south1:inst")
+        self.assertEqual(d["HOST"], "/cloudsql/proj:asia-south1:inst")
+        self.assertEqual(d["NAME"], "appdb")
+        self.assertEqual(d["USER"], "u")
+        # A socket has no port; sending one makes libpq try TCP and fail.
+        self.assertEqual(d["PORT"], "")
+
+    def test_a_tcp_url_is_unchanged(self):
+        d = self.parse("postgres://u:p@db.example.com:6543/appdb?sslmode=require")
+        self.assertEqual(d["HOST"], "db.example.com")
+        self.assertEqual(d["PORT"], "6543")
+        self.assertEqual(d["OPTIONS"]["sslmode"], "require")
+
+    def test_a_password_with_url_characters_survives(self):
+        d = self.parse("postgres://u:p%40ss%2Fword@host/appdb")
+        self.assertEqual(d["PASSWORD"], "p@ss/word")
+
+
 class CountOnlyKeepsItsMetricsTests(TestCase):
     """A count-only filing pays nothing, but it is still the institution's
     record of the publication -- so it keeps SNIP, quartile and the rest."""

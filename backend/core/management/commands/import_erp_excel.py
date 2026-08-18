@@ -296,39 +296,56 @@ class Command(BaseCommand):
         return n
 
     def _import_sjr(self, ws, year: int, limit: int) -> int:
+        """Replace the year's Scimago rows in batches.
+
+        This was an update_or_create per row: a round trip each way, which
+        measured 38 rows a minute against Neon -- fourteen hours for one sheet.
+        The dump is a full snapshot for a year, so the year is cleared and
+        rewritten in batches instead.
+        """
+        ScimagoJournal.objects.filter(year=year).delete()
+        batch: list[ScimagoJournal] = []
+        seen: set[str] = set()
         n = 0
         for row in _rows(ws):
             title = _s(_cell(row, "Title"), 512)
             if not title:
                 continue
             issn_raw = _s(_cell(row, "Issn", "ISSN"))
-            issn = None
-            if issn_raw:
-                issn = issn_raw.split(",")[0].strip()[:32]
-            key = issn or f"TITLE:{title[:40]}"
-            cats = _s(_cell(row, "Categories")) or ""
-            ScimagoJournal.objects.update_or_create(
-                issn=key,
-                year=year,
-                defaults={
-                    "source_id": _s(_cell(row, "Sourceid", "Source ID"), 64),
-                    "title": title,
-                    "eissn": None,
-                    "sjr": _f(_cell(row, "SJR")),
-                    "categories_json": json.dumps(parse_categories_field(cats)),
-                    "raw_json": json.dumps(
-                        {k: str(v)[:120] if v is not None else None for k, v in row.items()}
-                    )[:50000],
-                },
+            issn = issn_raw.split(",")[0].strip()[:32] if issn_raw else None
+            key = (issn or f"TITLE:{title[:24]}")[:32]
+            if key in seen:
+                continue
+            seen.add(key)
+            batch.append(
+                ScimagoJournal(
+                    issn=key,
+                    year=year,
+                    source_id=_s(_cell(row, "Sourceid", "Source ID"), 64),
+                    title=title,
+                    eissn=None,
+                    sjr=_f(_cell(row, "SJR")),
+                    categories_json=json.dumps(
+                        parse_categories_field(_s(_cell(row, "Categories")) or "")
+                    ),
+                )
             )
             n += 1
+            if len(batch) >= 1000:
+                ScimagoJournal.objects.bulk_create(batch, ignore_conflicts=True)
+                batch = []
+                self.stdout.write(f"  SJR … {n}")
             if limit and n >= limit:
                 break
-            if n % 2000 == 0:
-                self.stdout.write(f"  SJR … {n}")
+        if batch:
+            ScimagoJournal.objects.bulk_create(batch, ignore_conflicts=True)
         return n
 
     def _import_snip(self, ws, year: int, limit: int) -> int:
+        """Replace the year's SNIP rows in batches, for the same reason."""
+        SnipSource.objects.filter(year=year).delete()
+        batch: list[SnipSource] = []
+        seen: set[str] = set()
         n = 0
         for row in _rows(ws):
             title = _s(_cell(row, "Title"), 512)
@@ -336,31 +353,35 @@ class Command(BaseCommand):
                 continue
             print_issn = _s(_cell(row, "Print ISSN", "Print_ISSN"), 32)
             e_issn = _s(_cell(row, "E-ISSN", "E_ISSN"), 32)
+            source_id = _id(_cell(row, "Scopus Source ID", "Source ID"), 64)
             # print_issn is CharField(32). Truncating to 64 let the 46-character
             # "TITLE:" fallback through, which SQLite accepts and Postgres kills
             # the whole import over — so the bug only ever fired in production.
-            issn_key = (print_issn or e_issn or f"TITLE:{title[:24]}")[:32]
-            # SnipSource has no unique constraint, so update_or_create raises
-            # MultipleObjectsReturned on data that already has duplicates.
-            _snip_upsert(
-                print_issn=issn_key,
-                year=year,
-                defaults={
-                    "title": title,
-                    "e_issn": e_issn,
-                    "snip": _f(_cell(row, "SNIP")),
-                    "sjr": _f(_cell(row, "SJR")),
-                    "source_id": _s(_cell(row, "Scopus Source ID", "Source ID"), 64),
-                    "raw_json": json.dumps(
-                        {k: str(v)[:100] if v is not None else None for k, v in row.items()}
-                    )[:50000],
-                },
+            key = (print_issn or e_issn or source_id or f"TITLE:{title[:24]}")[:32]
+            # The sheet carries one row per subject area, so a source repeats.
+            if key in seen:
+                continue
+            seen.add(key)
+            batch.append(
+                SnipSource(
+                    print_issn=key,
+                    year=year,
+                    title=title,
+                    e_issn=e_issn,
+                    snip=_f(_cell(row, "SNIP")),
+                    sjr=_f(_cell(row, "SJR")),
+                    source_id=source_id,
+                )
             )
             n += 1
+            if len(batch) >= 1000:
+                SnipSource.objects.bulk_create(batch, ignore_conflicts=True)
+                batch = []
+                self.stdout.write(f"  SNIP … {n}")
             if limit and n >= limit:
                 break
-            if n % 5000 == 0:
-                self.stdout.write(f"  SNIP … {n}")
+        if batch:
+            SnipSource.objects.bulk_create(batch, ignore_conflicts=True)
         return n
 
     # ── historical claims ────────────────────────────────────────────────

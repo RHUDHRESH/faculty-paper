@@ -409,12 +409,16 @@ def _apply_faculty_payload(claim: Claim, payload: ClaimIn) -> None:
     if parts:
         claim.indexing_ref = "; ".join(parts)[:255]
 
-    # Count-only filings carry no money: force SNIP to 0 so the formula pays nothing,
-    # regardless of what the client sent.
-    if claim.claim_reason == ClaimReason.COUNT_ONLY:
-        claim.is_student_publication = True
-        claim.snip = 0.0
-        claim.self_reported_snip = 0.0
+    # Count-only filings carry no money, but they are still the institution's
+    # record of the publication. Blanking SNIP to force a zero payout also threw
+    # away a real fact about the journal, so the count kept the paper and lost
+    # its metrics. `is_student_publication` is what stops the payment -- the
+    # engine returns zero on that alone -- so the declared figures can stay.
+    # ...and it has to flip back. Setting the flag on the way in but never
+    # clearing it meant a claim switched back to an incentive claim stayed
+    # marked as a student publication and went on paying nothing, with nothing
+    # on screen to explain why.
+    claim.is_student_publication = claim.claim_reason == ClaimReason.COUNT_ONLY
     claim.normalized_title = normalize_title(claim.paper_title)[:512]
     # Never trust client override flags. (scimago_verified no longer needs a
     # reset here: quartile itself is not faculty-writable, and wiping the flag

@@ -1230,7 +1230,6 @@ export function PublicationForm({
             setForm((f) => ({
               ...f,
               claim_reason: reason,
-              snip: reason === "COUNT_ONLY" ? "0" : f.snip === "0" ? "" : f.snip,
               // Must flip back too. Leaving it true after switching to Option A
               // made the formula pay zero with nothing on screen explaining why.
               is_student_publication: reason === "COUNT_ONLY",
@@ -1243,8 +1242,10 @@ export function PublicationForm({
 
       {countOnly ? (
         <Callout tone="info" title="No incentive will be paid for this article">
-          SNIP is locked to 0 because the article is going to Final Year Student Project
-          Reimbursement. The ticket still runs through approval so the publication is counted.
+          It is going to Final Year Student Project Reimbursement, so no remuneration is
+          payable. Fill in SNIP, quartile and the rest anyway — the ticket still runs
+          through approval, and these are the figures the institutional publication
+          record keeps.
         </Callout>
       ) : null}
 
@@ -1307,7 +1308,7 @@ export function PublicationForm({
           error={visibleErrors.snip}
           hint={
             countOnly
-              ? "Locked to 0 for a count-only submission."
+              ? "Recorded for the publication count. It does not create a payment."
               : "Source Normalized Impact per Paper."
           }
         >
@@ -1315,7 +1316,6 @@ export function PublicationForm({
             id="snip"
             className="h-9 tabular-nums"
             inputMode="decimal"
-            disabled={countOnly}
             value={form.snip}
             aria-invalid={!!visibleErrors.snip}
             onChange={(e) => set("snip", e.target.value)}

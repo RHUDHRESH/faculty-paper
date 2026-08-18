@@ -587,7 +587,9 @@ class ClaimSubmissionRuleTests(TestCase):
         self.assertEqual(r.status_code, 400, r.content)
         self.assertIn("Author position", r.json().get("detail", ""))
 
-    def test_count_only_claim_zeroes_snip_and_pays_nothing(self):
+    def test_count_only_claim_keeps_its_metrics_and_pays_nothing(self):
+        """The zero comes from the student-publication flag, not from erasing
+        the journal's SNIP -- the publication count keeps the figures."""
         self._login(self.faculty)
         r = self._post_claim(
             self._complete_payload(claim_reason="COUNT_ONLY", snip=4.2, submit=False)
@@ -595,7 +597,7 @@ class ClaimSubmissionRuleTests(TestCase):
         self.assertEqual(r.status_code, 200, r.content)
         body = r.json()
         self.assertEqual(body["claim_reason"], "COUNT_ONLY")
-        self.assertEqual(body["snip"], 0.0)
+        self.assertEqual(body["self_reported_snip"], 4.2)
         self.assertTrue(body["is_student_publication"])
         self.assertIn(body["remuneration"], (0, 0.0, None))
 
@@ -1943,6 +1945,68 @@ class PaginationTests(TestCase):
         self.assertEqual(len(body["results"]), 2)
         page2 = self.client.get("/api/admin/ledger?limit=2&offset=2").json()
         self.assertEqual(len(page2["results"]), 1)
+
+
+class CountOnlyKeepsItsMetricsTests(TestCase):
+    """A count-only filing pays nothing, but it is still the institution's
+    record of the publication -- so it keeps SNIP, quartile and the rest."""
+
+    def setUp(self):
+        self.faculty = User.objects.create_user(
+            email="count-only@test.edu", password="pass", name="Count Only",
+            role=Role.FACULTY, department="ECE", staff_id="STF-CO",
+            biometric_id="BIO-CO",
+        )
+        self.client = Client()
+        self.client.force_login(self.faculty)
+
+    def _file(self, **extra):
+        payload = {
+            "paper_title": "A paper counted but not paid",
+            "journal_title": "Journal of Counting",
+            "claim_reason": "COUNT_ONLY",
+            "snip": 2.4,
+            "quartile": "Q1",
+            "total_authors": 2,
+            "author_position": 1,
+            "indexing_levels": ["Scopus"],
+            "publication_types": ["Regular Research Article"],
+            **extra,
+        }
+        r = self.client.post(
+            "/api/claims", data=json.dumps(payload), content_type="application/json"
+        )
+        self.assertIn(r.status_code, (200, 201), r.content)
+        return Claim.objects.get(pk=r.json()["id"])
+
+    def test_declared_snip_survives_a_count_only_filing(self):
+        """It used to be overwritten with 0, which threw away a real fact about
+        the journal to achieve a zero the student flag already guarantees."""
+        claim = self._file()
+        self.assertEqual(claim.claim_reason, "COUNT_ONLY")
+        self.assertTrue(claim.is_student_publication)
+        self.assertEqual(claim.self_reported_snip, 2.4)
+
+    def test_it_still_pays_nothing(self):
+        claim = self._file()
+        self.assertEqual(claim.remuneration, 0)
+
+    def test_the_quartile_is_kept_too(self):
+        claim = self._file()
+        self.assertEqual(claim.self_reported_quartile, "Q1")
+
+    def test_switching_to_an_incentive_claim_prices_the_kept_figures(self):
+        claim = self._file()
+        r = self.client.patch(
+            f"/api/claims/{claim.id}",
+            data=json.dumps({"claim_reason": "INCENTIVE"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertFalse(claim.is_student_publication)
+        # The declared SNIP is still there to price a draft estimate from.
+        self.assertEqual(claim.self_reported_snip, 2.4)
 
 
 class ReportGroupingTests(TestCase):

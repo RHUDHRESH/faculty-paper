@@ -1,9 +1,25 @@
 import type { Claim } from "@/lib/api"
 
+/** Where a file the server has already seen was used before. */
+export type DuplicateFileRef = {
+  claim_id: string
+  ticket_number: string
+  filename: string
+  uploaded_at: string
+  same_owner: boolean
+  owner_name: string
+}
+
 export type UploadedFileRef = {
   url: string
   filename: string
   size_bytes: number
+  /** sha256 of the bytes: the same document however it was renamed. */
+  content_hash?: string
+  /** Set when these exact bytes are already attached to another ticket. */
+  duplicate_of?: DuplicateFileRef | null
+  /** Read out of the PDF, offered for the title box -- never written silently. */
+  suggested_title?: string | null
 }
 
 /**

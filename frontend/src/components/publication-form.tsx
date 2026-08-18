@@ -88,6 +88,7 @@ import {
   type EnrichResult,
   type FieldErrors,
   type PublicationFormState,
+  type DuplicateFileRef,
   type UploadedFileRef,
 } from "@/lib/claim-fields"
 
@@ -136,11 +137,21 @@ async function uploadPdf(file: File): Promise<UploadedFileRef> {
     }
     throw new Error(msg)
   }
-  const data = await readJson<{ url: string; filename?: string; size_bytes?: number }>(res)
+  const data = await readJson<{
+    url: string
+    filename?: string
+    size_bytes?: number
+    content_hash?: string
+    duplicate_of?: DuplicateFileRef | null
+    suggested_title?: string | null
+  }>(res)
   return {
     url: data.url as string,
     filename: (data.filename as string) || file.name,
     size_bytes: (data.size_bytes as number) ?? file.size,
+    content_hash: data.content_hash,
+    duplicate_of: data.duplicate_of ?? null,
+    suggested_title: data.suggested_title ?? null,
   }
 }
 

@@ -1,4 +1,4 @@
-import { Plus, Trash2, UploadCloud } from "lucide-react"
+import { AlertTriangle, Copy, Plus, Sparkles, Trash2, UploadCloud } from "lucide-react"
 
 import { Field, formatBytes } from "@/components/form/fields"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,60 @@ import { cn } from "@/lib/utils"
 import { emptyCitation, type SecCitation, type UploadedFileRef } from "@/lib/claim-fields"
 
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "webp", "gif"])
+
+/**
+ * A file's own bytes say whether it has been seen before, so renaming it
+ * changes nothing. Two cases are worth different words:
+ *
+ * - the same file attached twice on this form, which is nearly always a
+ *   mis-drop and is fixed by removing one;
+ * - the same file already on another ticket, which may be legitimate (one
+ *   paper genuinely cited twice) and so is a warning, not a block.
+ *
+ * Neither stops the claimant. The research cell sees the same fingerprint on
+ * its side, and a claimant who cannot submit simply telephones instead.
+ */
+function FileWarning({
+  file,
+  duplicateSlot,
+}: {
+  file: UploadedFileRef
+  duplicateSlot: number | null
+}) {
+  const dup = file.duplicate_of
+  if (duplicateSlot === null && !dup) return null
+  return (
+    <div className="mt-2 space-y-2">
+      {duplicateSlot !== null ? (
+        <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+          <Copy className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+          <span>
+            This is the same file as <strong>reference {duplicateSlot + 1}</strong>. If
+            they are different papers, attach the right one here.
+          </span>
+        </p>
+      ) : null}
+      {dup ? (
+        <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden />
+          <span>
+            This file was already uploaded{" "}
+            {dup.ticket_number ? (
+              <>
+                on ticket <strong className="font-mono">{dup.ticket_number}</strong>
+              </>
+            ) : (
+              // A draft has no ticket number until it is submitted.
+              <>on {dup.same_owner ? "one of your drafts" : "an unsubmitted draft"}</>
+            )}
+            {dup.same_owner || !dup.ticket_number ? "" : ` by ${dup.owner_name}`}. That
+            is fine if the same paper is cited again — the research cell sees it too.
+          </span>
+        </p>
+      ) : null}
+    </div>
+  )
+}
 
 function isImage(f: UploadedFileRef): boolean {
   return IMAGE_EXT.has((f.filename || f.url).split(".").pop()?.toLowerCase() || "")
@@ -47,7 +101,27 @@ export function SecCitationList({
   const update = (i: number, patch: Partial<SecCitation>) =>
     onChange(citations.map((c, n) => (n === i ? { ...c, ...patch } : c)))
 
+  /** Only worth offering while the box is empty. */
+  const suggestion = (c: SecCitation): string | null => {
+    const guess = c.file?.suggested_title?.trim()
+    if (!guess || c.title.trim()) return null
+    return guess
+  }
+
   const complete = citations.filter((c) => c.number.trim() && c.title.trim() && c.file).length
+
+  // For each row, the earlier row holding the identical file, if any.
+  const firstSeen = new Map<string, number>()
+  const sameAs = citations.map((c) => {
+    const h = c.file?.content_hash
+    if (!h) return null
+    const at = firstSeen.get(h)
+    if (at === undefined) {
+      firstSeen.set(h, citations.findIndex((x) => x.file?.content_hash === h))
+      return null
+    }
+    return at
+  })
 
   return (
     // tabIndex so the error summary's link can actually move focus here — a
@@ -106,6 +180,25 @@ export function SecCitationList({
                     value={c.title}
                     onChange={(e) => update(i, { title: e.target.value })}
                   />
+                  {/* Offered, never applied on its own: a PDF's embedded title
+                      is often the template's ("Microsoft Word - paper.doc"),
+                      and a wrong one filled in silently is worse than a blank
+                      box, because nobody re-reads a field they did not type. */}
+                  {suggestion(c) ? (
+                    <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <Sparkles className="size-3.5 shrink-0 text-primary" aria-hidden />
+                      <span>From the file:</span>
+                      <button
+                        type="button"
+                        onClick={() => update(i, { title: suggestion(c) as string })}
+                        className="interactive max-w-full truncate rounded-md border border-border bg-muted/40 px-2 py-0.5 text-left font-medium text-foreground hover:border-primary/50 hover:text-primary"
+                        title={suggestion(c) as string}
+                      >
+                        {suggestion(c)}
+                      </button>
+                      <span>— use it?</span>
+                    </p>
+                  ) : null}
                 </Field>
               </div>
 
@@ -166,6 +259,7 @@ export function SecCitationList({
                     />
                   </label>
                 )}
+                {file ? <FileWarning file={file} duplicateSlot={sameAs[i]} /> : null}
               </div>
             </li>
           )

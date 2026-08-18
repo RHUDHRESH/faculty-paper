@@ -479,6 +479,7 @@ export function FinancePayoutsPage() {
               <Input
                 className="pl-9"
                 placeholder="Search…"
+                aria-label="Search payment orders"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
@@ -617,6 +618,7 @@ export function FinancePayoutsPage() {
                           setVoucher({ ...voucher, [r.id]: e.target.value })
                         }
                         placeholder="Voucher # (opt.)"
+                        aria-label={`Voucher number for ${r.ticket_number}`}
                       />
                     </td>
                     <td className="px-4 py-3">
@@ -699,6 +701,7 @@ export function FinancePayoutsPage() {
                         value={voucher[r.id] || ""}
                         onChange={(e) => setVoucher({ ...voucher, [r.id]: e.target.value })}
                         placeholder="Voucher # (opt.)"
+                        aria-label={`Voucher number for ${r.ticket_number}`}
                       />
                     </td>
                   </tr>
@@ -923,6 +926,7 @@ export function FinancePaidPage() {
           <Input
             className="pl-9"
             placeholder="Ticket / paper / faculty…"
+            aria-label="Search processed payments"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -932,6 +936,7 @@ export function FinancePaidPage() {
           <Input
             className="pl-9"
             placeholder="Department…"
+            aria-label="Filter by department"
             value={dept}
             onChange={(e) => setDept(e.target.value)}
           />

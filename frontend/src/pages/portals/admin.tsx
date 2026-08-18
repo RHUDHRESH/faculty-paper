@@ -2,7 +2,7 @@
 import { toast } from "sonner"
 
 import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
-import { Money } from "@/components/ticket-ui"
+import { Money, formatDate, formatDateTime } from "@/components/ticket-ui"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -236,8 +236,9 @@ export function AdminMonthlyPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>CSV file</Label>
+              <Label htmlFor="monthly-csv">CSV file</Label>
               <Input
+                id="monthly-csv"
                 type="file"
                 accept=".csv"
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -507,8 +508,9 @@ export function AdminScimagoPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>CSV file</Label>
+              <Label htmlFor="scimago-csv">CSV file</Label>
               <Input
+                id="scimago-csv"
                 type="file"
                 accept=".csv"
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -598,8 +600,9 @@ export function AdminPriorPage() {
         <FormPanel>
           <form className="flex flex-wrap items-end gap-3" onSubmit={upload}>
             <div className="space-y-1.5">
-              <Label>CSV file</Label>
+              <Label htmlFor="prior-csv">CSV file</Label>
               <Input
+                id="prior-csv"
                 type="file"
                 accept=".csv"
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -619,8 +622,9 @@ export function AdminPriorPage() {
         <FormPanel>
           <form className="flex flex-wrap items-end gap-3" onSubmit={uploadErp}>
             <div className="space-y-1.5">
-              <Label>XLSX file</Label>
+              <Label htmlFor="erp-xlsx">XLSX file</Label>
               <Input
+                id="erp-xlsx"
                 type="file"
                 accept=".xlsx,.xlsm"
                 onChange={(e) => setErpFile(e.target.files?.[0] || null)}
@@ -813,7 +817,7 @@ function ViewUserDialog({
               {stats.drafts ? `${stats.drafts} draft(s) · ` : ""}
               {stats.in_review ? `${stats.in_review} awaiting review · ` : ""}
               {stats.last_claim_at
-                ? `last activity ${new Date(String(stats.last_claim_at)).toLocaleDateString()}`
+                ? `last activity ${formatDate(String(stats.last_claim_at))}`
                 : "no claim activity yet"}
             </p>
           </div>
@@ -1520,8 +1524,8 @@ export function AdminFormulaPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Version</Label>
-              <Input value={String(form.version ?? 1)} disabled />
+              <Label htmlFor="policy-version">Version</Label>
+              <Input id="policy-version" value={String(form.version ?? 1)} disabled />
             </div>
           </div>
         </FormPanel>
@@ -1751,6 +1755,7 @@ export function AdminAuditPage() {
         <Input
           className="w-56"
           placeholder="Search actor, entity, ticket id…"
+          aria-label="Search the audit trail"
           value={q}
           onChange={(e) => {
             setQ(e.target.value)
@@ -1760,6 +1765,7 @@ export function AdminAuditPage() {
         <Input
           className="w-44"
           placeholder="Action, e.g. CLEAR"
+          aria-label="Filter by action"
           value={action}
           onChange={(e) => {
             setAction(e.target.value)
@@ -1793,7 +1799,7 @@ export function AdminAuditPage() {
               return (
                 <tr key={r.id} className="border-b border-border/50 last:border-0 align-top">
                   <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                    {r.created_at ? new Date(r.created_at).toLocaleString() : "—"}
+                    {formatDateTime(r.created_at)}
                   </td>
                   <td className="px-4 py-3 font-medium">{r.action}</td>
                   <td className="px-4 py-3 text-muted-foreground">

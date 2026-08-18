@@ -1503,16 +1503,34 @@ _CLAIM_SORTS = {
 def list_claims(
     request: HttpRequest,
     status: Optional[str] = None,
+    q: Optional[str] = None,
     sort: str = "recent",
     limit: int = 50,
     offset: int = 0,
 ):
     """Paginated. The old shape silently truncated at 200 rows — beyond that,
-    tickets simply did not exist as far as the UI was concerned."""
+    tickets simply did not exist as far as the UI was concerned.
+
+    `q` searches the whole queue rather than the page on screen. Both list
+    screens used to filter the fifty rows they had already fetched, so an admin
+    on page one searching for a ticket sitting on page three was told there was
+    no such ticket.
+    """
     user = require_user(request)
     qs = _claims_queryset(user)
     if status:
         qs = qs.filter(status=status)
+    if q and q.strip():
+        term = q.strip()
+        qs = qs.filter(
+            Q(ticket_number__icontains=term)
+            | Q(paper_title__icontains=term)
+            | Q(journal_title__icontains=term)
+            | Q(doi__icontains=term)
+            | Q(owner__name__icontains=term)
+            | Q(owner__email__icontains=term)
+            | Q(owner__department__icontains=term)
+        )
     qs = qs.order_by(_CLAIM_SORTS.get(sort, "-updated_at"))
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))

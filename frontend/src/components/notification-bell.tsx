@@ -18,6 +18,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
+import { formatDateTime } from "@/components/ticket-ui"
 
 export function NotificationBell({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
@@ -96,7 +97,7 @@ export function NotificationBell({ className }: { className?: string }) {
                       </p>
                     ) : null}
                     <p className="mt-1.5 text-[10px] text-muted-foreground">
-                      {new Date(n.created_at).toLocaleString()}
+                      {formatDateTime(n.created_at)}
                     </p>
                   </button>
                 </li>

@@ -15,14 +15,7 @@ import {
   StatStrip,
 } from "@/components/layout/page"
 import { ClaimDetailFields } from "@/components/claim-detail-fields"
-import {
-  ContestCallout,
-  CopyTicketLink,
-  Money,
-  StatusChip,
-  StatusTimeline,
-  VerificationSnapshot,
-} from "@/components/ticket-ui"
+import { ContestCallout, CopyTicketLink, Money, StatusChip, StatusTimeline, VerificationSnapshot, formatDateTime } from "@/components/ticket-ui"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -153,7 +146,7 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
                 {actionSentence(a.action)}
                 {a.note ? <span className="block pl-3 text-xs italic">“{a.note}”</span> : null}
                 <span className="block pl-3 text-xs tabular-nums opacity-80">
-                  {new Date(a.created_at).toLocaleString()}
+                  {formatDateTime(a.created_at)}
                 </span>
               </li>
             ))}
@@ -361,15 +354,35 @@ function ApprovalQueue({
   const effectiveStatus =
     statusFilter === "ALL" && statusFromUrl ? statusFromUrl : statusFilter
   const PAGE = 50
+
+  // Search the whole queue, not the fifty rows already on screen. A reviewer
+  // on page one looking for a ticket sitting on page three was told there was
+  // no such ticket.
+  const [debouncedQ, setDebouncedQ] = useState("")
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQ(q.trim())
+      setOffset(0)
+    }, 250)
+    return () => clearTimeout(t)
+  }, [q])
+
+  // Changing the queue you are looking at has to take you back to its first
+  // page; staying on offset 100 showed an empty queue that was not empty.
+  useEffect(() => {
+    setOffset(0)
+  }, [effectiveStatus, sort])
+
   const {
     data: page,
     isLoading: loading,
     isError,
     refetch,
   } = useApiQuery<Paginated<Claim>>(
-    ["claims", "queue", effectiveStatus, offset, sort],
+    ["claims", "queue", effectiveStatus, offset, sort, debouncedQ],
     `/api/claims?limit=${PAGE}&offset=${offset}&sort=${sort}` +
-      (effectiveStatus === "ALL" ? "" : `&status=${effectiveStatus}`)
+      (effectiveStatus === "ALL" ? "" : `&status=${effectiveStatus}`) +
+      (debouncedQ ? `&q=${encodeURIComponent(debouncedQ)}` : "")
   )
   const claims = page?.results ?? []
   const load = () => refetch()
@@ -389,17 +402,8 @@ function ApprovalQueue({
     if (isDesktop) setSheetOpen(false)
   }, [isDesktop])
 
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase()
-    if (!s) return claims
-    return claims.filter(
-      (c) =>
-        (c.ticket_number || "").toLowerCase().includes(s) ||
-        (c.paper_title || "").toLowerCase().includes(s) ||
-        (c.owner_name || "").toLowerCase().includes(s) ||
-        (c.owner_department || "").toLowerCase().includes(s)
-    )
-  }, [claims, q])
+  // The server already applied the search, so this is the whole result set.
+  const filtered = claims
 
   async function openClaim(id: string) {
     const c = await api<Claim>(`/api/claims/${id}`)
@@ -695,6 +699,7 @@ function ApprovalQueue({
           <Input
             className="pl-9"
             placeholder="Search ticket, paper, faculty…"
+            aria-label="Search the queue by ticket, paper, or faculty"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />

@@ -312,6 +312,35 @@ export function formatMoney(value: number): string {
   })}`
 }
 
+/**
+ * A timestamp, formatted the same way everywhere.
+ *
+ * These were bare `toLocaleString()` calls, so the format followed each
+ * viewer's browser locale — the same claim history read "17/08/2026, 20:45:12"
+ * for one person and "8/17/2026, 8:45:12 PM" for the next, while every amount
+ * on the same row was pinned to en-IN. Dates now match the money.
+ */
+export function formatDateTime(value: string | number | Date | null | undefined): string {
+  if (!value) return "—"
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return "—"
+  return d.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+/** The same, without the time — for "last activity" style lines. */
+export function formatDate(value: string | number | Date | null | undefined): string {
+  if (!value) return "—"
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return "—"
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+}
+
 export function VerificationSnapshot({
   snapshot,
   className,

@@ -1945,6 +1945,75 @@ class PaginationTests(TestCase):
         self.assertEqual(len(page2["results"]), 1)
 
 
+class ClaimSearchTests(TestCase):
+    """Search has to reach the whole queue, not the page already on screen."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="search-admin@test.edu", password="pass", name="Search Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.fac = User.objects.create_user(
+            email="search-fac@test.edu", password="pass", name="Ada Researcher",
+            role=Role.FACULTY, department="EEE",
+        )
+        # More rows than one page, with the interesting one buried at the end.
+        for i in range(60):
+            Claim.objects.create(
+                owner=self.fac, status=ClaimStatus.SUBMITTED,
+                ticket_number=f"SR-{i:03d}", paper_title=f"Routine paper {i}",
+                journal_title="Journal of Routine",
+            )
+        Claim.objects.create(
+            owner=self.fac, status=ClaimStatus.SUBMITTED, ticket_number="SR-NEEDLE",
+            paper_title="Photovoltaic haystack analysis", journal_title="Solar Reports",
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def get(self, url):
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()
+
+    def test_search_finds_a_ticket_beyond_the_first_page(self):
+        body = self.get("/api/claims?limit=50&offset=0&q=Photovoltaic")
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["results"][0]["ticket_number"], "SR-NEEDLE")
+
+    def test_search_matches_ticket_journal_and_owner(self):
+        for term, expected in (
+            ("SR-NEEDLE", "SR-NEEDLE"),
+            ("Solar Reports", "SR-NEEDLE"),
+            ("Ada Researcher", None),
+        ):
+            body = self.get(f"/api/claims?limit=5&q={term}")
+            if expected:
+                self.assertEqual(body["total"], 1, term)
+                self.assertEqual(body["results"][0]["ticket_number"], expected, term)
+            else:
+                # The owner's name matches every one of their claims.
+                self.assertEqual(body["total"], 61, term)
+
+    def test_search_combines_with_the_status_filter(self):
+        Claim.objects.filter(ticket_number="SR-NEEDLE").update(status=ClaimStatus.PAID)
+        self.assertEqual(
+            self.get("/api/claims?q=Photovoltaic&status=SUBMITTED")["total"], 0
+        )
+        self.assertEqual(self.get("/api/claims?q=Photovoltaic&status=PAID")["total"], 1)
+
+    def test_search_stays_inside_what_the_role_may_see(self):
+        other = User.objects.create_user(
+            email="search-other@test.edu", password="pass", name="Other Faculty",
+            role=Role.FACULTY,
+        )
+        c = Client()
+        c.force_login(other)
+        r = c.get("/api/claims?q=Photovoltaic")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["total"], 0, "search must not leak another account's claims")
+
+
 class QualityOfLifeTests(TestCase):
     """The batch of smaller hardening and usability endpoints."""
 

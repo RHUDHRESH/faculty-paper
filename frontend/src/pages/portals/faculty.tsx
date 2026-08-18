@@ -24,16 +24,7 @@ import {
   PageHeader,
   StatStrip,
 } from "@/components/layout/page"
-import {
-  ContestCallout,
-  CopyTicketLink,
-  formatMoney,
-  Money,
-  StatusBanner,
-  StatusChip,
-  StatusTimeline,
-  statusLabel,
-} from "@/components/ticket-ui"
+import { ContestCallout, CopyTicketLink, Money, StatusBanner, StatusChip, StatusTimeline, formatDateTime, formatMoney, statusLabel } from "@/components/ticket-ui"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -110,7 +101,7 @@ function TicketDetail({ claim, onChanged }: { claim: Claim; onChanged?: (c: Clai
                 {actionSentence(a.action)}
                 {a.note ? <span className="block pl-3 text-xs italic">“{a.note}”</span> : null}
                 <span className="block pl-3 text-xs tabular-nums opacity-80">
-                  {new Date(a.created_at).toLocaleString()}
+                  {formatDateTime(a.created_at)}
                 </span>
               </li>
             ))}
@@ -200,15 +191,29 @@ export function FacultyClaimsPage() {
   const [offset, setOffset] = useState(0)
   const [sort, setSort] = useState("recent")
   const PAGE = 50
+
+  // Search the whole account, not the page on screen. Filtering the fifty rows
+  // already fetched meant a ticket on page two did not exist as far as the
+  // search box was concerned.
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search.trim())
+      setOffset(0)
+    }, 250)
+    return () => clearTimeout(t)
+  }, [search])
+
   const {
     data: page,
     isLoading: loading,
     isError,
     refetch,
   } = useApiQuery<Paginated<Claim>>(
-    ["claims", "mine", filter, offset, sort],
+    ["claims", "mine", filter, offset, sort, debouncedSearch],
     `/api/claims?limit=${PAGE}&offset=${offset}&sort=${sort}` +
-      (filter === "ALL" ? "" : `&status=${filter}`)
+      (filter === "ALL" ? "" : `&status=${filter}`) +
+      (debouncedSearch ? `&q=${encodeURIComponent(debouncedSearch)}` : "")
   )
   const claims = page?.results ?? []
 
@@ -244,18 +249,9 @@ export function FacultyClaimsPage() {
     }
   }, [params])
 
-  // The status filter runs server-side now (it narrows the whole account, not
-  // just the current page); only the text search stays client-side.
-  const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return claims
-    return claims.filter(
-      (c) =>
-        (c.ticket_number || "").toLowerCase().includes(q) ||
-        (c.paper_title || "").toLowerCase().includes(q) ||
-        (c.journal_title || "").toLowerCase().includes(q)
-    )
-  }, [claims, search])
+  // Status and text search both run server-side, so the list on screen is the
+  // whole result rather than a filtered slice of one page.
+  const shown = claims
 
   // Growing past the breakpoint while the sheet is open would otherwise leave
   // its overlay covering a page that now shows the detail inline anyway.
@@ -318,6 +314,7 @@ export function FacultyClaimsPage() {
           <Input
             className="pl-9"
             placeholder="Search tickets…"
+            aria-label="Search tickets"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -372,17 +369,41 @@ export function FacultyClaimsPage() {
           onRetry={() => refetch()}
         />
       ) : shown.length === 0 ? (
+        // "No tickets yet" over a narrowed list tells someone with twenty
+        // tickets they have none, and offers to file another. Say which of the
+        // two situations this is, and offer the way out of each.
         <EmptyState
-          title="No tickets yet"
-          description="Submit a publication to get a ticket number."
+          title={
+            debouncedSearch ? "No matching tickets" : filter !== "ALL" ? "Nothing in this status" : "No tickets yet"
+          }
+          description={
+            debouncedSearch
+              ? "No ticket, paper, or journal matches that search."
+              : filter !== "ALL"
+                ? "You have no tickets at this stage. Choose another status to see the rest."
+                : "Submit a publication to get a ticket number."
+          }
           icon={<FileText className="size-5" />}
           action={
-            <Button asChild>
-              <Link to="/faculty/new">
-                <Plus className="size-4" />
-                New ticket
-              </Link>
-            </Button>
+            debouncedSearch || filter !== "ALL" ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSearch("")
+                  setFilter("ALL")
+                  setOffset(0)
+                }}
+              >
+                Clear filters
+              </Button>
+            ) : (
+              <Button asChild>
+                <Link to="/faculty/new">
+                  <Plus className="size-4" />
+                  New ticket
+                </Link>
+              </Button>
+            )
           }
         />
       ) : (

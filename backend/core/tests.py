@@ -2866,6 +2866,94 @@ class IdentityBoundaryTests(TestCase):
         self.assertEqual(r.status_code, 200, r.content)
         self.assertTrue(AuditLog.objects.filter(action="PROFILE_UPDATE").exists())
 
+    def test_the_research_cell_cannot_change_identity_through_the_user_editor(self):
+        """Closing the self-edit route while leaving this one open moves the
+        same mistake one desk over: the research cell clears the claims these
+        fields decide the outcome of."""
+        cell = User.objects.create_user(
+            email="cell@test.edu", password="pass", name="Research Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.client.force_login(cell)
+        r = self.client.patch(
+            f"/api/admin/users/{self.faculty.id}",
+            data=json.dumps({"name": "Someone Else", "biometric_id": "BIO-HACKED"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 403, r.content)
+        self.faculty.refresh_from_db()
+        self.assertEqual(self.faculty.name, "Identity Faculty")
+        self.assertEqual(self.faculty.biometric_id, "BIO-REAL")
+
+    def test_the_research_cell_can_still_move_a_department_and_stand_an_account_down(self):
+        """Routing and account state are not identity, and are its job."""
+        cell = User.objects.create_user(
+            email="cell2@test.edu", password="pass", name="Research Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.client.force_login(cell)
+        r = self.client.patch(
+            f"/api/admin/users/{self.faculty.id}",
+            data=json.dumps({"department": "ECE", "active": False}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.faculty.refresh_from_db()
+        self.assertEqual(self.faculty.department, "ECE")
+        self.assertFalse(self.faculty.active)
+
+    def test_a_super_admin_can_change_identity_through_the_user_editor(self):
+        admin = User.objects.create_user(
+            email="identity-super@test.edu", password="pass", name="Super",
+            role=Role.SUPER_ADMIN,
+        )
+        self.client.force_login(admin)
+        r = self.client.patch(
+            f"/api/admin/users/{self.faculty.id}",
+            data=json.dumps({"biometric_id": "BIO-CORRECTED"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.faculty.refresh_from_db()
+        self.assertEqual(self.faculty.biometric_id, "BIO-CORRECTED")
+
+    def test_an_identity_correction_only_notifies_who_can_action_it(self):
+        """A notification the reader cannot act on trains them to ignore the
+        rest, so the research cell is not told about identity requests."""
+        from core.models import Notification
+
+        cell = User.objects.create_user(
+            email="cell3@test.edu", password="pass", role=Role.RESEARCH_CELL
+        )
+        sup = User.objects.create_user(
+            email="super3@test.edu", password="pass", role=Role.SUPER_ADMIN
+        )
+        self.client.force_login(self.faculty)
+        r = self.client.post(
+            "/api/auth/profile/correction",
+            data=json.dumps({"field": "staff_id", "proposed": "STF-9"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        told = set(
+            Notification.objects.filter(title__startswith="Profile correction")
+            .values_list("user__email", flat=True)
+        )
+        self.assertEqual(told, {sup.email})
+
+        # A department is routing, not identity, so the cell does hear about it.
+        Notification.objects.all().delete()
+        self.client.post(
+            "/api/auth/profile/correction",
+            data=json.dumps({"field": "department", "proposed": "ECE"}),
+            content_type="application/json",
+        )
+        told = set(
+            Notification.objects.filter(title__startswith="Profile correction")
+            .values_list("user__email", flat=True)
+        )
+        self.assertEqual(told, {sup.email, cell.email})
+
 
 class MustChangePasswordTests(TestCase):
     """The flag was returned to the client and enforced only by the frontend."""

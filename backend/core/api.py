@@ -213,9 +213,12 @@ def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
     return issues
 
 
-def _notify_admin_users(title: str, body: str, href: str) -> None:
+def _notify_admin_users(
+    title: str, body: str, href: str, *, super_admin_only: bool = False
+) -> None:
     """An admin notification that is not about a particular ticket."""
-    for u in User.objects.filter(role__in=rbac.ADMIN_ROLES, active=True):
+    roles = (Role.SUPER_ADMIN,) if super_admin_only else rbac.ADMIN_ROLES
+    for u in User.objects.filter(role__in=roles, active=True):
         Notification.objects.create(user=u, title=title, body=body, href=href)
         send_optional_email(u.email, title, body)
 
@@ -1099,6 +1102,13 @@ CORRECTABLE = {
 }
 
 
+#: Of those, the ones only a super admin may write -- on the profile page and
+#: on the admin user editor alike. Department is deliberately absent: it is
+#: routing rather than identity, and the research cell moves people between
+#: departments as a matter of course.
+IDENTITY_FIELDS = frozenset(CORRECTABLE) - {"department"}
+
+
 @api.post("/auth/profile/correction", auth=session_auth)
 def request_profile_correction(request: HttpRequest, payload: CorrectionRequestIn):
     """Ask an admin to change a detail you cannot change yourself.
@@ -1132,6 +1142,10 @@ def request_profile_correction(request: HttpRequest, payload: CorrectionRequestI
         f"Profile correction requested · {u.name or u.email}",
         f"{CORRECTABLE[field]}: “{current or 'not set'}” → “{proposed}”",
         f"/admin/users?q={u.email}",
+        # Only a super admin can action an identity change, so only a super
+        # admin is told about one -- a notification the reader cannot act on
+        # trains them to ignore the rest.
+        super_admin_only=field in IDENTITY_FIELDS,
     )
     return {"ok": True, "field": field, "label": CORRECTABLE[field], "proposed": proposed}
 
@@ -3750,6 +3764,20 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
         raise HttpError(403, "Forbidden")
     u = get_object_or_404(User, pk=user_id)
     data = payload.dict(exclude_unset=True)
+    # Identity is super-admin only, here as much as on the profile page.
+    # Closing the self-edit route while leaving this one open would just move
+    # the same mistake one desk over: the research cell processes the claims
+    # these fields decide the outcome of, so it cannot also set them.
+    if actor.role != Role.SUPER_ADMIN:
+        blocked = sorted(set(data) & IDENTITY_FIELDS)
+        if blocked:
+            raise HttpError(
+                403,
+                "Only a super admin can change "
+                + ", ".join(CORRECTABLE[f].lower() for f in blocked)
+                + ". You can still set the role, the department and whether the "
+                "account is active.",
+            )
     # Self-lockout guard: an admin demoting or deactivating their own account
     # can leave the system with nobody able to manage users.
     if u.id == actor.id:

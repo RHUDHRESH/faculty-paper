@@ -2,6 +2,8 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
+import { useAuth } from "@/components/auth-provider"
+import { Callout } from "@/components/form/fields"
 import { EmptyState, ErrorState, InsetList, PageHeader, Section, StatStrip } from "@/components/layout/page"
 import { Money, StatusChip, formatDate, formatDateTime, formatMoney } from "@/components/ticket-ui"
 import { Badge } from "@/components/ui/badge"
@@ -729,19 +731,27 @@ const EMPTY_FORM = {
 }
 
 /** Everything an admin owns on a faculty record, in the order the form shows it. */
-const EDITABLE_USER_FIELDS: { key: string; label: string; hint?: string; mono?: boolean }[] = [
-  { key: "name", label: "Full name" },
+const EDITABLE_USER_FIELDS: {
+  key: string
+  label: string
+  hint?: string
+  mono?: boolean
+  /** Identity: super admin only, matching IDENTITY_FIELDS on the server. */
+  identity?: boolean
+}[] = [
+  { key: "name", label: "Full name", identity: true },
   { key: "department", label: "Department", hint: "The department this person's tickets are filed under." },
-  { key: "staff_id", label: "Staff ID", mono: true },
+  { key: "staff_id", label: "Staff ID", mono: true, identity: true },
   {
     key: "biometric_id",
     label: "Biometric ID",
     hint: "Decides which account is paid. Faculty cannot submit a claim until this is set.",
     mono: true,
+    identity: true,
   },
-  { key: "designation", label: "Designation" },
-  { key: "scopus_author_url", label: "Scopus author URL" },
-  { key: "scopus_author_id", label: "Scopus author ID", mono: true },
+  { key: "designation", label: "Designation", identity: true },
+  { key: "scopus_author_url", label: "Scopus author URL", identity: true },
+  { key: "scopus_author_id", label: "Scopus author ID", mono: true, identity: true },
 ]
 
 type UserRow = Record<string, unknown>
@@ -904,6 +914,8 @@ function EditUserDialog({
   onClose: () => void
   onSaved: () => Promise<void>
 }) {
+  const { user: me } = useAuth()
+  const isSuper = me?.role === "SUPER_ADMIN"
   const [form, setForm] = useState<Record<string, string>>({})
   const [role, setRole] = useState("FACULTY")
   const [active, setActive] = useState(true)
@@ -925,7 +937,10 @@ function EditUserDialog({
       // Blank a field to clear it, rather than storing an empty string that
       // reads as "set" everywhere downstream.
       const payload: Record<string, unknown> = { role, active }
-      for (const f of EDITABLE_USER_FIELDS) payload[f.key] = form[f.key]?.trim() || null
+      for (const f of EDITABLE_USER_FIELDS) {
+        if (f.identity && !isSuper) continue
+        payload[f.key] = form[f.key]?.trim() || null
+      }
       await api(`/api/admin/users/${user.id}`, { method: "PATCH", json: payload })
       toast.success(`Saved ${String(user.email)}`)
       await onSaved()
@@ -948,18 +963,33 @@ function EditUserDialog({
         </DialogHeader>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {EDITABLE_USER_FIELDS.map((f) => (
-            <div key={f.key} className={`space-y-1.5 ${f.hint ? "sm:col-span-2" : ""}`}>
-              <Label htmlFor={`eu-${f.key}`}>{f.label}</Label>
-              <Input
-                id={`eu-${f.key}`}
-                className={f.mono ? "font-mono" : undefined}
-                value={form[f.key] ?? ""}
-                onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
-              />
-              {f.hint ? <p className="text-xs text-muted-foreground">{f.hint}</p> : null}
+          {!isSuper ? (
+            <div className="sm:col-span-2">
+              <Callout tone="info" title="Identity details are set by a super admin">
+                The name, staff and biometric IDs, designation and Scopus link decide
+                who is paid and whose record a paper is checked against. You can still
+                set the department, the role, and whether the account is active.
+              </Callout>
             </div>
-          ))}
+          ) : null}
+          {EDITABLE_USER_FIELDS.map((f) => {
+            const locked = !!f.identity && !isSuper
+            return (
+              <div key={f.key} className={`space-y-1.5 ${f.hint ? "sm:col-span-2" : ""}`}>
+                <Label htmlFor={`eu-${f.key}`}>{f.label}</Label>
+                <Input
+                  id={`eu-${f.key}`}
+                  className={f.mono ? "font-mono" : undefined}
+                  value={form[f.key] ?? ""}
+                  readOnly={locked}
+                  aria-readonly={locked || undefined}
+                  title={locked ? "Only a super admin can change this" : undefined}
+                  onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                />
+                {f.hint ? <p className="text-xs text-muted-foreground">{f.hint}</p> : null}
+              </div>
+            )
+          })}
           <div className="space-y-1.5 sm:col-span-2">
             <Label htmlFor="eu-role">Role</Label>
             <Select value={role} onValueChange={setRole}>

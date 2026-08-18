@@ -171,6 +171,10 @@ export type User = {
   scopus_author_id?: string | null;
   must_change_password?: boolean;
   portal?: "faculty" | "admin" | "finance" | "hod" | "principal";
+  /** Present only while a super admin is viewing as this user. */
+  impersonated_by?: { id: string; name?: string; email?: string } | null;
+  /** True in an impersonated session: the server refuses every write. */
+  read_only?: boolean;
 };
 
 export type ClaimAttachment = {

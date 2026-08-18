@@ -1026,6 +1026,27 @@ export function AdminUsersPage() {
   const [resetPw, setResetPw] = useState("")
   const [editing, setEditing] = useState<UserRow | null>(null)
   const [viewing, setViewing] = useState<string | null>(null)
+
+  async function viewAs(u: UserRow) {
+    if (
+      !window.confirm(
+        `Open the app as ${String(u.name || u.email)}?
+
+` +
+          "You will see exactly what they see. Nothing can be changed while you " +
+          "are there, and the visit is recorded in the audit log."
+      )
+    ) {
+      return
+    }
+    try {
+      await api(`/api/admin/impersonate/${u.id}`, { method: "POST" })
+      // A full load, so no cached query from your own session leaks into theirs.
+      window.location.assign("/")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not view as that user")
+    }
+  }
   const [userSearch, setUserSearch] = useState("")
   // A refused load is not an empty list. Swallowing the 403 made this screen
   // tell a research-cell user there were no accounts at all.
@@ -1354,14 +1375,30 @@ export function AdminUsersPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Button
-                        type="button"
-                        variant={incomplete ? "secondary" : "ghost"}
-                        size="xs"
-                        onClick={() => setEditing(u)}
-                      >
-                        {incomplete ? "Complete" : "Edit"}
-                      </Button>
+                      <span className="inline-flex gap-1">
+                        {/* Read-only: the server refuses every write for the
+                            duration, so this is "see what they see", not
+                            "act as them". */}
+                        {String(u.role) !== "SUPER_ADMIN" && u.active !== false ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => viewAs(u)}
+                            title="Open the app as this person, read only"
+                          >
+                            View as
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant={incomplete ? "secondary" : "ghost"}
+                          size="xs"
+                          onClick={() => setEditing(u)}
+                        >
+                          {incomplete ? "Complete" : "Edit"}
+                        </Button>
+                      </span>
                     </td>
                   </tr>
                 )

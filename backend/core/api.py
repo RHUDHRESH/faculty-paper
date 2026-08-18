@@ -731,7 +731,28 @@ def require_user(request: HttpRequest) -> User:
     # enforced only by the frontend, so an API client could ignore it entirely.
     if user.must_change_password and request.path not in _PASSWORD_CHANGE_EXEMPT:
         raise HttpError(403, "Set a new password before continuing")
+    # Impersonation is for seeing, not for doing. Enforced here rather than on
+    # each route, because "we forgot to guard that one endpoint" is exactly how
+    # a read-only mode stops being read-only.
+    if request.session.get(IMPERSONATOR_KEY) and request.method not in (
+        "GET", "HEAD", "OPTIONS",
+    ):
+        if request.path != "/api/admin/stop-impersonating":
+            raise HttpError(
+                403,
+                "You are viewing as another user. Stop impersonating before making "
+                "any change.",
+            )
     return user
+
+
+#: Session key holding the real admin's id while they view as somebody else.
+IMPERSONATOR_KEY = "impersonator_id"
+
+
+def impersonator_of(request: HttpRequest) -> User | None:
+    uid = request.session.get(IMPERSONATOR_KEY)
+    return User.objects.filter(pk=uid).first() if uid else None
 
 
 def _user_dict(u: User) -> dict[str, Any]:
@@ -754,6 +775,16 @@ def _user_dict(u: User) -> dict[str, Any]:
         "active": u.active,
         "portal": rbac.portal_for_role(u.role),
     }
+
+
+def _me_dict(request: HttpRequest, u: User) -> dict[str, Any]:
+    """The signed-in payload, plus who is really driving."""
+    data = _user_dict(u)
+    real = impersonator_of(request)
+    if real:
+        data["impersonated_by"] = {"id": real.id, "name": real.name, "email": real.email}
+        data["read_only"] = True
+    return data
 
 
 def _parse_payout_month(val: str | None) -> date | None:
@@ -980,7 +1011,9 @@ def auth_logout(request: HttpRequest):
 @api.get("/auth/me", auth=session_auth)
 def auth_me(request: HttpRequest):
     u = require_user(request)
-    return _user_dict(u)
+    # Carries the impersonation banner: a viewer must always be able to tell
+    # whose session they are looking at.
+    return _me_dict(request, u)
 
 
 class ProfileUpdateIn(Schema):
@@ -2947,6 +2980,198 @@ def notifications_read_all(request: HttpRequest):
     user = require_user(request)
     Notification.objects.filter(user=user, read=False).update(read=True)
     return {"ok": True}
+
+
+# ---------- super-admin powers ----------
+
+
+class ClaimEditIn(Schema):
+    fields: dict[str, Any]
+    reason: str
+
+
+@api.post("/admin/claims/{claim_id}/edit", auth=session_auth)
+def admin_edit_claim(request: HttpRequest, claim_id: str, payload: ClaimEditIn):
+    """Edit any field on any claim, with a reason, recorded before and after.
+
+    This exists because imported data is wrong in ways the normal screens cannot
+    reach. It is deliberately not a quiet update: the reason is required, the
+    before/after of every changed field goes to the audit log, and changing a
+    settled amount also writes the balancing ledger row, so the claim and the
+    ledger cannot drift apart -- which is the drift that made the reported
+    totals wrong in the first place.
+    """
+    actor = require_user(request)
+    if actor.role != Role.SUPER_ADMIN:
+        raise HttpError(403, "Only a super admin may edit a claim directly")
+    reason = (payload.reason or "").strip()
+    if len(reason) < 10:
+        raise HttpError(400, "Give a reason (at least 10 characters) — it is kept with the change")
+
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        editable = {f.name for f in Claim._meta.get_fields() if hasattr(f, "attname")}
+        editable -= {"id", "owner", "created_at", "updated_at"}
+
+        before, after = {}, {}
+        for key, value in (payload.fields or {}).items():
+            if key not in editable:
+                raise HttpError(400, f"{key} is not a field on a claim")
+            old = getattr(claim, key, None)
+            if old == value:
+                continue
+            before[key], after[key] = old, value
+            setattr(claim, key, value)
+
+        if not after:
+            return {"ok": True, "changed": {}, "note": "nothing differed"}
+
+        money_changed = "remuneration" in after and claim.status == ClaimStatus.PAID
+        claim.save()
+
+        if money_changed:
+            # The ledger is append-only, so the correction is a new row rather
+            # than an edit: the history keeps what was paid and what it became.
+            paid_so_far = (
+                claim.ledger_rows.aggregate(s=Sum("amount"))["s"] or 0
+            )
+            delta = (claim.remuneration or 0) - paid_so_far
+            if abs(delta) > 0.01:
+                PaidLedger.objects.create(
+                    claim=claim,
+                    payout_month=claim.payout_month or timezone.now().date().replace(day=1),
+                    department=claim.owner.department,
+                    faculty_name=claim.owner.name,
+                    staff_id=claim.staff_id,
+                    biometric_id=claim.biometric_id,
+                    paper_title=claim.paper_title,
+                    journal_title=claim.journal_title,
+                    amount=delta,
+                    voucher_number=f"{claim.voucher_number or claim.ticket_number}-ADJ",
+                )
+
+        ClaimAction.objects.create(
+            claim=claim, actor=actor, action="ADMIN_EDIT", note=reason[:500]
+        )
+        AuditLog.objects.create(
+            actor=actor,
+            action="CLAIM_ADMIN_EDIT",
+            entity="Claim",
+            entity_id=claim.id,
+            detail_json=json.dumps(
+                {
+                    "reason": reason,
+                    "before": {k: str(v) for k, v in before.items()},
+                    "after": {k: str(v) for k, v in after.items()},
+                    "ledger_adjusted": money_changed,
+                }
+            )[:20000],
+        )
+    return {"ok": True, "changed": {k: str(v) for k, v in after.items()},
+            "ledger_adjusted": money_changed}
+
+
+class ReassignIn(Schema):
+    owner_email: str
+    reason: str
+
+
+@api.post("/admin/claims/{claim_id}/reassign", auth=session_auth)
+def admin_reassign_claim(request: HttpRequest, claim_id: str, payload: ReassignIn):
+    """Move a claim to the faculty member it actually belongs to.
+
+    The import attributes by staff id, biometric id, then name; where all three
+    miss, the payment lands on a holding record for someone who has left. This
+    is how it gets put right.
+    """
+    actor = require_user(request)
+    if actor.role != Role.SUPER_ADMIN:
+        raise HttpError(403, "Only a super admin may reassign a claim")
+    reason = (payload.reason or "").strip()
+    if len(reason) < 10:
+        raise HttpError(400, "Give a reason (at least 10 characters)")
+
+    new_owner = User.objects.filter(email__iexact=payload.owner_email.strip()).first()
+    if not new_owner:
+        raise HttpError(404, "No account with that email")
+    if new_owner.role != Role.FACULTY:
+        raise HttpError(400, "Claims belong to faculty accounts")
+
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        previous = claim.owner
+        if previous.id == new_owner.id:
+            return {"ok": True, "note": "already owned by that account"}
+        claim.owner = new_owner
+        # The identity columns travel with the claim, or the ledger would keep
+        # paying the person it was moved away from.
+        claim.staff_id = new_owner.staff_id or claim.staff_id
+        claim.biometric_id = new_owner.biometric_id or claim.biometric_id
+        claim.save()
+        claim.ledger_rows.update(
+            faculty_name=new_owner.name,
+            staff_id=new_owner.staff_id,
+            biometric_id=new_owner.biometric_id,
+            department=new_owner.department,
+        )
+        ClaimAction.objects.create(
+            claim=claim, actor=actor, action="REASSIGN",
+            note=f"{previous.email} → {new_owner.email}: {reason}"[:500],
+        )
+        AuditLog.objects.create(
+            actor=actor, action="CLAIM_REASSIGN", entity="Claim", entity_id=claim.id,
+            detail_json=json.dumps({
+                "from": previous.email, "to": new_owner.email, "reason": reason,
+            }),
+        )
+    return {"ok": True, "owner": _user_dict(new_owner)}
+
+
+@api.post("/admin/impersonate/{user_id}", auth=session_auth)
+def admin_impersonate(request: HttpRequest, user_id: str):
+    """View the app as another user. Read-only, and recorded.
+
+    Every write is refused for the duration (see require_user), so this answers
+    "what does this person actually see?" without being a way to act as them.
+    """
+    actor = require_user(request)
+    if actor.role != Role.SUPER_ADMIN:
+        raise HttpError(403, "Only a super admin may view as another user")
+    if request.session.get(IMPERSONATOR_KEY):
+        raise HttpError(400, "Already viewing as somebody else — stop first")
+
+    target = get_object_or_404(User, pk=user_id)
+    if target.id == actor.id:
+        raise HttpError(400, "That is already you")
+    if target.role == Role.SUPER_ADMIN:
+        raise HttpError(403, "Cannot view as another super admin")
+
+    AuditLog.objects.create(
+        actor=actor, action="IMPERSONATE_START", entity="User", entity_id=target.id,
+        detail_json=json.dumps({"target": target.email}),
+    )
+    real_id = actor.id
+    login(request, target, backend="django.contrib.auth.backends.ModelBackend")
+    request.session[IMPERSONATOR_KEY] = real_id
+    return {"ok": True, "viewing_as": _user_dict(target), "read_only": True}
+
+
+# Not /admin/impersonate/stop: that is swallowed by the {user_id} route
+# registered above it, which answers "Only a super admin may view as another
+# user" for a user called "stop".
+@api.post("/admin/stop-impersonating", auth=session_auth)
+def admin_stop_impersonating(request: HttpRequest):
+    real = impersonator_of(request)
+    if not real:
+        raise HttpError(400, "Not viewing as anybody")
+    viewed = request.user
+    AuditLog.objects.create(
+        actor=real, action="IMPERSONATE_STOP", entity="User", entity_id=viewed.id,
+        detail_json=json.dumps({"target": getattr(viewed, "email", "")}),
+    )
+    del request.session[IMPERSONATOR_KEY]
+    login(request, real, backend="django.contrib.auth.backends.ModelBackend")
+    return {"ok": True, "user": _user_dict(real)}
 
 
 # ---------- operations: what is wrong right now ----------

@@ -49,6 +49,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { cn, portalPath } from "@/lib/utils"
+import { ImpersonationBanner } from "@/components/impersonation-banner"
 
 type Tab = {
   to: string
@@ -336,6 +337,9 @@ export function AppShell({
           </div>
           <NotificationBell />
         </header>
+
+        {/* Sticky, undismissable: the whole risk of "view as" is forgetting. */}
+        <ImpersonationBanner />
 
         <main
           id="main-content"

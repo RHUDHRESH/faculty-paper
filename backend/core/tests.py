@@ -1948,6 +1948,138 @@ class PaginationTests(TestCase):
         self.assertEqual(len(page2["results"]), 1)
 
 
+class SuperAdminPowersTests(TestCase):
+    """Editing any claim, moving one to its real owner, and viewing as somebody
+    else -- each recorded, and impersonation unable to write."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="power-admin@test.edu", password="pass", name="Power Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.other_admin = User.objects.create_user(
+            email="power-admin2@test.edu", password="pass", name="Other Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.alice = User.objects.create_user(
+            email="alice@test.edu", password="pass", name="Alice", role=Role.FACULTY,
+            department="ECE", staff_id="STF-A", biometric_id="BIO-A",
+        )
+        self.bob = User.objects.create_user(
+            email="bob@test.edu", password="pass", name="Bob", role=Role.FACULTY,
+            department="CSE", staff_id="STF-B", biometric_id="BIO-B",
+        )
+        self.claim = Claim.objects.create(
+            owner=self.alice, status=ClaimStatus.PAID, ticket_number="PWR-1",
+            paper_title="A paid paper", remuneration=5000, staff_id="STF-A",
+            biometric_id="BIO-A",
+        )
+        PaidLedger.objects.create(
+            claim=self.claim, payout_month=date(2026, 1, 1), amount=5000,
+            faculty_name="Alice", staff_id="STF-A",
+        )
+        self.client = Client()
+
+    def post(self, url, body):
+        return self.client.post(url, data=json.dumps(body), content_type="application/json")
+
+    # ---- editing ----
+
+    def test_an_edit_needs_a_reason(self):
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/claims/{self.claim.id}/edit",
+                      {"fields": {"paper_title": "Corrected"}, "reason": "short"})
+        self.assertEqual(r.status_code, 400, r.content)
+
+    def test_an_edit_records_before_and_after(self):
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/claims/{self.claim.id}/edit",
+                      {"fields": {"paper_title": "Corrected title"},
+                       "reason": "Title was truncated by the ERP import"})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.paper_title, "Corrected title")
+        log = AuditLog.objects.filter(action="CLAIM_ADMIN_EDIT").first()
+        self.assertIsNotNone(log)
+        detail = json.loads(log.detail_json)
+        self.assertEqual(detail["before"]["paper_title"], "A paid paper")
+        self.assertEqual(detail["after"]["paper_title"], "Corrected title")
+
+    def test_changing_a_settled_amount_keeps_the_ledger_balanced(self):
+        """The ledger is append-only, so a correction is a new row -- the
+        history keeps both what was paid and what it became."""
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/claims/{self.claim.id}/edit",
+                      {"fields": {"remuneration": 7500},
+                       "reason": "Contested: SNIP was wrong at the time of payment"})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertTrue(r.json()["ledger_adjusted"])
+        total = sum(PaidLedger.objects.filter(claim=self.claim).values_list("amount", flat=True))
+        self.assertAlmostEqual(total, 7500, places=2)
+        self.assertEqual(PaidLedger.objects.filter(claim=self.claim).count(), 2)
+
+    def test_only_a_super_admin_may_edit(self):
+        self.client.force_login(self.alice)
+        r = self.post(f"/api/admin/claims/{self.claim.id}/edit",
+                      {"fields": {"remuneration": 999999}, "reason": "trying it on"})
+        self.assertEqual(r.status_code, 403)
+
+    # ---- reassignment ----
+
+    def test_reassigning_moves_the_claim_and_its_ledger(self):
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/claims/{self.claim.id}/reassign",
+                      {"owner_email": "bob@test.edu",
+                       "reason": "Imported against the wrong staff id"})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.claim.refresh_from_db()
+        self.assertEqual(self.claim.owner, self.bob)
+        self.assertEqual(self.claim.staff_id, "STF-B")
+        row = PaidLedger.objects.get(claim=self.claim)
+        self.assertEqual(row.staff_id, "STF-B")
+        self.assertEqual(row.faculty_name, "Bob")
+
+    # ---- impersonation ----
+
+    def test_impersonation_can_read_but_not_write(self):
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/impersonate/{self.alice.id}", {})
+        self.assertEqual(r.status_code, 200, r.content)
+
+        me = self.client.get("/api/auth/me").json()
+        self.assertEqual(me["email"], "alice@test.edu")
+        self.assertTrue(me["read_only"])
+        self.assertEqual(me["impersonated_by"]["email"], "power-admin@test.edu")
+
+        # Reading is fine.
+        self.assertEqual(self.client.get("/api/claims").status_code, 200)
+        # Writing is not, whatever the endpoint.
+        blocked = self.post("/api/claims", {"paper_title": "Filed as Alice"})
+        self.assertEqual(blocked.status_code, 403)
+        self.assertIn("Stop impersonating", blocked.json()["detail"])
+
+    def test_stopping_returns_the_admin_to_themselves(self):
+        self.client.force_login(self.admin)
+        self.post(f"/api/admin/impersonate/{self.alice.id}", {})
+        r = self.post("/api/admin/stop-impersonating", {})
+        self.assertEqual(r.status_code, 200, r.content)
+        me = self.client.get("/api/auth/me").json()
+        self.assertEqual(me["email"], "power-admin@test.edu")
+        self.assertNotIn("impersonated_by", me)
+        self.assertTrue(AuditLog.objects.filter(action="IMPERSONATE_START").exists())
+        self.assertTrue(AuditLog.objects.filter(action="IMPERSONATE_STOP").exists())
+
+    def test_a_super_admin_cannot_be_impersonated(self):
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/impersonate/{self.other_admin.id}", {})
+        self.assertEqual(r.status_code, 403)
+
+    def test_faculty_cannot_impersonate(self):
+        self.client.force_login(self.alice)
+        r = self.post(f"/api/admin/impersonate/{self.bob.id}", {})
+        self.assertEqual(r.status_code, 403)
+
+
 class FaultsReportTests(TestCase):
     """The operations screen: each finding was a query somebody ran once by hand."""
 

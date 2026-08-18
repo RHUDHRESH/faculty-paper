@@ -18,6 +18,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { API_BASE } from "@/lib/api"
 import { useApiQuery } from "@/lib/queries"
 import { cn } from "@/lib/utils"
+import {
+  MixBar,
+  PipelineChart,
+  RankedBars,
+  type Stage,
+  TrendChart,
+} from "@/components/charts"
 
 type Row = { key: string; count: number; amount: number; label?: string }
 
@@ -36,6 +43,7 @@ type ReportData = {
   by_engineering: Row[]
   by_status: Row[]
   by_month: Row[]
+  pipeline?: Stage[]
   years: number[]
 }
 
@@ -236,22 +244,65 @@ export function ReportsPage() {
             </div>
           </Section>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Breakdown title="By department" rows={data.by_department} />
-            <Breakdown title="By remuneration category" rows={data.by_category} />
-            <Breakdown title="By quartile" rows={data.by_quartile} />
-            <Breakdown
-              title="Engineering / Non-Engineering"
-              rows={data.by_engineering}
-              showAmount={false}
-            />
-            <Breakdown title="By status" rows={data.by_status} showAmount={false} />
-            <Breakdown
+          {/* The shapes first -- a reader looking for trend, concentration or a
+              queue should not have to reconstruct it from a list. The lists stay
+              underneath, because a specific number is a different question and
+              a chart is a poor way to answer it. */}
+          <Section title="Trend">
+            <TrendChart
               title="Paid by month"
-              rows={data.by_month}
-              empty="No payments recorded yet"
+              caption={`${data.by_month.length} months of settled payments`}
+              data={data.by_month}
+            />
+          </Section>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <RankedBars
+              title="Where the money goes"
+              caption="Departments by amount paid, largest first"
+              data={data.by_department}
+            />
+            <MixBar
+              title="By journal quartile"
+              caption="Share of spend by where the journal ranks"
+              data={data.by_quartile}
+            />
+            {data.pipeline?.length ? (
+              <PipelineChart
+                title="Pipeline"
+                caption="Where claims are sitting right now"
+                stages={data.pipeline}
+              />
+            ) : null}
+            <RankedBars
+              title="Publication volume"
+              caption="Departments by number of claims, largest first"
+              data={data.by_department}
+              unit="count"
             />
           </div>
+
+          <Section
+            title="Every breakdown"
+            description="The same figures as lists, when the question is a specific number"
+          >
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Breakdown title="By department" rows={data.by_department} />
+              <Breakdown title="By remuneration category" rows={data.by_category} />
+              <Breakdown title="By quartile" rows={data.by_quartile} />
+              <Breakdown
+                title="Engineering / Non-Engineering"
+                rows={data.by_engineering}
+                showAmount={false}
+              />
+              <Breakdown title="By status" rows={data.by_status} showAmount={false} />
+              <Breakdown
+                title="Paid by month"
+                rows={data.by_month}
+                empty="No payments recorded yet"
+              />
+            </div>
+          </Section>
         </>
       )}
     </div>

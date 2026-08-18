@@ -2584,6 +2584,47 @@ def _reports_queryset(user: User, year: Optional[int], department: Optional[str]
     return qs
 
 
+def _pipeline_stages(qs) -> list[dict[str, Any]]:
+    """How much work sits at each stage, and how long it has sat there.
+
+    Deliberately not "average time from submission to payment": the imported
+    history carries one timestamp per row, so any duration computed across it
+    would be zero and would read as instant processing. Age of what is waiting
+    now is a real measurement, and it is the one an admin can act on.
+    """
+    now = timezone.now()
+    stages = [
+        ("DRAFT", "Draft", "started, not yet submitted"),
+        ("SUBMITTED", "Awaiting clearance", "with the research cell"),
+        ("CLEARED", "Awaiting payment", "with finance"),
+        ("PAID", "Paid", "settled"),
+        ("REJECTED", "Returned", "sent back to the claimant"),
+    ]
+    out = []
+    for status, label, blurb in stages:
+        rows_ = list(
+            qs.filter(status=status).values_list("updated_at", "remuneration")
+        )
+        if not rows_ and status not in ("SUBMITTED", "CLEARED"):
+            continue
+        ages = sorted(
+            (now - u).days for u, _ in rows_ if u is not None
+        )
+        median = ages[len(ages) // 2] if ages else 0
+        out.append(
+            {
+                "key": status,
+                "label": label,
+                "blurb": blurb,
+                "count": len(rows_),
+                "amount": round(sum(a or 0 for _, a in rows_), 2),
+                "median_age_days": median,
+                "oldest_age_days": ages[-1] if ages else 0,
+            }
+        )
+    return out
+
+
 @api.get("/reports", auth=session_auth)
 def reports(
     request: HttpRequest,
@@ -2678,6 +2719,7 @@ def reports(
         "by_engineering": rows("engineering_class", label_blank="Unclassified"),
         "by_status": rows("status"),
         "by_month": by_month,
+        "pipeline": _pipeline_stages(qs),
         "years": sorted(
             {
                 y

@@ -15,6 +15,7 @@ import {
   StatStrip,
 } from "@/components/layout/page"
 import { ClaimDetailFields } from "@/components/claim-detail-fields"
+import { ClaimNotes } from "@/components/claim-notes"
 import { ContestCallout, CopyTicketLink, Money, StatusChip, StatusTimeline, VerificationSnapshot, formatDateTime } from "@/components/ticket-ui"
 import {
   AlertDialog,
@@ -98,6 +99,11 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
       </div>
 
       <ContestCallout note={claim.contest_note} />
+
+      {/* Above the fields, not below them: the detail column scrolls, and a
+          note buried under thirty rows of metadata is read after the money has
+          already been cleared. */}
+      <ClaimNotes claimId={claim.id} />
 
       <ClaimDetailFields claim={claim} showOwner />
 

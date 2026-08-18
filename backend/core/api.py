@@ -2750,13 +2750,38 @@ def dashboard(request: HttpRequest):
     return {"by_status": by_status, "recent": recent, "total_paid": total_paid}
 
 
-def _reports_queryset(user: User, year: Optional[int], department: Optional[str]):
+def _reports_queryset(
+    user: User,
+    year: Optional[int],
+    department: Optional[str],
+    month: Optional[str] = None,
+):
     qs = _claims_queryset(user).exclude(status=ClaimStatus.DRAFT)
     if year:
         qs = qs.filter(publication_year=year)
     if department:
         qs = qs.filter(owner__department__iexact=department)
+    if month:
+        # "2026-03": the payout month, which is what the college settles in
+        # and what finance reconciles against -- not the publication date.
+        try:
+            y, m = (int(part) for part in month.split("-", 1))
+        except (TypeError, ValueError):
+            raise HttpError(400, "Month must look like 2026-03")
+        if not 1 <= m <= 12:
+            raise HttpError(400, "Month must look like 2026-03")
+        qs = qs.filter(payout_month__year=y, payout_month__month=m)
     return qs
+
+
+def _payout_months(user: User) -> list[str]:
+    """Every month the college has actually settled something in, newest first."""
+    seen = (
+        _claims_queryset(user)
+        .exclude(payout_month__isnull=True)
+        .dates("payout_month", "month", order="DESC")
+    )
+    return [d.strftime("%Y-%m") for d in seen]
 
 
 def _pipeline_stages(qs) -> list[dict[str, Any]]:
@@ -2805,6 +2830,7 @@ def reports(
     request: HttpRequest,
     year: Optional[int] = None,
     department: Optional[str] = None,
+    month: Optional[str] = None,
 ):
     """Institutional publication and payout figures.
 
@@ -2817,7 +2843,7 @@ def reports(
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
 
-    qs = _reports_queryset(user, year, department)
+    qs = _reports_queryset(user, year, department, month)
     paid = qs.filter(status=ClaimStatus.PAID)
     payable = qs.filter(status__in=PAYABLE_STATUSES)
 
@@ -2905,6 +2931,9 @@ def reports(
             },
             reverse=True,
         ),
+        # The months the college has actually settled in, so the picker offers
+        # real ones rather than a calendar of mostly-empty options.
+        "payout_months": _payout_months(user),
     }
 
 
@@ -3017,6 +3046,14 @@ _EXPORT_HEADERS = [
 ]
 
 
+#: Roughly the width each column needs to be read without adjustment, in the
+#: order of _EXPORT_HEADERS.
+_EXPORT_WIDTHS = [
+    14, 12, 26, 22, 12, 60, 40, 14, 28, 8, 20, 18, 10, 8,
+    18, 9, 9, 12, 14, 13, 12, 14, 13, 14,
+]
+
+
 def _export_row(c: Claim) -> list:
     return [
         c.ticket_number, c.status, c.owner.name, c.owner.department,
@@ -3029,25 +3066,8 @@ def _export_row(c: Claim) -> list:
     ]
 
 
-@api.get("/reports/export", auth=session_auth)
-def reports_export(
-    request: HttpRequest,
-    year: Optional[int] = None,
-    department: Optional[str] = None,
-    fmt: str = "csv",
-):
-    """One row per publication — the sheet the R&D office actually files.
-
-    fmt=xlsx returns a real workbook: the office re-imported the CSV into
-    Excel by hand every month anyway, mangling ISSNs into dates on the way.
-    """
-    user = require_user(request)
-    if not rbac.can_view_reports(user.role):
-        raise HttpError(403, "Forbidden")
-    qs = _reports_queryset(user, year, department).select_related("owner")
-    rows = qs.order_by("owner__department", "-publication_year")[:5000]
-    stem = f"publications-{year or 'all'}-{(department or 'all').replace(' ', '-')}"
-
+def _claims_file(rows, stem: str, fmt: str) -> HttpResponse:
+    """The same rows as a workbook or as CSV, named the same either way."""
     if fmt == "xlsx":
         from openpyxl import Workbook
 
@@ -3060,6 +3080,10 @@ def reports_export(
             # injection guard as the CSV path applies.
             ws.append(["" if v is None else v for v in _csv_row(_export_row(c))])
         ws.freeze_panes = "A2"
+        # Enough width to read a paper title without widening every column by
+        # hand, which is what the office did to every export it received.
+        for column, width in zip(ws.columns, _EXPORT_WIDTHS):
+            ws.column_dimensions[column[0].column_letter].width = width
         out = io.BytesIO()
         wb.save(out)
         res = HttpResponse(
@@ -3077,6 +3101,34 @@ def reports_export(
     res = HttpResponse(buf.getvalue(), content_type="text/csv")
     res["Content-Disposition"] = f'attachment; filename="{stem}.csv"'
     return res
+
+
+@api.get("/reports/export", auth=session_auth)
+def reports_export(
+    request: HttpRequest,
+    year: Optional[int] = None,
+    department: Optional[str] = None,
+    month: Optional[str] = None,
+    fmt: str = "csv",
+):
+    """One row per publication — the sheet the R&D office actually files.
+
+    fmt=xlsx returns a real workbook: the office re-imported the CSV into
+    Excel by hand every month anyway, mangling ISSNs into dates on the way.
+    """
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+    qs = _reports_queryset(user, year, department, month).select_related("owner")
+    rows = qs.order_by("owner__department", "-publication_year")[:5000]
+    stem = "-".join([
+        "publications",
+        str(year or "all"),
+        (department or "all").replace(" ", "-"),
+        *( [month] if month else [] ),
+    ])
+
+    return _claims_file(rows, stem, fmt)
 
 
 # ---------- notifications ----------
@@ -3266,7 +3318,15 @@ def faculty_report(request: HttpRequest, user_id: str):
     if not (rbac.can_view_reports(user.role) or rbac.can_manage_users(user.role)):
         raise HttpError(403, "Forbidden")
     person = get_object_or_404(User, pk=user_id)
-    claims = Claim.objects.filter(owner=person).order_by("-updated_at")
+    # Drafts are private working notes, not a record of anything: the person
+    # has not filed them. Counting them would inflate "publications" with
+    # abandoned attempts, and the export already leaves them out -- the two
+    # disagreeing is worse than either answer.
+    claims = (
+        Claim.objects.filter(owner=person)
+        .exclude(status=ClaimStatus.DRAFT)
+        .order_by("-updated_at")
+    )
     paid = claims.filter(status=ClaimStatus.PAID)
 
     by_month: dict[str, dict[str, Any]] = {}
@@ -3300,6 +3360,27 @@ def faculty_report(request: HttpRequest, user_id: str):
         "by_status": group("status", "—"),
         "claims": [claim_to_dict(c) for c in claims[:200]],
     }
+
+
+@api.get("/faculty/{user_id}/report/export", auth=session_auth)
+def faculty_report_export(request: HttpRequest, user_id: str, fmt: str = "xlsx"):
+    """One faculty member's publications as a file.
+
+    The same sheet the office files for the college, filtered to one person --
+    which is what an appraisal or a promotion panel actually asks for.
+    """
+    user = require_user(request)
+    if not (rbac.can_view_reports(user.role) or rbac.can_manage_users(user.role)):
+        raise HttpError(403, "Forbidden")
+    person = get_object_or_404(User, pk=user_id)
+    rows = (
+        Claim.objects.filter(owner=person)
+        .exclude(status=ClaimStatus.DRAFT)
+        .select_related("owner")
+        .order_by("-publication_year", "-updated_at")[:5000]
+    )
+    tag = (person.staff_id or person.email.split("@")[0] or "faculty").replace(" ", "-")
+    return _claims_file(rows, f"publications-{tag}", fmt)
 
 
 # ---------- super-admin powers ----------

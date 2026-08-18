@@ -15,6 +15,7 @@ import { AdminClearingQueuePage } from "@/pages/portals/review-queue";
 import { ReportsPage } from "@/pages/portals/reports";
 import { SearchPage } from "@/pages/portals/search";
 import { AdminFaultsPage } from "@/pages/portals/faults";
+import { LookupPage } from "@/pages/portals/lookup";
 import { PrincipalOverviewPage, PrincipalQueuePage } from "@/pages/portals/principal";
 import {
   AdminApprovalsPage,
@@ -136,6 +137,7 @@ export default function App() {
           <Route index element={<PrincipalQueuePage />} />
           <Route path="overview" element={<PrincipalOverviewPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="find" element={<LookupPage />} />
           <Route path="query" element={<SearchPage />} />
         </Route>
 
@@ -160,6 +162,7 @@ export default function App() {
           <Route path="query" element={<SearchPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
           <Route path="faults" element={<AdminFaultsPage />} />
+          <Route path="find" element={<LookupPage />} />
         </Route>
 
         <Route
@@ -173,6 +176,7 @@ export default function App() {
           <Route index element={<FinancePayoutsPage />} />
           <Route path="paid" element={<FinancePaidPage />} />
           <Route path="ledger" element={<FinanceLedgerPage />} />
+          <Route path="find" element={<LookupPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="query" element={<SearchPage />} />
           {/* Editing the pay policy needs FINANCE or SUPER_ADMIN, so the screen

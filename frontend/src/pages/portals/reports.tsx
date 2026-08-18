@@ -45,6 +45,8 @@ type ReportData = {
   by_month: Row[]
   pipeline?: Stage[]
   years: number[]
+  /** Months the college has settled in, newest first, as "2026-03". */
+  payout_months?: string[]
 }
 
 const ALL = "__all__"
@@ -106,20 +108,32 @@ function Breakdown({
   )
 }
 
+/** "2026-03" reads as a code; "March 2026" reads as a month. */
+function monthLabel(key: string): string {
+  const [y, m] = key.split("-").map(Number)
+  if (!y || !m) return key
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  })
+}
+
 export function ReportsPage() {
   const [year, setYear] = useState(ALL)
   const [department, setDepartment] = useState(ALL)
+  const [month, setMonth] = useState(ALL)
 
   const query = useMemo(() => {
     const qs = new URLSearchParams()
     if (year !== ALL) qs.set("year", year)
     if (department !== ALL) qs.set("department", department)
+    if (month !== ALL) qs.set("month", month)
     const s = qs.toString()
     return s ? `?${s}` : ""
-  }, [year, department])
+  }, [year, department, month])
 
   const { data, isLoading: loading, isError, refetch } = useApiQuery<ReportData>(
-    ["reports", year, department],
+    ["reports", year, department, month],
     `/api/reports${query}`
   )
   const { data: departments = [] } = useApiQuery<string[]>(
@@ -157,6 +171,27 @@ export function ReportsPage() {
       />
 
       <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="rep-month" className="text-xs">
+            Payout month
+          </Label>
+          <Select value={month} onValueChange={setMonth}>
+            <SelectTrigger id="rep-month" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All months</SelectItem>
+              {/* Only months the college actually settled in: a full calendar
+                  would be mostly empty options. */}
+              {(data?.payout_months || []).map((m) => (
+                <SelectItem key={m} value={m}>
+                  {monthLabel(m)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="space-y-1.5">
           <Label htmlFor="rep-year" className="text-xs">
             Publication year

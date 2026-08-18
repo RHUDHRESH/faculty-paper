@@ -2955,6 +2955,161 @@ class IdentityBoundaryTests(TestCase):
         self.assertEqual(told, {sup.email, cell.email})
 
 
+
+class PrincipalOversightTests(TestCase):
+    """What the principal can ask of the system, and what it must not answer.
+
+    Every one of these was previously answerable only by exporting the ledger
+    and pivoting it by hand.
+    """
+
+    def setUp(self):
+        from datetime import date
+
+        self.principal = User.objects.create_user(
+            email="head@test.edu", password="pass", name="Head", role=Role.PRINCIPAL
+        )
+        self.person = User.objects.create_user(
+            email="prof@test.edu", password="pass", name="Prof Person",
+            role=Role.FACULTY, department="CSE", staff_id="STF-77",
+        )
+        common = dict(
+            owner=self.person, journal_title="J", issn="1111-2222",
+            staff_id="STF-77",
+        )
+        self.march = Claim.objects.create(
+            paper_title="Paid in March", status=ClaimStatus.PAID,
+            remuneration=55000, payout_month=date(2026, 3, 1),
+            publication_year=2025, quartile="Q1", **common,
+        )
+        self.april = Claim.objects.create(
+            paper_title="Paid in April", status=ClaimStatus.PAID,
+            remuneration=22000, payout_month=date(2026, 4, 1),
+            publication_year=2026, quartile="Q2", **common,
+        )
+        self.draft = Claim.objects.create(
+            paper_title="Never filed", status=ClaimStatus.DRAFT,
+            remuneration=99999, publication_year=2026, **common,
+        )
+        self.client = Client()
+        self.client.force_login(self.principal)
+
+    def test_a_month_narrows_the_figures_to_what_was_settled_then(self):
+        r = self.client.get("/api/reports?month=2026-03")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body["totals"]["paid_amount"], 55000)
+        self.assertIn("2026-03", body["payout_months"])
+        self.assertIn("2026-04", body["payout_months"])
+
+    def test_a_malformed_month_is_refused_rather_than_ignored(self):
+        """Silently returning everything reads as "March had no payments"."""
+        for bad in ("march", "2026-13", "2026"):
+            r = self.client.get(f"/api/reports?month={bad}")
+            self.assertEqual(r.status_code, 400, f"{bad}: {r.content}")
+
+    def test_the_record_of_one_person_leaves_out_their_drafts(self):
+        """A draft is private working paper, not a record of anything -- and
+        the export already excludes them, so counting them here would make the
+        screen and the file disagree."""
+        r = self.client.get(f"/api/faculty/{self.person.id}/report")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body["totals"]["publications"], 2)
+        self.assertEqual(body["totals"]["paid_amount"], 77000)
+        titles = {c["paper_title"] for c in body["claims"]}
+        self.assertNotIn("Never filed", titles)
+
+    def test_the_record_exports_as_a_real_workbook(self):
+        r = self.client.get(f"/api/faculty/{self.person.id}/report/export?fmt=xlsx")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertIn("spreadsheetml", r["Content-Type"])
+        # A .xlsx is a zip; an HTML error page is not.
+        self.assertEqual(bytes(r.content[:2]), b"PK")
+        self.assertIn("STF-77", r["Content-Disposition"])
+
+    def test_a_claimant_cannot_read_another_person_s_record(self):
+        self.client.force_login(self.person)
+        other = User.objects.create_user(
+            email="other@test.edu", password="pass", role=Role.FACULTY
+        )
+        r = self.client.get(f"/api/faculty/{other.id}/report")
+        self.assertEqual(r.status_code, 403, r.content)
+        r = self.client.get(f"/api/faculty/{other.id}/report/export")
+        self.assertEqual(r.status_code, 403, r.content)
+
+
+class ClaimNoteVisibilityTests(TestCase):
+    """A note is between the principal and the research cell, on one ticket."""
+
+    def setUp(self):
+        self.principal = User.objects.create_user(
+            email="head2@test.edu", password="pass", name="Head", role=Role.PRINCIPAL
+        )
+        self.cell = User.objects.create_user(
+            email="cell9@test.edu", password="pass", name="Cell", role=Role.RESEARCH_CELL
+        )
+        self.claimant = User.objects.create_user(
+            email="claimant@test.edu", password="pass", name="Claimant",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.finance = User.objects.create_user(
+            email="fin9@test.edu", password="pass", role=Role.FINANCE
+        )
+        self.claim = Claim.objects.create(
+            owner=self.claimant, paper_title="Under discussion",
+            journal_title="J", issn="3333-4444", status=ClaimStatus.SUBMITTED,
+        )
+        self.client = Client()
+
+    def _raise(self, body="Please confirm the SNIP on this one"):
+        return self.client.post(
+            f"/api/claims/{self.claim.id}/notes",
+            data=json.dumps({"body": body}),
+            content_type="application/json",
+        )
+
+    def test_the_principal_raises_it_and_the_research_cell_reads_it(self):
+        self.client.force_login(self.principal)
+        self.assertEqual(self._raise().status_code, 200)
+
+        self.client.force_login(self.cell)
+        r = self.client.get(f"/api/claims/{self.claim.id}/notes")
+        self.assertEqual(r.status_code, 200, r.content)
+        bodies = [n["body"] for n in r.json()["results"]]
+        self.assertIn("Please confirm the SNIP on this one", bodies)
+
+    def test_neither_the_claimant_nor_finance_can_read_it(self):
+        """The whole point is that it is not a conversation with the claimant."""
+        self.client.force_login(self.principal)
+        self._raise()
+        for who in (self.claimant, self.finance):
+            self.client.force_login(who)
+            r = self.client.get(f"/api/claims/{self.claim.id}/notes")
+            self.assertEqual(r.status_code, 403, f"{who.role}: {r.content}")
+
+    def test_only_the_research_cell_closes_a_note(self):
+        """Otherwise the person who asked marks their own question answered."""
+        self.client.force_login(self.principal)
+        note_id = self._raise().json()["id"]
+
+        r = self.client.post(f"/api/claims/notes/{note_id}/resolve")
+        self.assertEqual(r.status_code, 403, r.content)
+
+        self.client.force_login(self.cell)
+        r = self.client.post(f"/api/claims/notes/{note_id}/resolve")
+        self.assertEqual(r.status_code, 200, r.content)
+
+        r = self.client.get(f"/api/claims/{self.claim.id}/notes")
+        note = r.json()["results"][0]
+        self.assertIsNotNone(note["resolved_at"])
+        self.assertEqual(note["resolved_by_name"], "Cell")
+
+    def test_an_empty_note_is_refused(self):
+        self.client.force_login(self.principal)
+        self.assertEqual(self._raise("  ").status_code, 400)
+
+
 class MustChangePasswordTests(TestCase):
     """The flag was returned to the client and enforced only by the frontend."""
 

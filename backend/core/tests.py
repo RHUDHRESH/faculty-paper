@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from core.api import ATTACHMENT_LIMITS
+from core import api as api_module
 from core.models import (
     AttachmentKind,
     AuditLog,
@@ -3108,6 +3109,142 @@ class ClaimNoteVisibilityTests(TestCase):
     def test_an_empty_note_is_refused(self):
         self.client.force_login(self.principal)
         self.assertEqual(self._raise("  ").status_code, 400)
+
+
+
+class RetractionFlagTests(TestCase):
+    """A retracted paper is stopped, and the claimant can argue it is not.
+
+    Nothing here decides anything on its own: the signal is the publisher's
+    own renaming of the title, which arrives late and can be wrong in both
+    directions, so it takes the same route a missing quartile takes.
+    """
+
+    def setUp(self):
+        self.faculty = User.objects.create_user(
+            email="retract@test.edu", password="pass", name="R Faculty",
+            role=Role.FACULTY, department="CSE", staff_id="STF-R",
+            biometric_id="BIO-R",
+        )
+        self.client = Client()
+        self.client.force_login(self.faculty)
+
+    def test_the_words_a_publisher_uses_are_recognised_and_others_are_not(self):
+        from core.services.retraction import looks_retracted
+
+        for title in (
+            "RETRACTED: Deep learning for lung cancer staging",
+            "Retraction: A study of graphene oxide",
+            "WITHDRAWN: Optimising retrial queues",
+            "[Retracted] Neural networks in medicine",
+            "Expression of Concern: Fuzzy logic control",
+            "This article has been retracted",
+        ):
+            self.assertIsNotNone(looks_retracted(title), title)
+
+        # A paper *about* retractions is not a retracted paper. Getting this
+        # wrong would block a legitimate claim on a word in its own subject.
+        for title in (
+            "A study of retraction rates in engineering journals",
+            "Detecting withdrawn papers using citation graphs",
+            "Machine learning for structural health monitoring",
+            "",
+            None,
+        ):
+            self.assertIsNone(looks_retracted(title), title)
+
+    def test_a_retracted_title_is_raised_as_an_issue_the_claimant_can_contest(self):
+        claim = Claim.objects.create(
+            owner=self.faculty,
+            paper_title="RETRACTED: Deep learning for lung cancer staging",
+            journal_title="J", issn="5555-6666", status=ClaimStatus.DRAFT,
+            staff_id="STF-R", quartile="Q1", total_authors=1, author_position=1,
+        )
+        issues = api_module._verification_issues({"scopus": {"indexed": True}}, claim)
+        self.assertTrue(
+            any("retracted or withdrawn" in i for i in issues),
+            issues,
+        )
+
+    def test_the_index_title_is_checked_too(self):
+        """The publisher renames the paper after the form was filled in, so the
+        claimant's own title still reads clean."""
+        claim = Claim.objects.create(
+            owner=self.faculty,
+            paper_title="Deep learning for lung cancer staging",
+            journal_title="J", issn="5555-6666", status=ClaimStatus.DRAFT,
+            staff_id="STF-R", quartile="Q1",
+        )
+        issues = api_module._verification_issues(
+            {"scopus": {"indexed": True, "title": "RETRACTED: Deep learning for lung cancer staging"}},
+            claim,
+        )
+        self.assertTrue(any("retracted or withdrawn" in i for i in issues), issues)
+
+    def _submittable(self, **overrides):
+        payload = {
+            "paper_title": "A Complete Paper",
+            "journal_title": "Journal of Testing",
+            "issn": "1234-5678",
+            "publication_date": "2026-03-01",
+            "indexing_level": "Scopus",
+            "yukthi_id": "YK-R",
+            "scopus_author_url": "https://scopus.com/authid/detail.uri?authorId=1",
+            "sec_refs": "14, 15",
+            "proof_url": "/media/claims/b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0.pdf",
+            "sec_proof_url": "/media/claims/b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1.pdf",
+            "quartile": "Q1",
+            "snip": 1.0,
+            "total_authors": 3,
+            "author_position": 1,
+            "affiliation_ok": True,
+            "submit": True,
+        }
+        payload.update(overrides)
+        return self.client.post(
+            "/api/claims", data=json.dumps(payload), content_type="application/json"
+        )
+
+    def test_a_retracted_paper_cannot_be_filed_silently(self):
+        r = self._submittable(paper_title="RETRACTED: A Complete Paper")
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("retracted or withdrawn", r.json()["detail"])
+
+    def test_it_can_be_contested_and_arrives_flagged_for_the_admin(self):
+        """Contesting is the point: the signal is the publisher's renaming of
+        the title, which can be wrong, so the claimant gets to say so -- and
+        the research cell gets a ticket that says it was argued."""
+        r = self._submittable(
+            paper_title="RETRACTED: A Complete Paper",
+            contest_forward=True,
+            contest_note="The retraction was of the erratum, not the article.",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim = Claim.objects.get(pk=r.json()["id"])
+        self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
+        self.assertTrue(claim.contest_forward)
+        self.assertIn("erratum", claim.contest_note)
+        self.assertIsNotNone(claim.ticket_number)
+        issues = json.loads(claim.verification_snapshot_json)["issues"]
+        self.assertTrue(any("retracted or withdrawn" in i for i in issues), issues)
+
+    def test_a_contest_without_a_note_is_still_refused(self):
+        r = self._submittable(
+            paper_title="RETRACTED: A Complete Paper", contest_forward=True
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+
+    def test_a_clean_title_raises_nothing(self):
+        claim = Claim.objects.create(
+            owner=self.faculty, paper_title="Deep learning for lung cancer staging",
+            journal_title="J", issn="5555-6666", status=ClaimStatus.DRAFT,
+            staff_id="STF-R", quartile="Q1",
+        )
+        issues = api_module._verification_issues(
+            {"scopus": {"indexed": True, "title": "Deep learning for lung cancer staging"}},
+            claim,
+        )
+        self.assertFalse([i for i in issues if "retracted" in i], issues)
 
 
 class MustChangePasswordTests(TestCase):

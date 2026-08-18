@@ -82,6 +82,7 @@ from core.services.scopus import (
 )
 from core.services.tickets import assign_ticket_number
 from core.services.pdfmeta import content_digest, guess_title
+from core.services.retraction import looks_retracted
 from core.services.uploads import ACCEPTED_LABEL, sniff
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
 
@@ -210,6 +211,17 @@ def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
         issues.append("Payment history may already include this paper")
     if not claim.quartile:
         issues.append("Journal ranking (quartile) is missing — pick Q1–Q4 or send with a note")
+
+    # Both titles: a publisher renames a withdrawn paper after the claimant
+    # filled the form in, so the index is where a retraction shows up first.
+    for title in (claim.paper_title, scopus.get("title")):
+        phrase = looks_retracted(title)
+        if phrase:
+            issues.append(
+                f"The title says “{phrase}” — this looks like a retracted or "
+                "withdrawn paper. Send it with a note if that is wrong"
+            )
+            break
     return issues
 
 

@@ -34,3 +34,30 @@ W=390 THEME=dark SUFFIX=-dark node audit/shots.mjs
 `mojibake.py` finds text that was UTF-8, read as cp1252, and written back —
 "₹" as "â‚¹", "→" as "â†'". It tests by decoding rather than matching a list,
 so it catches sequences nobody thought to grep for. `--fix` repairs in place.
+
+## Rebuilding from the ERP workbook
+
+`backend/core/management/commands/rebuild_from_erp.py` loads the workbook into
+the models that actually drive the app, and refuses to finish if its own total
+disagrees with the sheet.
+
+```bash
+python manage.py rebuild_from_erp ../data/Publication_Processing_ERP_V3.0.xlsx \
+    --confirm --credentials-out ../faculty-credentials.csv
+```
+
+Two traps in the workbook, both found by `audit/check_shift.py` and
+`audit/why_unmatched.py`:
+
+- The newest 406 rows of `Master_List_Accounts` carry six extra columns. In
+  those rows the column headed **Amount holds the author count**, and the payout
+  is the last trailing column — reading the header loses **Rs 27,29,099**. That
+  block also shows the ERP's own working, `(SNIP x 55000 + QF) x APP`, which
+  reconciles with the recorded payout on 350 of 406 rows and independently
+  confirms the Step 8 formula.
+- 267 ledger rows name staff who are not in `Faculty_Data` — 58 people who have
+  since left. Each keeps their own inactive record rather than being folded into
+  one holding account, which would put a false name on real payments.
+
+`audit/erp_truth.py` prints what the workbook contains and
+`audit/verify_rebuild.py` checks the app against it.

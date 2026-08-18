@@ -89,3 +89,7 @@ next-env.d.ts
 
 # Screenshots from the UI audit — regenerate with `node audit/shots.mjs`
 audit/shots/
+
+# Generated faculty logins — real credentials, never commit or deploy
+faculty-credentials.csv
+*-credentials.csv

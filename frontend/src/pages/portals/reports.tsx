@@ -206,6 +206,30 @@ export function ReportsPage() {
         }
       />
 
+      <Section
+        title="Accreditation pack"
+        description="The NAAC and NIRF tables, in the columns those frameworks ask for"
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <Button asChild variant="secondary">
+            <a
+              href={`${API_BASE}/api/reports/pack?fmt=xlsx${
+                year !== ALL ? `&year=${year}` : ""
+              }`}
+            >
+              <Download className="size-4" />
+              {year === ALL ? "Download (all years)" : `Download ${year}`}
+            </a>
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            NAAC 3.4.3 one row per teacher per paper, NIRF publication counts by year,
+            department and faculty summaries, and a Notes sheet saying what each figure
+            counts. Citation-based NIRF metrics are not included — no citation data is
+            held here, and they have to come from Scopus directly.
+          </p>
+        </div>
+      </Section>
+
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1.5">
           <Label htmlFor="rep-month" className="text-xs">

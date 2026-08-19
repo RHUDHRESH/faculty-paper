@@ -15,6 +15,8 @@ import { AdminClearingQueuePage } from "@/pages/portals/review-queue";
 import { ReportsPage } from "@/pages/portals/reports";
 import { SearchPage } from "@/pages/portals/search";
 import { AdminFaultsPage } from "@/pages/portals/faults";
+import { BudgetPage } from "@/pages/portals/budget";
+import { DuplicateFindingsPage } from "@/pages/portals/duplicates";
 import { LookupPage } from "@/pages/portals/lookup";
 import { PrincipalApprovalsPage } from "@/pages/portals/principal-approvals";
 import { PrincipalOverviewPage, PrincipalQueuePage } from "@/pages/portals/principal";
@@ -141,6 +143,8 @@ export default function App() {
           <Route path="overview" element={<PrincipalOverviewPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="find" element={<LookupPage />} />
+          <Route path="budget" element={<BudgetPage />} />
+          <Route path="duplicates" element={<DuplicateFindingsPage />} />
           <Route path="query" element={<SearchPage />} />
         </Route>
 
@@ -166,6 +170,8 @@ export default function App() {
           <Route path="audit" element={<AdminAuditPage />} />
           <Route path="faults" element={<AdminFaultsPage />} />
           <Route path="find" element={<LookupPage />} />
+          <Route path="budget" element={<BudgetPage />} />
+          <Route path="duplicates" element={<DuplicateFindingsPage />} />
         </Route>
 
         <Route
@@ -180,6 +186,7 @@ export default function App() {
           <Route path="paid" element={<FinancePaidPage />} />
           <Route path="ledger" element={<FinanceLedgerPage />} />
           <Route path="find" element={<LookupPage />} />
+          <Route path="budget" element={<BudgetPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="query" element={<SearchPage />} />
           {/* Editing the pay policy needs FINANCE or SUPER_ADMIN, so the screen

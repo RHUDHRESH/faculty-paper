@@ -1,6 +1,8 @@
 """One-shot verify: Scopus + Scimago + already-paid."""
 from __future__ import annotations
 
+from datetime import date
+
 import json
 from typing import Any
 
@@ -14,7 +16,12 @@ from core.services.normalize import (
     title_tokens,
     titles_rough_match,
 )
-from core.services.scimago import engineering_class, lookup_scimago, scimago_official_search_url
+from core.services.scimago import (
+    engineering_class,
+    issn_variants,
+    lookup_scimago,
+    scimago_official_search_url,
+)
 from core.services.scopus import (
     ScopusError,
     check_author_linkage,
@@ -138,6 +145,70 @@ def check_already_paid(
     return {"warning": len(matches) > 0, "matches": matches[:15]}
 
 
+def check_journal_standing(
+    *,
+    issn: str | None,
+    published_on: str | None = None,
+    publication_year: int | None = None,
+) -> dict[str, Any]:
+    """Was this journal still recognised when the paper came out?
+
+    Answers three different things, and says which:
+
+    - unknown: no list has been loaded, so nothing can be claimed either way.
+      Reported honestly rather than as a pass, because "we did not check" and
+      "we checked and it was fine" are not the same sentence.
+    - listed: the sources hold it and have not removed it.
+    - removed: a source dropped it. Whether that matters depends on when --
+      a paper published before the removal was in a recognised journal at the
+      time, which is the question the policy actually asks.
+    """
+    from core.models import JournalStanding
+
+    out: dict[str, Any] = {"checked": False, "issues": [], "sources": []}
+    variants = issn_variants(issn)
+    if not variants:
+        return out
+    rows = list(JournalStanding.objects.filter(issn__in=variants))
+    if not JournalStanding.objects.exists():
+        out["message"] = "No journal list has been loaded, so standing was not checked"
+        return out
+
+    out["checked"] = True
+    published = None
+    if published_on:
+        try:
+            published = date.fromisoformat(published_on[:10])
+        except ValueError:
+            published = None
+    if published is None and publication_year:
+        # Without a day, the end of the year is the cautious reading: it asks
+        # whether the journal was still listed by the time the paper was out.
+        published = date(int(publication_year), 12, 31)
+
+    for row in rows:
+        out["sources"].append({
+            "source": row.source,
+            "listed": row.listed,
+            "changed_on": row.changed_on.isoformat() if row.changed_on else None,
+            "reason": row.reason,
+        })
+        if row.listed:
+            continue
+        label = row.get_source_display()
+        if row.changed_on and published and published < row.changed_on:
+            # Dropped later. Worth knowing, not worth blocking.
+            out.setdefault("notes", []).append(
+                f"{label}: removed on {row.changed_on.isoformat()}, after this paper was published"
+            )
+        else:
+            when = f" on {row.changed_on.isoformat()}" if row.changed_on else ""
+            out["issues"].append(
+                f"The journal was removed from the {label}{when}"
+            )
+    return out
+
+
 def verify_publication(
     *,
     title: str,
@@ -146,6 +217,8 @@ def verify_publication(
     issn: str | None = None,
     staff_id: str | None = None,
     exclude_claim_id: str | None = None,
+    publication_year: int | None = None,
+    publication_date: str | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "ok": True,
@@ -196,7 +269,13 @@ def verify_publication(
         out["snip"] = snip
         out["snip_source"] = snip_source
 
-        scimago = lookup_scimago(issn=issn_use, title=paper.get("journal_title"))
+        scimago = lookup_scimago(
+            issn=issn_use,
+            title=paper.get("journal_title"),
+            # The policy pays on the quartile the journal held when the paper
+            # came out, not on today's.
+            year=publication_year or paper.get("publication_year"),
+        )
         if scimago and scimago.get("found"):
             out["scimago"] = {
                 "found": True,
@@ -228,6 +307,12 @@ def verify_publication(
     doi = (out.get("paper") or {}).get("doi")
     out["paid"] = check_already_paid(
         title=title, doi=doi, staff_id=staff_id, exclude_claim_id=exclude_claim_id
+    )
+    out["standing"] = check_journal_standing(
+        # The ISSN the index returned when it had one, else what was typed.
+        issn=(out.get("paper") or {}).get("issn") or issn,
+        published_on=publication_date,
+        publication_year=publication_year,
     )
     return out
 

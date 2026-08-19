@@ -24,6 +24,7 @@ import {
   Wallet,
   UserSearch,
   CheckCheck,
+  Copy,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -381,6 +382,7 @@ export function PrincipalShell() {
         { to: "/principal/overview", label: "Overview", icon: LayoutDashboard },
         // A ticket number off an email, or a staff id off a spreadsheet.
         { to: "/principal/find", label: "Find", icon: UserSearch },
+        { to: "/principal/budget", label: "Budget", icon: Wallet },
         { to: "/principal/query", label: "Query", icon: Search },
         { to: "/principal/reports", label: "Reports", icon: BarChart3 },
       ]}
@@ -405,6 +407,8 @@ export function AdminShell() {
         { to: "/admin/clearing", label: "Clearing queue", icon: ClipboardCheck },
         // Somebody rings about a ticket number; this is where it is looked up.
         { to: "/admin/find", label: "Find", icon: UserSearch },
+        { to: "/admin/budget", label: "Budget", icon: Wallet },
+        { to: "/admin/duplicates", label: "Duplicates", icon: Copy },
         { to: "/admin/submit", label: "Submit for faculty", icon: UserPlus },
         ...(canManageUsers ? [{ to: "/admin/users", label: "Users", icon: Users }] : []),
         ...(canEditFormula
@@ -434,6 +438,8 @@ export function FinanceShell() {
         { to: "/finance/paid", label: "Processed", icon: Receipt },
         { to: "/finance/ledger", label: "Ledger", icon: FileSpreadsheet },
         { to: "/finance/find", label: "Find", icon: UserSearch },
+        { to: "/finance/budget", label: "Budget", icon: Wallet },
+        { to: "/finance/duplicates", label: "Duplicates", icon: Copy },
         { to: "/finance/query", label: "Query", icon: Search },
         { to: "/finance/reports", label: "Reports", icon: BarChart3 },
         // Finance owns the remuneration policy — can_edit_formula is FINANCE or

@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from core.api import ATTACHMENT_LIMITS
 from core.services.verify import check_already_paid
+from core.models import Budget, DuplicateFinding, JournalStanding, ScimagoJournal
 from core import api as api_module
 from core.models import (
     AttachmentKind,
@@ -3712,6 +3713,326 @@ class FourStepChainTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 400, r.content)
+
+
+
+class BudgetTests(TestCase):
+    """Allocation, spend, and the part nobody was tracking: what is committed."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="bud-admin@test.edu", password="pass", role=Role.SUPER_ADMIN
+        )
+        self.faculty = User.objects.create_user(
+            email="bud-fac@test.edu", password="pass", name="Bud Faculty",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def _claim(self, status, amount, month=None):
+        return Claim.objects.create(
+            owner=self.faculty, status=status, remuneration=amount,
+            paper_title="Budget test", journal_title="J", payout_month=month,
+        )
+
+    def test_the_financial_year_runs_april_to_march(self):
+        from core.api import financial_year_of
+        from datetime import date as d
+
+        self.assertEqual(financial_year_of(d(2026, 4, 1)), "2026-27")
+        self.assertEqual(financial_year_of(d(2027, 3, 31)), "2026-27")
+        self.assertEqual(financial_year_of(d(2026, 3, 31)), "2025-26")
+
+    def test_cleared_and_approved_money_counts_as_committed(self):
+        """It is owed. Reporting only what has been paid understates the
+        position by exactly the amount about to leave the account."""
+        from datetime import date as d
+
+        self.client.post(
+            "/api/budgets",
+            data=json.dumps({"financial_year": "2026-27", "amount": 100000}),
+            content_type="application/json",
+        )
+        self._claim(ClaimStatus.PAID, 10000, d(2026, 5, 1))
+        self._claim(ClaimStatus.CLEARED, 5000)
+        self._claim(ClaimStatus.PRINCIPAL_APPROVED, 7000)
+        # Outside the year, so it must not count against this allocation.
+        self._claim(ClaimStatus.PAID, 90000, d(2025, 5, 1))
+
+        r = self.client.get("/api/budgets?financial_year=2026-27")
+        self.assertEqual(r.status_code, 200, r.content)
+        college = r.json()["college"]
+        self.assertEqual(college["allocated"], 100000)
+        self.assertEqual(college["spent"], 10000)
+        self.assertEqual(college["committed"], 12000)
+        self.assertEqual(college["remaining"], 78000)
+
+    def test_a_year_with_no_allocation_says_so_rather_than_guessing(self):
+        r = self.client.get("/api/budgets?financial_year=2030-31")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertIsNone(r.json()["college"]["allocated"])
+        self.assertIsNone(r.json()["college"]["remaining"])
+
+    def test_departmental_allocations_add_up_to_a_college_ceiling(self):
+        """Without a college-wide row, the departments are the only ceiling
+        there is -- and saying so is better than reporting none."""
+        for dept, amount in (("CSE", 60000), ("ECE", 40000)):
+            self.client.post(
+                "/api/budgets",
+                data=json.dumps(
+                    {"financial_year": "2027-28", "department": dept, "amount": amount}
+                ),
+                content_type="application/json",
+            )
+        r = self.client.get("/api/budgets?financial_year=2027-28")
+        self.assertEqual(r.json()["college"]["allocated"], 100000)
+
+    def test_a_malformed_year_is_refused(self):
+        r = self.client.get("/api/budgets?financial_year=2026")
+        self.assertEqual(r.status_code, 400, r.content)
+
+    def test_a_claimant_cannot_read_or_set_the_budget(self):
+        self.client.force_login(self.faculty)
+        self.assertEqual(self.client.get("/api/budgets").status_code, 403)
+        r = self.client.post(
+            "/api/budgets",
+            data=json.dumps({"financial_year": "2026-27", "amount": 1}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 403, r.content)
+
+
+class DuplicateSweepTests(TestCase):
+    """The sweep over paid history, and the review it produces."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="sweep-admin@test.edu", password="pass", role=Role.SUPER_ADMIN
+        )
+        self.a = User.objects.create_user(
+            email="sweep-a@test.edu", password="pass", name="Person A",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.b = User.objects.create_user(
+            email="sweep-b@test.edu", password="pass", name="Person B",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def _paid(self, owner, title, amount, ticket, doi=None):
+        return Claim.objects.create(
+            owner=owner, status=ClaimStatus.PAID, paper_title=title,
+            remuneration=amount, ticket_number=ticket, doi=doi, journal_title="J",
+        )
+
+    def test_one_person_paid_twice_is_a_finding_worth_the_second_payment(self):
+        from django.core.management import call_command
+
+        self._paid(self.a, "A Repeated Paper", 40000, "T-1")
+        self._paid(self.a, "A Repeated Paper", 40000, "T-2")
+        call_command("find_duplicate_payments", verbosity=0)
+
+        f = DuplicateFinding.objects.get(kind=DuplicateFinding.Kind.SAME_PERSON)
+        self.assertEqual(f.payment_count, 2)
+        self.assertEqual(f.total_amount, 80000)
+        # One of the two was due; the other is the sum at issue.
+        self.assertEqual(f.extra_amount, 40000)
+        self.assertEqual(f.status, DuplicateFinding.Status.OPEN)
+
+    def test_co_authors_are_recorded_separately_and_not_as_a_repeat(self):
+        from django.core.management import call_command
+
+        self._paid(self.a, "A Shared Paper", 30000, "T-3")
+        self._paid(self.b, "A Shared Paper", 20000, "T-4")
+        call_command("find_duplicate_payments", verbosity=0)
+
+        self.assertFalse(
+            DuplicateFinding.objects.filter(kind=DuplicateFinding.Kind.SAME_PERSON).exists()
+        )
+        cross = DuplicateFinding.objects.get(kind=DuplicateFinding.Kind.CROSS_PERSON)
+        self.assertEqual(cross.payment_count, 2)
+        self.assertEqual(cross.total_amount, 50000)
+
+    def test_a_ledger_row_that_mirrors_a_claim_is_not_its_own_duplicate(self):
+        """The ERP import wrote every payment into both tables. Counting both
+        would report all three thousand payments as duplicates of themselves."""
+        from django.core.management import call_command
+
+        self._paid(self.a, "An Imported Paper", 25000, "ERP-9001")
+        PriorPayment.objects.create(
+            faculty_name="Person A", paper_title="An Imported Paper",
+            normalized_title=normalize_title("An Imported Paper"),
+            amount_paid=25000, claim_ref="ERP-9001",
+        )
+        call_command("find_duplicate_payments", verbosity=0)
+        self.assertEqual(DuplicateFinding.objects.count(), 0)
+
+    def test_a_finding_is_reviewed_and_the_decision_is_recorded(self):
+        from django.core.management import call_command
+
+        self._paid(self.a, "A Repeated Paper", 40000, "T-5")
+        self._paid(self.a, "A Repeated Paper", 40000, "T-6")
+        call_command("find_duplicate_payments", verbosity=0)
+        f = DuplicateFinding.objects.get(kind=DuplicateFinding.Kind.SAME_PERSON)
+
+        r = self.client.post(
+            f"/api/admin/duplicate-findings/{f.id}",
+            data=json.dumps({"status": "CONFIRMED", "note": "Paid twice in error"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        f.refresh_from_db()
+        self.assertEqual(f.status, DuplicateFinding.Status.CONFIRMED)
+        self.assertEqual(f.reviewed_by_id, self.admin.id)
+        self.assertTrue(
+            AuditLog.objects.filter(action="DUPLICATE_REVIEW", entity_id=f.id).exists()
+        )
+
+    def test_dismissing_one_needs_a_reason(self):
+        from django.core.management import call_command
+
+        self._paid(self.a, "A Repeated Paper", 40000, "T-7")
+        self._paid(self.a, "A Repeated Paper", 40000, "T-8")
+        call_command("find_duplicate_payments", verbosity=0)
+        f = DuplicateFinding.objects.get(kind=DuplicateFinding.Kind.SAME_PERSON)
+
+        r = self.client.post(
+            f"/api/admin/duplicate-findings/{f.id}",
+            data=json.dumps({"status": "DISMISSED"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+
+
+class JournalStandingTests(TestCase):
+    """A journal's standing has a date, and so does the paper."""
+
+    def test_nothing_is_claimed_when_no_list_has_been_loaded(self):
+        from core.services.verify import check_journal_standing
+
+        out = check_journal_standing(issn="1234-5678", publication_year=2026)
+        self.assertFalse(out["checked"])
+        self.assertEqual(out["issues"], [])
+        self.assertIn("not checked", out["message"])
+
+    def test_a_paper_published_after_the_removal_is_flagged(self):
+        from datetime import date as d
+        from core.services.verify import check_journal_standing
+
+        JournalStanding.objects.create(
+            source=JournalStanding.Source.SCOPUS_DISCONTINUED,
+            issn="12345678", listed=False, changed_on=d(2025, 1, 1),
+        )
+        out = check_journal_standing(issn="1234-5678", publication_year=2026)
+        self.assertTrue(out["checked"])
+        self.assertTrue(any("removed" in i for i in out["issues"]), out)
+
+    def test_a_paper_published_before_the_removal_is_not(self):
+        """It was a recognised journal at the time, which is what the policy asks."""
+        from datetime import date as d
+        from core.services.verify import check_journal_standing
+
+        JournalStanding.objects.create(
+            source=JournalStanding.Source.SCOPUS_DISCONTINUED,
+            issn="12345678", listed=False, changed_on=d(2025, 1, 1),
+        )
+        out = check_journal_standing(issn="1234-5678", publication_year=2023)
+        self.assertEqual(out["issues"], [])
+        self.assertTrue(out.get("notes"))
+
+    def test_the_quartile_lookup_says_which_year_it_used(self):
+        """Scimago is held for a couple of years only, so an older paper falls
+        back -- and that has to be visible, not silent."""
+        from core.services.scimago import lookup_scimago
+
+        ScimagoJournal.objects.create(
+            source_id="1", title="Test Journal Of Things", issn="99990000",
+            year=2025, categories_json=json.dumps(
+                [{"category": "Engineering", "quartile": "Q1"}]
+            ),
+        )
+        exact = lookup_scimago(issn="9999-0000", year=2025)
+        self.assertTrue(exact["year_exact"])
+        fallback = lookup_scimago(issn="9999-0000", year=2019)
+        self.assertFalse(fallback["year_exact"])
+        self.assertEqual(fallback["dataset_year"], 2025)
+        self.assertEqual(fallback["requested_year"], 2019)
+
+
+class ReportingPackTests(TestCase):
+    """The accreditation tables, in the columns the frameworks ask for."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="pack-admin@test.edu", password="pass", role=Role.SUPER_ADMIN
+        )
+        self.faculty = User.objects.create_user(
+            email="pack-fac@test.edu", password="pass", name="Pack Faculty",
+            role=Role.FACULTY, department="CSE", designation="Professor",
+            staff_id="STF-P",
+        )
+        Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.PAID, paper_title="A Counted Paper",
+            journal_title="Journal of Things", issn="1234-5678", publication_year=2025,
+            quartile="Q1", indexing_level="Scopus", remuneration=55000,
+            author_position=1, total_authors=2,
+        )
+        Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.DRAFT, paper_title="Never Filed",
+            journal_title="J", publication_year=2025,
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def test_the_naac_sheet_has_the_columns_naac_asks_for(self):
+        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
+        self.assertEqual(r.status_code, 200, r.content)
+        naac = r.json()["NAAC 3.4.3"]
+        self.assertEqual(naac["columns"][:5], [
+            "Sl. No.", "Title of paper", "Name of the author/s",
+            "Department of the teacher", "Name of journal",
+        ])
+        # Drafts are not publications.
+        self.assertEqual(len(naac["rows"]), 1)
+        self.assertEqual(naac["rows"][0][1], "A Counted Paper")
+
+    def test_the_ugc_column_says_not_checked_when_no_list_is_loaded(self):
+        """Reporting "No" would assert something nobody checked."""
+        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
+        self.assertEqual(r.json()["NAAC 3.4.3"]["rows"][0][-1], "Not checked")
+
+    def test_the_ugc_column_answers_once_a_list_exists(self):
+        JournalStanding.objects.create(
+            source=JournalStanding.Source.UGC_CARE, issn="12345678", listed=True
+        )
+        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
+        self.assertEqual(r.json()["NAAC 3.4.3"]["rows"][0][-1], "Yes")
+
+    def test_the_nirf_sheet_counts_by_year_and_carries_no_citation_columns(self):
+        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
+        nirf = r.json()["NIRF publications"]
+        self.assertNotIn("Citations", " ".join(nirf["columns"]))
+        row = nirf["rows"][0]
+        self.assertEqual(row[0], 2025)
+        self.assertEqual(row[1], 1, "one Scopus publication")
+        self.assertEqual(row[3], 1, "one publication in total")
+
+    def test_the_notes_sheet_says_what_could_not_be_produced(self):
+        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
+        notes = " ".join(str(c) for row in r.json()["Notes"]["rows"] for c in row)
+        self.assertIn("citation", notes.lower())
+
+    def test_it_downloads_as_a_real_workbook(self):
+        r = self.client.get("/api/reports/pack?year=2025")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("spreadsheetml", r["Content-Type"])
+        self.assertEqual(bytes(r.content[:2]), b"PK")
+
+    def test_a_claimant_cannot_download_the_college_pack(self):
+        self.client.force_login(self.faculty)
+        self.assertEqual(self.client.get("/api/reports/pack").status_code, 403)
 
 
 class MustChangePasswordTests(TestCase):

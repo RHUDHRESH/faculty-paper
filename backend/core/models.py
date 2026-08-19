@@ -125,6 +125,134 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.email
 
 
+class Budget(models.Model):
+    """What the college has allocated, and against which year.
+
+    Without one, the principal approves spend with no idea what is left --
+    which makes an approval step ceremony rather than control. A row with no
+    department is the college-wide allocation; a row with one is that
+    department's ring-fence inside it.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    #: "2026-27", the Indian financial year the allocation belongs to.
+    financial_year = models.CharField(max_length=9, db_index=True)
+    #: Blank means the whole college.
+    department = models.CharField(max_length=128, blank=True, null=True)
+    amount = models.FloatField()
+    note = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL, related_name="budgets"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # One allocation per department per year: two rows for the same slice
+        # give two different answers to "what is left".
+        constraints = [
+            models.UniqueConstraint(
+                fields=["financial_year", "department"], name="one_budget_per_slice"
+            )
+        ]
+        ordering = ["-financial_year", "department"]
+
+    def __str__(self) -> str:
+        return f"{self.financial_year} {self.department or 'college-wide'}: {self.amount}"
+
+
+class JournalStanding(models.Model):
+    """Whether a journal is still recognised, and by whom.
+
+    A journal indexed when a paper was published can be discontinued by
+    Scopus, or removed from the UGC-CARE list, afterwards. Paying on today's
+    standing for a paper published three years ago is wrong in both
+    directions, so the date the standing changed is the part that matters.
+    """
+
+    class Source(models.TextChoices):
+        SCOPUS_DISCONTINUED = "SCOPUS_DISCONTINUED", "Scopus discontinued list"
+        UGC_CARE = "UGC_CARE", "UGC-CARE list"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    source = models.CharField(max_length=32, choices=Source.choices, db_index=True)
+    issn = models.CharField(max_length=32, db_index=True)
+    title = models.CharField(max_length=512, blank=True, null=True)
+    #: True = currently recognised by this source. False = removed/discontinued.
+    listed = models.BooleanField(default=True)
+    #: When the source removed it. A paper published before this date was in a
+    #: recognised journal at the time, which is the question the policy asks.
+    changed_on = models.DateField(blank=True, null=True)
+    reason = models.CharField(max_length=255, blank=True, null=True)
+    imported_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "issn"], name="one_standing_per_source_and_issn"
+            )
+        ]
+        indexes = [models.Index(fields=["issn", "listed"])]
+
+    def __str__(self) -> str:
+        return f"{self.issn} {self.source} listed={self.listed}"
+
+
+class DuplicateFinding(models.Model):
+    """A payment that looks like it was made twice for one paper.
+
+    Raised by a sweep over history rather than at submission time, because the
+    imported ERP ledger was never checked at all -- and the answer is a
+    judgement somebody has to record, not a flag a script can set.
+    """
+
+    class Kind(models.TextChoices):
+        SAME_PERSON = "SAME_PERSON", "Same person paid more than once"
+        CROSS_PERSON = "CROSS_PERSON", "Paid to more than one person"
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Not yet reviewed"
+        CONFIRMED = "CONFIRMED", "A real duplicate"
+        DISMISSED = "DISMISSED", "Not a duplicate"
+        RECOVERED = "RECOVERED", "Recovered"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    kind = models.CharField(max_length=16, choices=Kind.choices, db_index=True)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True
+    )
+    #: The normalised title or DOI the rows were grouped on.
+    match_key = models.CharField(max_length=512, db_index=True)
+    matched_on = models.CharField(max_length=16, default="title")
+    paper_title = models.TextField(blank=True, null=True)
+    faculty_name = models.CharField(max_length=255, blank=True, null=True)
+    #: Everything in the group, as recorded when the sweep ran.
+    rows_json = models.TextField()
+    payment_count = models.PositiveIntegerField(default=0)
+    total_amount = models.FloatField(default=0)
+    #: What the second and later payments came to -- the sum at issue.
+    extra_amount = models.FloatField(default=0)
+    reviewed_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="duplicate_reviews",
+    )
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    note = models.TextField(blank=True, null=True)
+    recovered_amount = models.FloatField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-extra_amount"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["kind", "match_key", "faculty_name"], name="one_finding_per_group"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.kind} {self.match_key[:40]} {self.extra_amount}"
+
+
 class FormulaConfig(models.Model):
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
     name = models.CharField(max_length=128, default="Policy v1")

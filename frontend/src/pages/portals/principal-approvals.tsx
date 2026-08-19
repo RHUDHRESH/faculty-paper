@@ -106,6 +106,13 @@ export function PrincipalApprovalsPage() {
     `/api/principal/queue?${query}`
   )
 
+  // Approving commits money, so what is left has to be on this screen rather
+  // than one click away on a page nobody opens mid-batch.
+  const { data: budget } = useApiQuery<{
+    financial_year: string
+    college: { allocated: number | null; remaining: number | null; committed: number }
+  }>(["budget", "current"], "/api/budgets")
+
   const rows = data?.results || []
 
   // A filter change that leaves the old page offset behind shows an empty page.
@@ -229,6 +236,30 @@ export function PrincipalApprovalsPage() {
           <p className="mt-2 text-xs text-muted-foreground">
             Across everything matching the filters below, not just this page.
           </p>
+          {budget?.college?.allocated ? (
+            <p className="mt-2 text-sm">
+              <span className="text-muted-foreground">
+                Budget {budget.financial_year}:{" "}
+              </span>
+              <span
+                className={cn(
+                  "font-semibold tabular-nums",
+                  (budget.college.remaining ?? 0) < 0 && "text-destructive"
+                )}
+              >
+                {formatMoney(budget.college.remaining ?? 0)}
+              </span>
+              <span className="text-muted-foreground"> left of </span>
+              <span className="tabular-nums">{formatMoney(budget.college.allocated)}</span>
+              <span className="text-muted-foreground">
+                {" "}— {formatMoney(budget.college.committed)} of that is already committed.
+              </span>
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-muted-foreground">
+              No allocation is set for this year, so nothing here can say what remains.
+            </p>
+          )}
         </Section>
       ) : null}
 
@@ -484,6 +515,20 @@ export function PrincipalApprovalsPage() {
                 Clear
               </Button>
             </div>
+            {budget?.college?.remaining !== null && budget?.college?.remaining !== undefined ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Approving this leaves{" "}
+                <span
+                  className={cn(
+                    "font-medium tabular-nums",
+                    budget.college.remaining - selectedAmount < 0 && "text-destructive"
+                  )}
+                >
+                  {formatMoney(budget.college.remaining - selectedAmount)}
+                </span>{" "}
+                of this year's budget.
+              </p>
+            ) : null}
             <Button
               className="mt-3 w-full"
               disabled={busy}

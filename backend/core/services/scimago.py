@@ -115,6 +115,10 @@ def lookup_scimago(
     qs = ScimagoJournal.objects.all()
     if year:
         qs = qs.filter(year=year)
+        # The dump held here covers only the years it was loaded for, so an
+        # older paper falls through to the newest table available. That is a
+        # reasonable answer and a bad one to give silently, so the result says
+        # which year it came from and whether that is the year asked for.
 
     journal = None
     variants = issn_variants(issn)
@@ -170,6 +174,8 @@ def lookup_scimago(
         "matched_category": matched.get("category"),
         "source": "official_dump",
         "dataset_year": journal.year,
+        "requested_year": year,
+        "year_exact": (year is None) or (journal.year == year),
         "citation": SCIMAGO_CITATION,
         "official_url": scimago_official_search_url(issn=journal.issn, title=journal.title),
         "message": None,

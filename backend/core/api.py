@@ -37,6 +37,9 @@ from core.models import (
     ClaimReason,
     ClaimStatus,
     PAYABLE_STATUSES,
+    Budget,
+    DuplicateFinding,
+    JournalStanding,
     FacultyMaster,
     FormulaConfig,
     MonthlyBatch,
@@ -81,7 +84,10 @@ from core.services.scopus import (
     search_candidates,
 )
 from core.services.tickets import assign_ticket_number
+import re
+
 from core.services.pdfmeta import content_digest, guess_title
+from core.services.reporting_pack import build_pack, pack_workbook
 from core.services.retraction import looks_retracted
 from core.services.uploads import ACCEPTED_LABEL, sniff
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
@@ -211,6 +217,10 @@ def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
         issues.append("Payment history may already include this paper")
     if not claim.quartile:
         issues.append("Journal ranking (quartile) is missing — pick Q1–Q4 or send with a note")
+
+    # A journal the college's own sources no longer recognise.
+    for problem in (result.get("standing") or {}).get("issues", []):
+        issues.append(problem)
 
     # Both titles: a publisher renames a withdrawn paper after the claimant
     # filled the form in, so the index is where a retraction shows up first.
@@ -1872,6 +1882,10 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
         issn=claim.issn,
         staff_id=claim.staff_id,
         exclude_claim_id=claim.id if claim.pk else None,
+        # The quartile the journal held in the year of publication, and whether
+        # it was still a recognised journal then.
+        publication_year=claim.publication_year,
+        publication_date=claim.publication_date,
     )
     apply_verify_to_claim(claim, result)
     _apply_calc(claim)
@@ -3887,6 +3901,330 @@ def faculty_report_export(request: HttpRequest, user_id: str, fmt: str = "xlsx")
     )
     tag = (person.staff_id or person.email.split("@")[0] or "faculty").replace(" ", "-")
     return _claims_file(rows, f"publications-{tag}", fmt)
+
+
+@api.get("/reports/pack", auth=session_auth)
+def reports_pack(request: HttpRequest, year: Optional[int] = None, fmt: str = "xlsx"):
+    """The NAAC / NIRF submission tables, as one workbook.
+
+    Assembled by hand from exports every year, out of data the system already
+    holds. The Notes sheet says what each figure counts and what could not be
+    produced, because a number in an accreditation submission has to be
+    defensible a year later.
+    """
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+
+    pack = build_pack(year=year, scope=_claims_queryset(user))
+    if fmt == "json":
+        return pack
+
+    stem = f"accreditation-pack-{year or 'all-years'}"
+    res = HttpResponse(
+        pack_workbook(pack),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    res["Content-Disposition"] = f'attachment; filename="{stem}.xlsx"'
+    AuditLog.objects.create(
+        actor=user, action="REPORT_PACK", entity="Report", entity_id=stem,
+        detail_json=json.dumps({"year": year, "rows": len(pack["NAAC 3.4.3"]["rows"])}),
+    )
+    return res
+
+
+# ---------- budget ----------
+
+
+def financial_year_of(d: date) -> str:
+    """India's financial year runs April to March, so "2026-27" starts in April 2026."""
+    start = d.year if d.month >= 4 else d.year - 1
+    return f"{start}-{str(start + 1)[-2:]}"
+
+
+def _fy_bounds(fy: str) -> tuple[date, date]:
+    start_year = int(fy.split("-")[0])
+    return date(start_year, 4, 1), date(start_year + 1, 3, 31)
+
+
+class BudgetIn(Schema):
+    financial_year: str
+    department: Optional[str] = None
+    amount: float
+    note: Optional[str] = None
+
+
+def _budget_status(fy: str, user: User) -> dict[str, Any]:
+    """Allocated, spent, committed and left -- for the college and each department.
+
+    Committed is the part nobody was tracking: a ticket the principal has
+    approved is money the college owes, even though finance has not moved it
+    yet. Reporting only what has been paid understates the position by exactly
+    the amount that is about to leave.
+    """
+    start, end = _fy_bounds(fy)
+    scope = _claims_queryset(user)
+
+    paid = scope.filter(
+        status=ClaimStatus.PAID, payout_month__gte=start, payout_month__lte=end
+    )
+    # Committed has no payout month yet -- it is defined by where the ticket
+    # sits, not by a date it has not reached.
+    committed = scope.filter(
+        status__in=(ClaimStatus.CLEARED, ClaimStatus.PRINCIPAL_APPROVED)
+    )
+
+    def by_dept(qs) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for row in qs.values("owner__department").annotate(s=Sum("remuneration")):
+            out[(row["owner__department"] or "").strip()] = round(row["s"] or 0, 2)
+        return out
+
+    spent_by = by_dept(paid)
+    committed_by = by_dept(committed)
+    budgets = {
+        (b.department or ""): b
+        for b in Budget.objects.filter(financial_year=fy)
+    }
+
+    def slice_for(dept: str) -> dict[str, Any]:
+        allocated = budgets[dept].amount if dept in budgets else None
+        if dept == "":
+            # The college row is every department added up, not the rows that
+            # happen to carry no department. Reading it the other way showed a
+            # college that had spent nothing while its departments had spent
+            # everything.
+            spent = round(sum(spent_by.values()), 2)
+            commit = round(sum(committed_by.values()), 2)
+        else:
+            spent = spent_by.get(dept, 0.0)
+            commit = committed_by.get(dept, 0.0)
+        left = None if allocated is None else round(allocated - spent - commit, 2)
+        return {
+            "department": dept or None,
+            "allocated": allocated,
+            "spent": spent,
+            "committed": commit,
+            "remaining": left,
+            # Of the allocation, how much is already gone or spoken for.
+            "used_fraction": (
+                None if not allocated else round((spent + commit) / allocated, 4)
+            ),
+            "budget_id": budgets[dept].id if dept in budgets else None,
+            "note": budgets[dept].note if dept in budgets else None,
+        }
+
+    departments = sorted(
+        {d for d in list(spent_by) + list(committed_by) + list(budgets) if d}
+    )
+    college = slice_for("")
+    # A college-wide allocation is the ceiling; without one, the total of the
+    # department rows is the only figure there is, and it is not a ceiling.
+    if college["allocated"] is None:
+        total_alloc = sum(
+            b.amount for k, b in budgets.items() if k
+        )
+        if total_alloc:
+            college["allocated"] = round(total_alloc, 2)
+            college["remaining"] = round(
+                total_alloc - college["spent"] - college["committed"], 2
+            )
+            college["used_fraction"] = round(
+                (college["spent"] + college["committed"]) / total_alloc, 4
+            )
+            college["note"] = "Sum of the departmental allocations"
+
+    return {
+        "financial_year": fy,
+        "starts": start.isoformat(),
+        "ends": end.isoformat(),
+        "college": college,
+        "departments": [slice_for(d) for d in departments],
+        "years_on_record": sorted(
+            {b.financial_year for b in Budget.objects.all()}
+            | {financial_year_of(date.today())},
+            reverse=True,
+        ),
+    }
+
+
+@api.get("/budgets", auth=session_auth)
+def budget_status(request: HttpRequest, financial_year: Optional[str] = None):
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+    fy = financial_year or financial_year_of(date.today())
+    if not re.fullmatch(r"\d{4}-\d{2}", fy):
+        raise HttpError(400, "Financial year must look like 2026-27")
+    return _budget_status(fy, user)
+
+
+@api.post("/budgets", auth=session_auth)
+def set_budget(request: HttpRequest, payload: BudgetIn):
+    """Allocations are set by whoever runs the scheme, and the change is logged."""
+    user = require_user(request)
+    if user.role not in rbac.ADMIN_ROLES and user.role != Role.FINANCE:
+        raise HttpError(403, "Forbidden")
+    fy = (payload.financial_year or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}", fy):
+        raise HttpError(400, "Financial year must look like 2026-27")
+    if payload.amount < 0:
+        raise HttpError(400, "An allocation cannot be negative")
+    dept = (payload.department or "").strip() or None
+
+    budget, created = Budget.objects.update_or_create(
+        financial_year=fy,
+        department=dept,
+        defaults={
+            "amount": payload.amount,
+            "note": (payload.note or "").strip() or None,
+            "created_by": user,
+        },
+    )
+    AuditLog.objects.create(
+        actor=user,
+        action="BUDGET_SET",
+        entity="Budget",
+        entity_id=budget.id,
+        detail_json=json.dumps({
+            "financial_year": fy, "department": dept,
+            "amount": payload.amount, "created": created,
+        }),
+    )
+    return {"ok": True, "id": budget.id, "created": created}
+
+
+@api.delete("/budgets/{budget_id}", auth=session_auth)
+def delete_budget(request: HttpRequest, budget_id: str):
+    user = require_user(request)
+    if user.role not in rbac.ADMIN_ROLES and user.role != Role.FINANCE:
+        raise HttpError(403, "Forbidden")
+    budget = get_object_or_404(Budget, pk=budget_id)
+    AuditLog.objects.create(
+        actor=user, action="BUDGET_DELETE", entity="Budget", entity_id=budget.id,
+        detail_json=json.dumps({
+            "financial_year": budget.financial_year,
+            "department": budget.department, "amount": budget.amount,
+        }),
+    )
+    budget.delete()
+    return {"ok": True}
+
+
+# ---------- duplicate findings ----------
+
+
+class FindingReviewIn(Schema):
+    status: str
+    note: Optional[str] = None
+    recovered_amount: Optional[float] = None
+
+
+@api.get("/admin/duplicate-findings", auth=session_auth)
+def list_duplicate_findings(
+    request: HttpRequest,
+    kind: str = "SAME_PERSON",
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """What the sweep over paid history found, largest sum at issue first."""
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+
+    qs = DuplicateFinding.objects.select_related("reviewed_by")
+    if kind:
+        qs = qs.filter(kind=kind)
+    if status:
+        qs = qs.filter(status=status)
+
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    total = qs.count()
+
+    everything = DuplicateFinding.objects.filter(kind=kind or "SAME_PERSON")
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "results": [
+            {
+                "id": f.id,
+                "kind": f.kind,
+                "status": f.status,
+                "matched_on": f.matched_on,
+                "paper_title": f.paper_title,
+                "faculty_name": f.faculty_name,
+                "payment_count": f.payment_count,
+                "total_amount": f.total_amount,
+                "extra_amount": f.extra_amount,
+                "rows": json.loads(f.rows_json or "[]"),
+                "note": f.note,
+                "recovered_amount": f.recovered_amount,
+                "reviewed_by_name": f.reviewed_by.name if f.reviewed_by_id else None,
+                "reviewed_at": f.reviewed_at.isoformat() if f.reviewed_at else None,
+            }
+            for f in qs[offset : offset + limit]
+        ],
+        "summary": {
+            "open": everything.filter(status=DuplicateFinding.Status.OPEN).count(),
+            "confirmed": everything.filter(status=DuplicateFinding.Status.CONFIRMED).count(),
+            "dismissed": everything.filter(status=DuplicateFinding.Status.DISMISSED).count(),
+            "recovered": everything.filter(status=DuplicateFinding.Status.RECOVERED).count(),
+            "at_issue": round(
+                everything.filter(
+                    status__in=(
+                        DuplicateFinding.Status.OPEN,
+                        DuplicateFinding.Status.CONFIRMED,
+                    )
+                ).aggregate(s=Sum("extra_amount"))["s"]
+                or 0,
+                2,
+            ),
+            "recovered_amount": round(
+                everything.aggregate(s=Sum("recovered_amount"))["s"] or 0, 2
+            ),
+        },
+    }
+
+
+@api.post("/admin/duplicate-findings/{finding_id}", auth=session_auth)
+def review_duplicate_finding(request: HttpRequest, finding_id: str, payload: FindingReviewIn):
+    """Record what a person decided about one finding.
+
+    A note is required to dismiss: "not a duplicate" with no reason is not a
+    review, and the next sweep would raise it again with nothing to go on.
+    """
+    user = require_user(request)
+    if user.role not in rbac.ADMIN_ROLES and user.role != Role.FINANCE:
+        raise HttpError(403, "Forbidden")
+    valid = {s.value for s in DuplicateFinding.Status}
+    if payload.status not in valid:
+        raise HttpError(400, f"Status must be one of {sorted(valid)}")
+    note = (payload.note or "").strip()
+    if payload.status == DuplicateFinding.Status.DISMISSED and len(note) < 5:
+        raise HttpError(400, "Say why this is not a duplicate")
+
+    finding = get_object_or_404(DuplicateFinding, pk=finding_id)
+    finding.status = payload.status
+    finding.note = note or finding.note
+    finding.reviewed_by = user
+    finding.reviewed_at = timezone.now()
+    if payload.recovered_amount is not None:
+        finding.recovered_amount = payload.recovered_amount
+    finding.save()
+
+    AuditLog.objects.create(
+        actor=user, action="DUPLICATE_REVIEW", entity="DuplicateFinding",
+        entity_id=finding.id,
+        detail_json=json.dumps({
+            "status": payload.status,
+            "extra_amount": finding.extra_amount,
+            "recovered_amount": finding.recovered_amount,
+        }),
+    )
+    return {"ok": True, "status": finding.status}
 
 
 # ---------- super-admin powers ----------

@@ -78,12 +78,51 @@ def expect(label: str, got: int, allowed: set[int], note: str = "") -> None:
     )
 
 
+def gated_account(me: dict) -> int:
+    """An account that has not set its own password yet is locked to two doors.
+
+    Every faculty account starts here, so this is the state most of them are
+    actually in, and it deserves checking rather than skipping: nothing but
+    "who am I" and "change my password" may answer.
+    """
+    global checks
+    print("This account has not set its own password yet — checking the gate.")
+    status, _ = call("/api/auth/me")
+    expect("read own profile while gated", status, {200})
+    print(f"  {status}  read own profile")
+    for label, path in [
+        ("list claims", "/api/claims?limit=1"),
+        ("dashboard", "/api/dashboard"),
+        ("notifications", "/api/notifications"),
+        ("upload a file", "/api/claims/upload"),
+    ]:
+        status, _ = call(path)
+        expect(f"{label} while gated", status, {403, 405},
+               "nothing but the password change may answer until it is set")
+        print(f"  {status}  {label}")
+    status, _ = call("/api/claims", "POST", {"paper_title": "x", "journal_title": "y"})
+    expect("file a claim while gated", status, {403})
+    print(f"  {status}  file a claim")
+
+    print("\n" + "=" * 64)
+    print(f"{checks} checks")
+    if findings:
+        print(f"{len(findings)} PROBLEM(S):")
+        for f in findings:
+            print(f"  - {f}")
+        return 1
+    print("The password gate holds: nothing else answers until a password is set.")
+    return 0
+
+
 def main() -> int:
     global checks
     me = sign_in()
     print(f"Signed in as {me.get('name')} ({me.get('role')})")
     if me.get("role") != "FACULTY":
         raise SystemExit("This audit must run as a FACULTY account")
+    if me.get("must_change_password"):
+        return gated_account(me)
     my_id = me["id"]
 
     # ---- what a claimant is entitled to ---------------------------------
@@ -103,8 +142,12 @@ def main() -> int:
     # ---- somebody else's things -----------------------------------------
     print("\n-- other people's things --")
     status, others = call("/api/claims?limit=200")
-    mine = others.get("results", others) if isinstance(others, dict) else others
-    foreign = [c for c in (mine or []) if c.get("owner_id") not in (None, my_id)]
+    mine = others.get("results") if isinstance(others, dict) else others
+    if not isinstance(mine, list):
+        mine = []
+    foreign = [
+        c for c in mine if isinstance(c, dict) and c.get("owner_id") not in (None, my_id)
+    ]
     checks += 1
     if foreign:
         findings.append(
@@ -150,7 +193,8 @@ def main() -> int:
     # ---- money and approval ---------------------------------------------
     print("\n-- money --")
     status, own = call("/api/claims?limit=1")
-    rows = own.get("results", []) if isinstance(own, dict) else own
+    rows = own.get("results") if isinstance(own, dict) else own
+    rows = [r for r in (rows or []) if isinstance(r, dict)]
     target = rows[0]["id"] if rows else "00000000000000000000000000000000"
     for label, path, payload in [
         ("clear a ticket", f"/api/claims/{target}/clear", {"expected_amount": 1}),

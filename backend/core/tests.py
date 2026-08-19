@@ -4035,6 +4035,138 @@ class ReportingPackTests(TestCase):
         self.assertEqual(self.client.get("/api/reports/pack").status_code, 403)
 
 
+
+class FacultyBoundaryTests(TestCase):
+    """What a claimant can and cannot reach, held in the suite rather than in
+    an audit script somebody has to remember to run.
+
+    The list below is every door the faculty account can push on that decides
+    money, identity, or somebody else's data.
+    """
+
+    def setUp(self):
+        self.faculty = User.objects.create_user(
+            email="edge-fac@test.edu", password="pass", name="Edge Faculty",
+            role=Role.FACULTY, department="CSE", staff_id="STF-E",
+            biometric_id="BIO-E",
+        )
+        self.other = User.objects.create_user(
+            email="edge-other@test.edu", password="pass", name="Other Faculty",
+            role=Role.FACULTY, department="ECE",
+        )
+        self.their_claim = Claim.objects.create(
+            owner=self.other, status=ClaimStatus.PAID, paper_title="Not Theirs",
+            journal_title="J", remuneration=90000, ticket_number="OTH-1",
+        )
+        self.own = Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.SUBMITTED,
+            paper_title="Their Own Ticket", journal_title="J",
+            remuneration=105000, ticket_number="OWN-1", quartile="Q1", snip=1.0,
+        )
+        self.client = Client()
+        self.client.force_login(self.faculty)
+
+    def test_a_claimant_cannot_edit_a_ticket_once_it_is_submitted(self):
+        """Otherwise the figures an approver is looking at can change under
+        them between reading and clearing."""
+        r = self.client.patch(
+            f"/api/claims/{self.own.id}",
+            data=json.dumps({"paper_title": "Edited After Submission", "snip": 30}),
+            content_type="application/json",
+        )
+        self.assertGreaterEqual(r.status_code, 400, r.content)
+        self.own.refresh_from_db()
+        self.assertEqual(self.own.paper_title, "Their Own Ticket")
+        self.assertEqual(self.own.snip, 1.0)
+
+    def test_a_claimant_cannot_open_or_change_somebody_else_s_ticket(self):
+        r = self.client.get(f"/api/claims/{self.their_claim.id}")
+        self.assertIn(r.status_code, (403, 404), r.content)
+        r = self.client.patch(
+            f"/api/claims/{self.their_claim.id}",
+            data=json.dumps({"paper_title": "Hijacked"}),
+            content_type="application/json",
+        )
+        self.assertIn(r.status_code, (403, 404), r.content)
+        self.their_claim.refresh_from_db()
+        self.assertEqual(self.their_claim.paper_title, "Not Theirs")
+
+    def test_their_own_list_holds_only_their_own(self):
+        r = self.client.get("/api/claims?limit=100")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        rows = body.get("results", body) if isinstance(body, dict) else body
+        owners = {c.get("owner_id") for c in rows}
+        self.assertTrue(owners <= {str(self.faculty.id), self.faculty.id, None}, owners)
+
+    def test_no_money_moves_at_a_claimant_s_request(self):
+        for path, payload in [
+            (f"/api/claims/{self.own.id}/clear", {"expected_amount": 105000}),
+            (f"/api/claims/{self.own.id}/principal-approve", {"expected_amount": 105000}),
+            (f"/api/claims/{self.own.id}/mark-paid", {"expected_amount": 105000}),
+            (f"/api/claims/{self.own.id}/second-approve", {}),
+            (f"/api/claims/{self.own.id}/void-payment", {"note": "x" * 20}),
+            ("/api/admin/bulk-clear", {"claim_ids": [self.own.id]}),
+            ("/api/admin/bulk-mark-paid", {"items": [{"claim_id": self.own.id}]}),
+            ("/api/budgets", {"financial_year": "2026-27", "amount": 1}),
+        ]:
+            r = self.client.post(
+                path, data=json.dumps(payload), content_type="application/json"
+            )
+            self.assertIn(r.status_code, (403, 404), f"{path}: {r.content}")
+        self.own.refresh_from_db()
+        self.assertEqual(self.own.status, ClaimStatus.SUBMITTED)
+
+    def test_a_claimant_cannot_rewrite_the_payout_formula(self):
+        """A complete, valid body -- a partial one is refused by schema
+        validation before the permission check, which proves nothing."""
+        r = self.client.put(
+            "/api/admin/formula",
+            data=json.dumps({
+                "snip_multiplier": 999999,
+                "qf_q1": 1, "qf_q2": 1, "qf_q3": 1, "qf_q4": 1,
+                "author_point_json": '{"1": 1}',
+            }),
+            content_type="application/json",
+        )
+        self.assertIn(r.status_code, (403, 404), r.content)
+
+    def test_a_claimant_cannot_read_the_college_s_figures(self):
+        for path in [
+            "/api/reports",
+            "/api/reports/search?limit=1",
+            "/api/reports/pack?fmt=json",
+            "/api/reports/export",
+            "/api/budgets",
+            "/api/admin/users?limit=1",
+            "/api/admin/duplicate-findings",
+            "/api/admin/payouts?limit=1",
+            "/api/principal/queue",
+            f"/api/faculty/{self.other.id}/report",
+        ]:
+            r = self.client.get(path)
+            self.assertIn(r.status_code, (403, 404), f"{path}: {r.status_code}")
+
+    def test_the_lookup_box_is_scoped_rather_than_blocked(self):
+        """A claimant may look up their own ticket number. What must not come
+        back is anybody else's ticket, or any person."""
+        r = self.client.get("/api/lookup/ticket?q=OTH")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body["tickets"], [])
+        self.assertEqual(body["faculty"], [])
+
+        r = self.client.get("/api/lookup/ticket?q=OWN")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(
+            [t["ticket_number"] for t in r.json()["tickets"]], ["OWN-1"]
+        )
+
+    def test_private_notes_on_their_own_ticket_stay_private(self):
+        r = self.client.get(f"/api/claims/{self.own.id}/notes")
+        self.assertEqual(r.status_code, 403, r.content)
+
+
 class MustChangePasswordTests(TestCase):
     """The flag was returned to the client and enforced only by the frontend."""
 

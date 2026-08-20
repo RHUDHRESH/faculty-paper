@@ -94,8 +94,9 @@ console.log("excel download:", JSON.stringify(xlsx))
 await p.screenshot({ path: "audit/shots/principal-faculty-record.png", fullPage: true })
 
 // ---- a note on a ticket ---------------------------------------------------
-await p.goto(`${BASE}/principal`, { waitUntil: "networkidle2" })
-await new Promise((r) => setTimeout(r, 1600))
+// /principal is the approvals queue now; every ticket lives under /principal/all.
+await p.goto(`${BASE}/principal/all`, { waitUntil: "networkidle2" })
+await new Promise((r) => setTimeout(r, 1800))
 // The queue renders one button per ticket, not a table.
 await p.evaluate(() => {
   const row = [...document.querySelectorAll("button")].find((b) => /^(SUB|FP)-\d/.test(b.innerText.trim()))

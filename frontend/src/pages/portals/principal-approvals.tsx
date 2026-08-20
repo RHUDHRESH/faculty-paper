@@ -159,7 +159,11 @@ export function PrincipalApprovalsPage() {
     if (!ids.length) return
     setBusy(true)
     try {
-      const res = await api<{ approved: number; total: number; skipped: { reason: string }[] }>(
+      const res = await api<{
+        approved: number
+        total: number
+        skipped: { id: string; reason: string }[]
+      }>(
         "/api/principal/bulk-approve",
         { method: "POST", json: { claim_ids: ids } }
       )
@@ -173,7 +177,11 @@ export function PrincipalApprovalsPage() {
       if ((res.skipped || []).length > 3) {
         toast.error(`${res.skipped.length - 3} more could not be approved`)
       }
-      setPicked(new Set())
+      // Whatever was refused stays selected. Clearing the lot meant a batch
+      // where one row drifted lost the other hundred-and-ninety-nine, and the
+      // rows that need looking at are exactly the ones that were dropped.
+      const refused = new Set((res.skipped || []).map((s) => s.id))
+      setPicked((current) => new Set([...current].filter((id) => refused.has(id))))
       await refetch()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not approve")

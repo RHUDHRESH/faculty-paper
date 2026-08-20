@@ -84,11 +84,23 @@ const approved = await p.evaluate(() => {
 })
 console.log("clicked:", JSON.stringify(approved))
 await new Promise((r) => setTimeout(r, 3000))
-const afterApprove = await p.evaluate(() => ({
-  toast: (document.body.innerText.match(/\d+ approved[^\n]*/) || [])[0] || null,
-  rowsLeft: document.querySelectorAll("tbody tr").length,
-}))
+const afterApprove = await p.evaluate(() => {
+  const text = document.body.innerText
+  return {
+    approved: (text.match(/\d+ approved[^\n]*/) || [])[0] || null,
+    // A batch where every row is refused looks like a pass unless the reasons
+    // are read: the earlier version of this script printed nothing and moved on.
+    refused: text
+      .split("\n")
+      .filter((l) => /amount changed|somebody else|status is/.test(l))
+      .slice(0, 3),
+    rowsLeft: document.querySelectorAll("tbody tr").length,
+  }
+})
 console.log("after approving:", JSON.stringify(afterApprove))
+if (!afterApprove.approved) {
+  console.log("  NOTHING WAS APPROVED — the reasons above must explain why")
+}
 
 // ---- finance can now pay exactly those --------------------------------
 await fin.goto(`${BASE}/finance`, { waitUntil: "networkidle2" })

@@ -4167,6 +4167,184 @@ class FacultyBoundaryTests(TestCase):
         self.assertEqual(r.status_code, 403, r.content)
 
 
+
+class PermissionMatrixTests(TestCase):
+    """Every role against every door, checked against the declaration.
+
+    The rules live at the point of use, which is right, but that leaves
+    nowhere to notice a new endpoint given the wrong guard. core/permission
+    _matrix.py writes the intended picture down; this asserts the running
+    system matches it.
+
+    Reaching the handler is what is being checked, not succeeding: finance may
+    call mark-paid and still be refused because the ticket is not approved.
+    So a 4xx that is not 403 counts as "got through the door" -- the business
+    rule behind it is tested elsewhere.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from core.permission_matrix import ROLES
+
+        cls.users = {}
+        for role in ROLES:
+            cls.users[role] = User.objects.create_user(
+                email=f"matrix-{role.lower()}@test.edu",
+                password="pass",
+                name=f"Matrix {role.title()}",
+                role=role,
+                department="CSE",
+                staff_id=f"STF-{role[:3]}",
+                biometric_id=f"BIO-{role[:3]}",
+            )
+        # Somebody to be edited, reset and impersonated, who is not the actor.
+        cls.target = User.objects.create_user(
+            email="matrix-target@test.edu", password="pass", name="Matrix Target",
+            role=Role.FACULTY, department="CSE",
+        )
+        cls.claim = Claim.objects.create(
+            owner=cls.target, status=ClaimStatus.SUBMITTED,
+            paper_title="Matrix Subject", journal_title="J", issn="1234-5678",
+            remuneration=1000, ticket_number="MTX-1",
+        )
+
+    def _call(self, client, capability, actor_role=""):
+        import json as _json
+
+        path = capability.path.replace("{claim}", self.claim.id).replace(
+            "{user}", str(self.target.id)
+        )
+        body = capability.payload
+        if body is not None:
+            body = _json.loads(
+                _json.dumps(body)
+                .replace("{claim}", self.claim.id)
+                .replace("{user}", str(self.target.id))
+                .replace("{actor}", actor_role.lower())
+            )
+        method = getattr(client, capability.method.lower())
+        if capability.upload:
+            # A real file, so schema validation cannot answer 422 in place of
+            # the permission check and leave an unlocked door looking shut.
+            from django.core.files.uploadedfile import SimpleUploadedFile
+
+            return method(
+                path,
+                data={"file": SimpleUploadedFile("probe.csv", b"a,b\n1,2\n")},
+            )
+        if body is None:
+            return method(path)
+        return method(path, data=_json.dumps(body), content_type="application/json")
+
+    def test_every_role_against_every_door(self):
+        from core.permission_matrix import CAPABILITIES, ROLES
+
+        wrong = []
+        for capability in CAPABILITIES:
+            for role in ROLES:
+                client = Client()
+                client.force_login(self.users[role])
+                response = self._call(client, capability, role)
+                got_through = response.status_code != 403
+                should = role in capability.allowed
+                if got_through != should:
+                    wrong.append(
+                        f"{capability.name} · {role}: "
+                        f"{'reached' if got_through else 'refused'} "
+                        f"({response.status_code}), expected "
+                        f"{'to reach' if should else 'a refusal'}"
+                        f" — {capability.because}"
+                    )
+        self.assertEqual(wrong, [], "\n" + "\n".join(wrong))
+
+    def test_the_declaration_covers_what_it_claims_to(self):
+        """A matrix that has drifted out of date is worse than none: it reads
+        as coverage. Every capability must name a door that exists."""
+        from django.urls import resolve
+        from core.permission_matrix import CAPABILITIES
+
+        self.assertGreaterEqual(len(CAPABILITIES), 25)
+        for capability in CAPABILITIES:
+            path = capability.path.replace("{claim}", self.claim.id).replace(
+                "{user}", str(self.target.id)
+            )
+            resolve(path.split("?")[0])  # raises if no route matches
+            self.assertTrue(capability.because.strip(), capability.name)
+            self.assertTrue(capability.allowed, f"{capability.name} allows nobody")
+
+    def test_a_role_that_nothing_recognises_cannot_be_assigned(self):
+        """The field took any string. An account carrying "NONSENSE", or an
+        empty string, fails every permission check while reading normally in
+        the user list -- locked out of everything with nothing to explain it."""
+        client = Client()
+        client.force_login(self.users["SUPER_ADMIN"])
+        for bad in ("NONSENSE", "", "hod", "SUPER ADMIN"):
+            r = client.patch(
+                f"/api/admin/users/{self.target.id}",
+                data=json.dumps({"role": bad}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 400, f"{bad!r}: {r.content}")
+            self.target.refresh_from_db()
+            self.assertEqual(self.target.role, Role.FACULTY)
+
+    def test_the_retired_hod_role_cannot_be_assigned_and_says_why(self):
+        """It carries no capability at all, so giving it to somebody is a way
+        of bricking an account with a value the system still knows."""
+        from core.permission_matrix import CAPABILITIES, HOD
+
+        self.assertEqual(
+            [c.name for c in CAPABILITIES if HOD in c.allowed],
+            [],
+            "HOD holds a capability, so refusing to assign it is wrong",
+        )
+        client = Client()
+        client.force_login(self.users["SUPER_ADMIN"])
+        r = client.patch(
+            f"/api/admin/users/{self.target.id}",
+            data=json.dumps({"role": "HOD"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("retired", r.json()["detail"])
+
+    def test_a_real_role_is_still_accepted(self):
+        client = Client()
+        client.force_login(self.users["SUPER_ADMIN"])
+        for good in ("PRINCIPAL", "FINANCE", "RESEARCH_CELL", "FACULTY"):
+            r = client.patch(
+                f"/api/admin/users/{self.target.id}",
+                data=json.dumps({"role": good}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 200, f"{good}: {r.content}")
+
+    def test_a_user_cannot_be_created_with_an_unrecognised_role(self):
+        client = Client()
+        client.force_login(self.users["SUPER_ADMIN"])
+        r = client.post(
+            "/api/admin/users",
+            data=json.dumps({
+                "email": "bad-role@test.edu", "name": "Bad Role",
+                "password": "a-long-enough-one", "role": "WHATEVER",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertFalse(User.objects.filter(email="bad-role@test.edu").exists())
+
+    def test_no_door_is_open_to_everybody(self):
+        """A capability every role may use is either mis-declared or should
+        not be in a permission matrix at all."""
+        from core.permission_matrix import CAPABILITIES, ROLES
+
+        for capability in CAPABILITIES:
+            self.assertNotEqual(
+                set(capability.allowed), set(ROLES),
+                f"{capability.name} is open to every role",
+            )
+
+
 class MustChangePasswordTests(TestCase):
     """The flag was returned to the client and enforced only by the frontend."""
 

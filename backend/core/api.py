@@ -4444,7 +4444,10 @@ def admin_faults(request: HttpRequest):
     confirm, and money that does not add up.
     """
     user = require_user(request)
-    if not rbac.can_manage_users(user.role):
+    # Read-only, and the principal oversees the scheme: they can already read
+    # the audit log, the payable queue and every record, so hiding stalled
+    # work from them was an inconsistency rather than a boundary.
+    if not (rbac.can_manage_users(user.role) or user.role == Role.PRINCIPAL):
         raise HttpError(403, "Forbidden")
 
     now = timezone.now()
@@ -4657,11 +4660,44 @@ def admin_user_detail(request: HttpRequest, user_id: str):
     return row
 
 
+#: Roles an account may be given. Every one of these carries capabilities;
+#: HOD is deliberately absent, being retired and able to do nothing, and an
+#: account holding one keeps it until somebody deliberately moves them.
+ASSIGNABLE_ROLES = (
+    Role.FACULTY,
+    Role.PRINCIPAL,
+    Role.RESEARCH_CELL,
+    Role.FINANCE,
+    Role.SUPER_ADMIN,
+)
+
+
+def _check_assignable_role(role: str | None) -> None:
+    """Refuse a role nothing recognises, rather than writing it.
+
+    An account whose role is not a real one fails every `can_…` check while
+    reading normally in the user list, so the person is locked out of
+    everything with nothing on screen to explain it.
+    """
+    if role is None:
+        return
+    if role not in ASSIGNABLE_ROLES:
+        known = ", ".join(ASSIGNABLE_ROLES)
+        extra = (
+            " The HoD role is retired and carries no permissions, so it cannot "
+            "be assigned."
+            if role == Role.HOD
+            else ""
+        )
+        raise HttpError(400, f"Role must be one of: {known}.{extra}")
+
+
 @api.post("/admin/users", auth=session_auth)
 def admin_create_user(request: HttpRequest, payload: UserCreateIn):
     user = require_user(request)
     if not rbac.can_manage_users(user.role):
         raise HttpError(403, "Forbidden")
+    _check_assignable_role(payload.role)
     u = User.objects.create_user(
         email=payload.email.strip().lower(),
         password=payload.password,
@@ -4689,6 +4725,8 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
         raise HttpError(403, "Forbidden")
     u = get_object_or_404(User, pk=user_id)
     data = payload.dict(exclude_unset=True)
+    if "role" in data:
+        _check_assignable_role(data["role"])
     # Identity is super-admin only, here as much as on the profile page.
     # Closing the self-edit route while leaving this one open would just move
     # the same mistake one desk over: the research cell processes the claims

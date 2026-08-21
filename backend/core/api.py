@@ -263,6 +263,25 @@ def _notify_admins(claim: Claim, title: str, body: str) -> None:
         send_optional_email(u.email, title, body)
 
 
+def _notify_principal(claim: Claim, title: str, body: str) -> None:
+    """A cleared ticket waits on the principal, so the principal is who hears.
+
+    This used to tell Finance, from when clearing was the last step before
+    payment. It has not been since the approval step went in: Finance was
+    being told about money it could not release, and the person who actually
+    had to act was not told at all.
+    """
+    for u in User.objects.filter(role=Role.PRINCIPAL, active=True):
+        Notification.objects.create(
+            user=u,
+            title=title,
+            body=body,
+            href=f"/principal?claim={claim.id}",
+            claim_id=claim.id,
+        )
+        send_optional_email(u.email, title, body)
+
+
 def _notify_finance(claim: Claim, title: str, body: str) -> None:
     for u in User.objects.filter(role=Role.FINANCE, active=True):
         Notification.objects.create(
@@ -2008,15 +2027,16 @@ def _faculty_status_copy(to_status: str, note: str | None = None) -> tuple[str, 
     """Short faculty-facing notification title/body — no internal process detail."""
     if to_status == ClaimStatus.CLEARED:
         return (
-            "Cleared — with Finance",
-            "Your ticket has been cleared and is with Finance for payment.",
+            "Checked — with the Principal",
+            "The research cell has checked your ticket. It is now with the "
+            "Principal for approval.",
         )
     if to_status == ClaimStatus.HOD_APPROVED:
         return ("Approved by HoD", "Your ticket was approved by HoD and is with the Principal.")
     if to_status == ClaimStatus.PRINCIPAL_APPROVED:
         return (
-            "Approved — payment ordered",
-            "Your ticket is approved. Finance has been ordered to process the payment.",
+            "Approved — with Finance",
+            "The Principal has approved your ticket. It is with Finance for payment.",
         )
     if to_status == ClaimStatus.PAID:
         return (
@@ -2292,9 +2312,9 @@ def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim.cleared_at = timezone.now()
         _transition(claim, user, ClaimStatus.CLEARED, "CLEAR", payload.note)
         amount = claim.remuneration or 0
-    _notify_finance(
+    _notify_principal(
         claim,
-        f"Cleared for payment · {claim.ticket_number}",
+        f"Cleared — waiting on your approval · {claim.ticket_number}",
         f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
     )
     return claim_to_dict(claim)
@@ -2382,9 +2402,9 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
                 claim.cleared_at = timezone.now()
                 _transition(claim, user, ClaimStatus.CLEARED, "CLEAR", payload.note)
                 amount = claim.remuneration or 0
-            _notify_finance(
+            _notify_principal(
                 claim,
-                f"Cleared for payment · {claim.ticket_number}",
+                f"Cleared — waiting on your approval · {claim.ticket_number}",
                 f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
             )
             cleared.append(claim_id)

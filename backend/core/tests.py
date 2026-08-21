@@ -3581,6 +3581,62 @@ class FourStepChainTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.CLEARED)
 
+    def test_clearing_tells_the_principal_and_not_finance(self):
+        """Clearing used to tell Finance the ticket was "cleared for payment"
+        -- money they cannot release until the principal has approved it. So
+        the desk that had to act was never told, and the desk that was told
+        could do nothing."""
+        claim = self._cleared("CH-N1")
+        # The fixture builds it already cleared; clearing is the transition
+        # under test, so it goes back to submitted first and is cleared once.
+        Claim.objects.filter(pk=claim.pk).update(status=ClaimStatus.SUBMITTED)
+        Notification.objects.all().delete()
+        self.client.force_login(self.cell)
+        # Clearing re-verifies against the index; replaying the stored values
+        # keeps the amount steady so the guard does not fire on a figure that
+        # is not what this test is about.
+        with patch("core.api.verify_publication", side_effect=_echo_verified):
+            r = self.client.post(
+                f"/api/claims/{claim.id}/clear",
+                data=json.dumps({"expected_amount": 105000.0}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 200, r.content)
+
+        told = set(
+            Notification.objects.filter(claim_id=claim.id)
+            .values_list("user__role", flat=True)
+        )
+        self.assertIn(Role.PRINCIPAL, told, "the principal must hear about it")
+        self.assertNotIn(
+            Role.FINANCE, told, "finance cannot act on a merely cleared ticket"
+        )
+
+    def test_approving_is_what_tells_finance(self):
+        claim = self._cleared("CH-N2")
+        Notification.objects.all().delete()
+        self.client.force_login(self.head)
+        r = self.client.post(
+            f"/api/claims/{claim.id}/principal-approve",
+            data=json.dumps({"expected_amount": 105000.0}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        told = set(
+            Notification.objects.filter(claim_id=claim.id)
+            .values_list("user__role", flat=True)
+        )
+        self.assertIn(Role.FINANCE, told)
+
+    def test_the_claimant_is_told_where_their_ticket_actually_is(self):
+        """It said "with Finance" at a point where Finance could not pay it."""
+        title, body = api_module._faculty_status_copy(ClaimStatus.CLEARED)
+        self.assertIn("Principal", title + body)
+        self.assertNotIn("with Finance", body)
+
+        title, body = api_module._faculty_status_copy(ClaimStatus.PRINCIPAL_APPROVED)
+        self.assertIn("Finance", body)
+
     def test_the_principal_approves_and_then_it_is_payable(self):
         claim = self._cleared("CH-2")
         self.client.force_login(self.head)
@@ -5168,6 +5224,9 @@ class ReportsAndBulkClearTests(TestCase):
             email="rep-admin@test.edu", password="pass", name="Admin",
             role=Role.SUPER_ADMIN,
         )
+        self.head = User.objects.create_user(
+            email="rep-head@test.edu", password="pass", name="Head", role=Role.PRINCIPAL
+        )
         self.finance = User.objects.create_user(
             email="rep-fin@test.edu", password="pass", name="Fin", role=Role.FINANCE
         )
@@ -5258,10 +5317,20 @@ class ReportsAndBulkClearTests(TestCase):
         for c in (self.a, self.b):
             c.refresh_from_db()
             self.assertEqual(c.status, ClaimStatus.CLEARED)
-        # Finance hears about each one.
+        # The principal hears about each one, because a cleared ticket waits on
+        # their approval. Finance does not: they cannot pay it yet, and telling
+        # them about money they cannot move is how a queue stops being read.
         self.assertEqual(
-            Notification.objects.filter(user=self.finance, claim_id__in=[self.a.id, self.b.id]).count(),
+            Notification.objects.filter(
+                user=self.head, claim_id__in=[self.a.id, self.b.id]
+            ).count(),
             2,
+        )
+        self.assertEqual(
+            Notification.objects.filter(
+                user=self.finance, claim_id__in=[self.a.id, self.b.id]
+            ).count(),
+            0,
         )
 
     def test_bulk_clear_skips_what_it_cannot_clear_and_says_why(self):

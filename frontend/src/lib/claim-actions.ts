@@ -13,20 +13,23 @@ const ACTION_SENTENCES: Record<string, string> = {
   VERIFY: "ran verification",
   VERIFY_BATCH: "ran verification (batch)",
   MANUAL_VERIFY: "entered manually verified values",
-  CLEAR: "cleared the ticket and sent it to Finance",
-  APPROVE: "cleared the ticket and sent it to Finance",
+  CLEAR: "checked the ticket and passed it to the Principal",
+  APPROVE: "checked the ticket and passed it to the Principal",
+  PRINCIPAL_APPROVE: "approved the spend and released it to Finance",
+  PRINCIPAL_SEND_BACK: "sent the ticket back to the research cell",
   SECOND_APPROVE: "gave the second approval for this high-value claim",
   MARK_PAID: "marked the payment as processed",
   VOID_PAYMENT: "voided the payment",
   REJECT: "sent the ticket back for changes",
   STATUS_OVERRIDE: "moved the ticket with an admin override",
   CONTEST_FORWARD: "forwarded the ticket despite verification issues",
-  // The retired HoD -> Principal -> Finance chain. Every ticket filed before
-  // the change still carries these, so leaving them out rendered real history
-  // as "Demo HOD hod approve".
+  // The retired HoD and research-approve steps. Every ticket filed before the
+  // change still carries these, so leaving them out rendered real history as
+  // "Demo HOD hod approve". PRINCIPAL_APPROVE is deliberately not here: it is
+  // the live approval step now, and describing it as a relic made the one
+  // action that releases money read like history.
   HOD_APPROVE: "approved the ticket (under the earlier HoD step)",
-  PRINCIPAL_APPROVE: "approved the ticket (under the earlier Principal step)",
-  RESEARCH_APPROVE: "cleared the ticket and sent it to Finance",
+  RESEARCH_APPROVE: "checked the ticket (under the earlier research step)",
   FINANCE_APPROVE: "approved the payment (under the earlier Finance step)",
   UNPAY: "reversed the payment",
 }

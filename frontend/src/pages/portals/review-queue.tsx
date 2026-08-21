@@ -447,7 +447,7 @@ function ApprovalQueue({
         { method: "POST", json: { claim_ids: [...picked], note: note.trim() || null } }
       )
       toast.success(
-        `${res.cleared} ticket${res.cleared === 1 ? "" : "s"} cleared and sent to Finance`
+        `${res.cleared} ticket${res.cleared === 1 ? "" : "s"} checked — now with the Principal`
       )
       // Never silent: say which ones did not go through and why.
       for (const s of res.skipped.slice(0, 3)) toast.error(`Skipped: ${s.reason}`)
@@ -519,7 +519,7 @@ function ApprovalQueue({
             ? { note, expected_amount: recalc?.remuneration ?? null }
             : { note },
       })
-      toast.success(kind === "approve" ? "Cleared — sent to Finance" : "Sent back to the faculty")
+      toast.success(kind === "approve" ? "Checked — sent to the Principal" : "Sent back to the faculty")
       setSelected(null)
       setSheetOpen(false)
       setNote("")
@@ -572,7 +572,7 @@ function ApprovalQueue({
               </label>
               {picked.size ? (
                 <Button type="button" size="xs" disabled={busy} onClick={() => setConfirm("bulk")}>
-                  Clear {picked.size} → Finance
+                  Clear {picked.size} → Principal
                 </Button>
               ) : null}
             </div>
@@ -634,7 +634,7 @@ function ApprovalQueue({
       {readOnly ? (
         <div className="shrink-0 space-y-2 border-t border-border/70 bg-muted/40 px-4 py-3">
           <p className="text-xs text-muted-foreground">
-            View only. Clearing is handled by Admin and payment by Finance.
+            View only. The research cell checks, the Principal approves, Finance pays.
           </p>
         </div>
       ) : selected && selected.status !== "SUBMITTED" && approvePath === "clear" ? (
@@ -779,7 +779,7 @@ function ApprovalQueue({
             {selected ? <TicketDetailBody claim={selected} /> : null}
             {readOnly ? (
               <p className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
-                View only. Clearing is handled by Admin and payment by Finance.
+                View only. The research cell checks, the Principal approves, Finance pays.
               </p>
             ) : (
               <>
@@ -848,14 +848,14 @@ function ApprovalQueue({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirm === "bulk" ? (
-                `${picked.size} ticket${picked.size === 1 ? "" : "s"} will be cleared and sent to Finance. Any whose amount changed on recalculation, or that are no longer awaiting clearance, are skipped and listed.`
+                `${picked.size} ticket${picked.size === 1 ? "" : "s"} will be checked and passed to the Principal for approval. Any whose amount changed on recalculation, or that are no longer awaiting clearance, are skipped and listed.`
               ) : confirm === "approve" ? (
                 <>
                   The verified values were just re-checked. Clearing sends{" "}
                   <span className="font-semibold text-foreground">
                     <Money value={recalc?.remuneration ?? null} />
                   </span>{" "}
-                  to Finance.
+                  to the Principal.
                   {recalc?.changed ? (
                     <span className="mt-1 block">
                       Note: the amount changed from{" "}
@@ -907,7 +907,7 @@ export function AdminClearingQueuePage() {
       subtitle="Submitted tickets waiting to be cleared for payment"
       statusFilter="SUBMITTED"
       approvePath="clear"
-      approveLabel="Clear → Finance"
+      approveLabel="Clear → Principal"
       showDept
       emptyTitle="Nothing waiting"
       emptyDescription="Every submitted ticket has been cleared or sent back."

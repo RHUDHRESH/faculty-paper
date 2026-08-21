@@ -9,22 +9,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { portalPath } from "@/lib/utils"
 
-// Four accounts, one per role. The research-cell and HoD logins were stood
-// down: the research cell works through Admin, and the HoD step is gone.
-const DEMOS = [
-  { role: "Faculty", email: "faculty@college.edu", password: "faculty123" },
-  { role: "Admin", email: "admin@college.edu", password: "" },
-  { role: "Finance", email: "finance@college.edu", password: "finance123" },
-  { role: "Principal", email: "principal@college.edu", password: "principal123" },
-]
-
-const showDemos = import.meta.env.DEV
-
 export function LoginPage() {
   const { user, loading, login } = useAuth()
   const nav = useNavigate()
-  const [email, setEmail] = useState(showDemos ? "faculty@college.edu" : "")
-  const [password, setPassword] = useState(showDemos ? "faculty123" : "")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
 
@@ -181,29 +170,7 @@ export function LoginPage() {
             </p>
           </form>
 
-          {showDemos ? (
-            <details className="surface-card px-4 py-3 text-sm">
-              <summary className="cursor-pointer font-medium text-muted-foreground">
-                Demo accounts
-              </summary>
-              <div className="mt-3 grid gap-1">
-                {DEMOS.map((d) => (
-                  <button
-                    key={d.email}
-                    type="button"
-                    onClick={() => {
-                      setEmail(d.email)
-                      setPassword(d.password)
-                    }}
-                    className="flex items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <span className="font-medium">{d.role}</span>
-                    <span className="font-mono opacity-80">{d.email}</span>
-                  </button>
-                ))}
-              </div>
-            </details>
-          ) : null}
+
         </div>
       </main>
     </div>

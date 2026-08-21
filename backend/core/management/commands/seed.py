@@ -16,6 +16,15 @@ class Command(BaseCommand):
             action="store_true",
             help="Allow seeding when DJANGO_DEBUG=false (demo passwords — change after)",
         )
+        parser.add_argument(
+            "--i-know-this-is-live",
+            action="store_true",
+            dest="i_know_this_is_live",
+            help=(
+                "Seed even though the database holds real accounts or real "
+                "payments. Almost never what you want."
+            ),
+        )
 
     def handle(self, *args, **options):
         allow = (
@@ -27,6 +36,22 @@ class Command(BaseCommand):
             raise CommandError(
                 "Refusing to seed demo users while DJANGO_DEBUG=false. "
                 "Pass --force or set ALLOW_DEMO_SEED=1, then change all passwords."
+            )
+
+        # The flag above is bypassable, and was bypassed: --force once put
+        # "admin123" onto a live system holding five hundred real accounts.
+        # A database with real people and real payments in it is not a
+        # database to seed demo logins into, whatever flags were passed.
+        from core.models import Claim, ClaimStatus
+
+        real_people = User.objects.exclude(email__endswith="@college.edu").count()
+        real_payments = Claim.objects.filter(status=ClaimStatus.PAID).count()
+        if (real_people or real_payments) and not options.get("i_know_this_is_live"):
+            raise CommandError(
+                f"This database holds {real_people} real accounts and "
+                f"{real_payments} settled payments. Seeding demo logins into it "
+                "would put known passwords on a live system. Pass "
+                "--i-know-this-is-live only if that is genuinely what you want."
             )
 
         users = [

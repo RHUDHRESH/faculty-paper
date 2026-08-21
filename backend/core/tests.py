@@ -4345,6 +4345,256 @@ class PermissionMatrixTests(TestCase):
             )
 
 
+
+class DataExplorerTests(TestCase):
+    """Reading is wide; writing is deliberately narrow.
+
+    The explorer is the one feature that could undo everything else: a grid
+    able to set `status = PAID` makes the trust boundary, the payment gates,
+    the amount guards and the duplicate controls all optional. So the shape of
+    it is the thing under test.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="dx-admin@test.edu", password="pass", name="DX Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.cell = User.objects.create_user(
+            email="dx-cell@test.edu", password="pass", name="DX Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.head = User.objects.create_user(
+            email="dx-head@test.edu", password="pass", name="DX Head",
+            role=Role.PRINCIPAL,
+        )
+        self.finance = User.objects.create_user(
+            email="dx-fin@test.edu", password="pass", role=Role.FINANCE
+        )
+        self.faculty = User.objects.create_user(
+            email="dx-fac@test.edu", password="pass", name="DX Faculty",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.paid = Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.PAID, paper_title="Explorer Subject",
+            journal_title="J", remuneration=90000, ticket_number="DX-1",
+            quartile="Q1", snip=1.0,
+        )
+        self.journal = ScimagoJournal.objects.create(
+            source_id="dx1", title="Journal Of Explorer Testing", issn="99991111",
+            year=2025, categories_json=json.dumps([{"category": "Eng", "quartile": "Q1"}]),
+        )
+        self.client = Client()
+
+    # ---- who gets in ----------------------------------------------------
+
+    def test_the_admin_and_the_principal_may_browse_and_nobody_else(self):
+        for who, allowed in (
+            (self.admin, True), (self.cell, True), (self.head, True),
+            (self.finance, False), (self.faculty, False),
+        ):
+            self.client.force_login(who)
+            r = self.client.get("/api/admin/data/tables")
+            self.assertEqual(
+                r.status_code, 200 if allowed else 403, f"{who.role}: {r.status_code}"
+            )
+
+    def test_only_a_super_admin_may_correct_anything(self):
+        for who in (self.cell, self.head, self.finance, self.faculty):
+            self.client.force_login(who)
+            r = self.client.patch(
+                f"/api/admin/data/ScimagoJournal/{self.journal.id}",
+                data=json.dumps({
+                    "column": "title", "value": "Changed", "reason": "a probe attempt",
+                }),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 403, f"{who.role}: {r.content}")
+        self.journal.refresh_from_db()
+        self.assertEqual(self.journal.title, "Journal Of Explorer Testing")
+
+    # ---- what it will never show ----------------------------------------
+
+    def test_a_password_hash_is_not_data_to_browse(self):
+        self.client.force_login(self.admin)
+        r = self.client.get("/api/admin/data/User?limit=1")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertNotIn("password", [c["name"] for c in body["columns"]])
+        self.assertNotIn("password", body["rows"][0])
+        self.assertNotIn("is_superuser", body["rows"][0])
+
+    # ---- what it will never write ---------------------------------------
+
+    def test_the_workflow_columns_cannot_be_written_here(self):
+        """This is the whole point. Each of these has a screen that owns it,
+        recalculates around it and records who moved it."""
+        self.client.force_login(self.admin)
+        for column, value in (
+            ("status", "DRAFT"),
+            ("remuneration", 1),
+            ("paid_at", None),
+            ("quartile", "Q4"),
+            ("snip", 30),
+            ("override_duplicate", True),
+            ("payout_month", "2020-01-01"),
+        ):
+            r = self.client.patch(
+                f"/api/admin/data/Claim/{self.paid.id}",
+                data=json.dumps({
+                    "column": column, "value": value, "reason": "attempting a change",
+                }),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 400, f"{column}: {r.content}")
+            self.assertIn("not editable here", r.json()["detail"])
+        self.paid.refresh_from_db()
+        self.assertEqual(self.paid.status, ClaimStatus.PAID)
+        self.assertEqual(self.paid.remuneration, 90000)
+
+    def test_the_audit_log_cannot_be_edited_by_anybody(self):
+        """A record that can be rewritten is not a record."""
+        entry = AuditLog.objects.create(
+            actor=self.admin, action="TEST", entity="Thing", entity_id="1"
+        )
+        self.client.force_login(self.admin)
+        r = self.client.patch(
+            f"/api/admin/data/AuditLog/{entry.id}",
+            data=json.dumps({"column": "action", "value": "SOMETHING ELSE",
+                             "reason": "attempting a rewrite"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        entry.refresh_from_db()
+        self.assertEqual(entry.action, "TEST")
+
+    # ---- what it will write ---------------------------------------------
+
+    def test_reference_data_is_correctable_and_the_change_is_recorded(self):
+        self.client.force_login(self.admin)
+        r = self.client.patch(
+            f"/api/admin/data/ScimagoJournal/{self.journal.id}",
+            data=json.dumps({
+                "column": "title",
+                "value": "Journal of Explorer Testing",
+                "reason": "matched against the publisher page",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.journal.refresh_from_db()
+        self.assertEqual(self.journal.title, "Journal of Explorer Testing")
+
+        entry = AuditLog.objects.filter(action="DATA_EDIT").first()
+        self.assertIsNotNone(entry)
+        detail = json.loads(entry.detail_json)
+        self.assertEqual(detail["from"], "Journal Of Explorer Testing")
+        self.assertEqual(detail["to"], "Journal of Explorer Testing")
+        self.assertIn("publisher page", detail["reason"])
+
+    def test_a_correction_without_a_reason_is_refused(self):
+        self.client.force_login(self.admin)
+        r = self.client.patch(
+            f"/api/admin/data/ScimagoJournal/{self.journal.id}",
+            data=json.dumps({"column": "title", "value": "x", "reason": ""}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+
+    # ---- reading ---------------------------------------------------------
+
+    def test_search_and_filter_narrow_the_rows(self):
+        self.client.force_login(self.admin)
+        r = self.client.get("/api/admin/data/Claim?q=Explorer%20Subject")
+        self.assertEqual(r.json()["total"], 1)
+        r = self.client.get("/api/admin/data/Claim?filters=status:PAID")
+        self.assertEqual(r.json()["total"], 1)
+        r = self.client.get("/api/admin/data/Claim?filters=status:REJECTED")
+        self.assertEqual(r.json()["total"], 0)
+
+    def test_a_filter_on_a_column_that_does_not_exist_is_refused(self):
+        """Otherwise a typo silently returns the whole table, and the reader
+        believes the number in front of them."""
+        self.client.force_login(self.admin)
+        r = self.client.get("/api/admin/data/Claim?filters=nonsense:x")
+        self.assertEqual(r.status_code, 400, r.content)
+
+    def test_an_export_carries_the_filter_rather_than_the_whole_table(self):
+        Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.DRAFT, paper_title="Not exported",
+            journal_title="J",
+        )
+        self.client.force_login(self.admin)
+        r = self.client.get("/api/admin/data/Claim/export?filters=status:PAID&fmt=csv")
+        self.assertEqual(r.status_code, 200)
+        body = r.content.decode()
+        self.assertIn("Explorer Subject", body)
+        self.assertNotIn("Not exported", body)
+
+    def test_every_format_comes_back_as_that_format(self):
+        self.client.force_login(self.admin)
+        expected = {
+            "csv": "text/csv",
+            "tsv": "text/tab-separated-values",
+            "json": "application/json",
+            "md": "text/markdown",
+            "xlsx": "spreadsheetml",
+        }
+        for fmt, content_type in expected.items():
+            r = self.client.get(f"/api/admin/data/Budget/export?fmt={fmt}")
+            self.assertEqual(r.status_code, 200, fmt)
+            self.assertIn(content_type, r["Content-Type"], fmt)
+        # The two delimited ones must actually differ.
+        csv_body = self.client.get("/api/admin/data/Budget/export?fmt=csv").content.decode()
+        tsv_body = self.client.get("/api/admin/data/Budget/export?fmt=tsv").content.decode()
+        self.assertIn(",", csv_body.split("\n")[0])
+        self.assertIn("\t", tsv_body.split("\n")[0])
+        self.assertNotIn("\t", csv_body.split("\n")[0])
+
+    def test_an_export_is_audited(self):
+        self.client.force_login(self.admin)
+        self.client.get("/api/admin/data/User/export?fmt=csv")
+        self.assertTrue(AuditLog.objects.filter(action="DATA_EXPORT").exists())
+
+    def test_every_declared_table_actually_resolves(self):
+        """A registry naming a model that no longer exists is a screen that
+        breaks the moment somebody clicks it."""
+        from core import data_explorer
+
+        self.client.force_login(self.admin)
+        for table in data_explorer.TABLES:
+            self.assertIsNotNone(
+                data_explorer.model_for(table.model_name), table.model_name
+            )
+            r = self.client.get(f"/api/admin/data/{table.model_name}?limit=1")
+            self.assertEqual(r.status_code, 200, f"{table.model_name}: {r.content}")
+            self.assertTrue(table.about.strip(), table.model_name)
+
+    def test_every_declared_column_exists_on_its_model(self):
+        """A registry naming a column the model does not have is a screen that
+        500s the moment somebody opens that table -- which is exactly how the
+        payment ledger was broken when this was written."""
+        from core import data_explorer
+
+        wrong = []
+        for table in data_explorer.TABLES:
+            model = data_explorer.model_for(table.model_name)
+            names = {f.name for f in model._meta.fields}
+            for label, columns in (
+                ("order", [table.order.lstrip("-")]),
+                ("highlight", list(table.highlight)),
+                ("editable", list(table.editable)),
+            ):
+                for column in columns:
+                    if column and column not in names:
+                        wrong.append(f"{table.model_name}.{label}: no column {column!r}")
+        self.assertEqual(wrong, [], "\n" + "\n".join(wrong))
+
+    def test_an_unknown_table_is_a_404_not_a_crash(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get("/api/admin/data/Nonsense").status_code, 404)
+
+
 class MustChangePasswordTests(TestCase):
     """The flag was returned to the client and enforced only by the frontend."""
 

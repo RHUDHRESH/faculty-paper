@@ -16,6 +16,7 @@ import { ReportsPage } from "@/pages/portals/reports";
 import { SearchPage } from "@/pages/portals/search";
 import { AdminFaultsPage } from "@/pages/portals/faults";
 import { BudgetPage } from "@/pages/portals/budget";
+import { DataExplorerPage } from "@/pages/portals/data-explorer";
 import { DuplicateFindingsPage } from "@/pages/portals/duplicates";
 import { LookupPage } from "@/pages/portals/lookup";
 import { PrincipalApprovalsPage } from "@/pages/portals/principal-approvals";
@@ -145,6 +146,7 @@ export default function App() {
           <Route path="find" element={<LookupPage />} />
           <Route path="budget" element={<BudgetPage />} />
           <Route path="duplicates" element={<DuplicateFindingsPage />} />
+          <Route path="data" element={<DataExplorerPage />} />
           <Route path="query" element={<SearchPage />} />
         </Route>
 
@@ -172,6 +174,7 @@ export default function App() {
           <Route path="find" element={<LookupPage />} />
           <Route path="budget" element={<BudgetPage />} />
           <Route path="duplicates" element={<DuplicateFindingsPage />} />
+          <Route path="data" element={<DataExplorerPage />} />
         </Route>
 
         <Route

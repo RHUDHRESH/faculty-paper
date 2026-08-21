@@ -25,6 +25,7 @@ import {
   UserSearch,
   CheckCheck,
   Copy,
+  Database,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -383,6 +384,7 @@ export function PrincipalShell() {
         // A ticket number off an email, or a staff id off a spreadsheet.
         { to: "/principal/find", label: "Find", icon: UserSearch },
         { to: "/principal/budget", label: "Budget", icon: Wallet },
+        { to: "/principal/data", label: "Data", icon: Database },
         { to: "/principal/query", label: "Query", icon: Search },
         { to: "/principal/reports", label: "Reports", icon: BarChart3 },
       ]}
@@ -409,6 +411,7 @@ export function AdminShell() {
         { to: "/admin/find", label: "Find", icon: UserSearch },
         { to: "/admin/budget", label: "Budget", icon: Wallet },
         { to: "/admin/duplicates", label: "Duplicates", icon: Copy },
+        { to: "/admin/data", label: "Data", icon: Database },
         { to: "/admin/submit", label: "Submit for faculty", icon: UserPlus },
         ...(canManageUsers ? [{ to: "/admin/users", label: "Users", icon: Users }] : []),
         ...(canEditFormula

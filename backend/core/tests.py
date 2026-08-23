@@ -4411,6 +4411,27 @@ class PermissionMatrixTests(TestCase):
             )
             self.assertEqual(r.status_code, 200, f"{good}: {r.content}")
 
+    def test_a_duplicate_email_is_refused_rather_than_crashing(self):
+        """It answered 500 with a stack trace, because nothing checked before
+        the database did. Creating heads of department ran straight into it:
+        two of the addresses already belonged to real people."""
+        client = Client()
+        client.force_login(self.users["SUPER_ADMIN"])
+        r = client.post(
+            "/api/admin/users",
+            data=json.dumps({
+                "email": self.target.email.upper(),  # case must not slip past
+                "name": "Clash",
+                "password": "a-long-enough-one",
+                "role": "FACULTY",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        detail = r.json()["detail"]
+        self.assertIn("already belongs to", detail)
+        self.assertIn(self.target.name, detail)
+
     def test_a_user_cannot_be_created_with_an_unrecognised_role(self):
         client = Client()
         client.force_login(self.users["SUPER_ADMIN"])

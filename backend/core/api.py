@@ -5358,8 +5358,24 @@ def admin_create_user(request: HttpRequest, payload: UserCreateIn):
     if not rbac.can_manage_users(user.role):
         raise HttpError(403, "Forbidden")
     _check_assignable_role(payload.role)
+
+    email = payload.email.strip().lower()
+    if not email:
+        raise HttpError(400, "An email address is required")
+    # Without this the database raises, the request answers 500, and the
+    # screen shows a stack trace instead of the one fact that matters: the
+    # address is already somebody's.
+    taken = User.objects.filter(email__iexact=email).first()
+    if taken:
+        raise HttpError(
+            400,
+            f"{email} already belongs to {taken.name or 'an existing account'}"
+            f" ({taken.get_role_display() if hasattr(taken, 'get_role_display') else taken.role})."
+            " Use a different address, or change that account's role instead.",
+        )
+
     u = User.objects.create_user(
-        email=payload.email.strip().lower(),
+        email=email,
         password=payload.password,
         name=payload.name,
         role=payload.role,

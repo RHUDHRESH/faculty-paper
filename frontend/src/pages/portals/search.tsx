@@ -6,7 +6,7 @@ import { Search as SearchIcon, X } from "lucide-react"
 
 import { ClaimDetailFields } from "@/components/claim-detail-fields"
 import { EmptyState, ErrorState, MasterDetail, PageHeader } from "@/components/layout/page"
-import { Money, StatusChip, TicketProgress } from "@/components/ticket-ui"
+import { Money, StatusChip, TicketProgress, monthLabel } from "@/components/ticket-ui"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -120,6 +120,10 @@ export function SearchPage() {
   const [owner, setOwner] = useState(params.get("owner") || "")
   const [ownerName] = useState(params.get("owner_name") || "")
   const [journal, setJournal] = useState(params.get("journal") || "")
+  const [designation, setDesignation] = useState(params.get("designation") || "")
+  const [kind, setKind] = useState(params.get("publication_type") || "")
+  const [month, setMonth] = useState(params.get("month") || "")
+  const [indexing, setIndexing] = useState(params.get("indexing") || "")
 
   const [selected, setSelected] = useState<Claim | null>(null)
   const [offset, setOffset] = useState(0)
@@ -144,11 +148,15 @@ export function SearchPage() {
     if (year.trim()) p.set("year", year.trim())
     if (owner) p.set("owner", owner)
     if (journal) p.set("journal", journal)
+    if (designation) p.set("designation", designation)
+    if (kind) p.set("publication_type", kind)
+    if (month) p.set("month", month)
+    if (indexing) p.set("indexing", indexing)
     p.set("sort", sort)
     p.set("limit", String(PAGE))
     p.set("offset", String(offset))
     return p.toString()
-  }, [debouncedQ, department, status, quartile, category, engineering, year, owner, journal, sort, offset])
+  }, [debouncedQ, department, status, quartile, category, engineering, year, owner, journal, designation, kind, month, indexing, sort, offset])
 
   const { data, isLoading: loading, isError, refetch } = useApiQuery<Results>(
     ["search", query],
@@ -169,7 +177,22 @@ export function SearchPage() {
     year.trim(),
     owner,
     journal,
+    designation,
+    kind,
+    month,
+    indexing,
   ].filter(Boolean).length
+
+  // Filters that arrive only by link. Kept as data so a new one is a row
+  // here rather than another copy of the chip markup.
+  const linkFilters = [
+    { label: "Author", value: ownerName || "one person", on: !!owner, clear: () => setOwner("") },
+    { label: "Journal", value: journal, on: !!journal, clear: () => setJournal("") },
+    { label: "Designation", value: designation, on: !!designation, clear: () => setDesignation("") },
+    { label: "Kind", value: kind, on: !!kind, clear: () => setKind("") },
+    { label: "Indexed in", value: indexing, on: !!indexing, clear: () => setIndexing("") },
+    { label: "Paid in", value: monthLabel(month), on: !!month, clear: () => setMonth("") },
+  ].filter((f) => f.on)
 
   function reset() {
     setQ("")
@@ -182,6 +205,10 @@ export function SearchPage() {
     setYear("")
     setOwner("")
     setJournal("")
+    setDesignation("")
+    setKind("")
+    setMonth("")
+    setIndexing("")
     setSort("recent")
     setOffset(0)
   }
@@ -300,33 +327,31 @@ export function SearchPage() {
         ) : null}
       </div>
 
-      {/* Arrived here from somebody's record or a journal's. Say so, and let
-          it be dropped: a filter narrowing the totals while invisible is how
-          a reader ends up quoting a wrong figure. */}
-      {owner || journal ? (
+      {/* Arrived here by clicking a figure in the reports. Say which one, and
+          let it be dropped: a filter narrowing the totals while invisible is
+          how a reader ends up quoting a wrong number.
+
+          These have no dropdown of their own -- you get here by clicking the
+          thing, not by picking it from a list -- so the chip is the only place
+          they are visible or removable. */}
+      {linkFilters.length ? (
         <div className="flex flex-wrap items-center gap-2">
-          {owner ? (
+          {linkFilters.map((f) => (
             <button
+              key={f.label}
               type="button"
-              onClick={() => { setOwner(""); setOffset(0) }}
+              onClick={() => {
+                f.clear()
+                setOffset(0)
+              }}
               className="interactive inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs hover:border-destructive/50"
+              aria-label={`Remove the ${f.label} filter`}
             >
-              <span className="text-muted-foreground">Author:</span>
-              <span className="font-medium">{ownerName || "one person"}</span>
+              <span className="text-muted-foreground">{f.label}:</span>
+              <span className="font-medium">{f.value}</span>
               <X className="size-3 text-muted-foreground" aria-hidden />
             </button>
-          ) : null}
-          {journal ? (
-            <button
-              type="button"
-              onClick={() => { setJournal(""); setOffset(0) }}
-              className="interactive inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs hover:border-destructive/50"
-            >
-              <span className="text-muted-foreground">Journal:</span>
-              <span className="font-medium">{journal}</span>
-              <X className="size-3 text-muted-foreground" aria-hidden />
-            </button>
-          ) : null}
+          ))}
         </div>
       ) : null}
 

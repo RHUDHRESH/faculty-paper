@@ -6396,3 +6396,88 @@ class SearchNarrowingTests(TestCase):
         ).json()
         self.assertEqual(body["total"], 1)
         self.assertEqual(body["results"][0]["paper_title"], "A one")
+
+
+class ReportDrillDownTests(TestCase):
+    """Every figure the reports draw must open the rows behind it.
+
+    A chart the reader cannot get behind is a number they have to take on
+    trust, and the three dimensions here had no filter at all — so clicking
+    "Associate Professor, 797" could only ever have gone to an unfiltered
+    list, which is worse than not being a link.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.admin = User.objects.create_user(
+            email="dd-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.prof = User.objects.create_user(
+            email="dd-prof@test.edu", password="pass", name="Prof",
+            role=Role.FACULTY, department="ECE", designation="Professor",
+        )
+        self.assoc = User.objects.create_user(
+            email="dd-assoc@test.edu", password="pass", name="Assoc",
+            role=Role.FACULTY, department="ECE", designation="Associate Professor",
+        )
+        self.nograde = User.objects.create_user(
+            email="dd-none@test.edu", password="pass", name="Nograde",
+            role=Role.FACULTY, department="ECE",
+        )
+        mk = lambda owner, kind, month, title: Claim.objects.create(
+            owner=owner, paper_title=title, journal_title="J",
+            status=ClaimStatus.PAID, remuneration=100,
+            aggregation_type=kind, payout_month=month,
+        )
+        mk(self.prof, "Journal", date(2026, 1, 1), "P1")
+        mk(self.prof, "Conference Proceeding", date(2026, 2, 1), "P2")
+        mk(self.assoc, "Journal", date(2026, 1, 1), "A1")
+        mk(self.nograde, "", date(2026, 2, 1), "N1")
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def total(self, qs: str) -> int:
+        res = self.client.get(f"/api/reports/search?{qs}")
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        return res.json()["total"]
+
+    def test_designation_narrows_to_one_grade(self):
+        self.assertEqual(self.total("designation=Professor"), 2)
+        self.assertEqual(self.total("designation=Associate Professor"), 1)
+
+    def test_the_blank_designation_bucket_opens_the_blanks(self):
+        # The chart labels these "Not recorded". Sending that string as a
+        # designation would match nobody, so the row would open an empty list
+        # while claiming a count.
+        self.assertEqual(self.total("designation=Not recorded"), 1)
+
+    def test_kind_of_publication_narrows(self):
+        self.assertEqual(self.total("publication_type=Journal"), 2)
+        self.assertEqual(self.total("publication_type=Conference Proceeding"), 1)
+        self.assertEqual(self.total("publication_type=Not stated"), 1)
+
+    def test_payout_month_narrows_to_that_month(self):
+        self.assertEqual(self.total("month=2026-01"), 2)
+        self.assertEqual(self.total("month=2026-02"), 2)
+
+    def test_a_month_that_is_not_a_month_is_refused_not_ignored(self):
+        # Silently ignoring it would return the whole college under a chip
+        # saying one month, which is how a wrong figure gets quoted.
+        res = self.client.get("/api/reports/search?month=nonsense")
+        self.assertEqual(res.status_code, 400)
+
+    def test_the_figure_and_the_rows_behind_it_agree(self):
+        # The reports page and the query screen must count the same way, or
+        # the drill-down quietly contradicts the chart it came from.
+        report = self.client.get("/api/reports").json()
+        by_designation = {r["key"]: r for r in report["by_designation"]}
+        for key, row in by_designation.items():
+            self.assertEqual(
+                self.total(f"designation={key}"),
+                row["count"],
+                f"{key}: chart says {row['count']}",
+            )

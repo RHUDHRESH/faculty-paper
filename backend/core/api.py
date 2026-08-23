@@ -3505,6 +3505,32 @@ def _search_queryset(user: User, **f):
         qs = qs.filter(owner_id=f["owner"])
     if f.get("journal"):
         qs = qs.filter(journal_title__iexact=f["journal"])
+    # The last three dimensions the reports draw that nothing could open. A
+    # figure the reader cannot get behind is a figure they have to take on
+    # trust, and these are the ones people query in meetings: which grade is
+    # publishing, what kind of thing it was, and which month it was settled.
+    if f.get("designation"):
+        blank = f["designation"] in {"Not recorded", "Not stated", "—"}
+        qs = (
+            qs.filter(Q(owner__designation__isnull=True) | Q(owner__designation=""))
+            if blank
+            else qs.filter(owner__designation__iexact=f["designation"])
+        )
+    if f.get("publication_type"):
+        blank = f["publication_type"] in {"Not stated", "Not recorded", "—"}
+        qs = (
+            qs.filter(Q(aggregation_type__isnull=True) | Q(aggregation_type=""))
+            if blank
+            else qs.filter(aggregation_type__iexact=f["publication_type"])
+        )
+    if f.get("month"):
+        # "2026-08" — the month the college settled it, which is how the
+        # payout chart is keyed and how Finance talks about a run.
+        try:
+            year_s, month_s = str(f["month"]).split("-")[:2]
+            qs = qs.filter(payout_month__year=int(year_s), payout_month__month=int(month_s))
+        except (ValueError, TypeError):
+            raise HttpError(400, "A month looks like 2026-08.")
     return qs
 
 
@@ -3535,6 +3561,9 @@ def search_claims(
     min_amount: Optional[float] = None,
     owner: Optional[str] = None,
     journal: Optional[str] = None,
+    designation: Optional[str] = None,
+    publication_type: Optional[str] = None,
+    month: Optional[str] = None,
     sort: str = "recent",
     limit: int = 100,
     offset: int = 0,
@@ -3556,6 +3585,7 @@ def search_claims(
         category=category, engineering_class=engineering_class,
         indexing=indexing, year=year, year_from=year_from, year_to=year_to,
         min_amount=min_amount, owner=owner, journal=journal,
+        designation=designation, publication_type=publication_type, month=month,
     )
     total = qs.count()
     total_amount = qs.aggregate(s=Sum("remuneration"))["s"] or 0

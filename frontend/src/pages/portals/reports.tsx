@@ -3,13 +3,13 @@
 import { useMemo, useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 
-import { DataGap, isMostlyMissing } from "@/components/data-gap"
+import { DataGap, isAbsentLabel, isMostlyMissing } from "@/components/data-gap"
 
 import { useUrlState } from "@/lib/url-state"
 import { Download } from "lucide-react"
 
 import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
-import { Money, formatMoney } from "@/components/ticket-ui"
+import { Money, formatMoney, monthLabel } from "@/components/ticket-ui"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import {
@@ -213,15 +213,6 @@ function HiddenTail({ cap, unit }: { cap?: Capped; unit: "count" | "money" }) {
 }
 
 /** "2026-03" reads as a code; "March 2026" reads as a month. */
-function monthLabel(key: string): string {
-  const [y, m] = key.split("-").map(Number)
-  if (!y || !m) return key
-  return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  })
-}
-
 export function ReportsPage() {
   const { pathname } = useLocation()
   const base = recordBase(pathname)
@@ -301,7 +292,7 @@ export function ReportsPage() {
                   would be mostly empty options. */}
               {(data?.payout_months || []).map((m) => (
                 <SelectItem key={m} value={m}>
-                  {monthLabel(m)}
+                  {monthLabel(m, "long")}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -446,8 +437,9 @@ export function ReportsPage() {
           <div className="grid gap-6 lg:grid-cols-2">
             <RankedBars
               title="Where the money goes"
-              caption="Departments by amount paid, largest first"
+              caption="Departments by amount paid, largest first — open one"
               data={data.by_department}
+              linkFor={(d) => `${queryBase}?department=${encodeURIComponent(d.key)}`}
             />
             <MixBar
               title="By journal quartile"
@@ -464,9 +456,11 @@ export function ReportsPage() {
             ) : null}
             <RankedBars
               title="Publication volume"
-              caption="Departments by number of claims, largest first"
+              caption="Departments by number of publications, largest first — open one"
               data={data.by_department}
               unit="count"
+              itemNoun="publication"
+              linkFor={(d) => `${queryBase}?department=${encodeURIComponent(d.key)}`}
             />
             {data.by_type?.length ? (
               <RankedBars
@@ -476,6 +470,7 @@ export function ReportsPage() {
                 caption="Journal articles, conference proceedings, book chapters"
                 data={data.by_type}
                 unit="count"
+                linkFor={(d) => `${queryBase}?publication_type=${encodeURIComponent(d.key)}`}
               />
             ) : null}
             {data.by_indexing?.length ? (
@@ -487,6 +482,7 @@ export function ReportsPage() {
                   caption="A journal is often listed in several places, so a paper counts under each"
                   data={data.by_indexing}
                   unit="count"
+                  linkFor={(d) => `${queryBase}?indexing=${encodeURIComponent(d.key)}`}
                 />
               </div>
             ) : null}
@@ -523,6 +519,8 @@ export function ReportsPage() {
               <RankedBars
                 title="By designation"
                 dimension="Designation"
+                itemNoun="publication"
+                linkFor={(d) => `${queryBase}?designation=${encodeURIComponent(d.key)}`}
                 caption="Who is publishing, by grade"
                 data={data.by_designation}
                 unit="count"
@@ -604,10 +602,18 @@ export function ReportsPage() {
               <Breakdown
                 title="By department"
                 rows={data.by_department}
+                // Narrows this page rather than leaving it: every other figure
+                // here then re-reads for that department, which is more than a
+                // link to the query screen would give.
                 onPick={(r) => setDepartment(r.key)}
                 actionHint="Click a department to narrow this whole page to it"
               />
-              <Breakdown title="By designation" rows={data.by_designation || []} />
+              <Breakdown
+                title="By designation"
+                rows={data.by_designation || []}
+                linkFor={(r) => `${queryBase}?designation=${encodeURIComponent(r.key)}`}
+                actionHint="Click a grade to see who published at it"
+              />
             </div>
           </Section>
 
@@ -645,7 +651,12 @@ export function ReportsPage() {
                 }
                 actionHint="Click Q1–Q4 to see those papers"
               />
-              <Breakdown title="By kind of publication" rows={data.by_type || []} />
+              <Breakdown
+                title="By kind of publication"
+                rows={data.by_type || []}
+                linkFor={(r) => `${queryBase}?publication_type=${encodeURIComponent(r.key)}`}
+                actionHint="Click a kind to list them"
+              />
             </div>
           </Section>
 
@@ -654,18 +665,50 @@ export function ReportsPage() {
             description="The remaining figures, as lists"
           >
             <div className="grid gap-6 lg:grid-cols-2">
-              <Breakdown title="By year of publication" rows={data.by_year || []} />
-              <Breakdown title="By remuneration category" rows={data.by_category} />
+              <Breakdown
+                title="By year of publication"
+                rows={data.by_year || []}
+                // "Not stated" is not a year, and asking the server for one
+                // would quietly return everything.
+                linkFor={(r) => (/^\d{4}$/.test(r.key) ? `${queryBase}?year=${r.key}` : null)}
+                actionHint="Click a year to list its publications"
+              />
+              <Breakdown
+                title="By remuneration category"
+                rows={data.by_category}
+                linkFor={(r) =>
+                  isAbsentLabel(r.key)
+                    ? null
+                    : `${queryBase}?category=${encodeURIComponent(r.key)}`
+                }
+                actionHint="Click a band to list what was paid at it"
+              />
               <Breakdown
                 title="Engineering / Non-Engineering"
                 rows={data.by_engineering}
                 showAmount={false}
+                linkFor={(r) =>
+                  isAbsentLabel(r.key)
+                    ? null
+                    : `${queryBase}?engineering_class=${encodeURIComponent(r.key)}`
+                }
+                actionHint="Click a class to list its publications"
               />
-              <Breakdown title="By status" rows={data.by_status} showAmount={false} />
+              <Breakdown
+                title="By status"
+                rows={data.by_status}
+                showAmount={false}
+                linkFor={(r) => `${queryBase}?status=${encodeURIComponent(r.key)}`}
+                actionHint="Click a stage to see what is sitting at it"
+              />
               <Breakdown
                 title="Paid by month"
                 rows={data.by_month}
                 empty="No payments recorded yet"
+                // The buckets are keyed "2026-08", which is what the filter
+                // takes, while the row shows the month in words.
+                linkFor={(r) => (/^\d{4}-\d{2}$/.test(r.key) ? `${queryBase}?month=${r.key}` : null)}
+                actionHint="Click a month to list what was settled in it"
               />
             </div>
           </Section>

@@ -434,6 +434,27 @@ export function formatDateTime(value: string | number | Date | null | undefined)
   })
 }
 
+/**
+ * A payout month ("2026-08") as words.
+ *
+ * Three copies of this existed -- in the reports, the faculty record and the
+ * duplicate warning -- and all three passed `undefined` as the locale, so the
+ * month followed each viewer's browser while every amount on the same row was
+ * pinned to en-IN. One implementation, pinned like the rest.
+ *
+ * `length: "long"` spells the month out, for headings; the default is the
+ * short form that fits in a table cell.
+ */
+export function monthLabel(key?: string | null, length: "short" | "long" = "short"): string {
+  if (!key) return "—"
+  const [y, m] = key.split("-").map(Number)
+  if (!y || !m) return key
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", {
+    month: length,
+    year: "numeric",
+  })
+}
+
 /** The same, without the time — for "last activity" style lines. */
 export function formatDate(value: string | number | Date | null | undefined): string {
   if (!value) return "—"

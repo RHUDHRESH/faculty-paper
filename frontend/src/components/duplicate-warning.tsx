@@ -2,7 +2,7 @@
 
 import { AlertOctagon, ShieldAlert } from "lucide-react"
 
-import { Money, formatDateTime } from "@/components/ticket-ui"
+import { Money, formatDateTime, monthLabel } from "@/components/ticket-ui"
 import type { Claim } from "@/lib/api"
 
 /**
@@ -27,16 +27,6 @@ type Match = {
   reference?: string | null
   who?: string | null
   when?: string | null
-}
-
-function monthLabel(key?: string | null): string | null {
-  if (!key) return null
-  const [y, m] = key.split("-").map(Number)
-  if (!y || !m) return key
-  return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
-    month: "short",
-    year: "numeric",
-  })
 }
 
 export function DuplicateWarning({ claim }: { claim: Claim }) {

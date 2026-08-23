@@ -6,7 +6,7 @@ import { Download, Search, User2 } from "lucide-react"
 
 import { MixBar, RankedBars, TrendChart } from "@/components/charts"
 import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
-import { Money, StatusChip, TicketProgress, formatMoney } from "@/components/ticket-ui"
+import { Money, StatusChip, TicketProgress, formatMoney, monthLabel } from "@/components/ticket-ui"
 import { DataTable } from "@/components/data-table"
 import { TicketDialog, useTicketHref } from "@/components/ticket-dialog"
 import { JournalLink } from "@/components/journal-link"
@@ -65,15 +65,6 @@ type FacultyReport = {
   by_position?: Bucket[]
   per_paper?: { count: number; mean: number; median: number; min: number; max: number }
   claims: Claim[]
-}
-
-function monthLabel(key: string): string {
-  const [y, m] = key.split("-").map(Number)
-  if (!y || !m) return key
-  return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
-    month: "short",
-    year: "numeric",
-  })
 }
 
 /** Everything one person has published and been paid, at its own address. */

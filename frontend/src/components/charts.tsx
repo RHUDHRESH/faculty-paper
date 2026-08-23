@@ -425,12 +425,29 @@ export function RankedBars({
                   name
                 )}
                 {/* The value is labelled directly, so the bar never has to be
-                    measured against an axis. */}
+                    measured against an axis.
+
+                    The count rides alongside only when the value is money and
+                    therefore says something different. On a count chart both
+                    halves are the same number, and every row read "797 797
+                    claims" — the same figure twice, the second one wearing a
+                    noun. */}
                 <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-                  {fmt(value(d))}
-                  <span className="ml-2 opacity-60">
-                    {d.count} {d.count === 1 ? itemNoun : `${itemNoun}s`}
-                  </span>
+                  {unit === "money" ? (
+                    <>
+                      {fmt(value(d))}
+                      <span className="ml-2 opacity-60">
+                        {d.count} {d.count === 1 ? itemNoun : `${itemNoun}s`}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-foreground">{d.count}</span>
+                      <span className="ml-1.5 opacity-60">
+                        {d.count === 1 ? itemNoun : `${itemNoun}s`}
+                      </span>
+                    </>
+                  )}
                 </span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-muted">

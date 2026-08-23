@@ -255,7 +255,11 @@ export function TicketProgress({
   status: string
   className?: string
 }) {
-  if (status === "DRAFT" || status === "REJECTED") return null
+  // Nothing left to say once it is paid: the bar is full, the label reads
+  // "Step 4 of 4", and the badge beside it already says Paid. On a list of
+  // eighty-six settled publications that is eighty-six identical green bars
+  // carrying no information. The point of this was the distance still to go.
+  if (status === "DRAFT" || status === "REJECTED" || status === "PAID") return null
   const share = ticketProgress(status)
   const step = Math.round(share * FLOW.length)
   return (

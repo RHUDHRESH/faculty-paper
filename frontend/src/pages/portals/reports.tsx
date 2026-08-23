@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 
 import { DataGap, isAbsentLabel, isMostlyMissing } from "@/components/data-gap"
+import { DrillDown, type Drill } from "@/components/drill-down"
 import { AgeingPanel, BreadthPanel, YearOnYearPanel } from "@/components/report-cuts"
 
 import { useUrlState } from "@/lib/url-state"
@@ -107,6 +108,7 @@ function Breakdown({
   empty = "Nothing recorded yet",
   onPick,
   linkFor,
+  onOpen,
   actionHint,
 }: {
   title: string
@@ -117,10 +119,12 @@ function Breakdown({
   onPick?: (row: Row) => void
   /** Clicking a row opens something of its own. */
   linkFor?: (row: Row) => string | null
+  /** Clicking a row opens its publications in place, without leaving. */
+  onOpen?: (row: Row) => void
   actionHint?: string
 }) {
   const max = Math.max(1, ...rows.map((r) => r.count))
-  const interactive = !!onPick || !!linkFor
+  const interactive = !!onPick || !!linkFor || !!onOpen
   return (
     <Section title={title} description={interactive ? actionHint : undefined}>
       <div className="overflow-hidden surface-card">
@@ -129,7 +133,7 @@ function Breakdown({
         ) : (
           <ul className="divide-y divide-border">
             {rows.map((r) => {
-              const to = linkFor?.(r) || null
+              const to = onOpen ? null : linkFor?.(r) || null
               const label = r.label || r.key
               // A row that navigates and a row that does nothing must not look
               // the same, so only the actionable ones carry the affordance.
@@ -139,7 +143,7 @@ function Breakdown({
                   <span
                     className={cn(
                       "min-w-0 truncate text-sm",
-                      to || onPick ? "text-primary" : "text-foreground"
+                      to || onPick || onOpen ? "text-primary" : "text-foreground"
                     )}
                     title={label}
                   >
@@ -172,6 +176,19 @@ function Breakdown({
                     >
                       {inner}
                     </Link>
+                  </li>
+                )
+              }
+              if (onOpen) {
+                return (
+                  <li key={r.key}>
+                    <button
+                      type="button"
+                      onClick={() => onOpen(r)}
+                      className="interactive block w-full px-4 py-2.5 text-left hover:bg-accent/40"
+                    >
+                      {inner}
+                    </button>
                   </li>
                 )
               }
@@ -210,6 +227,21 @@ type Capped = {
 }
 
 /** What a cut-off list is not showing, said plainly under it. */
+/** What each filter is called, in the reader's words, for the panel that
+ *  opens over the report. */
+const DIMENSION_NAMES: Record<string, string> = {
+  department: "Department",
+  designation: "Designation",
+  publication_type: "Kind of publication",
+  indexing: "Indexed in",
+  status: "Stage",
+  quartile: "Quartile",
+  category: "Rate band",
+  engineering_class: "Classification",
+  year: "Year",
+  month: "Settled in",
+}
+
 function HiddenTail({ cap, unit }: { cap?: Capped; unit: "count" | "money" }) {
   if (!cap?.hidden) return null
   return (
@@ -226,7 +258,11 @@ function HiddenTail({ cap, unit }: { cap?: Capped; unit: "count" | "money" }) {
 export function ReportsPage() {
   const { pathname } = useLocation()
   const base = recordBase(pathname)
-  const queryBase = `/${pathname.split("/")[1] || "admin"}/query`
+  const portal = `/${pathname.split("/")[1] || "admin"}`
+  const queryBase = `${portal}/query`
+  // A figure the reader clicked opens over this page rather than replacing
+  // it, so the report they were reading is still there when they close it.
+  const [drill, setDrill] = useState<Drill | null>(null)
   const journalBase = `/${pathname.split("/")[1] || "admin"}/journal`
   // A report nobody can send is a report somebody screenshots.
   const [state, setState] = useUrlState({
@@ -449,7 +485,13 @@ export function ReportsPage() {
               title="Where the money goes"
               caption="Departments by amount paid, largest first — open one"
               data={data.by_department}
-              linkFor={(d) => `${queryBase}?department=${encodeURIComponent(d.key)}`}
+              onOpen={(d) =>
+                  setDrill({
+                    label: d.label || d.key,
+                    dimension: DIMENSION_NAMES.department,
+                    filter: `department=${encodeURIComponent(d.key)}`,
+                  })
+                }
             />
             <MixBar
               title="By journal quartile"
@@ -470,7 +512,13 @@ export function ReportsPage() {
               data={data.by_department}
               unit="count"
               itemNoun="publication"
-              linkFor={(d) => `${queryBase}?department=${encodeURIComponent(d.key)}`}
+              onOpen={(d) =>
+                  setDrill({
+                    label: d.label || d.key,
+                    dimension: DIMENSION_NAMES.department,
+                    filter: `department=${encodeURIComponent(d.key)}`,
+                  })
+                }
             />
             {data.by_type?.length ? (
               <RankedBars
@@ -480,7 +528,13 @@ export function ReportsPage() {
                 caption="Journal articles, conference proceedings, book chapters"
                 data={data.by_type}
                 unit="count"
-                linkFor={(d) => `${queryBase}?publication_type=${encodeURIComponent(d.key)}`}
+                onOpen={(d) =>
+                  setDrill({
+                    label: d.label || d.key,
+                    dimension: DIMENSION_NAMES.publication_type,
+                    filter: `publication_type=${encodeURIComponent(d.key)}`,
+                  })
+                }
               />
             ) : null}
             {data.by_indexing?.length ? (
@@ -492,7 +546,13 @@ export function ReportsPage() {
                   caption="A journal is often listed in several places, so a paper counts under each"
                   data={data.by_indexing}
                   unit="count"
-                  linkFor={(d) => `${queryBase}?indexing=${encodeURIComponent(d.key)}`}
+                  onOpen={(d) =>
+                  setDrill({
+                    label: d.label || d.key,
+                    dimension: DIMENSION_NAMES.indexing,
+                    filter: `indexing=${encodeURIComponent(d.key)}`,
+                  })
+                }
                 />
               </div>
             ) : null}
@@ -530,7 +590,13 @@ export function ReportsPage() {
                 title="By designation"
                 dimension="Designation"
                 itemNoun="publication"
-                linkFor={(d) => `${queryBase}?designation=${encodeURIComponent(d.key)}`}
+                onOpen={(d) =>
+                  setDrill({
+                    label: d.label || d.key,
+                    dimension: DIMENSION_NAMES.designation,
+                    filter: `designation=${encodeURIComponent(d.key)}`,
+                  })
+                }
                 caption="Who is publishing, by grade"
                 data={data.by_designation}
                 unit="count"
@@ -657,7 +723,13 @@ export function ReportsPage() {
               <Breakdown
                 title="By designation"
                 rows={data.by_designation || []}
-                linkFor={(r) => `${queryBase}?designation=${encodeURIComponent(r.key)}`}
+                onOpen={(r) =>
+                  setDrill({
+                    label: r.label || r.key,
+                    dimension: DIMENSION_NAMES.designation,
+                    filter: `designation=${encodeURIComponent(r.key)}`,
+                  })
+                }
                 actionHint="Click a grade to see who published at it"
               />
             </div>
@@ -688,23 +760,39 @@ export function ReportsPage() {
               <Breakdown
                 title="By indexing"
                 rows={data.by_indexing || []}
-                linkFor={(r) => `${queryBase}?indexing=${encodeURIComponent(r.key)}`}
+                onOpen={(r) =>
+                  setDrill({
+                    label: r.label || r.key,
+                    dimension: DIMENSION_NAMES.indexing,
+                    filter: `indexing=${encodeURIComponent(r.key)}`,
+                  })
+                }
                 actionHint="Click an index to see what is listed there"
               />
               <Breakdown
                 title="By quartile"
                 rows={data.by_quartile}
-                linkFor={(r) =>
+                onOpen={(r) =>
                   /^Q[1-4]$/i.test(r.key)
-                    ? `${queryBase}?quartile=${encodeURIComponent(r.key)}`
-                    : null
+                    ? setDrill({
+                        label: r.key,
+                        dimension: "Quartile",
+                        filter: `quartile=${encodeURIComponent(r.key)}`,
+                      })
+                    : undefined
                 }
                 actionHint="Click Q1–Q4 to see those papers"
               />
               <Breakdown
                 title="By kind of publication"
                 rows={data.by_type || []}
-                linkFor={(r) => `${queryBase}?publication_type=${encodeURIComponent(r.key)}`}
+                onOpen={(r) =>
+                  setDrill({
+                    label: r.label || r.key,
+                    dimension: DIMENSION_NAMES.publication_type,
+                    filter: `publication_type=${encodeURIComponent(r.key)}`,
+                  })
+                }
                 actionHint="Click a kind to list them"
               />
             </div>
@@ -720,16 +808,24 @@ export function ReportsPage() {
                 rows={data.by_year || []}
                 // "Not stated" is not a year, and asking the server for one
                 // would quietly return everything.
-                linkFor={(r) => (/^\d{4}$/.test(r.key) ? `${queryBase}?year=${r.key}` : null)}
+                onOpen={(r) =>
+                  /^\d{4}$/.test(r.key)
+                    ? setDrill({ label: r.key, dimension: "Year", filter: `year=${r.key}` })
+                    : undefined
+                }
                 actionHint="Click a year to list its publications"
               />
               <Breakdown
                 title="By remuneration category"
                 rows={data.by_category}
-                linkFor={(r) =>
+                onOpen={(r) =>
                   isAbsentLabel(r.key)
-                    ? null
-                    : `${queryBase}?category=${encodeURIComponent(r.key)}`
+                    ? undefined
+                    : setDrill({
+                        label: r.label || r.key,
+                        dimension: "Rate band",
+                        filter: `category=${encodeURIComponent(r.key)}`,
+                      })
                 }
                 actionHint="Click a band to list what was paid at it"
               />
@@ -737,10 +833,14 @@ export function ReportsPage() {
                 title="Engineering / Non-Engineering"
                 rows={data.by_engineering}
                 showAmount={false}
-                linkFor={(r) =>
+                onOpen={(r) =>
                   isAbsentLabel(r.key)
-                    ? null
-                    : `${queryBase}?engineering_class=${encodeURIComponent(r.key)}`
+                    ? undefined
+                    : setDrill({
+                        label: r.key,
+                        dimension: "Classification",
+                        filter: `engineering_class=${encodeURIComponent(r.key)}`,
+                      })
                 }
                 actionHint="Click a class to list its publications"
               />
@@ -748,7 +848,13 @@ export function ReportsPage() {
                 title="By status"
                 rows={data.by_status}
                 showAmount={false}
-                linkFor={(r) => `${queryBase}?status=${encodeURIComponent(r.key)}`}
+                onOpen={(r) =>
+                  setDrill({
+                    label: r.label || r.key,
+                    dimension: DIMENSION_NAMES.status,
+                    filter: `status=${encodeURIComponent(r.key)}`,
+                  })
+                }
                 actionHint="Click a stage to see what is sitting at it"
               />
               <Breakdown
@@ -757,7 +863,15 @@ export function ReportsPage() {
                 empty="No payments recorded yet"
                 // The buckets are keyed "2026-08", which is what the filter
                 // takes, while the row shows the month in words.
-                linkFor={(r) => (/^\d{4}-\d{2}$/.test(r.key) ? `${queryBase}?month=${r.key}` : null)}
+                onOpen={(r) =>
+                  /^\d{4}-\d{2}$/.test(r.key)
+                    ? setDrill({
+                        label: monthLabel(r.key, "long"),
+                        dimension: "Settled in",
+                        filter: `month=${r.key}`,
+                      })
+                    : undefined
+                }
                 actionHint="Click a month to list what was settled in it"
               />
             </div>
@@ -789,6 +903,9 @@ export function ReportsPage() {
           </Section>
         </>
       )}
+
+      {/* Opens over the report. Escape closes it and nothing has moved. */}
+      <DrillDown drill={drill} onClose={() => setDrill(null)} portal={portal} />
     </div>
   )
 }

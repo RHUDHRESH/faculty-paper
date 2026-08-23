@@ -338,6 +338,7 @@ export function RankedBars({
   itemNoun = "claim",
   dimension = "Department",
   linkFor,
+  onOpen,
 }: {
   data: Point[]
   title: string
@@ -354,6 +355,10 @@ export function RankedBars({
   dimension?: string
   /** A row that leads somewhere — a journal record, a person. */
   linkFor?: (d: Point) => string | null
+  /** A row that opens its own rows in place. Preferred over linkFor for a
+   *  figure whose answer is "which publications are these": navigating away
+   *  costs the reader the page they were reading. */
+  onOpen?: (d: Point) => void
 }) {
   const [hover, setHover] = useState<string | null>(null)
   const value = (d: Point) => (unit === "money" ? d.amount ?? 0 : d.count)
@@ -399,6 +404,7 @@ export function RankedBars({
           const pct = (value(d) / max) * 100
           const isHover = hover === d.key
           const to = linkFor?.(d) || null
+          const opens = !!onOpen
           // `truncate` only clips if the element is a block that is allowed to
           // shrink. Wrapping the label in a Link made the Link the flex item,
           // and without min-w-0 and overflow-hidden on it the span inside kept
@@ -408,7 +414,9 @@ export function RankedBars({
             <span
               className={cn(
                 "block truncate text-sm",
-                to ? "text-primary underline-offset-4 group-hover:underline" : "text-foreground"
+                to || opens
+                  ? "text-primary underline-offset-4 group-hover:underline"
+                  : "text-foreground"
               )}
               title={d.label || d.key}
             >
@@ -423,7 +431,15 @@ export function RankedBars({
               className="group min-w-0"
             >
               <div className="mb-1 flex items-baseline justify-between gap-3">
-                {to ? (
+                {onOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpen(d)}
+                    className="interactive min-w-0 flex-1 overflow-hidden text-left"
+                  >
+                    {name}
+                  </button>
+                ) : to ? (
                   <Link to={to} className="interactive min-w-0 flex-1 overflow-hidden">
                     {name}
                   </Link>

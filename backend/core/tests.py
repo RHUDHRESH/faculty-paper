@@ -6801,3 +6801,57 @@ class PackRowCorrectionTests(TestCase):
         self.assertFalse(body["ugc_list_loaded"])
         # Reporting "No" would assert something nobody checked.
         self.assertTrue(all(r["ugc_care"] == "Not checked" for r in body["results"]))
+
+
+class SearchExportTests(TestCase):
+    """The rows on screen, as a file.
+
+    The existing export takes a year, a department and a month — the monthly
+    filing. It cannot express "Q1 Engineering papers in ECE that went unpaid",
+    so anyone looking at that set exported something wider and rebuilt it by
+    hand in Excel, which is the step where a filed figure stops matching the
+    screen it came from.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.admin = User.objects.create_user(
+            email="se-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.faculty = User.objects.create_user(
+            email="se-fac@test.edu", password="pass", name="Fac",
+            role=Role.FACULTY, department="ECE", designation="Professor",
+        )
+        for title, quartile in (("Q1 paper", "Q1"), ("Q2 paper", "Q2")):
+            Claim.objects.create(
+                owner=self.faculty, paper_title=title, journal_title="J",
+                quartile=quartile, status=ClaimStatus.PAID, remuneration=100,
+                publication_year=2025,
+            )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def test_the_file_holds_exactly_the_filtered_rows(self):
+        res = self.client.get("/api/reports/search/export?quartile=Q1&fmt=csv")
+        self.assertEqual(res.status_code, 200)
+        body = res.content.decode("utf-8", errors="ignore")
+        self.assertIn("Q1 paper", body)
+        # The whole point: the other row is not in the file.
+        self.assertNotIn("Q2 paper", body)
+
+    def test_it_returns_a_real_workbook(self):
+        res = self.client.get("/api/reports/search/export?quartile=Q1&fmt=xlsx")
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.content.startswith(b"PK\x03\x04"))
+        self.assertIn("spreadsheetml", res["Content-Type"])
+
+    def test_a_claimant_cannot_export_the_college(self):
+        c = Client()
+        c.force_login(self.faculty)
+        self.assertEqual(
+            c.get("/api/reports/search/export?quartile=Q1").status_code, 403
+        )

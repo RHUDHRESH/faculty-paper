@@ -3814,6 +3814,59 @@ def _claims_file(rows, stem: str, fmt: str) -> HttpResponse:
     return res
 
 
+@api.get("/reports/search/export", auth=session_auth)
+def search_export(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    department: Optional[str] = None,
+    status: Optional[str] = None,
+    quartile: Optional[str] = None,
+    category: Optional[str] = None,
+    engineering_class: Optional[str] = None,
+    indexing: Optional[str] = None,
+    year: Optional[int] = None,
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
+    min_amount: Optional[float] = None,
+    owner: Optional[str] = None,
+    journal: Optional[str] = None,
+    designation: Optional[str] = None,
+    publication_type: Optional[str] = None,
+    month: Optional[str] = None,
+    sort: str = "recent",
+    fmt: str = "xlsx",
+):
+    """Exactly the rows on screen, as a file.
+
+    The existing export takes a year, a department and a month, which is the
+    monthly filing. It cannot express "Q1 Engineering papers in ECE that went
+    unpaid", so anyone looking at that set had to rebuild it by hand in Excel
+    after exporting something wider. Same filters as the query screen, same
+    ordering, so the file matches what was being read.
+    """
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+    qs = _search_queryset(
+        user,
+        q=q, department=department, status=status, quartile=quartile,
+        category=category, engineering_class=engineering_class,
+        indexing=indexing, year=year, year_from=year_from, year_to=year_to,
+        min_amount=min_amount, owner=owner, journal=journal,
+        designation=designation, publication_type=publication_type, month=month,
+    )
+    rows = qs.order_by(_SEARCH_SORTS.get(sort, "-updated_at"), "-id")[:5000]
+    stem = "publications-" + (
+        "-".join(
+            str(v).replace(" ", "-")
+            for v in [department, designation, publication_type, quartile, status, year, month]
+            if v
+        )
+        or "all"
+    )
+    return _claims_file(rows, stem[:80], fmt)
+
+
 @api.get("/reports/export", auth=session_auth)
 def reports_export(
     request: HttpRequest,

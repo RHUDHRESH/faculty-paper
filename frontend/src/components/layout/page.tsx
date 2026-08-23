@@ -263,17 +263,26 @@ export function MasterDetail({
   className,
   listClassName,
   detailClassName,
+  listWidth = "default",
 }: {
   list: ReactNode
   detail: ReactNode
   className?: string
   listClassName?: string
   detailClassName?: string
+  /** How much room the list gets. The default suits a short row — a ticket
+   *  number and a status. A list whose rows carry a title, an author and an
+   *  amount needs more, and squeezing those into 380px while half the screen
+   *  holds an empty "select something" box is the wrong way round. */
+  listWidth?: "default" | "wide"
 }) {
   return (
     <div
       className={cn(
-        "grid gap-4 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)] lg:items-start",
+        "grid gap-4 lg:items-start",
+        listWidth === "wide"
+          ? "lg:grid-cols-[minmax(420px,620px)_minmax(0,1fr)]"
+          : "lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]",
         className
       )}
     >

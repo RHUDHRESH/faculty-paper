@@ -2,11 +2,12 @@
 
 import { useSearchParams } from "react-router-dom"
 import { useEffect, useMemo, useState } from "react"
-import { Search as SearchIcon, X } from "lucide-react"
+import { Download, Search as SearchIcon } from "lucide-react"
 
 import { ClaimDetailFields } from "@/components/claim-detail-fields"
 import { EmptyState, ErrorState, MasterDetail, PageHeader } from "@/components/layout/page"
 import { Money, StatusChip, TicketProgress, monthLabel } from "@/components/ticket-ui"
+import { FilterBar } from "@/components/filter-bar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -19,7 +20,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Pager } from "@/components/ui/pagination"
-import { type Claim } from "@/lib/api"
+import { API_BASE, type Claim } from "@/lib/api"
 import { useApiQuery } from "@/lib/queries"
 import { useIsDesktop } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
@@ -167,21 +168,6 @@ export function SearchPage() {
     "/api/meta/departments"
   )
 
-  const activeCount = [
-    q.trim(),
-    department !== ANY,
-    status !== ANY,
-    quartile !== ANY,
-    category !== ANY,
-    engineering !== ANY,
-    year.trim(),
-    owner,
-    journal,
-    designation,
-    kind,
-    month,
-    indexing,
-  ].filter(Boolean).length
 
   // Filters that arrive only by link. Kept as data so a new one is a row
   // here rather than another copy of the chip markup.
@@ -213,147 +199,148 @@ export function SearchPage() {
     setOffset(0)
   }
 
+  // Every filter except the search box, as data — so the panel and the chips
+  // are two views of one list rather than two lists to keep in step.
+  const pickers = [
+    {
+      id: "s-dept",
+      label: "Department",
+      value: department,
+      set: setDepartment,
+      anyLabel: "Any department",
+      options: departments.map((d) => ({ value: d, label: d })),
+    },
+    {
+      id: "s-status",
+      label: "Status",
+      value: status,
+      set: setStatus,
+      anyLabel: "Any status",
+      options: STATUSES.map((x) => ({ value: x, label: x })),
+    },
+    {
+      id: "s-quartile",
+      label: "Quartile",
+      value: quartile,
+      set: setQuartile,
+      anyLabel: "Any quartile",
+      options: QUARTILES.map((x) => ({ value: x, label: x })),
+    },
+    {
+      id: "s-category",
+      label: "Rate band",
+      value: category,
+      set: setCategory,
+      anyLabel: "Any band",
+      options: CATEGORIES,
+    },
+    {
+      id: "s-eng",
+      label: "Classification",
+      value: engineering,
+      set: setEngineering,
+      anyLabel: "Any",
+      options: [
+        { value: "Engineering", label: "Engineering" },
+        { value: "Non-Engineering", label: "Non-Engineering" },
+      ],
+    },
+  ]
+
+  const activeFilters = [
+    ...pickers
+      .filter((f) => f.value !== ANY)
+      .map((f) => ({
+        label: f.label,
+        value: f.options.find((o) => o.value === f.value)?.label || f.value,
+        onClear: () => {
+          f.set(ANY)
+          setOffset(0)
+        },
+      })),
+    ...(year.trim()
+      ? [
+          {
+            label: "Year",
+            value: year.trim(),
+            onClear: () => {
+              setYear("")
+              setOffset(0)
+            },
+          },
+        ]
+      : []),
+    ...linkFilters.map((f) => ({
+      label: f.label,
+      value: f.value,
+      onClear: () => {
+        f.clear()
+        setOffset(0)
+      },
+    })),
+  ]
+
   const listPanel = (
     <div className="space-y-3">
-      <div className="surface-card p-4">
-        <div className="relative">
-          <SearchIcon
-            aria-hidden
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            className="pl-9"
-            placeholder="Title, journal, DOI, ISSN, ticket, faculty, staff ID…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            aria-label="Search publications"
-          />
-        </div>
-
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <Picker
-            id="s-dept"
-            label="Department"
-            value={department}
-            onChange={(v) => {
-              setDepartment(v)
-              setOffset(0)
-            }}
-            anyLabel="Any department"
-            options={departments.map((d) => ({ value: d, label: d }))}
-          />
-          <Picker
-            id="s-status"
-            label="Status"
-            value={status}
-            onChange={(v) => {
-              setStatus(v)
-              setOffset(0)
-            }}
-            anyLabel="Any status"
-            options={STATUSES.map((s) => ({ value: s, label: s }))}
-          />
-          <Picker
-            id="s-quartile"
-            label="Quartile"
-            value={quartile}
-            onChange={(v) => {
-              setQuartile(v)
-              setOffset(0)
-            }}
-            anyLabel="Any quartile"
-            options={QUARTILES.map((s) => ({ value: s, label: s }))}
-          />
-          <Picker
-            id="s-category"
-            label="Category"
-            value={category}
-            onChange={(v) => {
-              setCategory(v)
-              setOffset(0)
-            }}
-            anyLabel="Any category"
-            options={CATEGORIES}
-          />
-          <Picker
-            id="s-eng"
-            label="Classification"
-            value={engineering}
-            onChange={(v) => {
-              setEngineering(v)
-              setOffset(0)
-            }}
-            anyLabel="Any"
-            options={[
-              { value: "Engineering", label: "Engineering" },
-              { value: "Non-Engineering", label: "Non-Engineering" },
-            ]}
-          />
-          <div className="space-y-1.5">
-            <Label htmlFor="s-year" className="text-xs">
-              Publication year
-            </Label>
-            <Input
-              id="s-year"
-              inputMode="numeric"
-              placeholder="Any"
-              className="tabular-nums"
-              value={year}
-              onChange={(e) => {
-                setYear(e.target.value.replace(/\D/g, "").slice(0, 4))
-                setOffset(0)
-              }}
-            />
-          </div>
-          <Picker
-            id="s-sort"
-            label="Sort by"
-            value={sort}
-            onChange={(v) => {
-              setSort(v)
-              setOffset(0)
-            }}
-            anyLabel="Most recent"
-            options={SORTS}
-            className="sm:col-span-2"
-          />
-        </div>
-
-        {activeCount > 0 ? (
-          <Button type="button" variant="ghost" size="xs" className="mt-3" onClick={reset}>
-            <X className="size-3.5" />
-            Clear {activeCount} filter{activeCount === 1 ? "" : "s"}
-          </Button>
-        ) : null}
+      {/* The box people actually use, at full width and on its own. */}
+      <div className="relative">
+        <SearchIcon
+          aria-hidden
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+        <Input
+          className="h-11 pl-9 text-base"
+          placeholder="Title, journal, DOI, ISSN, ticket, faculty, staff ID…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          aria-label="Search publications"
+        />
       </div>
 
-      {/* Arrived here by clicking a figure in the reports. Say which one, and
-          let it be dropped: a filter narrowing the totals while invisible is
-          how a reader ends up quoting a wrong number.
-
-          These have no dropdown of their own -- you get here by clicking the
-          thing, not by picking it from a list -- so the chip is the only place
-          they are visible or removable. */}
-      {linkFilters.length ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {linkFilters.map((f) => (
-            <button
-              key={f.label}
-              type="button"
-              onClick={() => {
-                f.clear()
-                setOffset(0)
-              }}
-              className="interactive inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs hover:border-destructive/50"
-              aria-label={`Remove the ${f.label} filter`}
-            >
-              <span className="text-muted-foreground">{f.label}:</span>
-              <span className="font-medium">{f.value}</span>
-              <X className="size-3 text-muted-foreground" aria-hidden />
-            </button>
-          ))}
+      {/* Folded, with a count — the same control every other screen uses. */}
+      <FilterBar active={activeFilters} onClear={reset}>
+        {pickers.map((f) => (
+          <Picker
+            key={f.id}
+            id={f.id}
+            label={f.label}
+            value={f.value}
+            onChange={(v) => {
+              f.set(v)
+              setOffset(0)
+            }}
+            anyLabel={f.anyLabel}
+            options={f.options}
+          />
+        ))}
+        <div className="space-y-1.5">
+          <Label htmlFor="s-year" className="text-xs">
+            Publication year
+          </Label>
+          <Input
+            id="s-year"
+            inputMode="numeric"
+            placeholder="Any"
+            className="w-28 tabular-nums"
+            value={year}
+            onChange={(e) => {
+              setYear(e.target.value.replace(/\D/g, "").slice(0, 4))
+              setOffset(0)
+            }}
+          />
         </div>
-      ) : null}
+        <Picker
+          id="s-sort"
+          label="Sort by"
+          value={sort}
+          onChange={(v) => {
+            setSort(v)
+            setOffset(0)
+          }}
+          anyLabel="Most recent"
+          options={SORTS}
+        />
+      </FilterBar>
 
       {/* Totals for the whole match, not the page — otherwise the number on
           screen answers a different question than the one asked. */}
@@ -361,8 +348,20 @@ export function SearchPage() {
         <span className="text-sm text-muted-foreground">
           {loading ? "Searching…" : `${data?.total ?? 0} publication${data?.total === 1 ? "" : "s"}`}
         </span>
-        <span className="text-sm font-semibold tabular-nums">
-          <Money value={data?.total_amount ?? 0} />
+        <span className="flex items-center gap-3">
+          <span className="text-sm font-semibold tabular-nums">
+            <Money value={data?.total_amount ?? 0} />
+          </span>
+          {/* Exactly the rows being read, as a file. People were going to the
+              reports page and rebuilding the filter in Excel to get this. */}
+          {data?.total ? (
+            <Button asChild variant="ghost" size="xs">
+              <a href={`${API_BASE}/api/reports/search/export?${query}&fmt=xlsx`}>
+                <Download className="size-3.5" />
+                Excel
+              </a>
+            </Button>
+          ) : null}
         </span>
       </div>
 
@@ -444,14 +443,18 @@ export function SearchPage() {
       <ClaimDetailFields claim={selected} showOwner />
     </div>
   ) : (
-    <EmptyState title="Select a publication" description="Pick a result to see the full record." />
+    // Compact: nothing is selected, so this is a hint, not a panel. It used to
+    // be a half-screen dashed box competing with the results for attention.
+    <p className="px-4 py-6 text-sm text-muted-foreground">
+      Pick a result to see the full record.
+    </p>
   )
 
   return (
     <div>
       <PageHeader title="Query" subtitle="Search every publication across the college" />
       {isDesktop ? (
-        <MasterDetail list={listPanel} detail={detailPanel} />
+        <MasterDetail list={listPanel} detail={detailPanel} listWidth="wide" />
       ) : (
         <div className="space-y-4">
           {listPanel}

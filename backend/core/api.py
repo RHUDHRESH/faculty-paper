@@ -5923,7 +5923,9 @@ def admin_faults(request: HttpRequest):
                    "Sent forward with issues outstanding.",
                    unverified.count(), to="/admin/clearing", sample=tickets(unverified)),
             _fault("no_quartile", "In review with no quartile",
-                   "The quartile is worth up to Rs 50,000 of the payout and has to be set before clearing.",
+                   # Rupees are written the same way everywhere else in the app.
+                   "The quartile is worth up to ₹50,000 of the payout and has to be "
+                   "set before clearing.",
                    no_quartile.count(), severity="critical",
                    to="/admin/clearing", sample=tickets(no_quartile)),
             _fault("no_snip", "In review with no SNIP",

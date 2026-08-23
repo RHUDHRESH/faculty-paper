@@ -51,9 +51,19 @@ export type Column<T> = {
  * right. Both live here, so a bespoke table can have them by wrapping, and
  * DataTable is built on the same piece rather than a copy of it.
  */
+/**
+ * How tall a table may get before it scrolls inside itself.
+ *
+ * A fixed 34rem was arbitrary: on a tall window it sliced a table through the
+ * middle of a row and left a screenful of empty page underneath, which reads
+ * as the page having failed to load the rest. Sized to the window instead,
+ * with a floor so a short window still shows something worth scrolling.
+ */
+export const TABLE_HEIGHT = "max(20rem, calc(100vh - 19rem))"
+
 export function TableScroller({
   children,
-  maxHeight = "34rem",
+  maxHeight = TABLE_HEIGHT,
   className,
 }: {
   children: React.ReactNode
@@ -134,7 +144,7 @@ export function DataTable<T>({
   getKey,
   rowLink,
   empty = "Nothing to show",
-  maxHeight = "34rem",
+  maxHeight = TABLE_HEIGHT,
   minWidth,
   caption,
   className,

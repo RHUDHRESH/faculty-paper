@@ -255,7 +255,6 @@ function FacultyReportPanel({ id }: { id: string }) {
           getKey={(c) => c.id}
           rowLink={(c) => ticketHref(c.id)}
           minWidth="62rem"
-          maxHeight="38rem"
           empty="Nothing filed yet"
           columns={[
             {

@@ -65,7 +65,12 @@ export function Section({
   actions?: ReactNode
 }) {
   return (
-    <section className={cn("space-y-3.5", className)}>
+    // min-w-0: a Section is often a grid or flex item, and those default to
+    // min-width:auto — they refuse to shrink below their content's intrinsic
+    // width. One long journal title inside a card was enough to push the
+    // whole reports page 954px sideways on a phone, and nothing on the page
+    // itself looked wrong; the overflow was the container's, not the text's.
+    <section className={cn("min-w-0 space-y-3.5", className)}>
       {(title || actions) && (
         <div className="flex items-end justify-between gap-3">
           <div className="min-w-0">

@@ -218,6 +218,11 @@ export default function App() {
           <Route index element={<FinancePayoutsPage />} />
           <Route path="paid" element={<FinancePaidPage />} />
           <Route path="ledger" element={<FinanceLedgerPage />} />
+          {/* The sidebar has always offered this and the router never had it,
+              so Finance clicking "Duplicates" landed on the not-found screen.
+              They are the people a duplicate payment costs, and the backend
+              was letting them read the findings all along. */}
+          <Route path="duplicates" element={<DuplicateFindingsPage />} />
           <Route path="find" element={<LookupPage />} />
           <Route path="faculty/:facultyId" element={<FacultyRecordPage />} />
           {/* A journal is a record too, reachable from any name. */}

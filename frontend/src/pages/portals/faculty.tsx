@@ -423,8 +423,14 @@ export function FacultyClaimsPage() {
               )}
             >
               <span className="flex items-center justify-between gap-2">
+                {/* A draft has no ticket number — one is issued on submit — so
+                    the slot held a bare em dash on every unfiled row. The
+                    "Draft" badge beside it already says what the row is; the
+                    dash only added a column of punctuation to scan past. */}
                 <span className="font-mono text-xs text-muted-foreground">
-                  {c.ticket_number || "—"}
+                  {c.ticket_number || (
+                    <span className="font-sans italic opacity-70">Not filed yet</span>
+                  )}
                 </span>
                 <StatusChip status={c.status} contest={c.contest_forward} />
               </span>
@@ -464,8 +470,11 @@ export function FacultyClaimsPage() {
     <div className="surface-card p-6">
       <div className="mb-4 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1 font-mono text-sm text-muted-foreground">
-          {selected.ticket_number || "—"}
-          <CopyTicketLink claimId={selected.id} />
+          {selected.ticket_number || (
+            <span className="font-sans italic opacity-70">No ticket number until it is submitted</span>
+          )}
+          {/* Nothing to link to before it is filed. */}
+          {selected.ticket_number ? <CopyTicketLink claimId={selected.id} /> : null}
         </span>
         <StatusChip status={selected.status} contest={selected.contest_forward} />
       </div>

@@ -318,7 +318,6 @@ export function AccreditationPage() {
           rows={rows.results}
           getKey={(r) => r.id}
           minWidth="72rem"
-          maxHeight="40rem"
           empty={gap ? "No rows with that gap — nothing to fix here" : "No rows"}
           columns={[
             {
@@ -480,7 +479,6 @@ export function AccreditationPage() {
               rows={t.rows}
               getKey={(_r, i) => `${t.name}-${i}`}
               minWidth={t.columns.length > 5 ? "60rem" : undefined}
-              maxHeight="26rem"
               empty="No rows for this year"
               columns={t.columns.map((c, i) => ({
                 key: `${c}-${i}`,

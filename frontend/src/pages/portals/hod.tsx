@@ -267,7 +267,6 @@ export function HodOverviewPage() {
           rows={[...data.people].sort((a, b) => b.publications - a.publications)}
           getKey={(p) => p.id}
           minWidth="44rem"
-          maxHeight="34rem"
           empty="Nobody on record in this department"
           columns={[
             {
@@ -484,7 +483,6 @@ export function HodPublicationsPage() {
             rows={data.results}
             getKey={(p) => p.id}
             minWidth="62rem"
-            maxHeight="40rem"
             empty="Nothing published yet"
             columns={[
               {

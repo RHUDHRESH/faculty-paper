@@ -484,7 +484,7 @@ export function ReportsPage() {
               />
             ) : null}
             {data.by_indexing?.length ? (
-              <div>
+              <div className="min-w-0">
                 <RankedBars
                   title="Where the journals are indexed"
                   dimension="Index"
@@ -569,19 +569,28 @@ export function ReportsPage() {
               description="The long tails, cut to what a chart can carry"
             >
               <div className="grid gap-6 lg:grid-cols-2">
-                <div>
+                <div className="min-w-0">
                   <RankedBars
                     title="Most-used journals"
                     caption="By number of publications — open one for its record"
                     data={data.by_journal.rows}
                     unit="count"
+                    // Show every row the server sent. The cap is the server's
+                    // and HiddenTail states it; a second "N more" counted off
+                    // the chart's own limit sat beside it saying a different
+                    // number.
+                    limit={data.by_journal.rows.length}
                     dimension="Journal"
                     itemNoun="paper"
-                    linkFor={(d) => `${journalBase}?title=${encodeURIComponent(d.key)}`}
+                    linkFor={(d) =>
+                      isAbsentLabel(d.key)
+                        ? null
+                        : `${journalBase}?title=${encodeURIComponent(d.key)}`
+                    }
                   />
                   <HiddenTail cap={data.by_journal} unit="count" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <RankedBars
                     title="Most published"
                     dimension="Person"
@@ -589,6 +598,7 @@ export function ReportsPage() {
                     linkFor={(d) => (d.id ? `${base}/${d.id}` : null)}
                     caption="Faculty by number of publications"
                     data={data.top_by_publications?.rows || []}
+                    limit={(data.top_by_publications?.rows || []).length}
                     unit="count"
                   />
                   <HiddenTail cap={data.top_by_publications} unit="count" />
@@ -600,6 +610,7 @@ export function ReportsPage() {
                     linkFor={(d) => (d.id ? `${base}/${d.id}` : null)}
                     caption="Faculty by amount received, largest first"
                     data={data.top_by_amount?.rows || []}
+                    limit={(data.top_by_amount?.rows || []).length}
                   />
                   <HiddenTail cap={data.top_by_amount} unit="money" />
                 </div>
@@ -667,7 +678,11 @@ export function ReportsPage() {
                 // the record carries its ranking, its SNIP and everyone at
                 // the college who publishes there, and a search for "Nature"
                 // also matches every paper with the word in its title.
-                linkFor={(r) => `${journalBase}?title=${encodeURIComponent(r.key)}`}
+                linkFor={(r) =>
+                  isAbsentLabel(r.key)
+                    ? null
+                    : `${journalBase}?title=${encodeURIComponent(r.key)}`
+                }
                 actionHint="Click a journal for its ranking and who publishes there"
               />
               <Breakdown

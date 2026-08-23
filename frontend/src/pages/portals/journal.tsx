@@ -360,7 +360,6 @@ export function JournalRecordPage() {
           getKey={(c) => c.id}
           rowLink={(c) => ticketHref(c.id)}
           minWidth="60rem"
-          maxHeight="40rem"
           empty="Nothing filed"
           columns={claimColumns}
         />

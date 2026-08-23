@@ -583,6 +583,16 @@ export function FinancePayoutsPage() {
                       <span className="text-base font-semibold">
                         <Money value={r.remuneration} />
                       </span>
+                      {/* A cleared ticket worth nothing still arrives here, and
+                          the row looked exactly like one worth ₹63,000 with a
+                          different number on it. Processing it is legitimate —
+                          it closes the ticket — but Finance should know they
+                          are recording a voucher for zero, not paying somebody. */}
+                      {!r.remuneration ? (
+                        <span className="mt-1 block text-xs font-normal text-warning-foreground">
+                          Nothing to pay — the policy computed zero
+                        </span>
+                      ) : null}
                       {r.needs_second_approval ? (
                         <Badge variant="secondary" className="mt-1 block w-fit text-[10px]">
                           Awaiting 2nd approval
@@ -987,6 +997,11 @@ export function FinancePaidPage() {
                     <span className="text-base font-semibold">
                       <Money value={r.remuneration} />
                     </span>
+                    {!r.remuneration ? (
+                      <span className="mt-0.5 block text-xs text-warning-foreground">
+                        Nothing to pay
+                      </span>
+                    ) : null}
                     <div className="mt-1">
                       <StatusChip status={r.status} />
                     </div>

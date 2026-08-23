@@ -399,12 +399,18 @@ export function RankedBars({
           const pct = (value(d) / max) * 100
           const isHover = hover === d.key
           const to = linkFor?.(d) || null
+          // `truncate` only clips if the element is a block that is allowed to
+          // shrink. Wrapping the label in a Link made the Link the flex item,
+          // and without min-w-0 and overflow-hidden on it the span inside kept
+          // its full intrinsic width -- so a conference title ran across the
+          // count and out through the side of the card.
           const name = (
             <span
               className={cn(
-                "truncate text-sm",
+                "block truncate text-sm",
                 to ? "text-primary underline-offset-4 group-hover:underline" : "text-foreground"
               )}
+              title={d.label || d.key}
             >
               {d.label || d.key}
             </span>
@@ -418,11 +424,11 @@ export function RankedBars({
             >
               <div className="mb-1 flex items-baseline justify-between gap-3">
                 {to ? (
-                  <Link to={to} className="interactive min-w-0">
+                  <Link to={to} className="interactive min-w-0 flex-1 overflow-hidden">
                     {name}
                   </Link>
                 ) : (
-                  name
+                  <span className="min-w-0 flex-1 overflow-hidden">{name}</span>
                 )}
                 {/* The value is labelled directly, so the bar never has to be
                     measured against an axis.

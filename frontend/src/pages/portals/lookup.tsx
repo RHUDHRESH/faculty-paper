@@ -331,6 +331,8 @@ export function facultyRecordBase(pathname: string): string {
 
 export function LookupPage() {
   const [params, setParams] = useSearchParams()
+  const lookupTicketHref = useTicketHref()
+  const lookupPortal = `/${(typeof window === "undefined" ? "/admin" : window.location.pathname).split("/")[1] || "admin"}`
   const recordBase = facultyRecordBase(
     typeof window === "undefined" ? "/admin" : window.location.pathname
   )
@@ -434,39 +436,53 @@ export function LookupPage() {
           ) : null}
 
           {data?.tickets.length ? (
-            <Section title="Tickets">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[42rem] text-left text-sm">
-                  <thead className="border-b border-border text-xs uppercase text-muted-foreground">
-                    <tr>
-                      {["Ticket", "Paper", "Faculty", "Amount", "Status"].map((h) => (
-                        <th key={h} className="px-3 py-2 font-medium">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.tickets.map((c) => (
-                      <tr key={c.id} className="border-b border-border/50 last:border-0">
-                        <td className="px-3 py-2 font-mono text-xs">{c.ticket_number || "—"}</td>
-                        <td className="max-w-[20rem] truncate px-3 py-2">{c.paper_title}</td>
-                        <td className="px-3 py-2">{c.owner_name}</td>
-                        <td className="px-3 py-2 font-medium">
-                          <Money value={c.remuneration} />
-                        </td>
-                        <td className="px-3 py-2">
-                          <StatusChip status={c.status} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <Section title="Tickets" description="Open one for its full history">
+              <DataTable
+                rows={data.tickets}
+                getKey={(c) => c.id}
+                // You searched for a ticket. Being shown a row and no way into
+                // it was the whole gap this screen had.
+                rowLink={(c) => lookupTicketHref(c.id)}
+                minWidth="46rem"
+                columns={[
+                  {
+                    key: "ticket",
+                    header: "Ticket",
+                    className: "font-mono text-xs",
+                    cell: (c) => c.ticket_number || "—",
+                  },
+                  {
+                    key: "paper",
+                    header: "Paper",
+                    className: "max-w-[20rem]",
+                    cell: (c) => <span className="line-clamp-2">{c.paper_title}</span>,
+                  },
+                  { key: "faculty", header: "Faculty", cell: (c) => c.owner_name },
+                  {
+                    key: "amount",
+                    header: "Amount",
+                    align: "right",
+                    cell: (c) => <Money value={c.remuneration} />,
+                  },
+                  {
+                    key: "status",
+                    header: "Status",
+                    className: "min-w-[11rem]",
+                    cell: (c) => (
+                      <div className="space-y-1">
+                        <StatusChip status={c.status} />
+                        <TicketProgress status={c.status} />
+                      </div>
+                    ),
+                  },
+                ]}
+              />
             </Section>
           ) : null}
         </div>
       )}
+
+      <TicketDialog portal={lookupPortal} />
     </div>
   )
 }

@@ -261,45 +261,37 @@ export function HodOverviewPage() {
         title="Your staff"
         description="Everybody in the department, most published first"
       >
-        <div className="overflow-x-auto rounded-[var(--radius)] border border-border">
-          <table className="w-full min-w-[44rem] text-left text-sm">
-            <thead className="border-b border-border bg-muted/30 text-xs uppercase text-muted-foreground">
-              <tr>
-                {["Name", "Designation", "Publications", "First author", "Q1"].map((h) => (
-                  <th key={h} className="px-3 py-2 font-medium">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {[...data.people]
-                .sort((a, b) => b.publications - a.publications)
-                .map((p) => (
-                  <tr
-                    key={p.id}
-                    className={cn(
-                      "border-b border-border/50 last:border-0",
-                      !p.active && "opacity-60"
-                    )}
-                  >
-                    <td className="px-3 py-2 font-medium">
-                      {p.name}
-                      {!p.active ? (
-                        <span className="ml-2 text-xs text-muted-foreground">(left)</span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {p.designation || "—"}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums">{p.publications}</td>
-                    <td className="px-3 py-2 tabular-nums">{p.first_author}</td>
-                    <td className="px-3 py-2 tabular-nums">{p.q1}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          rows={[...data.people].sort((a, b) => b.publications - a.publications)}
+          getKey={(p) => p.id}
+          minWidth="44rem"
+          maxHeight="34rem"
+          empty="Nobody on record in this department"
+          columns={[
+            {
+              key: "name",
+              header: "Name",
+              className: "font-medium",
+              cell: (p) => (
+                <span className={cn(!p.active && "opacity-60")}>
+                  {p.name}
+                  {!p.active ? (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">(left)</span>
+                  ) : null}
+                </span>
+              ),
+            },
+            {
+              key: "designation",
+              header: "Designation",
+              className: "text-muted-foreground",
+              cell: (p) => p.designation || "—",
+            },
+            { key: "pubs", header: "Publications", align: "right", cell: (p) => p.publications },
+            { key: "first", header: "First author", align: "right", cell: (p) => p.first_author },
+            { key: "q1", header: "Q1", align: "right", cell: (p) => p.q1 },
+          ]}
+        />
         {silent.length ? (
           <p className="mt-2 text-xs text-muted-foreground">
             {silent.length} member{silent.length === 1 ? " has" : "s have"} nothing filed

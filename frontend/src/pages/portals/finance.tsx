@@ -19,6 +19,7 @@ import {
   PageHeader,
 } from "@/components/layout/page"
 import { Money, StatusChip } from "@/components/ticket-ui"
+import { TableScroller, stickyHeadCell } from "@/components/data-table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,22 +71,28 @@ function TableShell({
   headers,
   children,
   empty,
+  maxHeight,
 }: {
   headers: string[]
   children: ReactNode
   empty?: ReactNode
+  maxHeight?: string
 }) {
   return (
-    <div className="surface-card overflow-hidden">
-      <div className="overflow-x-auto">
+    // No overflow-hidden on the card: it would become the containing block for
+    // the sticky header, which would then pin itself to the top of a box that
+    // scrolls off the page whole.
+    <div className="surface-card">
+      <TableScroller maxHeight={maxHeight}>
         <table className="w-full min-w-[640px] text-sm">
           <thead>
-            {/* The header is a quiet band, not another row of data: tinted
-                ground, small caps, and the same eyebrow treatment used for
-                section labels everywhere else. */}
-            <tr className="border-b border-border bg-muted/40 text-left">
-              {headers.map((h) => (
-                <th key={h} className="text-eyebrow whitespace-nowrap px-4 py-2.5">
+            {/* The header is a quiet band, not another row of data — and it
+                stays. Finance reads down a payment list looking at one column;
+                losing which column that was, forty rows in, is the difference
+                between checking an amount and guessing at one. */}
+            <tr>
+              {headers.map((h, i) => (
+                <th key={h || `blank-${i}`} scope="col" className={stickyHeadCell}>
                   {h}
                 </th>
               ))}
@@ -93,7 +100,7 @@ function TableShell({
           </thead>
           <tbody className="divide-y divide-border/70">{children}</tbody>
         </table>
-      </div>
+      </TableScroller>
       {empty}
     </div>
   )
@@ -638,14 +645,22 @@ export function FinancePayoutsPage() {
               skipped and listed, never silently paid.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="max-h-72 overflow-y-auto rounded-md border border-border/70">
+          <div className="rounded-md border border-border/70">
+            <TableScroller maxHeight="18rem">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">Order</th>
-                  <th className="px-3 py-2 font-medium">Faculty</th>
-                  <th className="px-3 py-2 font-medium">Amount</th>
-                  <th className="px-3 py-2 font-medium">Voucher</th>
+                {/* This is the last screen before money moves, and it can run
+                    to two hundred rows. The headings stay. */}
+                <tr>
+                  {/* No Voucher column: nothing on this dialog collects one
+                      -- vouchers are recorded against a payment after it is
+                      made -- so the heading advertised a column that could
+                      only ever come back empty. */}
+                  {["Order", "Faculty", "Amount"].map((h) => (
+                    <th key={h} scope="col" className={stickyHeadCell}>
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -660,6 +675,7 @@ export function FinancePayoutsPage() {
                 ))}
               </tbody>
             </table>
+            </TableScroller>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="bulk-note">Batch note (optional)</Label>

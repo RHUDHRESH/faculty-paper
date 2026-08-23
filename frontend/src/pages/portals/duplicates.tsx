@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog"
 import { api } from "@/lib/api"
 import { useApiQuery } from "@/lib/queries"
+import { TableScroller, stickyHeadCell } from "@/components/data-table"
 import { cn } from "@/lib/utils"
 
 /**
@@ -305,12 +306,13 @@ export function DuplicateFindingsPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 overflow-x-auto rounded-xl border border-border bg-background">
+                <div className="mt-3 rounded-xl border border-border bg-background">
+                  <TableScroller maxHeight="22rem">
                   <table className="w-full min-w-[34rem] text-left text-sm">
-                    <thead className="border-b border-border text-xs uppercase text-muted-foreground">
+                    <thead>
                       <tr>
                         {["Reference", "Paid to", "Month", "Amount"].map((h) => (
-                          <th key={h} className="px-3 py-2 font-medium">
+                          <th key={h} scope="col" className={cn(stickyHeadCell, "bg-background")}>
                             {h}
                           </th>
                         ))}
@@ -329,6 +331,7 @@ export function DuplicateFindingsPage() {
                       ))}
                     </tbody>
                   </table>
+                  </TableScroller>
                 </div>
 
                 {f.note ? (

@@ -20,6 +20,7 @@ import { useId, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 
 import { formatMoney } from "@/components/ticket-ui"
+import { TableScroller, stickyHeadCell } from "@/components/data-table"
 import { cn } from "@/lib/utils"
 
 /** One bar, slice or point. `amount` is absent wherever the reader is not
@@ -88,12 +89,19 @@ function Figure({
       </figcaption>
 
       {showTable ? (
-        <div className="max-h-80 overflow-auto">
+        <TableScroller maxHeight="20rem">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left">
+              <tr>
                 {columns.map((c) => (
-                  <th key={c} className="text-eyebrow whitespace-nowrap px-2 py-1.5">
+                  <th
+                    key={c}
+                    scope="col"
+                    // A chart with forty journals behind it is exactly where
+                    // the headings needed to stay: the columns are counts and
+                    // amounts, indistinguishable once the header has gone.
+                    className={cn(stickyHeadCell, "px-2 py-1.5")}
+                  >
                     {c}
                   </th>
                 ))}
@@ -114,7 +122,7 @@ function Figure({
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
       ) : (
         children
       )}

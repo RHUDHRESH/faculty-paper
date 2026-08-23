@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dialog"
 import { API_BASE, api } from "@/lib/api"
 import { useApiQuery } from "@/lib/queries"
+import { TableScroller, stickyHeadCell } from "@/components/data-table"
 import { cn } from "@/lib/utils"
 
 /**
@@ -393,13 +394,18 @@ export function DataExplorerPage() {
             {data.total.toLocaleString()} rows · {data.columns.length} columns
             {data.may_edit ? " · reference values are correctable" : " · read-only"}
           </p>
-          <div className="overflow-x-auto rounded-[var(--radius)] border border-border">
+          <div className="rounded-[var(--radius)] border border-border">
+            {/* The widest table in the app -- an arbitrary database table,
+                as many columns as it has -- and the one where losing the
+                headings hurts most, because the values are raw and a column
+                is often the only thing that says what one means. */}
+            <TableScroller maxHeight="42rem">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-border bg-muted/30 text-xs uppercase text-muted-foreground">
+              <thead>
                 <tr>
-                  <th className="px-3 py-2 font-medium" />
+                  <th className={stickyHeadCell} />
                   {shown.map((c) => (
-                    <th key={c.name} className="whitespace-nowrap px-3 py-2 font-medium">
+                    <th key={c.name} scope="col" className={stickyHeadCell}>
                       {c.name}
                       {c.editable ? (
                         <Pencil className="ml-1 inline size-3 text-primary" aria-label="editable" />
@@ -451,6 +457,7 @@ export function DataExplorerPage() {
                 ))}
               </tbody>
             </table>
+            </TableScroller>
           </div>
           <Pager total={data.total} limit={PAGE} offset={offset} onOffsetChange={setOffset} />
         </>

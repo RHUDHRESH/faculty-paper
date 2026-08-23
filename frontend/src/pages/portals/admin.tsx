@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth-provider"
 import { Callout } from "@/components/form/fields"
 import { EmptyState, ErrorState, InsetList, PageHeader, Section, StatStrip } from "@/components/layout/page"
 import { Money, StatusChip, formatDate, formatDateTime, formatMoney } from "@/components/ticket-ui"
+import { TableScroller, stickyHeadCell } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -53,23 +54,41 @@ function FormPanel({
   )
 }
 
-function DataTable({
+/**
+ * The shell three of this file's tables are built on, rows and all.
+ *
+ * Renamed off "DataTable" -- that name now belongs to the shared component,
+ * and this one is a different thing: it takes raw `<tr>`s rather than a
+ * columns array, which is right for the users list, where a row carries its
+ * own dialogs and buttons.
+ *
+ * It gets the two things it was missing from the shared pieces: a header that
+ * stays put, and an edge that shows when a column is off to the right. The
+ * eight-column users table is the one that needed it most -- Status and the
+ * actions sat past the fold on a laptop, invisible rather than merely
+ * off-screen.
+ */
+function RowTable({
   headers,
   children,
   empty,
+  maxHeight,
 }: {
   headers: string[]
   children: ReactNode
   empty?: ReactNode
+  maxHeight?: string
 }) {
   return (
-    <div className="surface-card overflow-hidden">
-      <div className="overflow-x-auto">
+    // No overflow-hidden on the card: it would become the containing block
+    // for the sticky header and pin it to the top of a box that scrolls away.
+    <div className="surface-card">
+      <TableScroller maxHeight={maxHeight}>
         <table className="w-full min-w-[480px] text-sm">
           <thead>
-            <tr className="border-b border-border bg-muted/40 text-left">
-              {headers.map((h) => (
-                <th key={h} className="text-eyebrow whitespace-nowrap px-4 py-2.5">
+            <tr>
+              {headers.map((h, i) => (
+                <th key={h || `blank-${i}`} scope="col" className={stickyHeadCell}>
                   {h}
                 </th>
               ))}
@@ -77,7 +96,7 @@ function DataTable({
           </thead>
           <tbody className="divide-y divide-border/70">{children}</tbody>
         </table>
-      </div>
+      </TableScroller>
       {empty}
     </div>
   )
@@ -315,7 +334,7 @@ export function AdminMonthlyPage() {
             description="Upload a CSV above to create your first monthly batch."
           />
         ) : (
-          <DataTable headers={["Name", "Status", ""]}>
+          <RowTable headers={["Name", "Status", ""]}>
             {batches.map((b) => (
               <tr key={String(b.id)} className="border-b border-border/50 last:border-0">
                 <td className="px-4 py-3 font-medium">{String(b.name)}</td>
@@ -372,7 +391,7 @@ export function AdminMonthlyPage() {
                 </td>
               </tr>
             ))}
-          </DataTable>
+          </RowTable>
         )}
       </Section>
 
@@ -404,9 +423,9 @@ export function AdminMonthlyPage() {
             </div>
             <table className="w-full min-w-[800px] text-xs">
               <thead>
-                <tr className="border-b border-border/60 text-left uppercase text-muted-foreground">
+                <tr>
                   {["#", "Title", "Status", "Link", "Journal", "DOI", "SNIP", "Eng"].map((h) => (
-                    <th key={h} className="px-2 py-2 font-medium">
+                    <th key={h} scope="col" className={cn(stickyHeadCell, "px-2 py-2")}>
                       {h}
                     </th>
                   ))}
@@ -1351,7 +1370,7 @@ export function AdminUsersPage() {
           />
         ) : (
           <>
-            <DataTable
+            <RowTable
               headers={["Email", "Name", "Role", "Department", "Staff ID", "Biometric ID", "Status", ""]}
             >
               {users.map((u) => {
@@ -1432,7 +1451,7 @@ export function AdminUsersPage() {
                   </tr>
                 )
               })}
-            </DataTable>
+            </RowTable>
             <Pager total={total} limit={PAGE} offset={offset} onOffsetChange={setOffset} />
           </>
         )}
@@ -1911,7 +1930,7 @@ export function AdminAuditPage() {
         />
       ) : (
         <>
-          <DataTable headers={["When", "Action", "Entity", "Actor", "Detail"]}>
+          <RowTable headers={["When", "Action", "Entity", "Actor", "Detail"]}>
             {rows.map((r) => {
               const detail = auditDetail(r.detail_json)
               return (
@@ -1944,7 +1963,7 @@ export function AdminAuditPage() {
                 </tr>
               )
             })}
-          </DataTable>
+          </RowTable>
           <Pager total={total} limit={PAGE} offset={offset} onOffsetChange={setOffset} />
         </>
       )}

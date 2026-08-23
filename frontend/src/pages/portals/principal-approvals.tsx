@@ -10,6 +10,7 @@ import { BatchResult, type Skipped } from "@/components/batch-result"
 import { FilterBar } from "@/components/filter-bar"
 import { Callout } from "@/components/form/fields"
 import { EmptyState, ErrorState, PageHeader, Section } from "@/components/layout/page"
+import { TableScroller, stickyHeadCell } from "@/components/data-table"
 import { Money, StatusChip, formatMoney } from "@/components/ticket-ui"
 import { LoadingTable } from "@/components/loading"
 import { Button } from "@/components/ui/button"
@@ -542,14 +543,15 @@ export function PrincipalApprovalsPage() {
             })}
           </ul>
 
-          <div className="hidden overflow-x-auto rounded-[var(--radius)] border border-border lg:block">
+          <div className="hidden rounded-[var(--radius)] border border-border lg:block">
             {/* Narrower than it was: the pinned actions column sat on top of
                 the amount whenever the table was wider than its container,
                 so a row read "Rs 12,34" with the rest under the button. */}
+            <TableScroller maxHeight="38rem">
             <table className="w-full min-w-[52rem] text-left text-sm">
-              <thead className="border-b border-border bg-muted/30 text-xs uppercase text-muted-foreground">
+              <thead>
                 <tr>
-                  <th className="px-3 py-2">
+                  <th className={cn(stickyHeadCell, "px-3")}>
                     <Checkbox
                       checked={rows.every((r) => picked.has(r.id))}
                       onCheckedChange={toggleAllOnPage}
@@ -557,14 +559,15 @@ export function PrincipalApprovalsPage() {
                     />
                   </th>
                   {["Ticket", "Paper", "Faculty", "Quartile", "Waiting", "Amount"].map((h) => (
-                    <th key={h} className="px-3 py-2 font-medium">
+                    <th key={h} scope="col" className={stickyHeadCell}>
                       {h}
                     </th>
                   ))}
-                  {/* Pinned: the table is wider than the pane, and an action
-                      that scrolls off the right edge is an action nobody
-                      finds. */}
-                  <th className="sticky right-0 border-l border-border bg-muted/30 px-3 py-2 font-medium" />
+                  {/* Pinned both ways: right, because an action that scrolls
+                      off the edge is an action nobody finds; and top, with
+                      the rest of the header. The corner needs a higher layer
+                      than either, or the row cells slide over it. */}
+                  <th className={cn(stickyHeadCell, "sticky right-0 z-20 border-l border-border")} />
                 </tr>
               </thead>
               <tbody>
@@ -649,6 +652,7 @@ export function PrincipalApprovalsPage() {
                 })}
               </tbody>
             </table>
+            </TableScroller>
           </div>
 
           <Pager

@@ -114,6 +114,12 @@ export function SearchPage() {
   const [engineering, setEngineering] = useState(params.get("engineering_class") || ANY)
   const [year, setYear] = useState(params.get("year") || "")
   const [sort, setSort] = useState("recent")
+  // Narrowing to one person or one journal arrives by link only -- there is no
+  // dropdown for "this author", because you get here by clicking their name.
+  // Both stay visible as a chip so the totals below are never a mystery.
+  const [owner, setOwner] = useState(params.get("owner") || "")
+  const [ownerName] = useState(params.get("owner_name") || "")
+  const [journal, setJournal] = useState(params.get("journal") || "")
 
   const [selected, setSelected] = useState<Claim | null>(null)
   const [offset, setOffset] = useState(0)
@@ -136,11 +142,13 @@ export function SearchPage() {
     if (category !== ANY) p.set("category", category)
     if (engineering !== ANY) p.set("engineering_class", engineering)
     if (year.trim()) p.set("year", year.trim())
+    if (owner) p.set("owner", owner)
+    if (journal) p.set("journal", journal)
     p.set("sort", sort)
     p.set("limit", String(PAGE))
     p.set("offset", String(offset))
     return p.toString()
-  }, [debouncedQ, department, status, quartile, category, engineering, year, sort, offset])
+  }, [debouncedQ, department, status, quartile, category, engineering, year, owner, journal, sort, offset])
 
   const { data, isLoading: loading, isError, refetch } = useApiQuery<Results>(
     ["search", query],
@@ -159,6 +167,8 @@ export function SearchPage() {
     category !== ANY,
     engineering !== ANY,
     year.trim(),
+    owner,
+    journal,
   ].filter(Boolean).length
 
   function reset() {
@@ -170,6 +180,8 @@ export function SearchPage() {
     setCategory(ANY)
     setEngineering(ANY)
     setYear("")
+    setOwner("")
+    setJournal("")
     setSort("recent")
     setOffset(0)
   }
@@ -287,6 +299,36 @@ export function SearchPage() {
           </Button>
         ) : null}
       </div>
+
+      {/* Arrived here from somebody's record or a journal's. Say so, and let
+          it be dropped: a filter narrowing the totals while invisible is how
+          a reader ends up quoting a wrong figure. */}
+      {owner || journal ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {owner ? (
+            <button
+              type="button"
+              onClick={() => { setOwner(""); setOffset(0) }}
+              className="interactive inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs hover:border-destructive/50"
+            >
+              <span className="text-muted-foreground">Author:</span>
+              <span className="font-medium">{ownerName || "one person"}</span>
+              <X className="size-3 text-muted-foreground" aria-hidden />
+            </button>
+          ) : null}
+          {journal ? (
+            <button
+              type="button"
+              onClick={() => { setJournal(""); setOffset(0) }}
+              className="interactive inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs hover:border-destructive/50"
+            >
+              <span className="text-muted-foreground">Journal:</span>
+              <span className="font-medium">{journal}</span>
+              <X className="size-3 text-muted-foreground" aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Totals for the whole match, not the page — otherwise the number on
           screen answers a different question than the one asked. */}

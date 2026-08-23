@@ -3,8 +3,7 @@
 import { useMemo, useState } from "react"
 
 import { asNumber, useUrlState } from "@/lib/url-state"
-import { Link } from "lucide-react"
-import { Download, ExternalLink, Search, Users } from "lucide-react"
+import { Download, ExternalLink, Search } from "lucide-react"
 
 import { MixBar, RankedBars, TrendChart } from "@/components/charts"
 import { Callout } from "@/components/form/fields"
@@ -14,6 +13,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Pager } from "@/components/ui/pagination"
+import { DataTable } from "@/components/data-table"
+import { JournalLink } from "@/components/journal-link"
 import {
   Select,
   SelectContent,
@@ -210,6 +211,7 @@ export function HodOverviewPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <RankedBars
           title="Where the department publishes"
+          dimension="Quartile"
           caption="By journal quartile"
           data={data.by_quartile}
           unit="count"
@@ -217,6 +219,7 @@ export function HodOverviewPage() {
         />
         <MixBar
           title="Quartile mix"
+          dimension="Quartile"
           caption="Share of the department's output"
           data={data.by_quartile}
           measure="count"
@@ -224,6 +227,7 @@ export function HodOverviewPage() {
         {data.by_indexing.length ? (
           <RankedBars
             title="Where the journals are indexed"
+            dimension="Index"
             caption="A journal is often listed in several places, so a paper counts under each"
             data={data.by_indexing}
             unit="count"
@@ -233,6 +237,7 @@ export function HodOverviewPage() {
         {data.by_type.length ? (
           <RankedBars
             title="Kind of publication"
+            dimension="Kind"
             caption="Journal articles, conference proceedings, book chapters"
             data={data.by_type}
             unit="count"
@@ -244,6 +249,7 @@ export function HodOverviewPage() {
       {data.by_journal.length ? (
         <RankedBars
           title="Most-used journals"
+          dimension="Journal"
           caption="Where your department publishes most often"
           data={data.by_journal}
           unit="count"
@@ -480,62 +486,73 @@ export function HodPublicationsPage() {
           <p className="text-xs text-muted-foreground">
             {data.total.toLocaleString()} publication{data.total === 1 ? "" : "s"}
           </p>
-          <div className="overflow-x-auto rounded-[var(--radius)] border border-border">
-            <table className="w-full min-w-[62rem] text-left text-sm">
-              <thead className="border-b border-border bg-muted/30 text-xs uppercase text-muted-foreground">
-                <tr>
-                  {["Paper", "Person", "Journal", "Year", "Quartile", "Authorship", "Progress"].map(
-                    (h) => (
-                      <th key={h} className="px-3 py-2 font-medium">
-                        {h}
-                      </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {data.results.map((p) => (
-                  <tr key={p.id} className="border-b border-border/50 last:border-0 hover:bg-accent/20">
-                    <td className="max-w-[24rem] px-3 py-2">
-                      <span className="block truncate font-medium">{p.paper_title}</span>
-                      {p.scopus_url ? (
-                        <a
-                          href={p.scopus_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="interactive mt-0.5 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                        >
-                          Open in Scopus
-                          <ExternalLink className="size-3" aria-hidden />
-                        </a>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2">{p.owner_name}</td>
-                    <td className="max-w-[14rem] truncate px-3 py-2 text-muted-foreground">
-                      {p.journal_title || "—"}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums">{p.publication_year || "—"}</td>
-                    <td className="px-3 py-2">{p.quartile || "—"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
-                      {p.author_position && p.total_authors
-                        ? `${p.author_position} of ${p.total_authors}`
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={cn(
-                          "rounded-full px-2 py-0.5 text-xs font-medium",
-                          PROGRESS_TONE[p.progress] || "bg-muted text-muted-foreground"
-                        )}
+          <DataTable
+            rows={data.results}
+            getKey={(p) => p.id}
+            minWidth="62rem"
+            maxHeight="40rem"
+            empty="Nothing published yet"
+            columns={[
+              {
+                key: "paper",
+                header: "Paper",
+                className: "max-w-[24rem]",
+                cell: (p) => (
+                  <>
+                    <span className="block truncate font-medium">{p.paper_title}</span>
+                    {p.scopus_url ? (
+                      <a
+                        href={p.scopus_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="interactive mt-0.5 inline-flex items-center gap-1 text-xs text-primary hover:underline"
                       >
-                        {p.progress}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        Open in Scopus
+                        <ExternalLink className="size-3" aria-hidden />
+                      </a>
+                    ) : null}
+                  </>
+                ),
+              },
+              { key: "person", header: "Person", cell: (p) => p.owner_name },
+              {
+                key: "journal",
+                header: "Journal",
+                className: "max-w-[14rem]",
+                cell: (p) => <JournalLink title={p.journal_title} portal="/hod" />,
+              },
+              {
+                key: "year",
+                header: "Year",
+                align: "right",
+                cell: (p) => p.publication_year || "—",
+              },
+              { key: "quartile", header: "Quartile", cell: (p) => p.quartile || "—" },
+              {
+                key: "authorship",
+                header: "Authorship",
+                className: "whitespace-nowrap text-muted-foreground",
+                cell: (p) =>
+                  p.author_position && p.total_authors
+                    ? `${p.author_position} of ${p.total_authors}`
+                    : "—",
+              },
+              {
+                key: "progress",
+                header: "Progress",
+                cell: (p) => (
+                  <span
+                    className={cn(
+                      "whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
+                      PROGRESS_TONE[p.progress] || "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {p.progress}
+                  </span>
+                ),
+              },
+            ]}
+          />
           <Pager total={data.total} limit={PAGE} offset={offset} onOffsetChange={setOffset} />
         </>
       )}

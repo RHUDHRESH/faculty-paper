@@ -256,6 +256,9 @@ export type Claim = {
   second_approved_by_name?: string | null;
   second_approved_at?: string | null;
   needs_second_approval?: boolean;
+  /** Days at the current step. On the payload since the four-step chain
+   *  landed, but no queue displayed it. */
+  waiting_days?: number | null;
   actions?: Array<{
     id: string;
     action: string;

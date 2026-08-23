@@ -54,9 +54,32 @@ def normalize_doi(doi: str | None) -> str | None:
 
 
 def normalize_issn(issn: str | None) -> str | None:
+    """An ISSN as eight characters, whatever a spreadsheet did to it first.
+
+    Two things happen to ISSNs on the way in, both from being read as numbers:
+
+    - A trailing ".0" from a float. Stripping non-digits made "2728842.0" into
+      "27288420" -- eight characters, so it passed the length check and was
+      returned as "2728-8420", a real-looking ISSN belonging to nobody. A
+      wrong match is worse than no match, because it attaches another
+      journal's quartile to this one, and quartile is a term in the payout.
+    - A lost leading zero: ISSN 0272-8842 arrives as "2728842". Seven
+      characters failed the check and were passed through unchanged, so it
+      never matched the reference data, which stores the zero.
+
+    Nine thousand nine hundred and ninety-three reference rows carry the
+    first, and the claim table carries the second.
+    """
     if not issn:
         return None
-    cleaned = re.sub(r"[^0-9Xx]", "", issn).upper()
+    text = issn.strip()
+    # Only when the whole value looks like a float, so an ISSN legitimately
+    # ending in 0 is untouched.
+    if re.fullmatch(r"\d+\.0+", text):
+        text = text.split(".")[0]
+    cleaned = re.sub(r"[^0-9Xx]", "", text).upper()
+    if len(cleaned) == 7:
+        cleaned = "0" + cleaned
     if len(cleaned) != 8:
         return issn.strip()
     return f"{cleaned[:4]}-{cleaned[4:]}"

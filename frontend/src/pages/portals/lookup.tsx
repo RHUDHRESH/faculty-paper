@@ -1,12 +1,15 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom"
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { Download, Search, User2 } from "lucide-react"
 
 import { MixBar, RankedBars, TrendChart } from "@/components/charts"
 import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
-import { Money, StatusChip, formatMoney } from "@/components/ticket-ui"
+import { Money, StatusChip, TicketProgress, formatMoney } from "@/components/ticket-ui"
+import { DataTable } from "@/components/data-table"
+import { TicketDialog, useTicketHref } from "@/components/ticket-dialog"
+import { JournalLink } from "@/components/journal-link"
 import { LoadingPage } from "@/components/loading"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -96,6 +99,9 @@ export function FacultyRecordPage() {
 
 /** Everything one person has published and been paid. */
 function FacultyReportPanel({ id }: { id: string }) {
+  const loc = useLocation()
+  const portal = `/${loc.pathname.split("/")[1] || "admin"}`
+  const ticketHref = useTicketHref()
   const { data, isLoading, isError, refetch } = useApiQuery<FacultyReport>(
     ["faculty-report", id],
     `/api/faculty/${id}/report`
@@ -106,6 +112,9 @@ function FacultyReportPanel({ id }: { id: string }) {
 
   const f = data.faculty as Record<string, string | null>
   const t = data.totals
+  // Bound explicitly: a bare `name` resolves to the deprecated window.name,
+  // which is typed void, so every drill-down link silently took nothing.
+  const personName = f.name || "this person"
 
   return (
     <div className="space-y-6">
@@ -159,14 +168,22 @@ function FacultyReportPanel({ id }: { id: string }) {
       <div className="grid gap-6 lg:grid-cols-2">
         <RankedBars
           title="Where this person publishes"
-          caption="Publications by journal quartile"
+          caption="Publications by journal quartile — open one to see which papers"
           data={data.by_quartile}
           unit="count"
+          dimension="Quartile"
+          itemNoun="paper"
+          linkFor={(d) =>
+            d.key.startsWith("Q")
+              ? `${portal}/query?owner=${id}&owner_name=${encodeURIComponent(personName)}&quartile=${d.key}`
+              : null
+          }
         />
         <MixBar
           title="By journal quartile"
           caption="Share of what this person has been paid"
           data={data.by_quartile}
+          dimension="Quartile"
         />
         {data.by_position?.length ? (
           <RankedBars
@@ -174,14 +191,23 @@ function FacultyReportPanel({ id }: { id: string }) {
             caption="First authorship is what the policy pays on, and what panels ask about"
             data={data.by_position}
             unit="count"
+            dimension="Position"
+            itemNoun="paper"
           />
         ) : null}
         {data.by_journal?.length ? (
           <RankedBars
             title="Journals used"
-            caption="Most-used first"
+            caption="Most-used first — open one for its ranking and who else publishes there"
             data={data.by_journal}
             unit="count"
+            dimension="Journal"
+            itemNoun="paper"
+            linkFor={(d) =>
+              d.key && d.key !== "Not recorded"
+                ? `${portal}/journal?title=${encodeURIComponent(d.key)}`
+                : null
+            }
           />
         ) : null}
         {data.by_type?.length ? (
@@ -190,13 +216,22 @@ function FacultyReportPanel({ id }: { id: string }) {
             caption="Journal articles, conference proceedings, book chapters"
             data={data.by_type}
             unit="count"
+            dimension="Kind"
+            itemNoun="paper"
           />
         ) : null}
         <RankedBars
           title="By status"
-          caption="Where each ticket has got to"
+          caption="Where each ticket has got to — open one to list them"
           data={data.by_status}
           unit="count"
+          dimension="Status"
+          itemNoun="ticket"
+          linkFor={(d) =>
+            d.key && d.key !== "—"
+              ? `${portal}/query?owner=${id}&owner_name=${encodeURIComponent(personName)}&status=${d.key}`
+              : null
+          }
         />
       </div>
 
@@ -213,53 +248,76 @@ function FacultyReportPanel({ id }: { id: string }) {
         </Section>
       ) : null}
 
-      <Section title="Every ticket" description="Newest first">
-        {data.claims.length === 0 ? (
-          <EmptyState title="Nothing filed yet" />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[54rem] text-left text-sm">
-              <thead className="border-b border-border text-xs uppercase text-muted-foreground">
-                <tr>
-                  {["Ticket", "Paper", "Journal", "Year", "Quartile", "Amount", "Status"].map(
-                    (h) => (
-                      <th key={h} className="px-3 py-2 font-medium">
-                        {h}
-                      </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {data.claims.map((c) => (
-                  <tr key={c.id} className="border-b border-border/50 last:border-0">
-                    <td className="px-3 py-2 font-mono text-xs">
-                      <Link
-                        to={`?ticket=${c.id}`}
-                        className="text-primary underline-offset-4 hover:underline"
-                      >
-                        {c.ticket_number || "—"}
-                      </Link>
-                    </td>
-                    <td className="max-w-[18rem] truncate px-3 py-2">{c.paper_title}</td>
-                    <td className="max-w-[12rem] truncate px-3 py-2 text-muted-foreground">
-                      {c.journal_title || "—"}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums">{c.publication_year || "—"}</td>
-                    <td className="px-3 py-2">{c.quartile || "—"}</td>
-                    <td className="px-3 py-2 font-medium">
-                      <Money value={c.remuneration} />
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusChip status={c.status} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <Section
+        title="Every ticket"
+        description="Newest first — each one opens its full history"
+        actions={
+          <Button asChild variant="ghost" size="sm">
+            <Link to={`${portal}/query?owner=${id}&owner_name=${encodeURIComponent(personName)}`}>
+              Open all in Query
+            </Link>
+          </Button>
+        }
+      >
+        <DataTable
+          rows={data.claims}
+          getKey={(c) => c.id}
+          rowLink={(c) => ticketHref(c.id)}
+          minWidth="62rem"
+          maxHeight="38rem"
+          empty="Nothing filed yet"
+          columns={[
+            {
+              key: "ticket",
+              header: "Ticket",
+              className: "font-mono text-xs",
+              cell: (c) => c.ticket_number || "—",
+            },
+            {
+              key: "paper",
+              header: "Paper",
+              className: "max-w-[22rem]",
+              cell: (c) => <span className="line-clamp-2">{c.paper_title || "Untitled"}</span>,
+            },
+            {
+              key: "journal",
+              header: "Journal",
+              className: "max-w-[14rem]",
+              // The name is the door to the journal's own record: its ranking,
+              // its SNIP, and everyone else at the college publishing there.
+              cell: (c) => <JournalLink title={c.journal_title} portal={portal} />,
+            },
+            {
+              key: "year",
+              header: "Year",
+              align: "right",
+              cell: (c) => c.publication_year || "—",
+            },
+            { key: "quartile", header: "Quartile", cell: (c) => c.quartile || "—" },
+            {
+              key: "amount",
+              header: "Amount",
+              align: "right",
+              cell: (c) => <Money value={c.remuneration} />,
+            },
+            {
+              key: "status",
+              header: "Status",
+              className: "min-w-[11rem]",
+              cell: (c) => (
+                <div className="space-y-1">
+                  <StatusChip status={c.status} />
+                  <TicketProgress status={c.status} />
+                </div>
+              ),
+            },
+          ]}
+        />
       </Section>
+
+      {/* A ticket number on this page opens the ticket, which is what it
+          always looked like it would do. */}
+      <TicketDialog portal={portal} />
     </div>
   )
 }

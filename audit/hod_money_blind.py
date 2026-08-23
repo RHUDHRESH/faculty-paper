@@ -54,10 +54,18 @@ FORBIDDEN = [
 ]
 
 #: Everything a head is meant to reach.
+#:
+#: The journal endpoints were opened to heads deliberately -- "which journals
+#: does my department publish in, and are they any good" is their question --
+#: so they are scoped to the head's own department server-side and stripped of
+#: money by the same rule as every other screen they can see. Listed here so
+#: the grep below actually reads what comes back.
 ALLOWED = [
     "/api/hod/overview",
     "/api/hod/publications?limit=50",
     "/api/hod/export?fmt=csv",
+    "/api/journals/top?limit=25",
+    "/api/journals/report?title=Scientific+Reports",
 ]
 
 problems: list[str] = []

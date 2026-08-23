@@ -226,6 +226,7 @@ export function ReportsPage() {
   const { pathname } = useLocation()
   const base = recordBase(pathname)
   const queryBase = `/${pathname.split("/")[1] || "admin"}/query`
+  const journalBase = `/${pathname.split("/")[1] || "admin"}/journal`
   // A report nobody can send is a report somebody screenshots.
   const [state, setState] = useUrlState({
     year: ALL,
@@ -450,6 +451,7 @@ export function ReportsPage() {
             />
             <MixBar
               title="By journal quartile"
+              dimension="Quartile"
               caption="Share of spend by where the journal ranks"
               data={data.by_quartile}
             />
@@ -469,6 +471,8 @@ export function ReportsPage() {
             {data.by_type?.length ? (
               <RankedBars
                 title="Kind of publication"
+                dimension="Kind"
+                itemNoun="paper"
                 caption="Journal articles, conference proceedings, book chapters"
                 data={data.by_type}
                 unit="count"
@@ -478,6 +482,8 @@ export function ReportsPage() {
               <div>
                 <RankedBars
                   title="Where the journals are indexed"
+                  dimension="Index"
+                  itemNoun="paper"
                   caption="A journal is often listed in several places, so a paper counts under each"
                   data={data.by_indexing}
                   unit="count"
@@ -516,6 +522,7 @@ export function ReportsPage() {
             {data.by_designation?.length ? (
               <RankedBars
                 title="By designation"
+                dimension="Designation"
                 caption="Who is publishing, by grade"
                 data={data.by_designation}
                 unit="count"
@@ -532,15 +539,21 @@ export function ReportsPage() {
                 <div>
                   <RankedBars
                     title="Most-used journals"
-                    caption="By number of publications"
+                    caption="By number of publications — open one for its record"
                     data={data.by_journal.rows}
                     unit="count"
+                    dimension="Journal"
+                    itemNoun="paper"
+                    linkFor={(d) => `${journalBase}?title=${encodeURIComponent(d.key)}`}
                   />
                   <HiddenTail cap={data.by_journal} unit="count" />
                 </div>
                 <div>
                   <RankedBars
                     title="Most published"
+                    dimension="Person"
+                    itemNoun="paper"
+                    linkFor={(d) => (d.id ? `${base}/${d.id}` : null)}
                     caption="Faculty by number of publications"
                     data={data.top_by_publications?.rows || []}
                     unit="count"
@@ -550,6 +563,8 @@ export function ReportsPage() {
                 <div className="lg:col-span-2">
                   <RankedBars
                     title="Most paid"
+                    dimension="Person"
+                    linkFor={(d) => (d.id ? `${base}/${d.id}` : null)}
                     caption="Faculty by amount received, largest first"
                     data={data.top_by_amount?.rows || []}
                   />
@@ -607,8 +622,12 @@ export function ReportsPage() {
               <Breakdown
                 title="Most-used journals"
                 rows={data.by_journal?.rows || []}
-                linkFor={(r) => `${queryBase}?q=${encodeURIComponent(r.key)}`}
-                actionHint="Click a journal to see the papers published in it"
+                // The journal's own record, not a text search for its name:
+                // the record carries its ranking, its SNIP and everyone at
+                // the college who publishes there, and a search for "Nature"
+                // also matches every paper with the word in its title.
+                linkFor={(r) => `${journalBase}?title=${encodeURIComponent(r.key)}`}
+                actionHint="Click a journal for its ranking and who publishes there"
               />
               <Breakdown
                 title="By indexing"

@@ -3497,6 +3497,14 @@ def _search_queryset(user: User, **f):
         qs = qs.filter(publication_year__lte=f["year_to"])
     if f.get("min_amount") is not None:
         qs = qs.filter(remuneration__gte=f["min_amount"])
+    # Narrowing to one person or one journal is what every drill-down from a
+    # record page needs. Without them a chart on Dr X's page linked to the
+    # college's Q1 papers rather than to hers, which is a worse answer than
+    # no link at all.
+    if f.get("owner"):
+        qs = qs.filter(owner_id=f["owner"])
+    if f.get("journal"):
+        qs = qs.filter(journal_title__iexact=f["journal"])
     return qs
 
 
@@ -3525,6 +3533,8 @@ def search_claims(
     year_from: Optional[int] = None,
     year_to: Optional[int] = None,
     min_amount: Optional[float] = None,
+    owner: Optional[str] = None,
+    journal: Optional[str] = None,
     sort: str = "recent",
     limit: int = 100,
     offset: int = 0,
@@ -3545,7 +3555,7 @@ def search_claims(
         q=q, department=department, status=status, quartile=quartile,
         category=category, engineering_class=engineering_class,
         indexing=indexing, year=year, year_from=year_from, year_to=year_to,
-        min_amount=min_amount,
+        min_amount=min_amount, owner=owner, journal=journal,
     )
     total = qs.count()
     total_amount = qs.aggregate(s=Sum("remuneration"))["s"] or 0
@@ -3984,6 +3994,270 @@ def reports_pack(request: HttpRequest, year: Optional[int] = None, fmt: str = "x
         detail_json=json.dumps({"year": year, "rows": len(pack["NAAC 3.4.3"]["rows"])}),
     )
     return res
+
+
+# ---------- journals ----------
+
+
+def _issn_variants(issn: str | None) -> list[str]:
+    """Every spelling of one ISSN that the stored data actually uses.
+
+    Three conventions ended up in the tables, all of the same number: dashed
+    ("0272-8842"), bare ("02728842"), and float-mangled ("2728842.0") from
+    9,993 reference rows a spreadsheet had opened. Matching only one of them
+    is why a journal with an ISSN on file still fell back to a title search.
+    """
+    if not issn:
+        return []
+    cleaned = normalize_issn(issn) or ""
+    bare = cleaned.replace("-", "")
+    out = {cleaned, bare, issn.strip()}
+    if bare.isdigit():
+        out.add(f"{int(bare)}.0")  # the leading zero the float dropped
+        out.add(str(int(bare)))
+    return [v for v in out if v]
+
+
+def _journal_reference(title: str, issn: str | None) -> dict[str, Any]:
+    """What the reference data knows about this journal, if anything.
+
+    Claims carry a title and usually nothing else, so the ISSN route is tried
+    first and the title second. A near-match on a truncated title is worse
+    than no match -- it would attach another journal's SJR to this one -- so
+    the title lookup demands the whole name, case-insensitively.
+    """
+    out: dict[str, Any] = {"scimago": None, "snip": None}
+
+    scimago_qs = ScimagoJournal.objects.all()
+    row = None
+    variants = _issn_variants(issn)
+    if variants:
+        row = (
+            scimago_qs.filter(issn__in=variants).order_by("-year").first()
+            or scimago_qs.filter(eissn__in=variants).order_by("-year").first()
+        )
+    if row is None and title:
+        row = scimago_qs.filter(title__iexact=title).order_by("-year").first()
+    if row is not None:
+        try:
+            categories = json.loads(row.categories_json or "[]")
+        except (ValueError, TypeError):
+            categories = []
+        # Scimago nests the quartile inside each subject category, so a journal
+        # is Q1 in one field and Q3 in another. Both are true; the best one is
+        # what the policy pays on, and hiding the rest would misdescribe it.
+        labels: list[dict[str, Any]] = []
+        for c in categories if isinstance(categories, list) else []:
+            if isinstance(c, dict):
+                name = c.get("category") or c.get("name") or ""
+                q = c.get("quartile") or c.get("Quartile") or ""
+                if name:
+                    labels.append({"category": str(name), "quartile": str(q or "—")})
+        out["scimago"] = {
+            "sjr": row.sjr,
+            "year": row.year,
+            "issn": row.issn,
+            "eissn": row.eissn,
+            "verified_live": row.verified_live,
+            "categories": labels[:12],
+            "best_quartile": min(
+                (c["quartile"] for c in labels if c["quartile"].startswith("Q")),
+                default=None,
+            ),
+        }
+
+    snip_row = None
+    if variants:
+        snip_row = (
+            SnipSource.objects.filter(print_issn__in=variants).first()
+            or SnipSource.objects.filter(e_issn__in=variants).first()
+        )
+    if snip_row is None and title:
+        snip_row = SnipSource.objects.filter(title__iexact=title).first()
+    if snip_row is not None:
+        out["snip"] = {"snip": snip_row.snip, "sjr": snip_row.sjr, "year": snip_row.year}
+
+    return out
+
+
+@api.get("/journals/report", auth=session_auth)
+def journal_report(request: HttpRequest, title: str):
+    """One journal: what it is, and what the college has published in it.
+
+    A head of department sees the same record narrowed to their own staff and
+    with the money taken out, which is the rule everywhere else they look.
+    """
+    user = require_user(request)
+    is_head = user.role == Role.HOD
+    if not (
+        is_head
+        or rbac.can_view_reports(user.role)
+        or rbac.can_manage_users(user.role)
+    ):
+        raise HttpError(403, "Forbidden")
+
+    name = (title or "").strip()
+    if not name:
+        raise HttpError(400, "Name a journal.")
+
+    if is_head:
+        base = _hod_scope(user)
+    else:
+        base = Claim.objects.exclude(status=ClaimStatus.DRAFT)
+    claims = list(
+        base.filter(journal_title__iexact=name)
+        .select_related("owner")
+        .order_by("-publication_year", "-updated_at")
+    )
+    if not claims:
+        raise HttpError(404, "No publication on record names that journal.")
+
+    paid = [c for c in claims if c.status == ClaimStatus.PAID]
+
+    def group(field: str, blank: str) -> list[dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        for c in claims:
+            raw = getattr(c, field, None)
+            key = (str(raw).strip() or blank) if raw not in (None, "") else blank
+            slot = out.setdefault(key, {"key": key, "count": 0, "amount": 0.0})
+            slot["count"] += 1
+            slot["amount"] += c.remuneration or 0
+        return sorted(out.values(), key=lambda r: -r["count"])
+
+    # One row per author, so "who publishes here" is answerable without
+    # reading the ticket list -- and each row carries the id, so the name is
+    # a door to that person's record rather than a label.
+    authors: dict[str, dict[str, Any]] = {}
+    for c in claims:
+        owner = c.owner
+        if owner is None:
+            continue
+        slot = authors.setdefault(
+            owner.id,
+            {
+                "key": owner.name or owner.email,
+                "id": owner.id,
+                "department": owner.department or "—",
+                "count": 0,
+                "amount": 0.0,
+            },
+        )
+        slot["count"] += 1
+        slot["amount"] += c.remuneration or 0
+
+    years = [c.publication_year for c in claims if c.publication_year]
+    # The ISSN is worth having from any ticket that recorded one, because the
+    # reference lookup is far more reliable with it than with a title.
+    issn = next((c.issn for c in claims if c.issn), None)
+
+    def first(field: str):
+        return next((getattr(c, field) for c in claims if getattr(c, field, None)), None)
+
+    payload = {
+        "journal": {
+            "title": name,
+            # Shown normalised: the ticket carries "2728842" because a
+            # spreadsheet dropped the leading zero, and printing that back
+            # gives the reader a number that will not find the journal
+            # anywhere else.
+            "issn": normalize_issn(issn) if issn else None,
+            "indexing": first("indexing_level"),
+            "engineering_class": first("engineering_class"),
+            "subject_category": first("subject_category"),
+            # The SNIP the college actually paid on, which is not always what
+            # the current dump says -- a journal's SNIP moves year to year.
+            "snip_on_record": first("snip"),
+            "snip_year_on_record": first("snip_year"),
+            **_journal_reference(name, issn),
+        },
+        "totals": {
+            "publications": len(claims),
+            "authors": len(authors),
+            "departments": len({c.owner.department for c in claims if c.owner and c.owner.department}),
+            "paid_claims": len(paid),
+            "paid_amount": round(sum(c.remuneration or 0 for c in paid), 2),
+            "first_year": min(years) if years else None,
+            "last_year": max(years) if years else None,
+        },
+        "by_year": sorted(group("publication_year", "Not stated"), key=lambda r: str(r["key"])),
+        "by_quartile": group("quartile", "No quartile"),
+        "by_status": group("status", "—"),
+        "by_department": sorted(
+            [
+                {"key": k or "—", "count": v["count"], "amount": v["amount"]}
+                for k, v in _by_department(claims).items()
+            ],
+            key=lambda r: -r["count"],
+        ),
+        "authors": sorted(authors.values(), key=lambda r: -r["count"])[:50],
+        "claims": [claim_to_dict(c) for c in claims[:200]],
+    }
+    if not is_head:
+        return payload
+
+    # A head reads progress, not workflow status. "PAID" is not an amount, but
+    # it is still the statement that a named colleague was paid, which is the
+    # thing their screens do not say -- and the money-blindness audit reads
+    # every byte that comes back, so it caught this the moment the endpoint
+    # opened to them.
+    payload["by_status"] = sorted(
+        _fold_by_progress(payload["by_status"]), key=lambda r: -r["count"]
+    )
+    for row in payload["claims"]:
+        row["progress"] = hod.progress_of(row.pop("status", None))
+    return hod.without_money(payload)
+
+
+def _fold_by_progress(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Several statuses share one progress word, so their counts add up."""
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        key = hod.progress_of(r["key"])
+        slot = out.setdefault(key, {"key": key, "count": 0})
+        slot["count"] += r["count"]
+    return list(out.values())
+
+
+def _by_department(claims) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for c in claims:
+        key = (c.owner.department if c.owner else None) or "Not stated"
+        slot = out.setdefault(key, {"count": 0, "amount": 0.0})
+        slot["count"] += 1
+        slot["amount"] += c.remuneration or 0
+    return out
+
+
+@api.get("/journals/top", auth=session_auth)
+def journals_top(request: HttpRequest, q: str | None = None, limit: int = 100):
+    """The journals the college publishes in, most-used first."""
+    user = require_user(request)
+    is_head = user.role == Role.HOD
+    if not (
+        is_head
+        or rbac.can_view_reports(user.role)
+        or rbac.can_manage_users(user.role)
+    ):
+        raise HttpError(403, "Forbidden")
+
+    base = _hod_scope(user) if is_head else Claim.objects.exclude(status=ClaimStatus.DRAFT)
+    base = base.exclude(journal_title__isnull=True).exclude(journal_title="")
+    if q:
+        base = base.filter(journal_title__icontains=q.strip())
+    rows = (
+        base.values("journal_title")
+        .annotate(count=Count("id"), amount=Sum("remuneration"))
+        .order_by("-count")[: max(1, min(limit, 500))]
+    )
+    out = [
+        {
+            "key": r["journal_title"],
+            "count": r["count"],
+            "amount": round(r["amount"] or 0, 2),
+        }
+        for r in rows
+    ]
+    return hod.without_money({"results": out}) if is_head else {"results": out}
 
 
 # ---------- head of department ----------

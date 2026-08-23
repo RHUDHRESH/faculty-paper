@@ -17,13 +17,22 @@
  * table view behind a toggle.
  */
 import { useId, useMemo, useState } from "react"
+import { Link } from "react-router-dom"
 
 import { formatMoney } from "@/components/ticket-ui"
 import { cn } from "@/lib/utils"
 
 /** One bar, slice or point. `amount` is absent wherever the reader is not
  *  allowed money -- a head of department's charts carry counts only. */
-export type Point = { key: string; count: number; amount?: number; label?: string }
+export type Point = {
+  key: string
+  count: number
+  amount?: number
+  label?: string
+  /** Present when the row is a thing with a record of its own — a person, so
+   *  far. Lets a bar chart lead somewhere the way the text lists already do. */
+  id?: string
+}
 
 /** Compact rupees for an axis — a full ₹27,59,600 on every tick is unreadable. */
 export function shortMoney(n: number): string {
@@ -319,6 +328,8 @@ export function RankedBars({
   limit = 12,
   unit = "money",
   itemNoun = "claim",
+  dimension = "Department",
+  linkFor,
 }: {
   data: Point[]
   title: string
@@ -328,6 +339,13 @@ export function RankedBars({
   /** What one row counts. "claim" is payment vocabulary, and a head of
    *  department is counting publications, not claims. */
   itemNoun?: string
+  /** What one row *is*. The numbers table and the "N more" line both used
+   *  the word "Department" whatever they were listing, so "Journals used"
+   *  opened a table headed Department over a column of journal names, and
+   *  "Position on the author list" promised more departments below. */
+  dimension?: string
+  /** A row that leads somewhere — a journal record, a person. */
+  linkFor?: (d: Point) => string | null
 }) {
   const [hover, setHover] = useState<string | null>(null)
   const value = (d: Point) => (unit === "money" ? d.amount ?? 0 : d.count)
@@ -340,33 +358,64 @@ export function RankedBars({
   const restTotal = rest.reduce((s, d) => s + value(d), 0)
   const max = Math.max(...shown.map(value), 1)
   const fmt = (n: number) => (unit === "money" ? formatMoney(n) : String(n))
+  // Money columns only when there is money — a head of department's data
+  // arrives with the amounts stripped, and so does any count-only chart.
+  const hasMoney = data.some((d) => (d.amount ?? 0) > 0)
+  const noun = dimension.toLowerCase()
 
   if (!data.length) return null
   return (
     <Figure
       title={title}
       caption={caption}
-      columns={["Department", "Claims", "Paid", "Average"]}
-      rows={sorted.map((d) => [
-        d.label || d.key,
-        d.count,
-        formatMoney(d.amount ?? 0),
-        formatMoney(d.count ? (d.amount ?? 0) / d.count : 0),
-      ])}
+      // A count chart has no money in it: offering "Paid" and "Average"
+      // columns of zeroes invited the reader to conclude the work was unpaid.
+      columns={
+        hasMoney
+          ? [dimension, `${itemNoun[0].toUpperCase()}${itemNoun.slice(1)}s`, "Paid", "Average"]
+          : [dimension, `${itemNoun[0].toUpperCase()}${itemNoun.slice(1)}s`]
+      }
+      rows={sorted.map((d) =>
+        hasMoney
+          ? [
+              d.label || d.key,
+              d.count,
+              formatMoney(d.amount ?? 0),
+              formatMoney(d.count ? (d.amount ?? 0) / d.count : 0),
+            ]
+          : [d.label || d.key, d.count]
+      )}
     >
       <ul className="space-y-2.5">
         {shown.map((d) => {
           const pct = (value(d) / max) * 100
           const isHover = hover === d.key
+          const to = linkFor?.(d) || null
+          const name = (
+            <span
+              className={cn(
+                "truncate text-sm",
+                to ? "text-primary underline-offset-4 group-hover:underline" : "text-foreground"
+              )}
+            >
+              {d.label || d.key}
+            </span>
+          )
           return (
             <li
               key={d.key}
               onMouseEnter={() => setHover(d.key)}
               onMouseLeave={() => setHover(null)}
-              className="min-w-0"
+              className="group min-w-0"
             >
               <div className="mb-1 flex items-baseline justify-between gap-3">
-                <span className="truncate text-sm text-foreground">{d.label || d.key}</span>
+                {to ? (
+                  <Link to={to} className="interactive min-w-0">
+                    {name}
+                  </Link>
+                ) : (
+                  name
+                )}
                 {/* The value is labelled directly, so the bar never has to be
                     measured against an axis. */}
                 <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
@@ -392,8 +441,8 @@ export function RankedBars({
       </ul>
       {rest.length ? (
         <p className="mt-3 text-xs text-muted-foreground">
-          {rest.length} more {rest.length === 1 ? "department" : "departments"},{" "}
-          {fmt(restTotal)} between them — “Show numbers” lists every one.
+          {rest.length} more {rest.length === 1 ? noun : `${noun}s`}, {fmt(restTotal)} between
+          them — “Show numbers” lists every one.
         </p>
       ) : null}
     </Figure>

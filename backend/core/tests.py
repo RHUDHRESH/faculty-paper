@@ -28,7 +28,7 @@ from core.models import (
 from core.models import PaidLedger, PriorPayment
 from core.services import rbac
 from core.services.erp_import import find_existing_claim, map_excel_status, stable_ticket
-from core.services.normalize import normalize_title
+from core.services.normalize import normalize_issn, normalize_title
 from core.services.verify import apply_verify_to_claim, check_already_paid
 import httpx
 
@@ -6225,3 +6225,174 @@ class AdminAccountAdminTests(TestCase):
         c = Client()
         c.force_login(fac)
         self.assertEqual(c.get("/api/admin/users").status_code, 403)
+
+
+class IssnNormalizeTests(TestCase):
+    """An ISSN that a spreadsheet has been at is still that ISSN.
+
+    Two forms exist in the live tables, both from being read as numbers, and
+    the normalizer mishandled each in a different way.
+    """
+
+    def test_float_form_does_not_become_a_different_issn(self):
+        # "2728842.0" once cleaned to eight characters -- the float's own
+        # trailing zero -- and was returned as 2728-8420, a well-formed ISSN
+        # belonging to some other journal. A wrong match attaches the wrong
+        # quartile, and quartile is a term in the payout.
+        self.assertEqual(normalize_issn("2728842.0"), "0272-8842")
+
+    def test_lost_leading_zero_is_restored(self):
+        self.assertEqual(normalize_issn("2728842"), "0272-8842")
+
+    def test_well_formed_issn_is_untouched(self):
+        self.assertEqual(normalize_issn("0272-8842"), "0272-8842")
+        self.assertEqual(normalize_issn("1024123X"), "1024-123X")
+
+    def test_a_trailing_zero_that_belongs_is_kept(self):
+        # 0975-3060 genuinely ends in a zero; stripping ".0" must not fire on
+        # a value that has no decimal point in it.
+        self.assertEqual(normalize_issn("09753060"), "0975-3060")
+
+    def test_nonsense_is_passed_through_rather_than_invented(self):
+        self.assertEqual(normalize_issn("not an issn"), "not an issn")
+        self.assertIsNone(normalize_issn(None))
+
+
+class JournalRecordTests(TestCase):
+    """A journal is a record, and it obeys the same boundaries as the rest."""
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.admin = User.objects.create_user(
+            email="jr-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.faculty = User.objects.create_user(
+            email="jr-fac@test.edu", password="pass", name="Fac One",
+            role=Role.FACULTY, department="ECE",
+        )
+        self.other = User.objects.create_user(
+            email="jr-other@test.edu", password="pass", name="Fac Two",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.head = User.objects.create_user(
+            email="jr-head@test.edu", password="pass", name="Head",
+            role=Role.HOD, department="ECE",
+        )
+        ScimagoJournal.objects.create(
+            title="Test Ceramics", issn="02728842", year=2025, sjr=0.961,
+            categories_json=json.dumps(
+                [{"category": "Ceramics", "quartile": "Q1"},
+                 {"category": "Chemistry", "quartile": "Q3"}]
+            ),
+        )
+        for owner, issn in ((self.faculty, "2728842"), (self.other, None)):
+            Claim.objects.create(
+                owner=owner, paper_title=f"Paper by {owner.name}",
+                journal_title="Test Ceramics", issn=issn,
+                status=ClaimStatus.PAID, remuneration=50000,
+                publication_year=2025, quartile="Q1",
+            )
+
+    def _get(self, user, url):
+        c = Client()
+        c.force_login(user)
+        return c.get(url)
+
+    def test_reference_data_is_matched_through_the_mangled_issn(self):
+        res = self._get(self.admin, "/api/journals/report?title=Test Ceramics")
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        # The claim carries "2728842" and the reference row "02728842": the
+        # two only meet if every spelling is tried.
+        self.assertEqual(body["journal"]["scimago"]["sjr"], 0.961)
+        self.assertEqual(body["journal"]["scimago"]["best_quartile"], "Q1")
+        self.assertEqual(body["journal"]["issn"], "0272-8842")
+        self.assertEqual(body["totals"]["publications"], 2)
+        self.assertEqual(body["totals"]["paid_amount"], 100000)
+
+    def test_unknown_journal_is_a_404_not_an_empty_record(self):
+        res = self._get(self.admin, "/api/journals/report?title=No Such Journal")
+        self.assertEqual(res.status_code, 404)
+
+    def test_a_claimant_cannot_read_the_college_wide_record(self):
+        res = self._get(self.faculty, "/api/journals/report?title=Test Ceramics")
+        self.assertEqual(res.status_code, 403)
+
+    def test_a_head_sees_only_their_department_and_no_money(self):
+        res = self._get(self.head, "/api/journals/report?title=Test Ceramics")
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        # One of the two papers is CSE, which is not this head's to see.
+        self.assertEqual(body["totals"]["publications"], 1)
+        self.assertNotIn("paid_amount", body["totals"])
+        blob = json.dumps(body)
+        self.assertNotIn("remuneration", blob)
+        # "PAID" is not an amount, but it still says a colleague was paid.
+        self.assertNotIn("PAID", blob)
+        self.assertIn("Completed", blob)
+
+    def test_top_list_is_scoped_and_money_free_for_a_head(self):
+        res = self._get(self.head, "/api/journals/top?limit=10")
+        self.assertEqual(res.status_code, 200)
+        rows = res.json()["results"]
+        self.assertEqual(rows[0]["key"], "Test Ceramics")
+        self.assertEqual(rows[0]["count"], 1)
+        self.assertNotIn("amount", rows[0])
+
+
+class SearchNarrowingTests(TestCase):
+    """Drill-downs from a record must carry the record with them."""
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.admin = User.objects.create_user(
+            email="sn-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.a = User.objects.create_user(
+            email="sn-a@test.edu", password="pass", name="A", role=Role.FACULTY,
+            department="ECE",
+        )
+        self.b = User.objects.create_user(
+            email="sn-b@test.edu", password="pass", name="B", role=Role.FACULTY,
+            department="ECE",
+        )
+        Claim.objects.create(
+            owner=self.a, paper_title="A one", journal_title="Alpha Journal",
+            status=ClaimStatus.PAID, remuneration=100, quartile="Q1",
+        )
+        Claim.objects.create(
+            owner=self.b, paper_title="B one", journal_title="Alpha Journal",
+            status=ClaimStatus.PAID, remuneration=200, quartile="Q1",
+        )
+        Claim.objects.create(
+            owner=self.a, paper_title="A two", journal_title="Beta Journal",
+            status=ClaimStatus.PAID, remuneration=300, quartile="Q2",
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def test_owner_narrows_to_one_person(self):
+        # Without this, a quartile bar on A's record linked to the college's
+        # Q1 papers rather than to A's -- a worse answer than no link.
+        body = self.client.get(f"/api/reports/search?owner={self.a.id}").json()
+        self.assertEqual(body["total"], 2)
+        self.assertEqual(body["total_amount"], 400)
+
+    def test_journal_narrows_to_one_journal_exactly(self):
+        body = self.client.get("/api/reports/search?journal=Alpha Journal").json()
+        self.assertEqual(body["total"], 2)
+
+    def test_owner_and_quartile_compose(self):
+        body = self.client.get(
+            f"/api/reports/search?owner={self.a.id}&quartile=Q1"
+        ).json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["results"][0]["paper_title"], "A one")

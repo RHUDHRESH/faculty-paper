@@ -17,7 +17,8 @@ import {
 import { ClaimDetailFields } from "@/components/claim-detail-fields"
 import { ClaimNotes } from "@/components/claim-notes"
 import { DuplicateWarning } from "@/components/duplicate-warning"
-import { ContestCallout, CopyTicketLink, Money, StatusChip, StatusTimeline, VerificationSnapshot, formatDateTime } from "@/components/ticket-ui"
+import { ContestCallout, CopyTicketLink, Money, StatusChip, StatusTimeline, VerificationSnapshot, formatDateTime, formatMoney } from "@/components/ticket-ui"
+import { WaitingFor } from "@/components/waiting-for"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -532,8 +533,17 @@ function ApprovalQueue({
     }
   }
 
+  // Summed off the rows on screen, which is what the checkboxes select.
+  const pickedRows = filtered.filter((c) => picked.has(c.id))
+  const pickedTotal = pickedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
+  const pickedPriced = pickedRows.some((c) => (c.remuneration ?? 0) > 0)
+
   const listPanel = (
-    <div className="surface-card overflow-hidden">
+    // No overflow-hidden: it makes this card the containing block for the
+    // sticky selection bar below, which then pins itself to the top of a box
+    // that scrolls away whole -- so the bar scrolled off with it, which is
+    // the bug it was added to fix.
+    <div className="surface-card">
       {loading ? (
         <div className="space-y-px p-1">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -559,7 +569,9 @@ function ApprovalQueue({
       ) : (
         <>
           {bulkable ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-2">
+            // Pinned to the top of the list: the button belongs wherever the
+            // reader is, not wherever the list happens to start.
+            <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 rounded-t-[calc(var(--radius)-1px)] border-b border-border bg-card/95 px-4 py-2 backdrop-blur-sm">
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Checkbox
                   checked={picked.size > 0 && picked.size === filtered.length}
@@ -571,9 +583,29 @@ function ApprovalQueue({
                 {picked.size ? `${picked.size} selected` : `Select all ${filtered.length}`}
               </label>
               {picked.size ? (
-                <Button type="button" size="xs" disabled={busy} onClick={() => setConfirm("bulk")}>
-                  Clear {picked.size} → Principal
-                </Button>
+                <div className="flex items-center gap-3">
+                  {/* Clearing hands this much on to the Principal. It was
+                      decided without ever being shown. */}
+                  {/* Tickets awaiting clearance have no amount yet -- the
+                      payout is computed at the moment of clearing. Summing
+                      them to "₹0 selected" states a total that is not zero
+                      but unknown, which is the worse of the two mistakes. */}
+                  <span className="whitespace-nowrap text-xs text-muted-foreground">
+                    {pickedPriced ? (
+                      <>
+                        <span className="font-semibold tabular-nums text-foreground">
+                          {formatMoney(pickedTotal)}
+                        </span>{" "}
+                        selected
+                      </>
+                    ) : (
+                      "amount set on clearing"
+                    )}
+                  </span>
+                  <Button type="button" size="xs" disabled={busy} onClick={() => setConfirm("bulk")}>
+                    Clear {picked.size} → Principal
+                  </Button>
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -614,8 +646,14 @@ function ApprovalQueue({
                   {showDept && c.owner_department ? ` · ${c.owner_department}` : ""}
                 </div>
               </div>
-              <div className="shrink-0 text-sm font-semibold tabular-nums">
-                <Money value={c.remuneration} />
+              <div className="shrink-0 text-right">
+                <div className="text-sm font-semibold tabular-nums">
+                  <Money value={c.remuneration} />
+                </div>
+                {/* How long it has sat here. The queue is worked oldest-first
+                    by anyone who knows, and nothing on the row said which
+                    those were. */}
+                <WaitingFor days={c.waiting_days} />
               </div>
             </button>
             </div>

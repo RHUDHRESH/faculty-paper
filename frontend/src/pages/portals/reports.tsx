@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 
+import { DataGap, isMostlyMissing } from "@/components/data-gap"
+
 import { useUrlState } from "@/lib/url-state"
 import { Download } from "lucide-react"
 
@@ -223,6 +225,7 @@ function monthLabel(key: string): string {
 export function ReportsPage() {
   const { pathname } = useLocation()
   const base = recordBase(pathname)
+  const queryBase = `/${pathname.split("/")[1] || "admin"}/query`
   // A report nobody can send is a report somebody screenshots.
   const [state, setState] = useUrlState({
     year: ALL,
@@ -481,18 +484,33 @@ export function ReportsPage() {
                 />
               </div>
             ) : null}
+            {/* Drawn only while it says something. The ERP import never
+                carried the category, so on historical data this is one slice
+                reading "99.8% Not calculated" -- a gap in the records, not a
+                finding, and it is more useful stated as one. */}
             {data.by_category?.length ? (
-              <MixBar
-                title="By remuneration category"
-                caption="Share of spend by the rate the policy applied"
-                data={data.by_category}
-              />
+              isMostlyMissing(data.by_category) ? (
+                <DataGap
+                  title="Remuneration category"
+                  rows={data.by_category}
+                  what="The rate band the policy applied"
+                  why="The ERP import did not carry this field, so it is only recorded on claims filed since."
+                />
+              ) : (
+                <MixBar
+                  title="By remuneration category"
+                  caption="Share of spend by the rate the policy applied"
+                  data={data.by_category}
+                  dimension="Category"
+                />
+              )
             ) : null}
             {data.by_engineering?.length ? (
               <MixBar
                 title="Engineering / Non-Engineering"
                 caption="The classification the policy pays on"
                 data={data.by_engineering}
+                dimension="Classification"
               />
             ) : null}
             {data.by_designation?.length ? (
@@ -583,9 +601,31 @@ export function ReportsPage() {
             description="The journals and the indexes behind the figures above"
           >
             <div className="grid gap-6 lg:grid-cols-2">
-              <Breakdown title="Most-used journals" rows={data.by_journal?.rows || []} />
-              <Breakdown title="By indexing" rows={data.by_indexing || []} />
-              <Breakdown title="By quartile" rows={data.by_quartile} />
+              {/* Each row opens the claims behind it, carrying the filter
+                  through. A total nobody can open is a total nobody can
+                  check. */}
+              <Breakdown
+                title="Most-used journals"
+                rows={data.by_journal?.rows || []}
+                linkFor={(r) => `${queryBase}?q=${encodeURIComponent(r.key)}`}
+                actionHint="Click a journal to see the papers published in it"
+              />
+              <Breakdown
+                title="By indexing"
+                rows={data.by_indexing || []}
+                linkFor={(r) => `${queryBase}?indexing=${encodeURIComponent(r.key)}`}
+                actionHint="Click an index to see what is listed there"
+              />
+              <Breakdown
+                title="By quartile"
+                rows={data.by_quartile}
+                linkFor={(r) =>
+                  /^Q[1-4]$/i.test(r.key)
+                    ? `${queryBase}?quartile=${encodeURIComponent(r.key)}`
+                    : null
+                }
+                actionHint="Click Q1–Q4 to see those papers"
+              />
               <Breakdown title="By kind of publication" rows={data.by_type || []} />
             </div>
           </Section>

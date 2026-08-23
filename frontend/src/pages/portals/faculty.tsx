@@ -24,7 +24,7 @@ import {
   PageHeader,
   StatStrip,
 } from "@/components/layout/page"
-import { ContestCallout, CopyTicketLink, Money, StatusBanner, StatusChip, StatusTimeline, formatDateTime, formatMoney, statusLabel } from "@/components/ticket-ui"
+import { ContestCallout, CopyTicketLink, Money, StatusBanner, StatusChip, StatusTimeline, TicketProgress, formatDateTime, formatMoney, statusLabel } from "@/components/ticket-ui"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -439,6 +439,9 @@ export function FacultyClaimsPage() {
                   <Money value={c.remuneration} />
                 </span>
               </span>
+              {/* The badge says which stage; this says how far that is from
+                  paid, which is the thing a claimant is actually counting. */}
+              <TicketProgress status={c.status} />
             </button>
           ))}
         </div>

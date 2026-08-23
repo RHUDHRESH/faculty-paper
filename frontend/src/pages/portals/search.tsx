@@ -1,11 +1,12 @@
 "use client"
 
+import { useSearchParams } from "react-router-dom"
 import { useEffect, useMemo, useState } from "react"
 import { Search as SearchIcon, X } from "lucide-react"
 
 import { ClaimDetailFields } from "@/components/claim-detail-fields"
 import { EmptyState, ErrorState, MasterDetail, PageHeader } from "@/components/layout/page"
-import { Money, StatusChip } from "@/components/ticket-ui"
+import { Money, StatusChip, TicketProgress } from "@/components/ticket-ui"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -100,14 +101,18 @@ function Picker({
  */
 export function SearchPage() {
   const isDesktop = useIsDesktop()
-  const [q, setQ] = useState("")
-  const [debouncedQ, setDebouncedQ] = useState("")
-  const [department, setDepartment] = useState(ANY)
-  const [status, setStatus] = useState(ANY)
-  const [quartile, setQuartile] = useState(ANY)
-  const [category, setCategory] = useState(ANY)
-  const [engineering, setEngineering] = useState(ANY)
-  const [year, setYear] = useState("")
+  // Seeded from the address bar, so a figure in the reports can link straight
+  // into the rows behind it. A total nobody can open is a total nobody can
+  // check.
+  const [params] = useSearchParams()
+  const [q, setQ] = useState(params.get("q") || "")
+  const [debouncedQ, setDebouncedQ] = useState(params.get("q") || "")
+  const [department, setDepartment] = useState(params.get("department") || ANY)
+  const [status, setStatus] = useState(params.get("status") || ANY)
+  const [quartile, setQuartile] = useState(params.get("quartile") || ANY)
+  const [category, setCategory] = useState(params.get("category") || ANY)
+  const [engineering, setEngineering] = useState(params.get("engineering_class") || ANY)
+  const [year, setYear] = useState(params.get("year") || "")
   const [sort, setSort] = useState("recent")
 
   const [selected, setSelected] = useState<Claim | null>(null)
@@ -334,6 +339,7 @@ export function SearchPage() {
               <span className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
                 {c.paper_title || "Untitled"}
               </span>
+              <TicketProgress status={c.status} />
               <span className="flex items-baseline justify-between gap-2">
                 <span className="line-clamp-1 min-w-0 text-xs text-muted-foreground">
                   {c.owner_name}

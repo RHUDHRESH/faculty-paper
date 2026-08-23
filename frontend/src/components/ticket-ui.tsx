@@ -4,43 +4,60 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-/** Submitted → cleared by admin → paid by Finance. */
-const FLOW = ["SUBMITTED", "CLEARED", "PAID"] as const
+/**
+ * Filed → checked by the research cell → approved by the Principal → paid.
+ *
+ * This said three steps and ended "cleared by admin → paid by Finance", which
+ * is the chain as it was before the Principal was put in it. The cost was not
+ * cosmetic: a CLEARED ticket was labelled "with Finance" and its author was
+ * told "Finance has your ticket", when Finance cannot see a ticket until the
+ * Principal has approved it. Eighteen live tickets were being described that
+ * way — one waiting on the Principal and claiming to be with Finance, and
+ * seventeen already approved and shown as though nothing had happened yet.
+ */
+const FLOW = ["SUBMITTED", "CLEARED", "PRINCIPAL_APPROVED", "PAID"] as const
 
 const LABELS: Record<string, string> = {
   DRAFT: "Draft",
-  SUBMITTED: "Awaiting clearance",
-  CLEARED: "Cleared — with Finance",
-  // "Payment cleared" collided with CLEARED's "Cleared — with Finance";
-  // the same word meant two different stages.
+  SUBMITTED: "Awaiting check",
+  CLEARED: "Checked — with the Principal",
+  PRINCIPAL_APPROVED: "Approved — with Finance",
   PAID: "Paid",
   REJECTED: "Needs changes",
   // Old chain. Tickets filed before the change still carry these.
   HOD_APPROVED: "Approved by HoD (old flow)",
-  PRINCIPAL_APPROVED: "Cleared — with Finance",
-  FINANCE_APPROVED: "Cleared — with Finance",
-  RESEARCH_APPROVED: "Cleared — with Finance",
+  RESEARCH_APPROVED: "Checked — with the Principal",
+  FINANCE_APPROVED: "Approved — with Finance",
 }
 
+/** Four dots need four words that fit under them. */
 const FLOW_STEP_LABELS: Record<(typeof FLOW)[number], string> = {
-  SUBMITTED: "Submitted",
-  CLEARED: "Cleared",
+  SUBMITTED: "Filed",
+  CLEARED: "Checked",
+  PRINCIPAL_APPROVED: "Approved",
   PAID: "Paid",
 }
 
-/** Statuses that sit at the "cleared, awaiting payment" point of the flow. */
-const CLEARED_STATUSES = [
-  "CLEARED",
-  "PRINCIPAL_APPROVED",
-  "FINANCE_APPROVED",
-  "RESEARCH_APPROVED",
-]
-
 /** Map an old-chain status onto its position in the current flow. */
 function flowStatus(status: string): string {
-  if (CLEARED_STATUSES.includes(status)) return "CLEARED"
-  if (status === "HOD_APPROVED") return "SUBMITTED"
-  return status
+  switch (status) {
+    case "HOD_APPROVED":
+      return "SUBMITTED"
+    case "RESEARCH_APPROVED":
+      return "CLEARED"
+    case "FINANCE_APPROVED":
+      return "PRINCIPAL_APPROVED"
+    default:
+      return status
+  }
+}
+
+/** How far along, 0 to 1 — the number behind every bar on this page. */
+export function ticketProgress(status: string): number {
+  if (status === "DRAFT" || status === "REJECTED") return 0
+  const i = FLOW.indexOf(flowStatus(status) as (typeof FLOW)[number])
+  if (i < 0) return 0
+  return (i + 1) / FLOW.length
 }
 
 export function statusLabel(status: string) {
@@ -74,15 +91,21 @@ export function CopyTicketLink({ claimId, className }: { claimId: string; classN
 }
 
 export function facultyStatusMessage(status: string): string {
-  if (CLEARED_STATUSES.includes(status)) {
-    return "Cleared. Finance has your ticket and will process the payment."
-  }
   switch (status) {
     case "DRAFT":
       return "Draft — verify and submit when ready."
     case "SUBMITTED":
     case "HOD_APPROVED":
-      return "Submitted — waiting to be cleared."
+      return "Submitted — waiting to be checked by the research cell."
+    case "CLEARED":
+    case "RESEARCH_APPROVED":
+      // Not with Finance. The Principal has to approve it first, and saying
+      // otherwise sent people to Finance to ask after a ticket Finance had
+      // never been shown.
+      return "Checked by the research cell. Waiting for the Principal to approve it."
+    case "PRINCIPAL_APPROVED":
+    case "FINANCE_APPROVED":
+      return "Approved by the Principal. Finance has your ticket and will process the payment."
     case "PAID":
       // Past tense: this banner only ever shows on a ticket that is already
       // paid, and "will be processed shortly" read as though it still owed
@@ -112,10 +135,13 @@ function statusBadgeClass(status: string) {
       return "border-info/20 bg-info/10 text-info hover:bg-info/10"
     case "CLEARED":
     case "HOD_APPROVED":
-    case "PRINCIPAL_APPROVED":
-    case "FINANCE_APPROVED":
     case "RESEARCH_APPROVED":
       return "border-warning/20 bg-warning/10 text-warning-foreground hover:bg-warning/10"
+    // Approved is nearly there, and reading it in the same amber as "still
+    // waiting" hid the one step that actually releases the money.
+    case "PRINCIPAL_APPROVED":
+    case "FINANCE_APPROVED":
+      return "border-info/20 bg-info/10 text-info hover:bg-info/10"
     default:
       return ""
   }
@@ -215,20 +241,65 @@ export function ContestCallout({
   )
 }
 
+/**
+ * How far along a ticket is, in one line.
+ *
+ * Meant for lists, where a badge tells you the stage but not the distance —
+ * "Checked" and "Approved" look equally far from paid until you know the
+ * chain has four steps and one of them is second from the end.
+ */
+export function TicketProgress({
+  status,
+  className,
+}: {
+  status: string
+  className?: string
+}) {
+  if (status === "DRAFT" || status === "REJECTED") return null
+  const share = ticketProgress(status)
+  const step = Math.round(share * FLOW.length)
+  return (
+    <div className={cn("min-w-0", className)}>
+      <div
+        className="h-1 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-valuenow={step}
+        aria-valuemin={0}
+        aria-valuemax={FLOW.length}
+        aria-label={`Step ${step} of ${FLOW.length}: ${statusLabel(status)}`}
+      >
+        <div
+          className={cn(
+            "h-full rounded-full transition-[width] duration-500",
+            status === "PAID" ? "bg-success" : "bg-primary"
+          )}
+          style={{ width: `${share * 100}%` }}
+        />
+      </div>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Step {step} of {FLOW.length}
+      </p>
+    </div>
+  )
+}
+
 export function StatusTimeline({ status }: { status: string }) {
-  if (status === "DRAFT" || status === "REJECTED" || status === "PAID") {
+  // A draft has not entered the chain and a sent-back ticket has left it;
+  // drawing four steps for either invents progress that does not exist.
+  if (status === "DRAFT" || status === "REJECTED") {
     return <StatusBanner status={status} />
   }
 
-  // Old-chain tickets map onto the current three steps so their timeline still
+  // Old-chain tickets map onto the current four steps so their timeline still
   // reads as progress rather than falling off the start.
   const idx = FLOW.indexOf(flowStatus(status) as (typeof FLOW)[number])
+  const share = ticketProgress(status)
 
   return (
     <div className="space-y-3">
       <ol className="flex items-center gap-0" aria-label="Approval progress">
         {FLOW.map((step, i) => {
-          const done = i < idx
+          const done = i <= idx
           const current = i === idx
           const isLast = i === FLOW.length - 1
           return (
@@ -236,13 +307,20 @@ export function StatusTimeline({ status }: { status: string }) {
               <div className="flex min-w-0 flex-col items-center gap-1.5">
                 <div
                   className={cn(
-                    "flex size-7 items-center justify-center rounded-full border text-[11px] font-medium",
-                    done && "border-primary bg-primary text-primary-foreground",
-                    current && "border-primary bg-primary text-primary-foreground",
-                    !done && !current && "border-border bg-muted text-muted-foreground"
+                    "flex size-7 items-center justify-center rounded-full border text-[11px] font-medium transition-colors",
+                    done && status === "PAID" && "border-success bg-success text-white",
+                    done && status !== "PAID" && "border-primary bg-primary text-primary-foreground",
+                    current && "ring-2 ring-primary/25 ring-offset-2 ring-offset-background",
+                    !done && "border-border bg-muted text-muted-foreground"
                   )}
                 >
-                  {i + 1}
+                  {/* A step that is finished says so; the one in progress keeps
+                      its number, because that is the one you are counting. */}
+                  {done && !current ? (
+                    <CheckCircle2 className="size-4" aria-hidden />
+                  ) : (
+                    i + 1
+                  )}
                 </div>
                 <span
                   className={cn(
@@ -257,7 +335,7 @@ export function StatusTimeline({ status }: { status: string }) {
                 <div
                   className={cn(
                     "mx-1 mb-5 h-px flex-1",
-                    i < idx ? "bg-primary" : "bg-border"
+                    i < idx ? (status === "PAID" ? "bg-success" : "bg-primary") : "bg-border"
                   )}
                   aria-hidden
                 />
@@ -266,7 +344,30 @@ export function StatusTimeline({ status }: { status: string }) {
           )
         })}
       </ol>
-      <p className="text-sm text-muted-foreground">{facultyStatusMessage(status)}</p>
+
+      {/* The dots say which step. The bar says how much is left, which is the
+          question somebody waiting on money is actually asking. */}
+      <div
+        className="h-1.5 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-valuenow={idx + 1}
+        aria-valuemin={0}
+        aria-valuemax={FLOW.length}
+      >
+        <div
+          className={cn(
+            "h-full rounded-full transition-[width] duration-700",
+            status === "PAID" ? "bg-success" : "bg-primary"
+          )}
+          style={{ width: `${share * 100}%` }}
+        />
+      </div>
+
+      {status === "PAID" ? (
+        <StatusBanner status={status} />
+      ) : (
+        <p className="text-sm text-muted-foreground">{facultyStatusMessage(status)}</p>
+      )}
     </div>
   )
 }

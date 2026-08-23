@@ -417,12 +417,15 @@ export function MixBar({
   title,
   caption,
   measure = "money",
+  dimension = "Quartile",
 }: {
   data: Point[]
   title: string
   caption?: string
   /** Share of what: money by default, or of the count. */
   measure?: "money" | "count"
+  /** What the rows are. Names the first column of the table behind the chart. */
+  dimension?: string
 }) {
   const share = (d: Point) => (measure === "count" ? d.count : d.amount ?? 0)
   const formatShare = (n: number) =>
@@ -442,7 +445,15 @@ export function MixBar({
     <Figure
       title={title}
       caption={caption}
-      columns={["Quartile", "Claims", "Paid", "Share"]}
+      // MixBar was written for quartiles and hard-coded the word, so a chart
+      // of remuneration categories showed a column headed "Quartile" over
+      // values that were nothing of the kind.
+      columns={[
+        dimension,
+        "Claims",
+        measure === "count" ? "Publications" : "Paid",
+        "Share",
+      ]}
       rows={ordered.map((d) => [
         d.key,
         d.count,

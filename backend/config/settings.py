@@ -255,7 +255,7 @@ SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_NAME = "csrftoken"
 
-SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY", "")
+SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY") or os.getenv("ELSEVIER_API_KEY") or ""
 
 # Production hardening
 if not DEBUG:

@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { CheckCheck, Clock, RotateCcw, Search, ShieldAlert } from "lucide-react"
 
 import { BatchResult, type Skipped } from "@/components/batch-result"
+import { FilterBar } from "@/components/filter-bar"
 import { Callout } from "@/components/form/fields"
 import { EmptyState, ErrorState, PageHeader, Section } from "@/components/layout/page"
 import { Money, StatusChip, formatMoney } from "@/components/ticket-ui"
@@ -301,7 +302,7 @@ export function PrincipalApprovalsPage() {
         </Section>
       ) : null}
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="space-y-3">
         <form
           className="flex items-end gap-2"
           onSubmit={(e) => {
@@ -328,6 +329,31 @@ export function PrincipalApprovalsPage() {
             Search
           </Button>
         </form>
+
+        {/* Four dropdowns beside the list competed with it for attention, and
+            three of them are usually untouched. Behind one button, with
+            whatever is narrowing the view still on screen as chips. */}
+        <FilterBar
+          active={[
+            ...(department !== ALL
+              ? [{ label: "Department", value: department, onClear: () => setDepartment(ALL) }]
+              : []),
+            ...(quartile !== ALL
+              ? [{ label: "Quartile", value: quartile, onClear: () => setQuartile(ALL) }]
+              : []),
+            ...(waitingOver !== ALL
+              ? [
+                  {
+                    label: "Waiting",
+                    value: `over ${waitingOver} days`,
+                    onClear: () => setWaitingOver(ALL),
+                  },
+                ]
+              : []),
+            ...(term ? [{ label: "Search", value: term, onClear: () => { setQ(""); setTerm("") } }] : []),
+          ]}
+          onClear={clearFilters}
+        >
 
         <div className="space-y-1.5">
           <Label htmlFor="pq-dept" className="text-xs">
@@ -402,6 +428,7 @@ export function PrincipalApprovalsPage() {
             </SelectContent>
           </Select>
         </div>
+        </FilterBar>
       </div>
 
       {result ? (
@@ -516,7 +543,10 @@ export function PrincipalApprovalsPage() {
           </ul>
 
           <div className="hidden overflow-x-auto rounded-[var(--radius)] border border-border lg:block">
-            <table className="w-full min-w-[62rem] text-left text-sm">
+            {/* Narrower than it was: the pinned actions column sat on top of
+                the amount whenever the table was wider than its container,
+                so a row read "Rs 12,34" with the rest under the button. */}
+            <table className="w-full min-w-[52rem] text-left text-sm">
               <thead className="border-b border-border bg-muted/30 text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">
@@ -534,7 +564,7 @@ export function PrincipalApprovalsPage() {
                   {/* Pinned: the table is wider than the pane, and an action
                       that scrolls off the right edge is an action nobody
                       finds. */}
-                  <th className="sticky right-0 bg-muted/30 px-3 py-2 font-medium" />
+                  <th className="sticky right-0 border-l border-border bg-muted/30 px-3 py-2 font-medium" />
                 </tr>
               </thead>
               <tbody>
@@ -586,12 +616,12 @@ export function PrincipalApprovalsPage() {
                         <Clock className="mr-1 inline size-3.5" aria-hidden />
                         {waitLabel(days)}
                       </td>
-                      <td className="px-3 py-2 font-semibold tabular-nums">
+                      <td className="whitespace-nowrap px-3 py-2 font-semibold tabular-nums">
                         <Money value={r.remuneration} />
                       </td>
                       <td
                         className={cn(
-                          "sticky right-0 px-3 py-2",
+                          "sticky right-0 border-l border-border px-3 py-2",
                           isPicked ? "bg-surface-brand" : "bg-card"
                         )}
                       >

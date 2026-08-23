@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import {
   BarChart3,
   BookOpen,
+  CalendarDays,
   ClipboardCheck,
   FileSpreadsheet,
   LayoutDashboard,
@@ -61,6 +62,9 @@ type Tab = {
   label: string
   icon: React.ComponentType<{ className?: string }>
   end?: boolean
+  /** Heading this sits under. Absent means the daily work, which needs no
+   *  heading: nobody has to be told what they came here to do. */
+  group?: string
 }
 
 function initials(name?: string) {
@@ -105,13 +109,25 @@ function NavItems({
   onNavigate?: () => void
   className?: string
 }) {
+  // Preserves the order the portal declared, and emits a heading the first
+  // time a new one appears -- so the grouping is a property of the list
+  // rather than a second structure to keep in step with it.
+  const seen = new Set<string>()
+
   return (
     <nav className={cn("flex flex-col gap-1 p-2", className)} aria-label="Main">
       {tabs.map((t) => {
+        const heading = t.group && !seen.has(t.group) ? t.group : null
+        if (t.group) seen.add(t.group)
         const Icon = t.icon
         return (
+          <Fragment key={t.to}>
+          {heading ? (
+            <p className="px-3 pb-1 pt-4 text-[0.7rem] font-medium uppercase tracking-wide text-sidebar-foreground/45">
+              {heading}
+            </p>
+          ) : null}
           <NavLink
-            key={t.to}
             to={t.to}
             end={t.end}
             onClick={onNavigate}
@@ -146,6 +162,7 @@ function NavItems({
               </>
             )}
           </NavLink>
+          </Fragment>
         )
       })}
     </nav>
@@ -386,15 +403,14 @@ export function PrincipalShell() {
       title="Principal"
       tabs={[
         { to: "/principal", label: "Approvals", icon: CheckCheck, end: true },
-        { to: "/principal/all", label: "All tickets", icon: Shield },
-        { to: "/principal/overview", label: "Overview", icon: LayoutDashboard },
-        // A ticket number off an email, or a staff id off a spreadsheet.
-        { to: "/principal/find", label: "Find", icon: UserSearch },
-        { to: "/principal/budget", label: "Budget", icon: Wallet },
-        { to: "/principal/data", label: "Data", icon: Database },
-        { to: "/principal/query", label: "Query", icon: Search },
-        { to: "/principal/reports", label: "Reports", icon: BarChart3 },
-      ]}
+
+        { to: "/principal/overview", label: "Overview", icon: LayoutDashboard, group: "Look at" },
+        { to: "/principal/reports", label: "Reports", icon: BarChart3, group: "Look at" },
+        { to: "/principal/all", label: "All tickets", icon: Shield, group: "Look at" },
+        { to: "/principal/budget", label: "Budget", icon: Wallet, group: "Look at" },
+        { to: "/principal/query", label: "Query", icon: Search, group: "Look at" },
+        { to: "/principal/data", label: "Data", icon: Database, group: "Look at" },
+]}
     />
   )
 }
@@ -412,28 +428,25 @@ export function AdminShell() {
       title="Admin"
       wide
       tabs={[
-        { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
+        // The job, first and unlabelled.
         { to: "/admin/clearing", label: "Clearing queue", icon: ClipboardCheck },
-        // Somebody rings about a ticket number; this is where it is looked up.
-        { to: "/admin/find", label: "Find", icon: UserSearch },
-        { to: "/admin/budget", label: "Budget", icon: Wallet },
-        { to: "/admin/duplicates", label: "Duplicates", icon: Copy },
-        { to: "/admin/data", label: "Data", icon: Database },
-        { to: "/admin/submit", label: "Submit for faculty", icon: UserPlus },
-        ...(canManageUsers ? [{ to: "/admin/users", label: "Users", icon: Users }] : []),
-        ...(canEditFormula
-          ? [{ to: "/admin/formula", label: "Formula", icon: Settings2 }]
-          : []),
-        { to: "/admin/scimago", label: "Imports", icon: BookOpen },
-        { to: "/admin/prior", label: "Prior payments", icon: Receipt },
-        { to: "/admin/monthly", label: "Monthly", icon: FileSpreadsheet },
-        { to: "/admin/query", label: "Query", icon: Search },
-        { to: "/admin/reports", label: "Reports", icon: BarChart3 },
-        { to: "/admin/audit", label: "Audit", icon: ClipboardCheck },
-        ...(canManageUsers
-          ? [{ to: "/admin/faults", label: "Faults", icon: TriangleAlert }]
-          : []),
-      ]}
+        { to: "/admin", label: "Overview", icon: LayoutDashboard, end: true },
+        { to: "/admin/submit", label: "File for someone", icon: UserPlus },
+
+        { to: "/admin/reports", label: "Reports", icon: BarChart3, group: "Look at" },
+        { to: "/admin/faults", label: "Faults", icon: TriangleAlert, group: "Look at" },
+        { to: "/admin/duplicates", label: "Duplicates", icon: Copy, group: "Look at" },
+        { to: "/admin/query", label: "Query", icon: Search, group: "Look at" },
+        { to: "/admin/data", label: "Data", icon: Database, group: "Look at" },
+        { to: "/admin/audit", label: "Audit", icon: Shield, group: "Look at" },
+
+        { to: "/admin/users", label: "Users", icon: Users, group: "Set up" },
+        { to: "/admin/budget", label: "Budget", icon: Wallet, group: "Set up" },
+        { to: "/admin/formula", label: "Formula", icon: Settings2, group: "Set up" },
+        { to: "/admin/monthly", label: "Monthly run", icon: CalendarDays, group: "Set up" },
+        { to: "/admin/prior", label: "Prior payments", icon: FileSpreadsheet, group: "Set up" },
+        { to: "/admin/scimago", label: "Journal data", icon: BookOpen, group: "Set up" },
+]}
     />
   )
 }
@@ -459,17 +472,15 @@ export function FinanceShell() {
       tabs={[
         { to: "/finance", label: "Payment orders", icon: Wallet, end: true },
         { to: "/finance/paid", label: "Processed", icon: Receipt },
-        { to: "/finance/ledger", label: "Ledger", icon: FileSpreadsheet },
-        { to: "/finance/find", label: "Find", icon: UserSearch },
-        { to: "/finance/budget", label: "Budget", icon: Wallet },
-        { to: "/finance/duplicates", label: "Duplicates", icon: Copy },
-        { to: "/finance/query", label: "Query", icon: Search },
-        { to: "/finance/reports", label: "Reports", icon: BarChart3 },
-        // Finance owns the remuneration policy — can_edit_formula is FINANCE or
-        // SUPER_ADMIN — but the only screen for it lived under /admin, which the
-        // portal guard keeps Finance out of.
-        { to: "/finance/formula", label: "Formula", icon: Settings2 },
-      ]}
+
+        { to: "/finance/ledger", label: "Ledger", icon: FileSpreadsheet, group: "Look at" },
+        { to: "/finance/reports", label: "Reports", icon: BarChart3, group: "Look at" },
+        { to: "/finance/duplicates", label: "Duplicates", icon: Copy, group: "Look at" },
+        { to: "/finance/query", label: "Query", icon: Search, group: "Look at" },
+
+        { to: "/finance/budget", label: "Budget", icon: Wallet, group: "Set up" },
+        { to: "/finance/formula", label: "Formula", icon: Settings2, group: "Set up" },
+]}
     />
   )
 }

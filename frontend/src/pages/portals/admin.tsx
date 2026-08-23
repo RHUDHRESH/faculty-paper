@@ -706,12 +706,11 @@ export function AdminPriorPage() {
 
 /** HOD was removed from the system; it is not assignable to anyone new. */
 /** Four roles. HOD and RESEARCH_CELL were removed and are not assignable. */
-const ROLES = ["FACULTY", "PRINCIPAL", "FINANCE", "SUPER_ADMIN"] as const
+const ROLES = ["FACULTY", "HOD", "PRINCIPAL", "FINANCE", "SUPER_ADMIN"] as const
 
 const ROLE_LABELS: Record<string, string> = {
   FACULTY: "Faculty",
-  // Retired, but old accounts still render their label in the table.
-  HOD: "Head of Department (retired)",
+  HOD: "Head of Department",
   PRINCIPAL: "Principal",
   RESEARCH_CELL: "Research Cell (merged into Admin)",
   FINANCE: "Finance",

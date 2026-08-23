@@ -9,5 +9,6 @@ export function portalPath(portal?: string | null) {
   if (portal === "admin") return "/admin";
   if (portal === "finance") return "/finance";
   if (portal === "principal") return "/principal";
+  if (portal === "hod") return "/hod";
   return "/faculty";
 }

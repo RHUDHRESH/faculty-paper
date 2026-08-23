@@ -324,19 +324,33 @@ class TicketHierarchyTests(TestCase):
         Claim.objects.create(
             owner=self.faculty, paper_title="Half-written idea", status=ClaimStatus.DRAFT
         )
-        for viewer in (self.hod, self.principal, self.finance, self.admin):
+        for viewer in (self.principal, self.finance, self.admin):
             self._login(viewer)
             titles = [c["paper_title"] for c in self.client.get("/api/claims").json()["results"]]
             self.assertNotIn("Half-written idea", titles, f"{viewer.role} saw a draft")
+
+        # A head reaches neither this list nor their own department screens
+        # with a draft in them: an unfinished ticket is not output.
+        self._login(self.hod)
+        self.assertEqual(self.client.get("/api/claims").status_code, 403)
+        self.hod.department = "CSE"
+        self.hod.save()
+        self._login(self.hod)
+        titles = [
+            row["paper_title"]
+            for row in self.client.get("/api/hod/publications").json()["results"]
+        ]
+        self.assertNotIn("Half-written idea", titles)
 
         # The author still sees their own.
         self._login(self.faculty)
         titles = [c["paper_title"] for c in self.client.get("/api/claims").json()["results"]]
         self.assertIn("Half-written idea", titles)
 
-    def test_a_leftover_hod_account_has_only_faculty_rights(self):
-        """The role was removed. Any account still carrying it must not keep
-        department-wide visibility it is no longer entitled to."""
+    def test_a_head_of_department_is_kept_away_from_the_money_screens(self):
+        """The role is live again, with its own department portal. What it must
+        never reach is anything carrying a remuneration -- and the claim list
+        carries one on every row."""
         other = User.objects.create_user(
             email="o@test.edu",
             password="pass",
@@ -352,10 +366,20 @@ class TicketHierarchyTests(TestCase):
             quartile="Q2",
         )
         self._login(self.hod)
-        data = self.client.get("/api/claims").json()
-        self.assertEqual(data["results"], [], "a retired HoD account still saw the department")
-        self.assertEqual(data["total"], 0)
-        self.assertEqual(rbac.portal_for_role(Role.HOD), "faculty")
+        r = self.client.get("/api/claims")
+        self.assertEqual(r.status_code, 403, "the claim list carries the remuneration")
+        self.assertIn("no payment details", r.json()["detail"])
+
+        # They land in their own portal, not somebody else's.
+        self.assertEqual(rbac.portal_for_role(Role.HOD), "hod")
+
+        # And their own screen shows the department without any money in it.
+        self.hod.department = "CSE"
+        self.hod.save()
+        self._login(self.hod)
+        body = self.client.get("/api/hod/publications").json()
+        self.assertIn("CSE Paper", [row["paper_title"] for row in body["results"]])
+        self.assertNotIn("remuneration", self.client.get("/api/hod/publications").content.decode())
 
     def test_cannot_spoof_scimago_verified_or_staff_id(self):
         self._login(self.faculty)
@@ -4344,25 +4368,37 @@ class PermissionMatrixTests(TestCase):
             self.target.refresh_from_db()
             self.assertEqual(self.target.role, Role.FACULTY)
 
-    def test_the_retired_hod_role_cannot_be_assigned_and_says_why(self):
-        """It carries no capability at all, so giving it to somebody is a way
-        of bricking an account with a value the system still knows."""
+    def test_the_hod_role_carries_capabilities_and_can_be_assigned(self):
+        """It was a relic with no permissions -- an account holding it could
+        sign in and do nothing, so assigning it was a way to brick somebody.
+        It has a department portal now, so it is a real role again."""
         from core.permission_matrix import CAPABILITIES, HOD
 
-        self.assertEqual(
-            [c.name for c in CAPABILITIES if HOD in c.allowed],
-            [],
-            "HOD holds a capability, so refusing to assign it is wrong",
-        )
+        theirs = [c.name for c in CAPABILITIES if HOD in c.allowed]
+        self.assertTrue(theirs, "HOD holds no capability, so it should not be assignable")
+
         client = Client()
         client.force_login(self.users["SUPER_ADMIN"])
         r = client.patch(
             f"/api/admin/users/{self.target.id}",
-            data=json.dumps({"role": "HOD"}),
+            data=json.dumps({"role": "HOD", "department": "CSE"}),
             content_type="application/json",
         )
-        self.assertEqual(r.status_code, 400, r.content)
-        self.assertIn("retired", r.json()["detail"])
+        self.assertEqual(r.status_code, 200, r.content)
+        self.target.refresh_from_db()
+        self.assertEqual(self.target.role, Role.HOD)
+
+    def test_a_head_holds_no_capability_that_touches_money(self):
+        """The whole point of the role. Every door it can open must be one of
+        its own department screens."""
+        from core.permission_matrix import CAPABILITIES, HOD
+
+        for capability in CAPABILITIES:
+            if HOD in capability.allowed:
+                self.assertTrue(
+                    capability.path.startswith("/api/hod/"),
+                    f"a head may reach {capability.path}, which is not a department screen",
+                )
 
     def test_a_real_role_is_still_accepted(self):
         client = Client()
@@ -4649,6 +4685,164 @@ class DataExplorerTests(TestCase):
     def test_an_unknown_table_is_a_404_not_a_crash(self):
         self.client.force_login(self.admin)
         self.assertEqual(self.client.get("/api/admin/data/Nonsense").status_code, 404)
+
+
+
+class HeadOfDepartmentTests(TestCase):
+    """A head sees their own department, and no money by any route.
+
+    Money-blindness is the reason the role exists in this shape, and its
+    failure mode is quiet: one endpoint that forgets to filter, one export
+    column, one nested row. So the tests read what a head actually receives
+    and look for a rupee figure in it, rather than trusting the filter.
+    """
+
+    def setUp(self):
+        self.head = User.objects.create_user(
+            email="head-cse@test.edu", password="pass", name="Head of CSE",
+            role=Role.HOD, department="CSE",
+        )
+        self.mine = User.objects.create_user(
+            email="cse-person@test.edu", password="pass", name="CSE Person",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.theirs = User.objects.create_user(
+            email="ece-person@test.edu", password="pass", name="ECE Person",
+            role=Role.FACULTY, department="ECE",
+        )
+        common = dict(journal_title="J", issn="1111-2222", publication_year=2025)
+        self.paid = Claim.objects.create(
+            owner=self.mine, status=ClaimStatus.PAID, paper_title="A CSE Paper",
+            remuneration=90000, quartile="Q1", snip=1.2, ticket_number="CSE-1",
+            author_position=1, total_authors=2, voucher_number="V-9",
+            indexing_level="Scopus", **common,
+        )
+        Claim.objects.create(
+            owner=self.mine, status=ClaimStatus.DRAFT, paper_title="Unfinished",
+            remuneration=1000, **common,
+        )
+        Claim.objects.create(
+            owner=self.theirs, status=ClaimStatus.PAID, paper_title="An ECE Paper",
+            remuneration=70000, quartile="Q2", ticket_number="ECE-1", **common,
+        )
+        self.client = Client()
+        self.client.force_login(self.head)
+
+    # ---- scope -----------------------------------------------------------
+
+    def test_a_head_sees_their_own_department_and_no_other(self):
+        r = self.client.get("/api/hod/publications")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        titles = {row["paper_title"] for row in body["results"]}
+        self.assertIn("A CSE Paper", titles)
+        self.assertNotIn("An ECE Paper", titles)
+        self.assertEqual(body["department"], "CSE")
+
+    def test_asking_for_somebody_in_another_department_returns_nothing(self):
+        """A head asking about another department is not a filter to widen --
+        it is a different question with a different answer."""
+        r = self.client.get(f"/api/hod/publications?person={self.theirs.id}")
+        self.assertEqual(r.json()["total"], 0)
+
+    def test_drafts_are_not_departmental_output(self):
+        """An unfinished ticket is the claimant's working paper. Counting it
+        would tell a head they had more publications than they do."""
+        titles = {
+            row["paper_title"] for row in self.client.get("/api/hod/publications").json()["results"]
+        }
+        self.assertNotIn("Unfinished", titles)
+        self.assertEqual(self.client.get("/api/hod/overview").json()["totals"]["publications"], 1)
+
+    # ---- money -----------------------------------------------------------
+
+    def _assert_no_money(self, payload, where):
+        from core.hod import MONEY_KEYS
+
+        def walk(node, path):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    self.assertNotIn(key, MONEY_KEYS, f"{where}: {key} at {path}")
+                    walk(value, f"{path}.{key}")
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item, path)
+
+        walk(payload, "")
+
+    def test_no_money_key_reaches_a_head_from_any_department_screen(self):
+        for path in ("/api/hod/overview", "/api/hod/publications?limit=50"):
+            r = self.client.get(path)
+            self.assertEqual(r.status_code, 200, path)
+            self._assert_no_money(r.json(), path)
+            body = r.content.decode()
+            for token in ("remuneration", "voucher", "payout_month", "paid_at", "90000"):
+                self.assertNotIn(token, body, f"{path} leaked {token!r}")
+
+    def test_the_export_carries_no_money_column(self):
+        r = self.client.get("/api/hod/export?fmt=csv")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.content.decode()
+        header = body.split("\n")[0].lower()
+        for token in ("amount", "remuner", "voucher", "paid", "rupee"):
+            self.assertNotIn(token, header, f"the export header carries {token!r}")
+        self.assertIn("A CSE Paper", body)
+        self.assertNotIn("An ECE Paper", body)
+        self.assertNotIn("90000", body)
+
+    def test_the_status_is_translated_rather_than_handed_over(self):
+        """"PAID" tells a head their colleague was paid."""
+        rows = self.client.get("/api/hod/publications").json()["results"]
+        self.assertEqual(rows[0]["progress"], "Completed")
+        self.assertNotIn("status", rows[0])
+
+    def test_a_head_cannot_reach_a_screen_that_carries_money(self):
+        for path in (
+            "/api/reports",
+            "/api/reports/export",
+            "/api/reports/pack?fmt=json",
+            "/api/budgets",
+            "/api/admin/payouts?limit=1",
+            "/api/admin/data/Claim?limit=1",
+            "/api/principal/queue",
+            "/api/claims?limit=1",
+            f"/api/claims/{self.paid.id}",
+            "/api/admin/duplicate-findings",
+        ):
+            r = self.client.get(path)
+            self.assertIn(r.status_code, (403, 404), f"{path}: {r.status_code}")
+
+    def test_nobody_else_can_use_the_department_screens(self):
+        """They answer for the signed-in person's own department, so another
+        role reaching them would be answering for a department they do not
+        have."""
+        for who in (self.mine, self.theirs):
+            self.client.force_login(who)
+            self.assertEqual(self.client.get("/api/hod/overview").status_code, 403)
+
+    # ---- the shape of the answer ----------------------------------------
+
+    def test_the_overview_counts_the_department_and_its_people(self):
+        body = self.client.get("/api/hod/overview").json()
+        self.assertEqual(body["department"], "CSE")
+        totals = body["totals"]
+        self.assertEqual(totals["publications"], 1)
+        self.assertEqual(totals["q1"], 1)
+        self.assertEqual(totals["first_author"], 1)
+        self.assertEqual(totals["faculty_in_department"], 1)
+        names = {p["name"] for p in body["people"]}
+        self.assertIn("CSE Person", names)
+        self.assertNotIn("ECE Person", names)
+
+    def test_a_head_with_no_department_is_told_rather_than_shown_everything(self):
+        """The scope comes from their own account. With none set, the safe
+        answer is a refusal, not the whole college."""
+        self.head.department = ""
+        self.head.save()
+        self.client.force_login(self.head)
+        r = self.client.get("/api/hod/overview")
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("no department", r.json()["detail"])
 
 
 class MustChangePasswordTests(TestCase):

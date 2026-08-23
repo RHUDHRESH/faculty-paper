@@ -431,6 +431,19 @@ export function AdminShell() {
   )
 }
 
+export function HodShell() {
+  return (
+    <AppShell
+      title="Department"
+      wide
+      tabs={[
+        { to: "/hod", label: "Overview", icon: LayoutDashboard, end: true },
+        { to: "/hod/publications", label: "Publications", icon: BookOpen },
+      ]}
+    />
+  )
+}
+
 export function FinanceShell() {
   return (
     <AppShell

@@ -39,6 +39,8 @@ def can_finance_portal(role: str) -> bool:
 
 
 def portal_for_role(role: str) -> str:
+    if role == Role.HOD:
+        return "hod"
     if role == Role.FINANCE:
         return "finance"
     if role == Role.PRINCIPAL:

@@ -21,7 +21,9 @@ import { useId, useMemo, useState } from "react"
 import { formatMoney } from "@/components/ticket-ui"
 import { cn } from "@/lib/utils"
 
-export type Point = { key: string; count: number; amount: number; label?: string }
+/** One bar, slice or point. `amount` is absent wherever the reader is not
+ *  allowed money -- a head of department's charts carry counts only. */
+export type Point = { key: string; count: number; amount?: number; label?: string }
 
 /** Compact rupees for an axis — a full ₹27,59,600 on every tick is unreadable. */
 export function shortMoney(n: number): string {
@@ -124,12 +126,18 @@ export function TrendChart({
   caption,
   /** What one point is. Names the table column and the spoken summary. */
   unit = "month",
+  measure = "money",
 }: {
   data: Point[]
   title: string
   caption?: string
   unit?: "month" | "year"
+  /** What the line is made of. Not every reader of this kit has money. */
+  measure?: "money" | "count"
 }) {
+  const valueOf = (d: Point) => (measure === "count" ? d.count : d.amount ?? 0)
+  const formatValue = (n: number) =>
+    measure === "count" ? n.toLocaleString() : formatMoney(n)
   const gid = useId()
   const [hover, setHover] = useState<number | null>(null)
   const W = 720
@@ -137,12 +145,12 @@ export function TrendChart({
   const PAD = { top: 16, right: 16, bottom: 28, left: 56 }
 
   const { path, area, pts, max } = useMemo(() => {
-    const max = niceCeiling(Math.max(...data.map((d) => d.amount), 1))
+    const max = niceCeiling(Math.max(...data.map(valueOf), 1))
     const iw = W - PAD.left - PAD.right
     const ih = H - PAD.top - PAD.bottom
     const x = (i: number) => PAD.left + (data.length < 2 ? iw / 2 : (i / (data.length - 1)) * iw)
     const y = (v: number) => PAD.top + ih - (v / max) * ih
-    const pts = data.map((d, i) => ({ x: x(i), y: y(d.amount), d }))
+    const pts = data.map((d, i) => ({ x: x(i), y: y(valueOf(d)), d }))
     const path = pts.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")
     const area =
       pts.length > 1
@@ -153,7 +161,7 @@ export function TrendChart({
 
   if (!data.length) return null
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => max * f)
-  const peak = data.reduce((a, b) => (b.amount > a.amount ? b : a), data[0])
+  const peak = data.reduce((a, b) => (valueOf(b) > valueOf(a) ? b : a), data[0])
   const peakIndex = data.indexOf(peak)
   const active = hover ?? peakIndex
 
@@ -161,15 +169,19 @@ export function TrendChart({
     <Figure
       title={title}
       caption={caption}
-      columns={[unit === "month" ? "Month" : "Year", "Claims", "Paid"]}
-      rows={data.map((d) => [d.key, d.count, formatMoney(d.amount)])}
+      columns={[
+        unit === "month" ? "Month" : "Year",
+        "Claims",
+        measure === "count" ? "Publications" : "Paid",
+      ]}
+      rows={data.map((d) => [d.key, d.count, formatValue(valueOf(d))])}
     >
       <div className="relative">
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="w-full"
           role="img"
-          aria-label={`${title}. ${data.length} ${unit}s, peak ${formatMoney(peak.amount)} in ${peak.key}.`}
+          aria-label={`${title}. ${data.length} ${unit}s, peak ${formatValue(valueOf(peak))} in ${peak.key}.`}
           onMouseLeave={() => setHover(null)}
         >
           <defs>
@@ -197,7 +209,7 @@ export function TrendChart({
                   textAnchor="end"
                   className="fill-muted-foreground text-[10px] tabular-nums"
                 >
-                  {shortMoney(t)}
+                  {measure === "count" ? t.toLocaleString() : shortMoney(t)}
                 </text>
               </g>
             )
@@ -283,7 +295,8 @@ export function TrendChart({
           >
             <div className="font-medium text-foreground">{data[active].key}</div>
             <div className="tabular-nums text-muted-foreground">
-              {formatMoney(data[active].amount)} · {data[active].count} claims
+              {formatValue(valueOf(data[active]))}
+              {measure === "count" ? "" : ` · ${data[active].count} claims`}
             </div>
           </div>
         ) : null}
@@ -305,15 +318,19 @@ export function RankedBars({
   caption,
   limit = 12,
   unit = "money",
+  itemNoun = "claim",
 }: {
   data: Point[]
   title: string
   caption?: string
   limit?: number
   unit?: "money" | "count"
+  /** What one row counts. "claim" is payment vocabulary, and a head of
+   *  department is counting publications, not claims. */
+  itemNoun?: string
 }) {
   const [hover, setHover] = useState<string | null>(null)
-  const value = (d: Point) => (unit === "money" ? d.amount : d.count)
+  const value = (d: Point) => (unit === "money" ? d.amount ?? 0 : d.count)
   const sorted = useMemo(
     () => [...data].sort((a, b) => value(b) - value(a)),
     [data, unit]
@@ -333,8 +350,8 @@ export function RankedBars({
       rows={sorted.map((d) => [
         d.label || d.key,
         d.count,
-        formatMoney(d.amount),
-        formatMoney(d.count ? d.amount / d.count : 0),
+        formatMoney(d.amount ?? 0),
+        formatMoney(d.count ? (d.amount ?? 0) / d.count : 0),
       ])}
     >
       <ul className="space-y-2.5">
@@ -355,7 +372,7 @@ export function RankedBars({
                 <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
                   {fmt(value(d))}
                   <span className="ml-2 opacity-60">
-                    {d.count} {d.count === 1 ? "claim" : "claims"}
+                    {d.count} {d.count === 1 ? itemNoun : `${itemNoun}s`}
                   </span>
                 </span>
               </div>
@@ -399,20 +416,26 @@ export function MixBar({
   data,
   title,
   caption,
+  measure = "money",
 }: {
   data: Point[]
   title: string
   caption?: string
+  /** Share of what: money by default, or of the count. */
+  measure?: "money" | "count"
 }) {
+  const share = (d: Point) => (measure === "count" ? d.count : d.amount ?? 0)
+  const formatShare = (n: number) =>
+    measure === "count" ? n.toLocaleString() : formatMoney(n)
   const [hover, setHover] = useState<string | null>(null)
   const ordered = useMemo(() => {
     const rank = (k: string) => {
       const i = QUARTILE_ORDER.indexOf(k)
       return i === -1 ? 99 : i
     }
-    return [...data].sort((a, b) => rank(a.key) - rank(b.key) || b.amount - a.amount)
+    return [...data].sort((a, b) => rank(a.key) - rank(b.key) || share(b) - share(a))
   }, [data])
-  const total = ordered.reduce((s, d) => s + d.amount, 0)
+  const total = ordered.reduce((s, d) => s + share(d), 0)
   if (!total) return null
 
   return (
@@ -423,8 +446,8 @@ export function MixBar({
       rows={ordered.map((d) => [
         d.key,
         d.count,
-        formatMoney(d.amount),
-        `${((d.amount / total) * 100).toFixed(1)}%`,
+        formatShare(share(d)),
+        `${total ? ((share(d) / total) * 100).toFixed(1) : "0.0"}%`,
       ])}
     >
       {/* gap-[2px] is the surface gap: neighbouring segments read as separate
@@ -435,9 +458,9 @@ export function MixBar({
             key={d.key}
             onMouseEnter={() => setHover(d.key)}
             onMouseLeave={() => setHover(null)}
-            title={`${d.key}: ${formatMoney(d.amount)}`}
+            title={`${d.key}: ${formatShare(share(d))}`}
             style={{
-              width: `${Math.max((d.amount / total) * 100, 0.6)}%`,
+              width: `${Math.max(total ? (share(d) / total) * 100 : 0, 0.6)}%`,
               background: QUARTILE_FILL[d.key] || "var(--chart-absent)",
               opacity: hover && hover !== d.key ? 0.45 : 1,
             }}
@@ -465,9 +488,9 @@ export function MixBar({
               <span className="truncate text-sm text-foreground">{d.key}</span>
             </span>
             <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-              {formatMoney(d.amount)}
+              {formatShare(share(d))}
               <span className="ml-2 opacity-60">
-                {((d.amount / total) * 100).toFixed(0)}%
+                {total ? ((share(d) / total) * 100).toFixed(0) : "0"}%
               </span>
             </span>
           </li>

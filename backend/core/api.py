@@ -87,6 +87,7 @@ from core.services.tickets import assign_ticket_number
 import re
 
 from core import data_explorer as explorer
+from core import hod
 from core.services.pdfmeta import content_digest, guess_title
 from core.services.reporting_pack import build_pack, pack_workbook
 from core.services.retraction import looks_retracted
@@ -1719,6 +1720,22 @@ _CLAIM_SORTS = {
 }
 
 
+def _refuse_hod_money_screens(user: User) -> None:
+    """A head of department has their own screens, which carry no money.
+
+    The claim payload carries the remuneration, and while a head owns no
+    claims -- they cannot file one -- an open door that returns an empty list
+    today returns a paid amount the day somebody gives the account a claim.
+    Refused outright, pointing at the screen that answers their question.
+    """
+    if user.role == Role.HOD:
+        raise HttpError(
+            403,
+            "Heads of department see their department's publications under "
+            "Department, which carry no payment details.",
+        )
+
+
 @api.get("/claims", auth=session_auth)
 def list_claims(
     request: HttpRequest,
@@ -1737,6 +1754,7 @@ def list_claims(
     no such ticket.
     """
     user = require_user(request)
+    _refuse_hod_money_screens(user)
     qs = _claims_queryset(user)
     if status:
         qs = qs.filter(status=status)
@@ -1766,6 +1784,7 @@ def list_claims(
 @api.get("/claims/{claim_id}", auth=session_auth)
 def get_claim(request: HttpRequest, claim_id: str):
     user = require_user(request)
+    _refuse_hod_money_screens(user)
     claim = get_object_or_404(_claims_queryset(user), pk=claim_id)
     actions = [
         {
@@ -3954,6 +3973,295 @@ def reports_pack(request: HttpRequest, year: Optional[int] = None, fmt: str = "x
     return res
 
 
+# ---------- head of department ----------
+
+
+def _hod_scope(user: User):
+    """Every filed publication from this head's own department.
+
+    Drafts are excluded: an unfinished ticket is the claimant's working paper,
+    not the department's output, and counting them would tell a head they had
+    more publications than they do.
+    """
+    department = hod.department_of(user)
+    if not department:
+        raise HttpError(
+            400,
+            "This account has no department set, so there is nothing to show. "
+            "Ask the research cell to set it.",
+        )
+    return (
+        Claim.objects.filter(owner__department__iexact=department)
+        .exclude(status=ClaimStatus.DRAFT)
+        .select_related("owner")
+    )
+
+
+def _require_hod(request: HttpRequest) -> User:
+    user = require_user(request)
+    if user.role != Role.HOD:
+        raise HttpError(403, "Forbidden")
+    return user
+
+
+@api.get("/hod/overview", auth=session_auth)
+def hod_overview(request: HttpRequest, year: Optional[int] = None):
+    """What the department has published, and by whom. No money anywhere."""
+    user = _require_hod(request)
+    qs = _hod_scope(user)
+    if year:
+        qs = qs.filter(publication_year=year)
+
+    def bucket(field: str, blank: str) -> list[dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        for value in qs.values_list(field, flat=True):
+            key = (str(value).strip() if value not in (None, "") else blank) or blank
+            slot = out.setdefault(key, {"key": key, "count": 0, "amount": 0})
+            slot["count"] += 1
+        return sorted(out.values(), key=lambda r: -r["count"])
+
+    # Members of the department, whether or not they have published: a head
+    # needs to see who has nothing as much as who has most.
+    people = User.objects.filter(
+        role=Role.FACULTY, department__iexact=hod.department_of(user)
+    ).order_by("name")
+    counts = {
+        row["owner_id"]: row["n"]
+        for row in qs.values("owner_id").annotate(n=Count("id"))
+    }
+    first_author = {
+        row["owner_id"]: row["n"]
+        for row in qs.filter(author_position=1).values("owner_id").annotate(n=Count("id"))
+    }
+    q1 = {
+        row["owner_id"]: row["n"]
+        for row in qs.filter(quartile__iexact="Q1").values("owner_id").annotate(n=Count("id"))
+    }
+
+    years = sorted({y for y in qs.values_list("publication_year", flat=True) if y})
+    by_year = []
+    if years:
+        per = {
+            row["publication_year"]: row["n"]
+            for row in qs.exclude(publication_year__isnull=True)
+            .values("publication_year")
+            .annotate(n=Count("id"))
+        }
+        # Empty years plotted as the zeros they are, not skipped: a gap drawn
+        # as a straight line reads as steady output through years with none.
+        by_year = [
+            {"key": str(y), "count": per.get(y, 0), "amount": 0}
+            for y in range(min(years), max(years) + 1)
+        ]
+
+    indexing: dict[str, int] = {}
+    for raw in qs.values_list("indexing_level", flat=True):
+        for part in [p.strip() for p in (raw or "").split(",") if p.strip()] or ["Not stated"]:
+            indexing[part] = indexing.get(part, 0) + 1
+
+    return hod.without_money({
+        "department": hod.department_of(user),
+        "years_on_record": sorted(
+            {y for y in _hod_scope(user).values_list("publication_year", flat=True) if y},
+            reverse=True,
+        ),
+        "year": year,
+        "totals": {
+            "publications": qs.count(),
+            "faculty_in_department": people.count(),
+            "faculty_who_published": len(counts),
+            "q1": qs.filter(quartile__iexact="Q1").count(),
+            "first_author": qs.filter(author_position=1).count(),
+            "under_review": qs.filter(
+                status__in=(ClaimStatus.SUBMITTED, ClaimStatus.CLEARED)
+            ).count(),
+        },
+        "by_year": by_year,
+        "by_quartile": bucket("quartile", "Not recorded"),
+        "by_type": bucket("aggregation_type", "Not stated"),
+        "by_journal": bucket("journal_title", "Not recorded")[:12],
+        "by_indexing": sorted(
+            ({"key": k, "count": v, "amount": 0} for k, v in indexing.items()),
+            key=lambda r: -r["count"],
+        ),
+        "people": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "designation": p.designation,
+                "staff_id": p.staff_id,
+                "publications": counts.get(p.id, 0),
+                "first_author": first_author.get(p.id, 0),
+                "q1": q1.get(p.id, 0),
+                "active": p.active,
+            }
+            for p in people
+        ],
+    })
+
+
+@api.get("/hod/publications", auth=session_auth)
+def hod_publications(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    year: Optional[int] = None,
+    quartile: Optional[str] = None,
+    person: Optional[str] = None,
+    sort: str = "recent",
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Every filed publication in the department, one row each."""
+    user = _require_hod(request)
+    qs = _hod_scope(user)
+    if q:
+        term = q.strip()
+        qs = qs.filter(
+            Q(paper_title__icontains=term)
+            | Q(journal_title__icontains=term)
+            | Q(owner__name__icontains=term)
+        )
+    if year:
+        qs = qs.filter(publication_year=year)
+    if quartile:
+        qs = qs.filter(quartile__iexact=quartile)
+    if person:
+        qs = qs.filter(owner_id=person)
+
+    sorts = {
+        "recent": "-updated_at",
+        "year": "-publication_year",
+        "title": "paper_title",
+        "person": "owner__name",
+        "journal": "journal_title",
+    }
+    qs = qs.order_by(sorts.get(sort, "-updated_at"))
+
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    total = qs.count()
+
+    return hod.without_money({
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "department": hod.department_of(user),
+        "results": [
+            {
+                "id": c.id,
+                "ticket_number": c.ticket_number,
+                "paper_title": c.paper_title,
+                "journal_title": c.journal_title,
+                "issn": c.issn,
+                "doi": c.doi,
+                "publication_year": c.publication_year,
+                "quartile": c.quartile,
+                "snip": c.snip,
+                "indexing_level": c.indexing_level,
+                "publication_type": c.publication_type,
+                "author_position": c.author_position,
+                "total_authors": c.total_authors,
+                "owner_name": c.owner.name,
+                "owner_id": c.owner_id,
+                "scopus_url": c.scopus_url,
+                # Translated, never the raw status: "PAID" tells a head that a
+                # colleague was paid, which is not their business.
+                "progress": hod.progress_of(c.status),
+            }
+            for c in qs[offset : offset + limit]
+        ],
+    })
+
+
+_HOD_EXPORT_HEADERS = [
+    "Ticket", "Faculty", "Paper title", "Journal", "ISSN", "DOI",
+    "Year of publication", "Quartile", "SNIP", "Indexed in",
+    "Publication type", "Author position", "Total authors", "Progress",
+]
+
+
+@api.get("/hod/export", auth=session_auth)
+def hod_export(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    year: Optional[int] = None,
+    quartile: Optional[str] = None,
+    person: Optional[str] = None,
+    fmt: str = "xlsx",
+):
+    """The department's publications as a file, carrying no money column.
+
+    Same filters as the screen: an export that ignores them and returns
+    everything is how a wrong number reaches a review meeting.
+    """
+    user = _require_hod(request)
+    qs = _hod_scope(user)
+    if q:
+        term = q.strip()
+        qs = qs.filter(
+            Q(paper_title__icontains=term)
+            | Q(journal_title__icontains=term)
+            | Q(owner__name__icontains=term)
+        )
+    if year:
+        qs = qs.filter(publication_year=year)
+    if quartile:
+        qs = qs.filter(quartile__iexact=quartile)
+    if person:
+        qs = qs.filter(owner_id=person)
+    qs = qs.order_by("owner__name", "-publication_year")[:5000]
+
+    rows = [
+        [
+            c.ticket_number, c.owner.name, c.paper_title, c.journal_title,
+            c.issn, c.doi, c.publication_year, c.quartile, c.snip,
+            c.indexing_level, c.publication_type, c.author_position,
+            c.total_authors, hod.progress_of(c.status),
+        ]
+        for c in qs
+    ]
+    stem = f"{hod.department_of(user).replace(' ', '-').lower()}-publications"
+
+    AuditLog.objects.create(
+        actor=user, action="HOD_EXPORT", entity="Department",
+        entity_id=hod.department_of(user),
+        detail_json=json.dumps({"rows": len(rows), "format": fmt}),
+    )
+
+    if fmt == "csv":
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(_csv_row(_HOD_EXPORT_HEADERS))
+        for row in rows:
+            writer.writerow(_csv_row(row))
+        res = HttpResponse(buf.getvalue(), content_type="text/csv")
+        res["Content-Disposition"] = f'attachment; filename="{stem}.csv"'
+        return res
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Publications"
+    ws.append(_HOD_EXPORT_HEADERS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for row in rows:
+        ws.append(["" if v is None else v for v in _csv_row(row)])
+    ws.freeze_panes = "A2"
+    for column, width in zip(ws.columns, [14, 24, 60, 36, 14, 28, 10, 9, 8, 18, 18, 9, 9, 14]):
+        ws.column_dimensions[column[0].column_letter].width = width
+    out = io.BytesIO()
+    wb.save(out)
+    res = HttpResponse(
+        out.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    res["Content-Disposition"] = f'attachment; filename="{stem}.xlsx"'
+    return res
+
+
 # ---------- data explorer ----------
 
 
@@ -5022,6 +5330,7 @@ def admin_user_detail(request: HttpRequest, user_id: str):
 #: account holding one keeps it until somebody deliberately moves them.
 ASSIGNABLE_ROLES = (
     Role.FACULTY,
+    Role.HOD,
     Role.PRINCIPAL,
     Role.RESEARCH_CELL,
     Role.FINANCE,
@@ -5040,13 +5349,7 @@ def _check_assignable_role(role: str | None) -> None:
         return
     if role not in ASSIGNABLE_ROLES:
         known = ", ".join(ASSIGNABLE_ROLES)
-        extra = (
-            " The HoD role is retired and carries no permissions, so it cannot "
-            "be assigned."
-            if role == Role.HOD
-            else ""
-        )
-        raise HttpError(400, f"Role must be one of: {known}.{extra}")
+        raise HttpError(400, f"Role must be one of: {known}.")
 
 
 @api.post("/admin/users", auth=session_auth)

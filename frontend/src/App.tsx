@@ -7,6 +7,7 @@ import {
   FinanceShell,
   PrincipalShell,
   portalPath,
+  HodShell,
 } from "@/components/app-shell";
 import { LoginPage } from "@/pages/login";
 import { FacultyClaimsPage, FacultyNewClaimPage } from "@/pages/portals/faculty";
@@ -17,6 +18,7 @@ import { SearchPage } from "@/pages/portals/search";
 import { AdminFaultsPage } from "@/pages/portals/faults";
 import { BudgetPage } from "@/pages/portals/budget";
 import { DataExplorerPage } from "@/pages/portals/data-explorer";
+import { HodOverviewPage, HodPublicationsPage } from "@/pages/portals/hod";
 import { DuplicateFindingsPage } from "@/pages/portals/duplicates";
 import { LookupPage } from "@/pages/portals/lookup";
 import { PrincipalApprovalsPage } from "@/pages/portals/principal-approvals";
@@ -56,7 +58,7 @@ function RequireAuth({
   portal,
 }: {
   children: React.ReactNode;
-  portal: "faculty" | "admin" | "finance" | "principal";
+  portal: "faculty" | "admin" | "finance" | "principal" | "hod";
 }) {
   const { user, loading } = useAuth();
   if (loading) return <BootSpinner />;
@@ -64,7 +66,10 @@ function RequireAuth({
   const userPortal = user.portal || portalPathFromRole(user.role);
   if (
     userPortal !== portal &&
-    !(user.role === "SUPER_ADMIN" && (portal === "admin" || portal === "finance" || portal === "principal"))
+    !(
+      user.role === "SUPER_ADMIN" &&
+      (portal === "admin" || portal === "finance" || portal === "principal")
+    )
   ) {
     return <Navigate to={portalPath(userPortal)} replace />;
   }
@@ -74,6 +79,7 @@ function RequireAuth({
 function portalPathFromRole(role: string) {
   if (role === "FINANCE") return "finance";
   if (role === "PRINCIPAL") return "principal";
+  if (role === "HOD") return "hod";
   if (role === "FACULTY") return "faculty";
   return "admin";
 }
@@ -129,6 +135,18 @@ export default function App() {
           <Route path="profile" element={<FacultyProfilePage />} />
         </Route>
 
+
+        <Route
+          path="/hod"
+          element={
+            <RequireAuth portal="hod">
+              <HodShell />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<HodOverviewPage />} />
+          <Route path="publications" element={<HodPublicationsPage />} />
+        </Route>
 
         <Route
           path="/principal"

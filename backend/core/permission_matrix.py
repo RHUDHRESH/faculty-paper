@@ -200,6 +200,26 @@ CAPABILITIES: list[Capability] = [
         "never finance.",
         None, "Reading"),
 
+    # ---- a head of department --------------------------------------------
+    cap("Read own department's publications", "GET", "/api/hod/overview",
+        {HOD},
+        "A head is asked what their department is publishing and by whom. "
+        "Only a head: everyone else has a screen that answers it college-wide.",
+        None, "Department"),
+    cap("List own department's publications", "GET", "/api/hod/publications",
+        {HOD}, "The same data, one row per paper.", None, "Department"),
+    cap("Download own department's publications", "GET", "/api/hod/export",
+        {HOD},
+        "A head works from a spreadsheet in a review meeting. The file carries "
+        "no money column, like the screen it comes from.",
+        None, "Department"),
+    cap("Read the claim list", "GET", "/api/claims",
+        {FACULTY, PRINCIPAL, FINANCE} | ADMINS,
+        "The claim payload carries the remuneration. A head has their own "
+        "screens, which do not, so they are refused this one outright rather "
+        "than being handed an empty list that would fill up later.",
+        None, "Reading"),
+
     # ---- filing ----------------------------------------------------------
     cap("File a claim", "POST", "/api/claims",
         {FACULTY} | ADMINS,

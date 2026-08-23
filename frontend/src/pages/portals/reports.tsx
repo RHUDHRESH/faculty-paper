@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { Link, useLocation } from "react-router-dom"
 import { Download } from "lucide-react"
 
 import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
@@ -26,7 +27,14 @@ import {
   TrendChart,
 } from "@/components/charts"
 
-type Row = { key: string; count: number; amount: number; label?: string }
+type Row = {
+  key: string
+  count: number
+  amount: number
+  label?: string
+  /** Present on the people lists, so a name can open that person. */
+  id?: string
+}
 
 type ReportData = {
   totals: {
@@ -66,6 +74,11 @@ type ReportData = {
 
 const ALL = "__all__"
 
+/** Where a person's record lives, under whichever portal the reader is in. */
+function recordBase(pathname: string): string {
+  return `/${pathname.split("/")[1] || "admin"}/faculty`
+}
+
 /**
  * A breakdown that reads counts and money side by side.
  *
@@ -78,25 +91,45 @@ function Breakdown({
   rows,
   showAmount = true,
   empty = "Nothing recorded yet",
+  onPick,
+  linkFor,
+  actionHint,
 }: {
   title: string
   rows: Row[]
   showAmount?: boolean
   empty?: string
+  /** Clicking a row narrows the page to it. */
+  onPick?: (row: Row) => void
+  /** Clicking a row opens something of its own. */
+  linkFor?: (row: Row) => string | null
+  actionHint?: string
 }) {
   const max = Math.max(1, ...rows.map((r) => r.count))
+  const interactive = !!onPick || !!linkFor
   return (
-    <Section title={title}>
+    <Section title={title} description={interactive ? actionHint : undefined}>
       <div className="overflow-hidden surface-card">
         {rows.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-muted-foreground">{empty}</p>
         ) : (
           <ul className="divide-y divide-border">
-            {rows.map((r) => (
-              <li key={r.key} className="px-4 py-2.5">
+            {rows.map((r) => {
+              const to = linkFor?.(r) || null
+              const label = r.label || r.key
+              // A row that navigates and a row that does nothing must not look
+              // the same, so only the actionable ones carry the affordance.
+              const inner = (
+                <>
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 truncate text-sm text-foreground" title={r.label || r.key}>
-                    {r.label || r.key}
+                  <span
+                    className={cn(
+                      "min-w-0 truncate text-sm",
+                      to || onPick ? "text-primary" : "text-foreground"
+                    )}
+                    title={label}
+                  >
+                    {label}
                   </span>
                   <span className="flex shrink-0 items-baseline gap-3 text-sm tabular-nums">
                     <span className="font-medium">{r.count}</span>
@@ -114,8 +147,39 @@ function Breakdown({
                     style={{ width: `${Math.round((r.count / max) * 100)}%` }}
                   />
                 </div>
-              </li>
-            ))}
+                </>
+              )
+              if (to) {
+                return (
+                  <li key={r.key}>
+                    <Link
+                      to={to}
+                      className="interactive block px-4 py-2.5 hover:bg-accent/40"
+                    >
+                      {inner}
+                    </Link>
+                  </li>
+                )
+              }
+              if (onPick) {
+                return (
+                  <li key={r.key}>
+                    <button
+                      type="button"
+                      onClick={() => onPick(r)}
+                      className="interactive block w-full px-4 py-2.5 text-left hover:bg-accent/40"
+                    >
+                      {inner}
+                    </button>
+                  </li>
+                )
+              }
+              return (
+                <li key={r.key} className="px-4 py-2.5">
+                  {inner}
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>
@@ -155,6 +219,8 @@ function monthLabel(key: string): string {
 }
 
 export function ReportsPage() {
+  const { pathname } = useLocation()
+  const base = recordBase(pathname)
   const [year, setYear] = useState(ALL)
   const [department, setDepartment] = useState(ALL)
   const [month, setMonth] = useState(ALL)
@@ -376,9 +442,12 @@ export function ReportsPage() {
               {data.by_year?.length ? (
                 <TrendChart
                   title="Publications by year"
-                  caption="By the year of publication, not the year it was paid"
+                  caption="How many papers, by the year they were published"
                   data={data.by_year}
-                unit="year"
+                  unit="year"
+                  // Counting papers, not rupees: the heading promises
+                  // publications and the axis has to agree with it.
+                  measure="count"
                 />
               ) : null}
             </div>
@@ -486,19 +555,62 @@ export function ReportsPage() {
             </Section>
           ) : null}
 
+          {/* The charts above rank people; these open them. A name in a report
+              is the start of a question, not the end of one. */}
           <Section
-            title="Every breakdown"
-            description="The same figures as lists, when the question is a specific number"
+            title="Open a person"
+            description="Every name here opens that person's full record"
           >
             <div className="grid gap-6 lg:grid-cols-2">
-              <Breakdown title="By department" rows={data.by_department} />
-              <Breakdown title="By year of publication" rows={data.by_year || []} />
-              <Breakdown title="By kind of publication" rows={data.by_type || []} />
-              <Breakdown title="By indexing" rows={data.by_indexing || []} />
+              <Breakdown
+                title="Most published"
+                rows={data.top_by_publications?.rows || []}
+                linkFor={(r) => (r.id ? `${base}/${r.id}` : null)}
+                actionHint="Click a name for their publications, quartile mix and history"
+              />
+              <Breakdown
+                title="Most paid"
+                rows={data.top_by_amount?.rows || []}
+                linkFor={(r) => (r.id ? `${base}/${r.id}` : null)}
+                actionHint="Click a name for everything they have been paid"
+              />
+            </div>
+          </Section>
+
+          <Section
+            title="Who is publishing"
+            description="Exact numbers, where a chart only shows the shape"
+          >
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Breakdown
+                title="By department"
+                rows={data.by_department}
+                onPick={(r) => setDepartment(r.key)}
+                actionHint="Click a department to narrow this whole page to it"
+              />
               <Breakdown title="By designation" rows={data.by_designation || []} />
+            </div>
+          </Section>
+
+          <Section
+            title="Where it is published"
+            description="The journals and the indexes behind the figures above"
+          >
+            <div className="grid gap-6 lg:grid-cols-2">
               <Breakdown title="Most-used journals" rows={data.by_journal?.rows || []} />
-              <Breakdown title="By remuneration category" rows={data.by_category} />
+              <Breakdown title="By indexing" rows={data.by_indexing || []} />
               <Breakdown title="By quartile" rows={data.by_quartile} />
+              <Breakdown title="By kind of publication" rows={data.by_type || []} />
+            </div>
+          </Section>
+
+          <Section
+            title="When, and what it cost"
+            description="The remaining figures, as lists"
+          >
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Breakdown title="By year of publication" rows={data.by_year || []} />
+              <Breakdown title="By remuneration category" rows={data.by_category} />
               <Breakdown
                 title="Engineering / Non-Engineering"
                 rows={data.by_engineering}

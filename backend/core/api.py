@@ -3257,6 +3257,23 @@ def _multi_rows(source, field: str) -> list[dict[str, Any]]:
     )
 
 
+def _people_rows(source) -> list[dict[str, Any]]:
+    """One row per person, carrying the id the screen needs to link to them."""
+    rows = [
+        {
+            "key": r["owner__name"] or "Unknown",
+            "id": r["owner_id"],
+            "department": r["owner__department"],
+            "count": r["n"],
+            "amount": round(r["total"] or 0, 2),
+        }
+        for r in source.values("owner_id", "owner__name", "owner__department")
+        .annotate(n=Count("id"), total=Sum("remuneration"))
+        .order_by("-n")
+    ]
+    return sorted(rows, key=lambda r: -r["count"])
+
+
 def _capped(bucket_rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     """The top rows, and an honest account of what was left out.
 
@@ -3421,15 +3438,11 @@ def reports(
         # Long tails, so these are cut to what a chart can carry legibly. The
         # cut is reported rather than left to look like the whole set.
         "by_journal": _capped(rows("journal_title", label_blank="Not recorded"), 15),
-        "top_by_publications": _capped(
-            rows("owner__name", source=qs, label_blank="Unknown"), 15
-        ),
+        # Carrying the id, so a name in a report can open that person's record
+        # rather than being a dead end the reader has to retype into a search.
+        "top_by_publications": _capped(_people_rows(qs), 15),
         "top_by_amount": _capped(
-            sorted(
-                rows("owner__name", source=paid, label_blank="Unknown"),
-                key=lambda r: -r["amount"],
-            ),
-            15,
+            sorted(_people_rows(paid), key=lambda r: -r["amount"]), 15
         ),
         "per_paper": _per_paper(paid),
         "pipeline": _pipeline_stages(qs),

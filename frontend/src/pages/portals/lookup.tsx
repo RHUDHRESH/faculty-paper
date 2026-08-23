@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { Download, Search, User2 } from "lucide-react"
 
 import { MixBar, RankedBars, TrendChart } from "@/components/charts"
@@ -72,6 +72,27 @@ function monthLabel(key: string): string {
   })
 }
 
+/** Everything one person has published and been paid, at its own address. */
+export function FacultyRecordPage() {
+  const { facultyId } = useParams()
+  const nav = useNavigate()
+  if (!facultyId) return <EmptyState title="No such person" />
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Faculty record"
+        subtitle="Everything this person has published and been paid"
+        actions={
+          <Button variant="ghost" onClick={() => nav(-1)}>
+            Back
+          </Button>
+        }
+      />
+      <FacultyReportPanel id={facultyId} />
+    </div>
+  )
+}
+
 /** Everything one person has published and been paid. */
 function FacultyReportPanel({ id }: { id: string }) {
   const { data, isLoading, isError, refetch } = useApiQuery<FacultyReport>(
@@ -125,9 +146,12 @@ function FacultyReportPanel({ id }: { id: string }) {
       {data.by_year?.length ? (
         <TrendChart
           title="Publications by year"
-          caption="By year of publication"
+          caption="How many papers, by the year they were published"
           data={data.by_year}
-        unit="year"
+          unit="year"
+          // The title says publications, so the axis must count them. It was
+          // plotting rupees under a heading that promised papers.
+          measure="count"
         />
       ) : null}
 
@@ -239,8 +263,18 @@ function FacultyReportPanel({ id }: { id: string }) {
   )
 }
 
+/** The record sits under the portal the reader is already in, so the back
+ *  button and the sidebar keep working. */
+export function facultyRecordBase(pathname: string): string {
+  const portal = pathname.split("/")[1] || "admin"
+  return `/${portal}/faculty`
+}
+
 export function LookupPage() {
   const [params, setParams] = useSearchParams()
+  const recordBase = facultyRecordBase(
+    typeof window === "undefined" ? "/admin" : window.location.pathname
+  )
   const selected = params.get("faculty")
   const [term, setTerm] = useState(params.get("q") || "")
   const [submitted, setSubmitted] = useState(params.get("q") || "")
@@ -263,21 +297,10 @@ export function LookupPage() {
     [data]
   )
 
+  // A record used to be shown by swapping this screen out, which meant it had
+  // no address of its own. ?faculty= is still honoured so older links work.
   if (selected) {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Faculty record"
-          subtitle="Everything this person has published and been paid"
-          actions={
-            <Button variant="ghost" onClick={() => setParams({ q: submitted })}>
-              Back to search
-            </Button>
-          }
-        />
-        <FacultyReportPanel id={selected} />
-      </div>
-    )
+    return <Navigate to={`${recordBase}/${selected}`} replace />
   }
 
   return (
@@ -330,9 +353,8 @@ export function LookupPage() {
               <ul className="divide-y divide-border">
                 {data.faculty.map((p) => (
                   <li key={p.id}>
-                    <button
-                      type="button"
-                      onClick={() => setParams({ q: submitted, faculty: p.id })}
+                    <Link
+                      to={`${recordBase}/${p.id}`}
                       className="interactive flex w-full items-center gap-3 px-1 py-3 text-left hover:bg-accent/30"
                     >
                       <User2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -345,7 +367,7 @@ export function LookupPage() {
                         </span>
                       </span>
                       <span className="shrink-0 text-xs text-primary">Open record</span>
-                    </button>
+                    </Link>
                   </li>
                 ))}
               </ul>

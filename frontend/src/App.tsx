@@ -20,7 +20,7 @@ import { BudgetPage } from "@/pages/portals/budget";
 import { DataExplorerPage } from "@/pages/portals/data-explorer";
 import { HodOverviewPage, HodPublicationsPage } from "@/pages/portals/hod";
 import { DuplicateFindingsPage } from "@/pages/portals/duplicates";
-import { LookupPage } from "@/pages/portals/lookup";
+import { FacultyRecordPage, LookupPage } from "@/pages/portals/lookup";
 import { PrincipalApprovalsPage } from "@/pages/portals/principal-approvals";
 import { PrincipalOverviewPage, PrincipalQueuePage } from "@/pages/portals/principal";
 import {
@@ -162,6 +162,7 @@ export default function App() {
           <Route path="overview" element={<PrincipalOverviewPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="find" element={<LookupPage />} />
+          <Route path="faculty/:facultyId" element={<FacultyRecordPage />} />
           <Route path="budget" element={<BudgetPage />} />
           <Route path="duplicates" element={<DuplicateFindingsPage />} />
           <Route path="data" element={<DataExplorerPage />} />
@@ -190,6 +191,7 @@ export default function App() {
           <Route path="audit" element={<AdminAuditPage />} />
           <Route path="faults" element={<AdminFaultsPage />} />
           <Route path="find" element={<LookupPage />} />
+          <Route path="faculty/:facultyId" element={<FacultyRecordPage />} />
           <Route path="budget" element={<BudgetPage />} />
           <Route path="duplicates" element={<DuplicateFindingsPage />} />
           <Route path="data" element={<DataExplorerPage />} />
@@ -207,6 +209,7 @@ export default function App() {
           <Route path="paid" element={<FinancePaidPage />} />
           <Route path="ledger" element={<FinanceLedgerPage />} />
           <Route path="find" element={<LookupPage />} />
+          <Route path="faculty/:facultyId" element={<FacultyRecordPage />} />
           <Route path="budget" element={<BudgetPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="query" element={<SearchPage />} />

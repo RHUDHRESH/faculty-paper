@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { Pager } from "@/components/ui/pagination"
 import { DataTable } from "@/components/data-table"
 import { JournalLink } from "@/components/journal-link"
+import { PaperLink } from "@/components/paper-link"
 import {
   Select,
   SelectContent,
@@ -91,6 +92,7 @@ type Publication = {
   total_authors: number | null
   owner_name: string
   owner_id: string
+  doi: string | null
   scopus_url: string | null
   progress: string
 }
@@ -492,17 +494,10 @@ export function HodPublicationsPage() {
                 cell: (p) => (
                   <>
                     <span className="block truncate font-medium">{p.paper_title}</span>
-                    {p.scopus_url ? (
-                      <a
-                        href={p.scopus_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="interactive mt-0.5 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                      >
-                        Open in Scopus
-                        <ExternalLink className="size-3" aria-hidden />
-                      </a>
-                    ) : null}
+                    {/* The DOI leads, because it resolves for anybody. The
+                        Scopus link needs a subscription the reader may not
+                        have, and lands them on Scopus's front page if not. */}
+                    <PaperLink doi={p.doi} scopusUrl={p.scopus_url} compact className="mt-0.5 block" />
                   </>
                 ),
               },

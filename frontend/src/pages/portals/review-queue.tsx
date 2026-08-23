@@ -19,6 +19,7 @@ import { ClaimNotes } from "@/components/claim-notes"
 import { DuplicateWarning } from "@/components/duplicate-warning"
 import { ContestCallout, CopyTicketLink, Money, StatusChip, StatusTimeline, VerificationSnapshot, formatDateTime, formatMoney } from "@/components/ticket-ui"
 import { WaitingFor } from "@/components/waiting-for"
+import { PaperLink } from "@/components/paper-link"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -147,16 +148,9 @@ function TicketDetailBody({ claim }: { claim: Claim }) {
         <VerificationSnapshot snapshot={snap.scopus} />
       ) : null}
 
-      {claim.scopus_url ? (
-        <a
-          className="inline-flex items-center text-sm text-primary underline-offset-4 hover:underline"
-          href={claim.scopus_url}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Open Scopus record ↗
-        </a>
-      ) : null}
+      {/* The DOI first: it reaches the publisher's page without a
+          subscription, where the Scopus record does not. */}
+      <PaperLink doi={claim.doi} scopusUrl={claim.scopus_url} className="text-sm" />
 
       {(claim.actions || []).length > 0 ? (
         <>

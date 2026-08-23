@@ -31,6 +31,7 @@ type JournalReport = {
       year: number
       issn: string | null
       eissn: string | null
+      source_id: string | null
       verified_live: boolean
       categories: { category: string; quartile: string }[]
       best_quartile: string | null
@@ -169,14 +170,23 @@ export function JournalRecordPage() {
             : "Not matched to the reference data"
         }
         actions={
+          // With SCImago's own id this addresses the journal's page. Without
+          // one it is a title search, and it says so — a search for a
+          // fifteen-word conference series name lands on nothing, and a
+          // button labelled "SCImago" that opens an empty results page reads
+          // as the link being broken.
           <Button asChild variant="ghost" size="sm">
             <a
-              href={`https://www.scimagojr.com/journalsearch.php?q=${encodeURIComponent(j.title)}`}
+              href={
+                sc?.source_id
+                  ? `https://www.scimagojr.com/journalsearch.php?q=${sc.source_id}&tip=sid&clean=0`
+                  : `https://www.scimagojr.com/journalsearch.php?q=${encodeURIComponent(j.title)}`
+              }
               target="_blank"
               rel="noreferrer noopener"
             >
               <ExternalLink className="size-4" />
-              SCImago
+              {sc?.source_id ? "SCImago page" : "Search SCImago"}
             </a>
           </Button>
         }

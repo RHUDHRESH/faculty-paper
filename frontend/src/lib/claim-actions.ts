@@ -23,6 +23,8 @@ const ACTION_SENTENCES: Record<string, string> = {
   REJECT: "sent the ticket back for changes",
   STATUS_OVERRIDE: "moved the ticket with an admin override",
   CONTEST_FORWARD: "forwarded the ticket despite verification issues",
+  // Bibliographic only. This action can never carry a money change.
+  PACK_CORRECT: "corrected a detail for the accreditation submission",
   // The retired HoD and research-approve steps. Every ticket filed before the
   // change still carries these, so leaving them out rendered real history as
   // "Demo HOD hod approve". PRINCIPAL_APPROVE is deliberately not here: it is

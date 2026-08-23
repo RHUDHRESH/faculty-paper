@@ -102,6 +102,10 @@ export function ClaimDetailFields({ claim, showOwner = false }: { claim: Claim; 
                   href={claim.scopus_author_url}
                   target="_blank"
                   rel="noreferrer"
+                  // Same caveat as the record link: without an institutional
+                  // subscription Scopus shows its front page instead, and an
+                  // unlabelled link that does that reads as a broken one.
+                  title="Opens on Scopus — needs an institutional subscription"
                 >
                   Open profile
                 </a>

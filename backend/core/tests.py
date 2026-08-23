@@ -17,6 +17,7 @@ from core.models import (
     AttachmentKind,
     AuditLog,
     Claim,
+    ClaimAction,
     ClaimAttachment,
     ClaimStatus,
     FacultyMaster,
@@ -6658,3 +6659,145 @@ class ReportHealthCutsTests(TestCase):
         self.assertEqual(rows["ECE"]["previous"], 0)
         self.assertIsNone(rows["ECE"]["percent"])
         self.assertEqual(rows["ECE"]["change"], 2)
+
+
+class PackRowCorrectionTests(TestCase):
+    """Working through the submission, and the walls around doing so.
+
+    This screen exists so the office can tidy a NAAC file. The thing it must
+    never become is a second way to move money, so most of what is asserted
+    here is what it refuses.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.admin = User.objects.create_user(
+            email="pr-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.faculty = User.objects.create_user(
+            email="pr-fac@test.edu", password="pass", name="Fac",
+            role=Role.FACULTY, department="ECE", designation="Professor",
+        )
+        self.finance = User.objects.create_user(
+            email="pr-fin@test.edu", password="pass", name="Fin",
+            role=Role.FINANCE,
+        )
+        self.complete = Claim.objects.create(
+            owner=self.faculty, paper_title="Complete paper",
+            journal_title="A journal", issn="0272-8842", publication_year=2025,
+            doi="10.1000/ok", status=ClaimStatus.PAID, remuneration=1000,
+        )
+        self.gappy = Claim.objects.create(
+            owner=self.faculty, paper_title="Gappy paper",
+            journal_title="A journal", publication_year=2025,
+            status=ClaimStatus.PAID, remuneration=2000,
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def rows(self, query: str = "") -> dict:
+        res = self.client.get(f"/api/reports/pack/rows?{query}")
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        return res.json()
+
+    def patch(self, claim, body, user=None):
+        c = self.client
+        if user is not None:
+            c = Client()
+            c.force_login(user)
+        return c.patch(
+            f"/api/reports/pack/rows/{claim.id}",
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+    def test_a_row_names_what_it_is_missing(self):
+        by_id = {r["id"]: r for r in self.rows()["results"]}
+        self.assertEqual(by_id[self.complete.id]["gaps"], [])
+        # NAAC asks for an ISSN and a link on every row; this one has neither.
+        self.assertIn("No ISSN", by_id[self.gappy.id]["gaps"])
+        self.assertIn("No link to the paper", by_id[self.gappy.id]["gaps"])
+
+    def test_gap_counts_are_over_the_whole_set_not_the_page(self):
+        body = self.rows("limit=1")
+        self.assertEqual(len(body["results"]), 1)
+        counts = {g["key"]: g["count"] for g in body["gaps"]}
+        # "412 rows have no ISSN" is the number somebody plans an afternoon
+        # around; a per-page count would understate it enormously.
+        self.assertEqual(counts["No ISSN"], 1)
+        self.assertEqual(counts["No title"], 0)
+
+    def test_filtering_to_a_gap_returns_only_those_rows(self):
+        body = self.rows("only=No ISSN")
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["results"][0]["id"], self.gappy.id)
+
+    def test_a_correction_fixes_the_row_and_records_why(self):
+        res = self.patch(self.gappy, {
+            "field": "issn", "value": "2728842",
+            "reason": "ISSN read off the printed copy",
+        })
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        # Normalised on the way in, so the submission carries the form a
+        # register uses rather than what a spreadsheet left behind.
+        self.assertEqual(res.json()["row"]["issn"], "0272-8842")
+        self.gappy.refresh_from_db()
+        self.assertEqual(self.gappy.issn, "0272-8842")
+        action = ClaimAction.objects.filter(claim=self.gappy, action="PACK_CORRECT").first()
+        self.assertIsNotNone(action)
+        self.assertIn("printed copy", action.note)
+        self.assertTrue(AuditLog.objects.filter(action="PACK_CORRECT").exists())
+
+    def test_money_cannot_be_touched_from_here(self):
+        res = self.patch(self.gappy, {
+            "field": "remuneration", "value": "999999", "reason": "trying it on",
+        })
+        self.assertEqual(res.status_code, 400)
+        self.gappy.refresh_from_db()
+        self.assertEqual(self.gappy.remuneration, 2000)
+
+    def test_the_tickets_stage_cannot_be_touched_from_here(self):
+        res = self.patch(self.gappy, {
+            "field": "status", "value": "DRAFT", "reason": "trying it on",
+        })
+        self.assertEqual(res.status_code, 400)
+        self.gappy.refresh_from_db()
+        self.assertEqual(self.gappy.status, ClaimStatus.PAID)
+
+    def test_a_reason_is_required(self):
+        res = self.patch(self.gappy, {"field": "issn", "value": "0272-8842", "reason": "x"})
+        self.assertEqual(res.status_code, 400)
+
+    def test_an_impossible_year_is_refused(self):
+        res = self.patch(self.gappy, {
+            "field": "publication_year", "value": "1200", "reason": "fixing a typo",
+        })
+        self.assertEqual(res.status_code, 400)
+
+    def test_a_year_that_is_not_a_number_is_refused(self):
+        res = self.patch(self.gappy, {
+            "field": "publication_year", "value": "last year", "reason": "fixing a typo",
+        })
+        self.assertEqual(res.status_code, 400)
+
+    def test_finance_may_not_edit_the_submission(self):
+        # Finance releases money; the submission is the research cell's.
+        res = self.patch(self.gappy, {
+            "field": "issn", "value": "0272-8842", "reason": "tidying the file",
+        }, user=self.finance)
+        self.assertEqual(res.status_code, 403)
+
+    def test_a_claimant_cannot_read_the_college_wide_rows(self):
+        c = Client()
+        c.force_login(self.faculty)
+        self.assertEqual(c.get("/api/reports/pack/rows").status_code, 403)
+
+    def test_ugc_reads_not_checked_until_a_list_exists(self):
+        body = self.rows()
+        self.assertFalse(body["ugc_list_loaded"])
+        # Reporting "No" would assert something nobody checked.
+        self.assertTrue(all(r["ugc_care"] == "Not checked" for r in body["results"]))

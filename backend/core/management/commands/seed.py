@@ -64,7 +64,10 @@ class Command(BaseCommand):
                 "EMP-ADMIN",
                 "SA-001",
                 "BIO-ADMIN",
-                "Director",
+                # No designation. This account is a role, not a person, and
+                # the demo title it used to carry ("Director") read on every
+                # screen as though the college had one.
+                "",
             ),
             (
                 "faculty@college.edu",

@@ -89,7 +89,11 @@ def main() -> int:
 
     call = session(admin["email"], admin["password"])
     faculty = read("faculty-credentials.csv")
-    issued = {**faculty, **staff}
+    # The heads' passwords were issued into their own file and this join never
+    # read it, so all twenty-three came back as "no password on record" —
+    # reported as unusable while the value was sitting on disk.
+    heads = read("hod-credentials.csv")
+    issued = {**faculty, **heads, **staff}
 
     accounts: list[dict] = []
     offset = 0

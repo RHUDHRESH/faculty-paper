@@ -4066,10 +4066,26 @@ class ReportingPackTests(TestCase):
         self.client = Client()
         self.client.force_login(self.admin)
 
+    def _table(self, name: str, query: str = "year=2025") -> dict:
+        """One named table out of the pack, with rows back as positions.
+
+        The JSON format returns each row as an object keyed by column, which
+        is right for a consumer and awkward for a test that cares about column
+        order. Turning it back here keeps these assertions about the pack
+        rather than about the serialisation.
+        """
+        res = self.client.get(f"/api/reports/pack?{query}&fmt=json")
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        body = json.loads(res.content)
+        table = next((t for t in body["tables"] if t["name"] == name), None)
+        self.assertIsNotNone(table, f"{name} missing; got {[t['name'] for t in body['tables']]}")
+        return {
+            "columns": table["columns"],
+            "rows": [[row.get(c) for c in table["columns"]] for row in table["rows"]],
+        }
+
     def test_the_naac_sheet_has_the_columns_naac_asks_for(self):
-        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
-        self.assertEqual(r.status_code, 200, r.content)
-        naac = r.json()["NAAC 3.4.3"]
+        naac = self._table("NAAC 3.4.3")
         self.assertEqual(naac["columns"][:5], [
             "Sl. No.", "Title of paper", "Name of the author/s",
             "Department of the teacher", "Name of journal",
@@ -4080,19 +4096,16 @@ class ReportingPackTests(TestCase):
 
     def test_the_ugc_column_says_not_checked_when_no_list_is_loaded(self):
         """Reporting "No" would assert something nobody checked."""
-        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
-        self.assertEqual(r.json()["NAAC 3.4.3"]["rows"][0][-1], "Not checked")
+        self.assertEqual(self._table("NAAC 3.4.3")["rows"][0][-1], "Not checked")
 
     def test_the_ugc_column_answers_once_a_list_exists(self):
         JournalStanding.objects.create(
             source=JournalStanding.Source.UGC_CARE, issn="12345678", listed=True
         )
-        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
-        self.assertEqual(r.json()["NAAC 3.4.3"]["rows"][0][-1], "Yes")
+        self.assertEqual(self._table("NAAC 3.4.3")["rows"][0][-1], "Yes")
 
     def test_the_nirf_sheet_counts_by_year_and_carries_no_citation_columns(self):
-        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
-        nirf = r.json()["NIRF publications"]
+        nirf = self._table("NIRF publications")
         self.assertNotIn("Citations", " ".join(nirf["columns"]))
         row = nirf["rows"][0]
         self.assertEqual(row[0], 2025)
@@ -4100,8 +4113,7 @@ class ReportingPackTests(TestCase):
         self.assertEqual(row[3], 1, "one publication in total")
 
     def test_the_notes_sheet_says_what_could_not_be_produced(self):
-        r = self.client.get("/api/reports/pack?year=2025&fmt=json")
-        notes = " ".join(str(c) for row in r.json()["Notes"]["rows"] for c in row)
+        notes = " ".join(str(c) for row in self._table("Notes")["rows"] for c in row)
         self.assertIn("citation", notes.lower())
 
     def test_it_downloads_as_a_real_workbook(self):
@@ -6481,3 +6493,168 @@ class ReportDrillDownTests(TestCase):
                 row["count"],
                 f"{key}: chart says {row['count']}",
             )
+
+
+class ExportFormatTests(TestCase):
+    """A report leaves this system in five shapes, and each must be its own.
+
+    The failure this guards against is a quiet one: an endpoint that ignores
+    `fmt` and hands back a workbook labelled as a PDF. The browser saves it,
+    the name ends .pdf, and nobody finds out until somebody tries to open it.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.admin = User.objects.create_user(
+            email="ex-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        owner = User.objects.create_user(
+            email="ex-fac@test.edu", password="pass", name="Fac",
+            role=Role.FACULTY, department="ECE", designation="Professor",
+        )
+        Claim.objects.create(
+            owner=owner, paper_title="A paper", journal_title="A journal",
+            issn="2728842", status=ClaimStatus.PAID, remuneration=100,
+            publication_year=2025,
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    #: The first bytes of each format, which is what identifies a file.
+    MAGIC = {
+        "xlsx": b"PK\x03\x04",
+        "docx": b"PK\x03\x04",
+        "pdf": b"%PDF",
+        "json": b"{",
+        "csv": b"\xef\xbb\xbf",  # the BOM Excel needs to read UTF-8
+    }
+
+    def test_each_format_returns_that_format(self):
+        for fmt, magic in self.MAGIC.items():
+            with self.subTest(fmt=fmt):
+                res = self.client.get(f"/api/reports/pack?fmt={fmt}")
+                self.assertEqual(res.status_code, 200)
+                self.assertTrue(
+                    res.content.startswith(magic),
+                    f"{fmt} began {res.content[:8]!r}, not {magic!r}",
+                )
+                self.assertIn(f".{fmt}", res["Content-Disposition"])
+
+    def test_an_unknown_format_is_refused_rather_than_guessed(self):
+        self.assertEqual(self.client.get("/api/reports/pack?fmt=exe").status_code, 400)
+
+    def test_csv_says_which_tables_it_could_not_carry(self):
+        body = self.client.get("/api/reports/pack?fmt=csv").content.decode("utf-8-sig")
+        # A CSV holds one table. Silently containing one of five is how the
+        # wrong table gets submitted.
+        self.assertIn("CSV holds one table", body)
+        self.assertIn("NIRF publications", body)
+
+    def test_json_rows_are_objects_not_positions(self):
+        body = json.loads(self.client.get("/api/reports/pack?fmt=json").content)
+        table = body["tables"][0]
+        self.assertTrue(table["rows"])
+        # A consumer reading row[7] has to be told what column seven is, and
+        # will be wrong the first time a column is inserted.
+        self.assertIsInstance(table["rows"][0], dict)
+        self.assertIn("Title of paper", table["rows"][0])
+
+    def test_preview_is_capped_but_reports_the_real_count(self):
+        body = self.client.get("/api/reports/pack?fmt=preview").json()
+        for table in body["tables"]:
+            self.assertLessEqual(len(table["rows"]), 25)
+            self.assertGreaterEqual(table["row_count"], len(table["rows"]))
+
+    def test_the_submission_carries_a_well_formed_issn(self):
+        body = self.client.get("/api/reports/pack?fmt=json").content.decode()
+        # The ticket holds "2728842" because a spreadsheet dropped the leading
+        # zero; an assessor checking it against a register needs 0272-8842.
+        self.assertIn("0272-8842", body)
+
+
+class ReportHealthCutsTests(TestCase):
+    """Ageing, breadth, and year against year."""
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.admin = User.objects.create_user(
+            email="hc-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.a = User.objects.create_user(
+            email="hc-a@test.edu", password="pass", name="A", role=Role.FACULTY,
+            department="ECE",
+        )
+        self.b = User.objects.create_user(
+            email="hc-b@test.edu", password="pass", name="B", role=Role.FACULTY,
+            department="CSE",
+        )
+        now = timezone.now()
+        fresh = Claim.objects.create(
+            owner=self.a, paper_title="Fresh", status=ClaimStatus.SUBMITTED,
+            remuneration=500, publication_year=2026,
+        )
+        Claim.objects.filter(pk=fresh.pk).update(submitted_at=now - timedelta(days=2))
+        old = Claim.objects.create(
+            owner=self.a, paper_title="Old", status=ClaimStatus.SUBMITTED,
+            remuneration=700, publication_year=2026,
+        )
+        Claim.objects.filter(pk=old.pk).update(submitted_at=now - timedelta(days=60))
+        # Two already paid, which have stopped ageing.
+        for title in ("Done", "Done 2"):
+            Claim.objects.create(
+                owner=self.b, paper_title=title, status=ClaimStatus.PAID,
+                remuneration=900, publication_year=2025,
+            )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def report(self):
+        return self.client.get("/api/reports").json()
+
+    def test_ageing_counts_only_what_is_still_in_the_chain(self):
+        ageing = self.report()["ageing"]
+        # The paid claims have stopped ageing; including them would bury the
+        # one that needs chasing under the ones that do not.
+        self.assertEqual(ageing["total"], 2)
+        buckets = {r["key"]: r["count"] for r in ageing["rows"]}
+        self.assertEqual(buckets["Up to a week"], 1)
+        self.assertEqual(buckets["1–3 months"], 1)
+        self.assertGreaterEqual(ageing["oldest_days"], 59)
+
+    def test_every_bucket_is_listed_even_when_empty(self):
+        # "Nothing over three months" is the answer somebody wanted, and a
+        # missing row does not say it.
+        keys = [r["key"] for r in self.report()["ageing"]["rows"]]
+        self.assertEqual(len(keys), 5)
+        self.assertIn("Over 3 months", keys)
+
+    def test_breadth_separates_more_people_from_more_papers(self):
+        rows = {r["key"]: r for r in self.report()["breadth"]}
+        self.assertEqual(rows["2026"]["people"], 1)
+        self.assertEqual(rows["2026"]["count"], 2)
+        self.assertEqual(rows["2026"]["per_person"], 2.0)
+        self.assertEqual(rows["2026"]["top_ten_share"], 100)
+
+    def test_year_on_year_marks_a_part_year_as_partial(self):
+        yoy = self.report()["year_on_year"]
+        self.assertEqual(yoy["this_year"], 2026)
+        self.assertEqual(yoy["last_year"], 2025)
+        # Without this the reader sees every department down by half and
+        # believes it.
+        self.assertTrue(yoy["this_year_is_partial"])
+
+    def test_a_department_with_no_previous_year_has_no_percentage(self):
+        rows = {r["key"]: r for r in self.report()["year_on_year"]["rows"]}
+        # ECE published nothing in 2025: a percentage change would divide by
+        # zero and print an infinity where a reader expects a figure.
+        self.assertEqual(rows["ECE"]["previous"], 0)
+        self.assertIsNone(rows["ECE"]["percent"])
+        self.assertEqual(rows["ECE"]["change"], 2)

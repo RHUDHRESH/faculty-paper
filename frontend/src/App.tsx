@@ -22,6 +22,7 @@ import { HodOverviewPage, HodPublicationsPage } from "@/pages/portals/hod";
 import { DuplicateFindingsPage } from "@/pages/portals/duplicates";
 import { FacultyRecordPage, LookupPage } from "@/pages/portals/lookup";
 import { JournalRecordPage } from "@/pages/portals/journal";
+import { AccreditationPage } from "@/pages/portals/accreditation";
 import { PrincipalApprovalsPage } from "@/pages/portals/principal-approvals";
 import { PrincipalOverviewPage, PrincipalQueuePage } from "@/pages/portals/principal";
 import {
@@ -162,6 +163,8 @@ export default function App() {
           <Route path="all" element={<PrincipalQueuePage />} />
           <Route path="overview" element={<PrincipalOverviewPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          {/* The tables the college has to file, on a page of their own. */}
+          <Route path="accreditation" element={<AccreditationPage />} />
           <Route path="find" element={<LookupPage />} />
           <Route path="faculty/:facultyId" element={<FacultyRecordPage />} />
           {/* A journal is a record too, reachable from any name. */}
@@ -190,6 +193,8 @@ export default function App() {
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="formula" element={<AdminFormulaPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          {/* The tables the college has to file, on a page of their own. */}
+          <Route path="accreditation" element={<AccreditationPage />} />
           <Route path="query" element={<SearchPage />} />
           <Route path="audit" element={<AdminAuditPage />} />
           <Route path="faults" element={<AdminFaultsPage />} />
@@ -219,6 +224,8 @@ export default function App() {
           <Route path="journal" element={<JournalRecordPage />} />
           <Route path="budget" element={<BudgetPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          {/* The tables the college has to file, on a page of their own. */}
+          <Route path="accreditation" element={<AccreditationPage />} />
           <Route path="query" element={<SearchPage />} />
           {/* Editing the pay policy needs FINANCE or SUPER_ADMIN, so the screen
               has to be reachable from the Finance portal too. */}

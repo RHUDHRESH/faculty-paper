@@ -6,7 +6,11 @@ import {
   BarChart3,
   BookOpen,
   CalendarDays,
+  CheckCheck,
   ClipboardCheck,
+  Copy,
+  Database,
+  FileCheck,
   FileSpreadsheet,
   LayoutDashboard,
   LogOut,
@@ -21,12 +25,9 @@ import {
   Ticket,
   TriangleAlert,
   UserPlus,
+  UserSearch,
   Users,
   Wallet,
-  UserSearch,
-  CheckCheck,
-  Copy,
-  Database,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -406,6 +407,7 @@ export function PrincipalShell() {
 
         { to: "/principal/overview", label: "Overview", icon: LayoutDashboard, group: "Look at" },
         { to: "/principal/reports", label: "Reports", icon: BarChart3, group: "Look at" },
+        { to: "/principal/accreditation", label: "Accreditation", icon: FileCheck, group: "Look at" },
         { to: "/principal/all", label: "All tickets", icon: Shield, group: "Look at" },
         { to: "/principal/budget", label: "Budget", icon: Wallet, group: "Look at" },
         { to: "/principal/query", label: "Query", icon: Search, group: "Look at" },
@@ -434,6 +436,7 @@ export function AdminShell() {
         { to: "/admin/submit", label: "File for someone", icon: UserPlus },
 
         { to: "/admin/reports", label: "Reports", icon: BarChart3, group: "Look at" },
+        { to: "/admin/accreditation", label: "Accreditation", icon: FileCheck, group: "Look at" },
         { to: "/admin/faults", label: "Faults", icon: TriangleAlert, group: "Look at" },
         { to: "/admin/duplicates", label: "Duplicates", icon: Copy, group: "Look at" },
         { to: "/admin/query", label: "Query", icon: Search, group: "Look at" },
@@ -475,6 +478,7 @@ export function FinanceShell() {
 
         { to: "/finance/ledger", label: "Ledger", icon: FileSpreadsheet, group: "Look at" },
         { to: "/finance/reports", label: "Reports", icon: BarChart3, group: "Look at" },
+        { to: "/finance/accreditation", label: "Accreditation", icon: FileCheck, group: "Look at" },
         { to: "/finance/duplicates", label: "Duplicates", icon: Copy, group: "Look at" },
         { to: "/finance/query", label: "Query", icon: Search, group: "Look at" },
 

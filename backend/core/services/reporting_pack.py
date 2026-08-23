@@ -28,6 +28,7 @@ from typing import Any
 from django.db.models import Count, Q, Sum
 
 from core.models import Claim, ClaimStatus, JournalStanding, User
+from core.services.normalize import normalize_issn
 from core.services.scimago import issn_variants
 
 #: NAAC's own column order for metric 3.4.3.
@@ -118,7 +119,11 @@ def build_pack(*, year: int | None, scope) -> dict[str, Any]:
             c.owner.department if c.owner_id else "",
             c.journal_title or "",
             c.publication_year or "",
-            c.issn or "",
+            # Normalised for the submission: the tickets carry "23481900"
+            # because a spreadsheet read the ISSN as a number and dropped both
+            # the dash and, often, the leading zero. An assessor checking one
+            # against a register needs it in the form registers use.
+            normalize_issn(c.issn) or "",
             c.scopus_url or (f"https://doi.org/{c.doi}" if c.doi else ""),
             listed,
         ])

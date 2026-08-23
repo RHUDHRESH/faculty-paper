@@ -11,3 +11,9 @@ django-q2>=1.7
 # Uploaded evidence lives in Google Cloud Storage — a Cloud Run container
 # filesystem is discarded with the instance.
 django-storages[google]>=1.14
+
+# Reports leave this system in five shapes. Excel and CSV are for people who
+# will do more arithmetic; PDF is for the ones who will sign it, and DOCX for
+# the ones who will paste it into a submission with a covering paragraph.
+reportlab>=4.2
+python-docx>=1.1

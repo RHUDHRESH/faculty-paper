@@ -55,6 +55,7 @@ from core.models import (
 )
 from core.services import rbac
 from core.services.monthly_processor import start_batch_async
+from core.services import exporters
 from core.services.normalize import normalize_doi, normalize_issn, normalize_title
 from core.services.remuneration import (
     CATEGORY_LABELS,
@@ -3315,6 +3316,145 @@ def _per_paper(paid_qs) -> dict[str, Any]:
     }
 
 
+#: How long something has sat, in words a reader can act on.
+AGE_BUCKETS = [
+    (0, 7, "Up to a week"),
+    (8, 14, "1–2 weeks"),
+    (15, 30, "2–4 weeks"),
+    (31, 90, "1–3 months"),
+    (91, 10_000, "Over 3 months"),
+]
+
+
+def _ageing_rows(qs):
+    """The unfinished work, by how long it has been waiting.
+
+    Only what is still in flight: a paid ticket has stopped ageing, and
+    including it would bury the eleven that need chasing under three thousand
+    that do not.
+    """
+    live = qs.exclude(status__in=[ClaimStatus.PAID, ClaimStatus.REJECTED, ClaimStatus.DRAFT])
+    buckets = {label: {"key": label, "count": 0, "amount": 0.0} for _, _, label in AGE_BUCKETS}
+    oldest = None
+    # No .only() here: the base queryset select_related's the owner, and
+    # deferring it makes Django refuse the join. The live set is under a
+    # hundred rows anyway, so there was nothing to save.
+    for claim in live:
+        days = _waiting_days(claim)
+        if days is None:
+            continue
+        for low, high, label in AGE_BUCKETS:
+            if low <= days <= high:
+                buckets[label]["count"] += 1
+                buckets[label]["amount"] += claim.remuneration or 0
+                break
+        if oldest is None or days > oldest:
+            oldest = days
+    # Order is the reader's, not the data's: a bucket with nothing in it is
+    # still worth showing, because "nothing over three months" is the answer
+    # somebody wanted.
+    return [buckets[label] for _, _, label in AGE_BUCKETS], oldest
+
+
+def _ageing_payload(qs) -> dict[str, Any]:
+    rows, oldest = _ageing_rows(qs)
+    return {"rows": rows, "oldest_days": oldest, "total": sum(r["count"] for r in rows)}
+
+
+def _breadth_rows(qs) -> list[dict[str, Any]]:
+    """Per year: how many people, and how concentrated.
+
+    Output can rise because more people published or because the same people
+    published more, and a total cannot tell those apart. The top-ten share
+    says which happened.
+    """
+    per_year: dict[int, dict[str, Any]] = {}
+    for year, owner_id in qs.exclude(publication_year__isnull=True).values_list(
+        "publication_year", "owner_id"
+    ):
+        slot = per_year.setdefault(year, {"count": 0, "people": {}})
+        slot["count"] += 1
+        slot["people"][owner_id] = slot["people"].get(owner_id, 0) + 1
+
+    out = []
+    for year in sorted(per_year):
+        slot = per_year[year]
+        counts = sorted(slot["people"].values(), reverse=True)
+        people = len(counts)
+        top_ten = sum(counts[:10])
+        out.append(
+            {
+                "key": str(year),
+                "count": slot["count"],
+                "people": people,
+                "per_person": round(slot["count"] / people, 2) if people else 0,
+                "top_ten_share": round(top_ten / slot["count"] * 100) if slot["count"] else 0,
+            }
+        )
+    return out
+
+
+def _year_on_year_rows(qs) -> list[dict[str, Any]]:
+    """Each department against its own previous year.
+
+    Compared on publication year rather than payout month: a department is
+    judged on what it published, not on when the college got round to paying
+    for it.
+    """
+    years = sorted(
+        {
+            y
+            for y in qs.exclude(publication_year__isnull=True).values_list(
+                "publication_year", flat=True
+            )
+        }
+    )
+    if len(years) < 2:
+        return []
+    this_year, last_year = years[-1], years[-2]
+
+    def counts_for(year: int) -> dict[str, int]:
+        return {
+            (r["owner__department"] or "No department"): r["n"]
+            for r in qs.filter(publication_year=year)
+            .values("owner__department")
+            .annotate(n=Count("id"))
+        }
+
+    now, before = counts_for(this_year), counts_for(last_year)
+    rows = []
+    for department in sorted(set(now) | set(before)):
+        current, previous = now.get(department, 0), before.get(department, 0)
+        rows.append(
+            {
+                "key": department,
+                "count": current,
+                "previous": previous,
+                "change": current - previous,
+                # A department that published nothing last year has no
+                # percentage change; reporting one would divide by zero and
+                # print an infinity where a reader expects a figure.
+                "percent": round((current - previous) / previous * 100) if previous else None,
+            }
+        )
+    rows.sort(key=lambda r: -r["count"])
+    # The current year is not over. Comparing eight months of 2026 against
+    # twelve of 2025 makes every department look like it is collapsing --
+    # ECE reads -59% on this data -- and a reader who is not told will
+    # believe it. The comparison is still the one people ask for, so it is
+    # shown with the caveat rather than quietly swapped for an older pair.
+    today = timezone.localdate()
+    partial = this_year >= today.year
+    return {
+        "this_year": this_year,
+        "last_year": last_year,
+        "this_year_is_partial": partial,
+        "months_elapsed": today.month if partial else 12,
+        "rows": rows,
+    }
+
+
+
 @api.get("/reports", auth=session_auth)
 def reports(
     request: HttpRequest,
@@ -3435,6 +3575,12 @@ def reports(
         "by_type": rows("aggregation_type", label_blank="Not stated"),
         "by_indexing": _multi_rows(qs, "indexing_level"),
         "by_designation": rows("owner__designation", label_blank="Not recorded"),
+        # Three cuts the page could not make. See the helpers above for what
+        # each answers and, in the ageing case, why it is measured from the
+        # live workflow rather than from the imported timestamps.
+        "ageing": _ageing_payload(qs),
+        "breadth": _breadth_rows(qs),
+        "year_on_year": _year_on_year_rows(qs),
         # Long tails, so these are cut to what a chart can carry legibly. The
         # cut is reported rather than left to look like the whole set.
         "by_journal": _capped(rows("journal_title", label_blank="Not recorded"), 15),
@@ -4010,20 +4156,58 @@ def reports_pack(request: HttpRequest, year: Optional[int] = None, fmt: str = "x
         raise HttpError(403, "Forbidden")
 
     pack = build_pack(year=year, scope=_claims_queryset(user))
-    if fmt == "json":
-        return pack
+    # "preview" is the on-screen view: the same tables, capped, so the page
+    # can show what it is about to hand over. A pack that could only be
+    # downloaded had to be opened in Excel before anyone could tell whether
+    # it was the right year.
+    if fmt == "preview":
+        return {
+            "year": year,
+            "tables": [
+                {
+                    "name": name,
+                    "columns": list(sheet["columns"]),
+                    "rows": [[_json_safe(v) for v in r] for r in sheet["rows"][:25]],
+                    "row_count": len(sheet["rows"]),
+                }
+                for name, sheet in pack.items()
+            ],
+        }
+
+    if fmt not in exporters.FORMATS:
+        raise HttpError(400, f"Format must be one of: {', '.join(exporters.FORMATS)}.")
 
     stem = f"accreditation-pack-{year or 'all-years'}"
-    res = HttpResponse(
-        pack_workbook(pack),
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    body = exporters.render(
+        pack,
+        fmt,
+        title="Accreditation pack",
+        subtitle=(
+            f"Saveetha Engineering College · "
+            f"{'publication year ' + str(year) if year else 'all years on record'}"
+        ),
     )
-    res["Content-Disposition"] = f'attachment; filename="{stem}.xlsx"'
+    res = HttpResponse(body, content_type=exporters.CONTENT_TYPES[fmt])
+    res["Content-Disposition"] = f'attachment; filename="{exporters.filename(stem, fmt)}"'
     AuditLog.objects.create(
         actor=user, action="REPORT_PACK", entity="Report", entity_id=stem,
-        detail_json=json.dumps({"year": year, "rows": len(pack["NAAC 3.4.3"]["rows"])}),
+        detail_json=json.dumps(
+            {"year": year, "fmt": fmt, "rows": len(pack["NAAC 3.4.3"]["rows"])}
+        ),
     )
     return res
+
+
+def _json_safe(value):
+    """Dates and Decimals do not survive a JSON response as themselves."""
+    from datetime import date as _date, datetime as _datetime
+    from decimal import Decimal
+
+    if isinstance(value, (_datetime, _date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
 
 
 # ---------- journals ----------

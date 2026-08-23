@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 
 import { DataGap, isAbsentLabel, isMostlyMissing } from "@/components/data-gap"
+import { AgeingPanel, BreadthPanel, YearOnYearPanel } from "@/components/report-cuts"
 
 import { useUrlState } from "@/lib/url-state"
 import { Download } from "lucide-react"
@@ -64,6 +65,15 @@ type ReportData = {
   by_indexing?: Row[]
   by_designation?: Row[]
   /** Long tails, cut to what a chart can carry, with the remainder declared. */
+  ageing?: { rows: { key: string; count: number; amount: number }[]; oldest_days: number | null; total: number }
+  breadth?: { key: string; count: number; people: number; per_person: number; top_ten_share: number }[]
+  year_on_year?: {
+    this_year: number
+    last_year: number
+    this_year_is_partial: boolean
+    months_elapsed: number
+    rows: { key: string; count: number; previous: number; change: number; percent: number | null }[]
+  }
   by_journal?: Capped
   top_by_publications?: Capped
   top_by_amount?: Capped
@@ -527,6 +537,31 @@ export function ReportsPage() {
               />
             ) : null}
           </div>
+
+          {/* How it is going, as opposed to how much there is. These three
+              answer the questions a review meeting opens with, and none of
+              them could be read off the page before. */}
+          <Section
+            title="How it is going"
+            description="Whether anything is stuck, who is carrying the output, and which way it is moving"
+          >
+            <div className="grid gap-6 lg:grid-cols-2">
+              {data.ageing ? (
+                <AgeingPanel
+                  rows={data.ageing.rows}
+                  total={data.ageing.total}
+                  oldestDays={data.ageing.oldest_days}
+                  queryBase={queryBase}
+                />
+              ) : null}
+              {data.breadth?.length ? <BreadthPanel rows={data.breadth} /> : null}
+              {data.year_on_year?.rows?.length ? (
+                <div className="lg:col-span-2">
+                  <YearOnYearPanel data={data.year_on_year} queryBase={queryBase} />
+                </div>
+              ) : null}
+            </div>
+          </Section>
 
           {data.by_journal?.rows?.length ? (
             <Section

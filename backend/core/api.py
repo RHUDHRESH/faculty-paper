@@ -85,7 +85,6 @@ from core.services.scopus import (
     search_candidates,
 )
 from core.services.tickets import assign_ticket_number
-import re
 
 from core import data_explorer as explorer
 from core import hod
@@ -4493,6 +4492,40 @@ def _issn_variants(issn: str | None) -> list[str]:
     return [v for v in out if v]
 
 
+def _flatten_title(title: str) -> str:
+    """A journal title with everything but its letters and digits removed."""
+    return re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).strip()
+
+
+def _match_on_punctuation(qs, title: str):
+    """The same journal, spelled without its punctuation.
+
+    The ERP dropped colons, commas and brackets out of journal titles on the
+    way in, so "Journal of Materials Science: Materials in Electronics" is
+    stored as "Journal of Materials Science Materials in Electronics" and an
+    exact match finds nothing. Sixty of the college's journals are in that
+    position and every one of them was reported as unranked.
+
+    Narrowed by the two longest words before anything is compared -- they are
+    the most selective and they cannot themselves contain punctuation -- so
+    this reads a few hundred rows rather than thirty-two thousand.
+    """
+    flat = _flatten_title(title)
+    if not flat:
+        return None
+    words = sorted(set(flat.split()), key=len, reverse=True)
+    probes = [w for w in words if len(w) > 3][:2]
+    if not probes:
+        return None
+    candidates = qs
+    for w in probes:
+        candidates = candidates.filter(title__icontains=w)
+    for row in candidates.order_by("-year")[:300]:
+        if _flatten_title(row.title) == flat:
+            return row
+    return None
+
+
 def _journal_reference(title: str, issn: str | None) -> dict[str, Any]:
     """What the reference data knows about this journal, if anything.
 
@@ -4513,6 +4546,8 @@ def _journal_reference(title: str, issn: str | None) -> dict[str, Any]:
         )
     if row is None and title:
         row = scimago_qs.filter(title__iexact=title).order_by("-year").first()
+    if row is None and title:
+        row = _match_on_punctuation(scimago_qs, title)
     if row is not None:
         try:
             categories = json.loads(row.categories_json or "[]")

@@ -64,6 +64,19 @@ type JournalReport = {
   }[]
 }
 
+/**
+ * A conference series, rather than a journal that failed to match.
+ *
+ * Four hundred and fifty of the college's titles are proceedings, and none of
+ * them will ever carry an SJR, because SCImago ranks journals. Saying "not
+ * matched" about all of them made a category error look like a data fault.
+ */
+function isProceedings(title: string): boolean {
+  return /(proceedings|conference|symposium|congress|workshop|lecture notes)/i.test(
+    title || ""
+  )
+}
+
 /** The portal the reader is already inside, so the sidebar keeps working. */
 function portalBase(pathname: string): string {
   return `/${pathname.split("/")[1] || "admin"}`
@@ -167,7 +180,9 @@ export function JournalRecordPage() {
         description={
           sc
             ? `SCImago ${sc.year}${j.snip?.year ? ` · SNIP ${j.snip.year}` : ""}`
-            : "Not matched to the reference data"
+            : isProceedings(j.title)
+              ? "A conference series — SCImago ranks journals, so there is nothing to match"
+              : "Not matched to the reference data"
         }
         actions={
           // With SCImago's own id this addresses the journal's page. Without
@@ -209,10 +224,25 @@ export function JournalRecordPage() {
         <div className="mt-4">
         <StatStrip
           items={[
-            { label: "SJR", value: sc?.sjr != null ? sc.sjr.toFixed(3) : "Not matched" },
+            // "Not matched" reads as a lookup that failed. For a conference
+            // series nothing failed: SCImago does not rank one.
+            {
+              label: "SJR",
+              value:
+                sc?.sjr != null
+                  ? sc.sjr.toFixed(3)
+                  : isProceedings(j.title)
+                    ? "Not ranked"
+                    : "Not matched",
+            },
             {
               label: "SNIP",
-              value: j.snip?.snip != null ? j.snip.snip.toFixed(3) : "Not matched",
+              value:
+                j.snip?.snip != null
+                  ? j.snip.snip.toFixed(3)
+                  : isProceedings(j.title)
+                    ? "Not ranked"
+                    : "Not matched",
             },
             {
               label: "SNIP the college paid on",
@@ -255,9 +285,25 @@ export function JournalRecordPage() {
           </div>
         ) : !sc ? (
           <p className="mt-4 text-sm text-muted-foreground">
-            No row in the SCImago dump matches this title or its ISSN, so nothing here is
-            claimed about its standing. That is usually a conference proceedings series, or a
-            title recorded differently on the ticket than in the dump.
+            {/* Said definitely when it can be. A proceedings series is not
+                absent from SCImago by accident — SCImago ranks journals, and
+                a conference is not one — and hedging that as "usually"
+                invited somebody to go looking for a ranking that does not
+                exist. */}
+            {isProceedings(j.title) ? (
+              <>
+                SCImago ranks journals, and this is a conference proceedings series, so it has
+                no SJR or quartile to show. That is not a gap in the record — the policy pays
+                a conference paper on its own terms.
+              </>
+            ) : (
+              <>
+                No row in the SCImago dump matches this title or its ISSN, so nothing here is
+                claimed about its standing. Punctuation dropped by the import is matched
+                through, so this is more likely a title recorded differently on the ticket
+                than in the dump — worth checking against the printed copy.
+              </>
+            )}
           </p>
         ) : null}
       </Section>

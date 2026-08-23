@@ -15,6 +15,7 @@ import {
 import { Callout } from "@/components/form/fields"
 import { EmptyState, ErrorState, PageHeader, Section } from "@/components/layout/page"
 import { formatDateTime } from "@/components/ticket-ui"
+import { LoadingTable } from "@/components/loading"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -365,8 +366,27 @@ export function DataExplorerPage() {
 
       {isError ? (
         <ErrorState onRetry={() => refetch()} />
-      ) : isLoading ? null : !data || data.rows.length === 0 ? (
-        <EmptyState title="No rows match" description="Loosen the search or the filters." />
+      ) : isLoading ? (
+        <LoadingTable rows={10} columns={8} caption="Loading rows…" />
+      ) : !data || data.rows.length === 0 ? (
+        <EmptyState
+          title="No rows match"
+          description="Nothing in this table matches the search and filters together."
+          action={
+            term || filters.length ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setQ("")
+                  setTerm("")
+                  setFilters([])
+                }}
+              >
+                Clear the search and filters
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <>
           <p className="text-xs text-muted-foreground">

@@ -32,6 +32,7 @@ import { toast } from "sonner"
 import { useAuth } from "@/components/auth-provider"
 import { useTheme } from "@/lib/use-theme"
 import { ChangePasswordDialog, ChangePasswordGate } from "@/components/change-password"
+import { GlobalSearch } from "@/components/global-search"
 import { NotificationBell } from "@/components/notification-bell"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -299,6 +300,11 @@ export function AppShell({
           <NavItems tabs={tabs} />
         </ScrollArea>
         <div className="space-y-3 border-t border-sidebar-border p-3">
+          {/* Its own row: the button carries a keyboard hint and does not fit
+              beside a label and a bell. */}
+          <div className="px-1">
+            <GlobalSearch />
+          </div>
           <div className="flex items-center justify-between px-1">
             <span className="text-xs text-muted-foreground">Notifications</span>
             <NotificationBell />
@@ -339,6 +345,7 @@ export function AppShell({
           <div className="min-w-0 flex-1">
             <div className="truncate text-base font-semibold tracking-tight">{title}</div>
           </div>
+          <GlobalSearch />
           <NotificationBell />
         </header>
 

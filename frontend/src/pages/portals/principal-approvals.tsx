@@ -1,12 +1,16 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
+
+import { asNumber, useUrlState } from "@/lib/url-state"
 import { toast } from "sonner"
 import { CheckCheck, Clock, RotateCcw, Search, ShieldAlert } from "lucide-react"
 
+import { BatchResult, type Skipped } from "@/components/batch-result"
 import { Callout } from "@/components/form/fields"
 import { EmptyState, ErrorState, PageHeader, Section } from "@/components/layout/page"
 import { Money, StatusChip, formatMoney } from "@/components/ticket-ui"
+import { LoadingTable } from "@/components/loading"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -76,15 +80,30 @@ function waitTone(days: number | null | undefined): string {
 }
 
 export function PrincipalApprovalsPage() {
-  const [q, setQ] = useState("")
-  const [term, setTerm] = useState("")
-  const [department, setDepartment] = useState(ALL)
-  const [quartile, setQuartile] = useState(ALL)
-  const [waitingOver, setWaitingOver] = useState(ALL)
-  const [sort, setSort] = useState("waiting")
-  const [offset, setOffset] = useState(0)
+  // In the address bar, so a narrowed queue can be sent to somebody and the
+  // back button walks out of a filter rather than off the screen.
+  const [state, setState] = useUrlState({
+    q: "",
+    department: ALL,
+    quartile: ALL,
+    waitingOver: ALL,
+    sort: "waiting",
+    offset: "0",
+  })
+  const { department, quartile, waitingOver, sort } = state
+  const term = state.q
+  const offset = asNumber(state.offset, 0)
+  const [q, setQ] = useState(state.q)
+
+  const setDepartment = (v: string) => setState({ department: v })
+  const setQuartile = (v: string) => setState({ quartile: v })
+  const setWaitingOver = (v: string) => setState({ waitingOver: v })
+  const setSort = (v: string) => setState({ sort: v })
+  const setTerm = (v: string) => setState({ q: v })
+  const setOffset = (v: number) => setState({ offset: String(v) })
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ done: number; skipped: Skipped[] } | null>(null)
   const [sendBack, setSendBack] = useState<Claim | null>(null)
   const [reason, setReason] = useState("")
 
@@ -115,11 +134,6 @@ export function PrincipalApprovalsPage() {
 
   const rows = data?.results || []
 
-  // A filter change that leaves the old page offset behind shows an empty page.
-  useEffect(() => {
-    setOffset(0)
-  }, [term, department, quartile, waitingOver, sort])
-
   const selected = useMemo(
     () => rows.filter((r) => picked.has(r.id)),
     [rows, picked]
@@ -132,6 +146,23 @@ export function PrincipalApprovalsPage() {
   const selectedDepartments = new Set(
     selected.map((r) => r.owner_department).filter(Boolean)
   ).size
+
+  const filtersActive = !!(
+    term ||
+    department !== ALL ||
+    quartile !== ALL ||
+    waitingOver !== ALL
+  )
+  const clearFilters = () => {
+    setQ("")
+    setState({
+      q: "",
+      department: ALL,
+      quartile: ALL,
+      waitingOver: ALL,
+      offset: "0",
+    })
+  }
 
   function toggle(id: string) {
     setPicked((s) => {
@@ -172,11 +203,10 @@ export function PrincipalApprovalsPage() {
           `${res.approved} approved · ${formatMoney(res.total)} released to finance`
         )
       }
-      // Named, not counted: "3 skipped" leaves the reader hunting for which.
-      for (const s of (res.skipped || []).slice(0, 3)) toast.error(s.reason)
-      if ((res.skipped || []).length > 3) {
-        toast.error(`${res.skipped.length - 3} more could not be approved`)
-      }
+      // Kept on screen rather than fired as toasts: a reason that fades in
+      // four seconds, while the reader is still looking at the list, is a
+      // reason nobody ever reads.
+      setResult({ done: res.approved, skipped: res.skipped || [] })
       // Whatever was refused stays selected. Clearing the lot meant a batch
       // where one row drifted lost the other hundred-and-ninety-nine, and the
       // rows that need looking at are exactly the ones that were dropped.
@@ -374,16 +404,118 @@ export function PrincipalApprovalsPage() {
         </div>
       </div>
 
+      {result ? (
+        <BatchResult
+          done={result.done}
+          doneLabel={result.done === 1 ? "approved" : "approved"}
+          skipped={result.skipped}
+          onDismiss={() => setResult(null)}
+        />
+      ) : null}
+
       {isError ? (
         <ErrorState onRetry={() => refetch()} />
-      ) : isLoading ? null : rows.length === 0 ? (
+      ) : isLoading ? (
+        <LoadingTable rows={8} columns={7} caption="Loading what is waiting on you…" />
+      ) : rows.length === 0 ? (
         <EmptyState
-          title="Nothing waiting on you"
-          description="Everything the research cell has cleared is already approved."
+          title={
+            filtersActive ? "Nothing matches those filters" : "Nothing waiting on you"
+          }
+          description={
+            filtersActive
+              ? "There are tickets waiting, but none match all of these at once."
+              : "Everything the research cell has cleared is already approved."
+          }
+          action={
+            filtersActive ? (
+              <Button variant="secondary" onClick={clearFilters}>
+                Clear the filters
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <>
-          <div className="overflow-x-auto rounded-[var(--radius)] border border-border">
+          {/* Phones get cards; the table needs a thousand pixels and a phone
+              has under four hundred. */}
+          <ul className="space-y-3 lg:hidden">
+            {rows.map((r) => {
+              const days = (r as unknown as Record<string, number>).waiting_days
+              const isPicked = picked.has(r.id)
+              const flagged = !!(r as unknown as Record<string, unknown>)
+                .override_duplicate
+              return (
+                <li
+                  key={r.id}
+                  className={cn(
+                    "rounded-[var(--radius)] border p-4",
+                    isPicked ? "border-primary bg-surface-brand/40" : "border-border bg-card",
+                    days >= 21 && "border-l-4 border-l-destructive",
+                    days >= 7 && days < 21 && "border-l-4 border-l-warning"
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      checked={isPicked}
+                      onCheckedChange={() => toggle(r.id)}
+                      aria-label={`Select ${r.ticket_number}`}
+                      className="mt-1"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-xs text-muted-foreground">
+                        {r.ticket_number}
+                      </p>
+                      <p className="mt-0.5 font-medium leading-snug">{r.paper_title}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {r.owner_name}
+                        {r.owner_department ? ` · ${r.owner_department}` : ""}
+                        {r.quartile ? ` · ${r.quartile}` : ""}
+                      </p>
+                      {flagged ? (
+                        <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-xs text-warning-foreground">
+                          <ShieldAlert className="size-3" aria-hidden />
+                          Payment-history warning set aside
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                    <span className={cn("text-xs", waitTone(days))}>
+                      <Clock className="mr-1 inline size-3.5" aria-hidden />
+                      {waitLabel(days)}
+                    </span>
+                    <span className="text-lg font-semibold tabular-nums">
+                      <Money value={r.remuneration} />
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      className="flex-1"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => approve([r.id])}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => setSendBack(r)}
+                    >
+                      <RotateCcw className="size-3.5" />
+                      Back
+                    </Button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+
+          <div className="hidden overflow-x-auto rounded-[var(--radius)] border border-border lg:block">
             <table className="w-full min-w-[62rem] text-left text-sm">
               <thead className="border-b border-border bg-muted/30 text-xs uppercase text-muted-foreground">
                 <tr>
@@ -414,7 +546,13 @@ export function PrincipalApprovalsPage() {
                       key={r.id}
                       className={cn(
                         "border-b border-border/50 last:border-0",
-                        isPicked ? "bg-surface-brand/40" : "hover:bg-accent/30"
+                        isPicked ? "bg-surface-brand/40" : "hover:bg-accent/30",
+                        // A queue of two hundred identical grey rows makes the
+                        // one that has waited five weeks look exactly like the
+                        // one filed this morning. The eye needs somewhere to
+                        // land before the reader starts reading dates.
+                        days >= 21 && "border-l-2 border-l-destructive",
+                        days >= 7 && days < 21 && "border-l-2 border-l-warning"
                       )}
                     >
                       <td className="px-3 py-2">

@@ -7,6 +7,7 @@ import { Download, Search, User2 } from "lucide-react"
 import { MixBar, RankedBars, TrendChart } from "@/components/charts"
 import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
 import { Money, StatusChip, formatMoney } from "@/components/ticket-ui"
+import { LoadingPage } from "@/components/loading"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -101,7 +102,7 @@ function FacultyReportPanel({ id }: { id: string }) {
   )
 
   if (isError) return <ErrorState onRetry={() => refetch()} />
-  if (isLoading || !data) return <Section title="Loading the record…">{null}</Section>
+  if (isLoading || !data) return <LoadingPage />
 
   const f = data.faculty as Record<string, string | null>
   const t = data.totals

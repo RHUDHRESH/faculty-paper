@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react"
 import { Link, useLocation } from "react-router-dom"
+
+import { useUrlState } from "@/lib/url-state"
 import { Download } from "lucide-react"
 
 import { EmptyState, ErrorState, PageHeader, Section, StatStrip } from "@/components/layout/page"
@@ -221,9 +223,16 @@ function monthLabel(key: string): string {
 export function ReportsPage() {
   const { pathname } = useLocation()
   const base = recordBase(pathname)
-  const [year, setYear] = useState(ALL)
-  const [department, setDepartment] = useState(ALL)
-  const [month, setMonth] = useState(ALL)
+  // A report nobody can send is a report somebody screenshots.
+  const [state, setState] = useUrlState({
+    year: ALL,
+    department: ALL,
+    month: ALL,
+  })
+  const { year, department, month } = state
+  const setYear = (v: string) => setState({ year: v })
+  const setDepartment = (v: string) => setState({ department: v })
+  const setMonth = (v: string) => setState({ month: v })
 
   const query = useMemo(() => {
     const qs = new URLSearchParams()
@@ -272,29 +281,6 @@ export function ReportsPage() {
         }
       />
 
-      <Section
-        title="Accreditation pack"
-        description="The NAAC and NIRF tables, in the columns those frameworks ask for"
-      >
-        <div className="flex flex-wrap items-center gap-3">
-          <Button asChild variant="secondary">
-            <a
-              href={`${API_BASE}/api/reports/pack?fmt=xlsx${
-                year !== ALL ? `&year=${year}` : ""
-              }`}
-            >
-              <Download className="size-4" />
-              {year === ALL ? "Download (all years)" : `Download ${year}`}
-            </a>
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            NAAC 3.4.3 one row per teacher per paper, NIRF publication counts by year,
-            department and faculty summaries, and a Notes sheet saying what each figure
-            counts. Citation-based NIRF metrics are not included — no citation data is
-            held here, and they have to come from Scopus directly.
-          </p>
-        </div>
-      </Section>
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1.5">
@@ -405,6 +391,7 @@ export function ReportsPage() {
             </div>
           </Section>
 
+
           {data.per_paper?.count ? (
             <Section
               title="What one paper is worth"
@@ -427,7 +414,6 @@ export function ReportsPage() {
               </p>
             </Section>
           ) : null}
-
           {/* The shapes first -- a reader looking for trend, concentration or a
               queue should not have to reconstruct it from a list. The lists stay
               underneath, because a specific number is a different question and
@@ -622,6 +608,31 @@ export function ReportsPage() {
                 rows={data.by_month}
                 empty="No payments recorded yet"
               />
+            </div>
+          </Section>
+          {/* Last, deliberately: a file to take away is the end of a
+              reading, not the start of one. */}
+          <Section
+            title="Accreditation pack"
+            description="The NAAC and NIRF tables, in the columns those frameworks ask for"
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <Button asChild variant="secondary">
+                <a
+                  href={`${API_BASE}/api/reports/pack?fmt=xlsx${
+                    year !== ALL ? `&year=${year}` : ""
+                  }`}
+                >
+                  <Download className="size-4" />
+                  {year === ALL ? "Download (all years)" : `Download ${year}`}
+                </a>
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                NAAC 3.4.3 one row per teacher per paper, NIRF publication counts by year,
+                department and faculty summaries, and a Notes sheet saying what each figure
+                counts. Citation-based NIRF metrics are not included — no citation data is
+                held here, and they have to come from Scopus directly.
+              </p>
             </div>
           </Section>
         </>

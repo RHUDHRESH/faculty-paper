@@ -1,12 +1,15 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
+
+import { asNumber, useUrlState } from "@/lib/url-state"
 import { Link } from "lucide-react"
 import { Download, ExternalLink, Search, Users } from "lucide-react"
 
 import { MixBar, RankedBars, TrendChart } from "@/components/charts"
 import { Callout } from "@/components/form/fields"
 import { EmptyState, ErrorState, PageHeader, Section } from "@/components/layout/page"
+import { LoadingPage, LoadingTable } from "@/components/loading"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -124,7 +127,8 @@ export function HodOverviewPage() {
   )
 
   if (isError) return <ErrorState onRetry={() => refetch()} />
-  if (isLoading || !data) return null
+  // A white screen for as long as the query takes reads as a broken page.
+  if (isLoading || !data) return <LoadingPage />
 
   const t = data.totals
   const published = t.faculty_who_published
@@ -303,12 +307,22 @@ export function HodOverviewPage() {
 }
 
 export function HodPublicationsPage() {
-  const [q, setQ] = useState("")
-  const [term, setTerm] = useState("")
-  const [year, setYear] = useState(ALL)
-  const [quartile, setQuartile] = useState(ALL)
-  const [sort, setSort] = useState("recent")
-  const [offset, setOffset] = useState(0)
+  const [state, setState] = useUrlState({
+    q: "",
+    year: ALL,
+    quartile: ALL,
+    sort: "recent",
+    offset: "0",
+  })
+  const { year, quartile, sort } = state
+  const term = state.q
+  const offset = asNumber(state.offset, 0)
+  const [q, setQ] = useState(state.q)
+  const setYear = (v: string) => setState({ year: v })
+  const setQuartile = (v: string) => setState({ quartile: v })
+  const setSort = (v: string) => setState({ sort: v })
+  const setTerm = (v: string) => setState({ q: v })
+  const setOffset = (v: number) => setState({ offset: String(v) })
 
   const { data: overview } = useApiQuery<Overview>(["hod-overview", ALL], "/api/hod/overview")
 
@@ -326,9 +340,11 @@ export function HodPublicationsPage() {
     results: Publication[]
   }>(["hod-publications", query], `/api/hod/publications?${query}`)
 
-  useEffect(() => {
-    setOffset(0)
-  }, [term, year, quartile, sort])
+  const filtersActive = !!(term || year !== ALL || quartile !== ALL)
+  const clearFilters = () => {
+    setQ("")
+    setState({ q: "", year: ALL, quartile: ALL, offset: "0" })
+  }
 
   const exportQuery = query.replace(/&?(limit|offset|sort)=[^&]*/g, "").replace(/^&/, "")
 
@@ -439,10 +455,25 @@ export function HodPublicationsPage() {
 
       {isError ? (
         <ErrorState onRetry={() => refetch()} />
-      ) : isLoading ? null : !data || data.results.length === 0 ? (
+      ) : isLoading ? (
+        <LoadingTable rows={8} columns={7} caption="Loading publications…" />
+      ) : !data || data.results.length === 0 ? (
         <EmptyState
-          title="Nothing matches"
-          description="Loosen the search or the filters."
+          title="Nothing matches those filters"
+          description={
+            filtersActive
+              ? "Nothing in your department matches all of them at once."
+              : "Your department has nothing filed yet."
+          }
+          // A dead end is the one thing an empty screen must not be: the
+          // reader filtered their way here and needs the way back.
+          action={
+            filtersActive ? (
+              <Button variant="secondary" onClick={clearFilters}>
+                Clear the filters
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <>

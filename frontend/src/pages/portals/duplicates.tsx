@@ -7,6 +7,7 @@ import { AlertOctagon, Check, Users, X } from "lucide-react"
 import { Callout } from "@/components/form/fields"
 import { EmptyState, ErrorState, PageHeader, Section } from "@/components/layout/page"
 import { Money, formatDateTime, formatMoney } from "@/components/ticket-ui"
+import { LoadingTable } from "@/components/loading"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -239,7 +240,9 @@ export function DuplicateFindingsPage() {
 
       {isError ? (
         <ErrorState onRetry={() => refetch()} />
-      ) : isLoading ? null : rows.length === 0 ? (
+      ) : isLoading ? (
+        <LoadingTable rows={4} columns={4} caption="Loading the findings…" />
+      ) : rows.length === 0 ? (
         <EmptyState
           title="Nothing here"
           description="No group matches those filters."

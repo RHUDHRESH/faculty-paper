@@ -1,6 +1,6 @@
 "use client"
 
-import { type FormEvent, useEffect, useState } from "react"
+import { type FormEvent, useState } from "react"
 import { toast } from "sonner"
 import { useAuth } from "@/components/auth-provider"
 import { api } from "@/lib/api"
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 
 export function ChangePasswordDialog({
@@ -62,10 +63,9 @@ export function ChangePasswordDialog({
         <form className="space-y-4" onSubmit={onSubmit}>
           <div className="space-y-2">
             <Label htmlFor="current">Current password</Label>
-            <Input
+            <PasswordInput
               id="current"
-              type="password"
-              value={current}
+                            value={current}
               onChange={(e) => setCurrent(e.target.value)}
               required
               autoComplete="current-password"
@@ -73,10 +73,9 @@ export function ChangePasswordDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="next">New password</Label>
-            <Input
+            <PasswordInput
               id="next"
-              type="password"
-              value={next}
+                            value={next}
               onChange={(e) => setNext(e.target.value)}
               minLength={8}
               required
@@ -99,26 +98,34 @@ export function ChangePasswordDialog({
   )
 }
 
+/**
+ * The dialog that will not go away.
+ *
+ * It was shown whenever `open || must_change_password`, and the close handler
+ * for the forced case refreshed the account and returned without ever putting
+ * `open` back to false. So the sequence was: the flag opens it, you set a new
+ * password, the flag clears — and `open` is still true from when the flag set
+ * it, so the dialog re-renders open on top of a success message saying it had
+ * worked. The only way out was a reload.
+ *
+ * One source of truth now: the dialog is open when the account demands it or
+ * when the reader asked for it, and closing clears both.
+ */
 export function ChangePasswordGate() {
   const { user, refresh } = useAuth()
   const [open, setOpen] = useState(false)
+  const forced = !!user?.must_change_password
 
-  // Sync forced dialog when user requires password change
-  useEffect(() => {
-    if (user?.must_change_password) setOpen(true)
-  }, [user?.must_change_password])
-
-  if (!user?.must_change_password && !open) return null
+  if (!forced && !open) return null
 
   return (
     <ChangePasswordDialog
-      open={open || !!user?.must_change_password}
-      forced={!!user?.must_change_password}
+      open={forced || open}
+      forced={forced}
       onOpenChange={async (nextOpen) => {
-        if (user?.must_change_password && !nextOpen) {
-          await refresh()
-          return
-        }
+        // Closing means closed, whichever reason it was opened for. The
+        // refresh is what clears `forced`; setOpen is what clears the rest,
+        // and leaving the second one out is what pinned it to the screen.
         setOpen(nextOpen)
         if (!nextOpen) await refresh()
       }}

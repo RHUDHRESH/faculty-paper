@@ -9,6 +9,7 @@ import {
   Filter,
   Pencil,
   Search,
+  Trash2,
   X,
 } from "lucide-react"
 
@@ -39,6 +40,8 @@ import {
 import { API_BASE, api } from "@/lib/api"
 import { useApiQuery } from "@/lib/queries"
 import { TableScroller, stickyHeadCell } from "@/components/data-table"
+import { DeleteRowDialog, WipeEverythingDialog } from "@/components/destructive"
+import { useAuth } from "@/components/auth-provider"
 import { cn } from "@/lib/utils"
 
 /**
@@ -119,6 +122,13 @@ export function DataExplorerPage() {
   const [sort, setSort] = useState("")
   const [offset, setOffset] = useState(0)
   const [open, setOpen] = useState<Record<string, unknown> | null>(null)
+  const [removing, setRemoving] = useState<Record<string, unknown> | null>(null)
+  const [wipeOpen, setWipeOpen] = useState(false)
+  // `may_edit` is about whether this table has correctable reference columns.
+  // Deleting is a different question with a different answer, and the server
+  // asks it of the role rather than of the table.
+  const { user } = useAuth()
+  const mayDelete = user?.role === "SUPER_ADMIN"
   const [edit, setEdit] = useState<{ column: Column; row: Record<string, unknown> } | null>(null)
   const [draft, setDraft] = useState("")
   const [reason, setReason] = useState("")
@@ -481,8 +491,36 @@ export function DataExplorerPage() {
               </div>
             ))}
           </dl>
+          {/* Here rather than on the grid row: this is the only place the
+              reader can see the whole thing they are about to lose. */}
+          {mayDelete ? (
+            <DialogFooter className="border-t border-border pt-3">
+              <Button
+                variant="outline"
+                className="text-destructive hover:bg-destructive/10"
+                onClick={() => {
+                  setRemoving(open)
+                  setOpen(null)
+                }}
+              >
+                <Trash2 className="size-4" />
+                Delete this row
+              </Button>
+            </DialogFooter>
+          ) : null}
         </DialogContent>
       </Dialog>
+
+      <DeleteRowDialog
+        row={removing}
+        table={data?.table.label || table}
+        tableName={table}
+        onClose={() => setRemoving(null)}
+        onDeleted={() => {
+          setRemoving(null)
+          refetch()
+        }}
+      />
 
       <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
         <DialogContent>
@@ -521,6 +559,34 @@ export function DataExplorerPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* At the bottom, on its own, in the colour of what it does. */}
+      {mayDelete ? (
+        <div className="mt-10 rounded-[var(--radius)] border border-destructive/30 bg-destructive/5 p-5">
+          <p className="text-eyebrow text-destructive">Irreversible</p>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Emptying removes every publication, payment record and attachment. Accounts,
+            the audit log and the reference data stay. There is no undo.
+          </p>
+          <Button
+            variant="outline"
+            className="mt-3 border-destructive/40 text-destructive hover:bg-destructive/10"
+            onClick={() => setWipeOpen(true)}
+          >
+            <Trash2 className="size-4" />
+            Empty this system…
+          </Button>
+        </div>
+      ) : null}
+
+      <WipeEverythingDialog
+        open={wipeOpen}
+        onClose={() => setWipeOpen(false)}
+        onWiped={() => {
+          setWipeOpen(false)
+          refetch()
+        }}
+      />
     </div>
   )
 }

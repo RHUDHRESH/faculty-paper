@@ -165,7 +165,6 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "CLEARED", label: statusLabel("CLEARED") },
   { value: "PAID", label: statusLabel("PAID") },
   { value: "REJECTED", label: statusLabel("REJECTED") },
-  { value: "HOD_APPROVED", label: "Approved by HoD (old flow)" },
   { value: "PRINCIPAL_APPROVED", label: "Principal approved (old flow)" },
   { value: "FINANCE_APPROVED", label: "Finance approved (old flow)" },
   { value: "RESEARCH_APPROVED", label: "Research approved (old flow)" },

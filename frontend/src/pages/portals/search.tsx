@@ -8,16 +8,10 @@ import { ClaimDetailFields } from "@/components/claim-detail-fields"
 import { EmptyState, ErrorState, MasterDetail, PageHeader } from "@/components/layout/page"
 import { Money, StatusChip, TicketProgress, monthLabel } from "@/components/ticket-ui"
 import { FilterBar } from "@/components/filter-bar"
+import { Combobox } from "@/components/ui/combobox"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Pager } from "@/components/ui/pagination"
 import { API_BASE, type Claim } from "@/lib/api"
@@ -53,6 +47,14 @@ const SORTS = [
 ]
 
 /** One filter, rendered the same way every time. */
+/**
+ * One filter control, typeable.
+ *
+ * Was a plain select. Department alone holds thirty-one options and the only
+ * way through them was to scroll — a styled listbox does not even do the
+ * type-to-jump a native select gives you free, so these were worse than the
+ * browser's own control.
+ */
 function Picker({
   id,
   label,
@@ -75,19 +77,15 @@ function Picker({
       <Label htmlFor={id} className="text-xs">
         {label}
       </Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id={id} className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ANY}>{anyLabel}</SelectItem>
-          {options.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Combobox
+        id={id}
+        aria-label={label}
+        value={value}
+        onChange={onChange}
+        className="w-full min-w-[11rem]"
+        searchPlaceholder={`Filter ${label.toLowerCase()}…`}
+        options={[{ value: ANY, label: anyLabel }, ...options]}
+      />
     </div>
   )
 }

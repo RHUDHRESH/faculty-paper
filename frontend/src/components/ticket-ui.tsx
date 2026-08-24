@@ -25,7 +25,12 @@ const LABELS: Record<string, string> = {
   PAID: "Paid",
   REJECTED: "Needs changes",
   // Old chain. Tickets filed before the change still carry these.
-  HOD_APPROVED: "Approved by HoD (old flow)",
+  // Not "Approved by HoD". The HoD step was stood down, no ticket is at this
+  // status and none can reach it, so the phrase could only ever describe a
+  // step of the chain that does not exist to somebody trying to understand
+  // where their paper is. The status is still handled — an old row must not
+  // crash a screen — it just reads as what it is: waiting to be checked.
+  HOD_APPROVED: "Awaiting check",
   RESEARCH_APPROVED: "Checked — with the Principal",
   FINANCE_APPROVED: "Approved — with Finance",
 }

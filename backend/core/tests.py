@@ -6855,3 +6855,155 @@ class SearchExportTests(TestCase):
         self.assertEqual(
             c.get("/api/reports/search/export?quartile=Q1").status_code, 403
         )
+
+
+class DeletionGuardTests(TestCase):
+    """The two endpoints that destroy things, and what stops them.
+
+    This is the most dangerous code in the system: a delete has no undo and
+    the database holds the record of real payments to real people. Nearly
+    every assertion here is about a refusal.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.admin = User.objects.create_user(
+            email="del-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.cell = User.objects.create_user(
+            email="del-cell@test.edu", password="pass", name="Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.faculty = User.objects.create_user(
+            email="del-fac@test.edu", password="pass", name="Fac",
+            role=Role.FACULTY, department="ECE",
+        )
+        self.paid = Claim.objects.create(
+            owner=self.faculty, paper_title="Paid paper", journal_title="J",
+            status=ClaimStatus.PAID, remuneration=5000, publication_year=2025,
+        )
+        self.draft = Claim.objects.create(
+            owner=self.faculty, paper_title="A draft", journal_title="J",
+            status=ClaimStatus.DRAFT, publication_year=2025,
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def delete(self, table, row_id, reason="removing a row left by a failed import", user=None):
+        c = self.client
+        if user is not None:
+            c = Client()
+            c.force_login(user)
+        return c.delete(
+            f"/api/admin/data/{table}/row/{row_id}",
+            data=json.dumps({"reason": reason}),
+            content_type="application/json",
+        )
+
+    # ---- deleting one row -------------------------------------------
+
+    def test_a_paid_publication_cannot_be_deleted(self):
+        res = self.delete("Claim", self.paid.id)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("paid", res.json()["detail"].lower())
+        # Still there, which is the whole point.
+        self.assertTrue(Claim.objects.filter(pk=self.paid.pk).exists())
+
+    def test_the_audit_log_cannot_be_deleted_from(self):
+        entry = AuditLog.objects.create(actor=self.admin, action="X", entity="Y")
+        res = self.delete("AuditLog", entry.id)
+        self.assertEqual(res.status_code, 400)
+        self.assertTrue(AuditLog.objects.filter(pk=entry.pk).exists())
+
+    def test_only_a_super_admin_may_delete(self):
+        # The research cell manages users and clears claims, and still cannot
+        # do this.
+        self.assertEqual(self.delete("Claim", self.draft.id, user=self.cell).status_code, 403)
+        self.assertEqual(self.delete("Claim", self.draft.id, user=self.faculty).status_code, 403)
+        self.assertTrue(Claim.objects.filter(pk=self.draft.pk).exists())
+
+    def test_a_reason_in_words_is_required(self):
+        self.assertEqual(self.delete("Claim", self.draft.id, reason="oops").status_code, 400)
+
+    def test_you_cannot_delete_the_account_you_are_signed_in_as(self):
+        res = self.delete("User", self.admin.id)
+        self.assertEqual(res.status_code, 400)
+
+    def test_a_draft_deletes_and_says_what_it_was(self):
+        res = self.delete("Claim", self.draft.id)
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        self.assertFalse(Claim.objects.filter(pk=self.draft.pk).exists())
+        entry = AuditLog.objects.filter(action="DATA_DELETE").first()
+        self.assertIsNotNone(entry)
+        # Written before the row went: afterwards there is nothing to describe.
+        self.assertIn("failed import", entry.detail_json)
+
+    # ---- emptying the system ----------------------------------------
+
+    def wipe(self, body, user=None):
+        c = self.client
+        if user is not None:
+            c = Client()
+            c.force_login(user)
+        return c.post("/api/admin/wipe", data=json.dumps(body), content_type="application/json")
+
+    def test_preview_says_what_would_go_and_what_survives(self):
+        body = self.client.get("/api/admin/wipe/preview").json()
+        self.assertEqual(body["paid_claims"], 1)
+        self.assertEqual(body["paid_amount"], 5000)
+        self.assertGreaterEqual(body["total_rows"], 2)
+        self.assertTrue(body["kept"])
+
+    def test_the_phrase_must_be_exact(self):
+        for phrase in ["delete everything", "DELETE EVERYTHIN", "", "yes"]:
+            res = self.wipe({
+                "confirm": phrase, "reason": "clearing the test data",
+                "i_understand_payments_will_be_lost": True,
+            })
+            self.assertEqual(res.status_code, 400, phrase)
+        self.assertTrue(Claim.objects.exists())
+
+    def test_settled_payments_need_their_own_consent(self):
+        res = self.wipe({"confirm": "DELETE EVERYTHING", "reason": "clearing the test data"})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("settled payments", res.json()["detail"])
+        self.assertTrue(Claim.objects.exists())
+
+    def test_a_stale_row_count_is_refused(self):
+        # The caller confirmed against a number that is no longer true, which
+        # means something changed between reading and pressing.
+        res = self.wipe({
+            "confirm": "DELETE EVERYTHING", "reason": "clearing the test data",
+            "expect_rows": 999999, "i_understand_payments_will_be_lost": True,
+        })
+        self.assertEqual(res.status_code, 409)
+        self.assertTrue(Claim.objects.exists())
+
+    def test_only_a_super_admin_may_empty_the_system(self):
+        for who in (self.cell, self.faculty):
+            res = self.wipe({
+                "confirm": "DELETE EVERYTHING", "reason": "clearing the test data",
+                "i_understand_payments_will_be_lost": True,
+            }, user=who)
+            self.assertEqual(res.status_code, 403)
+        self.assertTrue(Claim.objects.exists())
+
+    def test_a_wipe_empties_the_records_and_keeps_the_accounts_and_the_trail(self):
+        res = self.wipe({
+            "confirm": "DELETE EVERYTHING",
+            "reason": "clearing the test data before the live import",
+            "i_understand_payments_will_be_lost": True,
+        })
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        self.assertEqual(Claim.objects.count(), 0)
+        # Everybody keeps their login, and the wipe is in the log that
+        # survived it — a wipe that erased its own trace would be worthless.
+        self.assertTrue(User.objects.filter(pk=self.admin.pk).exists())
+        self.assertTrue(User.objects.filter(pk=self.faculty.pk).exists())
+        entry = AuditLog.objects.filter(action="SYSTEM_WIPE").first()
+        self.assertIsNotNone(entry)
+        self.assertIn("live import", entry.detail_json)

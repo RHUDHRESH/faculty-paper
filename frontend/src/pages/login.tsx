@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { useAuth } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { portalPath } from "@/lib/utils"
 
@@ -143,10 +144,9 @@ export function LoginPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
-                autoComplete="current-password"
+                                autoComplete="current-password"
                 className="h-11"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

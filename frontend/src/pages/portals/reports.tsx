@@ -5,6 +5,7 @@ import { Link, useLocation } from "react-router-dom"
 
 import { DataGap, isAbsentLabel, isMostlyMissing } from "@/components/data-gap"
 import { DrillDown, type Drill } from "@/components/drill-down"
+import { Combobox } from "@/components/ui/combobox"
 import { AgeingPanel, BreadthPanel, YearOnYearPanel } from "@/components/report-cuts"
 
 import { useUrlState } from "@/lib/url-state"
@@ -367,19 +368,19 @@ export function ReportsPage() {
           <Label htmlFor="rep-dept" className="text-xs">
             Department
           </Label>
-          <Select value={department} onValueChange={setDepartment}>
-            <SelectTrigger id="rep-dept" className="w-56">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All departments</SelectItem>
-              {departments.map((d) => (
-                <SelectItem key={d} value={d}>
-                  {d}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Thirty-one of them: typeable, or it is a scroll. */}
+          <Combobox
+            id="rep-dept"
+            aria-label="Department"
+            className="w-56"
+            value={department}
+            onChange={setDepartment}
+            searchPlaceholder="Filter departments…"
+            options={[
+              { value: ALL, label: "All departments" },
+              ...departments.map((d) => ({ value: d, label: d })),
+            ]}
+          />
         </div>
       </div>
 

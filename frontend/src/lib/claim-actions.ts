@@ -30,7 +30,7 @@ const ACTION_SENTENCES: Record<string, string> = {
   // "Demo HOD hod approve". PRINCIPAL_APPROVE is deliberately not here: it is
   // the live approval step now, and describing it as a relic made the one
   // action that releases money read like history.
-  HOD_APPROVE: "approved the ticket (under the earlier HoD step)",
+  HOD_APPROVE: "approved the ticket at a step the chain no longer has",
   RESEARCH_APPROVE: "checked the ticket (under the earlier research step)",
   FINANCE_APPROVE: "approved the payment (under the earlier Finance step)",
   UNPAY: "reversed the payment",

@@ -20,6 +20,7 @@ import {
 } from "@/components/layout/page"
 import { Money, StatusChip } from "@/components/ticket-ui"
 import { TableScroller, stickyHeadCell } from "@/components/data-table"
+import { Combobox } from "@/components/ui/combobox"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1237,25 +1238,21 @@ export function FinanceLedgerPage() {
           <Label htmlFor="ledger-dept" className="text-xs">
             Department
           </Label>
-          <Select
+          <Combobox
+            id="ledger-dept"
+            aria-label="Department"
+            className="w-44"
             value={department || ALL_DEPARTMENTS}
-            onValueChange={(v) => {
+            onChange={(v) => {
               setDepartment(v === ALL_DEPARTMENTS ? "" : v)
               setOffset(0)
             }}
-          >
-            <SelectTrigger id="ledger-dept" className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_DEPARTMENTS}>All departments</SelectItem>
-              {departments.map((d) => (
-                <SelectItem key={d} value={d}>
-                  {d}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            searchPlaceholder="Filter departments…"
+            options={[
+              { value: ALL_DEPARTMENTS, label: "All departments" },
+              ...departments.map((d) => ({ value: d, label: d })),
+            ]}
+          />
         </div>
         <div className="flex items-end gap-2">
           {(month || department) && (

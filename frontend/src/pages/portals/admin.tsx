@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Pager } from "@/components/ui/pagination"
 import { Label } from "@/components/ui/label"
 import {
@@ -1213,11 +1214,10 @@ export function AdminUsersPage() {
                   </span>
                 )}
               </Label>
-              <Input
+              <PasswordInput
                 id="u-pw"
                 required
-                type="password"
-                placeholder="••••••••"
+                                placeholder="••••••••"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
@@ -1303,10 +1303,9 @@ export function AdminUsersPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="r-pw">New password</Label>
-              <Input
+              <PasswordInput
                 id="r-pw"
-                type="password"
-                required
+                                required
                 placeholder="••••••••"
                 value={resetPw}
                 onChange={(e) => setResetPw(e.target.value)}

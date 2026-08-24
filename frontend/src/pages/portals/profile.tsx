@@ -20,6 +20,10 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
+import { formatDateTime } from "@/components/ticket-ui"
+import { useApiQuery } from "@/lib/queries"
+import { cn } from "@/lib/utils"
 import {
   Select,
   SelectContent,
@@ -219,6 +223,11 @@ export function FacultyProfilePage() {
           </span>
         </Callout>
 
+        {/* What you asked for, and what came of it. Submitting used to be the
+            end of the story from this side: no list, no outcome, no way to
+            tell whether anybody had seen it. */}
+        <MyCorrections />
+
         <Section
           title="Your details"
           actions={
@@ -310,5 +319,72 @@ export function FacultyProfilePage() {
         current={current}
       />
     </div>
+  )
+}
+
+type MyRequest = {
+  id: string
+  label: string
+  current_value: string
+  proposed_value: string
+  status: "PENDING" | "APPROVED" | "DECLINED"
+  decision_note: string
+  decided_at: string | null
+  created_at: string | null
+}
+
+function MyCorrections() {
+  const { data } = useApiQuery<{ results: MyRequest[] }>(
+    ["my-corrections"],
+    "/api/auth/profile/corrections"
+  )
+  const rows = data?.results || []
+  if (!rows.length) return null
+
+  return (
+    <Section title="Corrections you have asked for" description="Newest first">
+      <ul className="space-y-2">
+        {rows.map((r) => (
+          <li
+            key={r.id}
+            className="flex flex-wrap items-start justify-between gap-3 rounded-[var(--radius)] border border-border bg-card px-4 py-3"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm">
+                <span className="text-muted-foreground">{r.label}:</span>{" "}
+                <span className="text-muted-foreground line-through">
+                  {r.current_value || "not set"}
+                </span>
+                <span className="mx-1.5 text-muted-foreground">→</span>
+                <span className="font-medium">{r.proposed_value}</span>
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Asked {formatDateTime(r.created_at)}
+                {r.decided_at ? ` · answered ${formatDateTime(r.decided_at)}` : ""}
+              </span>
+              {r.decision_note ? (
+                <span className="mt-1 block text-xs italic text-muted-foreground">
+                  “{r.decision_note}”
+                </span>
+              ) : null}
+            </span>
+            <Badge
+              variant="outline"
+              className={cn(
+                r.status === "APPROVED" && "border-success/30 bg-success/10 text-success",
+                r.status === "DECLINED" &&
+                  "border-destructive/30 bg-destructive/10 text-destructive"
+              )}
+            >
+              {r.status === "PENDING"
+                ? "With the research cell"
+                : r.status === "APPROVED"
+                  ? "Applied"
+                  : "Declined"}
+            </Badge>
+          </li>
+        ))}
+      </ul>
+    </Section>
   )
 }

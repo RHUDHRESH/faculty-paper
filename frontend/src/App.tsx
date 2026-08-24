@@ -23,6 +23,7 @@ import { DuplicateFindingsPage } from "@/pages/portals/duplicates";
 import { FacultyRecordPage, LookupPage } from "@/pages/portals/lookup";
 import { JournalRecordPage } from "@/pages/portals/journal";
 import { AccreditationPage } from "@/pages/portals/accreditation";
+import { ProfileRequestsPage } from "@/pages/portals/profile-requests";
 import { PrincipalApprovalsPage } from "@/pages/portals/principal-approvals";
 import { PrincipalOverviewPage, PrincipalQueuePage } from "@/pages/portals/principal";
 import {
@@ -191,6 +192,8 @@ export default function App() {
           <Route path="scimago" element={<AdminScimagoPage />} />
           <Route path="prior" element={<AdminPriorPage />} />
           <Route path="users" element={<AdminUsersPage />} />
+          {/* Corrections a claimant asked for and cannot make themselves. */}
+          <Route path="profile-requests" element={<ProfileRequestsPage />} />
           <Route path="formula" element={<AdminFormulaPage />} />
           <Route path="reports" element={<ReportsPage />} />
           {/* The tables the college has to file, on a page of their own. */}

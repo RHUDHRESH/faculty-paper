@@ -45,6 +45,7 @@ from core.models import (
     MonthlyBatch,
     MonthlyRow,
     Notification,
+    ProfileChangeRequest,
     PaidLedger,
     PriorImport,
     PriorPayment,
@@ -1181,12 +1182,36 @@ def request_profile_correction(request: HttpRequest, payload: CorrectionRequestI
         raise HttpError(400, "Say what it should be")
 
     current = getattr(u, field, None)
+    if str(current or "").strip() == proposed:
+        raise HttpError(400, f"{CORRECTABLE[field]} already says that.")
+
+    # One open request per field. Asking twice because nothing visibly
+    # happened should not put two of the same thing in the queue.
+    existing = ProfileChangeRequest.objects.filter(
+        user=u, field=field, status=ProfileChangeRequest.State.PENDING
+    ).first()
+    if existing:
+        existing.proposed_value = proposed
+        existing.note = (payload.note or "").strip()[:500] or None
+        existing.current_value = str(current or "")
+        existing.save()
+        req = existing
+    else:
+        req = ProfileChangeRequest.objects.create(
+            user=u,
+            field=field,
+            current_value=str(current or ""),
+            proposed_value=proposed,
+            note=(payload.note or "").strip()[:500] or None,
+        )
+
     AuditLog.objects.create(
         actor=u,
         action="PROFILE_CORRECTION_REQUEST",
         entity="User",
         entity_id=u.id,
         detail_json=json.dumps({
+            "request_id": req.id,
             "field": field,
             "label": CORRECTABLE[field],
             "current": str(current or ""),
@@ -1197,13 +1222,167 @@ def request_profile_correction(request: HttpRequest, payload: CorrectionRequestI
     _notify_admin_users(
         f"Profile correction requested · {u.name or u.email}",
         f"{CORRECTABLE[field]}: “{current or 'not set'}” → “{proposed}”",
-        f"/admin/users?q={u.email}",
+        "/admin/profile-requests",
         # Only a super admin can action an identity change, so only a super
         # admin is told about one -- a notification the reader cannot act on
         # trains them to ignore the rest.
         super_admin_only=field in IDENTITY_FIELDS,
     )
-    return {"ok": True, "field": field, "label": CORRECTABLE[field], "proposed": proposed}
+    return {
+        "ok": True,
+        "id": req.id,
+        "field": field,
+        "label": CORRECTABLE[field],
+        "proposed": proposed,
+        "status": req.status,
+    }
+
+
+# ---------- the queue those requests land in ----------
+
+
+def _request_dict(r) -> dict[str, Any]:
+    return {
+        "id": r.id,
+        "field": r.field,
+        "label": CORRECTABLE.get(r.field, r.field),
+        "current_value": r.current_value or "",
+        "proposed_value": r.proposed_value,
+        # The record may have moved since the request was made, and an
+        # approver overwriting something different from what was asked about
+        # should be told so rather than left to compare two screens.
+        "value_now": str(getattr(r.user, r.field, "") or ""),
+        "note": r.note or "",
+        "status": r.status,
+        "identity": r.field in IDENTITY_FIELDS,
+        "requested_by": {
+            "id": r.user_id,
+            "name": r.user.name or r.user.email,
+            "email": r.user.email,
+            "department": r.user.department or "",
+            "staff_id": r.user.staff_id or "",
+        },
+        "decided_by": r.decided_by.name if r.decided_by_id else None,
+        "decided_at": r.decided_at.isoformat() if r.decided_at else None,
+        "decision_note": r.decision_note or "",
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+@api.get("/admin/profile-requests", auth=session_auth)
+def profile_requests(request: HttpRequest, status: str = "PENDING", limit: int = 100):
+    """Profile corrections waiting on somebody."""
+    user = require_user(request)
+    if not rbac.can_manage_users(user.role):
+        raise HttpError(403, "Forbidden")
+    qs = ProfileChangeRequest.objects.select_related("user", "decided_by")
+    if status and status != "ALL":
+        qs = qs.filter(status=status)
+    rows = list(qs.order_by("-created_at")[: max(1, min(limit, 500))])
+    return {
+        "results": [_request_dict(r) for r in rows],
+        "pending": ProfileChangeRequest.objects.filter(
+            status=ProfileChangeRequest.State.PENDING
+        ).count(),
+    }
+
+
+class ProfileDecisionIn(Schema):
+    approve: bool
+    note: Optional[str] = None
+
+
+@api.post("/admin/profile-requests/{request_id}", auth=session_auth)
+def decide_profile_request(
+    request: HttpRequest, request_id: str, payload: ProfileDecisionIn
+):
+    """Apply a requested profile change, or decline it with a reason.
+
+    Approving writes the value onto the account, which is the whole point --
+    the alternative was an admin reading a notification and retyping it into
+    another screen, where a typo becomes somebody else's staff id.
+    """
+    actor = require_user(request)
+    if not rbac.can_manage_users(actor.role):
+        raise HttpError(403, "Forbidden")
+
+    req = get_object_or_404(
+        ProfileChangeRequest.objects.select_related("user"), pk=request_id
+    )
+    if req.status != ProfileChangeRequest.State.PENDING:
+        raise HttpError(
+            400,
+            f"This was already {req.get_status_display().lower()} "
+            f"by {req.decided_by.name if req.decided_by_id else 'somebody'}.",
+        )
+
+    # Identity is super-admin only, here as much as everywhere else it is
+    # written. The research cell processes the claims these fields decide the
+    # outcome of, so it cannot also set them.
+    if req.field in IDENTITY_FIELDS and actor.role != Role.SUPER_ADMIN:
+        raise HttpError(
+            403,
+            f"Only a super admin can change {CORRECTABLE[req.field].lower()}. "
+            "You can decline it, or leave it for one.",
+        )
+
+    note = (payload.note or "").strip()
+    if not payload.approve and len(note) < 5:
+        raise HttpError(400, "Say why it is being declined — the person is told.")
+
+    if payload.approve:
+        before = getattr(req.user, req.field, None)
+        setattr(req.user, req.field, req.proposed_value)
+        req.user.save(update_fields=[req.field, "updated_at"])
+        req.status = ProfileChangeRequest.State.APPROVED
+    else:
+        before = None
+        req.status = ProfileChangeRequest.State.DECLINED
+
+    req.decided_by = actor
+    req.decided_at = timezone.now()
+    req.decision_note = note or None
+    req.save()
+
+    AuditLog.objects.create(
+        actor=actor,
+        action="PROFILE_CORRECTION_DECIDED",
+        entity="User",
+        entity_id=req.user_id,
+        detail_json=json.dumps({
+            "request_id": req.id,
+            "field": req.field,
+            "approved": payload.approve,
+            "from": str(before) if before is not None else None,
+            "to": req.proposed_value if payload.approve else None,
+            "note": note,
+        }),
+    )
+
+    # The person who asked finds out. Not being told was half of why the old
+    # flow felt like shouting into a cupboard.
+    label = CORRECTABLE.get(req.field, req.field)
+    Notification.objects.create(
+        user=req.user,
+        title=(
+            f"{label} updated" if payload.approve else f"{label} change declined"
+        ),
+        body=(
+            f"Your {label.lower()} now reads “{req.proposed_value}”."
+            if payload.approve
+            else f"{note}"
+        ),
+        href="/faculty/profile",
+    )
+    return {"ok": True, "request": _request_dict(req)}
+
+
+@api.get("/auth/profile/corrections", auth=session_auth)
+def my_profile_requests(request: HttpRequest):
+    """What I have asked for, and what came of it."""
+    u = require_user(request)
+    rows = ProfileChangeRequest.objects.filter(user=u).order_by("-created_at")[:20]
+    return {"results": [_request_dict(r) for r in rows]}
 
 
 @api.post("/auth/change-password", auth=session_auth)

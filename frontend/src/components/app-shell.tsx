@@ -24,6 +24,7 @@ import {
   Sun,
   Ticket,
   TriangleAlert,
+  UserCog,
   UserPlus,
   UserSearch,
   Users,
@@ -444,6 +445,7 @@ export function AdminShell() {
         { to: "/admin/audit", label: "Audit", icon: Shield, group: "Look at" },
 
         { to: "/admin/users", label: "Users", icon: Users, group: "Set up" },
+        { to: "/admin/profile-requests", label: "Profile requests", icon: UserCog, group: "Set up" },
         { to: "/admin/budget", label: "Budget", icon: Wallet, group: "Set up" },
         { to: "/admin/formula", label: "Formula", icon: Settings2, group: "Set up" },
         { to: "/admin/monthly", label: "Monthly run", icon: CalendarDays, group: "Set up" },

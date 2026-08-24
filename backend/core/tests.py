@@ -23,6 +23,7 @@ from core.models import (
     FacultyMaster,
     FormulaConfig,
     Notification,
+    ProfileChangeRequest,
     Role,
     ScimagoJournal,
 )
@@ -7007,3 +7008,142 @@ class DeletionGuardTests(TestCase):
         entry = AuditLog.objects.filter(action="SYSTEM_WIPE").first()
         self.assertIsNotNone(entry)
         self.assertIn("live import", entry.detail_json)
+
+
+class ProfileCorrectionTests(TestCase):
+    """Asking for a detail you cannot change, and somebody deciding on it.
+
+    The permission is the point and it does not move: a claimant cannot write
+    their own name, staff id or biometric id, because those decide who gets
+    paid and whose record a paper is checked against. What changed is that
+    asking now produces something an admin can finish rather than a
+    notification that could be missed.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.admin = User.objects.create_user(
+            email="pc-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.cell = User.objects.create_user(
+            email="pc-cell@test.edu", password="pass", name="Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.faculty = User.objects.create_user(
+            email="pc-fac@test.edu", password="pass", name="Wrong Name",
+            role=Role.FACULTY, department="ECE", staff_id="STF-OLD",
+        )
+        self.fc = Client()
+        self.fc.force_login(self.faculty)
+        self.ac = Client()
+        self.ac.force_login(self.admin)
+
+    def ask(self, field="staff_id", proposed="STF-NEW", note="misspelt on the ERP sheet", client=None):
+        return (client or self.fc).post(
+            "/api/auth/profile/correction",
+            data=json.dumps({"field": field, "proposed": proposed, "note": note}),
+            content_type="application/json",
+        )
+
+    def decide(self, request_id, approve, note="", client=None):
+        return (client or self.ac).post(
+            f"/api/admin/profile-requests/{request_id}",
+            data=json.dumps({"approve": approve, "note": note}),
+            content_type="application/json",
+        )
+
+    def test_a_claimant_still_cannot_write_their_own_identity(self):
+        # The whole reason the request exists.
+        res = self.fc.patch(
+            "/api/auth/profile",
+            data=json.dumps({"staff_id": "STF-SELF"}),
+            content_type="application/json",
+        )
+        self.assertIn(res.status_code, (403, 400, 404, 405))
+        self.faculty.refresh_from_db()
+        self.assertEqual(self.faculty.staff_id, "STF-OLD")
+
+    def test_asking_creates_something_an_admin_can_see(self):
+        self.assertEqual(self.ask().status_code, 200)
+        body = self.ac.get("/api/admin/profile-requests").json()
+        self.assertEqual(body["pending"], 1)
+        row = body["results"][0]
+        self.assertEqual(row["proposed_value"], "STF-NEW")
+        self.assertEqual(row["current_value"], "STF-OLD")
+        self.assertTrue(row["identity"])
+
+    def test_asking_twice_updates_one_request_rather_than_queueing_two(self):
+        self.ask(proposed="STF-A")
+        self.ask(proposed="STF-B")
+        rows = ProfileChangeRequest.objects.filter(status="PENDING")
+        self.assertEqual(rows.count(), 1)
+        self.assertEqual(rows.first().proposed_value, "STF-B")
+
+    def test_asking_for_what_it_already_says_is_refused(self):
+        self.assertEqual(self.ask(proposed="STF-OLD").status_code, 400)
+
+    def test_a_claimant_cannot_decide_their_own_request(self):
+        self.ask()
+        rid = ProfileChangeRequest.objects.first().id
+        self.assertEqual(self.decide(rid, True, client=self.fc).status_code, 403)
+        self.faculty.refresh_from_db()
+        self.assertEqual(self.faculty.staff_id, "STF-OLD")
+
+    def test_the_research_cell_cannot_apply_an_identity_change(self):
+        # They clear the claims these fields decide the outcome of, so they
+        # cannot also set them. Declining is still open to them.
+        self.ask()
+        rid = ProfileChangeRequest.objects.first().id
+        cc = Client()
+        cc.force_login(self.cell)
+        self.assertEqual(self.decide(rid, True, client=cc).status_code, 403)
+        self.faculty.refresh_from_db()
+        self.assertEqual(self.faculty.staff_id, "STF-OLD")
+
+    def test_declining_needs_a_reason_because_the_person_is_shown_it(self):
+        self.ask()
+        rid = ProfileChangeRequest.objects.first().id
+        self.assertEqual(self.decide(rid, False).status_code, 400)
+
+    def test_approving_writes_the_value_and_tells_them(self):
+        self.ask()
+        rid = ProfileChangeRequest.objects.first().id
+        res = self.decide(rid, True, "checked against the ERP sheet")
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        self.faculty.refresh_from_db()
+        # Applied from the queue rather than retyped on another screen, which
+        # is where a correction becomes somebody else's staff id.
+        self.assertEqual(self.faculty.staff_id, "STF-NEW")
+        note = Notification.objects.filter(user=self.faculty).order_by("-created_at").first()
+        self.assertIsNotNone(note)
+        self.assertIn("STF-NEW", note.body)
+
+    def test_declining_leaves_the_record_alone_and_still_tells_them(self):
+        self.ask()
+        rid = ProfileChangeRequest.objects.first().id
+        self.decide(rid, False, "payroll uses the id on the ERP roster")
+        self.faculty.refresh_from_db()
+        self.assertEqual(self.faculty.staff_id, "STF-OLD")
+        note = Notification.objects.filter(user=self.faculty).order_by("-created_at").first()
+        self.assertIn("payroll", note.body)
+
+    def test_a_request_cannot_be_decided_twice(self):
+        self.ask()
+        rid = ProfileChangeRequest.objects.first().id
+        self.assertEqual(self.decide(rid, True, "fine").status_code, 200)
+        self.assertEqual(self.decide(rid, True, "fine").status_code, 400)
+
+    def test_the_requester_can_see_what_came_of_it(self):
+        self.ask()
+        rid = ProfileChangeRequest.objects.first().id
+        self.decide(rid, False, "payroll uses the id on the ERP roster")
+        mine = self.fc.get("/api/auth/profile/corrections").json()["results"]
+        self.assertEqual(mine[0]["status"], "DECLINED")
+        self.assertIn("payroll", mine[0]["decision_note"])
+
+    def test_a_claimant_cannot_read_the_queue(self):
+        self.assertEqual(self.fc.get("/api/admin/profile-requests").status_code, 403)

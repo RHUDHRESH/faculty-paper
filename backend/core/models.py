@@ -629,6 +629,53 @@ class Notification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class ProfileChangeRequest(models.Model):
+    """A detail a claimant cannot change themselves, asked for and decided on.
+
+    Identity fields — name, staff id, biometric id, the Scopus link — decide
+    who gets paid and whose record a paper is checked against, so a claimant
+    cannot edit their own. That is right, and it left them with no way to fix a
+    misspelt name except to email somebody and hope.
+
+    The request used to be a notification and an audit entry. Both are
+    write-only: an admin who missed the notification lost the request for good,
+    there was no list of what was outstanding, and the person who asked never
+    found out whether anything had happened. This is the row that makes it a
+    piece of work somebody can pick up, finish, and be seen to have finished.
+    """
+
+    class State(models.TextChoices):
+        PENDING = "PENDING", "Waiting for the research cell"
+        APPROVED = "APPROVED", "Applied"
+        DECLINED = "DECLINED", "Declined"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="profile_change_requests"
+    )
+    field = models.CharField(max_length=64)
+    #: What the record said when the request was made. Kept because the value
+    #: can move underneath a pending request, and an approver needs to know
+    #: they are overwriting something different from what was asked about.
+    current_value = models.CharField(max_length=512, blank=True, null=True)
+    proposed_value = models.CharField(max_length=512)
+    note = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=16, choices=State.choices, default=State.PENDING, db_index=True)
+    decided_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="profile_changes_decided",
+    )
+    decided_at = models.DateTimeField(blank=True, null=True)
+    decision_note = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["status", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} · {self.field} → {self.proposed_value}"
+
+
 class ClaimNote(models.Model):
     """A note about one ticket, written for a named audience.
 

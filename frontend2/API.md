@@ -35,7 +35,7 @@ these are the fields a screen normally wants.
 | `status_note` | Why it was sent back, when it was |
 | `owner_id`, `owner_name`, `owner_email`, `owner_department` | |
 | `remuneration` | The amount. May be null before verification |
-| `remuneration_is_estimate` | **True means the figure rests on self-reported values.** Say so on screen — never show an estimate as though it were settled |
+| `remuneration_is_estimate` | **Drafts only.** True when a draft's amount was computed from the claimant's own SNIP or quartile. Submitting re-verifies and recalculates from verified values, so this is always false past `DRAFT` — on an office screen the trust signals are `snip_source`, `quartile_source` and `verification_ok`, not this |
 | `qf_amount`, `base_amount`, `author_point` | The formula's working |
 | `remuneration_category`, `remuneration_note` | |
 | `snip`, `snip_source`, `self_reported_snip` | `snip_source` is `SCOPUS` \| `SNIP_DUMP` \| `MANUAL` |
@@ -258,6 +258,19 @@ Everything under `payout` is an **estimate**, computed for the author position
 in `assumed`. Say so, and say what was assumed — an estimate whose assumptions
 are invisible is a number somebody will treat as a promise.
 
+```
+POST /api/discover/reprice  { issns: string[], author_position?, total_authors? }
+                            -> { journals[], assumed }
+```
+
+**Use this, not `/venues`, when only the author position changed.** It reprices
+journals `/venues` already resolved, using the ISSNs it returned. No model
+call, so it is instant and free — asking the model the same question again for
+an answer that cannot have changed costs seconds and a paid call per keystroke.
+It works with no key configured at all. An ISSN we do not hold is dropped
+rather than priced: the client is not the authority on which journal an ISSN
+is.
+
 `/discover/directions` returns `directions: [{ topic, why, first_step }]` and
 `grounded_on: { papers, interests }`. Show `grounded_on`: a thin answer is
 usually an empty history rather than a bad model, and the reader cannot tell
@@ -300,7 +313,8 @@ Notes that matter:
 ### People
 
 ```
-GET   /api/admin/users?q=&role=&limit=&offset=   -> { total, limit, offset, results }
+GET   /api/admin/users?q=&role=&department=&active=&limit=&offset=
+                                                 -> { total, limit, offset, results }
 GET   /api/admin/users/{id}                      -> one account
 GET   /api/faculty/{user_id}/report              -> everything one person published
 GET   /api/meta/departments                      -> string[]
@@ -308,9 +322,14 @@ GET   /api/meta/departments                      -> string[]
 
 The person report carries `faculty`, `totals` (`publications`, `paid_claims`,
 `paid_amount`, `in_review`), and the breakdowns `by_month`, `by_quartile`,
-`by_status`, `by_year`, `by_journal`, `by_type`, `by_position`, plus `per_paper`
-and `claims`. Each breakdown is `[{ key, count, amount }]` — the shape
+`by_status`, `by_year`, `by_journal`, `by_type`, `by_position`, plus `claims`.
+Each of those breakdowns is `[{ key, count, amount }]` — the shape
 `@/ui/chart` already takes.
+
+`per_paper` is **not** one of them, whatever an earlier draft of this file
+implied. It is a single stats object, `{ count, mean, median, min, max }`,
+describing what one paid paper is worth. Every field in it is money, so there
+is nothing in it to show a money-blind role.
 
 ### Filing a paper
 

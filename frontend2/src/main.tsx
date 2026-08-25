@@ -9,10 +9,14 @@ import { Palette, usePalette } from "@/app/palette"
 import { Shell } from "@/app/shell"
 import { queryClient } from "@/lib/query"
 import { FacultyHome } from "@/pages/home-faculty"
+import { Clearing } from "@/pages/clearing"
 import { Collaborate } from "@/pages/collaborate"
+import { Discover } from "@/pages/discover"
+import { FilePaper } from "@/pages/file-paper"
 import { Gallery } from "@/pages/gallery"
 import { PaperDetail } from "@/pages/paper-detail"
 import { Papers } from "@/pages/papers"
+import { People, Person } from "@/pages/people"
 import { Profile } from "@/pages/profile"
 import { SignIn } from "@/pages/sign-in"
 
@@ -76,12 +80,13 @@ function App() {
         <Route element={<Shell onOpenPalette={() => palette.setOpen(true)} />}>
           <Route index element={<Home />} />
           <Route path="/papers" element={<Papers />} />
-          <Route path="/papers/new" element={<Placeholder name="File a paper" />} />
+          <Route path="/papers/new" element={<FilePaper />} />
+          <Route path="/papers/:id/edit" element={<FilePaper />} />
           <Route path="/papers/:id" element={<PaperDetail />} />
-          <Route path="/clearing" element={<Placeholder name="Clearing queue" />} />
+          <Route path="/clearing" element={<Clearing />} />
           <Route path="/approvals" element={<Placeholder name="Approvals" />} />
           <Route path="/payments" element={<Placeholder name="Payment orders" />} />
-          <Route path="/discover" element={<Placeholder name="Discover" />} />
+          <Route path="/discover" element={<Discover />} />
           <Route path="/collaborate" element={<Collaborate />} />
           <Route path="/discussions" element={<Placeholder name="Discussions" />} />
           <Route path="/calendar" element={<Placeholder name="Calendar" />} />
@@ -92,8 +97,8 @@ function App() {
           <Route path="/ledger" element={<Placeholder name="Ledger" />} />
           <Route path="/duplicates" element={<Placeholder name="Duplicates" />} />
           <Route path="/audit" element={<Placeholder name="Audit log" />} />
-          <Route path="/people" element={<Placeholder name="People" />} />
-          <Route path="/people/:id" element={<Placeholder name="Person" />} />
+          <Route path="/people" element={<People />} />
+          <Route path="/people/:id" element={<Person />} />
           <Route path="/requests" element={<Placeholder name="Profile requests" />} />
           <Route path="/budget" element={<Placeholder name="Budget" />} />
           <Route path="/policy" element={<Placeholder name="Policy" />} />

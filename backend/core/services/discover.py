@@ -415,3 +415,48 @@ def research_domains(query: str = "", limit: int = 40) -> list[str]:
         contains = [d for d in cached if term in d.lower() and d not in starts]
         cached = starts + contains
     return cached[: max(1, min(limit, 302))]
+
+
+def reprice(*, issns: list[str], author_position: int, total_authors: int) -> dict[str, Any]:
+    """Recompute what a set of already-resolved journals would pay.
+
+    The venue screen lets somebody try being second author of four instead of
+    first of two, and watch the figures move. Doing that through
+    `suggest_venues` would ask the model the same question again for an answer
+    that cannot have changed — several seconds and a paid call per keystroke,
+    to re-derive a list we already have.
+
+    So this takes the ISSNs the model's suggestions already resolved to and
+    does the arithmetic alone. No model, no network. The journals themselves
+    are looked up again rather than trusted from the client, because a payout
+    is money and the client is not the authority on which journal an ISSN is.
+    """
+    out: list[dict[str, Any]] = []
+    for issn in issns[:20]:
+        code = (issn or "").strip()
+        if not code:
+            continue
+        row = (
+            ScimagoJournal.objects.filter(year=2025)
+            .filter(Q(issn=code) | Q(eissn=code))
+            .first()
+        )
+        if not row:
+            continue
+        journal = describe_journal(row)
+        journal["payout"] = estimate_payout(
+            snip=journal["snip"],
+            quartile=journal["quartile"],
+            author_position=author_position,
+            total_authors=total_authors,
+        )
+        out.append(journal)
+
+    return {
+        "journals": out,
+        "assumed": {
+            "author_position": author_position,
+            "total_authors": total_authors,
+            "publication_type": "Journal article, Scopus indexed",
+        },
+    }

@@ -7792,3 +7792,106 @@ class HodReachabilityTests(TestCase):
             self.client.get(f"/api/faculty/{other.id}/report").status_code, 403
         )
         self.assertEqual(self.client.get("/api/admin/users").status_code, 403)
+
+
+class RepriceAndDirectoryTests(TestCase):
+    """Trying a different author position, and finding a person."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="rp@test.edu", password="p", name="RP", role=Role.FACULTY
+        )
+        self.admin = User.objects.create_user(
+            email="rp-admin@test.edu", password="p", name="A", role=Role.SUPER_ADMIN
+        )
+        ScimagoJournal.objects.create(
+            source_id="1", title="Applied Soft Computing", issn="15684946", year=2025,
+            sjr=1.4, categories_json=json.dumps([{"category": "Software", "quartile": "Q1"}]),
+        )
+        SnipSource.objects.create(
+            title="Applied Soft Computing", print_issn="15684946", snip=1.831, year=2025
+        )
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def post(self, body):
+        return self.client.post(
+            "/api/discover/reprice",
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+    def test_repricing_never_calls_the_model(self):
+        """The whole reason it exists. Asking the model the same question again
+        for an answer that cannot have changed costs seconds and a paid call
+        per keystroke."""
+        with patch("core.services.discover.gemini.ask_json") as asked:
+            r = self.post({"issns": ["15684946"], "author_position": 1, "total_authors": 3})
+            asked.assert_not_called()
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNotNone(r.json()["journals"][0]["payout"]["amount"])
+
+    def test_it_works_with_no_model_configured_at_all(self):
+        with override_settings(GEMINI_API_KEY=""):
+            self.assertEqual(
+                self.post({"issns": ["15684946"]}).status_code, 200
+            )
+
+    def test_the_position_actually_changes_the_figure(self):
+        first = self.post({"issns": ["15684946"], "author_position": 1, "total_authors": 4})
+        fourth = self.post({"issns": ["15684946"], "author_position": 4, "total_authors": 4})
+        self.assertNotEqual(
+            first.json()["journals"][0]["payout"]["amount"],
+            fourth.json()["journals"][0]["payout"]["amount"],
+        )
+
+    def test_an_issn_we_do_not_hold_is_dropped_rather_than_priced(self):
+        """The client is not the authority on which journal an ISSN is, so the
+        row is looked up again rather than trusted."""
+        body = self.post({"issns": ["15684946", "00000000"]}).json()
+        self.assertEqual([j["issn"] for j in body["journals"]], ["15684946"])
+
+    def test_the_assumptions_come_back_with_the_figures(self):
+        body = self.post({"issns": ["15684946"], "author_position": 2, "total_authors": 5}).json()
+        self.assertEqual(body["assumed"]["author_position"], 2)
+        self.assertEqual(body["assumed"]["total_authors"], 5)
+
+    # ---- the directory's department filter -------------------------------
+
+    def test_a_department_can_be_filtered_alongside_a_search(self):
+        """`q` already matches department, but only as one of six things, so it
+        could not be combined with a name search — picking a department cleared
+        the search box and vice versa."""
+        User.objects.create_user(
+            email="k-ece@test.edu", password="p", name="Kumar", department="ECE"
+        )
+        User.objects.create_user(
+            email="k-cse@test.edu", password="p", name="Kumar", department="CSE"
+        )
+        User.objects.create_user(
+            email="r-ece@test.edu", password="p", name="Ravi", department="ECE"
+        )
+        c = Client()
+        c.force_login(self.admin)
+
+        both = c.get("/api/admin/users?q=Kumar&department=ECE").json()
+        self.assertEqual([u["email"] for u in both["results"]], ["k-ece@test.edu"])
+
+        dept_only = c.get("/api/admin/users?department=ECE").json()
+        self.assertEqual(
+            {u["email"] for u in dept_only["results"]},
+            {"k-ece@test.edu", "r-ece@test.edu"},
+        )
+
+    def test_the_department_filter_is_exact_not_a_substring(self):
+        """"CS" must not pull in everyone in "CSE"."""
+        User.objects.create_user(
+            email="cse@test.edu", password="p", name="C", department="CSE"
+        )
+        c = Client()
+        c.force_login(self.admin)
+        self.assertEqual(c.get("/api/admin/users?department=CS").json()["total"], 0)
+        self.assertEqual(c.get("/api/admin/users?department=cse").json()["total"], 1)
+
+    def test_a_claimant_cannot_read_the_directory(self):
+        self.assertEqual(self.client.get("/api/admin/users").status_code, 403)

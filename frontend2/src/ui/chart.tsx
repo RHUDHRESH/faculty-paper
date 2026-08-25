@@ -129,6 +129,7 @@ function Figure({
   unit,
   points,
   total,
+  showAmounts = true,
   children,
   className,
 }: {
@@ -139,11 +140,25 @@ function Figure({
   points: Point[]
   /** Denominator for the share column. Defaults to the sum of what is drawn. */
   total?: number
+  /**
+   * Whether the numbers table may show a Paid column. Default true.
+   *
+   * `unit="count"` says what to *draw*; it does not say what the table may
+   * list, and the table deliberately states everything it has. So a chart of
+   * paper counts still prints the amounts beside them — which is right for
+   * most readers and wrong for a head of department, who must never see a
+   * rupee figure by any route.
+   *
+   * Set it false on any screen a head can open. Better still, do not send the
+   * amounts at all: a value the component never receives cannot be leaked by
+   * the next person who adds a column here.
+   */
+  showAmounts?: boolean
   children: ReactNode
   className?: string
 }) {
   const sum = total ?? points.reduce((n, p) => n + valueOf(p, unit), 0)
-  const anyMoney = points.some((p) => p.amount != null)
+  const anyMoney = showAmounts && points.some((p) => p.amount != null)
 
   return (
     <section className={cn("min-w-0", className)}>
@@ -227,6 +242,7 @@ export function RankedBars({
   points,
   unit = "count",
   limit = 10,
+  showAmounts,
   className,
 }: {
   title: string
@@ -235,6 +251,8 @@ export function RankedBars({
   points: Point[]
   unit?: Unit
   limit?: number
+  /** See `Figure`. False on any screen a head of department can open. */
+  showAmounts?: boolean
   className?: string
 }) {
   const sorted = [...points].sort((a, b) => valueOf(b, unit) - valueOf(a, unit))
@@ -248,6 +266,7 @@ export function RankedBars({
       dimension={dimension}
       unit={unit}
       points={sorted}
+      showAmounts={showAmounts}
       className={className}
     >
       {shown.length === 0 ? (
@@ -321,6 +340,7 @@ export function MixBar({
   dimension,
   points,
   unit = "count",
+  showAmounts,
   className,
 }: {
   title: string
@@ -328,6 +348,8 @@ export function MixBar({
   dimension: string
   points: Point[]
   unit?: Unit
+  /** See `Figure`. False on any screen a head of department can open. */
+  showAmounts?: boolean
   className?: string
 }) {
   const sorted = [...points].sort((a, b) => valueOf(b, unit) - valueOf(a, unit))
@@ -347,6 +369,7 @@ export function MixBar({
       unit={unit}
       points={sorted}
       total={sum}
+      showAmounts={showAmounts}
       className={className}
     >
       {sum === 0 ? (
@@ -406,6 +429,7 @@ export function Trend({
   points,
   unit = "count",
   height = 180,
+  showAmounts,
   className,
 }: {
   title: string
@@ -414,6 +438,8 @@ export function Trend({
   points: Point[]
   unit?: Unit
   height?: number
+  /** See `Figure`. False on any screen a head of department can open. */
+  showAmounts?: boolean
   className?: string
 }) {
   const [box, w] = useWidth<HTMLDivElement>()
@@ -447,6 +473,7 @@ export function Trend({
       dimension={dimension}
       unit={unit}
       points={points}
+      showAmounts={showAmounts}
       className={className}
     >
       <div ref={box} className="min-w-0">
@@ -573,6 +600,7 @@ export function Distribution({
   points,
   unit = "count",
   height = 160,
+  showAmounts,
   className,
 }: {
   title: string
@@ -581,6 +609,8 @@ export function Distribution({
   points: Point[]
   unit?: Unit
   height?: number
+  /** See `Figure`. False on any screen a head of department can open. */
+  showAmounts?: boolean
   className?: string
 }) {
   const [at, setAt] = useState<number | null>(null)
@@ -593,6 +623,7 @@ export function Distribution({
       dimension={dimension}
       unit={unit}
       points={points}
+      showAmounts={showAmounts}
       className={className}
     >
       {points.length === 0 ? (

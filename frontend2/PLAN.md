@@ -108,7 +108,7 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | 3.1 | **Home** | `/` | ✅ | Received · on the way · needs you. Then what needs them. Then the rest |
 | 3.2 | My papers | `/papers` | ✅ | Stage chips counted in one query, filters held in the URL, estimates flagged |
 | 3.3 | Paper detail | `/papers/:id` | ✅ | Where it is, what to fix, why the amount, what happened — in that order |
-| 3.4 | **File a paper** | `/papers/new` | ⬜ | Stepped wizard. Autosave. Scopus lookup. Duplicate warning before submit |
+| 3.4 | **File a paper** | `/papers/new` | ✅ | Five steps, DOI lookup, duplicate check, autosave, estimate labelled as one |
 | 3.5 | Withdraw / edit a draft | `/papers/:id` | ⬜ | A submitted paper can be pulled back before it is checked |
 | 3.6 | Why was this the amount | `/papers/:id` | ⬜ | The formula shown against this paper's own numbers |
 | 3.7 | Sent back — what to fix | `/papers/:id` | ⬜ | The reason, at the top, with the fields it concerns marked |
@@ -120,12 +120,12 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
 | 4.1 | Home | `/` | ⬜ | What is stuck, what is waiting, what moved |
-| 4.2 | **Clearing queue** | `/clearing` | ⬜ | The daily job. Full-width titles, wait time, bulk clear with a running total |
+| 4.2 | **Clearing queue** | `/clearing` | ✅ | Oldest first, full-width titles, keyboard, bulk clear with a running total and per-row skips |
 | 4.3 | Review one ticket | `/clearing?t=` | ⬜ | Verification, the money, the history, clear or send back |
 | 4.4 | Manual verification | in review | ⬜ | When Scopus cannot confirm, enter verified values with a source note |
 | 4.5 | File for someone | `/papers/new?for=` | ⬜ | Same wizard, on behalf of a claimant |
-| 4.6 | People | `/people` | ⬜ | Accounts, roles, departments |
-| 4.7 | Person record | `/people/:id` | ⬜ | Everything one person has published and been paid |
+| 4.6 | People | `/people` | ✅ | Search, role and department filters that compound, paged server-side |
+| 4.7 | Person record | `/people/:id` | ✅ | Totals and three charts off the report endpoint; papers link through |
 | 4.8 | Profile requests | `/requests` | ⬜ | Corrections asked for; approve applies the value, decline gives a reason |
 | 4.9 | Faults | `/faults` | ⬜ | What is broken, blocked or unreconciled, each row openable |
 | 4.10 | Duplicates | `/duplicates` | ⬜ | Same paper paid twice; evidence, and a decision |
@@ -219,7 +219,7 @@ detector already matches on DOI and normalised title.
 | 10.2 | Your own network, visualised | ✅ | SVG, deterministic circle grouped by department — a force layout reshuffles on every reload |
 | 10.3 | Department-to-department collaboration | ⬜ | Same derivation, aggregated |
 | 10.4 | Who could you work with | ✅ | Shared journals, minus existing co-authors. Cross-department flagged |
-| 10.5 | Person → their interests and output | ⬜ | Person record, extended |
+| 10.5 | Person → their interests and output | ✅ | Output done via the person record |
 | 10.6 | Introduce me | ⬜ | Starts a discussion thread with them |
 
 ### 10.3 Discussions — the forum

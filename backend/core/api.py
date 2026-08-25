@@ -5344,6 +5344,30 @@ def discover_venues(request: HttpRequest, payload: VenueIn):
     return result
 
 
+class RepriceIn(Schema):
+    #: ISSNs from journals `/discover/venues` already resolved.
+    issns: list[str]
+    author_position: int = 1
+    total_authors: int = 1
+
+
+@api.post("/discover/reprice", auth=session_auth)
+def discover_reprice(request: HttpRequest, payload: RepriceIn):
+    """The same journals, priced for a different author position.
+
+    No model call — this is arithmetic over rows we already hold, so trying
+    "what if I were third of five" costs nothing and answers immediately.
+    Available whether or not a model is configured, because it does not need
+    one.
+    """
+    require_user(request)
+    return discover_service.reprice(
+        issns=payload.issns,
+        author_position=max(1, payload.author_position),
+        total_authors=max(1, payload.total_authors),
+    )
+
+
 @api.get("/discover/directions", auth=session_auth)
 def discover_directions(request: HttpRequest):
     """What this person might write next, from what they have written.
@@ -6844,6 +6868,7 @@ def admin_users(
     request: HttpRequest,
     q: Optional[str] = None,
     role: Optional[str] = None,
+    department: Optional[str] = None,
     active: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
@@ -6867,6 +6892,13 @@ def admin_users(
         )
     if role:
         qs = qs.filter(role=role)
+    # A filter of its own rather than folded into `q`. `q` already matches
+    # department, but only as one of six things it matches, so it cannot be
+    # combined with a name search -- picking a department would clear the
+    # search box and vice versa. Thirty-one departments is exactly the case
+    # where "everyone in ECE called Kumar" is the question being asked.
+    if department:
+        qs = qs.filter(department__iexact=department.strip())
     if active in ("true", "false"):
         qs = qs.filter(active=(active == "true"))
     # Staff accounts first, then faculty alphabetically: the people an admin

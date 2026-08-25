@@ -9,13 +9,20 @@ import { Palette, usePalette } from "@/app/palette"
 import { Shell } from "@/app/shell"
 import { queryClient } from "@/lib/query"
 import { FacultyHome } from "@/pages/home-faculty"
+import { Approvals } from "@/pages/approvals"
+import { Audit, Faults } from "@/pages/audit"
 import { Clearing } from "@/pages/clearing"
 import { Collaborate } from "@/pages/collaborate"
 import { Discover } from "@/pages/discover"
 import { FilePaper } from "@/pages/file-paper"
 import { Gallery } from "@/pages/gallery"
 import { PaperDetail } from "@/pages/paper-detail"
+import { Journals, JournalRecord } from "@/pages/journals"
 import { Papers } from "@/pages/papers"
+import { Payments, PaymentsDone } from "@/pages/payments"
+import { Publications } from "@/pages/publications"
+import { Reports } from "@/pages/reports"
+import { Requests } from "@/pages/requests"
 import { People, Person } from "@/pages/people"
 import { Profile } from "@/pages/profile"
 import { SignIn } from "@/pages/sign-in"
@@ -84,22 +91,25 @@ function App() {
           <Route path="/papers/:id/edit" element={<FilePaper />} />
           <Route path="/papers/:id" element={<PaperDetail />} />
           <Route path="/clearing" element={<Clearing />} />
-          <Route path="/approvals" element={<Placeholder name="Approvals" />} />
-          <Route path="/payments" element={<Placeholder name="Payment orders" />} />
+          <Route path="/approvals" element={<Approvals />} />
+          <Route path="/payments" element={<Payments />} />
+          <Route path="/payments/done" element={<PaymentsDone />} />
           <Route path="/discover" element={<Discover />} />
           <Route path="/collaborate" element={<Collaborate />} />
           <Route path="/discussions" element={<Placeholder name="Discussions" />} />
           <Route path="/calendar" element={<Placeholder name="Calendar" />} />
-          <Route path="/publications" element={<Placeholder name="Publications" />} />
-          <Route path="/reports" element={<Placeholder name="Reports" />} />
-          <Route path="/journals" element={<Placeholder name="Journals" />} />
+          <Route path="/publications" element={<Publications />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/journals" element={<Journals />} />
+          <Route path="/journals/:title" element={<JournalRecord />} />
           <Route path="/accreditation" element={<Placeholder name="Accreditation" />} />
           <Route path="/ledger" element={<Placeholder name="Ledger" />} />
           <Route path="/duplicates" element={<Placeholder name="Duplicates" />} />
-          <Route path="/audit" element={<Placeholder name="Audit log" />} />
+          <Route path="/audit" element={<Audit />} />
+          <Route path="/faults" element={<Faults />} />
           <Route path="/people" element={<People />} />
           <Route path="/people/:id" element={<Person />} />
-          <Route path="/requests" element={<Placeholder name="Profile requests" />} />
+          <Route path="/requests" element={<Requests />} />
           <Route path="/budget" element={<Placeholder name="Budget" />} />
           <Route path="/policy" element={<Placeholder name="Policy" />} />
           <Route path="/data" element={<Placeholder name="Data" />} />

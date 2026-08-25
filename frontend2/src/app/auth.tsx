@@ -87,10 +87,27 @@ export function can(role: Role | undefined) {
   return {
     /** Money is not a head of department's business, anywhere. */
     seeMoney: !!r && r !== "HOD",
+
+    // These four mirror named functions in `backend/core/services/rbac.py`
+    // and `api.py`. Where they disagree, the screen hides a control the
+    // server would have allowed — which reads as a broken account rather
+    // than as a client that is out of date, and is diagnosed slowly.
+    //
+    // A super admin stands in for the Principal and for Finance. That is
+    // deliberate on the server, whose own comment reads "the principal, and
+    // a super admin who has to stand in for one" — somebody has to be able
+    // to keep payments moving while a post is vacant or a person is away.
+    /** `_may_approve_as_principal` */
+    approve: r === "PRINCIPAL" || r === "SUPER_ADMIN",
+    /** `rbac.can_approve_as_finance` */
+    pay: r === "FINANCE" || r === "SUPER_ADMIN",
+    /** `rbac.can_clear_claims` */
     clear: office,
-    approve: r === "PRINCIPAL",
-    pay: r === "FINANCE",
+    /** `rbac.can_manage_users` */
     manageUsers: office,
+    /** `rbac.can_view_audit` */
+    viewAudit: office || r === "PRINCIPAL" || r === "FINANCE",
+
     seeCollege: !!r && r !== "FACULTY",
     seeDepartment: r === "HOD",
     admin: r === "SUPER_ADMIN",

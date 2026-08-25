@@ -14,6 +14,9 @@ from core.services.verify import check_already_paid
 from core.models import Budget, DuplicateFinding, JournalStanding, ScimagoJournal
 from core.models import SnipSource
 from core.services import discover, gemini
+from core.services import research_search as rs
+from core.services.normalize import normalize_issn
+from django.core.cache import cache
 from core.services.remuneration import calculate_remuneration
 from core import api as api_module
 from core.models import (
@@ -7895,3 +7898,213 @@ class RepriceAndDirectoryTests(TestCase):
 
     def test_a_claimant_cannot_read_the_directory(self):
         self.assertEqual(self.client.get("/api/admin/users").status_code, 403)
+
+
+class ResearchSearchTests(TestCase):
+    """A metasearch over the scholarly record, priced against our own tables.
+
+    None of this needs a model or a key, which is the point: the AI features
+    switch off without credits and this does not. So the tests run entirely
+    offline — the three upstreams are stubbed, because what is worth testing
+    here is the merging, the ranking and the pricing, not whether OpenAlex is
+    up.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="rs@test.edu", password="p", name="RS", role=Role.FACULTY
+        )
+        self.client = Client()
+        self.client.force_login(self.user)
+        cache.clear()
+
+    def hit(self, **kw):
+        base = dict(
+            source="OpenAlex", title="", doi=None, year=2025, journal="", issn=None,
+            citations=0, open_access=False, type="article", authors=[], url="",
+        )
+        base.update(kw)
+        return rs.Hit(base)
+
+    # ---- merging ---------------------------------------------------------
+
+    def test_the_same_doi_from_two_sources_is_one_result(self):
+        merged = rs.merge([
+            [self.hit(source="OpenAlex", doi="10.1/x", title="A Paper", citations=40)],
+            [self.hit(source="Crossref", doi="10.1/x", title="A Paper")],
+        ])
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(sorted(merged[0]["sources"]), ["Crossref", "OpenAlex"])
+
+    def test_a_title_match_dedupes_when_neither_has_a_doi(self):
+        merged = rs.merge([
+            [self.hit(source="OpenAlex", title="Deep Learning For Fault Detection")],
+            [self.hit(source="arXiv", title="deep learning for fault detection.")],
+        ])
+        self.assertEqual(len(merged), 1)
+
+    def test_different_dois_stay_apart_however_alike_the_titles(self):
+        """Survey papers repeat titles across venues. Two works that happen to
+        share a name are not one work."""
+        merged = rs.merge([
+            [self.hit(doi="10.1/aaa", title="A Review Of Machine Learning")],
+            [self.hit(doi="10.1/bbb", title="A Review Of Machine Learning")],
+        ])
+        self.assertEqual(len(merged), 2)
+
+    def test_merging_keeps_the_richest_version_of_each_field(self):
+        """The same paper arrives from OpenAlex with citations and an ISSN and
+        from Crossref with neither. Taking whichever landed first would throw
+        away half of what three sources were asked for."""
+        merged = rs.merge([
+            [self.hit(source="Crossref", doi="10.1/x", title="A Paper", journal="")],
+            [self.hit(source="OpenAlex", doi="10.1/x", title="A Paper",
+                      journal="Applied Soft Computing", issn="15684946", citations=99)],
+        ])[0]
+        self.assertEqual(merged["journal"], "Applied Soft Computing")
+        self.assertEqual(merged["issn"], "15684946")
+        self.assertEqual(merged["citations"], 99)
+
+    def test_a_real_value_is_never_overwritten_by_an_empty_one(self):
+        merged = rs.merge([
+            [self.hit(source="OpenAlex", doi="10.1/x", journal="Applied Soft Computing")],
+            [self.hit(source="Crossref", doi="10.1/x", journal="")],
+        ])[0]
+        self.assertEqual(merged["journal"], "Applied Soft Computing")
+
+    # ---- ranking ---------------------------------------------------------
+
+    def test_recent_work_is_not_buried_by_decades_of_citations(self):
+        """Citations accumulate over decades, so ranking on them alone hides
+        everything from the last two years -- which is exactly what somebody
+        asking "what is happening in my field" wants."""
+        old = self.hit(doi="10.1/old", title="Old", year=2005, citations=800)
+        new = self.hit(doi="10.1/new", title="New", year=2026, citations=3)
+        ranked = rs.rank(rs.merge([[old], [new]]), this_year=2026)
+        self.assertEqual(ranked[0]["title"], "New")
+
+    # ---- pricing ---------------------------------------------------------
+
+    def test_a_journal_we_hold_is_priced_by_our_own_formula(self):
+        ScimagoJournal.objects.create(
+            source_id="1", title="Applied Soft Computing", issn="15684946", year=2025,
+            sjr=1.4, categories_json=json.dumps([{"category": "Software", "quartile": "Q1"}]),
+        )
+        SnipSource.objects.create(
+            title="Applied Soft Computing", print_issn="15684946", snip=1.831, year=2025
+        )
+        hits = [self.hit(doi="10.1/x", journal="Applied Soft Computing", issn="1568-4946")]
+        rs.enrich_with_our_data(hits, author_position=1, total_authors=3)
+
+        self.assertTrue(hits[0]["journal_known"])
+        self.assertEqual(hits[0]["quartile"], "Q1")
+        self.assertIsNotNone(hits[0]["payout"]["amount"])
+
+    def test_a_journal_we_do_not_hold_carries_no_numbers(self):
+        """The same rule as the venue suggestions. A figure beside a journal we
+        have not identified is worse than no figure."""
+        hits = [self.hit(doi="10.1/x", journal="Journal Of Imaginary Widgetry", issn="99990000")]
+        rs.enrich_with_our_data(hits, author_position=1, total_authors=1)
+        self.assertFalse(hits[0]["journal_known"])
+        self.assertNotIn("payout", hits[0])
+        self.assertNotIn("quartile", hits[0])
+
+    def test_a_preprint_is_never_priced(self):
+        """arXiv results have no journal yet. Saying otherwise would let a
+        preprint be priced as though it had been accepted somewhere."""
+        hits = [self.hit(source="arXiv", title="A Preprint", journal="", issn=None)]
+        rs.enrich_with_our_data(hits, author_position=1, total_authors=1)
+        self.assertFalse(hits[0]["journal_known"])
+
+    # ---- failure ---------------------------------------------------------
+
+    def test_one_source_failing_degrades_the_results_rather_than_emptying_them(self):
+        """An upstream having a bad day is not this application having an
+        error, and a thin result set must not be mistaken for a thin field."""
+        def boom(query, limit):
+            raise RuntimeError("arXiv is down")
+
+        with patch.dict(rs.SOURCES, {
+            "openalex": lambda q, n: [self.hit(doi="10.1/x", title="Still Here")],
+            "crossref": lambda q, n: [],
+            "arxiv": boom,
+        }):
+            out = rs.search("something", limit=5)
+
+        self.assertEqual([r["title"] for r in out["results"]], ["Still Here"])
+        self.assertEqual(out["failed"], ["arxiv"])
+        self.assertIn("openalex", out["asked"])
+
+    def test_a_query_too_short_to_mean_anything_asks_nobody(self):
+        with patch.dict(rs.SOURCES, {"openalex": lambda q, n: 1 / 0}):
+            out = rs.search("ab")
+        self.assertEqual(out["results"], [])
+        self.assertEqual(out["asked"], [])
+
+    # ---- the endpoint ----------------------------------------------------
+
+    def test_the_endpoint_works_with_no_model_and_no_key(self):
+        """The whole reason this exists beside the AI features."""
+        with override_settings(GEMINI_API_KEY=""), patch.dict(rs.SOURCES, {
+            "openalex": lambda q, n: [self.hit(doi="10.1/x", title="Found It")],
+            "crossref": lambda q, n: [],
+            "arxiv": lambda q, n: [],
+        }):
+            r = self.client.get("/api/research/search?q=fault+detection")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual([h["title"] for h in r.json()["results"]], ["Found It"])
+
+    def test_the_endpoint_says_which_sources_answered(self):
+        with patch.dict(rs.SOURCES, {
+            "openalex": lambda q, n: [self.hit(doi="10.1/x", title="A")],
+            "crossref": lambda q, n: [],
+            "arxiv": lambda q, n: (_ for _ in ()).throw(RuntimeError("down")),
+        }):
+            body = self.client.get("/api/research/search?q=fault+detection").json()
+        self.assertEqual(body["failed"], ["arxiv"])
+
+    def test_signing_out_closes_it(self):
+        self.assertEqual(Client().get("/api/research/search?q=anything").status_code, 401)
+
+
+class IssnRepairTests(TestCase):
+    """The spreadsheet bug that halved what this system could price.
+
+    Both reference tables stored ISSNs as floats -- `14327643.0` -- because a
+    column was read as a number on the way in. Two consequences, both silent: a
+    SNIP row never equalled the Scimago row for the same journal, and any ISSN
+    with a leading zero had lost it entirely.
+
+    Migrations 0027 and 0028 repaired 59,741 values between them and the match
+    rate went from 32% to 89%. These tests are about `normalize_issn`, which
+    knew how to undo both mistakes long before anything applied it to the
+    stored data -- and about the importers, so the next dump does not put it
+    all back.
+    """
+
+    def test_a_float_suffix_is_stripped(self):
+        self.assertEqual(normalize_issn("14327643.0"), "1432-7643")
+
+    def test_a_lost_leading_zero_is_restored(self):
+        """Read as a number, 0390-6663 arrives as 3906663. Seven characters, so
+        stripping the suffix alone does not fix it."""
+        self.assertEqual(normalize_issn("3906663.0"), "0390-6663")
+
+    def test_an_issn_that_legitimately_ends_in_zero_is_untouched(self):
+        self.assertEqual(normalize_issn("1234-5670"), "1234-5670")
+        self.assertEqual(normalize_issn("12345670"), "1234-5670")
+
+    def test_the_repaired_tables_match_each_other(self):
+        """The failure that started this: both sides corrupt matched by luck,
+        and cleaning one side alone pulled those pairs apart."""
+        ScimagoJournal.objects.create(
+            source_id="1", title="Soft Computing", issn="14327643", year=2025,
+            sjr=0.9, categories_json=json.dumps([{"category": "Software", "quartile": "Q2"}]),
+        )
+        SnipSource.objects.create(
+            title="Soft Computing", print_issn="14327643", e_issn="14337479",
+            snip=1.051, year=2025,
+        )
+        row = discover.find_journal("Soft Computing")
+        self.assertIsNotNone(row)
+        self.assertEqual(discover.find_snip(row), 1.051)

@@ -55,7 +55,7 @@ from core.models import (
     SnipSource,
     User,
 )
-from core.services import discover as discover_service, gemini
+from core.services import discover as discover_service, gemini, research_search
 from core.services import rbac
 from core.services.monthly_processor import start_batch_async
 from core.services import exporters
@@ -5349,6 +5349,34 @@ class RepriceIn(Schema):
     issns: list[str]
     author_position: int = 1
     total_authors: int = 1
+
+
+@api.get("/research/search", auth=session_auth)
+def research_search_endpoint(
+    request: HttpRequest,
+    q: str = "",
+    limit: int = 20,
+    sources: Optional[str] = None,
+    author_position: int = 1,
+    total_authors: int = 1,
+):
+    """Search the scholarly record, and price what you find.
+
+    Deliberately needs no model and no key: the AI features degrade to
+    "switched off" without credits, and this does not. Somebody can still find
+    what is being published in their field, and what it would be worth to them,
+    with no AI involved at all.
+    """
+    require_user(request)
+    picked = [s.strip() for s in (sources or "").split(",") if s.strip()] or None
+    return research_search.search(
+        q,
+        limit=max(1, min(limit, 50)),
+        sources=picked,
+        author_position=max(1, author_position),
+        total_authors=max(1, total_authors),
+        this_year=timezone.now().year,
+    )
 
 
 @api.post("/discover/reprice", auth=session_auth)

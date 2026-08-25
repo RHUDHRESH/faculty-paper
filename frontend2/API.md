@@ -352,3 +352,124 @@ no way to edit it is the hole the old app left people in.
 
 `/prior/check` before submitting is what stops the same paper being paid twice.
 Warn plainly; do not block silently.
+
+---
+
+## Endpoints for the remaining screens
+
+Shapes not spelled out here are in `backend/core/api.py`. Read it. Every wave
+so far has found at least one place where this file was wrong, so treat it as a
+map, not as the territory.
+
+### Principal — approvals
+
+```
+GET  /api/principal/queue                  -> tickets awaiting the Principal
+POST /api/principal/bulk-approve           { claim_ids: string[], note? }
+POST /api/claims/{id}/principal-approve     { note?, expected_amount? }
+POST /api/claims/{id}/principal-reject      { note }
+```
+
+A `CLEARED` ticket is waiting here. `needs_second_approval` means the amount is
+over the policy's high-value threshold and needs a second, *different*
+signature — the actor may not be whoever cleared it (`cleared_by_name`).
+
+**`/claims/{id}/second-approve` is not a Principal action**, whatever an
+earlier draft of this file said. It is restricted to SUPER_ADMIN and
+RESEARCH_CELL; a Principal calling it gets 403. Show
+`needs_second_approval` on this screen as information, not as a button.
+
+**A super admin may act as the Principal.** `_may_approve_as_principal` allows
+both, deliberately — somebody has to keep payments moving while a post is
+vacant. The same is true of Finance via `rbac.can_approve_as_finance`. `can()`
+in `app/auth.tsx` mirrors both.
+
+**`principal-reject` does not go to the claimant.** It returns the ticket to
+`SUBMITTED` — back to the research cell — and writes the reason to
+`status_note`. Both the clearing queue and the paper page now show that note;
+they did not, so a required explanation went nowhere.
+
+### Finance — paying
+
+```
+GET  /api/admin/payouts?status=&limit=&offset=
+POST /api/claims/{id}/mark-paid       { voucher_number?, expected_amount }
+POST /api/admin/bulk-mark-paid        { items: [{ claim_id, voucher_number?, expected_amount }] }
+POST /api/claims/{id}/void-payment    { note }        (note ≥ 10 chars)
+GET  /api/admin/ledger  ·  GET /api/admin/ledger/export
+GET  /api/budgets  ·  POST /api/budgets  ·  DELETE /api/budgets/{id}
+```
+
+**`expected_amount` is mandatory in spirit on every one of these.** A mismatch
+answers 409 with the recomputed figure and moves no money. Show both figures
+and make the reader confirm again.
+
+`mark-paid` recalculates from **stored verified values only** — it never calls
+Scopus, so Finance is never blocked by an outage. Paying a claim that needs a
+second approval is refused.
+
+`void-payment` writes a *reversing* ledger row rather than deleting anything,
+and returns the claim to `CLEARED`. Nothing in this system deletes a payment.
+
+### Oversight — querying and reporting
+
+```
+GET /api/reports/search?…&limit=&offset=   -> { total, limit, offset, results }
+GET /api/reports/search/export
+GET /api/reports        ·  GET /api/reports/export
+GET /api/reports/pack   ·  GET /api/reports/pack/rows
+PATCH /api/reports/pack/rows/{claim_id}
+GET /api/journals/top   ·  GET /api/journals/report
+GET /api/dashboard
+```
+
+**A head of department is refused `/api/reports` and `/api/reports/search`
+outright — 403.** They have `/api/hod/overview` and `/api/hod/publications`,
+scoped to their department and carrying no money. Any screen offered to an HOD
+must branch on the role and call those instead. This is verified by test, not
+assumed.
+
+### The office
+
+```
+GET  /api/admin/profile-requests?status=      -> { results, pending }
+POST /api/admin/profile-requests/{id}         { approve: bool, note? }
+GET  /api/admin/faults
+GET  /api/admin/duplicate-findings
+POST /api/admin/duplicate-findings/{id}
+GET  /api/admin/audit?…
+GET  /api/admin/data/tables  ·  GET /api/admin/data/{table}
+PATCH  /api/admin/data/{table}/{row_id}
+DELETE /api/admin/data/{table}/row/{row_id}
+GET  /api/admin/wipe/preview  ·  POST /api/admin/wipe
+GET  /api/admin/formula   ·  GET /api/monthly  ·  POST /api/monthly
+GET  /api/admin/scimago/stats  ·  GET /api/admin/snip/stats
+```
+
+Two things about the destructive ones. `DELETE` lives at
+`/row/{row_id}` — **not** `/{row_id}` — because the shorter path was swallowed
+by `/admin/data/{table}/export` and answered 405. And both delete and wipe
+refuse anything carrying a payment; the screen should say so before the reader
+tries, not after.
+
+The audit log is append-only. There is no edit and no delete, by design, and
+the screen should not imply otherwise.
+
+### Research search — no key, no model, no credits
+
+```
+GET /api/research/search?q=&limit=&sources=&author_position=&total_authors=
+    -> { results[], asked[], failed[], query, assumed }
+```
+
+A metasearch over OpenAlex, Crossref and arXiv, merged and deduped by DOI then
+normalised title. Free, keyless, and it works whether or not Gemini does.
+
+Each result: `{ title, doi, year, journal, issn, citations, open_access, type,
+authors[], url, sources[], journal_known }`. When `journal_known` is true it
+also carries `quartile`, `snip`, `sjr` and `payout` — priced by our own formula
+for the author position asked about.
+
+`sources[]` names which upstreams returned that work; two sources agreeing is
+worth showing. **`failed[]` names upstreams that did not answer** — say so, or
+a thin result set reads as a thin field rather than as arXiv timing out.

@@ -126,10 +126,10 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | 4.5 | File for someone | `/papers/new?for=` | ⬜ | Same wizard, on behalf of a claimant |
 | 4.6 | People | `/people` | ✅ | Search, role and department filters that compound, paged server-side |
 | 4.7 | Person record | `/people/:id` | ✅ | Totals and three charts off the report endpoint; papers link through |
-| 4.8 | Profile requests | `/requests` | ⬜ | Corrections asked for; approve applies the value, decline gives a reason |
-| 4.9 | Faults | `/faults` | ⬜ | What is broken, blocked or unreconciled, each row openable |
+| 4.8 | Profile requests | `/requests` | ✅ | Pending first; identity rows are super-admin only; a decline shows its reason |
+| 4.9 | Faults | `/faults` | ✅ | Grouped, every row openable, empty reads as good news |
 | 4.10 | Duplicates | `/duplicates` | ⬜ | Same paper paid twice; evidence, and a decision |
-| 4.11 | Audit log | `/audit` | ⬜ | Who did what. Never editable, never deletable |
+| 4.11 | Audit log | `/audit` | ✅ | Append-only, no edit affordance, before/after diffs, action codes as sentences |
 | 4.12 | Monthly run | `/policy/monthly` | ⬜ | Batch processing with progress and resumability |
 | 4.13 | ERP import | `/policy/import` | ⬜ | Upload, preview, apply, with the row-level report |
 | 4.14 | Journal reference data | `/policy/journals` | ⬜ | SCImago and SNIP dumps, sync and status |
@@ -144,8 +144,8 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
 | 5.1 | Home | `/` | ⬜ | What is waiting on her, and what the college is doing |
-| 5.2 | **Approvals** | `/approvals` | ⬜ | Sort and filter by wait time; running total of the selection |
-| 5.3 | Every ticket | `/publications` | ⬜ | Read-only view of the whole pipeline |
+| 5.2 | **Approvals** | `/approvals` | ✅ | Wait-time first, running total, 409 amount guard, second-signature shown read-only |
+| 5.3 | Every ticket | `/publications` | ✅ | Shared with the query screen; HOD branches to their own endpoint |
 | 5.4 | Comment to the research cell | on a ticket | ⬜ | Private to the office; not part of the claimant's history |
 
 ---
@@ -155,8 +155,8 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
 | 6.1 | Home | `/` | ⬜ | What is payable, what it totals, what is blocked |
-| 6.2 | **Payment orders** | `/payments` | ⬜ | Pay one or many. Amount re-checked at the moment of paying |
-| 6.3 | Processed | `/payments/done` | ⬜ | What has been paid, with vouchers |
+| 6.2 | **Payment orders** | `/payments` | ✅ | Bulk pay with per-row vouchers kept in sessionStorage; 409 shows both figures |
+| 6.3 | Processed | `/payments/done` | ✅ | Vouchers and dates; void writes a reversing row, never a delete |
 | 6.4 | Void a payment | on a row | ⬜ | Writes a reversing ledger entry; never deletes |
 | 6.5 | Ledger | `/ledger` | ⬜ | Every movement, exportable |
 | 6.6 | Budget | `/budget` | ⬜ | Allocation against spend, per year |
@@ -179,11 +179,11 @@ Money-blind throughout. Enforced on the server, not by hiding columns.
 
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
-| 8.1 | **Publications** | `/publications` | ⬜ | Query anything. Filters fold away; results lead |
-| 8.2 | **Reports** | `/reports` | ⬜ | Fewer, larger figures — each opens the rows behind it in place |
+| 8.1 | **Publications** | `/publications` | ✅ | Filters fold away, results lead, everything in the URL; HOD branches |
+| 8.2 | **Reports** | `/reports` | ✅ | Figures open the rows behind them in a sheet, on the same page |
 | 8.3 | Report drill-down | panel | ⬜ | Opens over the page. Escape returns you where you were |
-| 8.4 | Journal record | `/journals/:title` | ⬜ | SJR, SNIP, quartile per subject, who publishes there |
-| 8.5 | Journals index | `/journals` | ⬜ | Most-used, searchable |
+| 8.4 | Journal record | `/journals/:title` | ✅ | Standing, subjects, who publishes there; says when no SNIP is held |
+| 8.5 | Journals index | `/journals` | ✅ | Most-used first, searchable |
 | 8.6 | Accreditation | `/accreditation` | ⬜ | NAAC/NIRF tables, what would fail, correct it here |
 | 8.7 | Exports | throughout | ⬜ | xlsx · csv · json · pdf · docx, of exactly what is on screen |
 

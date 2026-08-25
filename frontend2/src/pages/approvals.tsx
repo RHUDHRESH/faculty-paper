@@ -1,18 +1,23 @@
 import { useEffect, useState } from "react"
+import { useSearchParams } from "react-router-dom"
 import {
   AlertTriangle,
   CheckCircle2,
   Inbox,
   Paperclip,
   RefreshCw,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
   XCircle,
 } from "lucide-react"
 
-import { can, useAuth } from "@/app/auth"
+import { useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
   ConfirmDialog,
   Dialog,
@@ -23,7 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/dialog"
-import { Checkbox, Field, Textarea } from "@/ui/field"
+import { Checkbox, Field, Input, NumberInput, Textarea } from "@/ui/field"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
@@ -32,17 +37,20 @@ import { money } from "@/ui/paper"
 import { toast } from "@/ui/toast"
 
 /**
- * The research cell's daily job: every submitted ticket, oldest first, and
- * the one screen where a figure turns into a payment on its way.
+ * The Principal's queue: every `CLEARED` ticket waiting between the research
+ * cell and Finance, sliced by wait time.
  *
- * Two things this page cannot afford to get wrong. First, the order —
- * `waiting_days` is not decoration, it is the queue's own priority, so
- * nothing here re-sorts what the server already put oldest-first. Second,
- * the amount: a reader confirms the number the screen showed them, the
- * server recomputes it inside the same request, and if those two figures
- * disagree it clears nothing and answers 409. A screen that resent the old
- * number after that, or hid the mismatch behind a generic error, is exactly
- * how a stale amount gets paid.
+ * Two things this page cannot afford to get wrong. First, the order — a
+ * Principal manages this queue by how long something has waited, not by
+ * title or department, so `waiting_days` is shown on every row and the
+ * default sort is the one the backend already sorts by: longest wait first.
+ * Second, `needs_second_approval` — a claim over the high-value threshold
+ * needs a signature from someone other than whoever cleared it
+ * (`cleared_by_name`). This screen only offers principal-approve,
+ * principal-reject and the bulk-approve of those two; the second-signature
+ * endpoint itself belongs to the research cell's desk, not the Principal's,
+ * so it is shown here for information and never offered as an action —
+ * offering it would just be refused.
  */
 
 /* ------------------------------------------------------------------------ */
@@ -77,21 +85,13 @@ type ClaimAction = {
   created_at: string
 }
 
-/** What every row of the queue carries — `claim_to_dict()` returns the full
- *  record for each row, so the fields the list needs and the fields the
- *  sheet needs live on the same shape; only `actions` (the history) is
- *  missing until `GET /api/claims/{id}` is fetched for the open ticket. */
+/** What every row of the queue carries, plus the second-signature fields
+ *  that make this desk's job different from the research cell's. */
 type QueueClaim = {
   id: string
   ticket_number: string | null
   paper_title: string
   journal_title: string | null
-  doi: string | null
-  issn: string | null
-  publication_year: number | null
-  publication_date: string | null
-  publication_type: string | null
-  status: string
   owner_name: string
   owner_email: string
   owner_department: string | null
@@ -99,7 +99,6 @@ type QueueClaim = {
   remuneration_is_estimate: boolean
   qf_amount: number | null
   base_amount: number | null
-  author_point: number | null
   remuneration_category: string | null
   remuneration_note: string | null
   snip: number | null
@@ -112,9 +111,6 @@ type QueueClaim = {
   manual_verification_note: string | null
   scimago_sjr: number | null
   scimago_dataset_year: number | null
-  author_position: number | null
-  total_authors: number | null
-  authors_json: string | null
   attachments: Attachment[]
   duplicate_warning: boolean
   duplicate_matches_json: string | null
@@ -125,63 +121,158 @@ type QueueClaim = {
   verification_snapshot_json: string | null
   calc_error: string | null
   waiting_days: number | null
+  status: string
+  cleared_by_name: string | null
+  cleared_at: string | null
+  needs_second_approval: boolean
+  second_approved_by_name: string | null
+  second_approved_at: string | null
 }
 
-// `status_note` carries the Principal's reason when a ticket is returned to
-// this queue. It is on the claim payload but was not in the queue row type.
-type ClaimDetail = QueueClaim & { actions?: ClaimAction[]; status_note?: string | null }
+type ClaimDetail = QueueClaim & { actions?: ClaimAction[] }
 
-type RecalcResult = {
-  remuneration: number | null
-  previous: number | null
-  changed: boolean
-  base_amount: number | null
-  qf_amount: number | null
-  remuneration_category: string | null
-  remuneration_note: string | null
-  calc_error: string | null
+type QueuePayload = {
+  total: number
+  limit: number
+  offset: number
+  results: QueueClaim[]
+  totals: { count: number; amount: number; longest_wait_days: number | null }
+  departments: string[]
 }
 
-type BulkClearResult = {
-  cleared: number
+type BulkApproveResult = {
+  approved: number
+  total: number
   skipped: { id: string; reason: string }[]
 }
+
+const SORT_OPTIONS: ComboboxOption[] = [
+  { value: "waiting", label: "Longest wait first" },
+  { value: "recent", label: "Most recently cleared" },
+  { value: "amount", label: "Highest amount first" },
+  { value: "amount_asc", label: "Lowest amount first" },
+  { value: "department", label: "Department" },
+  { value: "title", label: "Paper title" },
+]
+
+const RESULT_LIMIT = 200
 
 /* ------------------------------------------------------------------------ */
 /* Page                                                                      */
 /* ------------------------------------------------------------------------ */
 
-export function Clearing() {
+export function Approvals() {
   const { me } = useAuth()
-  const allowed = can(me?.role).clear
+  // The backend's `_may_approve_as_principal` allows the Principal and a
+  // super admin standing in for one — matched here directly rather than
+  // through `can().approve`, which only covers the Principal.
+  const allowed = me?.role === "PRINCIPAL" || me?.role === "SUPER_ADMIN"
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const q = searchParams.get("q") ?? ""
+  const department = searchParams.get("department") ?? ""
+  const sort = searchParams.get("sort") ?? "waiting"
+  const waitingOverParam = searchParams.get("waiting_over") ?? ""
+
+  const [searchDraft, setSearchDraft] = useState(q)
+  useEffect(() => setSearchDraft(q), [q])
+  const [waitingDraft, setWaitingDraft] = useState(waitingOverParam)
+  useEffect(() => setWaitingDraft(waitingOverParam), [waitingOverParam])
+
+  // The box's own state so typing feels instant; the URL only catches up
+  // once typing pauses.
+  useEffect(() => {
+    if (searchDraft === q) return
+    const t = setTimeout(() => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        if (searchDraft) next.set("q", searchDraft)
+        else next.delete("q")
+        return next
+      }, { replace: true })
+    }, 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDraft])
+
+  useEffect(() => {
+    if (waitingDraft === waitingOverParam) return
+    const t = setTimeout(() => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        if (waitingDraft) next.set("waiting_over", waitingDraft)
+        else next.delete("waiting_over")
+        return next
+      }, { replace: true })
+    }, 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingDraft])
+
+  function selectDepartment(next: string) {
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (next) p.set("department", next)
+      else p.delete("department")
+      return p
+    })
+  }
+
+  function selectSort(next: string) {
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (next && next !== "waiting") p.set("sort", next)
+      else p.delete("sort")
+      return p
+    })
+  }
+
+  function clearFilters() {
+    setSearchDraft("")
+    setWaitingDraft("")
+    setSearchParams(new URLSearchParams())
+  }
+
+  const listQuery = new URLSearchParams()
+  if (q) listQuery.set("q", q)
+  if (department) listQuery.set("department", department)
+  if (sort && sort !== "waiting") listQuery.set("sort", sort)
+  if (waitingOverParam) listQuery.set("waiting_over", waitingOverParam)
+  listQuery.set("limit", String(RESULT_LIMIT))
 
   const {
-    data: claims,
+    data,
     isLoading,
     isError,
     isFetching,
     refetch,
-  } = useApi<QueueClaim[]>(
-    ["clearing-queue"],
-    "/api/admin/clearing-queue?status=SUBMITTED",
+  } = useApi<QueuePayload>(
+    ["principal-queue", q, department, sort, waitingOverParam],
+    `/api/principal/queue?${listQuery.toString()}`,
     { enabled: allowed, placeholderData: (prev) => prev }
   )
 
-  const rows = claims ?? []
+  const rows = data?.results ?? []
+  const filtered = Boolean(q) || Boolean(department) || Boolean(waitingOverParam)
+
+  const departmentOptions: ComboboxOption[] = [
+    { value: "", label: "All departments" },
+    ...(data?.departments ?? []).map((d) => ({ value: d, label: d })),
+  ]
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [active, setActive] = useState(0)
   const [openId, setOpenId] = useState<string | null>(null)
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
   const [bulkResult, setBulkResult] = useState<{
-    result: BulkClearResult
+    result: BulkApproveResult
     lookup: Map<string, QueueClaim>
   } | null>(null)
 
   // A refresh underneath a selection must not wipe it — but a ticket that
-  // stopped being in the queue (cleared by someone else, or by this bulk
-  // action) has to leave the selection too, or "12 selected" keeps counting
-  // a row that no longer exists.
+  // left the queue (approved, sent back, approved by somebody else) has to
+  // leave the selection too, or "12 selected" keeps counting a row that is
+  // no longer here to approve.
   useEffect(() => {
     setSelected((prev) => {
       const ids = new Set(rows.map((c) => c.id))
@@ -189,7 +280,7 @@ export function Clearing() {
       return next.size === prev.size ? prev : next
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [claims])
+  }, [data])
 
   useEffect(() => {
     setActive((i) => Math.min(i, Math.max(0, rows.length - 1)))
@@ -235,9 +326,9 @@ export function Clearing() {
     })
   }
 
-  const bulkClear = useApiMutation<{ claim_ids: string[]; note?: string }, BulkClearResult>(
-    "/api/admin/bulk-clear",
-    { invalidates: [["clearing-queue"]] }
+  const bulkApprove = useApiMutation<{ claim_ids: string[]; note?: string }, BulkApproveResult>(
+    "/api/principal/bulk-approve",
+    { invalidates: [["principal-queue"]] }
   )
 
   if (!allowed) {
@@ -245,7 +336,7 @@ export function Clearing() {
       <div className="page py-8">
         <ErrorState
           title="Not open to this account"
-          message="Only the research cell and a super admin can clear tickets."
+          message="Only the Principal, and a super admin standing in for one, can approve spend here."
         />
       </div>
     )
@@ -254,15 +345,16 @@ export function Clearing() {
   const selectedRows = rows.filter((c) => selected.has(c.id))
   const selectedTotal = selectedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
   const selectedMissing = selectedRows.filter((c) => c.calc_error || c.remuneration == null).length
+  const selectedNeedSecond = selectedRows.filter((c) => c.needs_second_approval).length
 
   const allVisibleSelected = rows.length > 0 && rows.every((c) => selected.has(c.id))
   const someVisibleSelected = rows.some((c) => selected.has(c.id))
 
-  async function runBulkClear() {
+  async function runBulkApprove() {
     const ids = [...selected]
     const lookup = new Map(rows.map((c) => [c.id, c]))
     try {
-      const result = await bulkClear.mutateAsync({ claim_ids: ids })
+      const result = await bulkApprove.mutateAsync({ claim_ids: ids })
       setBulkResult({ result, lookup })
       const skippedIds = new Set(result.skipped.map((s) => s.id))
       setSelected((prev) => {
@@ -271,7 +363,7 @@ export function Clearing() {
         return next
       })
       if (result.skipped.length === 0) {
-        toast.ok(`Cleared — ${result.cleared} ${result.cleared === 1 ? "ticket" : "tickets"} sent to the Principal`)
+        toast.ok(`Approved — ${result.approved} ${result.approved === 1 ? "ticket" : "tickets"} sent to Finance`)
       }
     } catch (err) {
       toast.fail(err)
@@ -283,9 +375,9 @@ export function Clearing() {
     <div className="page space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <PageTitle>Clearing queue</PageTitle>
+          <PageTitle>Approvals</PageTitle>
           <Sub className="mt-1">
-            Submitted tickets, oldest first — the one that has waited longest is next.
+            Cleared tickets waiting on you — approve the spend, or send one back to the research cell.
           </Sub>
         </div>
         <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
@@ -299,7 +391,62 @@ export function Clearing() {
         <kbd className="rounded border border-edge px-1 text-[10px]">k</kbd> or arrows to move ·{" "}
         <kbd className="rounded border border-edge px-1 text-[10px]">x</kbd> to select ·{" "}
         <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open
+        {data && (
+          <>
+            {" · "}
+            {data.totals.count} waiting · {money(data.totals.amount)} total
+            {data.totals.longest_wait_days != null &&
+              ` · oldest waiting ${data.totals.longest_wait_days} ${data.totals.longest_wait_days === 1 ? "day" : "days"}`}
+          </>
+        )}
       </Meta>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative w-full max-w-xs">
+          <Search
+            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
+            aria-hidden
+          />
+          <Input
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            placeholder="Search title, ticket or claimant"
+            aria-label="Search the queue"
+            className="pl-8"
+          />
+        </div>
+        <Combobox
+          value={department}
+          onChange={selectDepartment}
+          options={departmentOptions}
+          placeholder="All departments"
+          aria-label="Filter by department"
+          className="w-52"
+        />
+        <Combobox
+          value={sort}
+          onChange={selectSort}
+          options={SORT_OPTIONS}
+          placeholder="Sort"
+          aria-label="Sort the queue"
+          className="w-52"
+        />
+        <div className="w-40">
+          <NumberInput
+            value={waitingDraft}
+            onChange={(e) => setWaitingDraft(e.target.value)}
+            placeholder="Waiting over"
+            unit="days"
+            aria-label="Only tickets waiting longer than this many days"
+            min={0}
+          />
+        </div>
+        {filtered && (
+          <Button kind="quiet" size="sm" onClick={clearFilters}>
+            Clear filters
+          </Button>
+        )}
+      </div>
 
       {someVisibleSelected && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
@@ -307,9 +454,12 @@ export function Clearing() {
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>
             {selectedMissing > 0 && (
+              <span className="text-fg-muted"> ({selectedMissing} without an amount, excluded from this total)</span>
+            )}
+            {selectedNeedSecond > 0 && (
               <span className="text-fg-muted">
                 {" "}
-                ({selectedMissing} without an amount, excluded from this total)
+                ({selectedNeedSecond} still need a second signature after this)
               </span>
             )}
           </p>
@@ -318,7 +468,7 @@ export function Clearing() {
               Clear selection
             </Button>
             <Button kind="primary" size="sm" onClick={() => setBulkConfirmOpen(true)}>
-              Clear {selected.size} {selected.size === 1 ? "ticket" : "tickets"}
+              Approve {selected.size} {selected.size === 1 ? "ticket" : "tickets"}
             </Button>
           </div>
         </div>
@@ -329,149 +479,150 @@ export function Clearing() {
       ) : isError ? (
         <ErrorState
           title="Could not load the queue"
-          message="The server did not answer. Nothing has been lost or cleared."
+          message="The server did not answer. Nothing has been lost or approved."
           onRetry={() => refetch()}
         />
       ) : rows.length === 0 ? (
         <EmptyState
           icon={Inbox}
-          title="Nothing waiting"
-          message="Every submitted ticket has been checked. That is good news — come back when the next one lands."
+          title={filtered ? "Nothing matches these filters" : "Nothing waiting"}
+          message={
+            filtered
+              ? "Try widening the search, department or wait-time filter."
+              : "Every cleared ticket has been approved or sent back. That is good news — come back when the next one lands."
+          }
         />
       ) : (
-        <TableScroller minWidth="62rem">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr>
-                <th scope="col" className={cn(stickyHeadCell, "w-10")}>
-                  <Checkbox
-                    checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
-                    onCheckedChange={() => {
-                      setSelected((prev) => {
-                        if (allVisibleSelected) {
-                          const next = new Set(prev)
-                          for (const c of rows) next.delete(c.id)
-                          return next
-                        }
-                        return new Set([...prev, ...rows.map((c) => c.id)])
-                      })
-                    }}
-                    aria-label={allVisibleSelected ? "Deselect all" : "Select all"}
-                  />
-                </th>
-                <th scope="col" className={stickyHeadCell}>
-                  <ColumnLabel>Paper</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-44")}>
-                  <ColumnLabel>Claimant</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-52")}>
-                  <ColumnLabel>Journal</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
-                  <ColumnLabel>Waiting</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
-                  <ColumnLabel>Amount</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-28")}>
-                  <ColumnLabel>Verified</ColumnLabel>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((c, i) => (
-                <tr
-                  key={c.id}
-                  aria-selected={selected.has(c.id)}
-                  onClick={() => {
-                    setActive(i)
-                    setOpenId(c.id)
-                  }}
-                  className={cn(
-                    "row cursor-pointer border-b border-line last:border-b-0",
-                    i === active && "bg-hover",
-                    selected.has(c.id) && "bg-selected"
-                  )}
-                >
-                  <td className="px-3 py-3 align-top" onClick={(e) => e.stopPropagation()}>
+        <>
+          {data && data.total > rows.length && (
+            <Meta className="block">
+              Showing the first {rows.length} of {data.total}. Narrow the filters to see the rest.
+            </Meta>
+          )}
+          <TableScroller minWidth="66rem">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th scope="col" className={cn(stickyHeadCell, "w-10")}>
                     <Checkbox
-                      checked={selected.has(c.id)}
-                      onCheckedChange={() => toggleSelected(c.id)}
-                      aria-label={`Select ${c.paper_title || "this ticket"}`}
+                      checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                      onCheckedChange={() => {
+                        setSelected((prev) => {
+                          if (allVisibleSelected) {
+                            const next = new Set(prev)
+                            for (const c of rows) next.delete(c.id)
+                            return next
+                          }
+                          return new Set([...prev, ...rows.map((c) => c.id)])
+                        })
+                      }}
+                      aria-label={allVisibleSelected ? "Deselect all" : "Select all"}
                     />
-                  </td>
-                  <td className="px-3 py-3 align-top">
-                    <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
-                    <Meta className="mt-0.5 block">{c.ticket_number || "Not yet ticketed"}</Meta>
-                    {(c.duplicate_warning || c.calc_error || c.remuneration_is_estimate) && (
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {c.duplicate_warning && (
-                          <RowFlag tone="critical">
-                            <AlertTriangle className="size-3" /> Possible duplicate
-                          </RowFlag>
-                        )}
-                        {c.calc_error && (
-                          <RowFlag tone="critical">
-                            <AlertTriangle className="size-3" /> Could not calculate
-                          </RowFlag>
-                        )}
-                        {!c.calc_error && c.remuneration_is_estimate && (
-                          <RowFlag tone="caution">Estimate</RowFlag>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 align-top">
-                    <span className="block">{c.owner_name}</span>
-                    {c.owner_department && <Meta className="block">{c.owner_department}</Meta>}
-                  </td>
-                  <td className="px-3 py-3 align-top text-sm text-fg-muted">
-                    {c.journal_title || "—"}
-                  </td>
-                  <td className="px-3 py-3 align-top text-right">
-                    <span className={cn("tabular", (c.waiting_days ?? 0) > 7 && "font-medium text-caution")}>
-                      {waitingLabel(c.waiting_days)}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3 align-top text-right">
-                    {c.calc_error ? (
-                      <span className="text-xs text-critical">No amount</span>
-                    ) : (
-                      <span className="tabular">{money(c.remuneration)}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 align-top">
-                    <VerifiedBadge ok={c.verification_ok} />
-                  </td>
+                  </th>
+                  <th scope="col" className={stickyHeadCell}>
+                    <ColumnLabel>Paper</ColumnLabel>
+                  </th>
+                  <th scope="col" className={cn(stickyHeadCell, "w-44")}>
+                    <ColumnLabel>Claimant</ColumnLabel>
+                  </th>
+                  <th scope="col" className={cn(stickyHeadCell, "w-44")}>
+                    <ColumnLabel>Journal</ColumnLabel>
+                  </th>
+                  <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
+                    <ColumnLabel>Waiting</ColumnLabel>
+                  </th>
+                  <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
+                    <ColumnLabel>Amount</ColumnLabel>
+                  </th>
+                  <th scope="col" className={cn(stickyHeadCell, "w-40")}>
+                    <ColumnLabel>Second signature</ColumnLabel>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableScroller>
+              </thead>
+              <tbody>
+                {rows.map((c, i) => (
+                  <tr
+                    key={c.id}
+                    aria-selected={selected.has(c.id)}
+                    onClick={() => {
+                      setActive(i)
+                      setOpenId(c.id)
+                    }}
+                    className={cn(
+                      "row cursor-pointer border-b border-line last:border-b-0",
+                      i === active && "bg-hover",
+                      selected.has(c.id) && "bg-selected"
+                    )}
+                  >
+                    <td className="px-3 py-3 align-top" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selected.has(c.id)}
+                        onCheckedChange={() => toggleSelected(c.id)}
+                        aria-label={`Select ${c.paper_title || "this ticket"}`}
+                      />
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
+                      <Meta className="mt-0.5 block">
+                        {c.ticket_number || "Not yet ticketed"} · Cleared by {c.cleared_by_name || "—"}
+                      </Meta>
+                      {(c.duplicate_warning || c.calc_error || c.remuneration_is_estimate) && (
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {c.duplicate_warning && (
+                            <RowFlag tone="critical">
+                              <AlertTriangle className="size-3" /> Possible duplicate
+                            </RowFlag>
+                          )}
+                          {c.calc_error && (
+                            <RowFlag tone="critical">
+                              <AlertTriangle className="size-3" /> Could not calculate
+                            </RowFlag>
+                          )}
+                          {!c.calc_error && c.remuneration_is_estimate && <RowFlag tone="caution">Estimate</RowFlag>}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <span className="block">{c.owner_name}</span>
+                      {c.owner_department && <Meta className="block">{c.owner_department}</Meta>}
+                    </td>
+                    <td className="px-3 py-3 align-top text-sm text-fg-muted">{c.journal_title || "—"}</td>
+                    <td className="px-3 py-3 align-top text-right">
+                      <span className={cn("tabular", (c.waiting_days ?? 0) > 7 && "font-medium text-caution")}>
+                        {waitingLabel(c.waiting_days)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 align-top text-right">
+                      {c.calc_error ? (
+                        <span className="text-xs text-critical">No amount</span>
+                      ) : (
+                        <span className="tabular">{money(c.remuneration)}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <SecondSignature claim={c} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroller>
+        </>
       )}
 
-      <TicketSheet
-        openId={openId}
-        onClose={() => setOpenId(null)}
-        isSuperAdmin={me?.role === "SUPER_ADMIN"}
-      />
+      <TicketSheet openId={openId} onClose={() => setOpenId(null)} me={me} />
 
       <ConfirmDialog
         open={bulkConfirmOpen}
         onOpenChange={setBulkConfirmOpen}
-        title={`Clear ${selected.size} ${selected.size === 1 ? "ticket" : "tickets"}?`}
-        description={`${money(selectedTotal)} total. Each ticket is re-checked against its stored figures as it clears — a row whose amount has moved is skipped, not cleared at the wrong number.`}
-        confirmLabel="Clear"
-        onConfirm={runBulkClear}
+        title={`Approve ${selected.size} ${selected.size === 1 ? "ticket" : "tickets"}?`}
+        description={`${money(selectedTotal)} total, sent to Finance. Each ticket is re-checked against its stored figures as it approves — a row whose amount has moved is skipped, not approved at the wrong number.`}
+        confirmLabel="Approve"
+        onConfirm={runBulkApprove}
       />
 
       {bulkResult && (
-        <BulkResultDialog
-          result={bulkResult.result}
-          lookup={bulkResult.lookup}
-          onClose={() => setBulkResult(null)}
-        />
+        <BulkResultDialog result={bulkResult.result} lookup={bulkResult.lookup} onClose={() => setBulkResult(null)} />
       )}
     </div>
   )
@@ -512,6 +663,28 @@ function VerifiedBadge({ ok }: { ok: boolean | null }) {
   return <span className="text-sm text-fg-muted">Not checked</span>
 }
 
+/** The one thing this desk cannot act on but must never hide: whether a
+ *  large claim still needs a second, different signature before Finance
+ *  can pay it, and who cleared it so a reader can tell whether their own
+ *  approval will count as that signature. */
+function SecondSignature({ claim }: { claim: QueueClaim }) {
+  if (claim.needs_second_approval) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-caution">
+        <ShieldAlert className="size-3.5 shrink-0" aria-hidden /> Needs a second signature
+      </span>
+    )
+  }
+  if (claim.second_approved_by_name) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-fg-muted">
+        <ShieldCheck className="size-3.5 shrink-0" aria-hidden /> Seconded by {claim.second_approved_by_name}
+      </span>
+    )
+  }
+  return <span className="text-xs text-fg-muted">—</span>
+}
+
 function waitingLabel(days: number | null | undefined): string {
   if (days == null) return "—"
   if (days <= 0) return "Today"
@@ -528,7 +701,7 @@ function BulkResultDialog({
   lookup,
   onClose,
 }: {
-  result: BulkClearResult
+  result: BulkApproveResult
   lookup: Map<string, QueueClaim>
   onClose: () => void
 }) {
@@ -537,12 +710,12 @@ function BulkResultDialog({
       <DialogContent size="sm">
         <DialogHeader>
           <DialogTitle>
-            Cleared {result.cleared} of {result.cleared + result.skipped.length}
+            Approved {result.approved} of {result.approved + result.skipped.length}
           </DialogTitle>
           <DialogDescription>
             {result.skipped.length === 0
-              ? "Every selected ticket cleared."
-              : "The rest were skipped — each for its own reason, below. Nothing was cleared at a wrong figure."}
+              ? `${money(result.total)} sent to Finance.`
+              : `${money(result.total)} sent to Finance. The rest were skipped — each for its own reason, below. Nothing was approved at a wrong figure.`}
           </DialogDescription>
         </DialogHeader>
         {result.skipped.length > 0 && (
@@ -552,9 +725,7 @@ function BulkResultDialog({
                 const claim = lookup.get(s.id)
                 return (
                   <li key={s.id} className="text-sm">
-                    <p className="font-medium">
-                      {claim?.ticket_number || claim?.paper_title || s.id}
-                    </p>
+                    <p className="font-medium">{claim?.ticket_number || claim?.paper_title || s.id}</p>
                     <p className="text-fg-muted">{s.reason}</p>
                   </li>
                 )
@@ -579,11 +750,11 @@ function BulkResultDialog({
 function TicketSheet({
   openId,
   onClose,
-  isSuperAdmin,
+  me,
 }: {
   openId: string | null
   onClose: () => void
-  isSuperAdmin: boolean
+  me: { name: string } | null
 }) {
   const {
     data: claim,
@@ -592,7 +763,7 @@ function TicketSheet({
     refetch,
   } = useApi<ClaimDetail>(["claim", openId], `/api/claims/${openId}`, { enabled: !!openId })
 
-  const [clearOpen, setClearOpen] = useState(false)
+  const [approveOpen, setApproveOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
 
   const duplicateMatches = parseJsonArray<DuplicateMatch>(claim?.duplicate_matches_json)
@@ -631,25 +802,34 @@ function TicketSheet({
             </SheetHeader>
 
             <SheetBody className="space-y-8">
-              {/* Why it came back, before anything else.
-                  A ticket the Principal returned lands here, at SUBMITTED,
-                  and the server writes their reason to `status_note`. The
-                  Principal is required to give one — so not showing it meant
-                  the ticket simply reappeared in this queue with no
-                  explanation, and the reader had to guess what had been
-                  wrong with it. */}
-              {claim.status_note && (
-                <Callout tone="caution" title="Sent back to you">
-                  <p>{claim.status_note}</p>
-                </Callout>
-              )}
-
               <section className="space-y-1">
                 <SectionTitle>Claimant</SectionTitle>
                 <p className="text-sm">{claim.owner_name}</p>
                 <Meta className="block">
                   {[claim.owner_department, claim.owner_email].filter(Boolean).join(" · ")}
                 </Meta>
+              </section>
+
+              <section className="space-y-2">
+                <SectionTitle>Cleared by the research cell</SectionTitle>
+                <p className="text-sm">
+                  {claim.cleared_by_name || "—"}
+                  {claim.cleared_at && <span className="text-fg-muted"> · {formatDateTime(claim.cleared_at)}</span>}
+                </p>
+                {claim.needs_second_approval ? (
+                  <Callout tone="caution" title="Needs a second, different signature">
+                    <p>
+                      This is over the high-value threshold. Approving it here also serves as that second
+                      signature — unless you are the same person who cleared it above, in which case someone else
+                      on the research cell has to give it separately before Finance can pay this.
+                    </p>
+                  </Callout>
+                ) : claim.second_approved_by_name ? (
+                  <p className="text-sm text-fg-muted">
+                    Seconded by {claim.second_approved_by_name}
+                    {claim.second_approved_at && ` · ${formatDateTime(claim.second_approved_at)}`}
+                  </p>
+                ) : null}
               </section>
 
               <section className="space-y-2">
@@ -704,8 +884,7 @@ function TicketSheet({
                 )}
                 {claim.remuneration_is_estimate && (
                   <Callout tone="caution" title="This is an estimate">
-                    It rests on values reported by the claimant, not a verified SNIP or
-                    quartile.
+                    It rests on values reported by the claimant, not a verified SNIP or quartile.
                   </Callout>
                 )}
                 <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
@@ -766,24 +945,18 @@ function TicketSheet({
               </section>
             </SheetBody>
 
-            {claim.status === "SUBMITTED" && (
+            {claim.status === "CLEARED" && (
               <SheetFooter>
                 <Button kind="danger" onClick={() => setRejectOpen(true)}>
                   Send it back
                 </Button>
-                <Button kind="primary" onClick={() => setClearOpen(true)}>
-                  Clear
+                <Button kind="primary" onClick={() => setApproveOpen(true)}>
+                  Approve
                 </Button>
               </SheetFooter>
             )}
 
-            <ClearDialog
-              claim={claim}
-              open={clearOpen}
-              onOpenChange={setClearOpen}
-              isSuperAdmin={isSuperAdmin}
-              onCleared={onClose}
-            />
+            <ApproveDialog claim={claim} open={approveOpen} onOpenChange={setApproveOpen} me={me} onApproved={onClose} />
             <RejectDialog claim={claim} open={rejectOpen} onOpenChange={setRejectOpen} onRejected={onClose} />
           </>
         ) : null}
@@ -803,94 +976,68 @@ function Figure({ label, value, note }: { label: string; value: string; note?: s
 }
 
 /* ------------------------------------------------------------------------ */
-/* Clear — recalculate, confirm at that figure, and re-confirm if it moved  */
+/* Approve — confirm at the figure shown, and re-confirm if it moved        */
 /* ------------------------------------------------------------------------ */
 
 /**
- * The one dialog money actually moves through.
+ * The one dialog that turns a cleared ticket into money Finance can pay.
  *
- * Opening it always recalculates first, so the amount on screen is never
- * older than this dialog. If clearing then answers 409 — the figure moved
- * again between that recalculation and the click — this does not retry with
- * the old number or the new one on its own; it names both, says plainly why,
- * and waits for a fresh, explicit "Clear" click. Resending the stale amount
- * automatically is the exact failure this guard exists to prevent.
+ * `principal-approve` recomputes from stored, already-verified values only
+ * — never Scopus — so there is no external call to wait on and no outage to
+ * retry. The only failure worth guarding is the figure moving between the
+ * screen being drawn and the click: the server answers 409 with the
+ * recomputed amount in its own message, and this dialog reads that number
+ * back out rather than silently resending the stale one. Confirming a second
+ * time is always a fresh, explicit click at the new figure — never automatic.
  */
-function ClearDialog({
+function ApproveDialog({
   claim,
   open,
   onOpenChange,
-  isSuperAdmin,
-  onCleared,
+  me,
+  onApproved,
 }: {
   claim: ClaimDetail
   open: boolean
   onOpenChange: (open: boolean) => void
-  isSuperAdmin: boolean
-  onCleared: () => void
+  me: { name: string } | null
+  onApproved: () => void
 }) {
-  const [phase, setPhase] = useState<"loading" | "ready" | "error" | "changed">("loading")
-  const [amount, setAmount] = useState<number | null>(null)
-  const [calcError, setCalcError] = useState<string | null>(null)
-  const [is502, setIs502] = useState(false)
-  const [changedMessage, setChangedMessage] = useState<string | null>(null)
+  const [amount, setAmount] = useState<number | null>(claim.remuneration)
+  const [phase, setPhase] = useState<"ready" | "changed">("ready")
   const [confirmedAmount, setConfirmedAmount] = useState<number | null>(null)
+  const [changedMessage, setChangedMessage] = useState<string | null>(null)
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
 
-  const recalc = useApiMutation<{ skip_external?: boolean }, RecalcResult>(
-    `/api/claims/${claim.id}/recalculate`,
-    // Recalculating persists the fresh verified values even if this dialog
-    // is then cancelled, so the list and the sheet underneath must not go on
-    // showing the figure from before this call.
-    { invalidates: [["clearing-queue"], ["claim", claim.id]] }
-  )
-  const clear = useApiMutation<{ note?: string; expected_amount?: number }, ClaimDetail>(
-    `/api/claims/${claim.id}/clear`,
-    { invalidates: [["clearing-queue"], ["claim", claim.id]] }
-  )
-
-  async function runRecalc(skipExternal = false) {
-    setPhase("loading")
-    setIs502(false)
-    try {
-      const r = await recalc.mutateAsync({ skip_external: skipExternal })
-      setAmount(r.remuneration)
-      setCalcError(r.calc_error)
-      setPhase(r.calc_error ? "error" : "ready")
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 502) {
-        setIs502(true)
-        setPhase("error")
-      } else {
-        toast.fail(err)
-        onOpenChange(false)
-      }
-    }
-  }
-
   useEffect(() => {
     if (open) {
-      setNote("")
+      setAmount(claim.remuneration)
+      setPhase("ready")
       setChangedMessage(null)
-      void runRecalc()
+      setNote("")
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  async function confirmClear() {
+  const approve = useApiMutation<{ note?: string; expected_amount: number }, ClaimDetail>(
+    `/api/claims/${claim.id}/principal-approve`,
+    { invalidates: [["principal-queue"], ["claim", claim.id]] }
+  )
+
+  async function confirmApprove() {
     if (amount == null) return
     setBusy(true)
     setConfirmedAmount(amount)
     try {
-      const result = await clear.mutateAsync({ note: note.trim() || undefined, expected_amount: amount })
+      const result = await approve.mutateAsync({ note: note.trim() || undefined, expected_amount: amount })
       toast.ok(
-        `Cleared — ${money(result.remuneration)} sent to the Principal${
+        `Approved — ${money(result.remuneration)} sent to Finance${
           claim.ticket_number ? ` for ${claim.ticket_number}` : ""
         }`
       )
       onOpenChange(false)
-      onCleared()
+      onApproved()
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setChangedMessage(err.message)
@@ -903,57 +1050,48 @@ function ClearDialog({
     }
   }
 
+  function continueWithNewAmount() {
+    const parsed = changedMessage ? parseAmountFromMessage(changedMessage) : null
+    if (parsed != null) setAmount(parsed)
+    setPhase("ready")
+    setChangedMessage(null)
+  }
+
+  const selfCleared = !!me && !!claim.cleared_by_name && me.name === claim.cleared_by_name
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Clear this ticket?</DialogTitle>
+          <DialogTitle>Approve this spend?</DialogTitle>
           <DialogDescription>
             {claim.owner_name} · {claim.paper_title}
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="space-y-4">
-          {phase === "loading" && (
-            <p className="text-sm text-fg-muted">Checking the figure against Scopus…</p>
-          )}
-
-          {phase === "error" && is502 && (
-            <Callout tone="critical" title="Scopus could not be reached">
-              <p>The amount was not refreshed. Nothing has been cleared.</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button kind="default" size="sm" onClick={() => void runRecalc(false)}>
-                  Retry
-                </Button>
-                {isSuperAdmin && (
-                  <Button kind="quiet" size="sm" onClick={() => void runRecalc(true)}>
-                    Use stored values instead
-                  </Button>
-                )}
-              </div>
-            </Callout>
-          )}
-
-          {phase === "error" && !is502 && (
+          {phase === "ready" && claim.calc_error ? (
             <Callout tone="critical" title="This amount could not be worked out">
-              {calcError || "Nothing has been cleared."}
+              {claim.calc_error} Nothing has been approved.
             </Callout>
-          )}
-
-          {phase === "ready" && (
+          ) : phase === "ready" ? (
             <>
               <p className="text-2xl font-semibold tabular">{money(amount)}</p>
+              {claim.needs_second_approval && (
+                <Callout tone="caution" title="Needs a second, different signature">
+                  Cleared by {claim.cleared_by_name || "someone else"}. Approving here also serves as the second
+                  signature{selfCleared ? " — but not from you, since you cleared it yourself" : ""}.
+                </Callout>
+              )}
               <Field label="Note (optional)">
                 <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
               </Field>
             </>
-          )}
-
-          {phase === "changed" && (
+          ) : (
             <Callout tone="caution" title="The figure changed since this screen was drawn">
               <p>You confirmed {money(confirmedAmount)}.</p>
               <p className="mt-1">{changedMessage}</p>
-              <p className="mt-2">Nothing has been cleared. Recalculate to see the new figure and confirm again.</p>
+              <p className="mt-2">Nothing has been approved. Review the new figure and confirm again.</p>
             </Callout>
           )}
         </DialogBody>
@@ -963,16 +1101,16 @@ function ClearDialog({
             Cancel
           </Button>
           {phase === "changed" ? (
-            <Button kind="primary" onClick={() => void runRecalc()}>
-              Recalculate
+            <Button kind="primary" onClick={continueWithNewAmount}>
+              Show the new figure
             </Button>
           ) : (
             <Button
               kind="primary"
-              disabled={phase !== "ready" || amount == null || busy}
-              onClick={() => void confirmClear()}
+              disabled={amount == null || !!claim.calc_error || busy}
+              onClick={() => void confirmApprove()}
             >
-              {busy ? "Clearing…" : `Clear — ${amount != null ? money(amount) : "…"}`}
+              {busy ? "Approving…" : `Approve — ${amount != null ? money(amount) : "…"}`}
             </Button>
           )}
         </DialogFooter>
@@ -982,7 +1120,7 @@ function ClearDialog({
 }
 
 /* ------------------------------------------------------------------------ */
-/* Reject                                                                    */
+/* Reject — sends the ticket back to the research cell, with a reason       */
 /* ------------------------------------------------------------------------ */
 
 function RejectDialog({
@@ -997,8 +1135,8 @@ function RejectDialog({
   onRejected: () => void
 }) {
   const [note, setNote] = useState("")
-  const reject = useApiMutation<{ note: string }, ClaimDetail>(`/api/claims/${claim.id}/reject`, {
-    invalidates: [["clearing-queue"], ["claim", claim.id]],
+  const reject = useApiMutation<{ note: string }, ClaimDetail>(`/api/claims/${claim.id}/principal-reject`, {
+    invalidates: [["principal-queue"], ["claim", claim.id]],
   })
 
   useEffect(() => {
@@ -1006,13 +1144,15 @@ function RejectDialog({
   }, [open])
 
   const trimmed = note.trim()
-  const tooShort = trimmed.length > 0 && trimmed.length < 10
-  const canSubmit = trimmed.length >= 10
+  // Matches the backend's own minimum on this endpoint — five characters is
+  // enough to catch an empty click, not enough to force an essay.
+  const tooShort = trimmed.length > 0 && trimmed.length < 5
+  const canSubmit = trimmed.length >= 5
 
   async function submit() {
     try {
       await reject.mutateAsync({ note: trimmed })
-      toast.ok(`Sent back${claim.ticket_number ? ` — ${claim.ticket_number}` : ""}`)
+      toast.ok(`Sent back to the research cell${claim.ticket_number ? ` — ${claim.ticket_number}` : ""}`)
       onOpenChange(false)
       onRejected()
     } catch (err) {
@@ -1030,14 +1170,14 @@ function RejectDialog({
         <DialogBody>
           <Field
             label="Reason"
-            hint="The claimant sees this sentence first, at the top of their paper — say what to fix."
-            error={tooShort ? "At least 10 characters." : undefined}
+            hint="Goes back to the research cell to fix, with this note attached — say what to check again."
+            error={tooShort ? "At least 5 characters." : undefined}
           >
             <Textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={3}
-              placeholder="What needs to change before this can be filed again"
+              placeholder="What needs a second look before this can be approved"
             />
           </Field>
         </DialogBody>
@@ -1076,6 +1216,18 @@ function parseJsonObject<T>(raw: string | null | undefined): T | null {
   } catch {
     return null
   }
+}
+
+// `_guard_recomputed_amount` writes the recomputed figure into its own 409
+// message ("The recomputed amount is ₹52,377.50. ..."), so the fresh number
+// can be read straight back out of it rather than re-fetching the claim,
+// which — inside the same rolled-back transaction — would still show the
+// stale one.
+function parseAmountFromMessage(message: string): number | null {
+  const m = message.match(/₹([\d,]+(?:\.\d+)?)/)
+  if (!m) return null
+  const n = Number.parseFloat(m[1].replace(/,/g, ""))
+  return Number.isFinite(n) ? n : null
 }
 
 // Machine-confirmed and self-reported are said differently on purpose — a

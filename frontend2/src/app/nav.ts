@@ -18,6 +18,7 @@ import {
   Sparkles,
   Users,
   Wallet,
+  TriangleAlert,
 } from "lucide-react"
 
 import type { Role } from "@/app/auth"
@@ -181,10 +182,21 @@ export const NAV: NavItem[] = [
     keywords: ["double payment", "repeats"],
   },
   {
+    to: "/faults",
+    label: "Faults",
+    icon: TriangleAlert,
+    // `admin_faults` allows the office and the Principal.
+    roles: [...OFFICE, "PRINCIPAL"],
+    group: "Set up",
+    keywords: ["broken", "blocked", "stuck", "unreconciled"],
+  },
+  {
     to: "/audit",
     label: "Audit log",
     icon: ShieldCheck,
-    roles: OFFICE,
+    // `rbac.can_view_audit` is wider than the office — the Principal and
+    // Finance may read the audit log, and were being offered no way in.
+    roles: [...OFFICE, "PRINCIPAL", "FINANCE"],
     group: "Look at",
     keywords: ["who did what", "trail"],
   },

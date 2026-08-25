@@ -184,12 +184,32 @@ export function PaperDetail() {
     .reverse()
     .find((a) => a.action === "REJECT" || a.action === "PRINCIPAL_SEND_BACK")
 
+  // A note is not only attached to a REJECTED paper.
+  //
+  // When the Principal sends a ticket back, the server writes their reason to
+  // `status_note` and returns the claim to SUBMITTED — back to the research
+  // cell, not to the claimant. Keying this block on `status === "REJECTED"`
+  // therefore hid it completely: the Principal is *required* to give a reason,
+  // and nobody could read it anywhere. The ticket simply reappeared in the
+  // clearing queue with no explanation attached.
+  const sentBackByPrincipal = lastRejection?.action === "PRINCIPAL_SEND_BACK"
+  const showSendBack = Boolean(
+    claim.status_note && (claim.status === "REJECTED" || sentBackByPrincipal)
+  )
+
   return (
     <div className="page space-y-10 py-8">
       {/* The one sentence a sent-back paper's owner came here for, before
           anything else — including the back link. */}
-      {claim.status === "REJECTED" && claim.status_note && (
-        <Callout tone="critical" title="Sent back — what to fix">
+      {showSendBack && (
+        <Callout
+          tone="critical"
+          title={
+            sentBackByPrincipal && claim.status !== "REJECTED"
+              ? "The Principal sent this back to the research cell"
+              : "Sent back — what to fix"
+          }
+        >
           <p>{claim.status_note}</p>
           {lastRejection && (
             <p className="mt-1.5 text-sm text-fg-muted">

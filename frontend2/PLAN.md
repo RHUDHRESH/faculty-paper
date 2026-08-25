@@ -75,15 +75,15 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | 1.7 | App shell — sidebar, collapse, mobile drawer | ✅ | Active item slides via shared `layoutId` |
 | 1.8 | Command palette (Ctrl-K) | ✅ | Pages local + instant; records debounced underneath |
 | 1.9 | `Button`, `Text`, `Stage`, `money()` | ✅ | Four button kinds, not a variant grab-bag |
-| 1.10 | `Table` — sticky head, edge shadows, row links | ⬜ | Stripe-like. One component every table uses |
-| 1.11 | `Combobox` — type-to-filter select | ⬜ | Your 31 departments cannot be a scroll-only list |
-| 1.12 | `Dialog`, `Sheet`, `Menu`, `Tooltip` on Radix | ⬜ | Behaviour from Radix, every pixel written here |
-| 1.13 | `Field` set — input, textarea, checkbox, radio, date | ⬜ | One focus ring, one error convention |
-| 1.14 | `EmptyState`, `ErrorState`, skeletons | ⬜ | An error must never render as "you have nothing" |
-| 1.15 | Toast conventions | ⬜ | Outcome + what it changed, never a bare "Saved" |
+| 1.10 | `Table` — sticky head, edge shadows, row links | ✅ | Sticky head, edge shadows that appear only when there is more, row links on the first cell only |
+| 1.11 | `Combobox` — type-to-filter select | ✅ | Type to filter, prefix matches first, full keyboard, click-away does not pick |
+| 1.12 | `Dialog`, `Sheet`, `Menu`, `Tooltip` on Radix | ✅ | Behaviour from Radix, every pixel written here. `ConfirmDialog` can demand a typed phrase |
+| 1.13 | `Field` set — input, textarea, checkbox, radio, date | ✅ | One focus ring, one error convention. Labels sit beside checkbox, radio and switch |
+| 1.14 | `EmptyState`, `ErrorState`, skeletons | ✅ | An error never renders as "you have nothing" — three different sentences |
+| 1.15 | Toast conventions | ✅ | Outcome plus what it changed, never a bare "Saved" |
 | 1.16 | Charts — trend, ranked bars, mix bar, distribution | ✅ | No library. Every chart is also a table; bars link where a row is a record |
-| 1.17 | Stepped wizard shell | ⬜ | For filing a paper; the pattern you sent |
-| 1.18 | Product tour / first-run | ⬜ | The pattern you sent; shown once per account |
+| 1.17 | Stepped wizard shell | ✅ | Rail, footer, focus and validation. Content never waits on an animation |
+| 1.18 | Product tour / first-run | ✅ | Points at real elements; a step whose target is not on the page is dropped, not shown against nothing |
 
 ---
 

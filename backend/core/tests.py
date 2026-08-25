@@ -7147,3 +7147,248 @@ class ProfileCorrectionTests(TestCase):
 
     def test_a_claimant_cannot_read_the_queue(self):
         self.assertEqual(self.fc.get("/api/admin/profile-requests").status_code, 403)
+
+
+class CollaborationGraphTests(TestCase):
+    """Who has written with whom, inferred rather than entered.
+
+    Nobody records co-authorship in this system. Two people filing a claim for
+    the same paper are co-authors, and that is the whole of the evidence -- so
+    every test here is really a test of one question: when are two claims the
+    same paper?
+
+    Getting that wrong in either direction is bad in a way a graph hides. Too
+    loose and the screen invents a working relationship between two people who
+    have never met, which is embarrassing in a way software rarely is. Too
+    tight and the graph is empty and nobody comes back to it.
+    """
+
+    def setUp(self):
+        def person(email, name, dept, role=Role.FACULTY):
+            return User.objects.create_user(
+                email=email, password="pass", name=name, role=role, department=dept
+            )
+
+        self.anita = person("anita@test.edu", "Anita Rao", "CSE")
+        self.bala = person("bala@test.edu", "Bala Krishnan", "CSE")
+        self.chitra = person("chitra@test.edu", "Chitra Menon", "ECE")
+        self.deepa = person("deepa@test.edu", "Deepa Nair", "MECH")
+        self.head = person("head@test.edu", "Head of CSE", "CSE", Role.HOD)
+
+        self.client = Client()
+        self.client.force_login(self.anita)
+
+    def claim(self, owner, title, *, doi=None, journal=None, status=ClaimStatus.PAID):
+        return Claim.objects.create(
+            owner=owner,
+            paper_title=title,
+            doi=doi,
+            journal_title=journal or "Journal of Testing",
+            publication_year=2025,
+            status=status,
+            remuneration=90000,
+        )
+
+    # ---- when two claims are the same paper ------------------------------
+
+    def test_the_same_doi_makes_two_people_co_authors(self):
+        self.claim(self.anita, "A Paper", doi="10.1016/j.test.2025.01")
+        self.claim(self.bala, "A Paper", doi="10.1016/j.test.2025.01")
+
+        body = self.client.get("/api/collaborate/me").json()
+        names = {p["name"] for p in body["worked_with"]}
+        self.assertEqual(names, {"Bala Krishnan"})
+        self.assertEqual(body["worked_with"][0]["together"], 1)
+
+    def test_a_doi_written_two_different_ways_is_still_one_paper(self):
+        """People paste what the publisher gave them, which is a URL as often
+        as a bare identifier."""
+        self.claim(self.anita, "Some Title", doi="https://doi.org/10.1016/J.TEST.2025.02")
+        self.claim(self.bala, "A Quite Different Title", doi="10.1016/j.test.2025.02")
+
+        body = self.client.get("/api/collaborate/me").json()
+        self.assertEqual([p["name"] for p in body["worked_with"]], ["Bala Krishnan"])
+
+    def test_the_title_matches_when_there_is_no_doi(self):
+        """Most of the older imported rows have no DOI at all. If the title
+        were not enough, the graph would only know about recent work."""
+        self.claim(self.anita, "Deep Learning for Fault Detection")
+        self.claim(self.bala, "deep learning for fault detection.")
+
+        body = self.client.get("/api/collaborate/me").json()
+        self.assertEqual([p["name"] for p in body["worked_with"]], ["Bala Krishnan"])
+
+    def test_different_dois_are_different_papers_however_alike_the_titles(self):
+        """The one that must not go wrong.
+
+        Survey papers repeat titles across venues, and two people who happened
+        to write "A Review of Machine Learning" are not collaborators. A DOI is
+        definitive where it exists, so it has to override the title rather than
+        merely be consulted first.
+        """
+        self.claim(self.anita, "A Review Of Machine Learning", doi="10.1/aaa")
+        self.claim(self.bala, "A Review Of Machine Learning", doi="10.1/bbb")
+
+        body = self.client.get("/api/collaborate/me").json()
+        self.assertEqual(body["worked_with"], [])
+
+    def test_an_unfinished_draft_does_not_make_anyone_a_co_author(self):
+        """A draft is somebody's working paper. It may never be filed, and
+        naming a collaboration off one publishes a private intention."""
+        self.claim(self.anita, "Not Filed Yet", doi="10.1/draft")
+        self.claim(self.bala, "Not Filed Yet", doi="10.1/draft", status=ClaimStatus.DRAFT)
+
+        self.assertEqual(self.client.get("/api/collaborate/me").json()["worked_with"], [])
+
+    def test_one_paper_filed_by_three_people_pairs_all_three(self):
+        self.claim(self.anita, "Three Way", doi="10.1/three")
+        self.claim(self.bala, "Three Way", doi="10.1/three")
+        self.claim(self.chitra, "Three Way", doi="10.1/three")
+
+        names = {p["name"] for p in self.client.get("/api/collaborate/me").json()["worked_with"]}
+        self.assertEqual(names, {"Bala Krishnan", "Chitra Menon"})
+
+    def test_writing_together_repeatedly_counts_up(self):
+        for i in range(3):
+            self.claim(self.anita, f"Paper {i}", doi=f"10.1/rep{i}")
+            self.claim(self.bala, f"Paper {i}", doi=f"10.1/rep{i}")
+
+        row = self.client.get("/api/collaborate/me").json()["worked_with"][0]
+        self.assertEqual(row["together"], 3)
+
+    # ---- who you might work with -----------------------------------------
+
+    def test_a_suggestion_is_somebody_publishing_where_you_publish(self):
+        self.claim(self.anita, "Mine", journal="Applied Soft Computing")
+        self.claim(self.chitra, "Theirs", journal="Applied Soft Computing")
+
+        body = self.client.get("/api/collaborate/me").json()
+        names = {s["name"] for s in body["suggestions"]}
+        self.assertIn("Chitra Menon", names)
+
+        chitra = next(s for s in body["suggestions"] if s["name"] == "Chitra Menon")
+        self.assertEqual(chitra["shared_journals"], ["applied soft computing"])
+        self.assertTrue(chitra["cross_department"])
+        self.assertIn("journal", chitra["why"])
+
+    def test_you_are_never_suggested_to_yourself(self):
+        self.claim(self.anita, "One", journal="Nature Things")
+        self.claim(self.anita, "Two", journal="Nature Things")
+
+        body = self.client.get("/api/collaborate/me").json()
+        self.assertNotIn(self.anita.id, {s["id"] for s in body["suggestions"]})
+
+    def test_somebody_you_already_write_with_is_not_suggested(self):
+        """The screen answers "who could you work with". Somebody you have
+        four papers with is not an introduction, and pushes a real one out."""
+        self.claim(self.anita, "Together", doi="10.1/tog", journal="Shared Journal")
+        self.claim(self.bala, "Together", doi="10.1/tog", journal="Shared Journal")
+
+        body = self.client.get("/api/collaborate/me").json()
+        self.assertIn("Bala Krishnan", {p["name"] for p in body["worked_with"]})
+        self.assertNotIn("Bala Krishnan", {s["name"] for s in body["suggestions"]})
+
+    def test_somebody_who_shares_no_journal_is_not_suggested(self):
+        self.claim(self.anita, "Mine", journal="Applied Soft Computing")
+        self.claim(self.deepa, "Theirs", journal="Tribology International")
+
+        names = {s["name"] for s in self.client.get("/api/collaborate/me").json()["suggestions"]}
+        self.assertNotIn("Deepa Nair", names)
+
+    def test_the_screen_says_where_the_graph_came_from(self):
+        """A relationship the system asserts about two real people has to be
+        accountable, or the first person who disagrees with it has nothing to
+        argue with."""
+        body = self.client.get("/api/collaborate/me").json()
+        self.assertIn("same paper", body["derived_from"])
+
+    # ---- the graph -------------------------------------------------------
+
+    def test_a_pair_appears_as_one_link_not_two(self):
+        self.claim(self.anita, "Shared", doi="10.1/shared")
+        self.claim(self.bala, "Shared", doi="10.1/shared")
+
+        body = self.client.get("/api/collaborate/graph").json()
+        self.assertEqual(len(body["links"]), 1)
+        self.assertEqual(
+            {body["links"][0]["source"], body["links"][0]["target"]},
+            {self.anita.id, self.bala.id},
+        )
+
+    def test_somebody_who_has_never_co_authored_is_not_a_node(self):
+        """An unconnected dot carries no information and crowds out the ones
+        that do."""
+        self.claim(self.anita, "Shared", doi="10.1/s")
+        self.claim(self.bala, "Shared", doi="10.1/s")
+        self.claim(self.deepa, "Alone", doi="10.1/alone")
+
+        ids = {n["id"] for n in self.client.get("/api/collaborate/graph").json()["nodes"]}
+        self.assertNotIn(self.deepa.id, ids)
+
+    def test_the_graph_caps_and_says_how_many_it_left_out(self):
+        """Silently truncating reads as "this is everyone", which is worse
+        than showing less and saying so."""
+        for i in range(6):
+            a = User.objects.create_user(
+                email=f"a{i}@test.edu", password="p", name=f"A{i}", department="CSE"
+            )
+            b = User.objects.create_user(
+                email=f"b{i}@test.edu", password="p", name=f"B{i}", department="CSE"
+            )
+            self.claim(a, f"P{i}", doi=f"10.1/p{i}")
+            self.claim(b, f"P{i}", doi=f"10.1/p{i}")
+
+        body = self.client.get("/api/collaborate/graph?limit=4").json()
+        self.assertEqual(len(body["nodes"]), 4)
+        self.assertEqual(body["hidden"], 8)
+
+    def test_a_head_gets_their_own_department_whatever_they_ask_for(self):
+        """The department is not a filter a head widens -- it is the scope of
+        the role."""
+        self.claim(self.anita, "CSE Paper", doi="10.1/cse")
+        self.claim(self.bala, "CSE Paper", doi="10.1/cse")
+        self.claim(self.chitra, "ECE Paper", doi="10.1/ece")
+        self.claim(self.deepa, "ECE Paper", doi="10.1/ece")
+
+        c = Client()
+        c.force_login(self.head)
+        body = c.get("/api/collaborate/graph?department=ECE").json()
+        self.assertEqual(body["department"], "CSE")
+        self.assertEqual({n["name"] for n in body["nodes"]}, {"Anita Rao", "Bala Krishnan"})
+
+    # ---- money -----------------------------------------------------------
+
+    def test_neither_endpoint_carries_a_rupee(self):
+        """Heads of department may read both of these, and a head must never
+        see money by any route. The failure mode is one forgotten key in one
+        nested row, so this reads everything that comes back rather than
+        trusting the shape.
+        """
+        self.claim(self.anita, "Paid Paper", doi="10.1/money")
+        self.claim(self.bala, "Paid Paper", doi="10.1/money")
+
+        banned = ("remuneration", "amount", "paid", "money", "voucher", "payout")
+
+        def walk(node, path="body"):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    self.assertFalse(
+                        any(word in k.lower() for word in banned),
+                        f"{path}.{k} looks like money",
+                    )
+                    walk(v, f"{path}.{k}")
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    walk(v, f"{path}[{i}]")
+            elif isinstance(node, (int, float)) and not isinstance(node, bool):
+                self.assertLess(node, 50000, f"{path} = {node} is the size of a payment")
+
+        c = Client()
+        c.force_login(self.head)
+        walk(c.get("/api/collaborate/me").json())
+        walk(c.get("/api/collaborate/graph").json())
+
+    def test_signing_out_closes_both(self):
+        c = Client()
+        self.assertEqual(c.get("/api/collaborate/me").status_code, 401)
+        self.assertEqual(c.get("/api/collaborate/graph").status_code, 401)

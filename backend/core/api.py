@@ -46,6 +46,7 @@ from core.models import (
     MonthlyRow,
     Notification,
     ProfileChangeRequest,
+    ResearchInterest,
     PaidLedger,
     PriorImport,
     PriorPayment,
@@ -54,6 +55,7 @@ from core.models import (
     SnipSource,
     User,
 )
+from core.services import discover as discover_service, gemini
 from core.services import rbac
 from core.services.monthly_processor import start_batch_async
 from core.services import exporters
@@ -1958,6 +1960,177 @@ def list_claims(
         "offset": offset,
         "results": [claim_to_dict(c) for c in qs[offset : offset + limit]],
     }
+
+
+# Registered above `/claims/{claim_id}` on purpose. django-ninja matches in
+# registration order, so declared after it this resolves as a claim whose id
+# is the literal string "counts" and 404s. The same collision already cost us
+# `/admin/data/Claim/export` once.
+@api.get("/claims/counts", auth=session_auth)
+def claim_counts(request: HttpRequest, q: Optional[str] = None):
+    """How many claims sit at each stage, in one query.
+
+    Added because the papers screen was asking seven times -- one request per
+    filter chip -- and still could not count a legacy ERP row correctly: the
+    list endpoint takes a single status, while a stage covers several. Grouping
+    here means one query, and it means the grouping matches `stageOf` on the
+    client instead of approximating it.
+    """
+    user = require_user(request)
+    scope = _claims_queryset(user)
+    if q:
+        scope = scope.filter(
+            Q(paper_title__icontains=q) | Q(ticket_number__icontains=q)
+        )
+
+    raw = dict(
+        scope.values_list("status").annotate(n=Count("id")).values_list("status", "n")
+    )
+
+    #: The same grouping `stageOf` uses on the client, including the legacy ERP
+    #: statuses. Kept here so the two cannot drift apart silently.
+    stages = {
+        "draft": ["DRAFT"],
+        "filed": ["SUBMITTED", "HOD_APPROVED"],
+        "checked": ["CLEARED", "RESEARCH_APPROVED"],
+        "approved": ["PRINCIPAL_APPROVED", "FINANCE_APPROVED"],
+        "paid": ["PAID"],
+        "sent_back": ["REJECTED"],
+    }
+    counts = {
+        stage: sum(raw.get(status, 0) for status in statuses)
+        for stage, statuses in stages.items()
+    }
+    counts["all"] = sum(raw.values())
+    return {"counts": counts, "statuses": raw, "stages": stages}
+
+
+# ---------- journals ----------
+
+
+def _issn_variants(issn: str | None) -> list[str]:
+    """Every spelling of one ISSN that the stored data actually uses.
+
+    Three conventions ended up in the tables, all of the same number: dashed
+    ("0272-8842"), bare ("02728842"), and float-mangled ("2728842.0") from
+    9,993 reference rows a spreadsheet had opened. Matching only one of them
+    is why a journal with an ISSN on file still fell back to a title search.
+    """
+    if not issn:
+        return []
+    cleaned = normalize_issn(issn) or ""
+    bare = cleaned.replace("-", "")
+    out = {cleaned, bare, issn.strip()}
+    if bare.isdigit():
+        out.add(f"{int(bare)}.0")  # the leading zero the float dropped
+        out.add(str(int(bare)))
+    return [v for v in out if v]
+
+
+def _flatten_title(title: str) -> str:
+    """A journal title with everything but its letters and digits removed."""
+    return re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).strip()
+
+
+def _match_on_punctuation(qs, title: str):
+    """The same journal, spelled without its punctuation.
+
+    The ERP dropped colons, commas and brackets out of journal titles on the
+    way in, so "Journal of Materials Science: Materials in Electronics" is
+    stored as "Journal of Materials Science Materials in Electronics" and an
+    exact match finds nothing. Sixty of the college's journals are in that
+    position and every one of them was reported as unranked.
+
+    Narrowed by the two longest words before anything is compared -- they are
+    the most selective and they cannot themselves contain punctuation -- so
+    this reads a few hundred rows rather than thirty-two thousand.
+    """
+    flat = _flatten_title(title)
+    if not flat:
+        return None
+    words = sorted(set(flat.split()), key=len, reverse=True)
+    probes = [w for w in words if len(w) > 3][:2]
+    if not probes:
+        return None
+    candidates = qs
+    for w in probes:
+        candidates = candidates.filter(title__icontains=w)
+    for row in candidates.order_by("-year")[:300]:
+        if _flatten_title(row.title) == flat:
+            return row
+    return None
+
+
+def _journal_reference(title: str, issn: str | None) -> dict[str, Any]:
+    """What the reference data knows about this journal, if anything.
+
+    Claims carry a title and usually nothing else, so the ISSN route is tried
+    first and the title second. A near-match on a truncated title is worse
+    than no match -- it would attach another journal's SJR to this one -- so
+    the title lookup demands the whole name, case-insensitively.
+    """
+    out: dict[str, Any] = {"scimago": None, "snip": None}
+
+    scimago_qs = ScimagoJournal.objects.all()
+    row = None
+    variants = _issn_variants(issn)
+    if variants:
+        row = (
+            scimago_qs.filter(issn__in=variants).order_by("-year").first()
+            or scimago_qs.filter(eissn__in=variants).order_by("-year").first()
+        )
+    if row is None and title:
+        row = scimago_qs.filter(title__iexact=title).order_by("-year").first()
+    if row is None and title:
+        row = _match_on_punctuation(scimago_qs, title)
+    if row is not None:
+        try:
+            categories = json.loads(row.categories_json or "[]")
+        except (ValueError, TypeError):
+            categories = []
+        # Scimago nests the quartile inside each subject category, so a journal
+        # is Q1 in one field and Q3 in another. Both are true; the best one is
+        # what the policy pays on, and hiding the rest would misdescribe it.
+        labels: list[dict[str, Any]] = []
+        for c in categories if isinstance(categories, list) else []:
+            if isinstance(c, dict):
+                name = c.get("category") or c.get("name") or ""
+                q = c.get("quartile") or c.get("Quartile") or ""
+                if name:
+                    labels.append({"category": str(name), "quartile": str(q or "—")})
+        # SCImago's own id for the journal, which addresses its page directly.
+        # Stored as "21522.0" because the dump was read as numbers, and a
+        # search by title lands on a results page — or on nothing at all, for
+        # a conference series whose name runs to fifteen words.
+        source_id = (row.source_id or "").strip()
+        if source_id.endswith(".0"):
+            source_id = source_id[:-2]
+        out["scimago"] = {
+            "source_id": source_id or None,
+            "sjr": row.sjr,
+            "year": row.year,
+            "issn": row.issn,
+            "eissn": row.eissn,
+            "verified_live": row.verified_live,
+            "categories": labels[:12],
+            "best_quartile": min(
+                (c["quartile"] for c in labels if c["quartile"].startswith("Q")),
+                default=None,
+            ),
+        }
+
+    snip_row = None
+    if variants:
+        snip_row = (
+            SnipSource.objects.filter(print_issn__in=variants).first()
+            or SnipSource.objects.filter(e_issn__in=variants).first()
+        )
+    if snip_row is None and title:
+        snip_row = SnipSource.objects.filter(title__iexact=title).first()
+    if snip_row is not None:
+        out["snip"] = {"snip": snip_row.snip, "sjr": snip_row.sjr, "year": snip_row.year}
+
+    return out
 
 
 @api.get("/claims/{claim_id}", auth=session_auth)
@@ -5044,132 +5217,163 @@ def collaboration_graph(
     }
 
 
-# ---------- journals ----------
+# ---------- what to write next, and where to send it ----------
+#
+# The only part of this system that is any use *before* a paper exists.
+# Everything else deals with work already done.
+#
+# The rule throughout: the model proposes, the database disposes. Gemini names
+# journals; those names are resolved against our own Scimago and SNIP rows and
+# only what resolves carries a quartile or an amount. See services/discover.py.
 
 
-def _issn_variants(issn: str | None) -> list[str]:
-    """Every spelling of one ISSN that the stored data actually uses.
+class VenueIn(Schema):
+    title: str
+    abstract: Optional[str] = None
+    keywords: Optional[str] = None
+    #: The position being considered, since the payout depends on it and
+    #: nobody knows the eventual author order while choosing a venue.
+    author_position: int = 1
+    total_authors: int = 1
 
-    Three conventions ended up in the tables, all of the same number: dashed
-    ("0272-8842"), bare ("02728842"), and float-mangled ("2728842.0") from
-    9,993 reference rows a spreadsheet had opened. Matching only one of them
-    is why a journal with an ISSN on file still fell back to a title search.
+
+class InterestsIn(Schema):
+    domains: list[str]
+
+
+@api.get("/discover/status", auth=session_auth)
+def discover_status(request: HttpRequest):
+    """Whether the discovery features can run at all.
+
+    The screen asks before offering, so that an unconfigured deployment says
+    "this is switched off" rather than presenting a button that always fails.
     """
-    if not issn:
-        return []
-    cleaned = normalize_issn(issn) or ""
-    bare = cleaned.replace("-", "")
-    out = {cleaned, bare, issn.strip()}
-    if bare.isdigit():
-        out.add(f"{int(bare)}.0")  # the leading zero the float dropped
-        out.add(str(int(bare)))
-    return [v for v in out if v]
+    require_user(request)
+    return {"available": gemini.available(), "model": gemini.model_name()}
 
 
-def _flatten_title(title: str) -> str:
-    """A journal title with everything but its letters and digits removed."""
-    return re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).strip()
+@api.get("/meta/research-domains", auth=session_auth)
+def research_domains(request: HttpRequest, q: str = "", limit: int = 40):
+    """The subject vocabulary, taken from our own journal data.
 
-
-def _match_on_punctuation(qs, title: str):
-    """The same journal, spelled without its punctuation.
-
-    The ERP dropped colons, commas and brackets out of journal titles on the
-    way in, so "Journal of Materials Science: Materials in Electronics" is
-    stored as "Journal of Materials Science Materials in Electronics" and an
-    exact match finds nothing. Sixty of the college's journals are in that
-    position and every one of them was reported as unranked.
-
-    Narrowed by the two longest words before anything is compared -- they are
-    the most selective and they cannot themselves contain punctuation -- so
-    this reads a few hundred rows rather than thirty-two thousand.
+    302 categories that journals in our dataset are actually classified under,
+    rather than a list somebody typed. A domain outside this vocabulary cannot
+    be matched against anything later.
     """
-    flat = _flatten_title(title)
-    if not flat:
-        return None
-    words = sorted(set(flat.split()), key=len, reverse=True)
-    probes = [w for w in words if len(w) > 3][:2]
-    if not probes:
-        return None
-    candidates = qs
-    for w in probes:
-        candidates = candidates.filter(title__icontains=w)
-    for row in candidates.order_by("-year")[:300]:
-        if _flatten_title(row.title) == flat:
-            return row
-    return None
+    require_user(request)
+    return {"domains": discover_service.research_domains(q, limit)}
 
 
-def _journal_reference(title: str, issn: str | None) -> dict[str, Any]:
-    """What the reference data knows about this journal, if anything.
-
-    Claims carry a title and usually nothing else, so the ISSN route is tried
-    first and the title second. A near-match on a truncated title is worse
-    than no match -- it would attach another journal's SJR to this one -- so
-    the title lookup demands the whole name, case-insensitively.
-    """
-    out: dict[str, Any] = {"scimago": None, "snip": None}
-
-    scimago_qs = ScimagoJournal.objects.all()
-    row = None
-    variants = _issn_variants(issn)
-    if variants:
-        row = (
-            scimago_qs.filter(issn__in=variants).order_by("-year").first()
-            or scimago_qs.filter(eissn__in=variants).order_by("-year").first()
+@api.get("/me/interests", auth=session_auth)
+def my_interests(request: HttpRequest):
+    user = require_user(request)
+    return {
+        "domains": list(
+            ResearchInterest.objects.filter(user=user).values_list("domain", flat=True)
         )
-    if row is None and title:
-        row = scimago_qs.filter(title__iexact=title).order_by("-year").first()
-    if row is None and title:
-        row = _match_on_punctuation(scimago_qs, title)
-    if row is not None:
-        try:
-            categories = json.loads(row.categories_json or "[]")
-        except (ValueError, TypeError):
-            categories = []
-        # Scimago nests the quartile inside each subject category, so a journal
-        # is Q1 in one field and Q3 in another. Both are true; the best one is
-        # what the policy pays on, and hiding the rest would misdescribe it.
-        labels: list[dict[str, Any]] = []
-        for c in categories if isinstance(categories, list) else []:
-            if isinstance(c, dict):
-                name = c.get("category") or c.get("name") or ""
-                q = c.get("quartile") or c.get("Quartile") or ""
-                if name:
-                    labels.append({"category": str(name), "quartile": str(q or "—")})
-        # SCImago's own id for the journal, which addresses its page directly.
-        # Stored as "21522.0" because the dump was read as numbers, and a
-        # search by title lands on a results page — or on nothing at all, for
-        # a conference series whose name runs to fifteen words.
-        source_id = (row.source_id or "").strip()
-        if source_id.endswith(".0"):
-            source_id = source_id[:-2]
-        out["scimago"] = {
-            "source_id": source_id or None,
-            "sjr": row.sjr,
-            "year": row.year,
-            "issn": row.issn,
-            "eissn": row.eissn,
-            "verified_live": row.verified_live,
-            "categories": labels[:12],
-            "best_quartile": min(
-                (c["quartile"] for c in labels if c["quartile"].startswith("Q")),
-                default=None,
+    }
+
+
+@api.put("/me/interests", auth=session_auth)
+def set_my_interests(request: HttpRequest, payload: InterestsIn):
+    """Replace the whole set.
+
+    A whole-set write rather than add and remove endpoints: the screen is a
+    multi-select, and two round trips per tick would make it feel slow and
+    leave it half-applied if one of them failed.
+    """
+    user = require_user(request)
+    wanted = []
+    for raw in payload.domains[:20]:
+        name = (raw or "").strip()
+        if name and name not in wanted:
+            wanted.append(name)
+
+    with transaction.atomic():
+        ResearchInterest.objects.filter(user=user).exclude(domain__in=wanted).delete()
+        existing = set(
+            ResearchInterest.objects.filter(user=user).values_list("domain", flat=True)
+        )
+        ResearchInterest.objects.bulk_create(
+            [ResearchInterest(user=user, domain=d) for d in wanted if d not in existing],
+            ignore_conflicts=True,
+        )
+    return {"domains": wanted}
+
+
+@api.post("/discover/venues", auth=session_auth)
+def discover_venues(request: HttpRequest, payload: VenueIn):
+    """Where this paper could go, and what each venue would pay.
+
+    Note what is returned separately: journals we could verify, and names we
+    could not. The unverified ones still appear -- the model may be right and
+    the journal simply absent from a 2025 dump -- but they carry no quartile
+    and no amount, because attaching a number to a journal we cannot identify
+    is how somebody ends up submitting to a venue that does not exist.
+    """
+    user = require_user(request)
+    title = (payload.title or "").strip()
+    if len(title) < 8:
+        raise HttpError(400, "Give the paper's title so there is something to go on")
+
+    if not gemini.available():
+        raise HttpError(503, "Suggestions are switched off — no model is configured")
+
+    try:
+        result = discover_service.suggest_venues(
+            title=title,
+            abstract=(payload.abstract or "").strip(),
+            keywords=(payload.keywords or "").strip(),
+            author_position=max(1, payload.author_position),
+            total_authors=max(1, payload.total_authors),
+        )
+    except gemini.GeminiError as exc:
+        # 502 rather than 500: this is an upstream failing, the request was
+        # fine, and retrying is a reasonable thing for the reader to do.
+        raise HttpError(502, str(exc)) from exc
+
+    AuditLog.objects.create(
+        actor=user,
+        action="DISCOVER_VENUES",
+        entity="Claim",
+        entity_id="",
+        detail_json=json.dumps(
+            {"title": title[:300], "verified": len(result["journals"])}
+        ),
+    )
+    return result
+
+
+@api.get("/discover/directions", auth=session_auth)
+def discover_directions(request: HttpRequest):
+    """What this person might write next, from what they have written.
+
+    Grounded on filed claims and stated interests. Drafts are excluded --
+    an unfinished ticket is a private intention, and feeding one to a model
+    would be reading somebody's notes.
+    """
+    user = require_user(request)
+    if not gemini.available():
+        raise HttpError(503, "Suggestions are switched off — no model is configured")
+
+    history = discover_service.publication_history(user)
+    interests = list(
+        ResearchInterest.objects.filter(user=user).values_list("domain", flat=True)
+    )
+    if not history and not interests:
+        return {
+            "directions": [],
+            "grounded_on": {"papers": 0, "interests": []},
+            "note": (
+                "There is nothing to go on yet. File a paper, or pick the domains "
+                "you work in, and this will have something to work from."
             ),
         }
 
-    snip_row = None
-    if variants:
-        snip_row = (
-            SnipSource.objects.filter(print_issn__in=variants).first()
-            or SnipSource.objects.filter(e_issn__in=variants).first()
-        )
-    if snip_row is None and title:
-        snip_row = SnipSource.objects.filter(title__iexact=title).first()
-    if snip_row is not None:
-        out["snip"] = {"snip": snip_row.snip, "sjr": snip_row.sjr, "year": snip_row.year}
-
-    return out
+    try:
+        return discover_service.suggest_directions(history=history, interests=interests)
+    except gemini.GeminiError as exc:
+        raise HttpError(502, str(exc)) from exc
 
 
 @api.get("/journals/report", auth=session_auth)

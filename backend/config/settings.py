@@ -227,7 +227,13 @@ CSRF_TRUSTED_ORIGINS = [
     o.strip()
     for o in os.getenv(
         "CSRF_TRUSTED_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
+        # 5173 is the old frontend's dev port, 5174 the rebuilt one's. Both
+        # are listed because both are run against this server during the
+        # changeover, and an untrusted origin fails every mutating request
+        # with a bare "CSRF check Failed" that reads like a permissions
+        # problem rather than a missing line of configuration.
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:5174,http://127.0.0.1:5174",
     ).split(",")
     if o.strip()
 ]
@@ -256,6 +262,12 @@ CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_NAME = "csrftoken"
 
 SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY") or os.getenv("ELSEVIER_API_KEY") or ""
+
+# Gemini, for the two discovery features. Absent is a supported state: the
+# endpoints report that the feature is off rather than failing, which is the
+# normal condition on a developer machine.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_API_KEY") or ""
+GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
 
 # Production hardening
 if not DEBUG:

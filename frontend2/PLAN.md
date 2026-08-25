@@ -93,8 +93,8 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 |---|---|---|---|---|
 | 2.1 | Sign in | `/` when signed out | ✅ | Two fields. Password revealable, caps-lock warned — your issued passwords are 24 random characters typed off paper |
 | 2.2 | Set a new password | modal | ⬜ | Forced on first sign-in. Must close when it succeeds — the old one did not |
-| 2.3 | Your profile | `/me` | ⬜ | Identity, read-only, with what it is used for said plainly |
-| 2.4 | Request a correction | `/me` | ⬜ | Faculty cannot edit identity; they ask, and see the outcome |
+| 2.3 | Your profile | `/me` | ✅ | Identity read-only, and it says why rather than just refusing |
+| 2.4 | Request a correction | `/me` | ✅ | One open request per field; a decline shows its reason |
 | 2.5 | Notifications | panel | ⬜ | Unread count, deep links that land on the thing |
 | 2.6 | Calendar | `/calendar` | 🆕 ⬜ | Payout runs, submission windows, your own deadlines |
 | 2.7 | Not-found / no-access | `*` | ⬜ | Says which, and offers the way back |
@@ -106,8 +106,8 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
 | 3.1 | **Home** | `/` | ✅ | Received · on the way · needs you. Then what needs them. Then the rest |
-| 3.2 | My papers | `/papers` | ⬜ | Full list, filterable by stage, searchable |
-| 3.3 | Paper detail | `/papers/:id` | ⬜ | Stage, history, the journal, the money, the attachments |
+| 3.2 | My papers | `/papers` | ✅ | Stage chips counted in one query, filters held in the URL, estimates flagged |
+| 3.3 | Paper detail | `/papers/:id` | ✅ | Where it is, what to fix, why the amount, what happened — in that order |
 | 3.4 | **File a paper** | `/papers/new` | ⬜ | Stepped wizard. Autosave. Scopus lookup. Duplicate warning before submit |
 | 3.5 | Withdraw / edit a draft | `/papers/:id` | ⬜ | A submitted paper can be pulled back before it is checked |
 | 3.6 | Why was this the amount | `/papers/:id` | ⬜ | The formula shown against this paper's own numbers |
@@ -215,10 +215,10 @@ detector already matches on DOI and normalised title.
 
 | # | Feature | Status | Needs |
 |---|---|---|---|
-| 10.1 | Who has worked with whom | ⬜ | Endpoint deriving co-authorship from shared DOI/title |
-| 10.2 | Your own network, visualised | ⬜ | Force-directed graph, SVG |
+| 10.1 | Who has worked with whom | ✅ | Derived from shared DOI / normalised title. 466 shared papers, 421 pairs, no data entry |
+| 10.2 | Your own network, visualised | ✅ | SVG, deterministic circle grouped by department — a force layout reshuffles on every reload |
 | 10.3 | Department-to-department collaboration | ⬜ | Same derivation, aggregated |
-| 10.4 | Who could you work with | ⬜ | Shared subjects and journals, minus existing co-authors |
+| 10.4 | Who could you work with | ✅ | Shared journals, minus existing co-authors. Cross-department flagged |
 | 10.5 | Person → their interests and output | ⬜ | Person record, extended |
 | 10.6 | Introduce me | ⬜ | Starts a discussion thread with them |
 
@@ -242,11 +242,11 @@ The API is otherwise unchanged. These are additions the new surfaces need.
 
 | # | Work | For |
 |---|---|---|
-| 12.1 | `ResearchInterest` model + endpoints | Discover, Collaborate |
+| 12.1 | `ResearchInterest` model + endpoints | Discover, Collaborate — Done — vocabulary drawn from our own 302 Scimago categories |
 | 12.2 | `Thread` / `Post` / `Subscription` models + endpoints | Discussions |
-| 12.3 | Co-authorship derivation endpoint | Collaborate |
+| 12.3 | Co-authorship derivation endpoint | Collaborate — Done — `/collaborate/me` and `/collaborate/graph`, 18 tests |
 | 12.4 | Recommendation endpoint | Collaborate |
-| 12.5 | Gemini service + key in Secret Manager | Discover |
+| 12.5 | Gemini service + key in Secret Manager | Discover — Service done; **key still needed** |
 | 12.6 | Calendar events endpoint | Calendar |
 | 12.7 | Notification types for the above | All three |
 

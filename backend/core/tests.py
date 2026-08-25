@@ -12,6 +12,9 @@ from django.utils import timezone
 from core.api import ATTACHMENT_LIMITS
 from core.services.verify import check_already_paid
 from core.models import Budget, DuplicateFinding, JournalStanding, ScimagoJournal
+from core.models import SnipSource
+from core.services import discover, gemini
+from core.services.remuneration import calculate_remuneration
 from core import api as api_module
 from core.models import (
     AttachmentKind,
@@ -7392,3 +7395,350 @@ class CollaborationGraphTests(TestCase):
         c = Client()
         self.assertEqual(c.get("/api/collaborate/me").status_code, 401)
         self.assertEqual(c.get("/api/collaborate/graph").status_code, 401)
+
+
+class DiscoveryGroundingTests(TestCase):
+    """The model proposes; the database disposes.
+
+    Everything Gemini says about a journal is treated as a guess at a name and
+    nothing more. The name is looked up in our own Scimago and SNIP rows, and
+    only what resolves carries a quartile or a rupee figure. These tests are
+    about the seam between the two, because that seam is the whole safety
+    argument: a plausible journal name with a confident payout beside it is how
+    somebody submits a paper to a venue that does not exist.
+    """
+
+    def setUp(self):
+        ScimagoJournal.objects.create(
+            source_id="1",
+            title="Applied Soft Computing",
+            issn="15684946",
+            year=2025,
+            sjr=1.456,
+            categories_json=json.dumps([{"category": "Software", "quartile": "Q1"}]),
+        )
+        # Same journal, stored the older way -- the Scimago string form rather
+        # than JSON. Both shapes are in the live table.
+        ScimagoJournal.objects.create(
+            source_id="2",
+            title="Legacy Format Journal",
+            issn="99998888",
+            year=2025,
+            sjr=0.9,
+            categories_json="Artificial Intelligence (Q2); Software (Q3)",
+        )
+        SnipSource.objects.create(
+            title="Applied Soft Computing", print_issn="15684946", snip=1.831, year=2025
+        )
+
+    def test_a_real_journal_resolves(self):
+        row = discover.find_journal("Applied Soft Computing")
+        self.assertIsNotNone(row)
+        self.assertEqual(row.title, "Applied Soft Computing")
+
+    def test_a_journal_the_model_invented_resolves_to_nothing(self):
+        """The property the whole design rests on."""
+        self.assertIsNone(
+            discover.find_journal("International Journal of Advanced Quantum Widgetry")
+        )
+
+    def test_a_near_miss_is_not_treated_as_a_match(self):
+        """Better no answer than real numbers attached to the wrong journal."""
+        self.assertIsNone(discover.find_journal("Applied Soft Computing Letters"))
+
+    def test_a_quartile_is_read_from_either_storage_shape(self):
+        """Reading one shape with the other's parser does not raise -- it
+        returns a single category whose name is the entire raw string and whose
+        quartile is None. A Q1 journal then silently reports no quartile, which
+        is exactly the quiet wrong answer this module exists to avoid.
+        """
+        as_json = discover.describe_journal(discover.find_journal("Applied Soft Computing"))
+        self.assertEqual(as_json["quartile"], "Q1")
+
+        as_string = discover.describe_journal(discover.find_journal("Legacy Format Journal"))
+        self.assertEqual(as_string["quartile"], "Q2")
+        self.assertEqual(as_string["subject"], "Artificial Intelligence")
+
+    def test_snip_is_matched_by_issn_and_never_by_title(self):
+        row = discover.find_journal("Applied Soft Computing")
+        self.assertEqual(discover.find_snip(row), 1.831)
+
+        # A SNIP row whose title matches but whose ISSN does not must not be
+        # picked up: the two dumps spell journal names differently often enough
+        # that title matching pairs the wrong rows.
+        orphan = ScimagoJournal.objects.create(
+            source_id="3", title="Applied Soft Computing", issn="00000001", year=2025
+        )
+        self.assertIsNone(discover.find_snip(orphan))
+
+    def test_no_snip_means_no_amount_and_a_reason(self):
+        out = discover.estimate_payout(
+            snip=None, quartile="Q1", author_position=1, total_authors=3
+        )
+        self.assertIsNone(out["amount"])
+        self.assertIn("SNIP", out["why_not"])
+
+    def test_no_quartile_means_no_amount_and_a_different_reason(self):
+        out = discover.estimate_payout(
+            snip=1.8, quartile=None, author_position=1, total_authors=3
+        )
+        self.assertIsNone(out["amount"])
+        self.assertIn("quartile", out["why_not"])
+
+    def test_an_amount_is_the_real_policy_amount(self):
+        """Not a rough figure invented for the screen -- the same calculator
+        that decides what is actually paid."""
+        out = discover.estimate_payout(
+            snip=1.831, quartile="Q1", author_position=1, total_authors=3
+        )
+        expected = calculate_remuneration(
+            1.831, "Q1", 3, 1, None, publication_type="Journal", indexing_level="Scopus"
+        )
+        self.assertEqual(out["amount"], expected.remuneration)
+        self.assertIsNotNone(out["amount"])
+
+    def test_position_changes_the_amount(self):
+        first = discover.estimate_payout(
+            snip=1.831, quartile="Q1", author_position=1, total_authors=4
+        )["amount"]
+        fourth = discover.estimate_payout(
+            snip=1.831, quartile="Q1", author_position=4, total_authors=4
+        )["amount"]
+        self.assertNotEqual(first, fourth)
+
+    def test_a_draft_is_never_sent_to_the_model(self):
+        """An unfinished ticket is a private intention. Feeding one to a model
+        to reason about would be reading somebody's notes."""
+        user = User.objects.create_user(email="hist@test.edu", password="p", name="H")
+        Claim.objects.create(
+            owner=user, paper_title="Filed Paper", status=ClaimStatus.PAID,
+            journal_title="J", publication_year=2025,
+        )
+        Claim.objects.create(
+            owner=user, paper_title="Secret Draft", status=ClaimStatus.DRAFT,
+            journal_title="J", publication_year=2025,
+        )
+        titles = {h["title"] for h in discover.publication_history(user)}
+        self.assertIn("Filed Paper", titles)
+        self.assertNotIn("Secret Draft", titles)
+
+    def test_the_domain_vocabulary_comes_from_our_own_data(self):
+        from django.core.cache import cache
+
+        cache.delete("research_domains")
+        domains = discover.research_domains(limit=302)
+        self.assertIn("Software", domains)
+        self.assertIn("Artificial Intelligence", domains)
+
+
+class DiscoveryEndpointTests(TestCase):
+    """What the screens get, including when the feature is switched off."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="disc@test.edu", password="p", name="Disc", role=Role.FACULTY
+        )
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def test_status_says_whether_it_can_run(self):
+        with override_settings(GEMINI_API_KEY=""):
+            self.assertFalse(self.client.get("/api/discover/status").json()["available"])
+        with override_settings(GEMINI_API_KEY="test-key"):
+            self.assertTrue(self.client.get("/api/discover/status").json()["available"])
+
+    def test_no_key_is_a_supported_state_not_a_crash(self):
+        """The normal condition on a developer machine, and possibly in
+        production. It must say so rather than 500."""
+        with override_settings(GEMINI_API_KEY=""):
+            r = self.client.post(
+                "/api/discover/venues",
+                data=json.dumps({"title": "A Paper About Something Or Other"}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 503)
+            self.assertIn("switched off", r.json()["detail"])
+
+            self.assertEqual(self.client.get("/api/discover/directions").status_code, 503)
+
+    def test_a_title_too_short_to_work_with_is_refused_before_the_model(self):
+        with override_settings(GEMINI_API_KEY="test-key"):
+            r = self.client.post(
+                "/api/discover/venues",
+                data=json.dumps({"title": "Hi"}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 400)
+
+    def test_the_model_failing_is_a_502_not_a_500(self):
+        """It is an upstream failing, the request was fine, and retrying is a
+        reasonable thing for the reader to do."""
+        with override_settings(GEMINI_API_KEY="test-key"), patch(
+            "core.services.discover.gemini.ask_json",
+            side_effect=gemini.GeminiError("model is down", code="unreachable"),
+        ):
+            r = self.client.post(
+                "/api/discover/venues",
+                data=json.dumps({"title": "A Paper About Something Or Other"}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 502)
+
+    def test_an_invented_journal_never_arrives_with_an_amount(self):
+        """End to end: the model names two journals, only one of which is real.
+        The real one carries numbers; the invented one is reported separately
+        and carries none.
+        """
+        ScimagoJournal.objects.create(
+            source_id="1", title="Applied Soft Computing", issn="15684946", year=2025,
+            sjr=1.4, categories_json=json.dumps([{"category": "Software", "quartile": "Q1"}]),
+        )
+        SnipSource.objects.create(
+            title="Applied Soft Computing", print_issn="15684946", snip=1.831, year=2025
+        )
+
+        reply = {
+            "journals": [
+                {"title": "Applied Soft Computing", "why": "fits the scope"},
+                {"title": "Journal of Imaginary Widgetry", "why": "also fits"},
+            ]
+        }
+        with override_settings(GEMINI_API_KEY="test-key"), patch(
+            "core.services.discover.gemini.ask_json", return_value=reply
+        ):
+            body = self.client.post(
+                "/api/discover/venues",
+                data=json.dumps({"title": "Something About Soft Computing Methods"}),
+                content_type="application/json",
+            ).json()
+
+        self.assertEqual([j["title"] for j in body["journals"]], ["Applied Soft Computing"])
+        self.assertEqual(body["journals"][0]["quartile"], "Q1")
+        self.assertIsNotNone(body["journals"][0]["payout"]["amount"])
+
+        self.assertEqual([u["title"] for u in body["unverified"]], ["Journal of Imaginary Widgetry"])
+        self.assertNotIn("payout", body["unverified"][0])
+        self.assertNotIn("quartile", body["unverified"][0])
+
+    def test_the_assumptions_behind_the_amount_are_returned(self):
+        """An estimate whose assumptions are invisible is a number somebody
+        will treat as a promise."""
+        with override_settings(GEMINI_API_KEY="test-key"), patch(
+            "core.services.discover.gemini.ask_json", return_value={"journals": []}
+        ):
+            body = self.client.post(
+                "/api/discover/venues",
+                data=json.dumps({"title": "A Paper Title Long Enough", "author_position": 2, "total_authors": 5}),
+                content_type="application/json",
+            ).json()
+        self.assertEqual(body["assumed"]["author_position"], 2)
+        self.assertEqual(body["assumed"]["total_authors"], 5)
+
+    def test_nothing_to_go_on_says_so_rather_than_asking_the_model(self):
+        with override_settings(GEMINI_API_KEY="test-key"), patch(
+            "core.services.discover.gemini.ask_json"
+        ) as asked:
+            body = self.client.get("/api/discover/directions").json()
+            asked.assert_not_called()
+        self.assertEqual(body["directions"], [])
+        self.assertIn("nothing to go on", body["note"])
+
+    def test_signing_out_closes_all_of_it(self):
+        anon = Client()
+        self.assertEqual(anon.get("/api/discover/status").status_code, 401)
+        self.assertEqual(anon.get("/api/discover/directions").status_code, 401)
+        self.assertEqual(anon.get("/api/me/interests").status_code, 401)
+
+
+class ResearchInterestTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="int@test.edu", password="p", name="Int", role=Role.FACULTY
+        )
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def put(self, domains):
+        return self.client.put(
+            "/api/me/interests",
+            data=json.dumps({"domains": domains}),
+            content_type="application/json",
+        )
+
+    def test_setting_replaces_rather_than_adds(self):
+        self.put(["Software", "Artificial Intelligence"])
+        self.put(["Software", "Robotics"])
+        self.assertEqual(
+            set(self.client.get("/api/me/interests").json()["domains"]),
+            {"Software", "Robotics"},
+        )
+
+    def test_saying_it_twice_stores_it_once(self):
+        """A duplicate would double that domain's weight in every later match."""
+        self.put(["Software", "Software", " Software "])
+        self.assertEqual(self.client.get("/api/me/interests").json()["domains"], ["Software"])
+
+    def test_one_person_interests_are_their_own(self):
+        other = User.objects.create_user(email="other@test.edu", password="p", name="O")
+        self.put(["Software"])
+        c = Client()
+        c.force_login(other)
+        self.assertEqual(c.get("/api/me/interests").json()["domains"], [])
+
+
+class ClaimCountsRouteTests(TestCase):
+    """One query for the filter chips, and a route that is actually reachable."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="counts@test.edu", password="p", name="C", role=Role.FACULTY
+        )
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def make(self, status, title="P"):
+        return Claim.objects.create(
+            owner=self.user, paper_title=title, status=status,
+            journal_title="J", publication_year=2025, remuneration=1000,
+        )
+
+    def test_counts_is_not_shadowed_by_the_claim_id_route(self):
+        """django-ninja matches in registration order. Declared after
+        `/claims/{claim_id}` this resolves as a claim whose id is the literal
+        string "counts" and 404s -- the same collision that once cost us
+        `/admin/data/Claim/export`.
+        """
+        self.assertEqual(self.client.get("/api/claims/counts").status_code, 200)
+
+    def test_a_legacy_erp_status_is_counted_under_its_stage(self):
+        """The reason this endpoint exists rather than the screen asking seven
+        times: the list endpoint takes one status, but a stage covers several,
+        so an imported HOD_APPROVED row was uncountable from the client.
+        """
+        self.make(ClaimStatus.SUBMITTED)
+        self.make("HOD_APPROVED")
+        self.make(ClaimStatus.CLEARED)
+        self.make("RESEARCH_APPROVED")
+
+        counts = self.client.get("/api/claims/counts").json()["counts"]
+        self.assertEqual(counts["filed"], 2)
+        self.assertEqual(counts["checked"], 2)
+        self.assertEqual(counts["all"], 4)
+
+    def test_the_search_term_narrows_the_counts(self):
+        """Otherwise the chips claim rows the filtered list will not show."""
+        self.make(ClaimStatus.PAID, title="Fault Detection In Motors")
+        self.make(ClaimStatus.PAID, title="Something Else Entirely")
+
+        counts = self.client.get("/api/claims/counts?q=Fault").json()["counts"]
+        self.assertEqual(counts["all"], 1)
+        self.assertEqual(counts["paid"], 1)
+
+    def test_a_claimant_counts_only_their_own(self):
+        other = User.objects.create_user(email="them@test.edu", password="p", name="T")
+        Claim.objects.create(
+            owner=other, paper_title="Theirs", status=ClaimStatus.PAID,
+            journal_title="J", publication_year=2025,
+        )
+        self.make(ClaimStatus.PAID)
+        self.assertEqual(self.client.get("/api/claims/counts").json()["counts"]["all"], 1)

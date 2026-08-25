@@ -9,7 +9,11 @@ import { Palette, usePalette } from "@/app/palette"
 import { Shell } from "@/app/shell"
 import { queryClient } from "@/lib/query"
 import { FacultyHome } from "@/pages/home-faculty"
+import { Collaborate } from "@/pages/collaborate"
 import { Gallery } from "@/pages/gallery"
+import { PaperDetail } from "@/pages/paper-detail"
+import { Papers } from "@/pages/papers"
+import { Profile } from "@/pages/profile"
 import { SignIn } from "@/pages/sign-in"
 
 import "@/styles.css"
@@ -71,14 +75,14 @@ function App() {
       <Routes>
         <Route element={<Shell onOpenPalette={() => palette.setOpen(true)} />}>
           <Route index element={<Home />} />
-          <Route path="/papers" element={<Placeholder name="My papers" />} />
+          <Route path="/papers" element={<Papers />} />
           <Route path="/papers/new" element={<Placeholder name="File a paper" />} />
-          <Route path="/papers/:id" element={<Placeholder name="Paper" />} />
+          <Route path="/papers/:id" element={<PaperDetail />} />
           <Route path="/clearing" element={<Placeholder name="Clearing queue" />} />
           <Route path="/approvals" element={<Placeholder name="Approvals" />} />
           <Route path="/payments" element={<Placeholder name="Payment orders" />} />
           <Route path="/discover" element={<Placeholder name="Discover" />} />
-          <Route path="/collaborate" element={<Placeholder name="Who to work with" />} />
+          <Route path="/collaborate" element={<Collaborate />} />
           <Route path="/discussions" element={<Placeholder name="Discussions" />} />
           <Route path="/calendar" element={<Placeholder name="Calendar" />} />
           <Route path="/publications" element={<Placeholder name="Publications" />} />
@@ -94,7 +98,7 @@ function App() {
           <Route path="/budget" element={<Placeholder name="Budget" />} />
           <Route path="/policy" element={<Placeholder name="Policy" />} />
           <Route path="/data" element={<Placeholder name="Data" />} />
-          <Route path="/me" element={<Placeholder name="Your profile" />} />
+          <Route path="/me" element={<Profile />} />
           {/* Not in the sidebar. Deleted before the switch. */}
           <Route path="/gallery" element={<Gallery />} />
           <Route path="*" element={<Navigate to="/" replace />} />

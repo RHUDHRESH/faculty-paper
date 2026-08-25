@@ -750,3 +750,40 @@ class MonthlyRow(models.Model):
 
     class Meta:
         ordering = ["row_number"]
+
+
+class ResearchInterest(models.Model):
+    """A subject domain somebody has said they work in.
+
+    Two uses, and the second is why it is a row rather than a free-text field
+    on the profile. It grounds the "what could I write next" suggestion, and it
+    makes "who could I work with" answerable for somebody who has not published
+    here yet — a new lecturer has no co-authors and no claim history, so
+    inference has nothing to work from and they see an empty screen forever.
+
+    The domain is drawn from the 302 subject categories our own Scimago rows
+    are classified under, not typed freely. A domain nobody's journals are
+    filed under cannot be matched against anything later, so free text would
+    quietly produce a field that looks set and does nothing.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="research_interests"
+    )
+    domain = models.CharField(max_length=160)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # One row per person per domain. Saying it twice is not more true, and
+        # a duplicate would double that domain's weight in every match.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "domain"], name="unique_interest_per_person"
+            )
+        ]
+        indexes = [models.Index(fields=["domain"])]
+        ordering = ["domain"]
+
+    def __str__(self) -> str:
+        return f"{self.user_id}: {self.domain}"

@@ -1,0 +1,227 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/**
+ * Faculty Publication App — the ground rules.
+ *
+ * Three references, each for one thing:
+ *   Notion  — the page. White ground, no cards floating on grey, hierarchy
+ *             carried by type and space rather than by boxes and shadow.
+ *   Linear  — the keyboard. Everything reachable without the mouse, motion
+ *             that is fast and never in the way.
+ *   Stripe  — the table. Dense, aligned, numerals that line up, quiet rules.
+ *
+ * The single decision underneath all of it: **borders and shadows are
+ * expensive and whitespace is free.** A shadow means "this floats above the
+ * page" and is therefore only for menus, dialogs and the palette. A border
+ * means "these two things are genuinely different regions". Everything else
+ * is separated by space, weight and colour — which is why the interface can
+ * be dense without being loud.
+ */
+
+@theme {
+  /* ---- type -----------------------------------------------------------
+     One family. Inter's variable axis does the work that a second family
+     would, and a serif in dense UI goes wrong faster than it goes right. */
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+  /* A scale with only the steps this app uses. Every extra step is one more
+     chance for two things that mean the same to look different. */
+  --text-xs: 0.75rem;      /* 12 — metadata, column heads */
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.8125rem;    /* 13 — dense rows, secondary text */
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;   /* 14 — body. Notion's body size. */
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1rem;         /* 16 — section heading */
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.375rem;     /* 22 — page title */
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.75rem;     /* 28 — a number that is the answer */
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 2.25rem;     /* 36 — the one figure on a page that matters */
+  --text-3xl--line-height: 2.5rem;
+
+  /* ---- colour ---------------------------------------------------------
+     Near-greyscale. The accent is for things you can act on and things that
+     carry state; everything structural is grey, so colour reads as meaning
+     rather than as decoration. */
+  --color-bg: #ffffff;
+  --color-fg: #1f2023;
+  --color-fg-muted: #6b6f76;
+  --color-fg-subtle: #9096a0;
+
+  /* Surfaces. `sunken` is the only non-white ground and it is barely there —
+     for a well that holds a control, never for a card. */
+  --color-surface: #ffffff;
+  --color-sunken: #fafafa;
+  --color-hover: #f4f4f5;
+  --color-active: #ececee;
+  --color-selected: #eef2ff;
+
+  /* Rules. `line` separates rows; `edge` bounds a region. Two weights only. */
+  --color-line: #ededee;
+  --color-edge: #e0e1e4;
+  --color-field: #d3d5d9;
+
+  /* One accent. Indigo rather than violet — it stays legible at small sizes
+     and against white, which the old purple did not at 13px. */
+  --color-accent: #4f46e5;
+  --color-accent-hover: #4338ca;
+  --color-accent-fg: #ffffff;
+  --color-accent-wash: #eef2ff;
+  --color-accent-line: #c7d2fe;
+
+  /* State. Held to 4.5:1 as text, because all three are rendered as words
+     and not only as fills. */
+  --color-positive: #15803d;
+  --color-positive-wash: #f0fdf4;
+  --color-caution: #a16207;
+  --color-caution-wash: #fefce8;
+  --color-critical: #b91c1c;
+  --color-critical-wash: #fef2f2;
+
+  /* ---- shape ----------------------------------------------------------
+     Small. A 12px radius turns a panel into a lozenge; 6px reads as paper. */
+  --radius-sm: 0.25rem;
+  --radius: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /* ---- elevation ------------------------------------------------------
+     Only for things that genuinely leave the page. There is no `shadow-1`
+     for cards, because cards do not float. */
+  --shadow-pop: 0 1px 2px rgb(16 17 20 / 0.04), 0 8px 24px -6px rgb(16 17 20 / 0.12),
+    0 0 0 1px rgb(16 17 20 / 0.05);
+  --shadow-modal: 0 2px 4px rgb(16 17 20 / 0.04), 0 24px 48px -12px rgb(16 17 20 / 0.18),
+    0 0 0 1px rgb(16 17 20 / 0.05);
+
+  /* ---- motion ---------------------------------------------------------
+     Fast enough to feel like a response, not an animation. Linear's numbers:
+     nothing a pointer triggered lasts longer than 150ms. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-1: 80ms;
+  --dur-2: 140ms;
+  --dur-3: 220ms;
+
+  /* ---- layout ---------------------------------------------------------- */
+  --sidebar-w: 15rem;
+  --page-max: 76rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+    /* Inter's defaults leave headings slightly loose at these sizes. */
+    letter-spacing: -0.011em;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Numbers in a column have to line up or they cannot be compared, and
+     money is most of what this app shows. */
+  :where(td, th, .tabular) {
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3 {
+    letter-spacing: -0.018em;
+    font-weight: 600;
+  }
+
+  /* One focus ring, everywhere, and it is never removed — only replaced.
+     :focus-visible so a mouse click does not draw it. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection {
+    background: var(--color-accent-wash);
+  }
+
+  /* Scrollbars that do not announce themselves until used. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-edge) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: transparent;
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+  *:hover::-webkit-scrollbar-thumb {
+    background: var(--color-edge);
+    background-clip: content-box;
+  }
+
+  /* Anybody who has asked their system to stop moving things gets a system
+     that does not move things. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* A row that responds to the pointer. Background, never elevation — a
+     fifty-row queue where every row lifts as the cursor crosses it is the
+     single thing that made the old app feel restless. */
+  .row {
+    transition: background-color var(--dur-1) var(--ease-out);
+  }
+  .row:hover {
+    background: var(--color-hover);
+  }
+
+  /* Actions that appear when a row is pointed at or focused. Present in the
+     DOM and reachable by keyboard at all times; only the opacity changes, so
+     nothing reflows as the pointer moves. */
+  .reveal {
+    opacity: 0;
+    transition: opacity var(--dur-2) var(--ease-out);
+  }
+  .row:hover .reveal,
+  .row:focus-within .reveal,
+  .reveal:focus-visible {
+    opacity: 1;
+  }
+
+  /* The page column. Wide enough for a table, narrow enough to read. */
+  .page {
+    width: 100%;
+    max-width: var(--page-max);
+    margin-inline: auto;
+    padding-inline: 2rem;
+  }
+  @media (max-width: 640px) {
+    .page {
+      padding-inline: 1rem;
+    }
+  }
+}

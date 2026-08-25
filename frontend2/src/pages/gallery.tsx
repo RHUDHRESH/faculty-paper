@@ -25,6 +25,7 @@ import {
   Textarea,
 } from "@/ui/field"
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/ui/menu"
+import { Distribution, MixBar, RankedBars, Trend } from "@/ui/chart"
 import { money, Stage, stageOf } from "@/ui/paper"
 import {
   Sheet,
@@ -217,6 +218,47 @@ export function Gallery() {
           </div>
         </Block>
 
+        <Block title="Charts — every one of them also a table">
+          <div className="space-y-10">
+            <Trend
+              title="Papers filed each month"
+              caption="The last twelve months."
+              dimension="Month"
+              points={BY_MONTH}
+            />
+
+            <RankedBars
+              title="Departments by amount paid"
+              caption="Point at a name to go to the department."
+              dimension="Department"
+              unit="money"
+              points={BY_DEPT}
+              limit={6}
+            />
+
+            <div className="grid gap-10 lg:grid-cols-2">
+              <MixBar
+                title="Where the money went"
+                dimension="Quartile"
+                unit="money"
+                points={BY_QUARTILE}
+              />
+              <Distribution
+                title="Papers by year of publication"
+                dimension="Year"
+                points={BY_YEAR}
+              />
+            </div>
+
+            <RankedBars
+              title="A chart with nothing in it"
+              caption="What an empty one says."
+              dimension="Department"
+              points={[]}
+            />
+          </div>
+        </Block>
+
         <Block title="Loading, empty, error — three different sentences">
           <div className="grid gap-6 lg:grid-cols-3">
             <div>
@@ -322,6 +364,52 @@ export function Gallery() {
     </TooltipProvider>
   )
 }
+
+const BY_MONTH = [
+  { key: "2025-09", label: "Sep", count: 41 },
+  { key: "2025-10", label: "Oct", count: 66 },
+  { key: "2025-11", label: "Nov", count: 58 },
+  { key: "2025-12", label: "Dec", count: 27 },
+  { key: "2026-01", label: "Jan", count: 73 },
+  { key: "2026-02", label: "Feb", count: 91 },
+  { key: "2026-03", label: "Mar", count: 84 },
+  { key: "2026-04", label: "Apr", count: 62 },
+  { key: "2026-05", label: "May", count: 55 },
+  { key: "2026-06", label: "Jun", count: 38 },
+  { key: "2026-07", label: "Jul", count: 47 },
+  { key: "2026-08", label: "Aug", count: 69 },
+]
+
+// A deliberately long name, because that is the one that breaks the layout.
+const BY_DEPT = [
+  { key: "cse", label: "Computer Science and Engineering", count: 612, amount: 8_940_000, to: "/people" },
+  { key: "ece", label: "Electronics and Communication", count: 431, amount: 6_120_000, to: "/people" },
+  { key: "mech", label: "Mechanical Engineering", count: 288, amount: 4_050_000, to: "/people" },
+  { key: "civil", label: "Civil Engineering", count: 174, amount: 2_310_000, to: "/people" },
+  { key: "bio", label: "Biotechnology", count: 121, amount: 1_640_000, to: "/people" },
+  { key: "chem", label: "Chemistry", count: 96, amount: 1_180_000 },
+  { key: "maths", label: "Mathematics", count: 74, amount: 890_000 },
+  { key: "phys", label: "Physics", count: 51, amount: 620_000 },
+]
+
+const BY_QUARTILE = [
+  { key: "Q1", count: 402, amount: 9_850_000 },
+  { key: "Q2", count: 511, amount: 7_240_000 },
+  { key: "Q3", count: 388, amount: 3_910_000 },
+  { key: "Q4", count: 246, amount: 1_720_000 },
+  { key: "Unranked", count: 118, amount: 430_000 },
+]
+
+const BY_YEAR = [
+  { key: "2019", count: 118 },
+  { key: "2020", count: 164 },
+  { key: "2021", count: 249 },
+  { key: "2022", count: 402 },
+  { key: "2023", count: 531 },
+  { key: "2024", count: 604 },
+  { key: "2025", count: 588 },
+  { key: "2026", count: 341 },
+]
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (

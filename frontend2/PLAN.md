@@ -81,7 +81,7 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | 1.13 | `Field` set — input, textarea, checkbox, radio, date | ⬜ | One focus ring, one error convention |
 | 1.14 | `EmptyState`, `ErrorState`, skeletons | ⬜ | An error must never render as "you have nothing" |
 | 1.15 | Toast conventions | ⬜ | Outcome + what it changed, never a bare "Saved" |
-| 1.16 | Charts — line, ranked bars, mix bar, distribution | ⬜ | SVG, no library. Every chart readable as a table |
+| 1.16 | Charts — trend, ranked bars, mix bar, distribution | ✅ | No library. Every chart is also a table; bars link where a row is a record |
 | 1.17 | Stepped wizard shell | ⬜ | For filing a paper; the pattern you sent |
 | 1.18 | Product tour / first-run | ⬜ | The pattern you sent; shown once per account |
 

@@ -1,5 +1,5 @@
 import { StrictMode } from "react"
-import { createRoot } from "react-dom/client"
+import { createRoot, type Root } from "react-dom/client"
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { Toaster } from "sonner"
@@ -105,7 +105,21 @@ function App() {
   )
 }
 
-createRoot(document.getElementById("root")!).render(
+/**
+ * One root, kept across hot reloads.
+ *
+ * Vite re-evaluates this module on every edit, and a bare `createRoot` call
+ * therefore builds a second React root over the same element. The two then
+ * fight for the same DOM nodes and the console fills with
+ * `removeChild: The node to be removed is not a child of this node` — after
+ * which effects in the losing tree silently stop taking, which looks exactly
+ * like a component that does not work.
+ */
+const container = document.getElementById("root")!
+const root = (window as unknown as { __root?: Root }).__root ?? createRoot(container)
+;(window as unknown as { __root?: Root }).__root = root
+
+root.render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>

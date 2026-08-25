@@ -1,4 +1,9 @@
-@import "tailwindcss";
+/* Scan the components only. Prose that quotes a class name — the conventions
+   doc, the audit script's error text — is not a use of it, and Tailwind
+   generating a rule from a "never write this" example makes the built CSS
+   useless as a check on whether anything still does. */
+@import "tailwindcss" source("../src");
+@source not "../src/**/*.md";
 @import "@fontsource-variable/inter";
 
 /**
@@ -85,7 +90,7 @@
   /* ---- shape ----------------------------------------------------------
      Small. A 12px radius turns a panel into a lozenge; 6px reads as paper. */
   --radius-sm: 0.25rem;
-  --radius: 0.375rem;
+  --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
 

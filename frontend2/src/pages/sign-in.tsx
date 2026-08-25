@@ -48,11 +48,11 @@ export function SignIn() {
         className="w-full max-w-[21rem]"
       >
         <div className="mb-7">
-          <div className="mb-4 grid size-8 place-items-center rounded-[--radius] bg-[--color-accent] text-xs font-semibold text-white">
+          <div className="mb-4 grid size-8 place-items-center rounded-md bg-accent text-xs font-semibold text-white">
             SE
           </div>
           <h1 className="text-xl font-semibold">Faculty Publication App</h1>
-          <p className="mt-1 text-base text-[--color-fg-muted]">
+          <p className="mt-1 text-base text-fg-muted">
             Saveetha Engineering College
           </p>
         </div>
@@ -70,9 +70,9 @@ export function SignIn() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className={cn(
-                "h-10 w-full rounded-[--radius] bg-[--color-surface] px-3 text-base",
-                "ring-1 ring-inset ring-[--color-field] outline-none",
-                "focus-visible:ring-2 focus-visible:ring-[--color-accent]"
+                "h-10 w-full rounded-md bg-surface px-3 text-base",
+                "ring-1 ring-inset ring-field outline-none",
+                "focus-visible:ring-2 focus-visible:ring-accent"
               )}
             />
           </div>
@@ -92,9 +92,9 @@ export function SignIn() {
                 onKeyUp={(e) => setCaps(e.getModifierState?.("CapsLock") ?? false)}
                 onBlur={() => setCaps(false)}
                 className={cn(
-                  "h-10 w-full rounded-[--radius] bg-[--color-surface] pl-3 pr-10 text-base",
-                  "ring-1 ring-inset ring-[--color-field] outline-none",
-                  "focus-visible:ring-2 focus-visible:ring-[--color-accent]"
+                  "h-10 w-full rounded-md bg-surface pl-3 pr-10 text-base",
+                  "ring-1 ring-inset ring-field outline-none",
+                  "focus-visible:ring-2 focus-visible:ring-accent"
                 )}
               />
               <button
@@ -105,13 +105,13 @@ export function SignIn() {
                 onClick={() => setShown((v) => !v)}
                 aria-label={shown ? "Hide password" : "Show password"}
                 aria-pressed={shown}
-                className="absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-[--radius-sm] text-[--color-fg-subtle] hover:text-[--color-fg]"
+                className="absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-sm text-fg-subtle hover:text-fg"
               >
                 {shown ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
             {caps && (
-              <p role="status" className="text-xs text-[--color-caution]">
+              <p role="status" className="text-xs text-caution">
                 Caps lock is on.
               </p>
             )}
@@ -122,7 +122,7 @@ export function SignIn() {
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               role="alert"
-              className="rounded-[--radius] bg-[--color-critical-wash] px-3 py-2 text-sm text-[--color-critical]"
+              className="rounded-md bg-critical-wash px-3 py-2 text-sm text-critical"
             >
               {error}
             </motion.p>

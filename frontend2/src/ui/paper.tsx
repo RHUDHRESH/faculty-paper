@@ -75,17 +75,17 @@ export function stageOf(status: string): StageInfo {
 }
 
 const TONE: Record<StageInfo["tone"], string> = {
-  neutral: "text-[--color-fg-muted]",
-  progress: "text-[--color-fg]",
-  done: "text-[--color-positive]",
-  attention: "text-[--color-critical]",
+  neutral: "text-fg-muted",
+  progress: "text-fg",
+  done: "text-positive",
+  attention: "text-critical",
 }
 
 const FILL: Record<StageInfo["tone"], string> = {
-  neutral: "bg-[--color-fg-subtle]",
-  progress: "bg-[--color-accent]",
-  done: "bg-[--color-positive]",
-  attention: "bg-[--color-critical]",
+  neutral: "bg-fg-subtle",
+  progress: "bg-accent",
+  done: "bg-positive",
+  attention: "bg-critical",
 }
 
 /**
@@ -105,7 +105,7 @@ export function Stage({ stage, className }: { stage: StageInfo; className?: stri
       <span className={cn("block text-sm", TONE[stage.tone])}>{stage.label}</span>
       {travelling && (
         <span
-          className="mt-1 block h-[3px] w-full overflow-hidden rounded-full bg-[--color-line]"
+          className="mt-1 block h-[3px] w-full overflow-hidden rounded-full bg-line"
           role="progressbar"
           aria-valuenow={index + 1}
           aria-valuemin={0}

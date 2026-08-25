@@ -19,12 +19,12 @@ export function SectionTitle({ children, className }: React.ComponentProps<"h2">
 
 /** Secondary line under a title. Never a second sentence of instructions. */
 export function Sub({ children, className }: React.ComponentProps<"p">) {
-  return <p className={cn("text-base text-[--color-fg-muted]", className)}>{children}</p>
+  return <p className={cn("text-base text-fg-muted", className)}>{children}</p>
 }
 
 /** Metadata beside content — dates, counts, departments. */
 export function Meta({ children, className }: React.ComponentProps<"span">) {
-  return <span className={cn("text-sm text-[--color-fg-muted]", className)}>{children}</span>
+  return <span className={cn("text-sm text-fg-muted", className)}>{children}</span>
 }
 
 /** A machine category: a column head, a field name in a grid. The only place
@@ -33,7 +33,7 @@ export function ColumnLabel({ children, className }: React.ComponentProps<"span"
   return (
     <span
       className={cn(
-        "text-xs font-medium uppercase tracking-[0.04em] text-[--color-fg-subtle]",
+        "text-xs font-medium uppercase tracking-[0.04em] text-fg-subtle",
         className
       )}
     >

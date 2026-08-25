@@ -179,10 +179,10 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-label="Search and go to"
-            className="mx-auto w-full max-w-xl overflow-hidden rounded-[--radius-xl] bg-[--color-surface] shadow-[--shadow-modal]"
+            className="mx-auto w-full max-w-xl overflow-hidden rounded-xl bg-surface shadow-modal"
           >
-            <div className="flex items-center gap-2.5 border-b border-[--color-line] px-4">
-              <Search className="size-4 shrink-0 text-[--color-fg-subtle]" aria-hidden />
+            <div className="flex items-center gap-2.5 border-b border-line px-4">
+              <Search className="size-4 shrink-0 text-fg-subtle" aria-hidden />
               <input
                 ref={inputRef}
                 value={q}
@@ -190,7 +190,7 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
                 placeholder="Go to a page, or find a paper, a person, a ticket number…"
                 aria-activedescendant={hits[active] ? `palette-${active}` : undefined}
                 aria-controls="palette-list"
-                className="h-12 w-full bg-transparent text-base outline-none placeholder:text-[--color-fg-subtle]"
+                className="h-12 w-full bg-transparent text-base outline-none placeholder:text-fg-subtle"
                 onKeyDown={(e) => {
                   if (e.key === "ArrowDown") {
                     e.preventDefault()
@@ -211,7 +211,7 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
 
             <div ref={listRef} id="palette-list" role="listbox" className="max-h-[52vh] overflow-y-auto p-1.5">
               {hits.length === 0 ? (
-                <p className="px-3 py-8 text-center text-sm text-[--color-fg-muted]">
+                <p className="px-3 py-8 text-center text-sm text-fg-muted">
                   {q.trim().length < 2
                     ? "Type to search. A page name, a surname, a ticket number."
                     : `Nothing matched “${q.trim()}”.`}
@@ -219,7 +219,7 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
               ) : (
                 grouped.map((group) => (
                   <div key={`${group.kind}-${group.rows[0].i}`}>
-                    <p className="px-2.5 pb-1 pt-2 text-xs font-medium text-[--color-fg-subtle]">
+                    <p className="px-2.5 pb-1 pt-2 text-xs font-medium text-fg-subtle">
                       {KIND_LABEL[group.kind]}
                     </p>
                     {group.rows.map(({ hit, i }) => {
@@ -236,22 +236,22 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
                           onMouseEnter={() => setActive(i)}
                           onClick={() => go(hit)}
                           className={cn(
-                            "flex w-full items-center gap-2.5 rounded-[--radius] px-2.5 py-2 text-left",
-                            on ? "bg-[--color-hover]" : ""
+                            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left",
+                            on ? "bg-hover" : ""
                           )}
                         >
-                          <Icon className="size-4 shrink-0 text-[--color-fg-subtle]" aria-hidden />
+                          <Icon className="size-4 shrink-0 text-fg-subtle" aria-hidden />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-sm">{hit.title}</span>
                             {hit.detail && (
-                              <span className="block truncate text-xs text-[--color-fg-muted]">
+                              <span className="block truncate text-xs text-fg-muted">
                                 {hit.detail}
                               </span>
                             )}
                           </span>
                           {on && (
                             <CornerDownLeft
-                              className="size-3.5 shrink-0 text-[--color-fg-subtle]"
+                              className="size-3.5 shrink-0 text-fg-subtle"
                               aria-hidden
                             />
                           )}

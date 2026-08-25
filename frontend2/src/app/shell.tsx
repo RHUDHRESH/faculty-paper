@@ -40,18 +40,18 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
   const seen = new Set<string>()
 
   return (
-    <div className="flex min-h-svh bg-[--color-bg]">
+    <div className="flex min-h-svh bg-bg">
       <motion.aside
         initial={false}
         animate={{ width: collapsed ? 56 : 240 }}
         transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
         className={cn(
-          "sticky top-0 hidden h-svh shrink-0 flex-col border-r border-[--color-line]",
-          "bg-[--color-sunken] md:flex"
+          "sticky top-0 hidden h-svh shrink-0 flex-col border-r border-line",
+          "bg-sunken md:flex"
         )}
       >
         <div className="flex h-12 items-center gap-2 px-3">
-          <div className="grid size-6 shrink-0 place-items-center rounded-[--radius-sm] bg-[--color-accent] text-[11px] font-semibold text-white">
+          <div className="grid size-6 shrink-0 place-items-center rounded-sm bg-accent text-[11px] font-semibold text-white">
             SE
           </div>
           {!collapsed && <span className="truncate text-sm font-semibold">Publications</span>}
@@ -59,7 +59,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
             type="button"
             onClick={() => setCollapsed((v) => !v)}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="ml-auto grid size-6 place-items-center rounded-[--radius-sm] text-[--color-fg-subtle] hover:bg-[--color-hover] hover:text-[--color-fg]"
+            className="ml-auto grid size-6 place-items-center rounded-sm text-fg-subtle hover:bg-hover hover:text-fg"
           >
             {collapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
           </button>
@@ -73,12 +73,12 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
             return (
               <Fragment key={item.to}>
                 {heading && !collapsed ? (
-                  <p className="px-2 pb-1 pt-4 text-xs font-medium text-[--color-fg-subtle]">
+                  <p className="px-2 pb-1 pt-4 text-xs font-medium text-fg-subtle">
                     {heading}
                   </p>
                 ) : null}
                 {heading && collapsed ? (
-                  <div className="my-2 border-t border-[--color-line]" />
+                  <div className="my-2 border-t border-line" />
                 ) : null}
                 <NavLink
                   to={item.to}
@@ -86,11 +86,11 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
                   title={collapsed ? item.label : undefined}
                   className={({ isActive }) =>
                     cn(
-                      "relative flex h-8 items-center gap-2.5 rounded-[--radius] px-2 text-sm",
-                      "transition-colors duration-[--dur-1]",
+                      "relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sm",
+                      "transition-colors duration-[var(--dur-1)]",
                       isActive
-                        ? "font-medium text-[--color-fg]"
-                        : "text-[--color-fg-muted] hover:bg-[--color-hover] hover:text-[--color-fg]"
+                        ? "font-medium text-fg"
+                        : "text-fg-muted hover:bg-hover hover:text-fg"
                     )
                   }
                 >
@@ -99,7 +99,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
                       {isActive && (
                         <motion.span
                           layoutId="nav-active"
-                          className="absolute inset-0 -z-10 rounded-[--radius] bg-[--color-active]"
+                          className="absolute inset-0 -z-10 rounded-md bg-active"
                           transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                         />
                       )}
@@ -113,20 +113,20 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
           })}
         </nav>
 
-        <div className="border-t border-[--color-line] p-2">
+        <div className="border-t border-line p-2">
           <button
             type="button"
             onClick={onOpenPalette}
             className={cn(
-              "flex h-8 w-full items-center gap-2 rounded-[--radius] px-2 text-sm",
-              "text-[--color-fg-muted] hover:bg-[--color-hover] hover:text-[--color-fg]"
+              "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+              "text-fg-muted hover:bg-hover hover:text-fg"
             )}
           >
             <Search className="size-4 shrink-0" />
             {!collapsed && (
               <>
                 <span>Search</span>
-                <kbd className="ml-auto rounded border border-[--color-edge] px-1 text-[10px] text-[--color-fg-subtle]">
+                <kbd className="ml-auto rounded border border-edge px-1 text-[10px] text-fg-subtle">
                   Ctrl K
                 </kbd>
               </>
@@ -135,11 +135,11 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
           <NavLink
             to="/me"
             className={cn(
-              "mt-1 flex h-9 items-center gap-2 rounded-[--radius] px-1.5 text-sm",
-              "hover:bg-[--color-hover]"
+              "mt-1 flex h-9 items-center gap-2 rounded-md px-1.5 text-sm",
+              "hover:bg-hover"
             )}
           >
-            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[--color-accent-wash] text-[10px] font-semibold text-[--color-accent]">
+            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-wash text-[10px] font-semibold text-accent">
               {(me?.name || "?").slice(0, 2).toUpperCase()}
             </span>
             {!collapsed && <span className="min-w-0 flex-1 truncate text-left">{me?.name}</span>}
@@ -162,7 +162,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
               animate={{ x: 0 }}
               exit={{ x: -260 }}
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto border-r border-[--color-line] bg-[--color-sunken] p-2 md:hidden"
+              className="fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto border-r border-line bg-sunken p-2 md:hidden"
             >
               {items.map((item) => {
                 const Icon = item.icon
@@ -173,8 +173,8 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
                     end={item.end}
                     className={({ isActive }) =>
                       cn(
-                        "flex h-9 items-center gap-2.5 rounded-[--radius] px-2 text-sm",
-                        isActive ? "bg-[--color-active] font-medium" : "text-[--color-fg-muted]"
+                        "flex h-9 items-center gap-2.5 rounded-md px-2 text-sm",
+                        isActive ? "bg-active font-medium" : "text-fg-muted"
                       )
                     }
                   >
@@ -189,7 +189,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
       </AnimatePresence>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-[--color-line] bg-[--color-bg]/85 px-3 backdrop-blur md:hidden">
+        <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/85 px-3 backdrop-blur md:hidden">
           <Button kind="quiet" size="icon" onClick={() => setMobileOpen(true)} aria-label="Menu">
             <PanelLeft />
           </Button>

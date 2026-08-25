@@ -101,7 +101,7 @@ export function FacultyHome() {
           className="space-y-2"
         >
           <SectionTitle>Waiting on you</SectionTitle>
-          <ul className="divide-y divide-[--color-line] border-y border-[--color-line]">
+          <ul className="divide-y divide-line border-y border-line">
             {needsYou.map((c) => (
               <PaperRow key={c.id} claim={c} />
             ))}
@@ -118,7 +118,7 @@ export function FacultyHome() {
           {rest.length > 12 && (
             <Link
               to="/papers"
-              className="text-sm text-[--color-accent] underline-offset-4 hover:underline"
+              className="text-sm text-accent underline-offset-4 hover:underline"
             >
               See all {claims.length}
             </Link>
@@ -126,15 +126,15 @@ export function FacultyHome() {
         </div>
 
         {isLoading ? (
-          <ul className="divide-y divide-[--color-line] border-y border-[--color-line]">
+          <ul className="divide-y divide-line border-y border-line">
             {Array.from({ length: 5 }).map((_, i) => (
-              <li key={i} className="h-[3.25rem] animate-pulse bg-[--color-sunken]" />
+              <li key={i} className="h-[3.25rem] animate-pulse bg-sunken" />
             ))}
           </ul>
         ) : rest.length === 0 ? (
-          <div className="border-y border-[--color-line] py-14 text-center">
+          <div className="border-y border-line py-14 text-center">
             <p className="text-base">Nothing filed yet.</p>
-            <p className="mx-auto mt-1 max-w-sm text-sm text-[--color-fg-muted]">
+            <p className="mx-auto mt-1 max-w-sm text-sm text-fg-muted">
               File a paper and it goes to the research cell to be checked, then to the
               Principal, then to Finance.
             </p>
@@ -146,7 +146,7 @@ export function FacultyHome() {
             </Button>
           </div>
         ) : (
-          <ul className="divide-y divide-[--color-line] border-y border-[--color-line]">
+          <ul className="divide-y divide-line border-y border-line">
             {rest.slice(0, 12).map((c) => (
               <PaperRow key={c.id} claim={c} />
             ))}
@@ -172,16 +172,16 @@ function Figure({
 }) {
   return (
     <div>
-      <p className="text-sm text-[--color-fg-muted]">{label}</p>
+      <p className="text-sm text-fg-muted">{label}</p>
       <p
         className={cn(
           "mt-0.5 text-2xl font-semibold tabular",
-          muted && "text-[--color-fg-subtle]"
+          muted && "text-fg-subtle"
         )}
       >
         {value}
       </p>
-      {hint && <p className="mt-0.5 text-sm text-[--color-fg-muted]">{hint}</p>}
+      {hint && <p className="mt-0.5 text-sm text-fg-muted">{hint}</p>}
     </div>
   )
 }
@@ -206,7 +206,7 @@ function PaperRow({ claim }: { claim: Claim }) {
           {claim.remuneration ? money(claim.remuneration) : ""}
         </span>
         <Stage stage={stage} className="w-[7.5rem] shrink-0" />
-        <ArrowUpRight className="reveal size-4 shrink-0 text-[--color-fg-subtle]" aria-hidden />
+        <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
       </Link>
     </li>
   )

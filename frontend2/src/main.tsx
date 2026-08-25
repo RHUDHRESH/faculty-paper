@@ -9,6 +9,7 @@ import { Palette, usePalette } from "@/app/palette"
 import { Shell } from "@/app/shell"
 import { queryClient } from "@/lib/query"
 import { FacultyHome } from "@/pages/home-faculty"
+import { Gallery } from "@/pages/gallery"
 import { SignIn } from "@/pages/sign-in"
 
 import "@/styles.css"
@@ -25,7 +26,7 @@ function Placeholder({ name }: { name: string }) {
   return (
     <div className="page">
       <h1 className="text-xl font-semibold">{name}</h1>
-      <p className="mt-1 text-base text-[--color-fg-muted]">
+      <p className="mt-1 text-base text-fg-muted">
         Not built yet. This page is next in the rebuild.
       </p>
     </div>
@@ -47,7 +48,7 @@ function App() {
   if (loading) {
     return (
       <div className="grid min-h-svh place-items-center">
-        <span className="size-5 animate-spin rounded-full border-2 border-[--color-line] border-t-[--color-accent]" />
+        <span className="size-5 animate-spin rounded-full border-2 border-line border-t-accent" />
       </div>
     )
   }
@@ -55,6 +56,11 @@ function App() {
   if (!me) {
     return (
       <Routes>
+        {/* The gallery renders components against fixed props and asks the
+            server for nothing, so it is reachable without signing in. It is
+            how the components get looked at, and needing an account first is
+            how a component gallery stops being used. Deleted before switch. */}
+        <Route path="/gallery" element={<Gallery />} />
         <Route path="*" element={<SignIn />} />
       </Routes>
     )
@@ -89,6 +95,8 @@ function App() {
           <Route path="/policy" element={<Placeholder name="Policy" />} />
           <Route path="/data" element={<Placeholder name="Data" />} />
           <Route path="/me" element={<Placeholder name="Your profile" />} />
+          {/* Not in the sidebar. Deleted before the switch. */}
+          <Route path="/gallery" element={<Gallery />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

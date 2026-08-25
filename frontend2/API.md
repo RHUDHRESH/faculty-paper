@@ -194,3 +194,142 @@ GET /api/lookup/ticket?q=      -> { tickets[], faculty[] }   (what Ctrl-K uses)
 Never render a failed request as an empty state. `ErrorState` and `EmptyState`
 in `@/ui/state` are different components because "could not load" and "nothing
 here" are different sentences.
+
+---
+
+## Added since the first four screens
+
+### Counting claims by stage
+
+```
+GET /api/claims/counts?q=
+    -> { counts: { all, draft, filed, checked, approved, paid, sent_back },
+         statuses: { RAW_STATUS: n },
+         stages:   { stage: [RAW_STATUS, ...] } }
+```
+
+One query for every filter chip. It groups the legacy ERP statuses under their
+stage — `filed` covers `SUBMITTED` *and* `HOD_APPROVED`, `checked` covers
+`CLEARED` *and* `RESEARCH_APPROVED` — which the list endpoint cannot, since
+`status` there takes a single value. `q` narrows the counts the same way it
+narrows the list, so the chips never promise rows the list will not show.
+
+### Discovery — the two AI features
+
+```
+GET  /api/discover/status        -> { available: boolean, model: string }
+GET  /api/meta/research-domains?q=&limit=
+                                 -> { domains: string[] }
+GET  /api/me/interests           -> { domains: string[] }
+PUT  /api/me/interests           { domains: string[] }   -> { domains }
+GET  /api/discover/directions    -> { directions[], grounded_on, note? }
+POST /api/discover/venues        { title, abstract?, keywords?,
+                                   author_position?, total_authors? }
+```
+
+**Ask `/discover/status` before offering any of it.** With no API key
+configured, `/venues` and `/directions` return **503** with a readable message.
+That is a supported state, not an error to apologise for — the screen should
+say the feature is switched off, not show a button that always fails.
+
+`/discover/venues` returns:
+
+```
+{
+  journals: [{ title, issn, quartile, subject, sjr, snip, dataset_year, why,
+               payout: { amount, base, qf, author_point, category, note, why_not } }],
+  unverified: [{ title, why }],
+  assumed: { author_position, total_authors, publication_type }
+}
+```
+
+The split is the whole point. **`journals` are names we resolved against our own
+Scimago and SNIP rows**, so their quartile and amount are real. **`unverified`
+are names the model produced that we could not identify**, and they carry no
+quartile and no amount — never invent one for them, never sort them in among
+the verified ones, and never let a reader mistake the two. A plausible journal
+name with a confident payout beside it is how somebody submits to a venue that
+does not exist.
+
+`payout.amount` is null when we hold no SNIP or no quartile; `payout.why_not`
+says which. Show that sentence rather than a blank or a zero.
+
+Everything under `payout` is an **estimate**, computed for the author position
+in `assumed`. Say so, and say what was assumed — an estimate whose assumptions
+are invisible is a number somebody will treat as a promise.
+
+`/discover/directions` returns `directions: [{ topic, why, first_step }]` and
+`grounded_on: { papers, interests }`. Show `grounded_on`: a thin answer is
+usually an empty history rather than a bad model, and the reader cannot tell
+those apart unless you say. When there is nothing to go on at all it returns an
+empty list plus `note`, without calling the model.
+
+`research-domains` is the 302 subject categories our own journals are
+classified under. Interests must be chosen from it — free text cannot be
+matched against anything later.
+
+### The clearing queue — the research cell's daily job
+
+```
+GET  /api/admin/clearing-queue?status=      -> Claim[]   (a bare array, not an envelope)
+POST /api/admin/bulk-clear   { claim_ids: string[], note? }
+                                            -> { cleared: number, skipped: [...] }
+POST /api/claims/{id}/clear  { note?, expected_amount? }
+POST /api/claims/{id}/reject { note }        (sending it back needs a reason)
+POST /api/claims/{id}/recalculate            -> { remuneration, changed, previous... }
+POST /api/admin/claims/{id}/set-verified
+     { snip?, quartile?, engineering_class?, note }   (note ≥ 10 chars)
+```
+
+Notes that matter:
+
+- **It returns a plain array**, capped at 200, oldest first. Oldest first is
+  deliberate: the ticket that has waited longest is the one to clear next.
+- `status` defaults to `SUBMITTED`; pass `ALL` for everything.
+- **`expected_amount` is the amount the actor saw when they confirmed.** If the
+  recomputed figure differs, the server answers **409** with the new amount and
+  clears nothing. Show both figures and make the reader confirm again. Money
+  moving because a number changed between reading and clicking is the failure
+  this guards.
+- `bulk-clear` recalculates per row and returns `skipped` with a reason per
+  row. **Report those individually** — "cleared 12 of 15" with no word on the
+  other three is how three tickets get forgotten.
+- `set-verified` is the manual lane for when Scopus cannot confirm a journal.
+  It demands a note because somebody typed a number that decides a payment.
+
+### People
+
+```
+GET   /api/admin/users?q=&role=&limit=&offset=   -> { total, limit, offset, results }
+GET   /api/admin/users/{id}                      -> one account
+GET   /api/faculty/{user_id}/report              -> everything one person published
+GET   /api/meta/departments                      -> string[]
+```
+
+The person report carries `faculty`, `totals` (`publications`, `paid_claims`,
+`paid_amount`, `in_review`), and the breakdowns `by_month`, `by_quartile`,
+`by_status`, `by_year`, `by_journal`, `by_type`, `by_position`, plus `per_paper`
+and `claims`. Each breakdown is `[{ key, count, amount }]` — the shape
+`@/ui/chart` already takes.
+
+### Filing a paper
+
+```
+POST /api/claims              { ...fields, submit: boolean }   -> Claim
+PATCH /api/claims/{id}        { ...fields }                    -> Claim
+POST /api/claims/upload       (multipart)                      -> attachment
+POST /api/lookup/scopus       { doi?, title?, eid? }
+POST /api/lookup/candidates   { title }
+POST /api/lookup/scimago      { issn?, title?, year }
+POST /api/lookup/enrich       { ... }
+POST /api/prior/check         { doi?, title? }
+POST /api/calculate           { snip, quartile, total_authors, author_position, ... }
+                              -> { base, point, remuneration, qf, error, note }
+```
+
+`submit: false` saves a draft; `true` files it. A draft and a **sent-back**
+claim can both be PATCHed — the server allows both, and a rejected paper with
+no way to edit it is the hole the old app left people in.
+
+`/prior/check` before submitting is what stops the same paper being paid twice.
+Warn plainly; do not block silently.

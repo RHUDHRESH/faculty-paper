@@ -122,6 +122,16 @@ export const NAV: NavItem[] = [
   },
 
   // ---- looking at the college -----------------------------------------
+  // A head reaches these two through a different door.
+  //
+  // `/api/reports` and `/api/reports/search` both refuse an HOD outright —
+  // `can_view_reports` is SUPER_ADMIN, RESEARCH_CELL, PRINCIPAL and FINANCE,
+  // and a head is none of them. They have `/api/hod/overview` and
+  // `/api/hod/publications`, which are scoped to their own department and
+  // carry no money. So these items stay in a head's sidebar, because the
+  // question is legitimate, but whoever builds the screens must branch on the
+  // role and call the hod endpoints — pointing them at the general ones gives
+  // a head a menu item that 403s. Verified by request, not by reading.
   {
     to: "/publications",
     label: "Publications",

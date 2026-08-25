@@ -7742,3 +7742,53 @@ class ClaimCountsRouteTests(TestCase):
         )
         self.make(ClaimStatus.PAID)
         self.assertEqual(self.client.get("/api/claims/counts").json()["counts"]["all"], 1)
+
+
+class HodReachabilityTests(TestCase):
+    """Which door a head of department goes through.
+
+    The sidebar offers a head "Publications" and "Reports", and both of the
+    obvious endpoints behind those words refuse them: `can_view_reports` is
+    SUPER_ADMIN, RESEARCH_CELL, PRINCIPAL and FINANCE, and a head is none of
+    those. They have their own pair instead, scoped to their department and
+    carrying no money.
+
+    This is written down as a test because the screens for those two items do
+    not exist yet, and the next person to build them will reach for the
+    general endpoint by name. Doing so gives every head a menu item that 403s
+    -- which looks like a permissions bug in the account rather than a wrong
+    URL in the client, and is therefore diagnosed slowly.
+    """
+
+    def setUp(self):
+        self.head = User.objects.create_user(
+            email="head-reach@test.edu", password="p", name="Head",
+            role=Role.HOD, department="CSE",
+        )
+        self.client = Client()
+        self.client.force_login(self.head)
+
+    def test_the_general_reporting_endpoints_are_closed_to_a_head(self):
+        self.assertEqual(self.client.get("/api/reports").status_code, 403)
+        self.assertEqual(self.client.get("/api/reports/search?limit=1").status_code, 403)
+
+    def test_the_head_scoped_pair_is_what_they_use_instead(self):
+        self.assertEqual(self.client.get("/api/hod/overview").status_code, 200)
+        self.assertEqual(self.client.get("/api/hod/publications").status_code, 200)
+
+    def test_a_head_may_still_read_journals_and_the_collaboration_graph(self):
+        """Both are legitimately theirs, and neither carries money."""
+        for path in ("/api/journals/top", "/api/collaborate/me", "/api/collaborate/graph"):
+            self.assertEqual(self.client.get(path).status_code, 200, path)
+
+    def test_a_head_cannot_open_one_persons_record(self):
+        """`/faculty/{id}/report` is a money screen. A head is refused the
+        whole endpoint rather than served a filtered copy of it -- so the
+        People screens are not for them, and must not be offered."""
+        other = User.objects.create_user(
+            email="someone@test.edu", password="p", name="S", department="CSE"
+        )
+        self.assertEqual(
+            self.client.get(f"/api/faculty/{other.id}/report").status_code, 403
+        )
+        self.assertEqual(self.client.get("/api/admin/users").status_code, 403)

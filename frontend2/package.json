@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "oxlint src"
+    "lint": "oxlint src",
+    "audit": "node audit/tokens.mjs && node audit/routes.mjs",
+    "check": "npm run audit && tsc --noEmit --incremental false && oxlint src"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

@@ -87,6 +87,16 @@ Body text is `text-base` (14px). Dense rows and secondary text are `text-sm`
 
 ## Verifying
 
+Before you call anything done:
+
+    npm run check
+
+That is the token audit, the route audit, a full typecheck and the linter. The
+two audits exist because both bugs they catch are invisible in review and
+invisible in a typecheck — a colour that silently does nothing, and a sidebar
+item that bounces the reader home. A machine has to be the one that notices.
+
+
 Run `npx tsc --noEmit -p tsconfig.app.json` before you finish. Several agents
 may be working at once, so if it reports an error in a file you did not touch,
 ignore that one and make sure your own files are clean.

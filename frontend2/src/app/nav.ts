@@ -1,4 +1,5 @@
 import {
+  CalendarClock,
   BarChart3,
   BookOpen,
   Building2,
@@ -284,6 +285,16 @@ export const NAV: NavItem[] = [
     roles: [...OFFICE, "FINANCE", "PRINCIPAL", "DIRECTOR"],
     group: "Set up",
     keywords: ["formula", "rates", "snip", "multiplier", "threshold"],
+  },
+  {
+    to: "/batches",
+    label: "Monthly runs",
+    icon: CalendarClock,
+    // The office runs it and the research cell reads the result: it is the
+    // step that turns a month of Scopus rows into priceable papers.
+    roles: ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"],
+    group: "Set up",
+    keywords: ["scopus", "batch", "monthly", "import", "run"],
   },
   {
     to: "/data",

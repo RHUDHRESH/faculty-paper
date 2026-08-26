@@ -378,6 +378,10 @@ class ClaimIn(Schema):
     sec_proof_url: Optional[str] = None
     reference_articles: Optional[str] = None
     claim_reason: Optional[str] = None
+    #: The team code on a student-project claim. Codes, not ids: the code is
+    #: what is printed on the project sheet the claimant is reading from, and
+    #: an id is a thing they would have to go and look up.
+    team_code: Optional[str] = None
     # Handled by _bind_identity_from_user, not _FACULTY_WRITABLE
     scopus_author_url: Optional[str] = None
     designation: Optional[str] = None
@@ -502,6 +506,31 @@ def _apply_faculty_payload(claim: Claim, payload: ClaimIn) -> None:
     # marked as a student publication and went on paying nothing, with nothing
     # on screen to explain why.
     claim.is_student_publication = claim.claim_reason == ClaimReason.COUNT_ONLY
+
+    # The team, on the claims that have one. Note this deliberately does not
+    # touch `is_student_publication`: that flag makes the engine return zero,
+    # and a student-project conference paper is *paid* -- it prices as
+    # Category III like any other conference proceeding. Wiring the two
+    # together on the strength of both having "student" in the name would pay
+    # every one of these nothing.
+    if "team_code" in data:
+        code = (payload.team_code or "").strip()
+        if not code:
+            claim.team = None
+        else:
+            team = Team.objects.filter(code__iexact=code).first()
+            if team is None:
+                raise HttpError(
+                    404,
+                    f"No team with the code {code!r}. Create the team first, "
+                    "with the students on it.",
+                )
+            claim.team = team
+    # A claim that stops being a student project stops carrying a team, for
+    # the same reason `is_student_publication` has to flip back: a stale one
+    # would show a roster of students on a paper that is no longer theirs.
+    if claim.claim_reason != ClaimReason.STUDENT_PROJECT:
+        claim.team = None
     claim.normalized_title = normalize_title(claim.paper_title)[:512]
     # Never trust client override flags. (scimago_verified no longer needs a
     # reset here: quartile itself is not faculty-writable, and wiping the flag
@@ -727,7 +756,16 @@ class VerifyIn(Schema):
 class UserCreateIn(Schema):
     email: str
     name: str
-    password: str
+    #: Optional. Left out, the account is created with no usable password and
+    #: has to be given one before it can be signed into with a password at
+    #: all -- which is the sane default for creating somebody else's account:
+    #: a password chosen for you and typed into a form has been seen by the
+    #: person who typed it, and is usually still in their sent items.
+    #:
+    #: The account is not stranded by this. Whoever created it sets one with
+    #: "Set a password" and hands it over, or the person signs in with the
+    #: Google account the college gave them, which never consults this field.
+    password: Optional[str] = None
     role: str = Role.FACULTY
     department: Optional[str] = None
     employee_id: Optional[str] = None
@@ -939,6 +977,35 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "sec_proof_url": c.sec_proof_url,
         "reference_articles": c.reference_articles,
         "claim_reason": c.claim_reason,
+        # Who else is on it. A student-project claim is the work of a team, and
+        # a ticket that names only the person who filed it hides the students
+        # the incentive is partly for.
+        "team": (
+            {
+                "code": c.team.code,
+                "title": c.team.title,
+                "department": c.team.department,
+                "academic_year": c.team.academic_year,
+                # The account it would be paid against, and the name off the
+                # roster. Both, because the roster carries mentors this system
+                # has no account for.
+                "mentor_name": (
+                    c.team.mentor.name if c.team.mentor_id else c.team.mentor_name
+                ),
+                "members": [
+                    {
+                        "name": m.name,
+                        "register_number": m.register_number,
+                        "programme": m.programme,
+                        "year_of_study": m.year_of_study,
+                        "mentor_name": m.mentor_name,
+                    }
+                    for m in c.team.members.all()
+                ],
+            }
+            if c.team_id
+            else None
+        ),
         "attachments": [
             {
                 "id": a.id,
@@ -2706,6 +2773,19 @@ def _check_mandatory_fields(claim: Claim) -> None:
         missing.append("Reference numbers with SEC affiliation")
     if missing:
         raise HttpError(400, "Complete these before submitting: " + ", ".join(missing))
+
+    # The one field that is mandatory on some claims and meaningless on the
+    # rest. Checked here rather than added to `missing` above so the message
+    # can say what to do about it: "Team" in a list of missing fields does not
+    # tell somebody that the team has to exist before the claim can name it.
+    if claim.claim_reason == ClaimReason.STUDENT_PROJECT and claim.team_id is None:
+        raise HttpError(
+            400,
+            "A student project claim has to name the team. Enter the team "
+            "code and confirm the students on it before submitting — the "
+            "incentive is claimed on their project, and a ticket that names "
+            "only you does not show whose work it was.",
+        )
 
     # A journal is often listed in several places at once — Scopus and UGC Care,
     # say — so indexing_level holds a comma-separated set, and any annexure
@@ -6482,15 +6562,54 @@ def _deletion_guard(user: User, table_name: str) -> None:
 
 
 def _refuses_because_paid(instance) -> str | None:
-    """Why this row must stay, or None if it may go."""
-    status = getattr(instance, "status", None)
-    if status == ClaimStatus.PAID:
+    """Why this row must stay, or None if it may go.
+
+    Judged on everything the delete would take, not on the row that was named.
+    Those are different questions, and answering the easy one was a hole: a
+    claim that has been paid is refused, but `Claim.owner` cascades, so
+    deleting the *account* took 113 paid publications with it and never
+    reached this check at all — the row being deleted was a User, and a User
+    has no status and is not a money table. The largest account on the live
+    database would have taken ₹398,204 of settled payments out of the record
+    with one call and left an audit entry reading "deleted one user".
+    """
+    from django.db import router
+    from django.db.models.deletion import Collector
+
+    collector = Collector(using=router.db_for_write(instance.__class__))
+    try:
+        collector.collect([instance])
+    except Exception:
+        # Nothing here is worth a 500. If the cascade cannot be worked out,
+        # fall back to judging the row itself, which is what this did before.
+        collected = {instance.__class__: [instance]}
+    else:
+        collected = collector.data
+
+    paid = 0
+    money = set()
+    for model, objects in collected.items():
+        name = model.__name__
+        if name in MONEY_TABLES:
+            money.add(name)
+        if name == "Claim":
+            paid += sum(1 for o in objects if getattr(o, "status", None) == ClaimStatus.PAID)
+
+    if paid and not isinstance(instance, Claim):
+        return (
+            f"Deleting this would also remove {paid} publication"
+            f"{'s' if paid != 1 else ''} that {'have' if paid != 1 else 'has'} "
+            "been paid, because they belong to it. That is the record of money "
+            "that really left the account. Deactivate it instead — the account "
+            "stops working and everything it did stays on the record."
+        )
+    if paid:
         return (
             "This publication has been paid. Deleting it removes the record of "
             "a payment that really happened — void the payment first if it was "
             "made in error, which keeps the reversal on the ledger."
         )
-    if instance.__class__.__name__ in MONEY_TABLES:
+    if money:
         return (
             "This row is part of the payment record. It is what the college "
             "would show if anybody asked why money left the account."
@@ -9263,7 +9382,9 @@ def admin_create_user(request: HttpRequest, payload: UserCreateIn):
 
     u = User.objects.create_user(
         email=email,
-        password=payload.password,
+        # `None` here is not "no password", it is "no password that works":
+        # Django stores an unusable marker that no input can ever match.
+        password=payload.password or None,
         name=payload.name,
         role=payload.role,
         department=payload.department,
@@ -9273,12 +9394,21 @@ def admin_create_user(request: HttpRequest, payload: UserCreateIn):
         designation=payload.designation,
         scopus_author_url=payload.scopus_author_url,
         scopus_author_id=payload.scopus_author_id,
-        must_change_password=payload.must_change_password,
+        # An account with no usable password must be made to set one; the
+        # flag is not the caller's to turn off in that case.
+        must_change_password=payload.must_change_password or not payload.password,
     )
+    if not payload.password:
+        u.set_unusable_password()
+        u.save(update_fields=["password"])
     AuditLog.objects.create(
         actor=user, action="USER_CREATE", entity="User", entity_id=u.id
     )
-    return {"id": u.id, "email": u.email}
+    return {
+        "id": u.id,
+        "email": u.email,
+        "needs_password": not payload.password,
+    }
 
 
 @api.patch("/admin/users/{user_id}", auth=session_auth)

@@ -28,6 +28,8 @@ type Ctx = {
   loading: boolean
   refresh: () => Promise<void>
   signIn: (email: string, password: string) => Promise<void>
+  /** Exchange a Google ID token for a session. Never creates an account. */
+  signInWithGoogle: (credential: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -65,6 +67,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [refresh]
   )
 
+  const signInWithGoogle = useCallback(
+    async (credential: string) => {
+      // The ID token is all that crosses. It is verified on the server
+      // against Google's keys with our own client id as the audience, so a
+      // token minted for some other application will not open a session here.
+      await api("/api/auth/google", { method: "POST", json: { credential } })
+      forgetCsrf() // Django rotates it on login; the old one is already dead.
+      await refresh()
+    },
+    [refresh]
+  )
+
   const signOut = useCallback(async () => {
     try {
       await api("/api/auth/logout", { method: "POST" })
@@ -75,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ me, loading, refresh, signIn, signOut }}>
+    <AuthContext.Provider value={{ me, loading, refresh, signIn, signInWithGoogle, signOut }}>
       {children}
     </AuthContext.Provider>
   )

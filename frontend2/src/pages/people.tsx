@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
-import { ArrowLeft, KeyRound, Pencil, Search, SearchX, Users } from "lucide-react"
+import { ArrowLeft, FilePlus, UserPlus, KeyRound, Pencil, Search, SearchX, Users } from "lucide-react"
 
 import { can, useAuth, type Role } from "@/app/auth"
 import { cn } from "@/lib/cn"
@@ -102,6 +102,8 @@ type PeoplePayload = {
  * was created with.
  */
 export function People() {
+  const { me } = useAuth()
+  const [creating, setCreating] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const q = searchParams.get("q") ?? ""
   const role = searchParams.get("role") ?? ""
@@ -239,12 +241,22 @@ export function People() {
 
   return (
     <div className="page space-y-6">
-      <header>
-        <PageTitle>People</PageTitle>
-        <Sub className="mt-1">
-          Every account on the roster, searchable by name, email, role and department.
-        </Sub>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <PageTitle>People</PageTitle>
+          <Sub className="mt-1">
+            Every account on the roster, searchable by name, email, role and department.
+          </Sub>
+        </div>
+        {can(me?.role).manageUsers && (
+          <Button kind="default" size="md" onClick={() => setCreating(true)}>
+            <UserPlus />
+            New account
+          </Button>
+        )}
       </header>
+
+      {creating && <NewAccount onClose={() => setCreating(false)} />}
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">
@@ -544,6 +556,16 @@ function CollegePerson() {
         </div>
         {can(me?.role).manageUsers && id && (
           <div className="flex shrink-0 gap-2">
+            {/* Faculty only. A claim belongs to the person who published the
+                paper, and the server refuses an owner who is not one. */}
+            {faculty.role === "FACULTY" && (
+              <Button kind="default" size="md" asChild>
+                <Link to={`/papers/new?for=${id}`}>
+                  <FilePlus />
+                  File a paper for them
+                </Link>
+              </Button>
+            )}
             <Button kind="default" size="md" onClick={() => setEditing(true)}>
               <Pencil />
               Edit account
@@ -1333,6 +1355,152 @@ function PasswordReset({
           </Button>
           <Button kind="primary" disabled={!canSubmit} onClick={() => void submit()}>
             {reset.isPending ? "Setting…" : "Set the password"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+
+/* ------------------------------------------------------------------------ */
+/* NewAccount                                                               */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Put somebody on the roster.
+ *
+ * No password field, deliberately. A password chosen on somebody else's
+ * behalf and typed into a form has been read by the person who typed it and
+ * is usually still in their sent items — and these accounts decide who gets
+ * paid. The account is created with no usable password at all, and there are
+ * two honest ways in from there: whoever created it uses "Set a password" and
+ * hands the value over, or the person signs in with the Google account the
+ * college gave them, which never consults a password.
+ *
+ * The role is asked for up front rather than defaulted quietly. A faculty
+ * account and a finance account differ by what they can approve and what they
+ * are shown of the money, and picking that by accident is not a mistake the
+ * screen should make easy.
+ */
+function NewAccount({ onClose }: { onClose: () => void }) {
+  const [email, setEmail] = useState("")
+  const [name, setName] = useState("")
+  const [role, setRole] = useState<string>("FACULTY")
+  const [department, setDepartment] = useState("")
+  const [staffId, setStaffId] = useState("")
+  const [designation, setDesignation] = useState("")
+
+  const departments = useApi<string[]>(["meta", "departments"], "/api/meta/departments")
+  const create = useApiMutation<
+    Record<string, unknown>,
+    { id: string; email: string; needs_password: boolean }
+  >("/api/admin/users", { invalidates: [["people"]] })
+
+  const looksLikeEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())
+  const canSubmit =
+    looksLikeEmail && name.trim().length > 1 && !!role && !create.isPending
+
+  async function submit() {
+    try {
+      const created = await create.mutateAsync({
+        email: email.trim().toLowerCase(),
+        name: name.trim(),
+        role,
+        department: department.trim() || null,
+        staff_id: staffId.trim() || null,
+        designation: designation.trim() || null,
+      })
+      toast.ok(
+        `${created.email} created. Set a password for them, or they can sign in with Google.`
+      )
+      onClose()
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>New account</DialogTitle>
+          <DialogDescription>
+            Someone who needs to sign in to this system.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <Callout tone="info" title="No password is set here">
+            The account is created without one. Use "Set a password" on their
+            record afterwards and hand the value over, or let them sign in with
+            their college Google account.
+          </Callout>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Email"
+              error={
+                email.trim().length > 0 && !looksLikeEmail
+                  ? "That does not look like an email address."
+                  : undefined
+              }
+            >
+              <Input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="off"
+                autoFocus
+              />
+            </Field>
+            <Field label="Full name">
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Role"
+              hint="What they can see and approve. Changeable later."
+            >
+              <Combobox
+                value={role}
+                onChange={setRole}
+                options={(Object.keys(ROLE_LABEL) as Role[]).map((r) => ({
+                  value: r,
+                  label: ROLE_LABEL[r],
+                }))}
+              />
+            </Field>
+            <Field label="Department">
+              <Combobox
+                value={department}
+                onChange={setDepartment}
+                options={[
+                  { value: "", label: "None" },
+                  ...(departments.data || []).map((d) => ({ value: d, label: d })),
+                ]}
+              />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Staff ID" hint="Optional.">
+              <Input value={staffId} onChange={(e) => setStaffId(e.target.value)} />
+            </Field>
+            <Field label="Designation" hint="Optional.">
+              <Input
+                value={designation}
+                onChange={(e) => setDesignation(e.target.value)}
+              />
+            </Field>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button kind="quiet" onClick={onClose} disabled={create.isPending}>
+            Cancel
+          </Button>
+          <Button kind="primary" disabled={!canSubmit} onClick={() => void submit()}>
+            {create.isPending ? "Creating…" : "Create the account"}
           </Button>
         </DialogFooter>
       </DialogContent>

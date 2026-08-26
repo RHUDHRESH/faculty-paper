@@ -6440,6 +6440,26 @@ class IssnNormalizeTests(TestCase):
         self.assertEqual(normalize_issn("not an issn"), "not an issn")
         self.assertIsNone(normalize_issn(None))
 
+    def test_more_than_one_lost_zero_is_recovered(self):
+        """0010-0161 read as a number is six characters, not seven."""
+        self.assertEqual(normalize_issn("100161"), "0010-0161")
+        self.assertEqual(normalize_issn("12505"), "0001-2505")
+        # Padding is only accepted when the check digit agrees, so a value
+        # that no number of zeros makes valid is left alone rather than
+        # turned into some other journal's identifier.
+        self.assertEqual(normalize_issn("100459"), "100459")
+
+    def test_padding_never_invents_an_issn_out_of_nothing(self):
+        """All zeros satisfy the checksum trivially, which is the trap.
+
+        Every one of these strips to nothing or nearly nothing, pads to
+        "00000000", and passes a mod-11 check over seven zeros. Accepting that
+        would hand back 0000-0000 -- a well-formed ISSN, indistinguishable
+        downstream from a real one -- for input that carried no ISSN at all.
+        """
+        for junk in ("not an issn", "", "-", "0", "00", "0000", "000000", "x"):
+            self.assertNotEqual(normalize_issn(junk), "0000-0000", junk)
+
 
 class JournalRecordTests(TestCase):
     """A journal is a record, and it obeys the same boundaries as the rest."""
@@ -7082,6 +7102,39 @@ class DeletionGuardTests(TestCase):
         self.assertIn("paid", res.json()["detail"].lower())
         # Still there, which is the whole point.
         self.assertTrue(Claim.objects.filter(pk=self.paid.pk).exists())
+
+    def test_deleting_an_account_cannot_take_its_paid_papers_with_it(self):
+        """The guard has to judge the cascade, not the row that was named.
+
+        `Claim.owner` cascades. Refusing to delete a paid claim while allowing
+        the account that owns it to be deleted refuses nothing at all -- it
+        just makes the deletion take a route the check does not watch. On the
+        live database the worst case was 113 paid publications and ₹398,204 of
+        settled payments, removed by one call whose audit entry said a user
+        had been deleted.
+        """
+        res = self.delete("User", self.faculty.id)
+        self.assertEqual(res.status_code, 400)
+        detail = res.json()["detail"].lower()
+        self.assertIn("paid", detail)
+        # Says how many, so the refusal is actionable rather than mysterious.
+        self.assertIn("1 publication", detail)
+        self.assertTrue(User.objects.filter(pk=self.faculty.pk).exists())
+        self.assertTrue(Claim.objects.filter(pk=self.paid.pk).exists())
+
+    def test_an_account_with_nothing_paid_still_deletes(self):
+        """The guard protects the payment record, not accounts in general."""
+        spare = User.objects.create_user(
+            email="del-spare@test.edu", password="pass", name="Spare",
+            role=Role.FACULTY, department="ECE",
+        )
+        Claim.objects.create(
+            owner=spare, paper_title="Never filed", journal_title="J",
+            status=ClaimStatus.DRAFT, publication_year=2025,
+        )
+        res = self.delete("User", spare.id)
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        self.assertFalse(User.objects.filter(pk=spare.pk).exists())
 
     def test_the_audit_log_cannot_be_deleted_from(self):
         entry = AuditLog.objects.create(actor=self.admin, action="X", entity="Y")
@@ -9766,7 +9819,202 @@ class StudentProjectTeamTests(TestCase):
         self.assertIn("STUDENT_PROJECT", ClaimReason.values)
 
 
+class CreateAccountWithoutAPasswordTests(TestCase):
+    """An account can be put on the roster without one being chosen for it.
+
+    A password picked on somebody else's behalf and typed into a form has been
+    read by whoever typed it and is usually still in their sent items, and
+    these accounts decide who gets paid. So the field is optional, and left
+    out the account gets no usable password at all rather than a guessable
+    one -- with two honest ways in from there: an admin sets one through the
+    reset flow and hands it over, or the person signs in with Google, which
+    never consults the password field.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="ca-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def create(self, **extra):
+        body = {"email": "new-person@test.edu", "name": "New Person", **extra}
+        return self.client.post(
+            "/api/admin/users", data=json.dumps(body), content_type="application/json"
+        )
+
+    def test_an_account_is_created_with_no_usable_password(self):
+        res = self.create()
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertTrue(res.json()["needs_password"])
+        u = User.objects.get(email="new-person@test.edu")
+        self.assertFalse(u.has_usable_password())
+
+    def test_it_cannot_be_signed_into_until_a_password_is_set(self):
+        """The point of an unusable password: no input matches it, including
+        the empty string, which is the way this goes wrong if it is stored as
+        an ordinary hash of nothing."""
+        self.create()
+        anon = Client()
+        for attempt in ("", " ", "password", "new-person@test.edu"):
+            res = anon.post(
+                "/api/auth/login",
+                data=json.dumps({"email": "new-person@test.edu", "password": attempt}),
+                content_type="application/json",
+            )
+            self.assertEqual(res.status_code, 401, f"{attempt!r} opened a session")
+
+    def test_it_is_made_to_choose_one(self):
+        self.create()
+        self.assertTrue(User.objects.get(email="new-person@test.edu").must_change_password)
+
+    def test_the_flag_cannot_be_waived_on_a_passwordless_account(self):
+        """Otherwise the account is both unable to sign in and never asked to
+        fix that."""
+        self.create(must_change_password=False)
+        self.assertTrue(User.objects.get(email="new-person@test.edu").must_change_password)
+
+    def test_a_password_may_still_be_given(self):
+        res = self.create(password="a-real-password-1")
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertFalse(res.json()["needs_password"])
+        self.assertTrue(
+            User.objects.get(email="new-person@test.edu").has_usable_password()
+        )
+
+    def test_a_duplicate_address_says_whose_it_is(self):
+        self.create()
+        again = self.create(name="Someone Else")
+        self.assertEqual(again.status_code, 400)
+        self.assertIn("New Person", again.json()["detail"])
+
+    def test_only_somebody_who_manages_users_may_create_one(self):
+        faculty = User.objects.create_user(
+            email="ca-fac@test.edu", password="pass", name="Fac", role=Role.FACULTY,
+        )
+        c = Client()
+        c.force_login(faculty)
+        res = c.post(
+            "/api/admin/users",
+            data=json.dumps({"email": "x@test.edu", "name": "X"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 403)
+
+
+class StudentProjectClaimTests(TestCase):
+    """A student-project claim reaches a team, and is refused without one.
+
+    Every piece of this existed separately and none of it was joined up:
+    `Claim.team` was declared, migrated and serialised, `ClaimReason` carried
+    a STUDENT_PROJECT member, and no code path in the API ever set the one
+    from the other. A claimant could pick the reason and the ticket came out
+    naming nobody but them.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.faculty = User.objects.create_user(
+            email="sp-fac@test.edu", password="pass", name="Mentor One",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.team = Team.objects.create(
+            code="CSE-24-011", title="Solar tracker", department="CSE",
+            mentor=self.faculty,
+        )
+        TeamMember.objects.create(
+            team=self.team, name="A Student", register_number="212221001"
+        )
+        self.client = Client()
+        self.client.force_login(self.faculty)
+
+    def create(self, **extra):
+        body = {
+            "paper_title": "A conference paper",
+            "journal_title": "Some Conference",
+            "claim_reason": "STUDENT_PROJECT",
+            **extra,
+        }
+        return self.client.post(
+            "/api/claims", data=json.dumps(body), content_type="application/json"
+        )
+
+    def test_a_team_code_attaches_the_team(self):
+        res = self.create(team_code="CSE-24-011")
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        claim = Claim.objects.get(pk=res.json()["id"])
+        self.assertEqual(claim.team_id, self.team.id)
+
+    def test_the_code_is_matched_the_way_it_is_read_off_a_sheet(self):
+        """Case-insensitively. It is typed from print as often as copied."""
+        res = self.create(team_code="cse-24-011")
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertEqual(Claim.objects.get(pk=res.json()["id"]).team_id, self.team.id)
+
+    def test_an_unknown_code_is_refused_and_says_what_to_do(self):
+        res = self.create(team_code="NOPE-1")
+        self.assertEqual(res.status_code, 404)
+        self.assertIn("Create the team first", res.json()["detail"])
+
+    def test_the_ticket_carries_the_team_and_its_students(self):
+        res = self.create(team_code="CSE-24-011")
+        detail = self.client.get(f"/api/claims/{res.json()['id']}").json()
+        self.assertEqual(detail["team"]["code"], "CSE-24-011")
+        self.assertEqual(detail["team"]["mentor_name"], "Mentor One")
+        self.assertEqual(
+            [m["name"] for m in detail["team"]["members"]], ["A Student"]
+        )
+
+    def test_changing_the_reason_lets_go_of_the_team(self):
+        """Otherwise a paper that is no longer a student project still shows
+        a roster of students it has nothing to do with."""
+        res = self.create(team_code="CSE-24-011")
+        claim_id = res.json()["id"]
+        patched = self.client.patch(
+            f"/api/claims/{claim_id}",
+            data=json.dumps({"claim_reason": "INCENTIVE"}),
+            content_type="application/json",
+        )
+        self.assertEqual(patched.status_code, 200, patched.content[:300])
+        self.assertIsNone(Claim.objects.get(pk=claim_id).team_id)
+
+    def test_a_student_project_cannot_be_submitted_without_a_team(self):
+        # Everything else filled in, so the refusal that comes back is the
+        # one this test is about rather than the missing-fields list.
+        claim = Claim.objects.create(
+            owner=self.faculty, paper_title="No team here",
+            journal_title="Some Conference", claim_reason=ClaimReason.STUDENT_PROJECT,
+            status=ClaimStatus.DRAFT, publication_year=2025,
+            issn="0272-8842", publication_date="2025-03-01",
+            indexing_level="Scopus", yukthi_id="YK-1",
+            scopus_author_url="https://www.scopus.com/authid/detail.uri?authorId=1",
+            sec_refs="2",
+        )
+        from ninja.errors import HttpError
+
+        from core.api import _check_mandatory_fields
+
+        with self.assertRaises(HttpError) as caught:
+            _check_mandatory_fields(claim)
+        self.assertIn("name the team", str(caught.exception))
+
+    def test_the_reason_does_not_zero_the_payment(self):
+        """`is_student_publication` makes the engine return zero, and it is
+        set from COUNT_ONLY alone. Wiring it to this reason as well -- both
+        have "student" in the name -- would pay every student project nothing,
+        which is the opposite of what the reason is for."""
+        res = self.create(team_code="CSE-24-011")
+        claim = Claim.objects.get(pk=res.json()["id"])
+        self.assertFalse(claim.is_student_publication)
+
+
 class ResearchCoordinatorTests(TestCase):
+
     """The coordinator checks papers beside the admin office, not after it."""
 
     def setUp(self):

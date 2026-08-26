@@ -53,6 +53,22 @@ def normalize_doi(doi: str | None) -> str | None:
     return s or None
 
 
+def issn_check_digit_ok(value: str) -> bool:
+    """Whether eight characters satisfy the ISSN check digit.
+
+    The last character is a mod-11 checksum over the first seven, weighted 8
+    down to 2, with X standing for ten. It is what makes a zero-padded
+    reconstruction safe to accept: of the wrong paddings, almost none pass.
+    """
+    cleaned = (value or "").upper()
+    if len(cleaned) != 8 or not cleaned[:7].isdigit():
+        return False
+    total = sum(int(d) * w for d, w in zip(cleaned[:7], range(8, 1, -1)))
+    remainder = total % 11
+    expected = "0" if remainder == 0 else ("X" if remainder == 1 else str(11 - remainder))
+    return cleaned[7] == expected
+
+
 def normalize_issn(issn: str | None) -> str | None:
     """An ISSN as eight characters, whatever a spreadsheet did to it first.
 
@@ -78,8 +94,32 @@ def normalize_issn(issn: str | None) -> str | None:
     if re.fullmatch(r"\d+\.0+", text):
         text = text.split(".")[0]
     cleaned = re.sub(r"[^0-9Xx]", "", text).upper()
-    if len(cleaned) == 7:
-        cleaned = "0" + cleaned
+    if len(cleaned) < 8:
+        # More than one leading zero can be gone. "0010-0161" read as a number
+        # is 100161 -- six characters, not seven -- and padding a single zero
+        # never reaches it, which left 823 Scimago and 3,291 SNIP rows
+        # unmatchable after the earlier repairs.
+        #
+        # Padding is a guess, so it is checked rather than trusted: an ISSN's
+        # last character is a mod-11 check digit over the first seven, and a
+        # wrong number of zeros almost never satisfies it. That turns this from
+        # inventing an identifier into recovering one, and it is the difference
+        # that matters -- a fabricated ISSN belongs to a real journal that is
+        # not this one, and quartile is a term in the payout.
+        # There has to be something left to pad. "not an issn" strips to
+        # nothing, pads to "00000000", and all zeros satisfy the checksum
+        # trivially -- so without this the one input the check digit was meant
+        # to reject is the one input it waves through, and a junk value comes
+        # back looking like the perfectly good ISSN 0000-0000. Four characters
+        # is the floor because the shortest real loss in the data is three
+        # zeros ("0001-2505" arriving as "12505").
+        padded = cleaned.rjust(8, "0")
+        if len(cleaned) >= 4 and cleaned.strip("0") and issn_check_digit_ok(padded):
+            cleaned = padded
+        elif len(cleaned) == 7:
+            # Kept unconditional for the single-zero case, which is what the
+            # claim table carries and what the earlier repairs assumed.
+            cleaned = "0" + cleaned
     if len(cleaned) != 8:
         return issn.strip()
     return f"{cleaned[:4]}-{cleaned[4:]}"

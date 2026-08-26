@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -78,6 +78,7 @@ type ClaimDetail = {
   scopus_author_url: string | null
   designation: string | null
   claim_reason: string | null
+  team: { code: string } | null
   affiliation_ok: boolean
   total_authors: number
   author_position: number
@@ -321,12 +322,15 @@ type FormState = {
   authorPosition: number
   totalAuthors: number
   affiliationOk: boolean
-  claimReason: "INCENTIVE" | "COUNT_ONLY"
+  claimReason: "INCENTIVE" | "COUNT_ONLY" | "STUDENT_PROJECT"
+  /** The team code on a student project claim. Empty otherwise. */
+  teamCode: string
   attachments: AttachmentRow[]
 }
 
 function emptyForm(): FormState {
   return {
+    teamCode: "",
     paperTitle: "",
     doi: "",
     publicationType: "",
@@ -375,7 +379,11 @@ function formFromClaim(c: ClaimDetail): FormState {
     authorPosition: c.author_position || 1,
     totalAuthors: c.total_authors || 1,
     affiliationOk: c.affiliation_ok,
-    claimReason: c.claim_reason === "COUNT_ONLY" ? "COUNT_ONLY" : "INCENTIVE",
+    claimReason:
+      c.claim_reason === "COUNT_ONLY" || c.claim_reason === "STUDENT_PROJECT"
+        ? c.claim_reason
+        : "INCENTIVE",
+    teamCode: c.team?.code || "",
     attachments: c.attachments.map((a) => ({
       kind: a.kind,
       url: a.url,
@@ -414,9 +422,21 @@ function mapPublicationType(aggregationType: string): string {
  *  body, never nulled. */
 function buildPayload(
   form: FormState,
-  extra: { submit: boolean; contest?: boolean; contestNote?: string }
+  extra: {
+    submit: boolean
+    contest?: boolean
+    contestNote?: string
+    /**
+     * Whose paper this is, when somebody is filing it for them. Only ever
+     * sent on creation: the server reads it to decide the owner, and a PATCH
+     * carrying it would be an attempt to move a filed claim to a different
+     * person, which is not a thing this form does.
+     */
+    ownerId?: string | null
+  }
 ) {
   return {
+    ...(extra.ownerId ? { owner_id: extra.ownerId } : {}),
     paper_title: form.paperTitle.trim(),
     doi: form.doi.trim() || null,
     issn: form.issn.trim() || null,
@@ -438,6 +458,10 @@ function buildPayload(
     author_position: form.authorPosition,
     affiliation_ok: form.affiliationOk,
     claim_reason: form.claimReason,
+    // Sent on every save, including empty, so that dropping the student
+    // project reason lets go of the team rather than leaving a roster of
+    // students attached to a paper that is no longer theirs.
+    team_code: form.claimReason === "STUDENT_PROJECT" ? form.teamCode.trim() : "",
     attachments: form.attachments.map((a) => ({
       kind: a.kind,
       url: a.url,
@@ -520,6 +544,17 @@ export function FilePaper() {
   const { id } = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const isEditRoute = !!id
+
+  // Filing for somebody else, from /papers/new?for=<id>. Only on a new
+  // claim: an existing one already has an owner, and this form is not where
+  // a paper changes hands.
+  const [searchParams] = useSearchParams()
+  const filingForId = isEditRoute ? null : searchParams.get("for")
+  const { data: filingFor } = useApi<{ id: string; name: string; email: string; department: string | null }>(
+    ["person", filingForId],
+    `/api/admin/users/${filingForId}`,
+    { enabled: !!filingForId }
+  )
 
   const {
     data: existing,
@@ -616,7 +651,7 @@ export function FilePaper() {
   async function save() {
     setSavingState("saving")
     try {
-      const payload = buildPayload(form, { submit: false })
+      const payload = buildPayload(form, { submit: false, ownerId: filingFor?.id })
       let result: ClaimDetail
       if (claimIdRef.current) {
         result = await api<ClaimDetail>(`/api/claims/${claimIdRef.current}`, {
@@ -952,7 +987,12 @@ export function FilePaper() {
     setFileBusy(true)
     setSubmitError(null)
     try {
-      const payload = buildPayload(form, { submit: true, contest: opts.contest, contestNote })
+      const payload = buildPayload(form, {
+        submit: true,
+        contest: opts.contest,
+        contestNote,
+        ownerId: filingFor?.id,
+      })
       const result = claimIdRef.current
         ? await api<ClaimDetail>(`/api/claims/${claimIdRef.current}`, { method: "PATCH", json: payload })
         : await api<ClaimDetail>("/api/claims", { method: "POST", json: payload })
@@ -1117,16 +1157,31 @@ export function FilePaper() {
               ? ticketNumber
                 ? `Edit ticket ${ticketNumber}`
                 : "Edit your draft"
-              : "File a paper"}
+              : filingFor
+                ? `File a paper for ${filingFor.name}`
+                : "File a paper"}
           </PageTitle>
           <Sub className="mt-1">
-            Paste a DOI on the first step and most of this fills itself in.
+            {filingFor
+              ? "The claim will be theirs, not yours — it goes on their record and is paid to them."
+              : "Paste a DOI on the first step and most of this fills itself in."}
           </Sub>
         </div>
         <SaveStatus state={savingState} lastSavedAt={lastSavedAt} onRetry={() => void save()} />
       </header>
 
-      {!isEditRoute && drafts.length > 0 && (
+      {filingFor && (
+        // Stated plainly and kept on screen the whole way down. Filing on
+        // somebody else's behalf looks exactly like filing your own, and the
+        // difference is whose record it lands on and who gets paid.
+        <Callout tone="info" title={`Filing on behalf of ${filingFor.name}`}>
+          {filingFor.email}
+          {filingFor.department ? ` · ${filingFor.department}` : ""}. The ticket
+          will be raised in their name, and the payment goes to them.
+        </Callout>
+      )}
+
+      {!isEditRoute && !filingFor && drafts.length > 0 && (
         <Callout tone="info" title={`You have ${drafts.length === 1 ? "a draft" : `${drafts.length} drafts`} already started`}>
           <ul className="mt-1 space-y-1">
             {drafts.slice(0, 3).map((d) => (
@@ -1635,6 +1690,13 @@ function AuthorsStep({
           />
           <Radio
             name="claim-reason"
+            checked={form.claimReason === "STUDENT_PROJECT"}
+            onChange={() => patchForm({ claimReason: "STUDENT_PROJECT" })}
+            label="Student project conference incentive"
+            hint="A conference paper from a student project you mentored. Paid — and it has to name the team."
+          />
+          <Radio
+            name="claim-reason"
             checked={form.claimReason === "COUNT_ONLY"}
             onChange={() => patchForm({ claimReason: "COUNT_ONLY" })}
             label="Publication count only"
@@ -1642,6 +1704,13 @@ function AuthorsStep({
           />
         </div>
       </div>
+
+      {form.claimReason === "STUDENT_PROJECT" && (
+        <TeamPicker
+          code={form.teamCode}
+          onCode={(teamCode) => patchForm({ teamCode })}
+        />
+      )}
 
       <Checkbox
         checked={form.affiliationOk}
@@ -2357,5 +2426,127 @@ function PreFlight({
         })}
       </ul>
     </section>
+  )
+}
+
+
+/* ------------------------------------------------------------------------ */
+/* Team picker — student project claims                                     */
+/* ------------------------------------------------------------------------ */
+
+type TeamLookup = {
+  code: string
+  title: string | null
+  department: string | null
+  academic_year: string | null
+  mentor_name: string | null
+  members: {
+    id: string
+    name: string
+    register_number: string | null
+    programme: string | null
+    year_of_study: string | null
+    mentor_name: string | null
+  }[]
+}
+
+/**
+ * Find the team by the code on the project sheet, then agree with what comes
+ * back.
+ *
+ * By code rather than by picking from a list: the code is what is printed on
+ * the sheet in front of the claimant, and a list of every student project in
+ * the college is neither what they came for nor theirs to browse. A code that
+ * matches nothing is an ordinary answer here, not an error — the first time a
+ * project is entered anywhere, no team exists yet — so it says so and points
+ * at where teams are made, instead of rendering a failure.
+ *
+ * Nothing is confirmed silently. The students are shown by name and register
+ * number because that is what the claimant is being asked to vouch for, and a
+ * code echoed back as "found" would let a mistyped digit attach somebody
+ * else's project to a payment.
+ */
+function TeamPicker({
+  code,
+  onCode,
+}: {
+  code: string
+  onCode: (code: string) => void
+}) {
+  const trimmed = code.trim()
+  const { data, isLoading, error } = useApi<TeamLookup>(
+    ["team", trimmed],
+    `/api/teams/${encodeURIComponent(trimmed)}`,
+    { enabled: trimmed.length >= 2 }
+  )
+
+  // A 404 means "no team with that code yet", which is a normal state of the
+  // world rather than something going wrong.
+  const notFound = !!error && (error as { status?: number }).status === 404
+
+  return (
+    <div className="space-y-3 rounded-md border border-line p-4">
+      <Field
+        label="Team code"
+        hint="The code on the project sheet — for example CSE-24-011."
+      >
+        <Input
+          value={code}
+          onChange={(e) => onCode(e.target.value)}
+          placeholder="CSE-24-011"
+        />
+      </Field>
+
+      {trimmed.length < 2 ? null : isLoading ? (
+        <SkeletonText lines={2} />
+      ) : notFound ? (
+        <Callout tone="caution" title={`No team with the code ${trimmed}`}>
+          Teams are created once, with the students on them, and then claimed
+          against by code. If this project has not been entered yet, create the
+          team first — this claim cannot be filed until it names one.
+        </Callout>
+      ) : error ? (
+        <Callout tone="critical" title="Could not look that code up">
+          The server did not answer. Nothing you have typed has been lost.
+        </Callout>
+      ) : data ? (
+        <div className="space-y-2">
+          <div>
+            <p className="text-sm font-medium">{data.title || "Untitled project"}</p>
+            <Meta>
+              {[data.code, data.department, data.academic_year]
+                .filter(Boolean)
+                .join(" · ")}
+            </Meta>
+            {data.mentor_name ? <Meta>Mentor: {data.mentor_name}</Meta> : null}
+          </div>
+
+          {data.members.length === 0 ? (
+            <Callout tone="caution" title="This team has no students on it">
+              The team exists but nobody is listed on it, so the claim would
+              name a project with no one behind it.
+            </Callout>
+          ) : (
+            <ul className="divide-y divide-line border-y border-line">
+              {data.members.map((m) => (
+                <li key={m.id} className="px-1 py-2">
+                  <p className="text-sm">{m.name}</p>
+                  <Meta>
+                    {[m.register_number, m.programme, m.year_of_study]
+                      .filter(Boolean)
+                      .join(" · ") || "No register number recorded"}
+                  </Meta>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <p className="text-xs text-fg-subtle">
+            Check the names and register numbers before filing. This is what
+            the claim says the project was, and who it was by.
+          </p>
+        </div>
+      ) : null}
+    </div>
   )
 }

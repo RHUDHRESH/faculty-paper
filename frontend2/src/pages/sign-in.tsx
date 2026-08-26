@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { motion } from "motion/react"
 import { Eye, EyeOff, LoaderCircle } from "lucide-react"
 
@@ -133,7 +133,132 @@ export function SignIn() {
             {busy ? "Signing in…" : "Sign in"}
           </Button>
         </form>
+
+        <GoogleButton onError={setError} />
       </motion.div>
     </div>
   )
+}
+
+
+type GoogleConfig = {
+  enabled: boolean
+  client_id: string | null
+  hosted_domain: string | null
+}
+
+/**
+ * Continue with Google — for an account this college already has.
+ *
+ * The server is asked first whether it is configured, because the alternative
+ * is worse than no button: one that renders, is pressed, and does nothing
+ * reads as the account being broken rather than the feature being off. With
+ * no client id the page shows the password form alone and says nothing about
+ * Google at all.
+ *
+ * Signing in this way never creates an account. An address Google recognises
+ * and this college does not is refused, and the refusal says so plainly —
+ * these accounts carry staff ids and decide who gets paid, so a free signup
+ * form is not a thing that can be allowed to mint one.
+ */
+function GoogleButton({ onError }: { onError: (message: string | null) => void }) {
+  const { signInWithGoogle } = useAuth()
+  const [config, setConfig] = useState<GoogleConfig | null>(null)
+  const [ready, setReady] = useState(false)
+  const slot = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let live = true
+    // A failure here is not shown. Not being able to tell whether Google
+    // sign-in is on is not something the person in front of the screen can
+    // act on, and the password form below works either way.
+    fetch("/api/auth/google/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c: GoogleConfig | null) => live && setConfig(c))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+
+  // Google's script is loaded only once we know there is a client id to give
+  // it, so a college that does not use this never fetches it at all.
+  useEffect(() => {
+    if (!config?.enabled) return
+    const existing = document.getElementById("gsi-script")
+    if (existing) {
+      setReady(true)
+      return
+    }
+    const el = document.createElement("script")
+    el.id = "gsi-script"
+    el.src = "https://accounts.google.com/gsi/client"
+    el.async = true
+    el.defer = true
+    el.onload = () => setReady(true)
+    document.head.appendChild(el)
+  }, [config?.enabled])
+
+  useEffect(() => {
+    if (!ready || !config?.client_id || !slot.current) return
+    const google = (window as unknown as { google?: GoogleIdentity }).google
+    if (!google) return
+
+    google.accounts.id.initialize({
+      client_id: config.client_id,
+      hosted_domain: config.hosted_domain || undefined,
+      callback: ({ credential }) => {
+        onError(null)
+        void signInWithGoogle(credential).catch((err: unknown) =>
+          onError(
+            err instanceof Error
+              ? err.message
+              : "Could not sign in with that Google account."
+          )
+        )
+      },
+    })
+    google.accounts.id.renderButton(slot.current, {
+      theme: "outline",
+      size: "large",
+      width: 336,
+      text: "continue_with",
+    })
+  }, [ready, config, signInWithGoogle, onError])
+
+  if (!config?.enabled) return null
+
+  return (
+    <div className="mt-5">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="h-px flex-1 bg-line" />
+        <span className="text-xs text-fg-subtle">or</span>
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      {/* Google renders its own button in here; the height is reserved so the
+          form does not jump when it arrives. */}
+      <div ref={slot} className="grid min-h-10 place-items-center" />
+      <p className="mt-3 text-xs text-fg-subtle">
+        Use the Google account the college gave you. This signs you in to an
+        account that already exists — it does not create one.
+      </p>
+    </div>
+  )
+}
+
+/** The slice of Google Identity Services this page uses. */
+type GoogleIdentity = {
+  accounts: {
+    id: {
+      initialize: (options: {
+        client_id: string
+        hosted_domain?: string
+        callback: (response: { credential: string }) => void
+      }) => void
+      renderButton: (
+        parent: HTMLElement,
+        options: { theme: string; size: string; width: number; text: string }
+      ) => void
+    }
+  }
 }

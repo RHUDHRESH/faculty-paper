@@ -99,6 +99,34 @@ type Claim = {
   updated_at: string | null
   submitted_at: string | null
   actions?: ClaimAction[]
+  team: Team | null
+}
+
+type Team = {
+  code: string
+  title: string | null
+  department: string | null
+  academic_year: string | null
+  mentor_name: string | null
+  members: TeamMember[]
+}
+
+type TeamMember = {
+  name: string
+  register_number: string | null
+  programme: string | null
+  year_of_study: string | null
+  mentor_name: string | null
+}
+
+type Note = {
+  id: string
+  body: string
+  author_name: string | null
+  author_role: string | null
+  created_at: string
+  resolved_at: string | null
+  resolved_by_name: string | null
 }
 
 export function PaperDetail() {
@@ -397,6 +425,10 @@ export function PaperDetail() {
         </div>
       </section>
 
+      {claim.team ? <TeamPanel team={claim.team} /> : null}
+
+      <Notes claimId={claim.id} />
+
       <section className="space-y-3">
         <SectionTitle>History</SectionTitle>
         {!claim.actions || claim.actions.length === 0 ? (
@@ -617,4 +649,201 @@ function actionSentence(a: ClaimAction): string {
 
 function humanizeStatus(s: string): string {
   return s.replace(/_/g, " ").toLowerCase()
+}
+
+
+/**
+ * The team behind a student-project claim.
+ *
+ * A student is a name and a register number here, not an account -- they do
+ * not sign in and they are not paid. The reason to show them anyway is that an
+ * incentive claimed on a student project is claimed on their work, and a
+ * ticket naming only the person who filed it reads as though it were theirs
+ * alone. Whoever approves it should be able to see who else is on it without
+ * opening the roster in another system.
+ */
+function TeamPanel({ team }: { team: Team }) {
+  return (
+    <section className="space-y-3">
+      <SectionTitle>Team</SectionTitle>
+      <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+        <DetailRow label="Code" value={team.code} />
+        <DetailRow label="Project" value={team.title} />
+        <DetailRow label="Department" value={team.department} />
+        <DetailRow label="Academic year" value={team.academic_year} />
+        <DetailRow label="Mentor" value={team.mentor_name} />
+      </dl>
+
+      {team.members.length === 0 ? (
+        // Not an empty state. A team with no students on it is a roster that
+        // was never filled in, and saying so is more use than a shrug.
+        <Callout tone="caution" title="No students are listed on this team">
+          The team exists but its roster is empty, so there is nothing here to
+          show whose project this is.
+        </Callout>
+      ) : (
+        <ul className="divide-y divide-line border-y border-line">
+          {team.members.map((m) => (
+            <li key={`${m.register_number || ""}-${m.name}`} className="row px-1 py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm">{m.name}</span>
+                <Meta className="block truncate">
+                  {[m.register_number, m.programme, m.year_of_study]
+                    .filter(Boolean)
+                    .join(" · ") || "No register number recorded"}
+                </Meta>
+              </span>
+              {/* Only when it differs from the team's, which is the whole
+                  reason a student carries a mentor of their own. */}
+              {m.mentor_name && m.mentor_name !== team.mentor_name ? (
+                <Meta className="shrink-0">Mentor: {m.mentor_name}</Meta>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Notes raised on this ticket, between the principal and the research cell.
+ *
+ * Attached to the ticket rather than sent as a message, deliberately: a mail
+ * about a claim arrives in one person's inbox and dies there, while a note on
+ * the claim is in front of whoever picks it up next.
+ *
+ * The claimant never sees this and neither does finance, so for them it
+ * renders nothing at all -- including no heading, because an empty section
+ * labelled "Notes" only raises the question of whose notes are being kept
+ * from them.
+ */
+function Notes({ claimId }: { claimId: string }) {
+  const { me } = useAuth()
+  const [body, setBody] = useState("")
+
+  const isAdmin = ADMIN_ROLES.includes(me?.role || "")
+  const mayRead = me?.role === "PRINCIPAL" || isAdmin
+
+  const { data, isLoading, error, refetch } = useApi<{ results: Note[] }>(
+    ["claim-notes", claimId],
+    `/api/claims/${claimId}/notes`,
+    { enabled: mayRead }
+  )
+
+  const add = useApiMutation<{ body: string }, { ok: boolean }>(
+    `/api/claims/${claimId}/notes`,
+    { invalidates: [["claim-notes", claimId]] }
+  )
+
+  if (!mayRead) return null
+
+  const notes = data?.results || []
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle>Notes on this ticket</SectionTitle>
+
+      {isLoading ? (
+        <SkeletonText lines={2} />
+      ) : error ? (
+        <ErrorState onRetry={() => void refetch()} />
+      ) : notes.length === 0 ? (
+        <p className="text-sm text-fg-muted">Nothing has been raised on this ticket.</p>
+      ) : (
+        <ul className="space-y-3 border-l border-line pl-4">
+          {notes.map((n) => (
+            <li key={n.id} className="text-sm">
+              <p className={n.resolved_at ? "text-fg-muted line-through" : ""}>{n.body}</p>
+              <Meta>
+                {[
+                  n.author_name || "Somebody",
+                  n.author_role ? roleLabel(n.author_role) : null,
+                  formatDateTime(n.created_at),
+                  n.resolved_at
+                    ? `closed by ${n.resolved_by_name || "the research cell"}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Meta>
+              {isAdmin && !n.resolved_at ? (
+                <ResolveNote noteId={n.id} claimId={claimId} />
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form
+        className="space-y-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const text = body.trim()
+          if (text.length < 3) return
+          add.mutate(
+            { body: text },
+            {
+              onSuccess: () => {
+                setBody("")
+                toast.ok("Note added to the ticket")
+              },
+              onError: (err: unknown) => toast.fail(err),
+            }
+          )
+        }}
+      >
+        <textarea
+          className="field min-h-20 w-full"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Raise something about this ticket"
+          aria-label="Note on this ticket"
+        />
+        <Button type="submit" disabled={body.trim().length < 3 || add.isPending}>
+          {add.isPending ? "Adding…" : "Add note"}
+        </Button>
+      </form>
+    </section>
+  )
+}
+
+function ResolveNote({ noteId, claimId }: { noteId: string; claimId: string }) {
+  const resolve = useApiMutation<Record<string, never>, { ok: boolean }>(
+    `/api/claims/notes/${noteId}/resolve`,
+    { invalidates: [["claim-notes", claimId]] }
+  )
+  return (
+    <Button
+      kind="quiet"
+      size="sm"
+      className="mt-1"
+      disabled={resolve.isPending}
+      onClick={() =>
+        resolve.mutate(
+          {},
+          {
+            onSuccess: () => toast.ok("Note closed"),
+            onError: (err: unknown) => toast.fail(err),
+          }
+        )
+      }
+    >
+      {resolve.isPending ? "Closing…" : "Mark as dealt with"}
+    </Button>
+  )
+}
+
+/** Who may read and write ticket notes. Mirrors `_may_read_notes`. */
+const ADMIN_ROLES = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
+
+function roleLabel(role: string) {
+  return (
+    {
+      SUPER_ADMIN: "Administrator",
+      RESEARCH_CELL: "Research cell",
+      RESEARCH_COORDINATOR: "Research coordinator",
+      PRINCIPAL: "Principal",
+    }[role] || role.toLowerCase().replace(/_/g, " ")
+  )
 }

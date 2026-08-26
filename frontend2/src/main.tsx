@@ -31,6 +31,7 @@ import { PaperDetail } from "@/pages/paper-detail"
 import { Journals, JournalRecord } from "@/pages/journals"
 import { NotBuilt, NotFound } from "@/pages/not-found"
 import { Batch, Batches } from "@/pages/batches"
+import { Reference } from "@/pages/reference"
 import { Ledger } from "@/pages/ledger"
 import { Papers } from "@/pages/papers"
 import { Payments, PaymentsDone } from "@/pages/payments"
@@ -149,6 +150,7 @@ function App() {
           <Route path="/requests" element={<Requests />} />
           <Route path="/budget" element={<Budget />} />
           <Route path="/policy" element={<Policy />} />
+          <Route path="/reference" element={<Reference />} />
           <Route path="/batches" element={<Batches />} />
           <Route path="/batches/:id" element={<Batch />} />
           <Route path="/data" element={<Data />} />

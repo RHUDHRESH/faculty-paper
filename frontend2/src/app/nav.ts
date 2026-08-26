@@ -1,4 +1,5 @@
 import {
+  Library,
   CalendarClock,
   BarChart3,
   BookOpen,
@@ -285,6 +286,16 @@ export const NAV: NavItem[] = [
     roles: [...OFFICE, "FINANCE", "PRINCIPAL", "DIRECTOR"],
     group: "Set up",
     keywords: ["formula", "rates", "snip", "multiplier", "threshold"],
+  },
+  {
+    to: "/reference",
+    label: "Reference data",
+    icon: Library,
+    // Whoever may load prior payments may load these: it is the same
+    // question of who is trusted with the figures behind an amount.
+    roles: ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"],
+    group: "Set up",
+    keywords: ["scimago", "snip", "quartile", "journals", "import"],
   },
   {
     to: "/batches",

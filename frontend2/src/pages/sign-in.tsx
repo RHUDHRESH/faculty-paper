@@ -134,7 +134,7 @@ export function SignIn() {
           </Button>
         </form>
 
-        <GoogleButton onError={setError} />
+        <OtherWaysIn onError={setError} />
       </motion.div>
     </div>
   )
@@ -229,12 +229,7 @@ function GoogleButton({ onError }: { onError: (message: string | null) => void }
   if (!config?.enabled) return null
 
   return (
-    <div className="mt-5">
-      <div className="mb-4 flex items-center gap-3">
-        <span className="h-px flex-1 bg-line" />
-        <span className="text-xs text-fg-subtle">or</span>
-        <span className="h-px flex-1 bg-line" />
-      </div>
+    <div>
       {/* Google renders its own button in here; the height is reserved so the
           form does not jump when it arrives. */}
       <div ref={slot} className="grid min-h-10 place-items-center" />
@@ -261,4 +256,165 @@ type GoogleIdentity = {
       ) => void
     }
   }
+}
+
+
+/**
+ * Everything that is not the password form.
+ *
+ * The divider lives here rather than in each button, because two providers
+ * that each drew their own "or" produced two of them, and a college with
+ * neither configured got a rule across an empty space. This asks both what
+ * they are before drawing anything, and draws nothing if the answer is that
+ * the password form is the only way in.
+ */
+function OtherWaysIn({ onError }: { onError: (message: string | null) => void }) {
+  const [google, setGoogle] = useState<{ enabled: boolean } | null>(null)
+  const [clerk, setClerk] = useState<{ enabled: boolean } | null>(null)
+
+  useEffect(() => {
+    let live = true
+    // Neither failure is shown. Whether an alternative sign-in exists is not
+    // something the person in front of the screen can act on, and the
+    // password form below works either way.
+    void fetch("/api/auth/google/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => live && setGoogle(c))
+      .catch(() => {})
+    void fetch("/api/auth/clerk/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => live && setClerk(c))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+
+  if (!google?.enabled && !clerk?.enabled) return null
+
+  return (
+    <div className="mt-5 space-y-4">
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-line" />
+        <span className="text-xs text-fg-subtle">or</span>
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      <GoogleButton onError={onError} />
+      <ClerkButton onError={onError} />
+    </div>
+  )
+}
+
+type ClerkConfig = { enabled: boolean; publishable_key: string | null }
+
+/**
+ * Continue with Clerk.
+ *
+ * Clerk is the front door and nothing else: it opens its own sign-in, and
+ * what comes back is a token this app immediately trades for one of its own
+ * sessions. Nothing about a role, a department or an amount is ever asked of
+ * Clerk, because all of that decides who gets paid and belongs in one place.
+ *
+ * The SDK is imported dynamically so that a college not using Clerk never
+ * downloads it. Signing in this way never creates an account — an address
+ * Clerk knows and this college does not is refused, and says so.
+ */
+function ClerkButton({ onError }: { onError: (message: string | null) => void }) {
+  const { signInWithClerk } = useAuth()
+  const [config, setConfig] = useState<ClerkConfig | null>(null)
+  const [busy, setBusy] = useState(false)
+  const client = useRef<ClerkClient | null>(null)
+
+  useEffect(() => {
+    let live = true
+    void fetch("/api/auth/clerk/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c: ClerkConfig | null) => live && setConfig(c))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+
+  async function start() {
+    if (!config?.publishable_key) return
+    setBusy(true)
+    onError(null)
+    try {
+      if (!client.current) {
+        const { Clerk } = await import("@clerk/clerk-js")
+        const instance = new Clerk(config.publishable_key)
+        await instance.load()
+        client.current = instance as unknown as ClerkClient
+      }
+      const clerk = client.current
+
+      // Already signed in to Clerk from a previous visit: go straight to the
+      // exchange rather than showing a sign-in they do not need.
+      let token = clerk.session ? await clerk.session.getToken() : null
+
+      if (!token) {
+        token = await new Promise<string | null>((resolve) => {
+          const stop = clerk.addListener(({ session }) => {
+            if (!session) return
+            stop?.()
+            void session.getToken().then(resolve)
+          })
+          clerk.openSignIn({})
+        })
+      }
+
+      if (!token) {
+        setBusy(false)
+        return
+      }
+      await signInWithClerk(token)
+    } catch (err) {
+      // Clerk's own failures are phrased for whoever wired it up ("Clerk was
+      // not loaded with Ui components"), which is no use to somebody who
+      // only wants to get in. A load failure is reported as what it is --
+      // the sign-in did not open -- and the password form is still there.
+      const raw = err instanceof Error ? err.message : ""
+      const clerkFailedToLoad =
+        !raw || /clerk|ui components|failed to load|network/i.test(raw)
+      onError(
+        clerkFailedToLoad
+          ? "Clerk did not load, so that sign-in could not be opened. Use your email and password below, or try again."
+          : raw
+      )
+      setBusy(false)
+    }
+  }
+
+  if (!config?.enabled) return null
+
+  return (
+    <div>
+      <Button
+        kind="default"
+        size="lg"
+        className="w-full"
+        disabled={busy}
+        onClick={() => void start()}
+      >
+        {busy && <LoaderCircle className="animate-spin" />}
+        {busy ? "Signing in…" : "Continue with Clerk"}
+      </Button>
+      <p className="mt-3 text-xs text-fg-subtle">
+        Signs you in to an account that already exists here — it does not
+        create one.
+      </p>
+    </div>
+  )
+}
+
+/** The slice of clerk-js this page uses. */
+type ClerkClient = {
+  session: { getToken: () => Promise<string | null> } | null
+  openSignIn: (options: Record<string, unknown>) => void
+  addListener: (
+    handler: (payload: {
+      session: { getToken: () => Promise<string | null> } | null
+    }) => void
+  ) => (() => void) | undefined
 }

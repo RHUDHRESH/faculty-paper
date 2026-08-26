@@ -9904,6 +9904,266 @@ class CreateAccountWithoutAPasswordTests(TestCase):
         self.assertEqual(res.status_code, 403)
 
 
+class ClerkPublishableKeyTests(TestCase):
+    """The instance is read out of the publishable key, not configured twice.
+
+    Keeping the key and the instance host as two settings means they can drift
+    apart, and the failure that produces is an instance verifying tokens
+    against a different instance's signing keys.
+    """
+
+    def test_the_host_is_decoded_from_the_key(self):
+        import base64
+
+        from core.clerk import frontend_api_from_publishable_key
+
+        key = "pk_test_" + base64.b64encode(b"clerk.example.com$").decode()
+        self.assertEqual(frontend_api_from_publishable_key(key), "clerk.example.com")
+
+    def test_live_and_test_keys_both_work(self):
+        import base64
+
+        from core.clerk import frontend_api_from_publishable_key
+
+        encoded = base64.b64encode(b"clerk.sec.edu.in$").decode()
+        for prefix in ("pk_test_", "pk_live_"):
+            self.assertEqual(
+                frontend_api_from_publishable_key(prefix + encoded), "clerk.sec.edu.in"
+            )
+
+    def test_the_jwks_address_follows_from_it(self):
+        import base64
+
+        from core.clerk import jwks_url
+
+        key = "pk_test_" + base64.b64encode(b"clerk.example.com$").decode()
+        self.assertEqual(
+            jwks_url(key), "https://clerk.example.com/.well-known/jwks.json"
+        )
+
+    def test_rubbish_is_refused_rather_than_guessed_at(self):
+        from core.clerk import ClerkError, frontend_api_from_publishable_key
+
+        for bad in ("", "not-a-key", "sk_test_secret", "pk_test_!!!!"):
+            with self.assertRaises(ClerkError, msg=bad):
+                frontend_api_from_publishable_key(bad)
+
+
+class ClerkSignInTests(TestCase):
+    """Clerk says who somebody is. This system still says what they may do."""
+
+    def setUp(self):
+        self.faculty = User.objects.create_user(
+            email="clerk-fac@test.edu", password="pass", name="Clerk Faculty",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.client = Client()
+
+    def post(self, token="a.b.c"):
+        return self.client.post(
+            "/api/auth/clerk",
+            data=json.dumps({"token": token}),
+            content_type="application/json",
+        )
+
+    @override_settings(CLERK_PUBLISHABLE_KEY="")
+    def test_it_says_so_when_it_is_not_configured(self):
+        res = self.post()
+        self.assertEqual(res.status_code, 503)
+
+    @override_settings(CLERK_PUBLISHABLE_KEY="pk_test_Y2xlcmsuZXhhbXBsZS5jb20k")
+    def test_an_unverifiable_token_opens_nothing(self):
+        res = self.post("clearly-not-a-jwt")
+        self.assertEqual(res.status_code, 401)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    @override_settings(CLERK_PUBLISHABLE_KEY="pk_test_Y2xlcmsuZXhhbXBsZS5jb20k")
+    def test_an_address_with_no_account_here_is_refused(self):
+        """The rule that matters. Clerk authenticating somebody is not this
+        college having an account for them, and these accounts carry staff
+        ids and decide who gets paid."""
+        with patch("core.clerk.verify_clerk_token", return_value={
+            "iss": "https://clerk.example.com", "email": "stranger@elsewhere.com",
+        }):
+            res = self.post()
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("no account here", res.json()["detail"])
+        self.assertEqual(User.objects.filter(email="stranger@elsewhere.com").count(), 0)
+
+    @override_settings(CLERK_PUBLISHABLE_KEY="pk_test_Y2xlcmsuZXhhbXBsZS5jb20k")
+    def test_a_known_address_is_signed_in(self):
+        with patch("core.clerk.verify_clerk_token", return_value={
+            "iss": "https://clerk.example.com", "email": "clerk-fac@test.edu",
+        }):
+            res = self.post()
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        self.assertEqual(res.json()["email"], "clerk-fac@test.edu")
+        self.assertEqual(str(self.client.session["_auth_user_id"]), str(self.faculty.id))
+
+    @override_settings(CLERK_PUBLISHABLE_KEY="pk_test_Y2xlcmsuZXhhbXBsZS5jb20k")
+    def test_the_match_is_case_insensitive(self):
+        with patch("core.clerk.verify_clerk_token", return_value={
+            "iss": "https://clerk.example.com", "email": "Clerk-Fac@Test.edu",
+        }):
+            self.assertEqual(self.post().status_code, 200)
+
+    @override_settings(CLERK_PUBLISHABLE_KEY="pk_test_Y2xlcmsuZXhhbXBsZS5jb20k")
+    def test_a_deactivated_account_stays_shut(self):
+        self.faculty.active = False
+        self.faculty.save(update_fields=["active"])
+        with patch("core.clerk.verify_clerk_token", return_value={
+            "iss": "https://clerk.example.com", "email": "clerk-fac@test.edu",
+        }):
+            res = self.post()
+        self.assertEqual(res.status_code, 403)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    @override_settings(CLERK_PUBLISHABLE_KEY="pk_test_Y2xlcmsuZXhhbXBsZS5jb20k")
+    def test_a_token_with_no_email_says_what_is_wrong(self):
+        """Clerk's default session token carries no email; it is added by a
+        JWT template. Without this the sign-in verifies perfectly and then
+        matches nobody, which reads as the account being missing."""
+        with patch("core.clerk.verify_clerk_token", return_value={
+            "iss": "https://clerk.example.com", "sub": "user_123",
+        }):
+            res = self.post()
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("email claim", res.json()["detail"])
+
+    @override_settings(CLERK_PUBLISHABLE_KEY="pk_test_Y2xlcmsuZXhhbXBsZS5jb20k")
+    def test_the_role_comes_from_here_not_from_clerk(self):
+        """Clerk is the front door and nothing more. A token claiming a role
+        does not get one -- the role decides what may be approved and what
+        rupee figures are shown, and it lives in our table."""
+        with patch("core.clerk.verify_clerk_token", return_value={
+            "iss": "https://clerk.example.com",
+            "email": "clerk-fac@test.edu",
+            "role": "SUPER_ADMIN",
+            "department": "Finance",
+        }):
+            res = self.post()
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["role"], Role.FACULTY)
+        self.faculty.refresh_from_db()
+        self.assertEqual(self.faculty.role, Role.FACULTY)
+        self.assertEqual(self.faculty.department, "CSE")
+
+    @override_settings(CLERK_PUBLISHABLE_KEY="pk_test_Y2xlcmsuZXhhbXBsZS5jb20k")
+    def test_signing_in_is_on_the_record(self):
+        with patch("core.clerk.verify_clerk_token", return_value={
+            "iss": "https://clerk.example.com", "email": "clerk-fac@test.edu",
+        }):
+            self.post()
+        self.assertTrue(
+            AuditLog.objects.filter(action="LOGIN_CLERK", entity_id=self.faculty.id).exists()
+        )
+
+
+class ClerkIssuerTests(TestCase):
+    """A valid token from somebody else's Clerk instance is still theirs."""
+
+    def test_a_foreign_issuer_is_rejected(self):
+        import base64
+
+        import jwt
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        from core.clerk import ClerkError, verify_clerk_token
+
+        private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        token = jwt.encode(
+            {
+                "iss": "https://clerk.attacker.test",
+                "email": "clerk-fac@test.edu",
+                "iat": 1700000000,
+                "exp": 4102444800,
+            },
+            private,
+            algorithm="RS256",
+            headers={"kid": "test-key"},
+        )
+        key = "pk_test_" + base64.b64encode(b"clerk.example.com$").decode()
+
+        # The signature check passes -- this is the attacker's own key -- so
+        # the issuer check is the only thing standing between their instance
+        # and a session here.
+        with patch("core.clerk._signing_key", return_value=private.public_key()):
+            with self.assertRaises(ClerkError):
+                verify_clerk_token(token, key)
+
+    def test_an_expired_token_is_rejected(self):
+        import base64
+
+        import jwt
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        from core.clerk import ClerkError, verify_clerk_token
+
+        private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        token = jwt.encode(
+            {
+                "iss": "https://clerk.example.com",
+                "email": "clerk-fac@test.edu",
+                "iat": 1600000000,
+                "exp": 1600003600,
+            },
+            private,
+            algorithm="RS256",
+            headers={"kid": "test-key"},
+        )
+        key = "pk_test_" + base64.b64encode(b"clerk.example.com$").decode()
+        with patch("core.clerk._signing_key", return_value=private.public_key()):
+            with self.assertRaises(ClerkError):
+                verify_clerk_token(token, key)
+
+    def test_a_well_formed_token_from_this_instance_verifies(self):
+        import base64
+
+        import jwt
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        from core.clerk import email_from_claims, verify_clerk_token
+
+        private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        token = jwt.encode(
+            {
+                "iss": "https://clerk.example.com",
+                "email": "Clerk-Fac@Test.edu",
+                "iat": 1700000000,
+                "exp": 4102444800,
+            },
+            private,
+            algorithm="RS256",
+            headers={"kid": "test-key"},
+        )
+        key = "pk_test_" + base64.b64encode(b"clerk.example.com$").decode()
+        with patch("core.clerk._signing_key", return_value=private.public_key()):
+            claims = verify_clerk_token(token, key)
+        self.assertEqual(email_from_claims(claims), "clerk-fac@test.edu")
+
+
+class ClerkEmailClaimTests(TestCase):
+    """Instances name the email claim differently; several shapes are tried."""
+
+    def test_the_shapes_a_jwt_template_produces(self):
+        from core.clerk import email_from_claims
+
+        for claims in (
+            {"email": "a@test.edu"},
+            {"email_address": "a@test.edu"},
+            {"primary_email_address": "a@test.edu"},
+            {"user_email": "a@test.edu"},
+            {"user": {"email": "a@test.edu"}},
+        ):
+            self.assertEqual(email_from_claims(claims), "a@test.edu", str(claims))
+
+    def test_nothing_email_shaped_gives_nothing(self):
+        from core.clerk import email_from_claims
+
+        self.assertIsNone(email_from_claims({"sub": "user_123"}))
+        self.assertIsNone(email_from_claims({"email": "not-an-address"}))
+
+
 class StudentProjectClaimTests(TestCase):
     """A student-project claim reaches a team, and is refused without one.
 

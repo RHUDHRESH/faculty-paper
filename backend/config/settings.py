@@ -333,6 +333,13 @@ LOGGING = {
 #
 # Unset means the feature is off: /auth/google/config answers `enabled: false`
 # and the sign-in page draws the password form on its own.
+#: Clerk, when it is the front door. The *publishable* key only -- it is not
+#: a secret, it is already in the browser, and the instance's JWKS address is
+#: derivable from it, so verifying a Clerk sign-in needs nothing else. There
+#: is deliberately no CLERK_SECRET_KEY setting: a secret that is never read
+#: cannot be leaked by anything here.
+CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "")
+
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
 
 # Optional. Set to a Workspace domain to refuse anything else even where an

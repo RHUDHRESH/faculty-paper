@@ -17,3 +17,14 @@ django-storages[google]>=1.14
 # the ones who will paste it into a submission with a covering paragraph.
 reportlab>=4.2
 python-docx>=1.1
+
+# Sign-in providers. Both verify a token against the issuer's published keys
+# rather than holding a secret, so neither needs a credential in settings.
+#
+# google-auth was already imported by /auth/google and never declared here --
+# it arrives transitively through django-storages[google], which means the
+# Google sign-in worked by luck and would have broken the first time that
+# dependency was dropped or pinned differently.
+google-auth>=2.35
+PyJWT[crypto]>=2.9
+requests>=2.32

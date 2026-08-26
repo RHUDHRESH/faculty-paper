@@ -30,6 +30,8 @@ type Ctx = {
   signIn: (email: string, password: string) => Promise<void>
   /** Exchange a Google ID token for a session. Never creates an account. */
   signInWithGoogle: (credential: string) => Promise<void>
+  /** Exchange a Clerk session token for a session. Never creates an account. */
+  signInWithClerk: (token: string) => Promise<void>
   signOut: () => Promise<void>
 }
 
@@ -79,6 +81,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [refresh]
   )
 
+  const signInWithClerk = useCallback(
+    async (token: string) => {
+      // Clerk is the front door only. It says who this is; the session that
+      // comes back is ours, and every question of what they may do is
+      // answered from our own user table.
+      await api("/api/auth/clerk", { method: "POST", json: { token } })
+      forgetCsrf() // Django rotates it on login; the old one is already dead.
+      await refresh()
+    },
+    [refresh]
+  )
+
   const signOut = useCallback(async () => {
     try {
       await api("/api/auth/logout", { method: "POST" })
@@ -89,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ me, loading, refresh, signIn, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ me, loading, refresh, signIn, signInWithGoogle, signInWithClerk, signOut }}>
       {children}
     </AuthContext.Provider>
   )

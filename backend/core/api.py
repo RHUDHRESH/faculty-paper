@@ -1264,6 +1264,84 @@ def auth_google(request: HttpRequest, payload: GoogleSignInIn):
     return _me_dict(request, user)
 
 
+class ClerkSignInIn(Schema):
+    #: The session token the browser got from Clerk.
+    token: str
+
+
+@api.get("/auth/clerk/config", auth=None)
+def clerk_config(request: HttpRequest):
+    """What the sign-in page needs to start Clerk, or why it cannot.
+
+    Answered rather than left to fail, for the same reason as the Google one:
+    a button that renders, is pressed, and does nothing reads as the account
+    being broken rather than the feature being off.
+    """
+    key = (getattr(settings, "CLERK_PUBLISHABLE_KEY", "") or "").strip()
+    return {"enabled": bool(key), "publishable_key": key or None}
+
+
+@api.post("/auth/clerk", auth=None)
+def auth_clerk(request: HttpRequest, payload: ClerkSignInIn):
+    """Sign in with a Clerk session token, into an account that already exists.
+
+    Clerk is the front door and nothing more. It establishes that somebody is
+    who they say they are; everything about what they may then do -- the role,
+    the department, whether they see a rupee figure at all -- stays in our own
+    user table, because every one of those is part of deciding who gets paid.
+
+    The token is verified against the instance's published signing keys, and
+    its issuer is checked: a perfectly valid token from somebody else's Clerk
+    instance is still somebody else's token.
+
+    **No account is ever created here**, exactly as with Google. An address
+    Clerk recognises and this college does not is refused. Accounts carry
+    staff ids, biometric ids and a Scopus link, and putting a payable identity
+    behind a free signup form is not a thing that can be allowed.
+    """
+    from core import clerk as clerk_auth
+
+    key = (getattr(settings, "CLERK_PUBLISHABLE_KEY", "") or "").strip()
+    if not key:
+        raise HttpError(503, "Clerk sign-in is not configured on this server.")
+
+    try:
+        claims = clerk_auth.verify_clerk_token(payload.token, key)
+    except clerk_auth.ClerkError as exc:
+        logger.warning("clerk_signin_rejected")
+        raise HttpError(401, str(exc))
+
+    email = clerk_auth.email_from_claims(claims)
+    if not email:
+        # Clerk's default session token carries no email; it is added by a JWT
+        # template. Say so, because the alternative is a sign-in that verifies
+        # perfectly and then fails to match anybody, which reads as the
+        # account being missing rather than the instance being unconfigured.
+        raise HttpError(
+            403,
+            "That Clerk sign-in carried no email address, so it cannot be "
+            "matched to an account here. The Clerk session token needs an "
+            "email claim.",
+        )
+
+    user = User.objects.filter(email__iexact=email).first()
+    if user is None:
+        raise HttpError(
+            403,
+            f"There is no account here for {email}. Ask the research cell to "
+            "create one — signing in with Clerk does not make one.",
+        )
+    if not user.active:
+        raise HttpError(403, "That account is not active.")
+
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    clear_login_lockout(user.email)
+    AuditLog.objects.create(
+        actor=user, action="LOGIN_CLERK", entity="User", entity_id=user.id
+    )
+    return _me_dict(request, user)
+
+
 @api.post("/auth/logout", auth=session_auth)
 def auth_logout(request: HttpRequest):
     logout(request)

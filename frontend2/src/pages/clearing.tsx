@@ -13,6 +13,7 @@ import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { Combobox } from "@/ui/combobox"
 import {
   ConfirmDialog,
   Dialog,
@@ -23,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/dialog"
-import { Checkbox, Field, Textarea } from "@/ui/field"
+import { Checkbox, Field, Input, Textarea } from "@/ui/field"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
@@ -129,7 +130,14 @@ type QueueClaim = {
 
 // `status_note` carries the Principal's reason when a ticket is returned to
 // this queue. It is on the claim payload but was not in the queue row type.
-type ClaimDetail = QueueClaim & { actions?: ClaimAction[]; status_note?: string | null }
+type ClaimDetail = QueueClaim & {
+  actions?: ClaimAction[]
+  status_note?: string | null
+  //: Both come from `claim_to_dict`, which the sheet fetches in full — the
+  //: queue row this type was widened from simply does not carry them.
+  needs_second_approval?: boolean
+  cleared_by_name?: string | null
+}
 
 type RecalcResult = {
   remuneration: number | null
@@ -594,6 +602,9 @@ function TicketSheet({
 
   const [clearOpen, setClearOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
+  const [verifyOpen, setVerifyOpen] = useState(false)
+  const [secondOpen, setSecondOpen] = useState(false)
+  const [overrideOpen, setOverrideOpen] = useState(false)
 
   const duplicateMatches = parseJsonArray<DuplicateMatch>(claim?.duplicate_matches_json)
   const snapshot = parseJsonObject<{ issues?: string[] }>(claim?.verification_snapshot_json)
@@ -766,16 +777,44 @@ function TicketSheet({
               </section>
             </SheetBody>
 
-            {claim.status === "SUBMITTED" && (
-              <SheetFooter>
-                <Button kind="danger" onClick={() => setRejectOpen(true)}>
-                  Send it back
+            <SheetFooter className="flex-wrap gap-2">
+              {/* Manual verification: the lane for a paper the index cannot
+                  confirm. Without it such a claim can never be priced, and
+                  the Faults screen names this as the remedy. */}
+              {(claim.status === "SUBMITTED" || claim.status === "CLEARED") && (
+                <Button kind="quiet" onClick={() => setVerifyOpen(true)}>
+                  Enter verified values
                 </Button>
-                <Button kind="primary" onClick={() => setClearOpen(true)}>
-                  Clear
+              )}
+
+              {/* The second signature. It had no control anywhere, so a
+                  high-value claim that needed one could never receive it and
+                  was permanently unpayable. */}
+              {claim.needs_second_approval && (
+                <Button kind="default" onClick={() => setSecondOpen(true)}>
+                  Add second signature
                 </Button>
-              </SheetFooter>
-            )}
+              )}
+
+              {/* Stranded on a retired ERP status: nothing in the live chain
+                  can act on it until somebody moves it back. */}
+              {LEGACY_STATUSES.includes(claim.status) && (
+                <Button kind="quiet" onClick={() => setOverrideOpen(true)}>
+                  Unstick this status
+                </Button>
+              )}
+
+              {claim.status === "SUBMITTED" && (
+                <>
+                  <Button kind="danger" onClick={() => setRejectOpen(true)}>
+                    Send it back
+                  </Button>
+                  <Button kind="primary" onClick={() => setClearOpen(true)}>
+                    Clear
+                  </Button>
+                </>
+              )}
+            </SheetFooter>
 
             <ClearDialog
               claim={claim}
@@ -785,6 +824,18 @@ function TicketSheet({
               onCleared={onClose}
             />
             <RejectDialog claim={claim} open={rejectOpen} onOpenChange={setRejectOpen} onRejected={onClose} />
+            <ManualVerifyDialog claim={claim} open={verifyOpen} onOpenChange={setVerifyOpen} />
+            <SecondSignatureDialog
+              claim={claim}
+              open={secondOpen}
+              onOpenChange={setSecondOpen}
+            />
+            <OverrideStatusDialog
+              claim={claim}
+              open={overrideOpen}
+              onOpenChange={setOverrideOpen}
+              onDone={onClose}
+            />
           </>
         ) : null}
       </SheetContent>
@@ -1172,4 +1223,323 @@ function actionSentence(a: ClaimAction): string {
     }
   })()
   return a.note ? `${base} — ${a.note}` : base
+}
+
+
+/* ------------------------------------------------------------------------ */
+/* The three actions that had no control                                    */
+/* ------------------------------------------------------------------------ */
+
+//: Statuses the ERP import writes that nothing in the live chain can act on.
+const LEGACY_STATUSES = ["HOD_APPROVED", "RESEARCH_APPROVED", "FINANCE_APPROVED"]
+
+const QUARTILES = ["Q1", "Q2", "Q3", "Q4"]
+
+/**
+ * Manual verification — the lane for a paper Scopus and Scimago cannot confirm.
+ *
+ * Without it the amount is either computed from the claimant's own declaration
+ * or not computed at all, so a perfectly good paper in a journal our reference
+ * data does not recognise sits unpriced forever. The note is mandatory on the
+ * server because somebody is typing a number that decides a payment, and a
+ * year later the only account of why is this sentence.
+ */
+function ManualVerifyDialog({
+  claim,
+  open,
+  onOpenChange,
+}: {
+  claim: ClaimDetail
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const [snip, setSnip] = useState("")
+  const [quartile, setQuartile] = useState("")
+  const [note, setNote] = useState("")
+
+  useEffect(() => {
+    if (!open) return
+    setSnip(claim.snip != null ? String(claim.snip) : "")
+    setQuartile(claim.quartile || "")
+    setNote("")
+  }, [open, claim])
+
+  const save = useApiMutation<
+    { snip?: number; quartile?: string; note: string },
+    unknown
+  >(`/api/admin/claims/${claim.id}/set-verified`, {
+    invalidates: [["claim", claim.id], ["clearing-queue"]],
+  })
+
+  const trimmed = note.trim()
+  const tooShort = trimmed.length > 0 && trimmed.length < 10
+  const parsedSnip = Number.parseFloat(snip)
+  const snipBad = snip.trim() !== "" && !Number.isFinite(parsedSnip)
+  const canSubmit = trimmed.length >= 10 && !snipBad && !save.isPending
+
+  async function submit() {
+    try {
+      await save.mutateAsync({
+        snip: snip.trim() === "" ? undefined : parsedSnip,
+        quartile: quartile || undefined,
+        note: trimmed,
+      })
+      toast.ok("Verified values recorded — the amount has been recalculated")
+      onOpenChange(false)
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Enter verified values</DialogTitle>
+          <DialogDescription>
+            For a journal the index cannot confirm. What you enter is treated as
+            verified and the amount is worked out from it.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <Callout tone="caution" title="This replaces the claimant's own declaration">
+            Values entered here are marked MANUAL and survive re-verification, so they
+            decide the payment from now on.
+          </Callout>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="SNIP" error={snipBad ? "That is not a number." : undefined}>
+              <Input value={snip} onChange={(e) => setSnip(e.target.value)} placeholder="1.205" />
+            </Field>
+            <Field label="Quartile">
+              <Combobox
+                value={quartile}
+                onChange={setQuartile}
+                options={[
+                  { value: "", label: "Leave as it is" },
+                  ...QUARTILES.map((q) => ({ value: q, label: q })),
+                ]}
+              />
+            </Field>
+          </div>
+
+          <Field
+            label="Where these came from"
+            hint="A citation somebody auditing this can follow. At least 10 characters."
+            error={tooShort ? "At least 10 characters." : undefined}
+          >
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+              placeholder="SNIP 1.205 from the 2025 CWTS list; the journal is not in our Scimago dump"
+            />
+          </Field>
+        </DialogBody>
+        <DialogFooter>
+          <Button kind="quiet" onClick={() => onOpenChange(false)} disabled={save.isPending}>
+            Cancel
+          </Button>
+          <Button kind="primary" disabled={!canSubmit} onClick={() => void submit()}>
+            {save.isPending ? "Saving…" : "Record and recalculate"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * The second signature on a high-value claim.
+ *
+ * It had no control anywhere in this app, so a claim over the threshold could
+ * never receive one and Finance refused it forever — the queue looked like
+ * work and was a dead end. The server refuses the signature if it comes from
+ * whoever cleared the ticket, which is the entire point of asking for it.
+ */
+function SecondSignatureDialog({
+  claim,
+  open,
+  onOpenChange,
+}: {
+  claim: ClaimDetail
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { me } = useAuth()
+  const [note, setNote] = useState("")
+
+  useEffect(() => {
+    if (open) setNote("")
+  }, [open])
+
+  const sign = useApiMutation<{ note?: string; expected_amount?: number }, unknown>(
+    `/api/claims/${claim.id}/second-approve`,
+    { invalidates: [["claim", claim.id], ["clearing-queue"], ["payouts"]] }
+  )
+
+  const selfCleared = Boolean(
+    me?.name && claim.cleared_by_name && me.name === claim.cleared_by_name
+  )
+
+  async function submit() {
+    try {
+      await sign.mutateAsync({
+        note: note.trim() || undefined,
+        expected_amount: claim.remuneration ?? undefined,
+      })
+      toast.ok(`Second signature recorded — ${money(claim.remuneration)} can now be paid`)
+      onOpenChange(false)
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Add the second signature</DialogTitle>
+          <DialogDescription>
+            {claim.owner_name} · {money(claim.remuneration)}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          {selfCleared ? (
+            <Callout tone="critical" title="You cleared this ticket">
+              The second signature has to come from somebody else — that is the whole
+              reason it is asked for. The server will refuse it from you.
+            </Callout>
+          ) : (
+            <Callout tone="info" title="What this does">
+              It confirms the amount as a second, different pair of eyes. Finance cannot
+              pay this claim until somebody other than {claim.cleared_by_name || "whoever cleared it"} has.
+            </Callout>
+          )}
+
+          <Field label="Note" hint="Optional — what you checked.">
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+          </Field>
+        </DialogBody>
+        <DialogFooter>
+          <Button kind="quiet" onClick={() => onOpenChange(false)} disabled={sign.isPending}>
+            Cancel
+          </Button>
+          <Button
+            kind="primary"
+            disabled={selfCleared || sign.isPending}
+            onClick={() => void submit()}
+          >
+            {sign.isPending ? "Signing…" : "Sign it"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * Unsticking a ticket stranded on a retired ERP status.
+ *
+ * The import wrote statuses like HOD_APPROVED that nothing in the live chain
+ * can act on — such a ticket could not be cleared, paid, or even sent back.
+ * The Faults screen has been naming this as the fix while offering no way to
+ * do it.
+ */
+function OverrideStatusDialog({
+  claim,
+  open,
+  onOpenChange,
+  onDone,
+}: {
+  claim: ClaimDetail
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onDone: () => void
+}) {
+  const [to, setTo] = useState("SUBMITTED")
+  const [note, setNote] = useState("")
+
+  useEffect(() => {
+    if (!open) return
+    setTo("SUBMITTED")
+    setNote("")
+  }, [open])
+
+  const override = useApiMutation<{ to_status: string; note: string }, unknown>(
+    `/api/admin/claims/${claim.id}/override-status`,
+    { invalidates: [["claim", claim.id], ["clearing-queue"], ["admin", "faults"]] }
+  )
+
+  const trimmed = note.trim()
+  const tooShort = trimmed.length > 0 && trimmed.length < 10
+
+  async function submit() {
+    try {
+      await override.mutateAsync({ to_status: to, note: trimmed })
+      toast.ok(`Moved to ${to.replace(/_/g, " ").toLowerCase()} — it can be worked on again`)
+      onOpenChange(false)
+      onDone()
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Move this off a retired status</DialogTitle>
+          <DialogDescription>
+            It is on {claim.status.replace(/_/g, " ").toLowerCase()}, which the current
+            chain has no step for.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <Callout tone="caution" title="Cleared is not a shortcut to paid">
+            Moving it to Cleared puts it back in the chain at the checking step — it still
+            has to be approved and authorised before Finance can pay it, and the amount is
+            recomputed rather than taken from the import.
+          </Callout>
+
+          <Field label="Move it to">
+            <Combobox
+              value={to}
+              onChange={setTo}
+              options={[
+                { value: "SUBMITTED", label: "Filed — back in the clearing queue" },
+                { value: "CLEARED", label: "Checked — waiting on the Principal" },
+                { value: "REJECTED", label: "Sent back to the claimant" },
+              ]}
+            />
+          </Field>
+
+          <Field
+            label="Why"
+            hint="Recorded against your name. At least 10 characters."
+            error={tooShort ? "At least 10 characters." : undefined}
+          >
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+              placeholder="Imported from the ERP on a status this chain retired; putting it back for checking"
+            />
+          </Field>
+        </DialogBody>
+        <DialogFooter>
+          <Button kind="quiet" onClick={() => onOpenChange(false)} disabled={override.isPending}>
+            Cancel
+          </Button>
+          <Button
+            kind="primary"
+            disabled={trimmed.length < 10 || override.isPending}
+            onClick={() => void submit()}
+          >
+            {override.isPending ? "Moving…" : "Move it"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }

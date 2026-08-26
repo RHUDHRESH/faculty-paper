@@ -43,7 +43,13 @@ export function FacultyHome() {
   const claims = data?.results || []
   const paid = claims.filter((c) => c.status === "PAID")
   const owed = claims.filter((c) =>
-    ["CLEARED", "PRINCIPAL_APPROVED", "FINANCE_APPROVED", "RESEARCH_APPROVED"].includes(c.status)
+    [
+      "CLEARED",
+      "PRINCIPAL_APPROVED",
+      "DIRECTOR_APPROVED",
+      "FINANCE_APPROVED",
+      "RESEARCH_APPROVED",
+    ].includes(c.status)
   )
   const needsYou = claims.filter((c) => c.status === "DRAFT" || c.status === "REJECTED")
   // Whatever is not already called out above. Newest first, because a

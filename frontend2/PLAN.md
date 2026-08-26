@@ -54,8 +54,10 @@ These are **enforced server-side** and no frontend can weaken them. They are
 listed so the rebuild is checked against them, not so they are re-implemented.
 
 - Money-blindness for HOD accounts — every money key stripped on the server.
-- The four-step chain: Filed → Checked → Approved → Paid. Finance cannot see a
-  ticket until the Principal has approved it.
+- The five-step chain: Filed → Checked → Approved → Authorised → Paid.
+  Faculty file, the admin office checks, the Principal approves the spend, the
+  Director authorises it, Finance pays. Finance cannot see a ticket until the
+  Director has authorised it, and `PRINCIPAL_APPROVED` is not payable.
 - Duplicate-payment detection and the second-approver rule on high-value claims.
 - A paid publication, a ledger row and the audit log cannot be deleted.
 - Identity fields are super-admin-only; a claimant may only *request* a change.
@@ -92,12 +94,12 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
 | 2.1 | Sign in | `/` when signed out | ✅ | Two fields. Password revealable, caps-lock warned — your issued passwords are 24 random characters typed off paper |
-| 2.2 | Set a new password | modal | ⬜ | Forced on first sign-in. Must close when it succeeds — the old one did not |
+| 2.2 | Set a new password | modal | ✅ | Forced on first sign-in. Must close when it succeeds — the old one did not |
 | 2.3 | Your profile | `/me` | ✅ | Identity read-only, and it says why rather than just refusing |
 | 2.4 | Request a correction | `/me` | ✅ | One open request per field; a decline shows its reason |
-| 2.5 | Notifications | panel | ⬜ | Unread count, deep links that land on the thing |
-| 2.6 | Calendar | `/calendar` | 🆕 ⬜ | Payout runs, submission windows, your own deadlines |
-| 2.7 | Not-found / no-access | `*` | ⬜ | Says which, and offers the way back |
+| 2.5 | Notifications | panel | ✅ | Bell with unread count, 45s poll, deep links translated to routes that exist |
+| 2.6 | Calendar | `/calendar` | 🆕 ✅ | Months as lists not a grid of empty squares; spans read as spans; an event can come out of a thread |
+| 2.7 | Not-found / no-access | `*` | ✅ | Says which, and offers the way back |
 
 ---
 
@@ -109,7 +111,16 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | 3.2 | My papers | `/papers` | ✅ | Stage chips counted in one query, filters held in the URL, estimates flagged |
 | 3.3 | Paper detail | `/papers/:id` | ✅ | Where it is, what to fix, why the amount, what happened — in that order |
 | 3.4 | **File a paper** | `/papers/new` | ✅ | Five steps, DOI lookup, duplicate check, autosave, estimate labelled as one |
-| 3.5 | Withdraw / edit a draft | `/papers/:id` | ⬜ | A submitted paper can be pulled back before it is checked |
+| 3.4a | Standing readiness panel | `/papers/new` | ✅ | The estimate and everything still missing, on every step — not only the last |
+| 3.4b | The two silent-zero rules | `/papers/new` | ✅ | Too many authors, too few SEC references. Read from the live policy, said **before** filing |
+| 3.4c | File it for the record instead | `/papers/new` | ✅ | Offered when the paper cannot be paid for, rather than leaving somebody to file for money they will not get |
+| 3.4d | DOI and ISSN tidied on entry | `/papers/new` | ✅ | A pasted doi.org URL, and the seven-digit ISSN a spreadsheet leaves behind |
+| 3.4e | Year checked against the index | `/papers/new` | ✅ | The commonest reason a paper is sent back |
+| 3.4f | Duplicate check from step one | `/papers/new` | ✅ | Was step five, after all the typing |
+| 3.4g | Repeated evidence named on the file | `/papers/new` | ✅ | Was a four-second toast |
+| 3.4h | Carry on with a draft | `/papers/new` | ✅ | Autosave always kept it; nothing ever offered it back |
+| 3.4i | Pre-flight list | `/papers/new` | ✅ | Every rule and whether this paper satisfies it, including the ones it passes |
+| 3.5 | Withdraw / edit a draft | `/papers/:id` | ✅ |Wired in `paper-detail.tsx` — a submitted paper is pulled back with `/withdraw` |
 | 3.6 | Why was this the amount | `/papers/:id` | ⬜ | The formula shown against this paper's own numbers |
 | 3.7 | Sent back — what to fix | `/papers/:id` | ⬜ | The reason, at the top, with the fields it concerns marked |
 
@@ -119,23 +130,40 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
-| 4.1 | Home | `/` | ⬜ | What is stuck, what is waiting, what moved |
+| 4.1 | Home | `/` | ✅ | What is stuck, what is waiting, what moved |
 | 4.2 | **Clearing queue** | `/clearing` | ✅ | Oldest first, full-width titles, keyboard, bulk clear with a running total and per-row skips |
-| 4.3 | Review one ticket | `/clearing?t=` | ⬜ | Verification, the money, the history, clear or send back |
+| 4.3 | Review one ticket | `/clearing?t=` | ✅ |The ticket sheet in `clearing.tsx` — verification, money, history, clear or send back |
 | 4.4 | Manual verification | in review | ⬜ | When Scopus cannot confirm, enter verified values with a source note |
 | 4.5 | File for someone | `/papers/new?for=` | ⬜ | Same wizard, on behalf of a claimant |
 | 4.6 | People | `/people` | ✅ | Search, role and department filters that compound, paged server-side |
 | 4.7 | Person record | `/people/:id` | ✅ | Totals and three charts off the report endpoint; papers link through |
+| 4.7a | **Edit an account** | `/people/:id` | ✅ | Department, role and active for the office; identity fields super-admin only, shown disabled with the reason |
+| 4.7b | Set a password | `/people/:id` | ✅ | A handover value that forces a change on first sign-in, and clears a lockout |
 | 4.8 | Profile requests | `/requests` | ✅ | Pending first; identity rows are super-admin only; a decline shows its reason |
 | 4.9 | Faults | `/faults` | ✅ | Grouped, every row openable, empty reads as good news |
-| 4.10 | Duplicates | `/duplicates` | ⬜ | Same paper paid twice; evidence, and a decision |
+| 4.10 | Duplicates | `/duplicates` | ✅ | Same paper paid twice; evidence, and a decision |
 | 4.11 | Audit log | `/audit` | ✅ | Append-only, no edit affordance, before/after diffs, action codes as sentences |
 | 4.12 | Monthly run | `/policy/monthly` | ⬜ | Batch processing with progress and resumability |
 | 4.13 | ERP import | `/policy/import` | ⬜ | Upload, preview, apply, with the row-level report |
 | 4.14 | Journal reference data | `/policy/journals` | ⬜ | SCImago and SNIP dumps, sync and status |
-| 4.15 | Policy / formula | `/policy` | ⬜ | Rates, multipliers, thresholds — versioned, with effect dates |
-| 4.16 | Data explorer | `/data` | ⬜ | 19 tables, correctable reference values |
-| 4.17 | Delete a row · empty the system | `/data` | ⬜ | Both refuse anything carrying a payment |
+| 4.15 | Policy / formula | `/policy` | ✅ | Rates, multipliers, thresholds — versioned, with effect dates |
+| 4.16 | Data explorer | `/data` | ✅ | 19 tables, correctable reference values |
+| 4.17 | Delete a row · empty the system | `/data` | ✅ | Both refuse anything carrying a payment |
+
+---
+
+## 6a. Screens — director 🆕
+
+Sits between the Principal and Finance. Approving the spend and authorising it
+against the institution's position are two decisions taken by two people, and
+Finance pays only what carries the second.
+
+| # | Screen | Route | Status | What it is for |
+|---|---|---|---|---|
+| 5a.1 | **Home** | `/` | ✅ | Executive summary: what is waiting on your signature, what it is worth, what the institution researches |
+| 5a.2 | **Authorisations** | `/authorisations` | ✅ | Wait-time first, running total, 409 amount guard, bulk with per-row skips |
+| 5a.3 | Send back to the Principal | on a row | ✅ | Withdraws the approval it is querying; goes back one step, never to the claimant |
+| 5a.4 | What we research | `/` | ✅ | Subject areas with their quartile split, and the coverage figure beside them |
 
 ---
 
@@ -143,7 +171,7 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
-| 5.1 | Home | `/` | ⬜ | What is waiting on her, and what the college is doing |
+| 5.1 | Home | `/` | ✅ | What is waiting on her, and what the college is doing |
 | 5.2 | **Approvals** | `/approvals` | ✅ | Wait-time first, running total, 409 amount guard, second-signature shown read-only |
 | 5.3 | Every ticket | `/publications` | ✅ | Shared with the query screen; HOD branches to their own endpoint |
 | 5.4 | Comment to the research cell | on a ticket | ⬜ | Private to the office; not part of the claimant's history |
@@ -154,12 +182,12 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
-| 6.1 | Home | `/` | ⬜ | What is payable, what it totals, what is blocked |
+| 6.1 | Home | `/` | ✅ | What is payable, what it totals, what is blocked |
 | 6.2 | **Payment orders** | `/payments` | ✅ | Bulk pay with per-row vouchers kept in sessionStorage; 409 shows both figures |
 | 6.3 | Processed | `/payments/done` | ✅ | Vouchers and dates; void writes a reversing row, never a delete |
-| 6.4 | Void a payment | on a row | ⬜ | Writes a reversing ledger entry; never deletes |
-| 6.5 | Ledger | `/ledger` | ⬜ | Every movement, exportable |
-| 6.6 | Budget | `/budget` | ⬜ | Allocation against spend, per year |
+| 6.4 | Void a payment | on a row | ✅ |In `payments.tsx` — writes a reversing ledger row, never deletes |
+| 6.5 | Ledger | `/ledger` | ✅ | Every movement, exportable |
+| 6.6 | Budget | `/budget` | ✅ | Allocation against spend, per year |
 
 ---
 
@@ -169,9 +197,13 @@ Money-blind throughout. Enforced on the server, not by hiding columns.
 
 | # | Screen | Route | Status | What it is for |
 |---|---|---|---|---|
-| 7.1 | Home | `/` | ⬜ | The department's output, staff who published, staff who did not |
-| 7.2 | Department publications | `/publications` | ⬜ | Scoped to their own department, no money, downloadable |
-| 7.3 | Staff | `/people` | ⬜ | Their own staff, publications and first-authorship only |
+| 7.1 | Home | `/` | ✅ | The department's output, staff who published, staff who did not, and where the department sits |
+| 7.2 | Department publications | `/publications` | ✅ |`HodQuery` in `publications.tsx`, on `/api/hod/publications`, with its own export |
+| 7.3 | Staff | `/people` | ✅ |The people table on `/department`, plus `HodPerson` for one of them |
+| 7.4 | **My department** | `/department` | ✅ | Standing against the college, targets, the people, and where the lift is |
+| 7.5 | Standing against the college | `/department` | ✅ | Position, share, Q1 rate and papers per head beside the college's. Names no other department |
+| 7.6 | Targets | `/department` | ✅ | Set them for the department or for one person; progress counted live from filed work |
+| 7.7 | Where the lift is | `/department` | ✅ | Who has filed nothing, who has no Q1, who never leads, papers that would fail accreditation, lowest journals |
 
 ---
 
@@ -184,8 +216,10 @@ Money-blind throughout. Enforced on the server, not by hiding columns.
 | 8.3 | Report drill-down | panel | ⬜ | Opens over the page. Escape returns you where you were |
 | 8.4 | Journal record | `/journals/:title` | ✅ | Standing, subjects, who publishes there; says when no SNIP is held |
 | 8.5 | Journals index | `/journals` | ✅ | Most-used first, searchable |
-| 8.6 | Accreditation | `/accreditation` | ⬜ | NAAC/NIRF tables, what would fail, correct it here |
-| 8.7 | Exports | throughout | ⬜ | xlsx · csv · json · pdf · docx, of exactly what is on screen |
+| 8.6 | Accreditation | `/accreditation` | ✅ | NAAC/NIRF tables, what would fail, correct it here |
+| 8.7 | Exports | throughout | ✅ | xlsx · csv · json · pdf · docx, of exactly what is on screen |
+| 8.8 | **Build a report** | `/reports/build` | ✅ | Pick the breakdowns, filter, chart or table, download the same thing you are looking at |
+| 8.9 | Designed workbooks | in every export | ✅ | Cover sheet, banded rows, rupee and count formats, frozen head, autofilter, fits a printed page |
 
 ---
 
@@ -194,15 +228,33 @@ Money-blind throughout. Enforced on the server, not by hiding columns.
 The three things that make this more than a claims system. **All three need
 backend work that does not exist yet.**
 
+### 10.0 My research — the programme page ✅
+
+| # | Feature | Status | Needs |
+|---|---|---|---|
+| 9.0a | Your areas, from what you filed | ✅ | `subjects_json`, parsed once server-side |
+| 9.0b | Lately in your field | ✅ | OpenAlex + Crossref + arXiv — keyless, priced by our own tables |
+| 9.0c | Who else here works on it | ✅ | Derived from shared subject areas |
+| 9.0d | What colleagues filed recently | ✅ | Same derivation. Carries no money, enforced server-side |
+
+**None of it needs an API key.** The Gemini features degrade to "switched off"
+without credits; this does not, which is the point — "what should I work on
+and who with" is too central to be the first thing that breaks when a billing
+account lapses.
+
 ### 10.1 Discover — help me find something to publish
 
 | # | Feature | Status | Needs |
 |---|---|---|---|
-| 9.1 | Pick your interest domains | ⬜ | `ResearchInterest` model |
-| 9.2 | What is new in your areas | ⬜ | Gemini + a source of recent work |
-| 9.3 | Topic suggestions from your own record | ⬜ | Gemini, prompted with your papers and journals |
-| 9.4 | Journals that fit a topic | ⬜ | Existing SCImago data + matching |
+| 9.1 | Pick your interest domains | ✅ | The picker in `discover.tsx`, on `/api/me/interests`. Needs no key |
+| 9.2 | What is new in your areas | ✅ (off) | Gemini + a source of recent work |
+| 9.3 | Topic suggestions from your own record | ✅ (off) | Gemini, prompted with your papers and journals |
+| 9.4 | Journals that fit a topic | ✅ (off) | Existing SCImago data + matching |
 | 9.5 | Calls for papers / deadlines | ⬜ | Feeds into the calendar |
+
+**✅ (off)** means the screen is built and wired; the Gemini account's prepay
+credits are depleted, so those calls answer 503 and the page says the feature
+is switched off. That is a billing state, not work outstanding.
 
 **Explicitly not built:** a chatbot, and analysis of what you have already
 filed. You asked for ideas and what is new, not a conversation.
@@ -224,15 +276,19 @@ detector already matches on DOI and normalised title.
 
 ### 10.3 Discussions — the forum
 
+Not a chat feature. A thread names the things it is about — a journal, a
+paper, a person, a department — and `@agent` answers about them from our own
+records and the keyless scholarly sources, with no model involved.
+
 | # | Feature | Status | Needs |
 |---|---|---|---|
-| 11.1 | Threads by topic / interest area | ⬜ | `Thread`, `Post` models |
-| 11.2 | Post, reply, edit, delete own | ⬜ | Same models |
-| 11.3 | Ask the admin — private to the office | ⬜ | Thread visibility field |
-| 11.4 | Follow a thread, notifications | ⬜ | `Subscription` model |
-| 11.5 | Mentions | ⬜ | Parsing + notification |
-| 11.6 | Attach a paper or journal to a thread | ⬜ | Reference field |
-| 11.7 | Moderation | ⬜ | Admin controls, audit entries |
+| 11.1 | Threads by topic / interest area | ✅ | List, filters, three visibilities |
+| 11.2 | Post, reply, edit, delete own | ✅ | A deleted post leaves a tombstone |
+| 11.3 | Ask the admin — private to the office | ✅ | `OFFICE` visibility, in the composer |
+| 11.4 | Follow a thread, notifications | ✅ | Follow/unfollow, and the bell now reads them |
+| 11.5 | Mentions | ✅ | `@` autocomplete, resolved chips linking to the record |
+| 11.6 | Attach a paper or journal to a thread | ✅ | Shown as links on the thread |
+| 11.7 | Moderation | ✅ | Lock and delete, both audited |
 
 ---
 

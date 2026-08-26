@@ -2,7 +2,15 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 
 import { api, forgetCsrf } from "@/lib/api"
 
-export type Role = "FACULTY" | "HOD" | "PRINCIPAL" | "FINANCE" | "SUPER_ADMIN" | "RESEARCH_CELL"
+export type Role =
+  | "FACULTY"
+  | "HOD"
+  | "PRINCIPAL"
+  | "DIRECTOR"
+  | "RESEARCH_COORDINATOR"
+  | "FINANCE"
+  | "SUPER_ADMIN"
+  | "RESEARCH_CELL"
 
 export type Me = {
   id: string
@@ -83,7 +91,11 @@ export function useAuth() {
  *  reason about roles inline and get it subtly different from its neighbour. */
 export function can(role: Role | undefined) {
   const r = role
-  const office = r === "SUPER_ADMIN" || r === "RESEARCH_CELL"
+  // Mirrors `rbac.ADMIN_ROLES`. The coordinator checks papers beside the
+  // admin office rather than after it, so anything the office may do to a
+  // filed paper, a coordinator may do.
+  const office =
+    r === "SUPER_ADMIN" || r === "RESEARCH_CELL" || r === "RESEARCH_COORDINATOR"
   return {
     /** Money is not a head of department's business, anywhere. */
     seeMoney: !!r && r !== "HOD",
@@ -99,6 +111,12 @@ export function can(role: Role | undefined) {
     // to keep payments moving while a post is vacant or a person is away.
     /** `_may_approve_as_principal` */
     approve: r === "PRINCIPAL" || r === "SUPER_ADMIN",
+    /**
+     * `rbac.can_approve_as_director` — the step between the Principal and
+     * Finance. The Principal agrees the spend; the Director authorises it,
+     * and Finance pays only what carries that authorisation.
+     */
+    authorise: r === "DIRECTOR" || r === "SUPER_ADMIN",
     /** `rbac.can_approve_as_finance` */
     pay: r === "FINANCE" || r === "SUPER_ADMIN",
     /** `rbac.can_clear_claims` */
@@ -106,7 +124,18 @@ export function can(role: Role | undefined) {
     /** `rbac.can_manage_users` */
     manageUsers: office,
     /** `rbac.can_view_audit` */
-    viewAudit: office || r === "PRINCIPAL" || r === "FINANCE",
+    viewAudit: office || r === "PRINCIPAL" || r === "DIRECTOR" || r === "FINANCE",
+    /**
+     * `rbac.can_view_reports` — the gate on the ledger, the budget, the
+     * duplicate findings and both report endpoints. Note who is *not* here:
+     * a head of department, who is refused all of them outright and has
+     * `/api/hod/*` instead. A screen that offers a head one of these gets
+     * them a 403, which reads as a broken account rather than as a screen
+     * that was never theirs.
+     */
+    viewReports: office || r === "PRINCIPAL" || r === "DIRECTOR" || r === "FINANCE",
+    /** `budgets` and `duplicate-findings` writes: ADMIN_ROLES or Finance. */
+    manageMoney: office || r === "FINANCE",
 
     seeCollege: !!r && r !== "FACULTY",
     seeDepartment: r === "HOD",

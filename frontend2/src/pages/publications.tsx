@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
-  ChevronLeft,
-  ChevronRight,
   Download,
   FileSearch,
   Search,
@@ -21,6 +19,7 @@ import { Table, type Column } from "@/ui/table"
 import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 import { money, Stage, stageOf } from "@/ui/paper"
+import { Pagination } from "@/ui/pagination"
 import {
   Sheet,
   SheetBody,
@@ -123,6 +122,7 @@ const STATUS_OPTIONS: ComboboxOption[] = [
   { value: "SUBMITTED", label: "Filed" },
   { value: "CLEARED", label: "Checked" },
   { value: "PRINCIPAL_APPROVED", label: "Approved" },
+  { value: "DIRECTOR_APPROVED", label: "Authorised" },
   { value: "PAID", label: "Paid" },
   { value: "REJECTED", label: "Sent back" },
   { value: "HOD_APPROVED", label: "Filed (legacy chain)" },
@@ -967,44 +967,3 @@ function HodQuery({ department }: { department: string | null }) {
 /* Shared display pieces                                                    */
 /* ------------------------------------------------------------------------ */
 
-/** `total`/`limit`/`offset` off the envelope, turned into page controls —
- *  matches `papers.tsx`'s `Pagination`, redeclared here for the same reason
- *  as everything else above: this file may not import from that one. */
-function Pagination({
-  page,
-  pageSize,
-  total,
-  onChange,
-}: {
-  page: number
-  pageSize: number
-  total: number
-  onChange: (page: number) => void
-}) {
-  if (total <= pageSize) return null
-
-  const pageCount = Math.max(1, Math.ceil(total / pageSize))
-  const start = page * pageSize + 1
-  const end = Math.min(total, (page + 1) * pageSize)
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-      <Meta>
-        {start}–{end} of {total}
-      </Meta>
-      <div className="flex items-center gap-1">
-        <Button kind="quiet" size="sm" onClick={() => onChange(page - 1)} disabled={page === 0}>
-          <ChevronLeft />
-          Previous
-        </Button>
-        <Meta className="px-1 tabular">
-          Page {page + 1} of {pageCount}
-        </Meta>
-        <Button kind="quiet" size="sm" onClick={() => onChange(page + 1)} disabled={page + 1 >= pageCount}>
-          Next
-          <ChevronRight />
-        </Button>
-      </div>
-    </div>
-  )
-}

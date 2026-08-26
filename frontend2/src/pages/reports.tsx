@@ -344,7 +344,13 @@ function CollegeReports() {
                 openDrill({
                   label: "Awaiting payment",
                   filters: scope,
-                  statuses: ["CLEARED", "PRINCIPAL_APPROVED", "RESEARCH_APPROVED", "FINANCE_APPROVED"],
+                  statuses: [
+                    "CLEARED",
+                    "PRINCIPAL_APPROVED",
+                    "DIRECTOR_APPROVED",
+                    "RESEARCH_APPROVED",
+                    "FINANCE_APPROVED",
+                  ],
                 })
               }
             />

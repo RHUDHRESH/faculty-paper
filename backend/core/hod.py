@@ -56,6 +56,7 @@ PROGRESS = {
     "SUBMITTED": "Under review",
     "CLEARED": "Under review",
     "PRINCIPAL_APPROVED": "Approved",
+    "DIRECTOR_APPROVED": "Approved",
     "PAID": "Completed",
     "REJECTED": "Sent back",
     "HOD_APPROVED": "Under review",

@@ -321,3 +321,20 @@ LOGGING = {
         "core.api": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Sign in with Google
+#
+# Only the client id, which is not a secret -- the browser gets an ID token
+# from Google and the server verifies it against Google's public keys with
+# this as the audience. There is no client secret and no callback URL to
+# register beyond the origin, because no OAuth code exchange happens here.
+#
+# Unset means the feature is off: /auth/google/config answers `enabled: false`
+# and the sign-in page draws the password form on its own.
+GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+
+# Optional. Set to a Workspace domain to refuse anything else even where an
+# account exists with, say, a gmail address.
+GOOGLE_HOSTED_DOMAIN = os.getenv("GOOGLE_HOSTED_DOMAIN", "")

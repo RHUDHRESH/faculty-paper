@@ -12,27 +12,43 @@ class Role(models.TextChoices):
     FACULTY = "FACULTY"
     HOD = "HOD"
     PRINCIPAL = "PRINCIPAL"
+    #: Sits between the Principal and Finance. The Principal agrees the spend
+    #: is right; the Director authorises it against the institution's own
+    #: position before any money moves.
+    DIRECTOR = "DIRECTOR"
+    #: Checks and clears filed papers, beside the admin office rather than
+    #: after it -- the chain is faculty, then *either* the coordinator or the
+    #: admin, then the Principal. Two desks doing one job, not two steps.
+    RESEARCH_COORDINATOR = "RESEARCH_COORDINATOR"
     RESEARCH_CELL = "RESEARCH_CELL"  # imports helper only — not in approval chain
     FINANCE = "FINANCE"
     SUPER_ADMIN = "SUPER_ADMIN"
 
 
 class ClaimStatus(models.TextChoices):
-    """Live chain: DRAFT → SUBMITTED → CLEARED → PRINCIPAL_APPROVED → PAID.
+    """Live chain:
 
-    The research cell clears a submitted ticket, the Principal approves the
-    spend, and Finance pays what the Principal approved. Rejection can happen
-    at either approval step.
+        DRAFT → SUBMITTED → CLEARED → PRINCIPAL_APPROVED → DIRECTOR_APPROVED → PAID
 
-    PRINCIPAL_APPROVED was previously a relic of the old ERP chain. It is now
-    the live step before payment, which also means tickets imported under the
-    old chain sit at exactly the right place.
+    Faculty file it. The admin office (research cell) clears a submitted ticket
+    on the facts. The Principal approves the spend. The Director authorises it.
+    Finance pays what the Director authorised. Rejection can happen at any of
+    the three review steps, and each sends the ticket back one step rather than
+    all the way to the claimant.
+
+    DIRECTOR_APPROVED is the newest link and was inserted *between* the two
+    that already existed, which is why PRINCIPAL_APPROVED is no longer payable
+    on its own. Tickets sitting at PRINCIPAL_APPROVED when the step was added
+    were deliberately left where they were: they flow into the Director's queue
+    and are authorised like anything else, rather than being migrated past a
+    gate that did not exist when they were approved.
     """
 
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     CLEARED = "CLEARED"
     PRINCIPAL_APPROVED = "PRINCIPAL_APPROVED"
+    DIRECTOR_APPROVED = "DIRECTOR_APPROVED"
     PAID = "PAID"
     REJECTED = "REJECTED"
 
@@ -42,11 +58,18 @@ class ClaimStatus(models.TextChoices):
     FINANCE_APPROVED = "FINANCE_APPROVED"
 
 
-#: Cleared for payment — the new status plus the old chain's terminal approvals,
-#: so tickets already approved under the previous flow are still payable.
+#: In the chain and not yet paid — every status between "the office has
+#: checked it" and "the money has gone", plus the old chain's terminal
+#: approvals so imported tickets are still accounted for.
+#:
+#: This is *not* the set Finance may pay from. Only DIRECTOR_APPROVED is
+#: payable, and `_mark_one_paid` checks for that one status by name. This
+#: tuple answers the different question of "what is committed but unspent",
+#: which is what the budget and the reports need.
 PAYABLE_STATUSES = (
     ClaimStatus.CLEARED,
     ClaimStatus.PRINCIPAL_APPROVED,
+    ClaimStatus.DIRECTOR_APPROVED,
     ClaimStatus.RESEARCH_APPROVED,
     ClaimStatus.FINANCE_APPROVED,
 )
@@ -74,6 +97,10 @@ class ClaimReason(models.TextChoices):
 
     INCENTIVE = "INCENTIVE", "Faculty Publication Incentive"
     COUNT_ONLY = "COUNT_ONLY", "Publication count only"
+    #: A student project taken to a conference. The team is named and stored;
+    #: the money goes to the faculty on it, because a student author is paid
+    #: nothing under `student_remuneration_zero` and always has been.
+    STUDENT_PROJECT = "STUDENT_PROJECT", "Student project conference incentive"
 
 
 class AttachmentKind(models.TextChoices):
@@ -111,6 +138,28 @@ class User(AbstractBaseUser, PermissionsMixin):
     scopus_author_url = models.TextField(blank=True, null=True)
     scopus_author_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
     must_change_password = models.BooleanField(default=False)
+
+    #: Regular or research, set by an admin rather than inferred from the
+    #: designation text. Nine accounts carry "Research" in a designation
+    #: today, spelt four different ways, and a payout rule keyed on a job
+    #: title is a payout rule that changes when somebody retypes one.
+    faculty_type = models.CharField(
+        max_length=16,
+        choices=[("REGULAR", "Regular faculty"), ("RESEARCH", "Research faculty")],
+        default="REGULAR",
+        db_index=True,
+    )
+    #: How many papers a year this person is expected to produce before any
+    #: incentive is due. Research faculty are already paid to do research, so
+    #: the scheme rewards what exceeds the expectation: papers up to the quota
+    #: carry no remuneration and only the surplus is reimbursed.
+    #:
+    #: Null means no quota, which is what every regular account has.
+    research_quota = models.PositiveIntegerField(blank=True, null=True)
+    #: Shown beside the quota, because a number with no reason attached reads
+    #: as a penalty rather than as an agreement.
+    research_quota_note = models.TextField(blank=True, null=True)
+
     active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -159,6 +208,70 @@ class Budget(models.Model):
 
     def __str__(self) -> str:
         return f"{self.financial_year} {self.department or 'college-wide'}: {self.amount}"
+
+
+class DepartmentTarget(models.Model):
+    """What a head has asked their department, or one of its members, to reach.
+
+    A head could see what their department had published and had no way to say
+    what it *should* publish, so every review meeting started by agreeing the
+    number again from memory. A target written down is the difference between
+    "we should do better" and "we agreed eleven Q1 papers and we are at four".
+
+    Deliberately not money. A head is money-blind everywhere else in this
+    system and a rupee target would be the one place it leaked back in -- so
+    the metrics are counts of work: papers, top-quartile papers, papers led
+    from here.
+
+    `person` null means the whole department. A departmental target and a
+    personal one for somebody inside it are both useful and are not the same
+    row, which is why the uniqueness constraint includes the person.
+    """
+
+    class Metric(models.TextChoices):
+        PUBLICATIONS = "PUBLICATIONS", "Publications"
+        Q1 = "Q1", "Q1 publications"
+        FIRST_AUTHOR = "FIRST_AUTHOR", "Papers led from this department"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    department = models.CharField(max_length=255, db_index=True)
+    #: Publication year the target is set against.
+    year = models.PositiveIntegerField(db_index=True)
+    metric = models.CharField(max_length=24, choices=Metric.choices)
+    target = models.PositiveIntegerField()
+    #: Null means the department as a whole.
+    person = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="targets_set_on_them",
+    )
+    note = models.TextField(blank=True, null=True)
+    set_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="targets_set",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["department", "year", "metric", "person"],
+                name="one_target_per_metric_per_person_per_year",
+            ),
+            # A null person is not equal to another null person in SQL, so the
+            # constraint above never fires for two departmental targets on the
+            # same metric. This one covers that case explicitly.
+            models.UniqueConstraint(
+                fields=["department", "year", "metric"],
+                condition=models.Q(person__isnull=True),
+                name="one_department_target_per_metric_per_year",
+            ),
+        ]
+        ordering = ["-year", "department", "metric"]
+
+    def __str__(self) -> str:
+        who = self.person.name if self.person_id else self.department
+        return f"{who} {self.year} {self.metric}: {self.target}"
 
 
 class JournalStanding(models.Model):
@@ -419,6 +532,26 @@ class Claim(models.Model):
     manual_quartile_reason = models.TextField(blank=True, null=True)
 
     is_student_publication = models.BooleanField(default=False)
+    #: Set on a STUDENT_PROJECT claim. The team is confirmed at filing time and
+    #: displayed on the ticket, so whoever clears it can see who did the work.
+    team = models.ForeignKey(
+        "Team", null=True, blank=True, on_delete=models.SET_NULL, related_name="claims"
+    )
+    #: What the quota decided, recorded on the claim rather than recomputed
+    #: later: a research faculty member's quota can be changed afterwards, and
+    #: a paper must keep the reason it was priced the way it was.
+    quota_applied = models.BooleanField(default=False)
+    quota_note = models.TextField(blank=True, null=True)
+    #: Which paper of the year this is, against a research quota. Assigned once
+    #: when the paper is first priced past draft, and never recomputed.
+    #:
+    #: Stored rather than derived because there is nothing to derive it from.
+    #: `created_at` is not enough — `auto_now_add` reads a clock whose
+    #: resolution is coarser than a loop, so several claims share a timestamp
+    #: to the microsecond — and the id is a random uuid, so breaking the tie on
+    #: it orders papers arbitrarily rather than by when they were filed. A
+    #: number handed out in order, once, is the only thing that survives both.
+    quota_position = models.PositiveIntegerField(blank=True, null=True)
     #: An affirmation the claimant has to make. Defaulting it true would assert
     #: it on their behalf, which is the one thing a confirmation must not do.
     affiliation_ok = models.BooleanField(default=False)
@@ -455,6 +588,18 @@ class Claim(models.Model):
         related_name="principal_approvals",
     )
     principal_approved_at = models.DateTimeField(null=True, blank=True)
+    #: The Director's authorisation, which is what Finance pays against. Kept
+    #: as its own pair of columns rather than folded into the Principal's:
+    #: "who agreed the spend" and "who authorised it" are different questions
+    #: and an auditor asks both.
+    director_approved_by = models.ForeignKey(
+        "User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="director_approvals",
+    )
+    director_approved_at = models.DateTimeField(null=True, blank=True)
     override_by = models.ForeignKey(
         "User",
         null=True,
@@ -587,6 +732,80 @@ class FacultyMaster(models.Model):
     phone = models.CharField(max_length=64, blank=True, null=True)
     raw_json = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class Team(models.Model):
+    """A student project team, looked up by its code when a claim is filed.
+
+    Teams exist outside any one claim because the same team enters more than
+    one conference, and retyping five students and a mentor each time is how
+    the second entry ends up describing a slightly different team from the
+    first. The code is what a faculty member actually has to hand.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    #: What the department calls it. Unique, and matched case-insensitively
+    #: because it is read off a printed sheet as often as it is copied.
+    code = models.CharField(max_length=64, unique=True, db_index=True)
+    title = models.CharField(max_length=300, blank=True, null=True)
+    department = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    #: The academic year the team belongs to, as "2025-26".
+    academic_year = models.CharField(max_length=9, blank=True, null=True)
+
+    #: The faculty member accountable for the project. Where an incentive is
+    #: paid on a student project claim, it is paid against this account.
+    mentor = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL, related_name="teams_mentored"
+    )
+    #: Kept as text as well, because the roster carries mentors this system has
+    #: no account for and losing the name is worse than not linking it.
+    mentor_name = models.CharField(max_length=255, blank=True, null=True)
+
+    active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL, related_name="teams_created"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["code"]
+
+    def __str__(self) -> str:
+        return f"{self.code} ({self.title or 'untitled'})"
+
+
+class TeamMember(models.Model):
+    """One student on a team, and the mentor who is accountable for them.
+
+    A student is a name and a register number, not an account: they do not
+    sign in, they are not paid, and creating a login for every project student
+    would put thousands of payable identities in a system whose whole guard is
+    that an identity decides who gets money.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="members")
+    name = models.CharField(max_length=255)
+    register_number = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    programme = models.CharField(max_length=128, blank=True, null=True)
+    year_of_study = models.CharField(max_length=32, blank=True, null=True)
+    #: Each student has a mentor. Usually the team's, sometimes not.
+    mentor_name = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "register_number"],
+                condition=models.Q(register_number__isnull=False),
+                name="one_row_per_student_per_team",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.register_number or 'no register number'})"
 
 
 class PaidLedger(models.Model):
@@ -750,6 +969,242 @@ class MonthlyRow(models.Model):
 
     class Meta:
         ordering = ["row_number"]
+
+
+class Thread(models.Model):
+    """A conversation, attached to the things it is about.
+
+    Deliberately not a chat room. A thread can name a journal, a paper, a
+    person or a department, and those names are resolved to real records when
+    the post is written -- so "what does @Nature actually pay" is answerable
+    by the system rather than by whoever happens to read it, and a thread
+    about a paper can be found from the paper.
+
+    Visibility is three-valued and enforced in one place:
+
+    - PUBLIC      everybody signed in
+    - DEPARTMENT  one department, so a head can talk with their own staff
+    - OFFICE      the research cell and a super admin, plus whoever opened it
+
+    That last clause is the whole reason OFFICE exists: "ask the admin why my
+    claim was sent back" has to be invisible to colleagues and visible to the
+    person who asked, or nobody uses it and they email instead.
+    """
+
+    class Visibility(models.TextChoices):
+        PUBLIC = "PUBLIC", "Everybody"
+        DEPARTMENT = "DEPARTMENT", "One department"
+        OFFICE = "OFFICE", "The office, and whoever asked"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    title = models.CharField(max_length=300)
+    visibility = models.CharField(
+        max_length=16, choices=Visibility.choices, default=Visibility.PUBLIC, db_index=True
+    )
+    #: Set when visibility is DEPARTMENT; ignored otherwise.
+    department = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    #: One of the 302 Scimago subject categories, so threads group by field
+    #: rather than by a free-text tag nobody spells the same way twice.
+    topic = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+
+    #: What it is about, where it is about something we hold.
+    claim = models.ForeignKey(
+        "Claim", null=True, blank=True, on_delete=models.SET_NULL, related_name="threads"
+    )
+    journal_title = models.CharField(max_length=512, blank=True, null=True)
+
+    created_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="threads_started"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    #: Moved by every post, so a list can be ordered by activity without
+    #: joining and aggregating on every read.
+    last_post_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    post_count = models.PositiveIntegerField(default=0)
+
+    resolved = models.BooleanField(default=False)
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="threads_resolved",
+    )
+    resolved_at = models.DateTimeField(blank=True, null=True)
+    #: A locked thread is readable and closed to new posts.
+    locked = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-last_post_at"]
+        indexes = [
+            models.Index(fields=["visibility", "-last_post_at"]),
+            models.Index(fields=["department", "-last_post_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.title[:60]
+
+
+class Post(models.Model):
+    """One message in a thread.
+
+    Deleted rather than removed: a moderated post leaves a tombstone so the
+    replies underneath it still make sense. A thread with a hole in it reads
+    as a bug, and reconstructing who was answering what is impossible once
+    the message they answered is simply gone.
+    """
+
+    class Kind(models.TextChoices):
+        HUMAN = "HUMAN", "Written by a person"
+        AGENT = "AGENT", "Answered by the assistant"
+        SYSTEM = "SYSTEM", "Recorded by the system"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    thread = models.ForeignKey(Thread, on_delete=models.CASCADE, related_name="posts")
+    #: Null for an agent or system post -- nobody wrote it.
+    author = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="posts"
+    )
+    kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.HUMAN)
+    body = models.TextField()
+    reply_to = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="replies"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    edited_at = models.DateTimeField(blank=True, null=True)
+    deleted_at = models.DateTimeField(blank=True, null=True)
+    deleted_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="posts_deleted"
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [models.Index(fields=["thread", "created_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.thread_id}: {self.body[:40]}"
+
+
+class Mention(models.Model):
+    """An @name in a post, resolved to the record it points at.
+
+    Resolved when the post is written rather than when it is read. A person
+    changing department, or a journal being retitled, must not silently
+    re-point a mention somebody already answered -- and the alternative,
+    re-parsing the text on every read, means the same string quietly means
+    something different a year later.
+    """
+
+    class Kind(models.TextChoices):
+        USER = "USER", "A person"
+        JOURNAL = "JOURNAL", "A journal"
+        PAPER = "PAPER", "A paper"
+        DEPARTMENT = "DEPARTMENT", "A department"
+        AGENT = "AGENT", "The assistant"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="mentions")
+    kind = models.CharField(max_length=16, choices=Kind.choices, db_index=True)
+    #: What was typed, kept so the post can be rendered as it was written.
+    label = models.CharField(max_length=300)
+
+    user = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="mentioned_in"
+    )
+    claim = models.ForeignKey(
+        "Claim", null=True, blank=True, on_delete=models.SET_NULL, related_name="mentioned_in"
+    )
+    journal_title = models.CharField(max_length=512, blank=True, null=True)
+    department = models.CharField(max_length=255, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["kind", "user"])]
+
+    def __str__(self) -> str:
+        return f"@{self.label} ({self.kind})"
+
+
+class ThreadSubscription(models.Model):
+    """Who hears about a thread.
+
+    Subscribed automatically by starting one, posting in one, or being
+    mentioned in one -- the three moments somebody has demonstrably taken an
+    interest. `muted` exists so leaving a noisy thread does not mean losing
+    the record that you were in it.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    thread = models.ForeignKey(Thread, on_delete=models.CASCADE, related_name="subscriptions")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="thread_subscriptions")
+    muted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_read_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["thread", "user"], name="one_subscription_per_thread")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} -> {self.thread_id}"
+
+
+class CalendarEvent(models.Model):
+    """Something with a date on it.
+
+    Nothing in this system held a future date. A payout run was a processing
+    batch with no schedule, and a submission window or a deadline was not
+    modelled at all -- so a calendar built on what existed could only replay
+    months that had already been paid.
+
+    Kept deliberately plain: a title, a kind, a day or a span, and who may see
+    it. An event can come out of a thread, which is the point of having both
+    -- "we should submit to this by March" becomes a date rather than a
+    sentence somebody has to remember reading.
+    """
+
+    class Kind(models.TextChoices):
+        PAYOUT_RUN = "PAYOUT_RUN", "Payout run"
+        SUBMISSION_WINDOW = "SUBMISSION_WINDOW", "Submission window"
+        DEADLINE = "DEADLINE", "Deadline"
+        MEETING = "MEETING", "Meeting"
+        OTHER = "OTHER", "Something else"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    title = models.CharField(max_length=300)
+    kind = models.CharField(
+        max_length=24, choices=Kind.choices, default=Kind.OTHER, db_index=True
+    )
+    starts_on = models.DateField(db_index=True)
+    #: Null for a single day. A window has both.
+    ends_on = models.DateField(blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+
+    visibility = models.CharField(
+        max_length=16, choices=Thread.Visibility.choices,
+        default=Thread.Visibility.PUBLIC, db_index=True,
+    )
+    department = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+
+    #: Where it came from, when it came from somewhere.
+    thread = models.ForeignKey(
+        Thread, null=True, blank=True, on_delete=models.SET_NULL, related_name="events"
+    )
+    claim = models.ForeignKey(
+        "Claim", null=True, blank=True, on_delete=models.SET_NULL, related_name="events"
+    )
+
+    created_by = models.ForeignKey(
+        User, null=True, on_delete=models.SET_NULL, related_name="events_created"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["starts_on", "title"]
+        indexes = [models.Index(fields=["starts_on", "visibility"])]
+
+    def __str__(self) -> str:
+        return f"{self.starts_on} {self.title[:40]}"
 
 
 class ResearchInterest(models.Model):

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { ChevronLeft, ChevronRight, FilePlus, Plus, Search, SearchX } from "lucide-react"
+import { FilePlus, Plus, Search, SearchX } from "lucide-react"
 
 import { useApi } from "@/lib/query"
 import { cn } from "@/lib/cn"
@@ -10,6 +10,7 @@ import { Table, type Column } from "@/ui/table"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 import { money, Stage, stageOf } from "@/ui/paper"
+import { Pagination } from "@/ui/pagination"
 
 /**
  * A faculty member's own papers — every ticket they have ever filed, plus
@@ -65,6 +66,7 @@ const STAGE_FILTERS: { status: string; stage: string; label: string }[] = [
   { status: "SUBMITTED", stage: "filed", label: "Filed" },
   { status: "CLEARED", stage: "checked", label: "Checked" },
   { status: "PRINCIPAL_APPROVED", stage: "approved", label: "Approved" },
+  { status: "DIRECTOR_APPROVED", stage: "authorised", label: "Authorised" },
   { status: "PAID", stage: "paid", label: "Paid" },
   { status: "REJECTED", stage: "sent_back", label: "Sent back" },
 ]
@@ -390,54 +392,3 @@ function PaperCard({ claim }: { claim: Claim }) {
   )
 }
 
-/** `total`/`limit`/`offset` off the envelope, turned into page controls —
- *  never a client-side slice of an already-fetched 200 rows, which stops
- *  working the moment an account passes 200 papers. */
-function Pagination({
-  page,
-  pageSize,
-  total,
-  onChange,
-}: {
-  page: number
-  pageSize: number
-  total: number
-  onChange: (page: number) => void
-}) {
-  if (total <= pageSize) return null
-
-  const pageCount = Math.max(1, Math.ceil(total / pageSize))
-  const start = page * pageSize + 1
-  const end = Math.min(total, (page + 1) * pageSize)
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-      <Meta>
-        {start}–{end} of {total}
-      </Meta>
-      <div className="flex items-center gap-1">
-        <Button
-          kind="quiet"
-          size="sm"
-          onClick={() => onChange(page - 1)}
-          disabled={page === 0}
-        >
-          <ChevronLeft />
-          Previous
-        </Button>
-        <Meta className="px-1 tabular">
-          Page {page + 1} of {pageCount}
-        </Meta>
-        <Button
-          kind="quiet"
-          size="sm"
-          onClick={() => onChange(page + 1)}
-          disabled={page + 1 >= pageCount}
-        >
-          Next
-          <ChevronRight />
-        </Button>
-      </div>
-    </div>
-  )
-}

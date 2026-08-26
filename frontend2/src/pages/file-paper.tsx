@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 
 import { api, ApiError } from "@/lib/api"
+import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
@@ -27,7 +28,7 @@ import {
 } from "@/ui/field"
 import { money, stageOf } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, SkeletonText } from "@/ui/state"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Wizard, type Step } from "@/ui/wizard"
 
@@ -43,6 +44,14 @@ type AttachmentRow = {
   ref_number?: string | null
   ref_title?: string | null
   content_hash?: string | null
+  /** Kept on the row rather than only announced in a toast: "you have already
+   *  attached this file to another paper" is worth seeing while looking at
+   *  the file, not for four seconds while looking somewhere else. */
+  duplicateOf?: {
+    ticket_number: string | null
+    owner_name: string
+    same_owner: boolean
+  } | null
 }
 
 /** The subset of `GET /api/claims/{id}` this screen reads to pre-fill a draft
@@ -162,6 +171,130 @@ type UploadResult = {
   size_bytes: number
   content_hash: string
   duplicate_of: { ticket_number: string | null; owner_name: string; same_owner: boolean } | null
+}
+
+/**
+ * The eligibility rules, read from the live policy rather than written here.
+ *
+ * A hard-coded 2 in the client is a rule that silently stops matching the one
+ * the money is calculated from the day somebody publishes a new policy. These
+ * come from `/api/meta/filing-rules`, which reads the active FormulaConfig.
+ */
+/** The little of a draft this screen needs to offer it back. */
+type DraftRow = {
+  id: string
+  paper_title: string | null
+  updated_at: string | null
+}
+
+type FilingRules = {
+  max_authors: number
+  min_sec_references: number
+  attachment_limits: { PUBLISHED_PAPER: number; SEC_REFERENCE: number }
+  max_upload_bytes: number
+  why: { max_authors: string; min_sec_references: string }
+  policy_version: number | null
+}
+
+/** Used only until the real rules arrive, and matching the server's own
+ *  fallbacks so the two never briefly disagree on screen. */
+const RULE_FALLBACK: FilingRules = {
+  max_authors: 9,
+  min_sec_references: 2,
+  attachment_limits: { PUBLISHED_PAPER: 10, SEC_REFERENCE: 50 },
+  max_upload_bytes: 10 * 1024 * 1024,
+  why: {
+    max_authors: "A paper with more than 9 authors carries no remuneration.",
+    min_sec_references:
+      "The policy requires 2 cited references with a Saveetha Engineering College affiliation.",
+  },
+  policy_version: null,
+}
+
+/* ------------------------------------------------------------------------ */
+/* Identifiers — tidied on the way in, so a typo is not a 502 later          */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * A DOI as the server wants it, out of whatever was pasted.
+ *
+ * People paste the whole address bar. `https://doi.org/10.1016/j.x` is the
+ * same DOI as `10.1016/j.x` and the lookup only recognises the second, so the
+ * first came back "no match for that DOI" and the claimant concluded their
+ * paper was not indexed.
+ */
+function normaliseDoi(raw: string): string {
+  let d = raw.trim()
+  for (const prefix of ["https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi:"]) {
+    if (d.toLowerCase().startsWith(prefix)) d = d.slice(prefix.length)
+  }
+  return d.replace(/^\/+|\/+$/g, "").trim()
+}
+
+function doiProblem(raw: string): string | null {
+  const d = normaliseDoi(raw)
+  if (!d) return null
+  // Every DOI is "10.<registrant>/<suffix>". Anything else is a title, a URL
+  // to somewhere else, or a typo.
+  return /^10\.\d{4,9}\/\S+$/.test(d) ? null : "That does not look like a DOI (10.xxxx/…)."
+}
+
+/**
+ * An ISSN as eight characters, whatever a spreadsheet did to it first.
+ *
+ * A direct port of `normalize_issn` in `backend/core/services/normalize.py`,
+ * and it has to stay one. Two things happen to ISSNs on the way in, both from
+ * being read as numbers, and the order they are undone in matters:
+ *
+ * - A trailing ".0" from a float. Stripping non-digits *first* turns
+ *   "2728842.0" into "27288420" — eight characters, so it passes the length
+ *   check and comes out as "2728-8420", a real-looking ISSN belonging to
+ *   nobody. A wrong match is worse than no match: it attaches another
+ *   journal's quartile to this one, and quartile is a term in the payout. So
+ *   the float suffix goes first, and only when the *whole* value looks like a
+ *   float, leaving an ISSN that legitimately ends in 0 alone.
+ * - A lost leading zero: 0272-8842 arrives as "2728842". Seven characters,
+ *   which the server pads back.
+ *
+ * 59,741 stored values needed repairing for these two. A form that accepts
+ * them writes the same fault by hand, one paper at a time.
+ */
+function issnDigits(raw: string): string {
+  let text = raw.trim()
+  if (/^\d+\.0+$/.test(text)) text = text.split(".")[0]
+  const cleaned = text.toUpperCase().replace(/[^0-9X]/g, "")
+  return cleaned.length === 7 ? `0${cleaned}` : cleaned
+}
+
+function normaliseIssn(raw: string): string {
+  const cleaned = issnDigits(raw)
+  if (cleaned.length !== 8) return raw.trim()
+  return `${cleaned.slice(0, 4)}-${cleaned.slice(4)}`
+}
+
+function issnProblem(raw: string): string | null {
+  const value = raw.trim()
+  if (!value) return null
+  const cleaned = issnDigits(value)
+  if (cleaned.length !== 8) return "An ISSN is eight characters, like 0390-6663."
+  if (cleaned.slice(0, 7).includes("X")) return "Only the last character of an ISSN may be an X."
+  return null
+}
+
+/** Said when the value was repaired rather than merely reformatted, because
+ *  restoring a dropped leading zero is a guess — a correct one nine times out
+ *  of ten, and worth a second look the tenth. */
+function issnRepairNote(raw: string): string | null {
+  const value = raw.trim()
+  if (!value) return null
+  const bare = value.toUpperCase().replace(/[^0-9X]/g, "")
+  if (/^\d+\.0+$/.test(value)) {
+    return "A trailing “.0” was dropped — that is a spreadsheet having read this as a number."
+  }
+  if (bare.length === 7) {
+    return "A leading zero was added to make eight characters. Check it against the journal."
+  }
+  return null
 }
 
 /* ------------------------------------------------------------------------ */
@@ -396,6 +529,29 @@ export function FilePaper() {
   } = useApi<ClaimDetail>(["claim", id], `/api/claims/${id}`, { enabled: isEditRoute })
 
   const { data: me } = useApi<MeProfile>(["auth-me-full"], "/api/auth/me")
+  // The eligibility rules, from the live policy rather than written into this
+  // file. Until they arrive the server's own fallbacks stand in, so the two
+  // never briefly disagree on screen.
+  const { data: fetchedRules } = useApi<FilingRules>(
+    ["meta", "filing-rules"],
+    "/api/meta/filing-rules"
+  )
+  const rules = fetchedRules ?? RULE_FALLBACK
+
+  // What the index said the year was, kept so it can be compared with what
+  // the claimant typed. A disagreement is the single commonest reason a
+  // paper is sent back.
+  const [indexedYear, setIndexedYear] = useState<number | null>(null)
+
+  // Drafts already going, offered before a second one is started by accident.
+  // Autosave means an interrupted attempt is always still there; nothing ever
+  // said so, so people began again and left the first one behind.
+  const { data: draftList } = useApi<{ results: DraftRow[] }>(
+    ["claims", "drafts"],
+    "/api/claims?status=DRAFT&limit=5",
+    { enabled: !isEditRoute }
+  )
+  const drafts = draftList?.results ?? []
 
   const [form, setForm] = useState<FormState>(emptyForm)
   const [current, setCurrent] = useState(0)
@@ -526,6 +682,7 @@ export function FilePaper() {
   const [scimago, setScimago] = useState<ScimagoResult | null>(null)
 
   function applyEnrich(res: EnrichResult) {
+    if (res.cover_date) setIndexedYear(yearOf(isoDate(res.cover_date)))
     const patch: Partial<FormState> = {}
     if (res.matched_title) patch.paperTitle = res.matched_title
     if (res.doi) patch.doi = res.doi
@@ -670,6 +827,7 @@ export function FilePaper() {
             content_hash: res.content_hash,
             ref_number: kind === "SEC_REFERENCE" ? "" : undefined,
             ref_title: kind === "SEC_REFERENCE" ? "" : undefined,
+            duplicateOf: res.duplicate_of,
           },
         ],
       }))
@@ -712,10 +870,20 @@ export function FilePaper() {
     }
   }
 
+  // Run it as soon as there is a DOI or a title to check, not at the end.
+  // Finding out on step five that this paper was paid for in 2023 wastes
+  // every step before it, and the answer was available at step one.
+  const priorKeyRef = useRef("")
   useEffect(() => {
-    if (current === 4) void runPriorCheck()
+    const key = `${form.doi.trim()}|${form.paperTitle.trim()}`
+    if (key === "|" || key === priorKeyRef.current) return
+    const t = setTimeout(() => {
+      priorKeyRef.current = key
+      void runPriorCheck()
+    }, 700)
+    return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current])
+  }, [form.doi, form.paperTitle])
 
   /* ------------------------------ estimate -------------------------------- */
 
@@ -726,8 +894,21 @@ export function FilePaper() {
     (a) => a.kind === "SEC_REFERENCE" && (a.ref_number || "").trim()
   ).length
 
+  // Not gated on the last step any more. The whole point of the standing
+  // panel is that "this will pay nothing" is visible while there is still
+  // something to do about it -- so this runs as soon as there is enough to
+  // price, and stays quiet on an empty form.
+  const priceable =
+    form.totalAuthors >= 1 &&
+    Boolean(
+      form.selfReportedQuartile ||
+        form.selfReportedSnip.trim() ||
+        form.indexing.length ||
+        form.publicationType
+    )
+
   useEffect(() => {
-    if (current !== 4) return
+    if (!priceable) return
     setCalcBusy(true)
     const t = setTimeout(() => {
       void api<CalcResult>("/api/calculate", {
@@ -749,7 +930,7 @@ export function FilePaper() {
     }, 300)
     return () => clearTimeout(t)
   }, [
-    current,
+    priceable,
     form.selfReportedSnip,
     form.selfReportedQuartile,
     form.totalAuthors,
@@ -832,6 +1013,29 @@ export function FilePaper() {
       default:
         return null
     }
+  }
+
+  /* ------------------------------- readiness ------------------------------- */
+
+  const problems = readiness(form, rules, {
+    calc,
+    priorWarning: Boolean(priorCheck?.warning),
+    indexedYear,
+  })
+
+  function goToStep(step: number) {
+    setCurrent(step)
+    setFurthest((f) => Math.max(f, step))
+  }
+
+  /** A paper the policy will not pay for can still be worth recording, and
+   *  saying so is kinder than letting somebody file for money they will not
+   *  get. This switches the claim to the count-only reason and jumps to the
+   *  step where that choice lives. */
+  function fileForTheRecord() {
+    patchForm({ claimReason: "COUNT_ONLY" })
+    goToStep(2)
+    toast.info("Switched to a count-only claim — the publication is recorded, with no payment.")
   }
 
   /* --------------------------------- render --------------------------------- */
@@ -922,6 +1126,36 @@ export function FilePaper() {
         <SaveStatus state={savingState} lastSavedAt={lastSavedAt} onRetry={() => void save()} />
       </header>
 
+      {!isEditRoute && drafts.length > 0 && (
+        <Callout tone="info" title={`You have ${drafts.length === 1 ? "a draft" : `${drafts.length} drafts`} already started`}>
+          <ul className="mt-1 space-y-1">
+            {drafts.slice(0, 3).map((d) => (
+              <li key={d.id}>
+                <Link
+                  to={`/papers/${d.id}/edit`}
+                  className="text-sm underline-offset-2 hover:underline"
+                >
+                  {d.paper_title?.trim() || "Untitled draft"}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-sm text-fg-muted">
+            Carrying on with one of those keeps everything already filled in. Starting here
+            makes a separate paper.
+          </p>
+        </Callout>
+      )}
+
+      <Readiness
+        problems={problems}
+        calc={calc}
+        calcBusy={calcBusy}
+        countOnly={form.claimReason === "COUNT_ONLY"}
+        onGoToStep={goToStep}
+        onFileAsCount={fileForTheRecord}
+      />
+
       <Wizard
         steps={STEPS}
         current={current}
@@ -971,6 +1205,9 @@ export function FilePaper() {
         )}
         {current === 4 && (
           <ReviewStep
+            problems={problems}
+            rules={rules}
+            onGoToStep={goToStep}
             form={form}
             calc={calc}
             calcBusy={calcBusy}
@@ -1095,6 +1332,13 @@ function PaperStep({
           <Input
             value={form.doi}
             onChange={(e) => patchForm({ doi: e.target.value })}
+            // Tidied when the field is left rather than as it is typed: a
+            // paste of the whole address bar is the normal case, and
+            // rewriting mid-keystroke fights somebody who is still typing.
+            onBlur={(e) => {
+              const tidy = normaliseDoi(e.target.value)
+              if (tidy !== e.target.value) patchForm({ doi: tidy })
+            }}
             placeholder="10.1000/xyz123"
             aria-label="DOI"
             className="sm:max-w-xs"
@@ -1220,7 +1464,23 @@ function JournalStep({
           <Input value={form.journalTitle} onChange={(e) => patchForm({ journalTitle: e.target.value })} />
         </Field>
         <Field label="ISSN" hint="Print or online — either works for the lookup.">
-          <Input value={form.issn} onChange={(e) => patchForm({ issn: e.target.value })} />
+          <Input
+            value={form.issn}
+            onChange={(e) => patchForm({ issn: e.target.value })}
+            // Eight characters with the hyphen where it belongs. The college's
+            // own reference data had 59,741 ISSNs mangled by a spreadsheet
+            // import; a form that accepts "14327643" writes the same fault by
+            // hand, one paper at a time.
+            onBlur={(e) => {
+              const note = issnRepairNote(e.target.value)
+              const tidy = normaliseIssn(e.target.value)
+              if (tidy !== e.target.value) patchForm({ issn: tidy })
+              // Repairing is a guess, and a silent guess about a field the
+              // payout is matched on is exactly what put 59,741 wrong values
+              // in the reference data.
+              if (note) toast.info(note)
+            }}
+          />
         </Field>
       </div>
 
@@ -1496,6 +1756,16 @@ function AttachmentGroup({
                   <span className="min-w-0">
                     <span className="block truncate text-sm">{row.filename}</span>
                     <Meta className="block">{formatBytes(row.size_bytes)}</Meta>
+                    {/* Said on the file, not for four seconds in a toast. The
+                        same evidence on two claims is what a duplicate-payment
+                        sweep looks for, so it is worth seeing here. */}
+                    {row.duplicateOf && (
+                      <span className="mt-0.5 block text-sm text-caution">
+                        {row.duplicateOf.same_owner
+                          ? `Already attached to ${row.duplicateOf.ticket_number || "another of your papers"}`
+                          : `Already on ${row.duplicateOf.ticket_number || "a claim"} filed by ${row.duplicateOf.owner_name}`}
+                      </span>
+                    )}
                   </span>
                 </span>
                 <Button
@@ -1544,6 +1814,9 @@ function formatBytes(bytes: number | null): string {
 /* ------------------------------------------------------------------------ */
 
 function ReviewStep({
+  problems,
+  rules,
+  onGoToStep,
   form,
   calc,
   calcBusy,
@@ -1556,6 +1829,9 @@ function ReviewStep({
   onSendAnyway,
   fileBusy,
 }: {
+  problems: Problem[]
+  rules: FilingRules
+  onGoToStep: (step: number) => void
   form: FormState
   calc: CalcResult | null
   calcBusy: boolean
@@ -1572,6 +1848,8 @@ function ReviewStep({
 
   return (
     <div className="space-y-8">
+      <PreFlight problems={problems} rules={rules} form={form} onGoToStep={onGoToStep} />
+
       {priorCheck?.warning && (
         <Callout tone="critical" title="This paper may already have been paid">
           <p>Check the matches below before filing — you can still go ahead once you have.</p>
@@ -1682,5 +1960,402 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
       <dt className="shrink-0 text-fg-muted">{label}</dt>
       <dd className="min-w-0 truncate text-right">{value}</dd>
     </div>
+  )
+}
+
+
+/* ------------------------------------------------------------------------ */
+/* Readiness — one list of everything wrong, computed once                  */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Three kinds of problem, and the difference between the second and the third
+ * is the whole point of this screen.
+ *
+ * - `missing`  the server will refuse to file it. Must be fixed.
+ * - `unpaid`   it will file perfectly well and pay **nothing**. The policy
+ *              counts the publication and awards no money — for too many
+ *              authors, or too few SEC-affiliated references. This used to be
+ *              discoverable only afterwards, in a note attached to a zero.
+ * - `check`    worth a second look but nobody is wrong: a possible earlier
+ *              payment, a year that disagrees with the index.
+ */
+type ProblemKind = "missing" | "unpaid" | "check"
+
+type Problem = {
+  key: string
+  kind: ProblemKind
+  label: string
+  detail?: string
+  /** The step that fixes it, so the reader can be sent straight there. */
+  step: number
+}
+
+function readiness(
+  form: FormState,
+  rules: FilingRules,
+  opts: {
+    calc: CalcResult | null
+    priorWarning: boolean
+    indexedYear: number | null
+  }
+): Problem[] {
+  const out: Problem[] = []
+  const add = (p: Problem) => out.push(p)
+
+  /* ---- step 0: the paper ---- */
+  if (!form.paperTitle.trim())
+    add({ key: "title", kind: "missing", label: "The paper needs a title", step: 0 })
+  if (!form.publicationType)
+    add({ key: "type", kind: "missing", label: "Choose what kind of publication this is", step: 0 })
+  if (!form.publicationDate)
+    add({ key: "date", kind: "missing", label: "Enter the date it was published", step: 0 })
+
+  const doiIssue = doiProblem(form.doi)
+  if (doiIssue) add({ key: "doi", kind: "missing", label: doiIssue, step: 0 })
+
+  const enteredYear = yearOf(form.publicationDate)
+  if (enteredYear && opts.indexedYear && enteredYear !== opts.indexedYear) {
+    add({
+      key: "year",
+      kind: "check",
+      label: `You entered ${enteredYear}; the index says ${opts.indexedYear}`,
+      detail:
+        "The research cell checks the year against the index, and a mismatch is what sends a paper back. Online-first and print dates often differ — use the one the index carries if you can.",
+      step: 0,
+    })
+  }
+
+  /* ---- step 1: the journal ---- */
+  if (!form.journalTitle.trim())
+    add({ key: "journal", kind: "missing", label: "The journal needs a title", step: 1 })
+  const issnIssue = issnProblem(form.issn)
+  if (!form.issn.trim())
+    add({ key: "issn", kind: "missing", label: "Enter the journal's ISSN", step: 1 })
+  else if (issnIssue)
+    add({ key: "issn", kind: "missing", label: issnIssue, step: 1 })
+  if (form.indexing.length === 0)
+    add({ key: "indexing", kind: "missing", label: "Select at least one indexing level", step: 1 })
+  if (form.indexing.includes("AU Annexure") && !form.auAnnexureRef.trim())
+    add({
+      key: "au",
+      kind: "missing",
+      label: "AU Annexure needs its reference number (NA if there is none)",
+      step: 1,
+    })
+  if (form.indexing.includes("UGC Care") && !form.ugcCareRef.trim())
+    add({
+      key: "ugc",
+      kind: "missing",
+      label: "UGC Care needs its reference number (NA if there is none)",
+      step: 1,
+    })
+  if (!form.yukthiId.trim())
+    add({ key: "yukthi", kind: "missing", label: "Enter the Yukthi ID, or NA", step: 1 })
+
+  /* ---- step 2: the authors ---- */
+  if (!form.scopusAuthorUrl.trim())
+    add({ key: "scopus", kind: "missing", label: "Add your Scopus author profile link", step: 2 })
+  if (!form.totalAuthors || form.totalAuthors < 1)
+    add({ key: "authors", kind: "missing", label: "Enter how many authors the paper has", step: 2 })
+  else if (form.authorPosition < 1 || form.authorPosition > form.totalAuthors)
+    add({
+      key: "position",
+      kind: "missing",
+      label: `Your position must be between 1 and ${form.totalAuthors}`,
+      step: 2,
+    })
+  else if (form.totalAuthors > rules.max_authors)
+    add({
+      key: "author-cap",
+      kind: "unpaid",
+      label: `${form.totalAuthors} authors is over the limit of ${rules.max_authors}`,
+      detail: rules.why.max_authors,
+      step: 2,
+    })
+  if (!form.affiliationOk)
+    add({
+      key: "affiliation",
+      kind: "missing",
+      label: "Confirm the article is affiliated to Saveetha Engineering College",
+      step: 2,
+    })
+
+  /* ---- step 3: the proof ---- */
+  const papers = form.attachments.filter((a) => a.kind === "PUBLISHED_PAPER")
+  const refs = form.attachments.filter((a) => a.kind === "SEC_REFERENCE")
+  if (papers.length === 0)
+    add({
+      key: "paper-file",
+      kind: "missing",
+      label: "Attach the full-length published paper",
+      step: 3,
+    })
+  if (refs.length === 0)
+    add({
+      key: "refs-none",
+      kind: "missing",
+      label: "Attach at least one cited reference with SEC affiliation",
+      step: 3,
+    })
+  else if (refs.length < rules.min_sec_references)
+    // The trap this whole panel exists for: one reference files cleanly and
+    // pays nothing.
+    add({
+      key: "refs-few",
+      kind: "unpaid",
+      label: `${refs.length} SEC reference attached; the policy needs ${rules.min_sec_references}`,
+      detail: rules.why.min_sec_references,
+      step: 3,
+    })
+  if (refs.some((r) => !(r.ref_number || "").trim()))
+    add({
+      key: "ref-numbers",
+      kind: "missing",
+      label: "Every cited reference needs its reference number",
+      step: 3,
+    })
+  const dupFile = form.attachments.find((a) => a.duplicateOf)
+  if (dupFile?.duplicateOf)
+    add({
+      key: "file-dup",
+      kind: "check",
+      label: `“${dupFile.filename}” is already attached to another paper`,
+      detail: dupFile.duplicateOf.same_owner
+        ? `It is on ${dupFile.duplicateOf.ticket_number || "another of your papers"}. Attaching the same evidence twice is what a duplicate-payment check looks for.`
+        : `It is on ${dupFile.duplicateOf.ticket_number || "a claim"} filed by ${dupFile.duplicateOf.owner_name}.`,
+      step: 3,
+    })
+
+  /* ---- step 4: what it comes to ---- */
+  if (opts.priorWarning)
+    add({
+      key: "prior",
+      kind: "check",
+      label: "This paper may already have been paid for",
+      detail: "Look at the matches before filing. You can still go ahead once you have.",
+      step: 4,
+    })
+  if (opts.calc?.error)
+    add({ key: "calc", kind: "check", label: opts.calc.error, step: 4 })
+  else if (
+    opts.calc &&
+    opts.calc.remuneration === 0 &&
+    form.claimReason === "INCENTIVE" &&
+    !out.some((x) => x.kind === "unpaid")
+  )
+    // A zero with no rule of ours behind it — usually a journal we hold no
+    // SNIP or quartile for. Worth flagging separately so it is not mistaken
+    // for one of the eligibility rules above.
+    add({
+      key: "zero",
+      kind: "unpaid",
+      label: "This works out to nothing",
+      detail:
+        opts.calc.note ||
+        "We may hold no SNIP or quartile for this journal. The research cell verifies it separately, and the figure can change.",
+      step: 4,
+    })
+
+  return out
+}
+
+const PROBLEM_STYLE: Record<ProblemKind, { tone: "critical" | "caution" | "info"; word: string }> = {
+  missing: { tone: "critical", word: "Needed" },
+  unpaid: { tone: "caution", word: "Pays nothing" },
+  check: { tone: "info", word: "Worth checking" },
+}
+
+/**
+ * The standing summary of what is left to do, on every step.
+ *
+ * The wizard used to reveal problems one at a time and only when you tried to
+ * leave a step, and the estimate only on the last one — so "this will pay
+ * nothing because you attached one reference" arrived after five steps of
+ * typing, if at all. This says it from the first screen and keeps saying it.
+ */
+function Readiness({
+  problems,
+  calc,
+  calcBusy,
+  countOnly,
+  onGoToStep,
+  onFileAsCount,
+}: {
+  problems: Problem[]
+  calc: CalcResult | null
+  calcBusy: boolean
+  countOnly: boolean
+  onGoToStep: (step: number) => void
+  onFileAsCount: () => void
+}) {
+  const missing = problems.filter((p) => p.kind === "missing")
+  const unpaid = problems.filter((p) => p.kind === "unpaid")
+  const checks = problems.filter((p) => p.kind === "check")
+
+  const ready = missing.length === 0
+  const amount = calc?.remuneration
+
+  return (
+    <aside className="space-y-3 rounded-lg bg-sunken p-4" aria-label="What is left to do">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <ColumnLabel className="block">
+            {countOnly ? "Filing for the count only" : "Estimated remuneration"}
+          </ColumnLabel>
+          {countOnly ? (
+            <p className="mt-0.5 text-lg font-medium">No payment requested</p>
+          ) : calcBusy && !calc ? (
+            <p className="mt-0.5 text-lg text-fg-muted">Working it out…</p>
+          ) : (
+            <p
+              className={cn(
+                "mt-0.5 text-2xl font-semibold tabular",
+                amount === 0 && "text-caution"
+              )}
+            >
+              {amount == null ? "—" : money(amount)}
+            </p>
+          )}
+        </div>
+        <Meta>
+          {ready ? "Ready to file" : `${missing.length} still needed`}
+        </Meta>
+      </div>
+
+      {unpaid.length > 0 && !countOnly && (
+        <div className="space-y-2 rounded-md bg-caution-wash p-3">
+          {unpaid.map((p) => (
+            <div key={p.key}>
+              <button
+                type="button"
+                onClick={() => onGoToStep(p.step)}
+                className="text-left text-sm font-medium underline-offset-2 hover:underline"
+              >
+                {p.label}
+              </button>
+              {p.detail && <p className="mt-0.5 text-sm text-fg-muted">{p.detail}</p>}
+            </div>
+          ))}
+          {/* The honest alternative, offered rather than left to be found:
+              a publication that cannot be paid for can still be recorded. */}
+          <Button kind="default" size="sm" onClick={onFileAsCount}>
+            File it for the record instead
+          </Button>
+        </div>
+      )}
+
+      {missing.length > 0 && (
+        <ul className="space-y-1">
+          {missing.slice(0, 6).map((p) => (
+            <li key={p.key}>
+              <button
+                type="button"
+                onClick={() => onGoToStep(p.step)}
+                className="text-left text-sm text-fg-muted underline-offset-2 hover:text-fg hover:underline"
+              >
+                {p.label}
+              </button>
+            </li>
+          ))}
+          {missing.length > 6 && <li><Meta>+{missing.length - 6} more</Meta></li>}
+        </ul>
+      )}
+
+      {checks.length > 0 && (
+        <ul className="space-y-1 border-t border-line pt-2">
+          {checks.map((p) => (
+            <li key={p.key}>
+              <button
+                type="button"
+                onClick={() => onGoToStep(p.step)}
+                className="text-left text-sm text-fg-muted underline-offset-2 hover:text-fg hover:underline"
+              >
+                {p.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </aside>
+  )
+}
+
+/**
+ * The pre-flight list on the last step: every rule, and whether this paper
+ * satisfies it.
+ *
+ * Deliberately shows what passes as well as what does not. "Nothing is wrong"
+ * is only reassuring if you can see what was actually checked.
+ */
+function PreFlight({
+  problems,
+  rules,
+  form,
+  onGoToStep,
+}: {
+  problems: Problem[]
+  rules: FilingRules
+  form: FormState
+  onGoToStep: (step: number) => void
+}) {
+  const refs = form.attachments.filter((a) => a.kind === "SEC_REFERENCE").length
+  const byKey = new Map(problems.map((p) => [p.key, p]))
+
+  const rows: { key: string; label: string; step: number }[] = [
+    { key: "title", label: "The paper has a title, a type and a date", step: 0 },
+    { key: "issn", label: "The journal has a valid ISSN", step: 1 },
+    { key: "indexing", label: "At least one indexing level, with its reference", step: 1 },
+    { key: "scopus", label: "Your Scopus author profile is linked", step: 2 },
+    {
+      key: "author-cap",
+      label: `The paper has ${rules.max_authors} authors or fewer`,
+      step: 2,
+    },
+    { key: "affiliation", label: "Affiliated to Saveetha Engineering College", step: 2 },
+    { key: "paper-file", label: "The published paper is attached", step: 3 },
+    {
+      key: "refs-few",
+      label: `${rules.min_sec_references} cited SEC references attached (you have ${refs})`,
+      step: 3,
+    },
+    { key: "prior", label: "No earlier payment found for this paper", step: 4 },
+  ]
+
+  return (
+    <section className="space-y-3">
+      <SectionTitle>Before it goes</SectionTitle>
+      <ul className="divide-y divide-line border-y border-line">
+        {rows.map((row) => {
+          const problem =
+            byKey.get(row.key) ??
+            (row.key === "refs-few" ? byKey.get("refs-none") : undefined) ??
+            (row.key === "title" ? byKey.get("type") ?? byKey.get("date") : undefined) ??
+            (row.key === "indexing" ? byKey.get("au") ?? byKey.get("ugc") : undefined)
+          const style = problem ? PROBLEM_STYLE[problem.kind] : null
+          return (
+            <li key={row.key} className="flex items-baseline justify-between gap-3 py-2">
+              <span className={cn("text-sm", problem && "text-fg")}>{row.label}</span>
+              {problem ? (
+                <button
+                  type="button"
+                  onClick={() => onGoToStep(problem.step)}
+                  className={cn(
+                    "shrink-0 text-sm font-medium underline-offset-2 hover:underline",
+                    style?.tone === "critical" && "text-critical",
+                    style?.tone === "caution" && "text-caution",
+                    style?.tone === "info" && "text-fg-muted"
+                  )}
+                >
+                  {style?.word}
+                </button>
+              ) : (
+                <span className="shrink-0 text-sm text-positive">Yes</span>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }

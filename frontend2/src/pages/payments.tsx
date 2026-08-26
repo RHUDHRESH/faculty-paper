@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import {
   AlertTriangle,
+  ArrowLeft,
   Banknote,
-  ChevronLeft,
-  ChevronRight,
   Receipt,
   RefreshCw,
   Undo2,
@@ -29,6 +28,7 @@ import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
+import { Pagination } from "@/ui/pagination"
 import { toast } from "@/ui/toast"
 
 /**
@@ -161,47 +161,6 @@ function writeVouchers(v: Record<string, string>) {
 /* Pagination — total/limit/offset off the envelope, never a client slice   */
 /* ------------------------------------------------------------------------ */
 
-function Pagination({
-  page,
-  pageSize,
-  total,
-  onChange,
-}: {
-  page: number
-  pageSize: number
-  total: number
-  onChange: (page: number) => void
-}) {
-  if (total <= pageSize) return null
-  const pageCount = Math.max(1, Math.ceil(total / pageSize))
-  const start = page * pageSize + 1
-  const end = Math.min(total, (page + 1) * pageSize)
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-      <Meta>
-        {start}–{end} of {total}
-      </Meta>
-      <div className="flex items-center gap-1">
-        <Button kind="quiet" size="sm" onClick={() => onChange(page - 1)} disabled={page === 0}>
-          <ChevronLeft />
-          Previous
-        </Button>
-        <Meta className="px-1 tabular">
-          Page {page + 1} of {pageCount}
-        </Meta>
-        <Button
-          kind="quiet"
-          size="sm"
-          onClick={() => onChange(page + 1)}
-          disabled={page + 1 >= pageCount}
-        >
-          Next
-          <ChevronRight />
-        </Button>
-      </div>
-    </div>
-  )
-}
 
 /* ------------------------------------------------------------------------ */
 /* Payments — the payable queue                                            */
@@ -230,8 +189,8 @@ export function Payments() {
     isFetching,
     refetch,
   } = useApi<PayoutsPage>(
-    ["payouts", "PRINCIPAL_APPROVED", page],
-    `/api/admin/payouts?status=PRINCIPAL_APPROVED&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`,
+    ["payouts", "DIRECTOR_APPROVED", page],
+    `/api/admin/payouts?status=DIRECTOR_APPROVED&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`,
     { enabled: allowed, placeholderData: (prev) => prev }
   )
 
@@ -290,10 +249,15 @@ export function Payments() {
             never from Scopus, so an outage never blocks a payout.
           </Sub>
         </div>
-        <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
-          Refresh
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button kind="quiet" size="sm" asChild>
+            <Link to="/payments/done">Already paid</Link>
+          </Button>
+          <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
+            <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
       </header>
 
       {someVisibleSelected && (
@@ -816,6 +780,12 @@ export function PaymentsDone() {
     <div className="page space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
+          <Button kind="quiet" size="sm" asChild className="-ml-2 mb-1">
+            <Link to="/payments">
+              <ArrowLeft />
+              Payment orders
+            </Link>
+          </Button>
           <PageTitle>Paid</PageTitle>
           <Sub className="mt-1">
             Every payment on record, most recent first. Voiding one reverses it

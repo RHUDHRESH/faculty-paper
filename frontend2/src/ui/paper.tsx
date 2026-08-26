@@ -3,17 +3,22 @@ import { cn } from "@/lib/cn"
 /**
  * How a paper's progress is said, everywhere, in one place.
  *
- * The chain is four steps — filed, checked, approved, paid — and the two
- * mistakes the old app made about it were both about words. It called a
- * checked ticket "with Finance" when Finance cannot see one until the
- * Principal approves it, and it showed a full progress bar reading "step 4 of
- * 4" beside a badge already saying Paid, on every settled row.
+ * The chain is five steps — filed, checked, approved, authorised, paid — and
+ * the two mistakes the old app made about it were both about words. It called
+ * a checked ticket "with Finance" when Finance cannot see one until it has
+ * been approved *and* authorised, and it showed a full progress bar reading
+ * "step 4 of 4" beside a badge already saying Paid, on every settled row.
+ *
+ * The fourth step is the newest: the Principal agrees the spend, then the
+ * Director authorises it, and only then can Finance pay. Both halves of that
+ * matter to a claimant waiting, so "Approved" and "Authorised" are separate
+ * words here rather than one word covering two desks.
  *
  * So: one function turns a status into a stage, one component draws it, and
  * the bar only appears while there is distance left to travel.
  */
 
-export const STAGES = ["Filed", "Checked", "Approved", "Paid"] as const
+export const STAGES = ["Filed", "Checked", "Approved", "Authorised", "Paid"] as const
 export type StageName = (typeof STAGES)[number]
 
 export type StageInfo = {
@@ -60,10 +65,21 @@ export function stageOf(status: string): StageInfo {
         tone: "progress",
       }
     case "PRINCIPAL_APPROVED":
-    case "FINANCE_APPROVED":
       return {
         step: "Approved",
         label: "Approved",
+        // Not "with Finance". The Principal agreeing the spend is not the
+        // last signature any more — the Director authorises it next, and a
+        // claimant told to chase Finance at this point is sent to a desk
+        // that cannot yet see their ticket.
+        who: "Waiting for the Director to authorise it.",
+        tone: "progress",
+      }
+    case "DIRECTOR_APPROVED":
+    case "FINANCE_APPROVED":
+      return {
+        step: "Authorised",
+        label: "Authorised",
         who: "With Finance, who will process the payment.",
         tone: "progress",
       }

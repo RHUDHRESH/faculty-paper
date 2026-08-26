@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from dataclasses import replace
 import logging
 import os
 import re
@@ -15,8 +16,8 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db import transaction
-from django.db.models import Case, Count, F, IntegerField, Min, Q, Sum, Value, When
+from django.db import models, transaction
+from django.db.models import Max, Case, Count, F, IntegerField, Min, Q, Sum, Value, When
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -46,7 +47,15 @@ from core.models import (
     MonthlyRow,
     Notification,
     ProfileChangeRequest,
+    CalendarEvent,
+    DepartmentTarget,
+    Mention,
+    Post,
     ResearchInterest,
+    Team,
+    TeamMember,
+    Thread,
+    ThreadSubscription,
     PaidLedger,
     PriorImport,
     PriorPayment,
@@ -57,6 +66,8 @@ from core.models import (
 )
 from core.services import discover as discover_service, gemini, research_search
 from core.services import rbac
+from core.services import thread_agent
+from core import discussions
 from core.services.monthly_processor import start_batch_async
 from core.services import exporters
 from core.services.normalize import normalize_doi, normalize_issn, normalize_title
@@ -284,6 +295,18 @@ def _notify_principal(claim: Claim, title: str, body: str) -> None:
             claim_id=claim.id,
         )
         send_optional_email(u.email, title, body)
+
+
+def _notify_director(claim: Claim, title: str, body: str) -> None:
+    """Everyone who can authorise: the Director, and a super admin standing in."""
+    for u in User.objects.filter(role__in=(Role.DIRECTOR, Role.SUPER_ADMIN), active=True):
+        Notification.objects.create(
+            user=u,
+            title=title,
+            body=body,
+            href=f"/authorisations?claim={claim.id}",
+            claim_id=claim.id,
+        )
 
 
 def _notify_finance(claim: Claim, title: str, body: str) -> None:
@@ -726,6 +749,13 @@ class UserUpdateIn(Schema):
     designation: Optional[str] = None
     scopus_author_url: Optional[str] = None
     scopus_author_id: Optional[str] = None
+    #: Whether this post is expected to produce research, and how much before
+    #: any incentive is due. Absent from this schema until now, which made the
+    #: whole quota rule unreachable: it was implemented, tested, and settable
+    #: only from a Django shell.
+    faculty_type: Optional[str] = None
+    research_quota: Optional[int] = None
+    research_quota_note: Optional[str] = None
 
 
 class ResetPasswordIn(Schema):
@@ -836,6 +866,9 @@ def _user_dict(u: User) -> dict[str, Any]:
         "scopus_author_id": u.scopus_author_id,
         "must_change_password": u.must_change_password,
         "active": u.active,
+        "faculty_type": u.faculty_type,
+        "research_quota": u.research_quota,
+        "research_quota_note": u.research_quota_note,
         "portal": rbac.portal_for_role(u.role),
     }
 
@@ -971,6 +1004,12 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "principal_approved_by_name": (
             c.principal_approved_by.name if c.principal_approved_by_id else None
         ),
+        "director_approved_by_name": (
+            c.director_approved_by.name if c.director_approved_by_id else None
+        ),
+        "director_approved_at": (
+            c.director_approved_at.isoformat() if c.director_approved_at else None
+        ),
         "principal_approved_at": (
             c.principal_approved_at.isoformat() if c.principal_approved_at else None
         ),
@@ -1078,6 +1117,86 @@ def auth_login(request: HttpRequest, payload: LoginIn):
     return _user_dict(user)
 
 
+class GoogleSignInIn(Schema):
+    #: The ID token the browser got from Google Identity Services.
+    credential: str
+
+
+@api.get("/auth/google/config", auth=None)
+def google_config(request: HttpRequest):
+    """What the sign-in page needs to draw the Google button, or why it cannot.
+
+    Answered rather than left to fail: with no client id configured the button
+    would render, be pressed, and do nothing, which reads as the account being
+    broken. The page asks first and shows the password form alone instead.
+    """
+    client_id = (getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "") or "").strip()
+    return {
+        "enabled": bool(client_id),
+        "client_id": client_id or None,
+        "hosted_domain": (getattr(settings, "GOOGLE_HOSTED_DOMAIN", "") or "").strip() or None,
+    }
+
+
+@api.post("/auth/google", auth=None)
+def auth_google(request: HttpRequest, payload: GoogleSignInIn):
+    """Sign in with a Google ID token, into an account that already exists.
+
+    Verified server-side against Google's public keys, with our own client id
+    as the audience. The token the browser hands over is the only thing that
+    crosses, and a token minted for somebody else's application will not
+    verify against ours -- which is the whole reason this is not "trust the
+    email the client sent us".
+
+    **No account is ever created here.** An address Google recognises and this
+    college does not is refused. Accounts carry staff ids, biometric ids and a
+    Scopus link; they decide who gets paid, and letting anybody with a Google
+    account mint one would put a payable identity behind a free signup form.
+    """
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token as google_id_token
+
+    client_id = (getattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "") or "").strip()
+    if not client_id:
+        raise HttpError(503, "Google sign-in is not configured on this server.")
+
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            payload.credential, google_requests.Request(), client_id
+        )
+    except Exception:
+        # Deliberately not echoed back. The reasons a token fails to verify
+        # (expired, wrong audience, bad signature) are useful to an attacker
+        # and useless to the person in front of the screen.
+        logger.warning("google_signin_rejected")
+        raise HttpError(401, "That Google sign-in could not be verified. Try again.")
+
+    if not claims.get("email_verified"):
+        raise HttpError(403, "That Google account has no verified email address.")
+
+    hosted = (getattr(settings, "GOOGLE_HOSTED_DOMAIN", "") or "").strip()
+    if hosted and (claims.get("hd") or "").lower() != hosted.lower():
+        raise HttpError(403, f"Sign in with your {hosted} account.")
+
+    email = (claims.get("email") or "").strip().lower()
+    user = User.objects.filter(email__iexact=email).first()
+    if user is None:
+        raise HttpError(
+            403,
+            f"There is no account here for {email}. Ask the research cell to "
+            "create one — signing in with Google does not make one.",
+        )
+    if not user.active:
+        raise HttpError(403, "That account is not active.")
+
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    clear_login_lockout(user.email)
+    AuditLog.objects.create(
+        actor=user, action="LOGIN_GOOGLE", entity="User", entity_id=user.id
+    )
+    return _me_dict(request, user)
+
+
 @api.post("/auth/logout", auth=session_auth)
 def auth_logout(request: HttpRequest):
     logout(request)
@@ -1165,7 +1284,24 @@ CORRECTABLE = {
 #: on the admin user editor alike. Department is deliberately absent: it is
 #: routing rather than identity, and the research cell moves people between
 #: departments as a matter of course.
-IDENTITY_FIELDS = frozenset(CORRECTABLE) - {"department"}
+#: How a field is named back to somebody who was refused it.
+FIELD_LABELS = {
+    **{k: v.lower() for k, v in CORRECTABLE.items()},
+    "faculty_type": "whether this is a research post",
+    "research_quota": "the research quota",
+    "research_quota_note": "the research quota note",
+}
+
+IDENTITY_FIELDS = frozenset(CORRECTABLE) - {"department"} | {
+    # Not a correctable field — a claimant cannot even ask for it — but it
+    # belongs in the same super-admin-only tier, and for the same reason the
+    # rest are here. Being marked research faculty with a quota of four means
+    # four papers a year are paid nothing. The research cell processes the
+    # claims that decides the outcome of, so it cannot also set it.
+    "faculty_type",
+    "research_quota",
+    "research_quota_note",
+}
 
 
 @api.post("/auth/profile/correction", auth=session_auth)
@@ -1688,7 +1824,7 @@ def _zero_payout_note(payload: CalcIn, result, cfg) -> str | None:
 
 @api.post("/calculate", auth=session_auth)
 def calculate(request: HttpRequest, payload: CalcIn):
-    require_user(request)
+    _require_may_see_money(request)
     cfg_obj = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
     cfg = formula_from_model(cfg_obj) if cfg_obj else None
     result = calculate_remuneration(
@@ -1801,6 +1937,216 @@ def upload_claim_file(request: HttpRequest, file: UploadedFile = File(...)):
     }
 
 
+# ---------- student project teams ----------
+
+
+class TeamMemberIn(Schema):
+    name: str
+    register_number: Optional[str] = None
+    programme: Optional[str] = None
+    year_of_study: Optional[str] = None
+    mentor_name: Optional[str] = None
+
+
+class TeamIn(Schema):
+    code: str
+    title: Optional[str] = None
+    department: Optional[str] = None
+    academic_year: Optional[str] = None
+    mentor_id: Optional[str] = None
+    mentor_name: Optional[str] = None
+    members: list[TeamMemberIn] = []
+
+
+def _team_dict(team: Team) -> dict[str, Any]:
+    return {
+        "id": team.id,
+        "code": team.code,
+        "title": team.title,
+        "department": team.department,
+        "academic_year": team.academic_year,
+        "mentor_id": team.mentor_id,
+        "mentor_name": team.mentor.name if team.mentor_id else team.mentor_name,
+        "active": team.active,
+        "members": [
+            {
+                "id": m.id,
+                "name": m.name,
+                "register_number": m.register_number,
+                "programme": m.programme,
+                "year_of_study": m.year_of_study,
+                "mentor_name": m.mentor_name or (
+                    team.mentor.name if team.mentor_id else team.mentor_name
+                ),
+            }
+            for m in team.members.all()
+        ],
+    }
+
+
+@api.get("/teams/{code}", auth=session_auth)
+def get_team(request: HttpRequest, code: str):
+    """Pull a team up by the code a faculty member has to hand.
+
+    A 404 here is an ordinary answer, not a failure: the filing form uses it
+    to decide between "confirm this team" and "tell us who is on it", and a
+    team that does not exist yet is the normal case the first time a project
+    is entered anywhere.
+    """
+    require_user(request)
+    team = Team.objects.filter(code__iexact=code.strip()).prefetch_related("members").first()
+    if team is None:
+        raise HttpError(404, f"No team with the code {code.strip()!r}.")
+    return _team_dict(team)
+
+
+@api.get("/teams", auth=session_auth)
+def list_teams(request: HttpRequest, q: Optional[str] = None, limit: int = 20):
+    user = require_user(request)
+    qs = Team.objects.prefetch_related("members").select_related("mentor")
+    if q:
+        term = q.strip()
+        qs = qs.filter(
+            Q(code__icontains=term) | Q(title__icontains=term) | Q(members__name__icontains=term)
+        ).distinct()
+    elif not rbac.can_view_reports(user.role):
+        # Without a search, a claimant sees the teams they mentor rather than
+        # the whole college's — a list of every student project is not what
+        # they came for and not theirs to browse.
+        qs = qs.filter(Q(mentor=user) | Q(created_by=user))
+    return {"results": [_team_dict(t) for t in qs[: max(1, min(limit, 100))]]}
+
+
+@api.post("/teams", auth=session_auth)
+def upsert_team(request: HttpRequest, payload: TeamIn):
+    """Create a team, or confirm and correct one that already exists.
+
+    One endpoint for both because that is what the form does: the code is
+    typed, the team comes up, and what comes back is either agreed with or
+    edited. Two endpoints would mean the screen deciding which of them it is
+    in, and getting it wrong the first time a code is mistyped.
+    """
+    user = require_user(request)
+    code = (payload.code or "").strip()
+    if len(code) < 2:
+        raise HttpError(400, "A team needs a code.")
+
+    members = [m for m in payload.members if (m.name or "").strip()]
+    if not members:
+        raise HttpError(400, "A team needs at least one student on it.")
+
+    mentor = None
+    if payload.mentor_id:
+        mentor = User.objects.filter(pk=payload.mentor_id).first()
+        if mentor is None:
+            raise HttpError(404, "No such mentor")
+
+    with transaction.atomic():
+        team = Team.objects.filter(code__iexact=code).first()
+        if team is None:
+            team = Team.objects.create(
+                code=code,
+                title=(payload.title or "").strip() or None,
+                department=(payload.department or "").strip() or (user.department or None),
+                academic_year=(payload.academic_year or "").strip() or None,
+                # The creator is only assumed to be the mentor when nobody
+                # said otherwise. Naming one and then being overruled by the
+                # act of typing it in is the kind of surprise that gets a
+                # field quietly ignored afterwards.
+                mentor=mentor
+                or (
+                    user
+                    if user.role == Role.FACULTY and not (payload.mentor_name or "").strip()
+                    else None
+                ),
+                mentor_name=(payload.mentor_name or "").strip() or None,
+                created_by=user,
+            )
+            created = True
+        else:
+            team.title = (payload.title or "").strip() or team.title
+            team.department = (payload.department or "").strip() or team.department
+            team.academic_year = (payload.academic_year or "").strip() or team.academic_year
+            if mentor:
+                team.mentor = mentor
+            if payload.mentor_name:
+                team.mentor_name = payload.mentor_name.strip()
+            team.save()
+            created = False
+
+        # The list that comes back is the list, so removing somebody works.
+        team.members.all().delete()
+        for m in members:
+            TeamMember.objects.create(
+                team=team,
+                name=m.name.strip(),
+                register_number=(m.register_number or "").strip() or None,
+                programme=(m.programme or "").strip() or None,
+                year_of_study=(m.year_of_study or "").strip() or None,
+                mentor_name=(m.mentor_name or "").strip() or None,
+            )
+
+    AuditLog.objects.create(
+        actor=user, action="TEAM_CREATE" if created else "TEAM_UPDATE",
+        entity="Team", entity_id=team.id,
+        detail_json=json.dumps({"code": team.code, "members": len(members)}),
+    )
+    team.refresh_from_db()
+    return {**_team_dict(team), "created": created}
+
+
+@api.get("/meta/filing-rules", auth=session_auth)
+def filing_rules(request: HttpRequest):
+    """The eligibility rules the filing form has to enforce, from the live policy.
+
+    Not the policy sheet -- that stays an oversight document and 403s a
+    claimant. These are the handful of rules that decide whether a paper is
+    eligible at all, and the form has to know them because the alternative is
+    what happened before: a claimant fills in five steps, files, and is paid
+    nothing because the policy needs two SEC-affiliated references and they
+    attached one. The rule was enforced in the calculator, mentioned in a note
+    on the resulting zero, and stated nowhere a person could read it *first*.
+
+    They are read from the active `FormulaConfig` rather than hard-coded, so
+    a policy change moves the form on its own. A hard-coded 2 in the client
+    is a rule that silently stops matching the one the money is calculated
+    from.
+    """
+    require_user(request)
+    cfg = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
+
+    max_authors = int(
+        getattr(cfg, "max_authors", None) or MAX_ELIGIBLE_AUTHORS
+    )
+    raw_min = getattr(cfg, "min_sec_references", None)
+    min_sec = int(raw_min if raw_min is not None else MIN_SEC_REFERENCES)
+
+    return {
+        "max_authors": max_authors,
+        "min_sec_references": min_sec,
+        "attachment_limits": {
+            "PUBLISHED_PAPER": ATTACHMENT_LIMITS[AttachmentKind.PUBLISHED_PAPER],
+            "SEC_REFERENCE": ATTACHMENT_LIMITS[AttachmentKind.SEC_REFERENCE],
+        },
+        "max_upload_bytes": MAX_UPLOAD_BYTES,
+        # Said in the words the form will repeat, so the sentence a claimant
+        # reads before filing is the same one the calculator would have told
+        # them afterwards.
+        "why": {
+            "max_authors": (
+                f"A paper with more than {max_authors} authors is counted but "
+                "carries no remuneration."
+            ),
+            "min_sec_references": (
+                f"The policy requires {min_sec} cited references with a Saveetha "
+                "Engineering College affiliation. Fewer than that and the paper "
+                "is counted but carries no remuneration."
+            ),
+        },
+        "policy_version": getattr(cfg, "version", None),
+    }
+
+
 @api.get("/meta/departments", auth=session_auth)
 def list_departments(request: HttpRequest):
     """Departments actually present in the faculty master — keeps the picker honest."""
@@ -1838,6 +2184,126 @@ def _claims_queryset(user: User):
     if rbac.can_view_college_wide(user.role):
         return qs.filter(~Q(status=ClaimStatus.DRAFT) | Q(owner=user))
     return qs.filter(owner=user)
+
+
+def _require_may_see_money(request: HttpRequest) -> User:
+    """Anybody but a head of department.
+
+    Money-blindness is the one rule in this system that is not a matter of
+    taste, and `hod.without_money` only strips it from payloads that go
+    through it. An endpoint that *computes* a figure and returns it — pricing
+    a hypothetical paper, pricing a search result — hands one over without
+    ever touching that filter. Three of them did.
+    """
+    user = require_user(request)
+    if user.role == Role.HOD:
+        raise HttpError(
+            403,
+            "Amounts are not shown to a head of department. The academic "
+            "standing of a journal is on the journal's own page.",
+        )
+    return user
+
+
+def _quota_state(claim: Claim) -> tuple[bool, str | None]:
+    """Whether this paper falls inside a research faculty member's quota.
+
+    Research faculty are already paid to do research, so the scheme rewards
+    what exceeds the expectation rather than the expectation itself: papers up
+    to the quota carry no remuneration and only the surplus is reimbursed.
+
+    Position is **handed out once and stored**, in `quota_position`. Deriving
+    it was tried and does not work: `created_at` comes from a clock coarser
+    than the loop that writes the rows, so several claims share a timestamp to
+    the microsecond, and the id is a random uuid, so breaking that tie on the
+    id orders papers arbitrarily. With the amount recomputed at creation, a
+    paper filed fifth could take first place and be zeroed while an earlier
+    one was paid — four of five papers landed inside a quota of two before
+    this was a stored number.
+
+    A draft gets a provisional position and keeps none: an unfinished paper
+    must not consume somebody's allowance.
+
+    Returns (inside_the_quota, why).
+    """
+    owner = claim.owner
+    if owner is None or owner.faculty_type != "RESEARCH":
+        return False, None
+    quota = owner.research_quota
+    if not quota:
+        return False, None
+    if claim.claim_reason == ClaimReason.COUNT_ONLY:
+        # It asks for no money, so it cannot spend the allowance for money.
+        return False, None
+
+    year = claim.publication_year
+    if not year:
+        # No year, no bucket to count against. Left payable rather than
+        # zeroed: refusing money over a missing field somebody else is
+        # supposed to verify is the wrong way round.
+        return False, None
+
+    position = claim.quota_position
+    if position is None:
+        # The next slot, not the number of slots taken. `count()` gives the
+        # same answer only while the sequence has no gaps -- and a paper whose
+        # year is corrected leaves one, after which two papers share a slot.
+        highest = (
+            Claim.objects.filter(
+                owner=owner, publication_year=year, quota_position__isnull=False
+            )
+            .exclude(pk=claim.pk)
+            .aggregate(top=Max("quota_position"))["top"]
+            or 0
+        )
+        position = highest + 1
+        # Assigned by `_assign_quota_position` at submission, not here: at the
+        # moment this runs during a submit the claim is still DRAFT, so a
+        # status test here never fires. This function only *reads*.
+
+    if position <= quota:
+        return True, (
+            f"Paper {position} of a {quota}-paper research quota for {year}. "
+            "The quota is what the post already expects, so it carries no "
+            "remuneration — only papers beyond it are reimbursed."
+        )
+    return False, (
+        f"Paper {position} for {year}, beyond the {quota}-paper research "
+        "quota, so it is reimbursed in full."
+    )
+
+
+def _assign_quota_position(claim: Claim) -> None:
+    """Give a paper its place in its author's research-quota year, once.
+
+    Called when the claim is filed, which is the only moment that is both
+    stable and meaningful: a draft must not consume somebody's allowance, and
+    a position handed out later would depend on the order an admin happened to
+    open tickets in rather than on the order they were filed.
+
+    Idempotent. Re-filing a paper that was sent back keeps the slot it had.
+    """
+    owner = claim.owner
+    if (
+        claim.quota_position is not None
+        or owner is None
+        or owner.faculty_type != "RESEARCH"
+        or not owner.research_quota
+        or not claim.publication_year
+        or claim.claim_reason == ClaimReason.COUNT_ONLY
+    ):
+        return
+    highest = (
+        Claim.objects.filter(
+            owner=owner,
+            publication_year=claim.publication_year,
+            quota_position__isnull=False,
+        )
+        .exclude(pk=claim.pk)
+        .aggregate(top=Max("quota_position"))["top"]
+        or 0
+    )
+    claim.quota_position = highest + 1
 
 
 def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
@@ -1880,6 +2346,15 @@ def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
         engineering_class=claim.engineering_class,
         sec_reference_count=sec_refs,
     )
+    # The quota zeroes the payable amount and nothing else. base_amount, qf and
+    # the author point stay exactly as the policy computed them, so the ticket
+    # still shows what the paper was worth and why it came to nothing --
+    # rather than looking like a paper the formula could not price.
+    inside_quota, quota_why = _quota_state(claim)
+    claim.quota_applied = inside_quota
+    claim.quota_note = quota_why
+    if inside_quota:
+        result = replace(result, remuneration=0.0, note=quota_why)
     claim.base_amount = result.base
     claim.author_point = result.point
     claim.remuneration = result.remuneration
@@ -1993,7 +2468,8 @@ def claim_counts(request: HttpRequest, q: Optional[str] = None):
         "draft": ["DRAFT"],
         "filed": ["SUBMITTED", "HOD_APPROVED"],
         "checked": ["CLEARED", "RESEARCH_APPROVED"],
-        "approved": ["PRINCIPAL_APPROVED", "FINANCE_APPROVED"],
+        "approved": ["PRINCIPAL_APPROVED"],
+        "authorised": ["DIRECTOR_APPROVED", "FINANCE_APPROVED"],
         "paid": ["PAID"],
         "sent_back": ["REJECTED"],
     }
@@ -2339,6 +2815,12 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
 
     claim.status = ClaimStatus.SUBMITTED
     claim.submitted_at = timezone.now()
+    # The paper is now in its author's year, so it takes a slot -- and the
+    # amount is worked out again, because the first pass priced it without
+    # one. Without this every research-faculty paper is "paper 1" and pays
+    # nothing, which is what happened.
+    _assign_quota_position(claim)
+    _apply_calc(claim)
     claim.save()
     ClaimAction.objects.create(
         claim=claim,
@@ -2406,8 +2888,14 @@ def _faculty_status_copy(to_status: str, note: str | None = None) -> tuple[str, 
         return ("Approved by HoD", "Your ticket was approved by HoD and is with the Principal.")
     if to_status == ClaimStatus.PRINCIPAL_APPROVED:
         return (
-            "Approved — with Finance",
-            "The Principal has approved your ticket. It is with Finance for payment.",
+            "Approved — with the Director",
+            "The Principal has approved your ticket. It is with the Director to "
+            "be authorised.",
+        )
+    if to_status == ClaimStatus.DIRECTOR_APPROVED:
+        return (
+            "Authorised — with Finance",
+            "The Director has authorised your ticket. It is with Finance for payment.",
         )
     if to_status == ClaimStatus.PAID:
         return (
@@ -2500,6 +2988,8 @@ def _waiting_days(claim: Claim) -> int | None:
         started = claim.cleared_at
     elif claim.status == ClaimStatus.PRINCIPAL_APPROVED:
         started = claim.principal_approved_at
+    elif claim.status == ClaimStatus.DIRECTOR_APPROVED:
+        started = claim.director_approved_at
     if not started:
         return None
     return max(0, (timezone.now() - started).days)
@@ -2535,7 +3025,11 @@ def _needs_second_approval(claim: Claim, threshold: float | None = None) -> bool
     a single-admin setup an always-on rule simply jammed every large claim
     with nobody able to release it.
     """
-    if claim.status not in (ClaimStatus.CLEARED, ClaimStatus.PRINCIPAL_APPROVED):
+    if claim.status not in (
+        ClaimStatus.CLEARED,
+        ClaimStatus.PRINCIPAL_APPROVED,
+        ClaimStatus.DIRECTOR_APPROVED,
+    ):
         return False
 
     seconded = bool(
@@ -2841,9 +3335,12 @@ def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
         _transition(claim, user, ClaimStatus.PRINCIPAL_APPROVED, "PRINCIPAL_APPROVE", payload.note)
         amount = claim.remuneration or 0
 
-    _notify_finance(
+    # Goes to the Director, not to Finance. Finance cannot see it until it is
+    # authorised, and telling them it was "approved for payment" at this point
+    # was the exact confusion the extra step exists to remove.
+    _notify_director(
         claim,
-        f"Approved for payment · {claim.ticket_number}",
+        f"Awaiting your authorisation · {claim.ticket_number}",
         f"₹{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
     )
     return claim_to_dict(claim)
@@ -2991,12 +3488,262 @@ def principal_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
             )
             approved += 1
             total += claim.remuneration or 0
-        _notify_finance(
+        _notify_director(
             claim,
-            f"Approved for payment · {claim.ticket_number}",
+            f"Awaiting your authorisation · {claim.ticket_number}",
             f"₹{(claim.remuneration or 0):,.0f} for {claim.owner.name}: {claim.paper_title}",
         )
     return {"approved": approved, "total": round(total, 2), "skipped": skipped}
+
+
+# ---------- the director: authorising what the principal approved ----------
+
+
+def _may_approve_as_director(role: str) -> bool:
+    """The Director, and a super admin who has to stand in for one."""
+    return rbac.can_approve_as_director(role)
+
+
+@api.post("/claims/{claim_id}/director-approve", auth=session_auth)
+def director_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Authorise a Principal-approved claim, which is what lets finance pay it.
+
+    The Principal agrees the spend is correct on its own terms. The Director
+    authorises it against the institution's position -- the budget it comes out
+    of, and everything else authorised the same month. Two separate decisions
+    taken by two separate people, which is the whole reason this step exists
+    rather than being folded into the one before it.
+    """
+    user = require_user(request)
+    if not _may_approve_as_director(user.role):
+        raise HttpError(403, "Forbidden")
+
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if claim.status != ClaimStatus.PRINCIPAL_APPROVED:
+            raise HttpError(
+                400,
+                "Only a ticket the Principal has approved can be authorised"
+                f" -- this one is {claim.status}",
+            )
+        # The amount on the screen is the amount being authorised. Recomputing
+        # here means an authorisation cannot be given for one figure and the
+        # payment made at another.
+        _apply_calc(claim)
+        _guard_recomputed_amount(claim, payload.expected_amount)
+
+        claim.director_approved_by = user
+        claim.director_approved_at = timezone.now()
+        # A third pair of eyes satisfies the second-signature rule if the
+        # Principal has not already -- but only where this really is somebody
+        # other than whoever cleared it.
+        if not claim.second_approved_by_id and claim.cleared_by_id != user.id:
+            claim.second_approved_by = user
+            claim.second_approved_at = timezone.now()
+        _transition(
+            claim, user, ClaimStatus.DIRECTOR_APPROVED, "DIRECTOR_APPROVE", payload.note
+        )
+        amount = claim.remuneration or 0
+
+    _notify_finance(
+        claim,
+        f"Authorised for payment \u00b7 {claim.ticket_number}",
+        f"\u20b9{amount:,.0f} for {claim.owner.name}: {claim.paper_title}",
+    )
+    return claim_to_dict(claim)
+
+
+@api.get("/director/queue", auth=session_auth)
+def director_queue(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    department: Optional[str] = None,
+    quartile: Optional[str] = None,
+    min_amount: Optional[float] = None,
+    max_amount: Optional[float] = None,
+    waiting_over: Optional[int] = None,
+    sort: str = "waiting",
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Everything the Principal has approved and the Director has not authorised.
+
+    Shaped exactly like the principal queue, deliberately: the two roles do the
+    same kind of work one step apart, and a second queue that sorted or totalled
+    differently would have the two disagreeing about the same money.
+
+    The totals are over the whole filtered set, not the page -- a decision about
+    a month's spend cannot be taken from the fifty rows that fit on screen.
+    """
+    user = require_user(request)
+    if not _may_approve_as_director(user.role):
+        raise HttpError(403, "Forbidden")
+
+    qs = (
+        Claim.objects.filter(status=ClaimStatus.PRINCIPAL_APPROVED)
+        .select_related("owner", "cleared_by", "principal_approved_by", "override_by")
+        .prefetch_related("attachments")
+    )
+    if q:
+        term = q.strip()
+        qs = qs.filter(
+            Q(paper_title__icontains=term)
+            | Q(ticket_number__icontains=term)
+            | Q(owner__name__icontains=term)
+            | Q(journal_title__icontains=term)
+        )
+    if department:
+        qs = qs.filter(owner__department__iexact=department)
+    if quartile:
+        qs = qs.filter(quartile__iexact=quartile)
+    if min_amount is not None:
+        qs = qs.filter(remuneration__gte=min_amount)
+    if max_amount is not None:
+        qs = qs.filter(remuneration__lte=max_amount)
+    if waiting_over:
+        qs = qs.filter(
+            principal_approved_at__lte=timezone.now() - timedelta(days=int(waiting_over))
+        )
+
+    sorts = {
+        "waiting": "principal_approved_at",   # longest wait first
+        "recent": "-principal_approved_at",
+        "amount": "-remuneration",
+        "amount_asc": "remuneration",
+        "department": "owner__department",
+        "title": "paper_title",
+    }
+    qs = qs.order_by(sorts.get(sort, "principal_approved_at"))
+
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+    total = qs.count()
+    agg = qs.aggregate(amount=Sum("remuneration"), oldest=Min("principal_approved_at"))
+    oldest = agg["oldest"]
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "results": [claim_to_dict(c) for c in qs[offset : offset + limit]],
+        # Over everything the filter matched, not the page.
+        "totals": {
+            "count": total,
+            "amount": round(agg["amount"] or 0, 2),
+            "longest_wait_days": (timezone.now() - oldest).days if oldest else None,
+        },
+        "departments": sorted(
+            d
+            for d in Claim.objects.filter(status=ClaimStatus.PRINCIPAL_APPROVED)
+            .values_list("owner__department", flat=True)
+            .distinct()
+            if d
+        ),
+    }
+
+
+@api.post("/director/bulk-approve", auth=session_auth)
+def director_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
+    """Authorise a batch, one row at a time, skipping what does not qualify.
+
+    A batch that fails as a unit is a batch nobody dares run: one stale row out
+    of two hundred and the Director is back to clicking through them singly.
+    """
+    user = require_user(request)
+    if not _may_approve_as_director(user.role):
+        raise HttpError(403, "Forbidden")
+    ids = list(dict.fromkeys(payload.claim_ids or []))[:500]
+    if not ids:
+        raise HttpError(400, "Nothing selected")
+
+    approved = 0
+    total = 0.0
+    skipped: list[dict[str, str]] = []
+    for claim_id in ids:
+        with transaction.atomic():
+            claim = Claim.objects.select_for_update().filter(pk=claim_id).first()
+            if claim is None:
+                skipped.append({"id": claim_id, "reason": "Not found"})
+                continue
+            if claim.status != ClaimStatus.PRINCIPAL_APPROVED:
+                skipped.append({
+                    "id": claim_id,
+                    "reason": f"{claim.ticket_number or claim_id}: status is {claim.status}",
+                })
+                continue
+            shown = claim.remuneration
+            _apply_calc(claim)
+            if round(shown or 0, 2) != round(claim.remuneration or 0, 2):
+                skipped.append({
+                    "id": claim_id,
+                    "reason": (
+                        f"{claim.ticket_number or claim_id}: amount changed on "
+                        f"recalculation (\u20b9{(shown or 0):,.0f} \u2192 \u20b9{(claim.remuneration or 0):,.0f})"
+                        " -- open it to review"
+                    ),
+                })
+                transaction.set_rollback(True)
+                continue
+            claim.director_approved_by = user
+            claim.director_approved_at = timezone.now()
+            if not claim.second_approved_by_id and claim.cleared_by_id != user.id:
+                claim.second_approved_by = user
+                claim.second_approved_at = timezone.now()
+            _transition(
+                claim, user, ClaimStatus.DIRECTOR_APPROVED, "DIRECTOR_APPROVE", payload.note
+            )
+            approved += 1
+            total += claim.remuneration or 0
+        _notify_finance(
+            claim,
+            f"Authorised for payment \u00b7 {claim.ticket_number}",
+            f"\u20b9{(claim.remuneration or 0):,.0f} for {claim.owner.name}: {claim.paper_title}",
+        )
+    return {"approved": approved, "total": round(total, 2), "skipped": skipped}
+
+
+@api.post("/claims/{claim_id}/director-reject", auth=session_auth)
+def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Send an approved ticket back to the Principal with a reason.
+
+    Back one step, not all the way: what the Director is querying is the
+    approval, so it returns to the person who gave it. Dropping it to the
+    claimant instead would have somebody who did nothing wrong re-filing a
+    paper to answer a question about the institution's budget.
+    """
+    user = require_user(request)
+    if not _may_approve_as_director(user.role):
+        raise HttpError(403, "Forbidden")
+    note = (payload.note or "").strip()
+    if len(note) < 5:
+        raise HttpError(400, "Say why it is going back")
+
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if claim.status != ClaimStatus.PRINCIPAL_APPROVED:
+            raise HttpError(
+                400, "Only a Principal-approved ticket can be sent back from here"
+            )
+        claim.status_note = note
+        # The approval is withdrawn along with the status. Leaving the name and
+        # the timestamp on a ticket that is no longer approved is how a later
+        # reader concludes it was signed off twice.
+        claim.principal_approved_by = None
+        claim.principal_approved_at = None
+        claim.save(update_fields=["principal_approved_by", "principal_approved_at"])
+        _transition(claim, user, ClaimStatus.CLEARED, "DIRECTOR_SEND_BACK", note)
+
+    for u in User.objects.filter(
+        role__in=(Role.PRINCIPAL, Role.SUPER_ADMIN), active=True
+    ):
+        Notification.objects.create(
+            user=u,
+            title=f"Sent back by the Director \u00b7 {claim.ticket_number}",
+            body=note[:300],
+            href=f"/approvals?claim={claim.id}",
+            claim_id=claim.id,
+        )
+    return claim_to_dict(claim)
 
 
 @api.post("/claims/{claim_id}/principal-reject", auth=session_auth)
@@ -3067,22 +3814,30 @@ def _mark_one_paid(
     """
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
-        # Payable means the principal approved it on this system. Two things
-        # are deliberately not payable:
+        # Payable means the Director authorised it on this system. Three
+        # things are deliberately not payable:
         #
-        # - a merely cleared ticket, which the research cell has checked but
-        #   nobody has agreed to spend money on;
+        # - a merely cleared ticket, which the office has checked but nobody
+        #   has agreed to spend money on;
+        # - a Principal-approved ticket, which has been agreed but not yet
+        #   authorised — the step this chain gained most recently;
         # - a row carrying an approval status from the old ERP import, which
         #   has no verification, no recomputed amount and nobody's signature
-        #   behind it. Those are told apart by principal_approved_at, which
-        #   only a live approval sets.
-        approved_here = bool(claim.principal_approved_at)
-        if not (claim.status == ClaimStatus.PRINCIPAL_APPROVED and approved_here):
+        #   behind it. Those are told apart by director_approved_at, which
+        #   only a live authorisation sets.
+        authorised_here = bool(claim.director_approved_at)
+        if not (claim.status == ClaimStatus.DIRECTOR_APPROVED and authorised_here):
             if claim.status == ClaimStatus.CLEARED:
                 raise HttpError(
                     400,
-                    "Cleared, but not yet approved by the principal — payment "
-                    "needs that approval first.",
+                    "Cleared, but not yet approved by the Principal — payment "
+                    "needs that approval, and then the Director's authorisation.",
+                )
+            if claim.status == ClaimStatus.PRINCIPAL_APPROVED:
+                raise HttpError(
+                    400,
+                    "Approved by the Principal but not yet authorised by the "
+                    "Director. Finance pays what the Director authorises.",
                 )
             if claim.status in PAYABLE_STATUSES:
                 raise HttpError(
@@ -3092,16 +3847,32 @@ def _mark_one_paid(
                     "so the amount is verified rather than taken from the import.",
                 )
             raise HttpError(
-                400, "Invalid status — the ticket must be approved by the principal first"
+                400,
+                "Invalid status — the ticket must be authorised by the Director first",
             )
         # Net of the ledger, not mere existence: a voided payment leaves a
         # reversing row behind, and the claim must be payable again.
         net_paid = claim.ledger_rows.aggregate(s=Sum("amount"))["s"] or 0
         if net_paid > 0:
             raise HttpError(400, "Already processed")
-        if claim.status == ClaimStatus.PRINCIPAL_APPROVED:
-            # Recompute from the stored verified columns, then require the
-            # confirmed amount.
+        if claim.status == ClaimStatus.DIRECTOR_APPROVED:
+            # Recompute FIRST, then decide whether it needs a second signature.
+            #
+            # The other order was the bug: the threshold was tested against the
+            # stored figure and the amount was recomputed immediately after, so
+            # a claim sitting just under the threshold that recomputed just
+            # over it was paid at the higher amount with nobody's second
+            # signature on it. The guard has to see the number that is about to
+            # be paid, not the one that happened to be on the row.
+            if reverify:
+                _reverify_or_recalc(claim, user, skip_external=skip_external)
+            else:
+                _apply_calc(claim)
+            # The amount guard goes first of the two. If the figure moved, the
+            # actor confirmed a number that is not the one about to be paid,
+            # and every question after that is about the wrong amount --
+            # including whether it needs a second signature.
+            _guard_recomputed_amount(claim, expected_amount)
             if _needs_second_approval(claim):
                 if claim.duplicate_warning and claim.override_duplicate:
                     who = claim.override_by.name if claim.override_by else "somebody"
@@ -3116,11 +3887,6 @@ def _mark_one_paid(
                     "High-value claim — a second approver (different from the person "
                     "who cleared it) must approve before payment",
                 )
-            if reverify:
-                _reverify_or_recalc(claim, user, skip_external=skip_external)
-            else:
-                _apply_calc(claim)
-            _guard_recomputed_amount(claim, expected_amount)
         # Vouchers are no longer typed in: finance had a free-text box that could
         # be left blank or reused, and the number carried no meaning. Imported
         # history keeps whatever it came with.
@@ -3234,9 +4000,15 @@ def second_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         # Either side of the principal's approval: the second signature is
         # about a large amount, not about which desk the ticket is sitting on.
-        if claim.status not in (ClaimStatus.CLEARED, ClaimStatus.PRINCIPAL_APPROVED):
+        if claim.status not in (
+            ClaimStatus.CLEARED,
+            ClaimStatus.PRINCIPAL_APPROVED,
+            ClaimStatus.DIRECTOR_APPROVED,
+        ):
             raise HttpError(
-                400, "Only a cleared or principal-approved ticket can be second-approved"
+                400,
+                "Only a cleared, principal-approved or director-authorised "
+                "ticket can be second-approved",
             )
         threshold = _high_value_threshold()
         if (claim.remuneration or 0) < threshold:
@@ -4042,6 +4814,316 @@ _SEARCH_SORTS = {
 
 # Under /reports, not /claims: "/claims/search" is swallowed by the
 # "/claims/{claim_id}" route registered above it and 404s.
+#: Scimago writes a subject's own quartile into the label -- "Signal
+#: Processing (Q4)" -- so the same field carries two facts joined by a
+#: bracket. Splitting them means "Signal Processing" is one area with a
+#: quartile rather than four areas that happen to share a name.
+_SUBJECT_QUARTILE = re.compile(r"\s*\((Q[1-4])\)\s*$", re.IGNORECASE)
+
+
+def _split_subjects(raw: str | None) -> list[tuple[str, str | None]]:
+    """One stored subjects string -> [(area, quartile or None), ...].
+
+    The column is named `subjects_json` and holds no JSON: it is a
+    semicolon-separated list, and every reader of it has to know that. Parsing
+    it in one place is the only thing stopping three screens from each
+    inventing their own split.
+    """
+    out: list[tuple[str, str | None]] = []
+    for part in (raw or "").split(";"):
+        label = part.strip()
+        if not label:
+            continue
+        found = _SUBJECT_QUARTILE.search(label)
+        quartile = found.group(1).upper() if found else None
+        area = _SUBJECT_QUARTILE.sub("", label).strip()
+        # "(miscellaneous)" is a real Scimago category and must survive; only
+        # a trailing quartile is stripped, which is why this is a regex on
+        # Q1-Q4 rather than "drop anything in brackets".
+        if area:
+            out.append((area, quartile))
+    return out
+
+
+#: What a report can be broken down by: the key a caller asks for, the
+#: heading it prints under, and the column it groups on. "area" is the odd
+#: one and is handled separately, because a paper belongs to several subject
+#: areas at once and no single column holds that.
+REPORT_DIMENSIONS: dict[str, tuple[str, str | None]] = {
+    "year": ("Year", "publication_year"),
+    "department": ("Department", "owner__department"),
+    "quartile": ("Quartile", "quartile"),
+    "journal": ("Journal", "journal_title"),
+    "type": ("Publication type", "aggregation_type"),
+    "indexing": ("Indexing", "indexing_level"),
+    "designation": ("Designation", "owner__designation"),
+    "status": ("Stage", "status"),
+    "engineering": ("Engineering class", "engineering_class"),
+    "category": ("Payout category", "remuneration_category"),
+    "person": ("Person", "owner__name"),
+    "area": ("Subject area", None),
+}
+
+_BLANKISH_LABELS = {"", "-", "--", "n/a", "na", "none", "null", "nil", "\u2014", "\u2013"}
+
+#: Dimensions where one paper belongs to several rows at once -- a paper in
+#: three subject areas, a journal indexed by both Scopus and SCIE.
+#:
+#: Counting the paper under each is the honest answer to "how much work do we
+#: do in this area". Adding up the *money* the same way is not: the same
+#: rupee is counted once per area, and the college's 2.8 crore of payouts
+#: totalled 12.6 crore across subject areas. Per-row amounts are still
+#: meaningful -- "papers in this area were worth this much" -- so they stay;
+#: it is the column total that is a fiction, and it is withheld rather than
+#: printed with a caveat nobody reads.
+OVERLAPPING_DIMENSIONS = {"area", "indexing"}
+
+
+def _build_rows(qs, dimension: str) -> list[dict[str, Any]]:
+    """One dimension, grouped, counted and summed.
+
+    Blanks are folded the same way `/reports` folds them. Grouping on the raw
+    column split one idea across several rows -- the quartile breakdown
+    carried "No quartile", "No Quartile" and "-" as three separate lines, so
+    no row in the report was the real total.
+    """
+    if dimension == "area":
+        buckets: dict[str, dict[str, Any]] = {}
+        for raw, amount in qs.values_list("subjects_json", "remuneration"):
+            for area, _quartile in _split_subjects(raw):
+                slot = buckets.setdefault(area, {"key": area, "count": 0, "amount": 0.0})
+                slot["count"] += 1
+                slot["amount"] += amount or 0
+        return sorted(buckets.values(), key=lambda r: (-r["count"], r["key"]))
+
+    if dimension == "indexing":
+        buckets = {}
+        for raw, amount in qs.values_list("indexing_level", "remuneration"):
+            parts = [p.strip() for p in (raw or "").split(",") if p.strip()] or ["Not stated"]
+            for part in parts:
+                slot = buckets.setdefault(part, {"key": part, "count": 0, "amount": 0.0})
+                slot["count"] += 1
+                slot["amount"] += amount or 0
+        return sorted(buckets.values(), key=lambda r: (-r["count"], r["key"]))
+
+    _label, field = REPORT_DIMENSIONS[dimension]
+    assert field
+    buckets = {}
+    for row in (
+        qs.values(field).annotate(count=Count("id"), amount=Sum("remuneration"))
+    ):
+        raw = row[field]
+        text = str(raw).strip() if raw is not None else ""
+        label = "Not recorded" if text.lower() in _BLANKISH_LABELS else text
+        slot = buckets.setdefault(label, {"key": label, "count": 0, "amount": 0.0})
+        slot["count"] += row["count"]
+        slot["amount"] += row["amount"] or 0
+    ordered = sorted(buckets.values(), key=lambda r: (-r["count"], r["key"]))
+    if dimension == "year":
+        # A time axis reads forwards, not by size.
+        ordered.sort(key=lambda r: r["key"])
+    return ordered
+
+
+@api.get("/reports/build", auth=session_auth)
+def reports_build(
+    request: HttpRequest,
+    dimensions: str = "department",
+    year: Optional[int] = None,
+    department: Optional[str] = None,
+    month: Optional[str] = None,
+    fmt: Optional[str] = None,
+    limit: int = 100,
+):
+    """A report the reader assembled, previewed and downloaded from one place.
+
+    The preview and the file come out of this same call: ask without `fmt` and
+    it answers JSON for the screen, ask with one and it answers the workbook.
+    That is the whole point of it being one endpoint rather than two. A screen
+    and a download built by separate code paths drift, and the way anybody
+    finds out is a board meeting where the printed figure and the projected
+    one disagree.
+
+    Money is stripped for a role that may not see it -- but `can_view_reports`
+    already excludes a head of department outright, so in practice this is a
+    belt-and-braces guard rather than a live path.
+    """
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+
+    wanted = [d.strip() for d in (dimensions or "").split(",") if d.strip()]
+    if not wanted:
+        raise HttpError(400, "Choose at least one breakdown")
+    unknown = [d for d in wanted if d not in REPORT_DIMENSIONS]
+    if unknown:
+        raise HttpError(
+            400,
+            f"No breakdown called {unknown[0]!r}. "
+            f"Available: {', '.join(sorted(REPORT_DIMENSIONS))}",
+        )
+
+    qs = _reports_queryset(user, year, department, month)
+    limit = max(1, min(int(limit), 1000))
+
+    scope_bits = [
+        f"publication year {year}" if year else "all years on record",
+        department or "every department",
+    ]
+    if month:
+        scope_bits.append(f"payout month {month}")
+    subtitle = "Saveetha Engineering College \u00b7 " + " \u00b7 ".join(scope_bits)
+
+    tables = []
+    for key in wanted:
+        label, _field = REPORT_DIMENSIONS[key]
+        rows = _build_rows(qs, key)
+        overlapping = key in OVERLAPPING_DIMENSIONS
+        tables.append({
+            "key": key,
+            "label": label,
+            "rows": [
+                {**r, "amount": round(r["amount"], 2)} for r in rows[:limit]
+            ],
+            "row_count": len(rows),
+            "truncated": max(0, len(rows) - limit),
+            # One paper sits in several rows here, so neither total is a
+            # total of anything real. The count is still worth showing as a
+            # sum of appearances; the money is not, and is null.
+            "overlapping": overlapping,
+            "totals": {
+                "count": sum(r["count"] for r in rows),
+                "amount": None if overlapping else round(sum(r["amount"] for r in rows), 2),
+            },
+        })
+
+    if not fmt:
+        return {
+            "tables": tables,
+            "filters": {"year": year, "department": department, "month": month},
+            "subtitle": subtitle,
+            "available": [
+                {"key": k, "label": v[0]} for k, v in REPORT_DIMENSIONS.items()
+            ],
+            "years": sorted(
+                {y for y in qs.values_list("publication_year", flat=True) if y},
+                reverse=True,
+            ),
+        }
+
+    if fmt not in exporters.FORMATS:
+        raise HttpError(400, f"Format must be one of: {', '.join(exporters.FORMATS)}.")
+
+    # The pack is built from the very rows the preview returned, so the file
+    # cannot disagree with the screen about anything except how it is dressed.
+    pack: dict[str, dict[str, Any]] = {}
+    for table in tables:
+        body = [[r["key"], r["count"], r["amount"]] for r in table["rows"]]
+        if table["overlapping"]:
+            # No money total, and the sheet says why rather than leaving a
+            # blank cell that reads as a bug.
+            body.append([
+                "Total (appearances)", table["totals"]["count"], None,
+            ])
+            body.append([
+                "One paper appears under every area it belongs to, so these "
+                "add to more than the number of papers and the amounts "
+                "cannot be summed.",
+                None, None,
+            ])
+        else:
+            body.append(["Total", table["totals"]["count"], table["totals"]["amount"]])
+        pack[table["label"]] = {
+            "columns": [table["label"], "Publications", "Amount"],
+            "rows": body,
+        }
+
+    body = exporters.render(
+        pack, fmt, title="Publication report", subtitle=subtitle
+    )
+    stem = "report-" + "-".join(wanted) + f"-{year or 'all'}"
+    res = HttpResponse(body, content_type=exporters.CONTENT_TYPES[fmt])
+    res["Content-Disposition"] = f'attachment; filename="{exporters.filename(stem, fmt)}"'
+    AuditLog.objects.create(
+        actor=user, action="REPORT_BUILD", entity="Report", entity_id=stem,
+        detail_json=json.dumps({"dimensions": wanted, "fmt": fmt, "year": year}),
+    )
+    return res
+
+
+@api.get("/reports/areas", auth=session_auth)
+def reports_areas(
+    request: HttpRequest,
+    year: Optional[int] = None,
+    department: Optional[str] = None,
+    limit: int = 40,
+):
+    """What the college researches, by subject area.
+
+    Nothing else in the system answers this. `subject_category` is a column
+    that exists and is empty on every one of the 3,226 filed claims; the real
+    answer lives in `subjects_json`, which Scimago fills in for a journal we
+    recognise.
+
+    Which is exactly why `coverage` is returned and must be shown. Subjects
+    are only known for a paper whose journal we could match, so an area chart
+    silently describes that subset and not the college. Presented without the
+    denominator it reads as "this is what we do" when it means "this is what
+    we do, among the half of our output we can classify" -- and a director
+    setting research priorities off the difference would be reading a
+    conclusion the data cannot support.
+    """
+    user = require_user(request)
+    if not rbac.can_view_reports(user.role):
+        raise HttpError(403, "Forbidden")
+
+    qs = _reports_queryset(user, year, department)
+    rows = list(qs.values_list("subjects_json", "remuneration", "publication_year"))
+
+    areas: dict[str, dict[str, Any]] = {}
+    classified = 0
+    for raw, amount, _pub_year in rows:
+        parsed = _split_subjects(raw)
+        if not parsed:
+            continue
+        classified += 1
+        for area, quartile in parsed:
+            slot = areas.setdefault(
+                area,
+                {"key": area, "count": 0, "amount": 0.0, "quartiles": {}},
+            )
+            # A paper counts once per area it belongs to, so the bars sum to
+            # more than the number of papers. That is the honest shape of a
+            # question about a multi-disciplinary body of work, and the
+            # caption on the screen says so.
+            slot["count"] += 1
+            slot["amount"] += amount or 0
+            if quartile:
+                slot["quartiles"][quartile] = slot["quartiles"].get(quartile, 0) + 1
+
+    ordered = sorted(areas.values(), key=lambda r: (-r["count"], r["key"]))
+    total = len(rows)
+    limit = max(1, min(int(limit), 200))
+
+    return {
+        "areas": [
+            {**r, "amount": round(r["amount"], 2)} for r in ordered[:limit]
+        ],
+        "distinct": len(ordered),
+        "shown": min(limit, len(ordered)),
+        "coverage": {
+            "classified": classified,
+            "total": total,
+            "unclassified": total - classified,
+            "fraction": round(classified / total, 4) if total else 0,
+        },
+        "filters": {"year": year, "department": department},
+        "years": sorted(
+            {y for y in qs.values_list("publication_year", flat=True) if y}, reverse=True
+        ),
+    }
+
+
 @api.get("/reports/search", auth=session_auth)
 def search_claims(
     request: HttpRequest,
@@ -4247,6 +5329,560 @@ def reports_export(
 
 
 # ---------- notifications ----------
+
+
+# ---------- discussions ----------
+
+
+class ThreadIn(Schema):
+    title: str
+    body: str
+    visibility: str = "PUBLIC"
+    department: Optional[str] = None
+    topic: Optional[str] = None
+    claim_id: Optional[str] = None
+    journal_title: Optional[str] = None
+
+
+class PostIn(Schema):
+    body: str
+    reply_to: Optional[str] = None
+
+
+class PostEditIn(Schema):
+    body: str
+
+
+def _mention_dict(m: Mention) -> dict[str, Any]:
+    return {
+        "kind": m.kind,
+        "label": m.label,
+        "user_id": m.user_id,
+        "user_name": m.user.name if m.user_id else None,
+        "claim_id": m.claim_id,
+        "ticket_number": m.claim.ticket_number if m.claim_id else None,
+        "journal_title": m.journal_title,
+        "department": m.department,
+    }
+
+
+def _post_dict(post: Post) -> dict[str, Any]:
+    deleted = post.deleted_at is not None
+    return {
+        "id": post.id,
+        "thread_id": post.thread_id,
+        "kind": post.kind,
+        # A deleted post leaves a tombstone rather than a hole: the replies
+        # underneath it still have to make sense.
+        "body": "" if deleted else post.body,
+        "deleted": deleted,
+        "author_id": post.author_id,
+        "author_name": post.author.name if post.author_id else None,
+        "reply_to": post.reply_to_id,
+        "created_at": post.created_at.isoformat(),
+        "edited_at": post.edited_at.isoformat() if post.edited_at else None,
+        "mentions": [] if deleted else [_mention_dict(m) for m in post.mentions.all()],
+    }
+
+
+def _thread_dict(t: Thread, user: User) -> dict[str, Any]:
+    return {
+        "id": t.id,
+        "title": t.title,
+        "visibility": t.visibility,
+        "department": t.department,
+        "topic": t.topic,
+        "claim_id": t.claim_id,
+        "ticket_number": t.claim.ticket_number if t.claim_id else None,
+        "journal_title": t.journal_title,
+        "created_by": t.created_by.name if t.created_by_id else None,
+        "created_by_id": t.created_by_id,
+        "created_at": t.created_at.isoformat(),
+        "last_post_at": t.last_post_at.isoformat(),
+        "post_count": t.post_count,
+        "resolved": t.resolved,
+        "resolved_by": t.resolved_by.name if t.resolved_by_id else None,
+        "locked": t.locked,
+        "may_post": discussions.may_post(user, t),
+        "may_moderate": discussions.may_moderate(user, t),
+    }
+
+
+def _write_post(thread: Thread, author: User | None, body: str, *, kind: str,
+                reply_to: Post | None = None) -> Post:
+    """One post, its mentions resolved, with the thread's counters moved."""
+    post = Post.objects.create(
+        thread=thread, author=author, body=body, kind=kind, reply_to=reply_to
+    )
+    for row in discussions.parse_mentions(body):
+        Mention.objects.create(post=post, **row)
+    Thread.objects.filter(pk=thread.pk).update(
+        last_post_at=timezone.now(), post_count=models.F("post_count") + 1
+    )
+    thread.refresh_from_db()
+    return post
+
+
+def _notify_thread(thread: Thread, post: Post, actor: User) -> None:
+    """Everybody mentioned, and everybody following, minus whoever wrote it.
+
+    Mentions and subscriptions are gathered together and de-duplicated so
+    being mentioned in a thread you already follow is one notification, not
+    two -- and neither ever reaches the person who caused it.
+    """
+    recipients: set[str] = set()
+    for m in post.mentions.filter(kind=Mention.Kind.USER).select_related("user"):
+        if m.user_id and discussions.may_read(m.user, thread):
+            recipients.add(m.user_id)
+    for sub in thread.subscriptions.select_related("user").filter(muted=False):
+        if discussions.may_read(sub.user, thread):
+            recipients.add(sub.user_id)
+    recipients.discard(actor.id)
+    if not recipients:
+        return
+
+    excerpt = (post.body or "")[:200]
+    for uid in recipients:
+        Notification.objects.create(
+            user_id=uid,
+            title=f"{actor.name} in “{thread.title[:80]}”",
+            body=excerpt,
+            href=f"/discussions/{thread.id}",
+        )
+
+
+def _subscribe(thread: Thread, user: User | None) -> None:
+    if user is None:
+        return
+    ThreadSubscription.objects.get_or_create(thread=thread, user=user)
+
+
+@api.get("/threads", auth=session_auth)
+def list_threads(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    topic: Optional[str] = None,
+    visibility: Optional[str] = None,
+    mine: bool = False,
+    unresolved: bool = False,
+    limit: int = 30,
+    offset: int = 0,
+):
+    """Threads this account may see, most recently active first."""
+    user = require_user(request)
+    qs = discussions.visible_threads(user).select_related("created_by", "claim")
+
+    if q:
+        qs = qs.filter(Q(title__icontains=q.strip()) | Q(posts__body__icontains=q.strip())).distinct()
+    if topic:
+        qs = qs.filter(topic__iexact=topic)
+    if visibility:
+        qs = qs.filter(visibility=visibility)
+    if mine:
+        qs = qs.filter(
+            Q(created_by=user) | Q(subscriptions__user=user) | Q(posts__author=user)
+        ).distinct()
+    if unresolved:
+        qs = qs.filter(resolved=False)
+
+    limit = max(1, min(int(limit), 100))
+    offset = max(0, int(offset))
+    total = qs.count()
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "results": [_thread_dict(t, user) for t in qs[offset : offset + limit]],
+        "visibilities": [
+            {"key": v.value, "label": v.label} for v in Thread.Visibility
+        ],
+        "may_open_office": True,
+    }
+
+
+@api.post("/threads", auth=session_auth)
+def create_thread(request: HttpRequest, payload: ThreadIn):
+    """Open a thread. The first post is part of it, not a separate step."""
+    user = require_user(request)
+    title = (payload.title or "").strip()
+    body = (payload.body or "").strip()
+    if len(title) < 4:
+        raise HttpError(400, "Give the thread a title somebody can recognise.")
+    if not body:
+        raise HttpError(400, "Say something in the first post.")
+
+    refusal = discussions.check_visibility(user, payload.visibility, payload.department)
+    if refusal:
+        raise HttpError(403 if "only" in refusal.lower() else 400, refusal)
+
+    claim = None
+    if payload.claim_id:
+        claim = Claim.objects.filter(pk=payload.claim_id).first()
+        if claim is None:
+            raise HttpError(404, "No such paper")
+        # Attaching a thread to somebody else's ticket would let a claimant
+        # discover a paper they cannot otherwise see.
+        if claim.owner_id != user.id and not rbac.can_view_reports(user.role):
+            raise HttpError(403, "That paper is not yours to open a thread about.")
+
+    with transaction.atomic():
+        thread = Thread.objects.create(
+            title=title,
+            visibility=payload.visibility,
+            department=(payload.department or "").strip() or None
+            if payload.visibility == Thread.Visibility.DEPARTMENT
+            else None,
+            topic=(payload.topic or "").strip() or None,
+            claim=claim,
+            journal_title=(payload.journal_title or "").strip() or None,
+            created_by=user,
+            post_count=0,
+        )
+        post = _write_post(thread, user, body, kind=Post.Kind.HUMAN)
+        _subscribe(thread, user)
+        for m in post.mentions.filter(kind=Mention.Kind.USER):
+            _subscribe(thread, m.user)
+
+    _notify_thread(thread, post, user)
+    _maybe_answer(thread, post, user)
+    return _thread_dict(thread, user)
+
+
+def _maybe_answer(thread: Thread, post: Post, asker: User) -> Post | None:
+    """Let the assistant reply, if it was asked and it has something to say."""
+    try:
+        text = thread_agent.answer(post, asker)
+    except Exception:
+        logger.exception("thread_agent_failed post=%s", post.id)
+        # A failing assistant must not lose somebody's message. The post is
+        # already written; this is the only part that did not happen.
+        return None
+    if not text:
+        return None
+    return _write_post(thread, None, text, kind=Post.Kind.AGENT, reply_to=post)
+
+
+@api.get("/threads/{thread_id}", auth=session_auth)
+def get_thread(request: HttpRequest, thread_id: str):
+    user = require_user(request)
+    thread = get_object_or_404(Thread, pk=thread_id)
+    if not discussions.may_read(user, thread):
+        raise HttpError(404, "No such thread")
+
+    posts = (
+        thread.posts.select_related("author")
+        .prefetch_related("mentions__user", "mentions__claim")
+        .order_by("created_at")
+    )
+    subscription = ThreadSubscription.objects.filter(thread=thread, user=user).first()
+    if subscription:
+        subscription.last_read_at = timezone.now()
+        subscription.save(update_fields=["last_read_at"])
+
+    return {
+        **_thread_dict(thread, user),
+        "posts": [_post_dict(p) for p in posts],
+        "following": bool(subscription and not subscription.muted),
+        "followers": thread.subscriptions.count(),
+    }
+
+
+@api.post("/threads/{thread_id}/posts", auth=session_auth)
+def add_post(request: HttpRequest, thread_id: str, payload: PostIn):
+    user = require_user(request)
+    thread = get_object_or_404(Thread, pk=thread_id)
+    if not discussions.may_read(user, thread):
+        raise HttpError(404, "No such thread")
+    if thread.locked:
+        raise HttpError(400, "This thread is closed to new posts.")
+    body = (payload.body or "").strip()
+    if not body:
+        raise HttpError(400, "Say something.")
+
+    reply_to = None
+    if payload.reply_to:
+        reply_to = thread.posts.filter(pk=payload.reply_to).first()
+
+    with transaction.atomic():
+        post = _write_post(thread, user, body, kind=Post.Kind.HUMAN, reply_to=reply_to)
+        # Posting is taking an interest; so is being named.
+        _subscribe(thread, user)
+        for m in post.mentions.filter(kind=Mention.Kind.USER):
+            _subscribe(thread, m.user)
+
+    _notify_thread(thread, post, user)
+    reply = _maybe_answer(thread, post, user)
+    return {
+        "post": _post_dict(post),
+        "agent_reply": _post_dict(reply) if reply else None,
+    }
+
+
+@api.patch("/posts/{post_id}", auth=session_auth)
+def edit_post(request: HttpRequest, post_id: str, payload: PostEditIn):
+    """Your own words, and only yours. An edit is marked, never silent."""
+    user = require_user(request)
+    post = get_object_or_404(Post.objects.select_related("thread"), pk=post_id)
+    if post.author_id != user.id:
+        raise HttpError(403, "You can only edit your own posts.")
+    if post.deleted_at:
+        raise HttpError(400, "That post has been deleted.")
+    body = (payload.body or "").strip()
+    if not body:
+        raise HttpError(400, "A post cannot be emptied — delete it instead.")
+
+    with transaction.atomic():
+        post.body = body
+        post.edited_at = timezone.now()
+        post.save(update_fields=["body", "edited_at"])
+        # The mentions are part of the text, so they are rewritten with it.
+        post.mentions.all().delete()
+        for row in discussions.parse_mentions(body):
+            Mention.objects.create(post=post, **row)
+
+    return _post_dict(post)
+
+
+@api.delete("/posts/{post_id}", auth=session_auth)
+def delete_post(request: HttpRequest, post_id: str):
+    user = require_user(request)
+    post = get_object_or_404(Post.objects.select_related("thread"), pk=post_id)
+    if post.author_id != user.id and not discussions.may_moderate(user, post.thread):
+        raise HttpError(403, "You can only delete your own posts.")
+    post.deleted_at = timezone.now()
+    post.deleted_by = user
+    post.save(update_fields=["deleted_at", "deleted_by"])
+    AuditLog.objects.create(
+        actor=user, action="POST_DELETE", entity="Post", entity_id=post.id,
+        detail_json=json.dumps({"thread": post.thread_id}),
+    )
+    return {"ok": True}
+
+
+@api.post("/threads/{thread_id}/subscribe", auth=session_auth)
+def set_subscription(request: HttpRequest, thread_id: str, following: bool = True):
+    user = require_user(request)
+    thread = get_object_or_404(Thread, pk=thread_id)
+    if not discussions.may_read(user, thread):
+        raise HttpError(404, "No such thread")
+    sub, _ = ThreadSubscription.objects.get_or_create(thread=thread, user=user)
+    # Muted rather than deleted: leaving a noisy thread should not lose the
+    # record that you were in it.
+    sub.muted = not following
+    sub.save(update_fields=["muted"])
+    return {"ok": True, "following": following}
+
+
+@api.post("/threads/{thread_id}/resolve", auth=session_auth)
+def resolve_thread(request: HttpRequest, thread_id: str, resolved: bool = True):
+    user = require_user(request)
+    thread = get_object_or_404(Thread, pk=thread_id)
+    if not discussions.may_moderate(user, thread):
+        raise HttpError(403, "Only the office, or whoever opened it, can close a thread.")
+    thread.resolved = resolved
+    thread.resolved_by = user if resolved else None
+    thread.resolved_at = timezone.now() if resolved else None
+    thread.save(update_fields=["resolved", "resolved_by", "resolved_at"])
+    return _thread_dict(thread, user)
+
+
+@api.post("/threads/{thread_id}/lock", auth=session_auth)
+def lock_thread(request: HttpRequest, thread_id: str, locked: bool = True):
+    """Closed to new posts, still readable. Moderation, not deletion."""
+    user = require_user(request)
+    thread = get_object_or_404(Thread, pk=thread_id)
+    if not discussions.is_office(user.role):
+        raise HttpError(403, "Only the office can lock a thread.")
+    thread.locked = locked
+    thread.save(update_fields=["locked"])
+    AuditLog.objects.create(
+        actor=user, action="THREAD_LOCK", entity="Thread", entity_id=thread.id,
+        detail_json=json.dumps({"locked": locked}),
+    )
+    return _thread_dict(thread, user)
+
+
+@api.get("/mentions/search", auth=session_auth)
+def search_mentions(request: HttpRequest, q: str = "", kind: Optional[str] = None):
+    """What the @ autocomplete offers, scoped to what this account may see."""
+    user = require_user(request)
+    return {"results": discussions.mention_candidates(user, q, kind)}
+
+
+# ---------- the calendar ----------
+
+
+class EventIn(Schema):
+    title: str
+    kind: str = "OTHER"
+    starts_on: str
+    ends_on: Optional[str] = None
+    description: Optional[str] = None
+    visibility: str = "PUBLIC"
+    department: Optional[str] = None
+    thread_id: Optional[str] = None
+    claim_id: Optional[str] = None
+
+
+def _event_dict(e: CalendarEvent) -> dict[str, Any]:
+    return {
+        "id": e.id,
+        "title": e.title,
+        "kind": e.kind,
+        "kind_label": CalendarEvent.Kind(e.kind).label,
+        "starts_on": e.starts_on.isoformat(),
+        "ends_on": e.ends_on.isoformat() if e.ends_on else None,
+        "description": e.description,
+        "visibility": e.visibility,
+        "department": e.department,
+        "thread_id": e.thread_id,
+        "claim_id": e.claim_id,
+        "created_by": e.created_by.name if e.created_by_id else None,
+        "created_by_id": e.created_by_id,
+    }
+
+
+def _visible_events(user: User):
+    """Same three-way rule as a thread, applied to a date."""
+    condition = Q(visibility=Thread.Visibility.PUBLIC)
+    department = (getattr(user, "department", "") or "").strip()
+    if department:
+        condition |= Q(
+            visibility=Thread.Visibility.DEPARTMENT, department__iexact=department
+        )
+    if discussions.is_office(user.role):
+        # Same reasoning as `discussions.visible_threads`: the office reads
+        # everything, or an event and the thread it came out of disagree
+        # about who may see them.
+        condition |= Q(visibility=Thread.Visibility.OFFICE)
+        condition |= Q(visibility=Thread.Visibility.DEPARTMENT)
+    else:
+        condition |= Q(visibility=Thread.Visibility.OFFICE, created_by=user)
+    return CalendarEvent.objects.filter(condition)
+
+
+@api.get("/calendar", auth=session_auth)
+def list_events(
+    request: HttpRequest,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    kind: Optional[str] = None,
+):
+    """Everything with a date on it, in a window.
+
+    Defaults to a span around today rather than to everything: a calendar
+    that opens on four years of history is a calendar nobody scrolls.
+    """
+    user = require_user(request)
+    qs = _visible_events(user).select_related("created_by")
+
+    today = timezone.now().date()
+    try:
+        first = date.fromisoformat(start) if start else today - timedelta(days=30)
+        last = date.fromisoformat(end) if end else today + timedelta(days=120)
+    except ValueError:
+        raise HttpError(400, "Dates must look like 2026-03-01")
+    if last < first:
+        raise HttpError(400, "The end of the window is before its start")
+
+    # An event overlaps the window if it starts before the end of it and has
+    # not already finished. A span is not just its first day.
+    qs = qs.filter(starts_on__lte=last).filter(
+        Q(ends_on__isnull=True, starts_on__gte=first) | Q(ends_on__gte=first)
+    )
+    if kind:
+        qs = qs.filter(kind=kind)
+
+    return {
+        "start": first.isoformat(),
+        "end": last.isoformat(),
+        "results": [_event_dict(e) for e in qs],
+        "kinds": [{"key": k.value, "label": k.label} for k in CalendarEvent.Kind],
+    }
+
+
+@api.post("/calendar", auth=session_auth)
+def create_event(request: HttpRequest, payload: EventIn):
+    user = require_user(request)
+    title = (payload.title or "").strip()
+    if len(title) < 3:
+        raise HttpError(400, "Give the event a title.")
+    if payload.kind not in CalendarEvent.Kind.values:
+        raise HttpError(400, f"Kind must be one of: {', '.join(CalendarEvent.Kind.values)}.")
+
+    refusal = discussions.check_visibility(user, payload.visibility, payload.department)
+    if refusal:
+        raise HttpError(403 if "only" in refusal.lower() else 400, refusal)
+
+    try:
+        starts = date.fromisoformat(payload.starts_on)
+        ends = date.fromisoformat(payload.ends_on) if payload.ends_on else None
+    except (TypeError, ValueError):
+        raise HttpError(400, "Dates must look like 2026-03-01")
+    if ends and ends < starts:
+        raise HttpError(400, "It cannot end before it starts.")
+
+    thread = Thread.objects.filter(pk=payload.thread_id).first() if payload.thread_id else None
+    if thread and not discussions.may_read(user, thread):
+        raise HttpError(404, "No such thread")
+
+    event = CalendarEvent.objects.create(
+        title=title,
+        kind=payload.kind,
+        starts_on=starts,
+        ends_on=ends,
+        description=(payload.description or "").strip() or None,
+        visibility=payload.visibility,
+        department=(payload.department or "").strip() or None
+        if payload.visibility == Thread.Visibility.DEPARTMENT
+        else None,
+        thread=thread,
+        claim=Claim.objects.filter(pk=payload.claim_id).first() if payload.claim_id else None,
+        created_by=user,
+    )
+
+    # An event that came out of a thread is recorded in it, so the decision
+    # and the date do not live in two places that can disagree.
+    if thread:
+        _write_post(
+            thread, None,
+            f"📅 **{title}** — {starts.isoformat()}"
+            + (f" to {ends.isoformat()}" if ends else ""),
+            kind=Post.Kind.SYSTEM,
+        )
+
+    return _event_dict(event)
+
+
+@api.patch("/calendar/{event_id}", auth=session_auth)
+def update_event(request: HttpRequest, event_id: str, payload: EventIn):
+    user = require_user(request)
+    event = get_object_or_404(CalendarEvent, pk=event_id)
+    if event.created_by_id != user.id and not discussions.is_office(user.role):
+        raise HttpError(403, "Only the office, or whoever added it, can change an event.")
+    try:
+        event.starts_on = date.fromisoformat(payload.starts_on)
+        event.ends_on = date.fromisoformat(payload.ends_on) if payload.ends_on else None
+    except (TypeError, ValueError):
+        raise HttpError(400, "Dates must look like 2026-03-01")
+    if event.ends_on and event.ends_on < event.starts_on:
+        raise HttpError(400, "It cannot end before it starts.")
+    event.title = (payload.title or event.title).strip()
+    event.kind = payload.kind
+    event.description = (payload.description or "").strip() or None
+    event.save()
+    return _event_dict(event)
+
+
+@api.delete("/calendar/{event_id}", auth=session_auth)
+def delete_event(request: HttpRequest, event_id: str):
+    user = require_user(request)
+    event = get_object_or_404(CalendarEvent, pk=event_id)
+    if event.created_by_id != user.id and not discussions.is_office(user.role):
+        raise HttpError(403, "Only the office, or whoever added it, can remove an event.")
+    event.delete()
+    return {"ok": True}
 
 
 @api.get("/notifications", auth=session_auth)
@@ -5351,6 +6987,125 @@ class RepriceIn(Schema):
     total_authors: int = 1
 
 
+@api.get("/programme/me", auth=session_auth)
+def programme_me(request: HttpRequest, limit: int = 12):
+    """The research picture around one person: their areas, and who else is in them.
+
+    Everything here is derived from data the college already holds, and none of
+    it needs a model or a key. That is deliberate. The AI features switch off
+    when the credits run out; "what is my department publishing and who should
+    I talk to" is too useful to switch off with them.
+
+    The three questions it answers, in the order somebody asks them:
+
+    - what do I work on? -- taken from the subject areas of papers they have
+      actually filed, not from a profile they filled in once and never revised;
+    - who else works on it? -- colleagues with papers in the same areas, most
+      overlap first, excluding the person themselves;
+    - what is happening in it right now? -- the most recent papers filed in
+      those areas by anybody, so a new arrival can see the live front rather
+      than a historical total.
+
+    No money anywhere in the payload. A faculty member may see their own
+    amounts and nobody else's, and this endpoint is about other people --
+    including it would leak a colleague's payout through the back door.
+    """
+    user = require_user(request)
+    limit = max(1, min(int(limit), 50))
+
+    mine = Claim.objects.filter(owner=user).exclude(status=ClaimStatus.DRAFT)
+
+    # ---- my areas, from what I have actually published --------------------
+    my_areas: dict[str, int] = {}
+    for raw in mine.values_list("subjects_json", flat=True):
+        for area, _q in _split_subjects(raw):
+            my_areas[area] = my_areas.get(area, 0) + 1
+    ranked_areas = sorted(my_areas.items(), key=lambda kv: -kv[1])
+    top_areas = [a for a, _n in ranked_areas[:8]]
+
+    stated = list(
+        ResearchInterest.objects.filter(user=user).values_list("domain", flat=True)
+    )
+
+    # Interests a person stated but has not published in are still theirs, and
+    # are what a new arrival with no papers has instead of an area list.
+    search_terms = top_areas[:4] or stated[:4]
+
+    colleagues: list[dict[str, Any]] = []
+    live: list[dict[str, Any]] = []
+
+    if top_areas:
+        # One pass over other people's papers, matched on area. Done in Python
+        # rather than SQL because the areas live in a semicolon-separated
+        # column that no index can help with -- and the alternative, a LIKE per
+        # area, is eight table scans instead of one.
+        wanted = set(top_areas)
+        others = (
+            Claim.objects.exclude(owner=user)
+            .exclude(status=ClaimStatus.DRAFT)
+            .exclude(subjects_json__isnull=True)
+            .exclude(subjects_json="")
+            .select_related("owner")
+            .order_by("-publication_year", "-created_at")
+        )
+        people: dict[str, dict[str, Any]] = {}
+        for claim in others[:4000]:
+            areas = {a for a, _q in _split_subjects(claim.subjects_json)}
+            shared = areas & wanted
+            if not shared:
+                continue
+            if len(live) < limit:
+                live.append({
+                    "id": claim.id,
+                    "paper_title": claim.paper_title,
+                    "journal_title": claim.journal_title,
+                    "publication_year": claim.publication_year,
+                    "quartile": claim.quartile,
+                    "owner_id": claim.owner_id,
+                    "owner_name": claim.owner.name if claim.owner_id else None,
+                    "owner_department": claim.owner.department if claim.owner_id else None,
+                    "areas": sorted(shared),
+                })
+            slot = people.setdefault(
+                claim.owner_id,
+                {
+                    "id": claim.owner_id,
+                    "name": claim.owner.name if claim.owner_id else "Unknown",
+                    "department": claim.owner.department if claim.owner_id else None,
+                    "designation": claim.owner.designation if claim.owner_id else None,
+                    "papers": 0,
+                    "areas": set(),
+                },
+            )
+            slot["papers"] += 1
+            slot["areas"] |= shared
+        colleagues = sorted(
+            (
+                {**v, "areas": sorted(v["areas"]), "shared": len(v["areas"])}
+                for v in people.values()
+            ),
+            key=lambda r: (-r["shared"], -r["papers"]),
+        )[:limit]
+
+    return {
+        "areas": [{"key": a, "count": n} for a, n in ranked_areas[:12]],
+        "interests": stated,
+        "search_terms": search_terms,
+        "colleagues": colleagues,
+        "live": live,
+        "totals": {
+            "my_papers": mine.count(),
+            "my_areas": len(ranked_areas),
+            "colleagues": len(colleagues),
+        },
+        # Said on screen, because an empty programme page looks broken and is
+        # usually just somebody whose journals we could not classify.
+        "classified": mine.exclude(subjects_json__isnull=True)
+        .exclude(subjects_json="")
+        .count(),
+    }
+
+
 @api.get("/research/search", auth=session_auth)
 def research_search_endpoint(
     request: HttpRequest,
@@ -5367,7 +7122,7 @@ def research_search_endpoint(
     what is being published in their field, and what it would be worth to them,
     with no AI involved at all.
     """
-    require_user(request)
+    _require_may_see_money(request)
     picked = [s.strip() for s in (sources or "").split(",") if s.strip()] or None
     return research_search.search(
         q,
@@ -5388,7 +7143,7 @@ def discover_reprice(request: HttpRequest, payload: RepriceIn):
     Available whether or not a model is configured, because it does not need
     one.
     """
-    require_user(request)
+    _require_may_see_money(request)
     return discover_service.reprice(
         issns=payload.issns,
         author_position=max(1, payload.author_position),
@@ -5731,6 +7486,470 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
                 "active": p.active,
             }
             for p in people
+        ],
+    })
+
+
+# ---------- what a head is measured on, and can steer ----------
+
+
+class TargetIn(Schema):
+    year: int
+    metric: str
+    target: int
+    #: Omitted or null sets the target on the department as a whole.
+    person_id: Optional[str] = None
+    note: Optional[str] = None
+
+
+def _target_progress(qs, metric: str, person_id: str | None) -> int:
+    """How far along a target is, counted the same way every time.
+
+    One function so the number under a departmental target and the number
+    under a personal one cannot be arrived at differently -- which is exactly
+    how a head ends up with a department at 80% made of people who are each,
+    somehow, at 60%.
+    """
+    scoped = qs.filter(owner_id=person_id) if person_id else qs
+    if metric == DepartmentTarget.Metric.Q1:
+        return scoped.filter(quartile__iexact="Q1").count()
+    if metric == DepartmentTarget.Metric.FIRST_AUTHOR:
+        return scoped.filter(author_position=1).count()
+    return scoped.count()
+
+
+@api.get("/hod/targets", auth=session_auth)
+def hod_targets(request: HttpRequest, year: Optional[int] = None):
+    """Every target this head has set, with where it actually stands.
+
+    Progress is recomputed on read rather than stored. A stored figure is one
+    that is wrong from the moment somebody files a paper, and a head checking
+    a target is checking it *now*.
+    """
+    user = _require_hod(request)
+    department = hod.department_of(user)
+    year = year or timezone.now().year
+
+    qs = _hod_scope(user).filter(publication_year=year)
+    rows = (
+        DepartmentTarget.objects.filter(department__iexact=department, year=year)
+        .select_related("person", "set_by")
+        .order_by("person__name", "metric")
+    )
+
+    def as_dict(t: DepartmentTarget) -> dict[str, Any]:
+        done = _target_progress(qs, t.metric, t.person_id)
+        return {
+            "id": t.id,
+            "year": t.year,
+            "metric": t.metric,
+            "metric_label": DepartmentTarget.Metric(t.metric).label,
+            "target": t.target,
+            "done": done,
+            "remaining": max(0, t.target - done),
+            "fraction": round(done / t.target, 4) if t.target else None,
+            "met": done >= t.target,
+            "person_id": t.person_id,
+            "person_name": t.person.name if t.person_id else None,
+            "note": t.note,
+            "set_by": t.set_by.name if t.set_by_id else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        }
+
+    all_rows = [as_dict(t) for t in rows]
+    return hod.without_money({
+        "department": department,
+        "year": year,
+        "department_targets": [r for r in all_rows if r["person_id"] is None],
+        "personal_targets": [r for r in all_rows if r["person_id"] is not None],
+        "metrics": [
+            {"key": m.value, "label": m.label} for m in DepartmentTarget.Metric
+        ],
+        "years": sorted(
+            {y for y in _hod_scope(user).values_list("publication_year", flat=True) if y},
+            reverse=True,
+        ),
+    })
+
+
+@api.post("/hod/targets", auth=session_auth)
+def hod_set_target(request: HttpRequest, payload: TargetIn):
+    """Set or change one target. A head may only set them inside their own
+    department, and only on somebody who is actually in it."""
+    user = _require_hod(request)
+    department = hod.department_of(user)
+
+    valid = {m.value for m in DepartmentTarget.Metric}
+    if payload.metric not in valid:
+        raise HttpError(400, f"Metric must be one of: {', '.join(sorted(valid))}.")
+    if payload.target < 0:
+        raise HttpError(400, "A target cannot be negative")
+    if payload.year < 2000 or payload.year > timezone.now().year + 5:
+        raise HttpError(400, "That is not a year this can be set against")
+
+    person = None
+    if payload.person_id:
+        person = User.objects.filter(pk=payload.person_id).first()
+        if person is None:
+            raise HttpError(404, "No such person")
+        # Checked on the server, not just hidden on the screen: a head setting
+        # targets on somebody else's staff is not a filter mistake, it is a
+        # different head's business.
+        if (person.department or "").strip().lower() != department.lower():
+            raise HttpError(
+                403, f"{person.name} is not in {department}."
+            )
+
+    target, created = DepartmentTarget.objects.update_or_create(
+        department=department,
+        year=payload.year,
+        metric=payload.metric,
+        person=person,
+        defaults={
+            "target": payload.target,
+            "note": (payload.note or "").strip() or None,
+            "set_by": user,
+        },
+    )
+    AuditLog.objects.create(
+        actor=user, action="TARGET_SET", entity="DepartmentTarget", entity_id=target.id,
+        detail_json=json.dumps({
+            "department": department, "year": payload.year, "metric": payload.metric,
+            "target": payload.target, "person": person.id if person else None,
+            "created": created,
+        }),
+    )
+    return {"ok": True, "id": target.id, "created": created}
+
+
+@api.delete("/hod/targets/{target_id}", auth=session_auth)
+def hod_delete_target(request: HttpRequest, target_id: str):
+    user = _require_hod(request)
+    department = hod.department_of(user)
+    target = get_object_or_404(DepartmentTarget, pk=target_id)
+    if (target.department or "").lower() != department.lower():
+        raise HttpError(403, "That target belongs to another department.")
+    AuditLog.objects.create(
+        actor=user, action="TARGET_DELETE", entity="DepartmentTarget",
+        entity_id=target.id,
+        detail_json=json.dumps({"metric": target.metric, "year": target.year}),
+    )
+    target.delete()
+    return {"ok": True}
+
+
+@api.get("/hod/people/{user_id}", auth=session_auth)
+def hod_person(request: HttpRequest, user_id: str):
+    """One member of this head's department, and what they have published.
+
+    A head could see a list of their staff with counts beside each name and
+    could not open any of them: `/api/faculty/{id}/report` needs
+    `can_view_reports`, which a head does not have, so every name on their own
+    department screen was a dead link. This is the same question asked inside
+    the two limits a head works under -- their own department, and no money.
+
+    The scope check is on the person's department, not on a parameter: a head
+    asking about somebody else's staff is not a filter, it is a different
+    question with a different answer.
+    """
+    user = _require_hod(request)
+    department = hod.department_of(user)
+    person = get_object_or_404(User, pk=user_id)
+
+    if (person.department or "").strip().lower() != department.lower():
+        raise HttpError(
+            403,
+            f"{person.name} is not in {department}. A head sees their own department.",
+        )
+
+    claims = (
+        Claim.objects.filter(owner=person)
+        .exclude(status=ClaimStatus.DRAFT)
+        .order_by("-publication_year", "-updated_at")
+    )
+
+    def bucket(field: str, blank: str) -> list[dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        for value in claims.values_list(field, flat=True):
+            key = (str(value).strip() if value not in (None, "") else blank) or blank
+            slot = out.setdefault(key, {"key": key, "count": 0, "amount": 0})
+            slot["count"] += 1
+        return sorted(out.values(), key=lambda r: -r["count"])
+
+    years = sorted({y for y in claims.values_list("publication_year", flat=True) if y})
+    by_year = []
+    if years:
+        per: dict[int, int] = {}
+        for y in claims.values_list("publication_year", flat=True):
+            if y:
+                per[y] = per.get(y, 0) + 1
+        # Empty years drawn as the zeros they are: a gap joined by a straight
+        # line reads as steady output through a year with nothing in it.
+        by_year = [
+            {"key": str(y), "count": per.get(y, 0), "amount": 0}
+            for y in range(min(years), max(years) + 1)
+        ]
+
+    targets = [
+        {
+            "id": t.id,
+            "year": t.year,
+            "metric": t.metric,
+            "metric_label": DepartmentTarget.Metric(t.metric).label,
+            "target": t.target,
+            "done": _target_progress(
+                claims.filter(publication_year=t.year), t.metric, person.id
+            ),
+        }
+        for t in DepartmentTarget.objects.filter(
+            department__iexact=department, person=person
+        ).order_by("-year", "metric")
+    ]
+    for t in targets:
+        t["remaining"] = max(0, t["target"] - t["done"])
+        t["met"] = t["done"] >= t["target"]
+        t["fraction"] = round(t["done"] / t["target"], 4) if t["target"] else None
+
+    return hod.without_money({
+        "person": {
+            "id": person.id,
+            "name": person.name,
+            "email": person.email,
+            "department": person.department,
+            "designation": person.designation,
+            "staff_id": person.staff_id,
+            "active": person.active,
+        },
+        "totals": {
+            "publications": claims.count(),
+            "q1": claims.filter(quartile__iexact="Q1").count(),
+            "first_author": claims.filter(author_position=1).count(),
+            "under_review": claims.filter(
+                status__in=(
+                    ClaimStatus.SUBMITTED,
+                    ClaimStatus.CLEARED,
+                    ClaimStatus.PRINCIPAL_APPROVED,
+                    ClaimStatus.DIRECTOR_APPROVED,
+                )
+            ).count(),
+        },
+        "by_year": by_year,
+        "by_quartile": bucket("quartile", "Not recorded"),
+        "by_journal": bucket("journal_title", "Not recorded")[:10],
+        "targets": targets,
+        "papers": [
+            {
+                "id": c.id,
+                "paper_title": c.paper_title,
+                "journal_title": c.journal_title,
+                "publication_year": c.publication_year,
+                "quartile": c.quartile,
+                "author_position": c.author_position,
+                "total_authors": c.total_authors,
+                "progress": hod.progress_of(c.status),
+            }
+            for c in claims[:100]
+        ],
+    })
+
+
+@api.get("/hod/standing", auth=session_auth)
+def hod_standing(request: HttpRequest, year: Optional[int] = None):
+    """How this department compares with the rest of the college.
+
+    A head knows their own numbers and has no way to tell whether they are
+    good. Forty papers is a triumph or a disappointment depending entirely on
+    what the department next door did, and nothing in this system would say.
+
+    Every figure here is a count or a rate. **No money, and no other
+    department is named** -- the head sees where they sit and what the college
+    typically does, not a ranked table of their colleagues' departments, which
+    is a different document with different politics and is not a head's to
+    hold.
+    """
+    user = _require_hod(request)
+    department = hod.department_of(user)
+
+    college = Claim.objects.exclude(status=ClaimStatus.DRAFT)
+    if year:
+        college = college.filter(publication_year=year)
+    mine = college.filter(owner__department__iexact=department)
+
+    def rates(qs) -> dict[str, Any]:
+        total = qs.count()
+        q1 = qs.filter(quartile__iexact="Q1").count()
+        first = qs.filter(author_position=1).count()
+        return {
+            "publications": total,
+            "q1": q1,
+            "q1_rate": round(q1 / total, 4) if total else None,
+            "first_author": first,
+            "first_author_rate": round(first / total, 4) if total else None,
+        }
+
+    # Per-department counts, used for the share and the position. The names
+    # are dropped straight after; only this department's own is kept.
+    per_department: dict[str, int] = {}
+    for row in college.values("owner__department").annotate(n=Count("id")):
+        key = (row["owner__department"] or "").strip()
+        if key:
+            per_department[key] = per_department.get(key, 0) + row["n"]
+
+    counts = sorted(per_department.values(), reverse=True)
+    my_count = per_department.get(department, 0)
+    position = counts.index(my_count) + 1 if my_count in counts else None
+    college_total = sum(per_department.values())
+
+    heads = User.objects.filter(
+        role=Role.FACULTY, department__iexact=department, active=True
+    ).count()
+    college_heads = User.objects.filter(role=Role.FACULTY, active=True).count()
+
+    mine_rates = rates(mine)
+    college_rates = rates(college)
+
+    return hod.without_money({
+        "department": department,
+        "year": year,
+        "mine": {
+            **mine_rates,
+            "faculty": heads,
+            "per_head": round(my_count / heads, 2) if heads else None,
+        },
+        "college": {
+            **college_rates,
+            "departments": len(per_department),
+            "faculty": college_heads,
+            "per_head": round(college_total / college_heads, 2) if college_heads else None,
+        },
+        "share": round(my_count / college_total, 4) if college_total else None,
+        # "3rd of 22" is the whole answer a head wants and the least
+        # inflammatory way to give it: no other department is named.
+        "position": position,
+        "of": len(per_department),
+        "years": sorted(
+            {y for y in Claim.objects.exclude(status=ClaimStatus.DRAFT)
+             .values_list("publication_year", flat=True) if y},
+            reverse=True,
+        ),
+    })
+
+
+@api.get("/hod/opportunities", auth=session_auth)
+def hod_opportunities(request: HttpRequest, year: Optional[int] = None):
+    """Where this department could realistically do more, with the names.
+
+    Every item is something a head can actually act on this term, and each one
+    carries the people or papers behind it rather than only a count -- "eleven
+    papers would fail accreditation" is a statistic, and the list of which
+    eleven is a task.
+    """
+    user = _require_hod(request)
+    department = hod.department_of(user)
+    qs = _hod_scope(user)
+    if year:
+        qs = qs.filter(publication_year=year)
+
+    def people_rows(users) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": u.id, "name": u.name,
+                "designation": u.designation, "staff_id": u.staff_id,
+            }
+            for u in users
+        ]
+
+    members = list(
+        User.objects.filter(role=Role.FACULTY, department__iexact=department, active=True)
+        .order_by("name")
+    )
+    filed = set(qs.values_list("owner_id", flat=True))
+    with_q1 = set(qs.filter(quartile__iexact="Q1").values_list("owner_id", flat=True))
+    led = set(qs.filter(author_position=1).values_list("owner_id", flat=True))
+
+    silent = [u for u in members if u.id not in filed]
+    no_q1 = [u for u in members if u.id in filed and u.id not in with_q1]
+    never_led = [u for u in members if u.id in filed and u.id not in led]
+
+    # Accreditation asks for these on every row; a paper missing one is a row
+    # an assessor sends back, and it is far cheaper to fix now than in the
+    # week the submission is due.
+    incomplete = qs.filter(
+        Q(issn__isnull=True) | Q(issn="") | Q(doi__isnull=True) | Q(doi="")
+    ).order_by("-publication_year")
+
+    # Where the department already publishes, worst standing first: the
+    # realistic next move is usually a better journal in a field somebody is
+    # already in, not a new field.
+    low_quartile = (
+        qs.filter(quartile__iregex=r"^Q[34]$")
+        .values("journal_title", "quartile")
+        .annotate(n=Count("id"))
+        .order_by("-n")[:10]
+    )
+
+    return hod.without_money({
+        "department": department,
+        "year": year,
+        "groups": [
+            {
+                "key": "silent",
+                "title": "Nobody has filed anything for them",
+                "blurb": (
+                    "Not the same as having published nothing -- a paper nobody "
+                    "filed a claim for does not exist anywhere in this system."
+                ),
+                "count": len(silent),
+                "people": people_rows(silent),
+            },
+            {
+                "key": "no_q1",
+                "title": "Publishing, but nothing in a Q1 journal",
+                "blurb": "The clearest single lift available to the department.",
+                "count": len(no_q1),
+                "people": people_rows(no_q1),
+            },
+            {
+                "key": "never_led",
+                "title": "Never first author",
+                "blurb": (
+                    "Contributing to other people's papers without leading one. "
+                    "First authorship is what the department is credited with."
+                ),
+                "count": len(never_led),
+                "people": people_rows(never_led),
+            },
+        ],
+        "incomplete_records": {
+            "count": incomplete.count(),
+            "blurb": (
+                "Missing an ISSN or a DOI. An assessor sends these back, and "
+                "they are far cheaper to fix now than in submission week."
+            ),
+            "papers": [
+                {
+                    "id": c.id,
+                    "paper_title": c.paper_title,
+                    "journal_title": c.journal_title,
+                    "publication_year": c.publication_year,
+                    "owner_name": c.owner.name if c.owner_id else None,
+                    "missing": [
+                        label for label, present in (
+                            ("ISSN", bool((c.issn or "").strip())),
+                            ("DOI", bool((c.doi or "").strip())),
+                        ) if not present
+                    ],
+                }
+                for c in incomplete[:25]
+            ],
+        },
+        "lower_quartile_journals": [
+            {
+                "journal_title": r["journal_title"] or "Not recorded",
+                "quartile": r["quartile"],
+                "count": r["n"],
+            }
+            for r in low_quartile
         ],
     })
 
@@ -6275,7 +8494,11 @@ def _budget_status(fy: str, user: User) -> dict[str, Any]:
     # Committed has no payout month yet -- it is defined by where the ticket
     # sits, not by a date it has not reached.
     committed = scope.filter(
-        status__in=(ClaimStatus.CLEARED, ClaimStatus.PRINCIPAL_APPROVED)
+        status__in=(
+            ClaimStatus.CLEARED,
+            ClaimStatus.PRINCIPAL_APPROVED,
+            ClaimStatus.DIRECTOR_APPROVED,
+        )
     )
 
     def by_dept(qs) -> dict[str, float]:
@@ -6797,9 +9020,16 @@ def admin_faults(request: HttpRequest):
     stale_submitted = claims.filter(status=ClaimStatus.SUBMITTED, updated_at__lt=stale_cut)
     stale_cleared = claims.filter(status=ClaimStatus.CLEARED, updated_at__lt=stale_cut)
     legacy = claims.filter(status__in=[
-        ClaimStatus.HOD_APPROVED, ClaimStatus.PRINCIPAL_APPROVED,
-        ClaimStatus.RESEARCH_APPROVED, ClaimStatus.FINANCE_APPROVED,
-    ])
+        ClaimStatus.HOD_APPROVED,
+        ClaimStatus.RESEARCH_APPROVED,
+        ClaimStatus.FINANCE_APPROVED,
+    ]) | claims.filter(
+        # A live Principal approval sets this; an ERP import does not. Without
+        # the distinction every ticket legitimately waiting on the Director was
+        # reported as stranded on a retired status.
+        status=ClaimStatus.PRINCIPAL_APPROVED,
+        principal_approved_at__isnull=True,
+    )
     old_drafts = claims.filter(status=ClaimStatus.DRAFT, updated_at__lt=now - timedelta(days=30))
     groups.append({
         "key": "stuck",
@@ -6974,13 +9204,21 @@ def admin_user_detail(request: HttpRequest, user_id: str):
     return row
 
 
-#: Roles an account may be given. Every one of these carries capabilities;
-#: HOD is deliberately absent, being retired and able to do nothing, and an
-#: account holding one keeps it until somebody deliberately moves them.
+#: Roles an account may be given. Every one of them now carries capabilities.
+#:
+#: HOD was once described here as "retired and able to do nothing". That has
+#: not been true since a head got their own department screen: standing
+#: against the college, targets they set for their staff, and a money-free
+#: view of one person. It is a real post again, and it is assignable.
 ASSIGNABLE_ROLES = (
     Role.FACULTY,
     Role.HOD,
     Role.PRINCIPAL,
+    # Without this the office could not create or promote the one role that
+    # has to authorise every payment -- the chain would have a step nobody
+    # could be appointed to.
+    Role.DIRECTOR,
+    Role.RESEARCH_COORDINATOR,
     Role.RESEARCH_CELL,
     Role.FINANCE,
     Role.SUPER_ADMIN,
@@ -7062,7 +9300,7 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
             raise HttpError(
                 403,
                 "Only a super admin can change "
-                + ", ".join(CORRECTABLE[f].lower() for f in blocked)
+                + ", ".join(FIELD_LABELS.get(f, f.replace("_", " ")) for f in blocked)
                 + ". You can still set the role, the department and whether the "
                 "account is active.",
             )
@@ -7073,9 +9311,19 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
             raise HttpError(400, "You cannot change your own role — ask another admin")
         if data.get("active") is False:
             raise HttpError(400, "You cannot deactivate your own account")
+    if data.get("faculty_type") not in (None, "REGULAR", "RESEARCH"):
+        raise HttpError(400, "Faculty type must be REGULAR or RESEARCH.")
+    if data.get("research_quota") is not None and data["research_quota"] < 0:
+        raise HttpError(400, "A quota cannot be negative.")
+
     before = {k: getattr(u, k, None) for k in data}
     for k, v in data.items():
         setattr(u, k, v)
+    # A quota on a regular post is a number that never applies, and reading one
+    # on screen would suggest papers are being zeroed when they are not.
+    if u.faculty_type != "RESEARCH":
+        u.research_quota = None
+        u.research_quota_note = None
     u.save()
     changed = {k: {"from": before[k], "to": data[k]} for k in data if before[k] != data[k]}
     AuditLog.objects.create(
@@ -7376,19 +9624,26 @@ def admin_payouts(
     if status == "PAID":
         qs = qs.filter(status=ClaimStatus.PAID)
         default_order = "-paid_at"
-    elif status in ("CLEARED", "PRINCIPAL_APPROVED", "FINANCE_APPROVED"):
-        # The payable queue: approved by the principal on this system. A merely
-        # cleared ticket is not in it, because finance cannot pay one -- and a
-        # queue full of rows whose pay button always refuses is worse than an
-        # empty queue, since it reads as work.
+    elif status in (
+        "CLEARED", "PRINCIPAL_APPROVED", "DIRECTOR_APPROVED", "FINANCE_APPROVED"
+    ):
+        # The payable queue: *authorised by the Director* on this system. Neither
+        # a merely cleared ticket nor a merely Principal-approved one is in it,
+        # because finance cannot pay either -- and a queue full of rows whose pay
+        # button always refuses is worse than an empty queue, since it reads as
+        # work.
+        #
+        # Every one of the older aliases still routes here rather than 404ing,
+        # so a client that has not caught up asks the same question and gets the
+        # currently-correct answer instead of a queue that is silently wrong.
         #
         # Legacy import rows keep their own home in the faults screen, where a
         # super admin unsticks them; they are deliberately not shown here as
         # though they were ready to pay.
         qs = qs.filter(
-            status=ClaimStatus.PRINCIPAL_APPROVED, principal_approved_at__isnull=False
+            status=ClaimStatus.DIRECTOR_APPROVED, director_approved_at__isnull=False
         )
-        default_order = "-principal_approved_at"
+        default_order = "-director_approved_at"
     else:
         qs = qs.filter(status=status)
         default_order = "-updated_at"

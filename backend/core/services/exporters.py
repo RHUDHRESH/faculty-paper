@@ -76,34 +76,156 @@ def render(
 # ---------------------------------------------------------------- xlsx ----
 
 
+#: Column headings whose values are rupees. Matched on the heading rather
+#: than guessed from the values, because a column of amounts that happens to
+#: be all zeroes this month is still a column of amounts.
+_MONEY_WORDS = ("amount", "paid", "spent", "value", "remuneration", "total", "\u20b9")
+
+#: ...and headings that are counts. A count formatted as currency is the
+#: single most obvious way for an export to look careless.
+_COUNT_WORDS = ("count", "papers", "publications", "claims", "people", "number")
+
+_HEADER_FILL = "FF1F2430"
+_BAND_FILL = "FFF6F7F9"
+_RULE = "FFD9DCE1"
+
+
+def _column_kind(heading: str, rows: list, index: int) -> str:
+    """money | number | text, decided once per column.
+
+    Deciding per *cell* is what produces a column where three figures are
+    right-aligned with a rupee sign and the rest are left-aligned text,
+    which is the tell that a spreadsheet was generated rather than made.
+    """
+    lowered = _text(heading).lower()
+    if any(w in lowered for w in _MONEY_WORDS) and not any(
+        w in lowered for w in _COUNT_WORDS
+    ):
+        return "money"
+    if any(w in lowered for w in _COUNT_WORDS):
+        return "number"
+    sample = [r[index] for r in rows[:80] if len(r) > index and r[index] not in (None, "")]
+    if sample and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in sample):
+        return "number"
+    return "text"
+
+
 def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
+    """A workbook somebody can open in front of a board without apologising.
+
+    The difference between this and a dump of the same rows is entirely in the
+    things a reader never consciously notices: that the numbers line up on
+    their last digit, that the header stays put when they scroll, that a
+    column of rupees reads as rupees, that the printed version fits the width
+    of a page instead of spilling one column onto a second sheet of paper.
+
+    A cover sheet leads, because a spreadsheet emailed on to somebody else
+    arrives with no context at all -- and "which year is this?" is the first
+    question anybody asks of a table of figures.
+    """
     from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     wb.remove(wb.active)
+
+    thin = Side(style="thin", color=_RULE)
+    header_font = Font(bold=True, color="FFFFFFFF", size=11)
+    header_fill = PatternFill("solid", fgColor=_HEADER_FILL)
+    band_fill = PatternFill("solid", fgColor=_BAND_FILL)
+
+    # ---- cover -----------------------------------------------------------
+    cover = wb.create_sheet("Cover")
+    cover.sheet_view.showGridLines = False
+    cover["B2"] = title
+    cover["B2"].font = Font(bold=True, size=20)
+    cover["B3"] = subtitle
+    cover["B3"].font = Font(size=11, color="FF5A6472")
+    cover["B5"] = "Contents"
+    cover["B5"].font = Font(bold=True, size=12)
+    line = 6
+    for name, sheet in pack.items():
+        cover.cell(row=line, column=2, value=name)
+        count = len(sheet["rows"])
+        cover.cell(row=line, column=3, value=count).number_format = "#,##0"
+        cover.cell(row=line, column=4, value="row" if count == 1 else "rows").font = Font(
+            color="FF5A6472"
+        )
+        line += 1
+    cover.column_dimensions["A"].width = 3
+    cover.column_dimensions["B"].width = 46
+    cover.column_dimensions["C"].width = 12
+    cover.column_dimensions["D"].width = 10
+
+    # ---- one tab per sheet ----------------------------------------------
     for name, sheet in pack.items():
         # Excel refuses a tab name over 31 characters or containing []:*?/\.
         safe = name[:31]
         for bad in "[]:*?/\\":
             safe = safe.replace(bad, "-")
         ws = wb.create_sheet(safe)
-        ws.append(list(sheet["columns"]))
+        ws.sheet_view.showGridLines = False
+
+        columns = list(sheet["columns"])
+        rows = list(sheet["rows"])
+        kinds = [_column_kind(c, rows, i) for i, c in enumerate(columns)]
+
+        ws.append(columns)
         for cell in ws[1]:
-            cell.font = Font(bold=True)
-            cell.alignment = Alignment(vertical="center", wrap_text=True)
-        for row in sheet["rows"]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(vertical="center", wrap_text=True, horizontal="left")
+            cell.border = Border(bottom=thin)
+        ws.row_dimensions[1].height = 26
+
+        for r_index, row in enumerate(rows, start=2):
             ws.append(list(row))
-        for i, column in enumerate(sheet["columns"], start=1):
-            # Wide enough to read without being adjusted, capped so one long
-            # paper title does not push everything else off the screen.
+            for c_index, kind in enumerate(kinds, start=1):
+                cell = ws.cell(row=r_index, column=c_index)
+                # Banding rather than a rule between every row: the eye needs
+                # help tracking across a wide table, and forty horizontal
+                # lines is not help.
+                if r_index % 2 == 0:
+                    cell.fill = band_fill
+                if kind == "money":
+                    cell.number_format = '\u20b9#,##0.00'
+                    cell.alignment = Alignment(horizontal="right")
+                elif kind == "number":
+                    cell.number_format = "#,##0"
+                    cell.alignment = Alignment(horizontal="right")
+                else:
+                    cell.alignment = Alignment(vertical="top", wrap_text=False)
+
+        for i, column in enumerate(columns, start=1):
             widest = max(
                 [len(_text(column))]
-                + [len(_text(r[i - 1])) for r in sheet["rows"][:200] if len(r) >= i]
+                + [len(_text(r[i - 1])) for r in rows[:200] if len(r) >= i]
             )
-            ws.column_dimensions[get_column_letter(i)].width = min(max(widest + 2, 10), 60)
+            # Money needs room for the symbol, the separators and the paise
+            # that a raw digit count does not know about yet.
+            floor = 14 if kinds[i - 1] == "money" else 10
+            ws.column_dimensions[get_column_letter(i)].width = min(
+                max(widest + 3, floor), 60
+            )
+
         ws.freeze_panes = "A2"
+        if rows:
+            ws.auto_filter.ref = (
+                f"A1:{get_column_letter(len(columns))}{len(rows) + 1}"
+            )
+
+        # Printing is not an afterthought here: a principal signs a printed
+        # page, and a table that needs two sheets of paper per row to be read
+        # is a table nobody signs.
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.print_title_rows = "1:1"
+        ws.oddHeader.left.text = title
+        ws.oddFooter.right.text = "Page &P of &N"
+
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()

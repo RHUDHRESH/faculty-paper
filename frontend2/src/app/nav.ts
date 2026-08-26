@@ -1,6 +1,7 @@
 import {
   BarChart3,
   BookOpen,
+  Building2,
   Calendar,
   ClipboardCheck,
   Coins,
@@ -16,6 +17,7 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Stamp,
   Users,
   Wallet,
   TriangleAlert,
@@ -50,8 +52,17 @@ export type NavItem = {
   keywords?: string[]
 }
 
-const ALL_STAFF: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "PRINCIPAL", "FINANCE"]
-const OFFICE: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL"]
+const ALL_STAFF: Role[] = [
+  "SUPER_ADMIN",
+  "RESEARCH_CELL",
+  "RESEARCH_COORDINATOR",
+  "PRINCIPAL",
+  "DIRECTOR",
+  "FINANCE",
+]
+//: Mirrors `rbac.ADMIN_ROLES`. The research coordinator checks papers at
+//: the same step as the admin office, so every office destination is theirs.
+const OFFICE: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
 
 export const NAV: NavItem[] = [
   // ---- the daily work, unlabelled -------------------------------------
@@ -71,11 +82,25 @@ export const NAV: NavItem[] = [
     keywords: ["release", "sign off"],
   },
   {
+    to: "/authorisations",
+    label: "Authorisations",
+    icon: Stamp,
+    roles: ["DIRECTOR"],
+    keywords: ["authorise", "release", "sign off", "director"],
+  },
+  {
     to: "/payments",
     label: "Payment orders",
     icon: Wallet,
     roles: ["FINANCE"],
     keywords: ["pay", "disburse", "voucher"],
+  },
+  {
+    to: "/department",
+    label: "My department",
+    icon: Building2,
+    roles: ["HOD"],
+    keywords: ["standing", "targets", "quota", "staff", "contribution", "college"],
   },
   {
     to: "/papers",
@@ -93,6 +118,13 @@ export const NAV: NavItem[] = [
   },
 
   // ---- what faculty come back for -------------------------------------
+  {
+    to: "/programme",
+    label: "My research",
+    icon: Sparkles,
+    group: "Research",
+    keywords: ["areas", "field", "trends", "breakthroughs", "who to work with", "programme"],
+  },
   {
     to: "/discover",
     label: "Discover",
@@ -150,6 +182,14 @@ export const NAV: NavItem[] = [
     keywords: ["figures", "analysis", "output"],
   },
   {
+    to: "/reports/build",
+    label: "Build a report",
+    icon: BarChart3,
+    roles: ALL_STAFF,
+    group: "Look at",
+    keywords: ["export", "excel", "xlsx", "pdf", "chart", "breakdown", "custom"],
+  },
+  {
     to: "/journals",
     label: "Journals",
     icon: BookOpen,
@@ -169,7 +209,11 @@ export const NAV: NavItem[] = [
     to: "/ledger",
     label: "Ledger",
     icon: Receipt,
-    roles: ["FINANCE", "SUPER_ADMIN"],
+    // The Director authorises payments against what has already gone out, so
+    // the ledger is part of the job rather than a courtesy. `can_view_reports`
+    // allows them; leaving them out meant the one role that must say "yes,
+    // the institution can afford this" could not see what it had spent.
+    roles: ["FINANCE", "DIRECTOR", "SUPER_ADMIN"],
     group: "Look at",
     keywords: ["paid", "vouchers", "history"],
   },
@@ -196,7 +240,7 @@ export const NAV: NavItem[] = [
     icon: ShieldCheck,
     // `rbac.can_view_audit` is wider than the office — the Principal and
     // Finance may read the audit log, and were being offered no way in.
-    roles: [...OFFICE, "PRINCIPAL", "FINANCE"],
+    roles: [...OFFICE, "PRINCIPAL", "DIRECTOR", "FINANCE"],
     group: "Look at",
     keywords: ["who did what", "trail"],
   },
@@ -230,9 +274,16 @@ export const NAV: NavItem[] = [
     to: "/policy",
     label: "Policy",
     icon: Settings2,
-    roles: OFFICE,
+    // Read and write are different sets here, and the sidebar has to cover
+    // the union of them. `can_view_reports` reads the sheet (the office, the
+    // Principal, Finance); `can_edit_formula` is FINANCE and SUPER_ADMIN
+    // *only* — not the research cell. Gating this to OFFICE alone left the
+    // one role that can change what the college pays with no route to the
+    // screen, and gave the research cell a menu item they can only look at
+    // without ever saying so. Verified against rbac.py, not assumed.
+    roles: [...OFFICE, "FINANCE", "PRINCIPAL", "DIRECTOR"],
     group: "Set up",
-    keywords: ["formula", "rates", "snip", "multiplier"],
+    keywords: ["formula", "rates", "snip", "multiplier", "threshold"],
   },
   {
     to: "/data",

@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useState } from "react"
 import { NavLink, Outlet, useLocation } from "react-router-dom"
 import { AnimatePresence, motion } from "motion/react"
-import { Bell, PanelLeft, PanelLeftClose, Search } from "lucide-react"
+import { PanelLeft, PanelLeftClose, Search } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { navFor } from "@/app/nav"
 import { Button } from "@/ui/button"
+import { NotificationBell } from "@/app/notifications"
 import { cn } from "@/lib/cn"
 
 /**
@@ -132,6 +133,10 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
               </>
             )}
           </button>
+          <div className="mt-1 hidden md:flex md:items-center md:gap-2">
+            <NotificationBell />
+            {!collapsed && <span className="text-sm text-fg-muted">Notifications</span>}
+          </div>
           <NavLink
             to="/me"
             className={cn(
@@ -203,9 +208,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
           >
             <Search />
           </Button>
-          <Button kind="quiet" size="icon" aria-label="Notifications">
-            <Bell />
-          </Button>
+          <NotificationBell />
         </header>
 
         <main className="min-w-0 flex-1 py-8">

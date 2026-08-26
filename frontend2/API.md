@@ -56,9 +56,21 @@ these are the fields a screen normally wants.
 
 ### The chain
 
-`DRAFT → SUBMITTED → CLEARED → PRINCIPAL_APPROVED → PAID`, with `REJECTED`
-(sent back) reachable from the middle. Legacy ERP rows also carry
-`HOD_APPROVED`, `RESEARCH_APPROVED` and `FINANCE_APPROVED`.
+`DRAFT → SUBMITTED → CLEARED → PRINCIPAL_APPROVED → DIRECTOR_APPROVED → PAID`,
+with `REJECTED` (sent back) reachable from the middle. Legacy ERP rows also
+carry `HOD_APPROVED`, `RESEARCH_APPROVED` and `FINANCE_APPROVED`.
+
+Faculty file it · the admin office clears it · the Principal approves the
+spend · **the Director authorises it** · Finance pays.
+
+**`PRINCIPAL_APPROVED` is not payable.** The Director step sits between the
+Principal and Finance, and `mark-paid` refuses anything that has not reached
+`DIRECTOR_APPROVED` — with a message naming the Director rather than a generic
+"invalid status". Each review step sends a ticket back exactly one step:
+`principal-reject` returns it to `SUBMITTED` (the office) and
+`director-reject` returns it to `CLEARED` (the Principal), withdrawing the
+approval it is querying rather than leaving a signature on a reopened
+decision.
 
 **Do not map statuses yourself.** `stageOf(status)` in `@/ui/paper` already
 does it, and already knows that a `CLEARED` ticket is waiting for the Principal
@@ -166,17 +178,103 @@ people has to be accountable.
 ### Notifications
 
 ```
-GET  /api/notifications              -> { results: [...] }
-GET  /api/notifications/unread-count -> { count }
+GET  /api/notifications              -> Notification[]   (a bare array)
+GET  /api/notifications/unread-count -> { unread }
 POST /api/notifications/{id}/read
 POST /api/notifications/read-all
 ```
 
-Each row has an `href` — navigate with the router, never `window.location`.
+**Both shapes above were wrong in this file until somebody built against
+them.** The list is a bare array, not an envelope, and the count's key is
+`unread`, not `count`. Read `api.py`.
+
+Each row has an `href`, and two things about following it:
+
+- Navigate with the **router**, never `window.location`. A full page load
+  throws away the session context the app has already fetched and flashes the
+  sign-in screen on a slow connection.
+- **Translate the path first.** The server writes hrefs against whichever app
+  was current when the notification was written — `/finance`, not `/payments`
+  — so following one literally lands on the catch-all. `app/notifications.tsx`
+  keeps the map, the same way `audit.tsx` does for faults.
+
+### Research faculty and the quota
+
+An account is **regular or research** (`faculty_type`), set by an admin — not
+inferred from the designation text, which nine accounts spell four ways.
+
+A research account may carry a **`research_quota`**: how many papers a year the
+post already expects. **Papers up to the quota pay ₹0 and only the surplus is
+reimbursed**, because a research post is already paid to do research.
+
+The zero is applied *after* the ordinary calculation, so `base_amount`, `qf`
+and the author point stay on the ticket — it shows what the paper was worth
+and why it came to nothing, rather than looking unpriceable.
+
+`quota_position` is **handed out once and stored**. Deriving it was tried and
+does not work: `created_at` comes from a clock coarser than the loop that
+writes the rows, so several claims share a timestamp to the microsecond, and
+the id is a random uuid, so breaking that tie on the id orders papers
+arbitrarily. Four of five papers landed inside a quota of two before this was
+a stored number. A draft gets a provisional position and keeps none.
+
+A `COUNT_ONLY` paper never spends the quota — it asks for no money, so it
+cannot use up the allowance for money.
+
+### Student project teams
+
+```
+GET  /api/teams/{code}     -> the team, or 404 (an ordinary answer, not a failure)
+GET  /api/teams?q=&limit=
+POST /api/teams            { code, title?, department?, academic_year?,
+                             mentor_id?, mentor_name?, members: [...] }
+```
+
+`ClaimReason` now has a third value beside `INCENTIVE` and `COUNT_ONLY`:
+**`STUDENT_PROJECT`**. Filing one looks the team up by code, then confirms or
+corrects it.
+
+`POST /api/teams` is one endpoint for create *and* confirm, because that is
+what the form does — the code is typed, the team comes up, and what comes back
+is either agreed with or edited. The member list that is sent **is** the list,
+so removing somebody removes them.
+
+Each student carries their own `mentor_name`, falling back to the team's. The
+creating faculty member is only assumed to be the mentor when nobody said
+otherwise.
+
+Students are **not accounts**: a name and a register number. They do not sign
+in and are not paid — `student_remuneration_zero` has always paid a student
+author nothing, and creating a login for every project student would put
+thousands of payable identities behind a form.
+
+### Sign in with Google
+
+```
+GET  /api/auth/google/config   -> { enabled, client_id, hosted_domain }
+POST /api/auth/google          { credential }   -> the session, as /auth/me
+```
+
+The browser gets an ID token from Google Identity Services and the server
+verifies it against Google's public keys with our client id as the audience.
+**Only a client id is needed, and it is not a secret** — no client secret, no
+code exchange, nothing to keep. Set `GOOGLE_OAUTH_CLIENT_ID`; unset means the
+feature is off and `config` says so, rather than drawing a button that fails.
+
+**No account is ever created.** An address Google recognises and this college
+does not is refused by name. Accounts carry staff ids and a Scopus link and
+decide who gets paid; a free signup form must not be able to mint one.
+`GOOGLE_HOSTED_DOMAIN` optionally refuses anything outside one Workspace
+domain.
+
+A token that fails to verify answers 401 **without saying why** — expired,
+wrong audience and bad signature are useful to an attacker and useless to the
+person at the screen.
 
 ### Reference data
 
 ```
+GET /api/meta/filing-rules     -> the eligibility rules the filing form enforces
 GET /api/meta/departments      -> departments, for a Combobox
 GET /api/lookup/ticket?q=      -> { tickets[], faculty[] }   (what Ctrl-K uses)
 ```
@@ -277,6 +375,20 @@ usually an empty history rather than a bad model, and the reader cannot tell
 those apart unless you say. When there is nothing to go on at all it returns an
 empty list plus `note`, without calling the model.
 
+`meta/filing-rules` returns `max_authors`, `min_sec_references`, the
+attachment limits and a `why` sentence for each, read from the **active
+policy** rather than hard-coded. Any signed-in account may read it —
+deliberately wider than `/admin/formula`, which 403s a claimant.
+
+The distinction matters: a claimant may not read the *rates*, but must be able
+to read the rules that decide whether their own paper is eligible at all. Both
+of them silently pay **zero** — more than `max_authors` authors, or fewer than
+`min_sec_references` cited SEC-affiliated references — and before this the only
+place either was stated was a note attached to the resulting ₹0.
+
+**Do not hard-code these numbers in a client.** A hard-coded 2 stops matching
+the policy the money is calculated from the day somebody publishes a new one.
+
 `research-domains` is the 302 subject categories our own journals are
 classified under. Interests must be chosen from it — free text cannot be
 matched against anything later.
@@ -310,12 +422,44 @@ Notes that matter:
 - `set-verified` is the manual lane for when Scopus cannot confirm a journal.
   It demands a note because somebody typed a number that decides a payment.
 
-### People
+### People — and who may change what
 
 ```
-GET   /api/admin/users?q=&role=&department=&active=&limit=&offset=
+GET    /api/admin/users?q=&role=&department=&active=&limit=&offset=
                                                  -> { total, limit, offset, results }
-GET   /api/admin/users/{id}                      -> one account
+GET    /api/admin/users/{id}                     -> one account, plus its claim stats
+POST   /api/admin/users                          { email, name, password, role, ... }
+PATCH  /api/admin/users/{id}                     { role?, department?, active?, ...identity }
+POST   /api/admin/users/{id}/reset-password      { password }
+PATCH  /api/auth/profile                         -> 403 for everyone but a super admin
+```
+
+**Nothing on a profile is self-service.** A claimant cannot write a single
+field of their own; `PATCH /api/auth/profile` refuses everybody but a super
+admin and tells them to raise a correction request instead.
+
+Above that, the writable fields split in two, and the split is enforced field
+by field on the server:
+
+| Tier | Fields | Who |
+|---|---|---|
+| **Routing** | `role`, `department`, `active` | `can_manage_users` — the research cell and a super admin |
+| **Identity** | `name`, `designation`, `staff_id`, `biometric_id`, `scopus_author_url`, `scopus_author_id` | **super admin only** |
+
+The reason identity is narrower is not seniority. The research cell processes
+the claims these fields decide the outcome of, so it cannot also set them: a
+Scopus link pointed at the wrong profile attributes a paper to another author,
+and the staff ID is what the payment is made against. A research-cell account
+sending any identity field gets a 403 naming the fields — even if the value is
+unchanged, so a client must send only what actually moved.
+
+Two more guards: an admin cannot change their own role or deactivate their own
+account (that is how a system ends up with nobody able to manage users), and
+every change is written to the audit log with its before and after.
+
+`ASSIGNABLE_ROLES` is the set a role may be set to. It includes `DIRECTOR` —
+without it the chain has a step nobody can be appointed to — and `HOD`, which
+is a real post again now that a head has their own department screen.
 GET   /api/faculty/{user_id}/report              -> everything one person published
 GET   /api/meta/departments                      -> string[]
 ```
@@ -389,6 +533,73 @@ in `app/auth.tsx` mirrors both.
 `status_note`. Both the clearing queue and the paper page now show that note;
 they did not, so a required explanation went nowhere.
 
+### The Director — authorising
+
+```
+GET  /api/director/queue                    -> tickets awaiting the Director
+POST /api/director/bulk-approve             { claim_ids: string[], note? }
+POST /api/claims/{id}/director-approve      { note?, expected_amount? }
+POST /api/claims/{id}/director-reject       { note }   (>= 5 chars)
+```
+
+Shaped exactly like the Principal's queue — same sort, same whole-filter
+totals, same 409 amount guard — because the two roles do the same kind of work
+one step apart, and a queue that totalled differently would have them quoting
+different figures for the same claims.
+
+`rbac.can_approve_as_director` is **DIRECTOR and SUPER_ADMIN**, the same
+stand-in arrangement the Principal and Finance have.
+
+**The second-signature rule still applies at this step.** A high-value claim
+authorised by the Director is still refused by Finance until a second,
+different signature exists — the Director's own authorisation supplies it only
+where they are not the person who cleared it.
+
+### Reporting — build one
+
+```
+GET /api/reports/areas?year=&department=&limit=
+    -> { areas[], distinct, shown, coverage, years }
+GET /api/reports/build?dimensions=&year=&department=&month=&fmt=&limit=
+    -> { tables[], subtitle, available[], years }   (JSON without fmt, a file with)
+```
+
+`build` is one endpoint behind both the preview and the download — ask without
+`fmt` for the screen, with one for the workbook — so the file cannot disagree
+with what was on screen.
+
+`dimensions` is a comma-separated list of: `year department quartile journal
+type indexing designation status engineering category person area`.
+
+**Two of them overlap** — `area` and `indexing`, where one paper belongs to
+several rows at once. Those come back with `overlapping: true` and
+`totals.amount: null`, deliberately: a paper spanning four subject areas has
+its full amount counted under each, which turned ₹2.8 crore of real payouts
+into a ₹12.6 crore "total". Per-row amounts are real; the column total is not,
+and is withheld rather than printed with a caveat nobody reads.
+
+`areas` carries `coverage`, and it must be shown. Subject areas are known only
+for a paper whose journal matched our Scimago rows — about half the record —
+so a chart without its denominator reads as "this is what we do" when it means
+"this is what we do, among the half we can classify".
+
+### Faculty — the research programme
+
+```
+GET /api/programme/me?limit=   -> { areas, interests, search_terms,
+                                    colleagues, live, totals, classified }
+```
+
+Derived entirely from the college's own records and **needs no API key**:
+areas come from the subject areas of papers somebody actually filed,
+colleagues from who else publishes in them, `live` from what those colleagues
+filed most recently. Pair it with `/api/research/search` (OpenAlex, Crossref,
+arXiv — also keyless) for the field outside.
+
+**It carries no money at all**, and that is enforced in the endpoint rather
+than by the screen: the page is about other people, so any amount in it would
+be a colleague's payout leaking through the back door.
+
 ### Finance — paying
 
 ```
@@ -428,6 +639,40 @@ outright — 403.** They have `/api/hod/overview` and `/api/hod/publications`,
 scoped to their department and carrying no money. Any screen offered to an HOD
 must branch on the role and call those instead. This is verified by test, not
 assumed.
+
+### Head of department — steering, not just watching
+
+```
+GET    /api/hod/overview                 -> department output, people, no money
+GET    /api/hod/publications             -> their department's papers
+GET    /api/hod/standing?year=           -> where they sit against the college
+GET    /api/hod/targets?year=            -> targets + live progress
+POST   /api/hod/targets                  { year, metric, target, person_id?, note? }
+DELETE /api/hod/targets/{id}
+GET    /api/hod/opportunities?year=      -> where the lift is, with the names
+```
+
+`metric` is `PUBLICATIONS`, `Q1` or `FIRST_AUTHOR`. **There is no money
+metric**, deliberately — a head is money-blind everywhere else and a rupee
+target would be the one place it came back.
+
+`person_id` null sets the target on the department as a whole. A head may only
+set one on somebody **in their own department**; the server answers 403 with
+the person's name otherwise, rather than the screen merely hiding the option.
+
+Progress is recomputed on every read, never stored — a stored figure is wrong
+from the moment somebody files a paper.
+
+`standing` returns the department's counts and rates beside the college's,
+plus `position` and `of` ("3rd of 22") and `share`. **It never names another
+department.** A head sees where they sit and what the college typically does;
+a ranked table of colleagues' departments is a different document with
+different politics.
+
+`opportunities` returns groups (`silent`, `no_q1`, `never_led`) each carrying
+the actual people, the papers missing an ISSN or DOI, and the Q3/Q4 journals
+the department already publishes in. Each item is something a head can act on
+this term rather than a statistic.
 
 ### The office
 

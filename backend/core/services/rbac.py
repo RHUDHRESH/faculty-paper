@@ -1,13 +1,19 @@
 from core.models import Role
 
-# Four roles: FACULTY files, SUPER_ADMIN issues and clears, FINANCE pays,
-# PRINCIPAL observes and queries. HOD and RESEARCH_CELL were removed; their
-# values survive in Role only so existing accounts keep loading — RESEARCH_CELL
-# folded into SUPER_ADMIN, HOD down to faculty rights.
+# The chain, in order: FACULTY files, the admin office (SUPER_ADMIN) clears,
+# PRINCIPAL approves the spend, DIRECTOR authorises it, FINANCE pays. HOD and
+# RESEARCH_CELL are not in the chain; their values survive in Role so existing
+# accounts keep loading -- RESEARCH_CELL folded into SUPER_ADMIN, HOD down to
+# faculty rights plus a money-blind view of its own department.
 ROLE_RANK = {
     Role.FACULTY: 1,
     Role.HOD: 1,
+    Role.RESEARCH_COORDINATOR: 5,
     Role.PRINCIPAL: 3,
+    # Oversight, like the Principal. Rank is a permission ladder, not the
+    # approval chain -- the Director comes *after* the Principal in the chain
+    # while seeing the same things, so they sit on the same rung.
+    Role.DIRECTOR: 3,
     Role.FINANCE: 4,
     Role.RESEARCH_CELL: 5,
     Role.SUPER_ADMIN: 5,
@@ -15,7 +21,12 @@ ROLE_RANK = {
 
 #: Everything the admin role can do. RESEARCH_CELL is here so an unmigrated
 #: account is not locked out of the portal it has always used.
-ADMIN_ROLES = (Role.SUPER_ADMIN, Role.RESEARCH_CELL)
+#:
+#: RESEARCH_COORDINATOR joins them because the chain reads "faculty, then the
+#: coordinator *or* the admin, then the Principal" -- two desks doing one job,
+#: not two steps. Anything the office may do to a filed paper, a coordinator
+#: may do, and that includes the second signature on a high-value claim.
+ADMIN_ROLES = (Role.SUPER_ADMIN, Role.RESEARCH_CELL, Role.RESEARCH_COORDINATOR)
 
 
 def has_min_role(user_role: str, required: str) -> bool:
@@ -30,6 +41,20 @@ def can_principal_portal(role: str) -> bool:
     return role in (Role.PRINCIPAL, Role.SUPER_ADMIN)
 
 
+def can_director_portal(role: str) -> bool:
+    return role in (Role.DIRECTOR, Role.SUPER_ADMIN)
+
+
+def can_approve_as_director(role: str) -> bool:
+    """Authorise a Principal-approved claim, which is what lets Finance pay it.
+
+    A super admin stands in, for the same reason they stand in for the
+    Principal and for Finance: somebody has to keep payments moving while a
+    post is vacant or a person is away.
+    """
+    return role in (Role.DIRECTOR, Role.SUPER_ADMIN)
+
+
 def can_admin_portal(role: str) -> bool:
     return role in ADMIN_ROLES
 
@@ -41,6 +66,8 @@ def can_finance_portal(role: str) -> bool:
 def portal_for_role(role: str) -> str:
     if role == Role.HOD:
         return "hod"
+    if role == Role.DIRECTOR:
+        return "director"
     if role == Role.FINANCE:
         return "finance"
     if role == Role.PRINCIPAL:
@@ -64,7 +91,7 @@ def can_edit_formula(role: str) -> bool:
 
 
 def can_view_college_wide(role: str) -> bool:
-    return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.FINANCE)
+    return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE)
 
 
 def can_view_reports(role: str) -> bool:
@@ -73,7 +100,7 @@ def can_view_reports(role: str) -> bool:
     Reporting is not the same permission as moving money: everyone who oversees
     the scheme can read the numbers, only Finance can pay.
     """
-    return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.FINANCE)
+    return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE)
 
 
 def can_issue_claims(role: str) -> bool:
@@ -97,7 +124,7 @@ def can_approve_as_finance(role: str) -> bool:
 
 
 def can_view_audit(role: str) -> bool:
-    return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.FINANCE)
+    return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE)
 
 
 # Back-compat aliases used by older api paths

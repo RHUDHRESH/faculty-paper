@@ -1,30 +1,46 @@
 import { StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
+import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { Toaster } from "sonner"
 
 import { AuthProvider, useAuth } from "@/app/auth"
 import { Palette, usePalette } from "@/app/palette"
+import { ForcePasswordChange } from "@/app/password"
 import { Shell } from "@/app/shell"
 import { queryClient } from "@/lib/query"
 import { FacultyHome } from "@/pages/home-faculty"
+import { DirectorHome } from "@/pages/home-director"
+import { FinanceHome, HodHome, OfficeHome, PrincipalHome } from "@/pages/home-staff"
+import { Accreditation } from "@/pages/accreditation"
 import { Approvals } from "@/pages/approvals"
+import { Budget } from "@/pages/budget"
+import { Calendar } from "@/pages/calendar"
 import { Audit, Faults } from "@/pages/audit"
+import { Authorisations } from "@/pages/authorisations"
 import { Clearing } from "@/pages/clearing"
+import { Data } from "@/pages/data"
+import { Department } from "@/pages/department"
 import { Collaborate } from "@/pages/collaborate"
 import { Discover } from "@/pages/discover"
+import { Discussions, Thread } from "@/pages/discussions"
+import { Duplicates } from "@/pages/duplicates"
 import { FilePaper } from "@/pages/file-paper"
 import { Gallery } from "@/pages/gallery"
 import { PaperDetail } from "@/pages/paper-detail"
 import { Journals, JournalRecord } from "@/pages/journals"
+import { NotBuilt, NotFound } from "@/pages/not-found"
+import { Ledger } from "@/pages/ledger"
 import { Papers } from "@/pages/papers"
 import { Payments, PaymentsDone } from "@/pages/payments"
 import { Publications } from "@/pages/publications"
+import { ReportBuilder } from "@/pages/report-builder"
 import { Reports } from "@/pages/reports"
 import { Requests } from "@/pages/requests"
 import { People, Person } from "@/pages/people"
+import { Policy } from "@/pages/policy"
 import { Profile } from "@/pages/profile"
+import { Programme } from "@/pages/programme"
 import { SignIn } from "@/pages/sign-in"
 
 import "@/styles.css"
@@ -37,23 +53,38 @@ import "@/styles.css"
  * existed only because each portal owned its own list of routes.
  */
 
-function Placeholder({ name }: { name: string }) {
-  return (
-    <div className="page">
-      <h1 className="text-xl font-semibold">{name}</h1>
-      <p className="mt-1 text-base text-fg-muted">
-        Not built yet. This page is next in the rebuild.
-      </p>
-    </div>
-  )
-}
-
 function Home() {
   const { me } = useAuth()
   // Every role gets a different first screen, because they arrive with
-  // different questions. Faculty is built; the rest are stubs for now.
-  if (me?.role === "FACULTY") return <FacultyHome />
-  return <Placeholder name="Home" />
+  // different questions: a claimant asks where their money is, the office
+  // asks what is stuck, the Principal asks what is waiting on them, Finance
+  // asks what is payable, and a head asks what their department published.
+  // One screen answering all five answers none of them.
+  switch (me?.role) {
+    case "FACULTY":
+      return <FacultyHome />
+    case "PRINCIPAL":
+      return <PrincipalHome />
+    case "DIRECTOR":
+      return <DirectorHome />
+    case "FINANCE":
+      return <FinanceHome />
+    case "HOD":
+      return <HodHome />
+    case "RESEARCH_CELL":
+    case "RESEARCH_COORDINATOR":
+    case "SUPER_ADMIN":
+      return <OfficeHome />
+    default:
+      // No role at all means a session this app cannot place. That is not a
+      // screen waiting to be built, so it is not dressed up as one.
+      return (
+        <NotBuilt
+          name="Home"
+          needs="This account has no role on it, so there is no home page to show. An account is given a role when it is created; if this one has lost it, the research cell can put it back."
+        />
+      )
+  }
 }
 
 function App() {
@@ -92,34 +123,44 @@ function App() {
           <Route path="/papers/:id" element={<PaperDetail />} />
           <Route path="/clearing" element={<Clearing />} />
           <Route path="/approvals" element={<Approvals />} />
+          <Route path="/authorisations" element={<Authorisations />} />
           <Route path="/payments" element={<Payments />} />
           <Route path="/payments/done" element={<PaymentsDone />} />
+          <Route path="/programme" element={<Programme />} />
           <Route path="/discover" element={<Discover />} />
           <Route path="/collaborate" element={<Collaborate />} />
-          <Route path="/discussions" element={<Placeholder name="Discussions" />} />
-          <Route path="/calendar" element={<Placeholder name="Calendar" />} />
+          <Route path="/discussions" element={<Discussions />} />
+          <Route path="/discussions/:id" element={<Thread />} />
+          <Route path="/calendar" element={<Calendar />} />
+          <Route path="/department" element={<Department />} />
           <Route path="/publications" element={<Publications />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/reports/build" element={<ReportBuilder />} />
           <Route path="/journals" element={<Journals />} />
           <Route path="/journals/:title" element={<JournalRecord />} />
-          <Route path="/accreditation" element={<Placeholder name="Accreditation" />} />
-          <Route path="/ledger" element={<Placeholder name="Ledger" />} />
-          <Route path="/duplicates" element={<Placeholder name="Duplicates" />} />
+          <Route path="/accreditation" element={<Accreditation />} />
+          <Route path="/ledger" element={<Ledger />} />
+          <Route path="/duplicates" element={<Duplicates />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/faults" element={<Faults />} />
           <Route path="/people" element={<People />} />
           <Route path="/people/:id" element={<Person />} />
           <Route path="/requests" element={<Requests />} />
-          <Route path="/budget" element={<Placeholder name="Budget" />} />
-          <Route path="/policy" element={<Placeholder name="Policy" />} />
-          <Route path="/data" element={<Placeholder name="Data" />} />
+          <Route path="/budget" element={<Budget />} />
+          <Route path="/policy" element={<Policy />} />
+          <Route path="/data" element={<Data />} />
           <Route path="/me" element={<Profile />} />
           {/* Not in the sidebar. Deleted before the switch. */}
           <Route path="/gallery" element={<Gallery />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Never a silent redirect home: see the note in not-found.tsx. */}
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
       <Palette open={palette.open} onClose={() => palette.setOpen(false)} />
+      {/* Mounted here rather than on the profile page, because the accounts
+          that owe a password change are precisely the ones who have never
+          been to their profile. 498 of 508 live accounts carry the flag. */}
+      <ForcePasswordChange />
     </>
   )
 }

@@ -3,8 +3,6 @@ import { Link, useSearchParams } from "react-router-dom"
 import {
   ArrowRight,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   ExternalLink,
   History,
   Search,
@@ -18,6 +16,7 @@ import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { DateInput, Input } from "@/ui/field"
 import { money } from "@/ui/paper"
+import { Pagination } from "@/ui/pagination"
 import {
   Sheet,
   SheetBody,
@@ -170,6 +169,7 @@ const KNOWN_CODE_WORDS = new Set([
   "REJECTED",
   "PAID",
   "PRINCIPAL_APPROVED",
+  "DIRECTOR_APPROVED",
   "HOD_APPROVED",
   "RESEARCH_APPROVED",
   "FINANCE_APPROVED",
@@ -696,48 +696,6 @@ function AuditCard({ row, onOpen }: { row: AuditRow; onOpen: () => void }) {
   )
 }
 
-/** `total`/`offset` from the server when a page is fetched straight from it;
- *  the client-filtered count when a date range widened the fetch instead.
- *  Never a slice of rows already known to be incomplete without saying so —
- *  see `maybeIncomplete` above. */
-function Pagination({
-  page,
-  pageSize,
-  total,
-  onChange,
-}: {
-  page: number
-  pageSize: number
-  total: number
-  onChange: (page: number) => void
-}) {
-  if (total <= pageSize) return null
-
-  const pageCount = Math.max(1, Math.ceil(total / pageSize))
-  const start = page * pageSize + 1
-  const end = Math.min(total, (page + 1) * pageSize)
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-      <Meta>
-        {start}–{end} of {total}
-      </Meta>
-      <div className="flex items-center gap-1">
-        <Button kind="quiet" size="sm" onClick={() => onChange(page - 1)} disabled={page === 0}>
-          <ChevronLeft />
-          Previous
-        </Button>
-        <Meta className="px-1 tabular">
-          Page {page + 1} of {pageCount}
-        </Meta>
-        <Button kind="quiet" size="sm" onClick={() => onChange(page + 1)} disabled={page + 1 >= pageCount}>
-          Next
-          <ChevronRight />
-        </Button>
-      </div>
-    </div>
-  )
-}
 
 /* ------------------------------------------------------------------------ */
 /* Faults                                                                   */

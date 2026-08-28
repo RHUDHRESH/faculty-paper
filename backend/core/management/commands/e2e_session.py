@@ -240,11 +240,17 @@ class Command(BaseCommand):
         # Two cited SEC-affiliated references, because `min_sec_references` is
         # 2 and a ticket short of them prices at zero -- which would leave the
         # chain spec proving that ₹0 can be moved from one desk to the next.
+        # The URL shape matters. `_is_own_media_url` in core/api.py accepts only
+        # MEDIA_URL + "claims/<32 hex>.<ext>" -- the shape upload_claim_file
+        # mints -- and silently drops any attachment that misses it. A fixture
+        # writing "/media/e2e/reference-1.pdf" straight through the ORM built a
+        # claim the real API would have stripped these references from, so the
+        # specs were asserting against a state the application cannot reach.
         for i in (1, 2):
             ClaimAttachment.objects.create(
                 claim=claim,
                 kind=AttachmentKind.SEC_REFERENCE,
-                url=f"/media/e2e/reference-{i}.pdf",
+                url=f"{settings.MEDIA_URL}claims/{uuid.uuid4().hex}.pdf",
                 filename=f"e2e-reference-{i}.pdf",
                 size_bytes=1024,
                 ref_number=str(i),

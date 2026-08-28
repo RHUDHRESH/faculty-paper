@@ -36,6 +36,7 @@ from typing import Any, Iterable
 
 import httpx
 from django.core.cache import cache
+from django.utils import timezone
 
 from core.services.normalize import normalize_doi, normalize_title
 
@@ -247,7 +248,7 @@ def merge(batches: Iterable[list[Hit]]) -> list[Hit]:
     return list(merged.values())
 
 
-def rank(hits: list[Hit], *, this_year: int) -> list[Hit]:
+def rank(hits: list[Hit], *, this_year: int | None = None) -> list[Hit]:
     """Recent and well cited, with recency weighted for a portal about output.
 
     Citations accumulate over decades, so ranking on them alone buries
@@ -258,8 +259,12 @@ def rank(hits: list[Hit], *, this_year: int) -> list[Hit]:
     """
     import math
 
+    # Resolved here as well as in `search`, because this is a public function
+    # and the whole defect was one caller passing None into arithmetic.
+    year = this_year or timezone.now().year
+
     def score(h: Hit) -> float:
-        age = max(0, this_year - (h.get("year") or this_year))
+        age = max(0, year - (h.get("year") or year))
         # Age discounts the whole score rather than being one term added to
         # it. Added, the citation term simply wins: log1p(800) is 6.7 against
         # a recency term that can never exceed 3, so a paper from 2005 outran
@@ -323,7 +328,7 @@ def search(
     sources: list[str] | None = None,
     author_position: int = 1,
     total_authors: int = 1,
-    this_year: int = 2026,
+    this_year: int | None = None,
 ) -> dict[str, Any]:
     """Ask every source at once, merge what comes back, and price it.
 
@@ -335,6 +340,15 @@ def search(
     query = (query or "").strip()
     if len(query) < 3:
         return {"results": [], "asked": [], "failed": [], "query": query}
+
+    # `None` means "today". This was `this_year: int = 2026` -- a literal that
+    # silently prices last year's recency curve the moment the calendar turns,
+    # and an annotation that said `int` while `thread_agent` passed None. That
+    # None reached `rank`, where `this_year - (h.get("year") or this_year)` is
+    # None minus an int: every hit raised TypeError, the caller's bare
+    # `except Exception` turned it into "I could not reach the scholarly
+    # sources", and the thread assistant's web search had never once worked.
+    year = this_year or timezone.now().year
 
     wanted = [s for s in (sources or list(SOURCES)) if s in SOURCES]
     cache_key = f"research:{'|'.join(sorted(wanted))}:{limit}:{query.lower()}"
@@ -355,7 +369,7 @@ def search(
                     logger.warning("research source failed: %s", name, exc_info=True)
                     failed.append(name)
 
-        results = rank(merge(batches), this_year=this_year)[:limit]
+        results = rank(merge(batches), this_year=year)[:limit]
         cached = {
             "results": results,
             "asked": wanted,

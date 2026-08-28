@@ -269,8 +269,12 @@ def _answer_search(question: str) -> str:
     from core.services import research_search
 
     try:
-        found = research_search.search(question, limit=5, this_year=None)
+        found = research_search.search(question, limit=5)
     except Exception:
+        logger.exception("thread_agent search tool failed")
+        # Logged, because this handler previously hid a TypeError in `rank`
+        # and reported it to the reader as an upstream outage -- a wrong
+        # answer that sounds like a right one, for as long as nobody checks.
         return (
             "I could not reach the scholarly sources just now. Nothing is wrong "
             "with the thread — try again in a moment."

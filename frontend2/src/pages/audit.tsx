@@ -559,6 +559,7 @@ export function Audit() {
       ) : isError ? (
         error?.status === 403 ? (
           <ErrorState
+            art="closed-gate"
             title="Not open to this account"
             message="The audit log is open to the research cell, system admins, the Principal and Finance."
           />
@@ -571,7 +572,7 @@ export function Audit() {
         )
       ) : rows.length === 0 ? (
         <EmptyState
-          art="no-results"
+          art={filtered ? "no-results" : "nothing-filed"}
           icon={filtered ? SearchX : History}
           title={filtered ? "Nothing matches" : "No activity recorded yet"}
           message={
@@ -816,6 +817,7 @@ export function Faults() {
       ) : isError ? (
         error?.status === 403 ? (
           <ErrorState
+            art="closed-gate"
             title="Not open to this account"
             message="This list is open to the research cell, system admins and the Principal."
           />
@@ -828,7 +830,12 @@ export function Faults() {
         )
       ) : !data ? null : data.total === 0 ? (
         <EmptyState
-          art="no-results"
+          // `empty-queue`, not `no-results`. This is the one scene in the set
+          // whose emptiness is good news, and it is the only one that says
+          // so: `no-results` draws a filter that returned nothing, which
+          // would read here as "the checks did not find your rows" rather
+          // than "the checks ran and the books are clean".
+          art="empty-queue"
           icon={CheckCircle2}
           title="Nothing broken, blocked or unreconciled"
           message={`Every check the office runs against the queue and the ledger came back clean, as of ${formatCheckedAt(data.checked_at)}.`}

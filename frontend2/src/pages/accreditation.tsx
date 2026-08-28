@@ -151,6 +151,7 @@ export function Accreditation() {
     return (
       <div className="page py-8">
         <ErrorState
+          art="closed-gate"
           title="Not open to this account"
           message="The accreditation submission is college-wide. A head of department has their own department's publications instead."
         />
@@ -215,14 +216,22 @@ export function Accreditation() {
         </Callout>
       )}
 
-      <GapStrip
-        gaps={gaps}
-        total={total}
-        incomplete={data?.incomplete ?? 0}
-        only={only}
-        onSelect={(next) => setParam("only", next)}
-        loading={isLoading && !data}
-      />
+      {/* Withheld when the request failed with nothing cached behind it.
+          `gaps` falls back to an empty array, and an empty `gaps` is what
+          `GapStrip` reads as "clean" — so a failed request rendered "0 rows
+          in the submission" over "Every row carries everything an assessor
+          asks for", in the positive colour, directly above the banner saying
+          the server had not answered. The reassurance was the failure. */}
+      {!(isError && !data) && (
+        <GapStrip
+          gaps={gaps}
+          total={total}
+          incomplete={data?.incomplete ?? 0}
+          only={only}
+          onSelect={(next) => setParam("only", next)}
+          loading={isLoading && !data}
+        />
+      )}
 
       {isLoading && !data ? (
         <SkeletonRows rows={10} rowHeight={44} />
@@ -238,7 +247,10 @@ export function Accreditation() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
-          art="no-results"
+          // A gap filter that comes back empty is work finished, not a
+          // search that failed: "Every row is complete" under a drawing of a
+          // filter returning nothing reads as though the count was wrong.
+          art={only ? "empty-queue" : "no-results"}
           icon={CircleCheck}
           title={
             only === "incomplete"

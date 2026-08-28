@@ -321,13 +321,13 @@ SHOW_JOURNALS = 2
 #: A wall-clock ceiling for one thread answer, a quarter of the module default
 #: of 240s. A backstop rather than a target: what actually bounds the wait is
 #: `ANSWER_WORDS`, and the measured cost of that on this machine is 12.8s
-#: with the model resident and 39.1s from cold — the gap being the seven
-#: gigabytes gemma4:12b loads off disk, plus whatever else the four cores are
-#: doing. Set at forty this would clip the cold case, which is the worst
-#: possible failure: an assistant that works except just after a restart. So
-#: sixty, and the honest reading of that number is that the hardware is slow,
-#: not that anybody enjoys the wait.
-ANSWER_DEADLINE = 60
+#: with the model resident and 39.1s from cold. Those were gemma4:12b's
+#: numbers; this answer now runs on gemma3:4b, measured at 5.4s warm and
+#: 10.5s cold on the same prompt -- 3.3x faster per token, and 2.88 GB
+#: resident rather than 8.90. Thirty still clears the cold case with room,
+#: which is the failure worth sizing against: an assistant that works except
+#: just after a restart.
+ANSWER_DEADLINE = 30
 
 #: How much text has to be left beside a mention before it counts as a
 #: question. "@agent @journal:Nature" is a lookup and must stay instant;
@@ -610,14 +610,22 @@ def _answer_with_model(question: str, context: list[str], asker: User) -> str | 
     with a line in the log carrying the code, because the caller's contract is
     that a broken assistant loses its own reply and nothing else.
     """
-    if not ai.available():
+    # Both of these must name the fast tier, and the first one especially:
+    # `ai.available()` asks after the considered model, so on a machine with
+    # gemma4:12b installed and gemma3:4b missing it would answer yes and this
+    # would walk straight into a 404 from Ollama. The health block reads
+    # `fast_code`/`fast_detail` for the same reason -- reporting the wrong
+    # model's readiness sends somebody to re-pull a model they already have.
+    if not ai.available(fast=True):
         state = {}
         try:
             state = ai.health()
         except Exception:  # noqa: BLE001 - a health probe must not break a post
             pass
         _note_failure(
-            "unavailable", str(state.get("code") or "unknown"), str(state.get("detail") or "")
+            "unavailable",
+            str(state.get("fast_code") or state.get("code") or "unknown"),
+            str(state.get("fast_detail") or state.get("detail") or ""),
         )
         return None
 
@@ -628,6 +636,10 @@ def _answer_with_model(question: str, context: list[str], asker: User) -> str | 
             schema=_ANSWER_SCHEMA,
             temperature=0.2,
             timeout=ANSWER_DEADLINE,
+            # The one caller on the interactive tier. Somebody is on the page
+            # watching their own post, which is a different kind of waiting
+            # from the venue search they start and walk away from.
+            fast=True,
         )
     except ai.AIError as exc:
         _note_failure("refused", getattr(exc, "code", "error"), str(exc))

@@ -6,10 +6,12 @@ asserts the *shape* of the answer over whole input spaces — that it is money a
 all, that it moves the direction the policy says it moves, and that it lands on
 the boundary rather than one side of it.
 
-Where a property genuinely does not hold, the test is kept and marked
-`@expectedFailure` with a comment naming the defect, so the suite stays green
-while the defect stays on the record. Search this file for "DEFECT" to find
-them all.
+Where a property genuinely did not hold, the test was kept and marked
+`@expectedFailure` with a comment naming the defect, so the suite stayed green
+while the defect stayed on the record. All eight have since been fixed; each
+one's comment block is kept in place, rewritten to say what the defect was and
+what the fix is, above the test that now passes. Search this file for "DEFECT"
+to find them all.
 
 The remuneration and normalisation tests use `SimpleTestCase` (no database) so
 Hypothesis can drive thousands of examples without a transaction per example.
@@ -22,7 +24,6 @@ import json
 import math
 import re
 from decimal import Decimal
-from unittest import expectedFailure
 
 from django.test import SimpleTestCase, TestCase
 from django.contrib.auth import get_user_model
@@ -36,6 +37,7 @@ from core.services.remuneration import (
     MIN_SEC_REFERENCES,
     Category,
     FormulaConfigInput,
+    allocate_shares,
     author_point,
     calculate_remuneration,
     format_inr,
@@ -200,7 +202,16 @@ class AmountIsAlwaysMoneyTests(SimpleTestCase):
         self, snip, quartile, total, pos, pub, idx, eng, refs
     ):
         """The ticket shows base, point and amount. They must agree, or the
-        explanation on the ticket is a fiction."""
+        explanation on the ticket is a fiction.
+
+        Within one paisa, and one paisa only. The shares are allocated across
+        the whole author list rather than rounded one at a time (see
+        `test_per_author_shares_never_exceed_the_paper_total`), so a single
+        author's share can sit one paisa either side of `base x point` taken
+        alone -- that is precisely what stops the nine shares adding up to
+        more than the paper. The paper's total is the quantity that has to be
+        exact; a single share is exact to the paisa it is expressed in.
+        """
         assume(pos <= total)
         r = price(
             snip=snip,
@@ -214,7 +225,11 @@ class AmountIsAlwaysMoneyTests(SimpleTestCase):
         )
         if r.error:
             return
-        self.assertAlmostEqual(r.remuneration, round2(r.base * r.point), places=6)
+        self.assertLessEqual(
+            abs(r.remuneration - round2(r.base * r.point)),
+            0.01 + 1e-9,
+            f"{r.remuneration} is not within a paisa of {r.base} x {r.point}",
+        )
 
     @PROP
     @given(
@@ -510,26 +525,28 @@ class SnipTests(SimpleTestCase):
         self.assertEqual(self._paid(0).remuneration, self._paid(None).remuneration)
 
     # ------------------------------------------------------------------
-    # DEFECT 1 — the SNIP curve is not monotonic across the zero boundary.
+    # DEFECT 1 — the SNIP curve was not monotonic across the zero boundary.
+    # FIXED: Category I now carries a floor at the no-SNIP rate the same
+    # article would otherwise have fallen back to.
     #
     # A Scopus journal with NO SNIP is paid the Category II fixed rate of
-    # 5,000. The same journal with a genuine, small SNIP is priced at
+    # 5,000. The same journal with a genuine, small SNIP was priced at
     # SNIP x 55,000, which is less than 5,000 for every SNIP below
-    # 5000/55000 = 0.0909... So a journal that earns a real (if modest)
-    # SNIP is paid LESS than one that has none at all — 0.001 pays 55,
-    # against 5,000 for no SNIP. The same cliff exists for Category III at
+    # 5000/55000 = 0.0909... So a journal that earned a real (if modest) SNIP
+    # was paid LESS than one that had none at all — 0.001 paid 55, against
+    # 5,000 for no SNIP. The same cliff existed for Category III at
     # 4000/55000 = 0.0727.
     #
-    # Real SNIPs in that range exist (new and low-citation journals sit
-    # around 0.02-0.08), so this is money, not a curiosity. The policy's own
-    # wording gives Category II to a journal "without SNIP", which the code
-    # implements as "SNIP is falsy" — it never considers that a valid low
-    # SNIP should not be punished for existing.
+    # Real SNIPs in that range exist (new and low-citation journals sit around
+    # 0.02-0.08), so this was money, not a curiosity.
     #
-    # Reported, not fixed: the correction is a policy question (a floor of
-    # 5,000 on Category I, or Category II as a minimum), not a typo.
+    # The rule chosen is a floor rather than "a below-threshold SNIP counts as
+    # no SNIP", and the tests below pin down why: reclassifying into Category
+    # II would take the quartile incentive away with it, so a Q1 journal on a
+    # SNIP of 0.05 would drop from 52,750 to 5,000 — a 47,750 cliff traded for
+    # a 5,000 one. The floor leaves the category, the QFA and the audit trail
+    # alone and says only that a SNIP never pays less than no SNIP.
     # ------------------------------------------------------------------
-    @expectedFailure
     def test_a_higher_snip_never_pays_less_including_across_zero(self):
         no_snip = self._paid(None).remuneration
         tiny = self._paid(0.001).remuneration
@@ -539,12 +556,39 @@ class SnipTests(SimpleTestCase):
             f"SNIP 0.001 pays {tiny} but no SNIP at all pays {no_snip}",
         )
 
-    def test_the_crossover_point_of_defect_one_is_where_arithmetic_says(self):
-        """Locks the size of DEFECT 1 so a fix cannot shrink it silently."""
+    def test_the_curve_is_flat_below_the_crossover_and_rises_above_it(self):
+        """Where the cliff used to be there is now a floor, at exactly the
+        no-SNIP rate and not a rupee above it."""
         crossover = CFG.fixed_journal_no_snip / CFG.snip_multiplier
         self.assertAlmostEqual(crossover, 0.0909, places=4)
-        self.assertLess(self._paid(crossover * 0.99).remuneration, self._paid(None).remuneration)
-        self.assertGreater(self._paid(crossover * 1.01).remuneration, self._paid(None).remuneration)
+        flat = self._paid(None).remuneration
+        self.assertEqual(self._paid(crossover * 0.99).remuneration, flat)
+        self.assertEqual(self._paid(0.001).remuneration, flat)
+        self.assertGreater(self._paid(crossover * 1.01).remuneration, flat)
+
+    def test_the_floor_is_the_rate_the_same_article_would_have_fallen_back_to(self):
+        """Category III's floor is Category III's rate, not Category II's."""
+        conf = dict(publication_type="Conference Proceeding", indexing_level="Scopus")
+        self.assertEqual(price(snip=0.001, **conf).remuneration, CFG.fixed_other_no_snip)
+        self.assertEqual(price(snip=None, **conf).remuneration, CFG.fixed_other_no_snip)
+        # And a type the scheme does not cover has no fallback rate, so no floor.
+        self.assertEqual(
+            price(snip=0.001, publication_type="Dataset", indexing_level="Scopus").remuneration,
+            round2(0.001 * CFG.snip_multiplier),
+        )
+
+    def test_the_floor_does_not_swallow_the_quartile_incentive(self):
+        """The reason the fix is a floor and not a reclassification: a Q1
+        journal on a small SNIP keeps its 50,000."""
+        r = self._paid(0.05, quartile="Q1", engineering_class="Engineering")
+        self.assertEqual(r.category, Category.SNIP)
+        self.assertEqual(r.qf, CFG.qf_q1)
+        self.assertEqual(r.remuneration, 0.05 * CFG.snip_multiplier + CFG.qf_q1)
+
+    def test_a_floored_paper_says_that_it_was_floored(self):
+        note = self._paid(0.001).note or ""
+        self.assertIn("never pays less than no SNIP", note)
+        self.assertIsNone(self._paid(2.0).note)
 
 
 # ---------------------------------------------------------------------------
@@ -842,44 +886,82 @@ class RoundingTests(SimpleTestCase):
             self.assertLessEqual(total_paid, base + 1e-6, f"{total} authors overspend {base}")
 
     # ------------------------------------------------------------------
-    # DEFECT 2 — per-author shares can sum to more than the paper is worth.
+    # DEFECT 2 — per-author shares could sum to more than the paper is worth.
+    # FIXED: the shares are allocated across the whole author list by largest
+    # remainder instead of being rounded one at a time.
     #
-    # `round2` is applied independently to each author's share, so up to nine
-    # roundings each move up to half a paisa in the same direction. With a
+    # `round2` was applied independently to each author's share, so up to nine
+    # roundings each moved up to half a paisa in the same direction. With a
     # SNIP of 0.001 and six authors the paper's base is 55.00 and the six
-    # shares are 15.13 + 12.38 + 11.00 + 8.25 + 5.50 + 2.75 = 55.01 — the
-    # institution pays one paisa it never priced.
+    # shares were 15.13 + 12.38 + 11.00 + 8.25 + 5.50 + 2.75 = 55.01 — the
+    # institution paid one paisa it never priced.
     #
-    # It is small but it is systematic, and it is the kind of thing a
-    # reconciliation between the ledger and the per-claim rows will surface as
-    # an unexplained difference. Larger bases hit it too: base 81,935.00 with
-    # six authors also sums to 81,935.01.
+    # Small, but systematic, and exactly the kind of thing a reconciliation
+    # between the ledger and the per-claim rows surfaces as an unexplained
+    # difference. Larger bases hit it too: base 81,935.00 with six authors
+    # also summed to 81,935.01.
     #
-    # The fix is a largest-remainder allocation (round eight shares, give the
-    # remainder to the last), not a change to `round2`. Reported, not fixed.
+    # `round2` itself is untouched — the rounding rule was never the problem;
+    # applying it nine separate times to one paper was.
     # ------------------------------------------------------------------
-    @expectedFailure
     def test_per_author_shares_never_exceed_the_paper_total(self):
-        kw = dict(
-            snip=0.001, quartile=None, indexing_level="Scopus", publication_type="Journal",
-            engineering_class="Engineering",
-        )
-        total_paid, base = self._share_sum(kw, 6)
-        self.assertLessEqual(
-            total_paid, base, f"six authors are paid {total_paid} for a paper worth {base}"
-        )
+        """Both bases named in the defect, six ways, through the calculator.
 
-    def test_the_size_of_defect_two_is_one_paisa_and_no_more(self):
-        """Locks the blast radius: the overspend never exceeds half a paisa
-        per author, so it cannot quietly become rupees."""
-        worst = 0.0
+        The policies here set the fixed no-SNIP rate to zero so that the
+        Category I floor added for DEFECT 1 does not lift these deliberately
+        awkward bases off the cliff before the rounding is reached. What is
+        under test is the division, not the floor.
+        """
+        for multiplier, expected_base in ((55000, 55.00), (81935000, 81935.00)):
+            cfg = FormulaConfigInput(
+                snip_multiplier=multiplier, fixed_journal_no_snip=0, fixed_other_no_snip=0
+            )
+            kw = dict(
+                snip=0.001, quartile=None, indexing_level="Scopus",
+                publication_type="Journal", engineering_class="Engineering", cfg=cfg,
+            )
+            total_paid, base = self._share_sum(kw, 6)
+            self.assertEqual(base, expected_base)
+            self.assertLessEqual(
+                total_paid, base, f"six authors are paid {total_paid} for a paper worth {base}"
+            )
+
+    def test_the_paisa_that_used_to_go_missing_is_conserved_exactly(self):
+        """Counted in paisa, so a float artefact in the summing cannot hide
+        or invent a difference. Both of the bases named in the defect, and
+        every author count."""
+        for base in (55.00, 81935.00, 1000.01, 12345.67):
+            for total in range(1, MAX_ELIGIBLE_AUTHORS + 1):
+                row = DEFAULT_AUTHOR_POINTS[str(total)]
+                shares = allocate_shares(base, row)
+                paid = sum(round(x * 100) for x in shares)
+                priced = round(base * math.fsum(row) * 100)
+                self.assertEqual(
+                    paid, priced, f"{total} authors of a {base} paper are paid {paid / 100}"
+                )
+                self.assertLessEqual(paid, round(base * 100), f"{total} authors overspend {base}")
+
+    def test_the_allocation_never_lets_a_later_author_overtake_an_earlier_one(self):
+        """Largest-remainder hands the odd paisa out, so it has to hand it to
+        the right people: ties break towards the earlier position."""
         for total in range(1, MAX_ELIGIBLE_AUTHORS + 1):
-            points = DEFAULT_AUTHOR_POINTS[str(total)]
-            for cents in range(0, 400):
-                base = 1000 + cents / 100
-                over = sum(round2(base * p) for p in points) - base * sum(points)
-                worst = max(worst, over)
-        self.assertLessEqual(worst, 0.005 * MAX_ELIGIBLE_AUTHORS + 1e-9)
+            row = DEFAULT_AUTHOR_POINTS[str(total)]
+            for cents in range(0, 2000):
+                shares = allocate_shares(cents / 100, row)
+                for i in range(1, len(shares)):
+                    self.assertLessEqual(
+                        shares[i], shares[i - 1], f"{total} authors, base {cents / 100}: {shares}"
+                    )
+
+    def test_no_share_drifts_further_than_a_paisa_from_its_own_point(self):
+        """The allocation buys exactness on the total with at most one paisa
+        on any single share — it may not quietly reapportion the paper."""
+        for total in range(1, MAX_ELIGIBLE_AUTHORS + 1):
+            row = DEFAULT_AUTHOR_POINTS[str(total)]
+            for cents in range(0, 2000):
+                base = cents / 100
+                for share, p in zip(allocate_shares(base, row), row):
+                    self.assertLessEqual(abs(share - round2(base * p)), 0.01 + 1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -1012,27 +1094,31 @@ class NormalizeIssnTests(SimpleTestCase):
     @WIDE
     @given(issn_junk)
     def test_normalising_twice_is_the_same_as_once(self, raw):
-        # Whitespace-only input is the one exception; it has its own test below.
-        assume(raw == "" or raw.strip() != "")
         once = normalize_issn(raw)
         self.assertEqual(normalize_issn(once), once, f"{raw!r} -> {once!r}")
 
     # ------------------------------------------------------------------
-    # DEFECT 8 (minor) — `normalize_issn` is not idempotent for a blank value.
+    # DEFECT 8 (minor) — `normalize_issn` was not idempotent for a blank
+    # value. FIXED: a whitespace-only value is a blank value and returns None.
     #
-    # A whitespace-only ISSN falls through to `return issn.strip()`, which is
-    # the empty string, while an empty ISSN returns None on the first line. So
-    # normalising once gives "" and normalising that gives None — two
-    # different answers, from a function annotated `-> str | None` whose every
-    # other empty-ish input gives None.
+    # A whitespace-only ISSN fell through to `return issn.strip()`, the empty
+    # string, while an empty ISSN returned None on the first line. So
+    # normalising once gave "" and normalising that gave None — two different
+    # answers, from a function annotated `-> str | None` whose every other
+    # empty-ish input gave None.
     #
     # Harmless today only because every caller writes `normalize_issn(x) or ""`
-    # or tests truthiness. Reported, not fixed.
+    # or tests truthiness — which is exactly the kind of "harmless" that stops
+    # being harmless the first time somebody compares two normalised values.
     # ------------------------------------------------------------------
-    @expectedFailure
     def test_a_whitespace_only_issn_normalises_the_same_way_twice(self):
         once = normalize_issn("   ")
         self.assertEqual(normalize_issn(once), once, f"-> {once!r}")
+
+    def test_every_blank_value_normalises_to_the_same_thing(self):
+        self.assertEqual(
+            {normalize_issn(v) for v in (None, "", " ", "\t", "  \n ")}, {None}
+        )
 
     @WIDE
     @given(issn_junk)
@@ -1138,25 +1224,29 @@ class IssnCheckDigitTests(SimpleTestCase):
         self.assertTrue(issn_check_digit_ok("1024123x"))
 
     # ------------------------------------------------------------------
-    # DEFECT 3 — `issn_check_digit_ok` raises instead of returning False.
+    # DEFECT 3 — `issn_check_digit_ok` raised instead of returning False.
+    # FIXED: the guard is `.isascii() and .isdigit()`.
     #
-    # The guard is `cleaned[:7].isdigit()`, but `str.isdigit()` is true for
+    # The guard was `cleaned[:7].isdigit()`, but `str.isdigit()` is true for
     # Unicode characters that `int()` cannot parse — superscripts and
     # subscripts, "²" among them. The next line does
-    # `int(d) for d in cleaned[:7]` and throws ValueError.
+    # `int(d) for d in cleaned[:7]` and threw ValueError.
     #
     # `normalize_issn` happens not to reach it, because its own `[^0-9Xx]`
     # strip is ASCII-only. But `issn_check_digit_ok` is a public predicate and
     # a predicate that raises is a predicate every caller has to wrap. Any
     # future caller feeding it a raw spreadsheet cell — where "10²" is a real
-    # thing a person types — gets a 500 instead of a False.
-    #
-    # One-line fix: `.isascii() and .isdigit()`, or `.isdecimal()`.
-    # Reported, not fixed.
+    # thing a person types — got a 500 instead of a False.
     # ------------------------------------------------------------------
-    @expectedFailure
     def test_it_returns_false_for_unicode_digits_it_cannot_parse(self):
         self.assertFalse(issn_check_digit_ok("²²²²²²²X"))
+
+    def test_nothing_makes_the_predicate_raise_instead_of_answering(self):
+        """It is a predicate. Predicates answer, they do not throw — every
+        shape of not-really-a-digit `str.isdigit()` says yes to."""
+        for hostile in ("²²²²²²²X", "١٢٣٤٥٦٧٨", "\u2081\u2082\u2083\u2084\u2085\u2086\u2087X",
+                        "𝟏𝟐𝟑𝟒𝟓𝟔𝟕X", "０１２３４５６７"):
+            self.assertIsInstance(issn_check_digit_ok(hostile), bool, repr(hostile))
 
     def test_unicode_digits_that_int_can_parse_are_handled(self):
         """Arabic-Indic digits do parse, so these are answered rather than
@@ -1275,48 +1365,59 @@ class NormalizeDoiTests(SimpleTestCase):
 
     @WIDE
     @given(doi_junk)
-    def test_normalising_twice_is_the_same_as_once_for_ordinary_values(self, raw):
-        assume(raw is None or raw.lower().count("doi.org/") < 2)
+    def test_normalising_twice_is_the_same_as_once(self, raw):
         once = normalize_doi(raw)
         self.assertEqual(normalize_doi(once), once, repr(raw))
 
     # ------------------------------------------------------------------
-    # DEFECT 4 — `normalize_doi` is not idempotent.
+    # DEFECT 4 — `normalize_doi` was not idempotent.
+    # FIXED: the prefix group repeats, `^(?:https?://(?:dx\.)?doi\.org/)+`.
     #
-    # The prefix strip is `re.sub(r"^https?://(dx\.)?doi\.org/", "", s)`, which
-    # is anchored and so removes exactly one prefix per call. A value that
-    # carries the resolver twice — which is what a copy-paste out of a browser
-    # into a field that already prefills the resolver produces, and it is
-    # common — normalises to "https://doi.org/10.x/y" on the first pass and
-    # "10.x/y" on the second.
+    # The strip was `re.sub(r"^https?://(dx\.)?doi\.org/", "", s)`, anchored,
+    # so it removed exactly one prefix per call. A value carrying the resolver
+    # twice — what a copy-paste out of a browser into a field that already
+    # prefills the resolver produces, and it is common — normalised to
+    # "https://doi.org/10.x/y" on the first pass and "10.x/y" on the second.
     #
-    # It matters because the DOI is a duplicate key: `check_already_paid` and
-    # the ERP import compare normalised DOIs, so the same paper stored once
-    # with a doubled prefix and once without will not be seen as the same
-    # paper, and can be paid twice.
-    #
-    # Fix: loop the substitution, or use a non-anchored `re.sub(...)` with a
-    # `(?:...)*` prefix group. Reported, not fixed.
+    # It was a duplicate-detection hole, not a tidiness problem: the DOI is a
+    # duplicate key, `check_already_paid` and the ERP import compare
+    # normalised DOIs, so the same paper stored once with a doubled prefix and
+    # once without was not seen as the same paper — and could be paid twice.
     # ------------------------------------------------------------------
-    @expectedFailure
     def test_a_doubled_resolver_prefix_is_fully_stripped(self):
         self.assertEqual(
             normalize_doi("https://doi.org/https://doi.org/10.1000/xyz123"), "10.1000/xyz123"
         )
 
-    def test_the_doubled_prefix_at_least_settles_after_a_second_pass(self):
-        """Locks how far the defect goes: one extra pass is enough, so the
-        value does not drift indefinitely."""
+    def test_a_paper_filed_with_and_without_the_doubling_is_one_paper(self):
+        """The property the duplicate check actually relies on."""
+        for doubled, plain in (
+            ("https://doi.org/https://doi.org/10.1000/xyz123", "10.1000/xyz123"),
+            ("http://dx.doi.org/https://doi.org/10.1000/xyz123", "10.1000/XYZ123"),
+            ("https://doi.org/http://dx.doi.org/https://doi.org/10.1000/xyz123", "10.1000/xyz123"),
+        ):
+            self.assertEqual(normalize_doi(doubled), normalize_doi(plain), doubled)
+
+    def test_one_pass_is_now_enough(self):
         raw = "https://doi.org/https://doi.org/10.1000/xyz123"
-        self.assertEqual(normalize_doi(normalize_doi(raw)), "10.1000/xyz123")
+        self.assertEqual(normalize_doi(raw), normalize_doi(normalize_doi(raw)))
 
 
 # ---------------------------------------------------------------------------
 # 10. The research quota
 # ---------------------------------------------------------------------------
 
+from django.db import IntegrityError, transaction  # noqa: E402
+from django.utils import timezone  # noqa: E402
+
 from core.api import _apply_calc, _assign_quota_position, _quota_state  # noqa: E402
-from core.models import Claim, ClaimReason, FormulaConfig, Role  # noqa: E402
+from core.models import (  # noqa: E402
+    Claim,
+    ClaimReason,
+    ClaimStatus,
+    FormulaConfig,
+    Role,
+)
 
 
 class ResearchQuotaPropertyTests(TestCase):
@@ -1402,16 +1503,26 @@ class ResearchQuotaPropertyTests(TestCase):
         self.assertEqual(len(set(positions)), len(positions))
 
     def test_a_gap_in_the_sequence_does_not_reissue_a_taken_position(self):
-        """The reason the code uses max+1 rather than count(): a paper whose
-        year is corrected leaves a hole, and count() would hand the hole out
-        again to a paper that is already there."""
+        """The hazard max+1 was guarding against: a paper whose year is
+        corrected leaves a hole, and `count()` would hand that hole out again
+        to a paper already sitting in it.
+
+        The hole is now closed on the way out instead of being stepped over
+        (DEFECT 5), so the year genuinely holds one paper numbered 1 and the
+        next paper filed is 2. The property that mattered is unchanged and
+        still asserted first: no paper is ever given a number another paper of
+        the same author-year already holds.
+        """
         a = self._file(title="a")
         b = self._file(title="b")
+        self.assertEqual([a.quota_position, b.quota_position], [1, 2])
         a.publication_year = 2025
         a.save()
+        b.refresh_from_db()
+        self.assertEqual(b.quota_position, 1, "the hole above b was not closed")
         c = self._file(title="c")
         self.assertNotEqual(c.quota_position, b.quota_position)
-        self.assertEqual(c.quota_position, 3)
+        self.assertEqual(c.quota_position, 2)
 
     def test_positions_are_counted_per_year(self):
         y24 = [self._file(year=2024, title=f"a{i}") for i in range(3)]
@@ -1519,29 +1630,33 @@ class ResearchQuotaPropertyTests(TestCase):
             )
 
     # ------------------------------------------------------------------
-    # DEFECT 5 — a gap in the position sequence shrinks the quota.
+    # DEFECT 5 — a gap in the position sequence shrank the quota.
+    # FIXED in the model: `Claim.save()` closes the hole behind a paper that
+    # leaves a year, renumbering that year's remaining papers 1..N by their
+    # existing position order.
     #
-    # Positions are handed out as max+1 and never renumbered, and
+    # Positions were handed out as max+1 and never renumbered, and
     # `_quota_state` decides on `position <= quota`. So the moment the sequence
-    # has a hole, the quota stops meaning "the first N papers of the year" and
-    # starts meaning "the papers numbered 1..N", which is fewer papers.
+    # had a hole, the quota stopped meaning "the first N papers of the year"
+    # and started meaning "the papers numbered 1..N", which is fewer papers.
     #
     # Three papers are filed for 2024 and take positions 1, 2, 3. The first
     # one's year is corrected to 2025 — reachable through the ordinary edit
     # path, since a rejected claim can be edited and it already carries a
-    # position. 2024 now holds two papers, numbered 2 and 3, against a quota of
-    # 2. One of them is zeroed instead of both, and the author is paid for a
-    # paper the quota was supposed to cover.
+    # position. 2024 was then left holding two papers, numbered 2 and 3,
+    # against a quota of 2. One of them was zeroed instead of both, and the
+    # author was paid for a paper the quota was supposed to cover.
     #
     # The same hole opens whenever a claim is deleted or withdrawn.
     #
-    # The trade-off is real — renumbering on read is what the docstring
-    # rejects, because `created_at` and the uuid cannot order the papers. But
-    # the fix is to renumber the *remaining* papers by their existing position
-    # order when one leaves a year, which keeps the filing order and closes the
-    # hole. Reported, not fixed.
+    # Renumbering by existing position order keeps filing order, so the
+    # objection to deriving a position from `created_at` or a random uuid does
+    # not apply. A bucket holding an already-paid paper is left alone —
+    # renumbering only moves positions down, and moving one down can only move
+    # a paper from outside a quota to inside it, which would reprice money
+    # that has already gone out. See
+    # `test_a_gap_above_a_paid_paper_is_left_open_rather_than_reprice_it`.
     # ------------------------------------------------------------------
-    @expectedFailure
     def test_a_year_correction_does_not_shrink_the_quota(self):
         claims = [self._file(title=f"p{i}") for i in range(3)]
         claims[0].publication_year = 2025
@@ -1554,23 +1669,92 @@ class ResearchQuotaPropertyTests(TestCase):
             "a 2-paper quota stopped covering both of the year's two papers",
         )
 
+    def test_a_gap_above_a_paid_paper_is_left_open_rather_than_reprice_it(self):
+        """The one thing closing the hole must never do.
+
+        Renumbering only ever moves a position down, and moving a position
+        down can only move a paper from outside the quota to inside it — from
+        paid in full to zeroed. For a paper that has already been paid that is
+        a settled amount changing after the fact, so a year holding one is
+        left exactly as it is, hole and all. The quota stays wrong for that
+        author-year, and the money stays where it went.
+        """
+        claims = [self._file(title=f"p{i}") for i in range(3)]
+        claims[2].status = ClaimStatus.PAID
+        claims[2].paid_at = timezone.now()
+        claims[2].save()
+        claims[0].publication_year = 2025
+        claims[0].save()
+        for c in claims[1:]:
+            c.refresh_from_db()
+        self.assertEqual(
+            [c.quota_position for c in claims[1:]],
+            [2, 3],
+            "a paid paper was renumbered into the quota",
+        )
+
+    def test_deleting_a_paper_also_closes_the_hole_it_leaves(self):
+        """The same defect reached the other way. A paper removed from the
+        middle of a year used to take one of that year's payable slots with
+        it."""
+        claims = [self._file(title=f"p{i}") for i in range(3)]
+        claims[0].delete()
+        self.assertEqual(
+            self._inside_count(2024), 2, "a deletion shrank a 2-paper quota to 1"
+        )
+        for c in claims[1:]:
+            c.refresh_from_db()
+        self.assertEqual([c.quota_position for c in claims[1:]], [1, 2])
+
+    def test_a_year_correction_below_an_unpaid_paper_still_closes(self):
+        """The guard is about paid papers only; everything else renumbers."""
+        claims = [self._file(title=f"p{i}") for i in range(3)]
+        claims[2].status = ClaimStatus.SUBMITTED
+        claims[2].save()
+        claims[0].publication_year = 2025
+        claims[0].save()
+        for c in claims[1:]:
+            c.refresh_from_db()
+        self.assertEqual([c.quota_position for c in claims[1:]], [1, 2])
+
+    def test_the_database_refuses_a_duplicate_slot_outright(self):
+        """The guard under the application-level one: whatever writes the
+        column, two papers of one author-year cannot hold the same number."""
+        first = self._file(title="first")
+        second = self._file(title="second")
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Claim.objects.filter(pk=second.pk).update(
+                    quota_position=first.quota_position
+                )
+
+    def test_the_constraint_leaves_every_paper_without_a_slot_alone(self):
+        """Most claims carry no position at all — drafts, count-only filings,
+        papers with no year, everyone who is not research faculty. NULLs are
+        distinct, so any number of them coexist."""
+        for i in range(4):
+            self._file(owner=self.regular, title=f"r{i}")
+            self._file(reason=ClaimReason.COUNT_ONLY, title=f"c{i}")
+        self.assertEqual(
+            Claim.objects.filter(quota_position__isnull=True).count(), 8
+        )
+
     # ------------------------------------------------------------------
-    # DEFECT 6 — a corrected year carries the old year's position with it.
+    # DEFECT 6 — a corrected year carried the old year's position with it.
+    # FIXED in the model: `Claim.save()` drops `quota_position` when
+    # `publication_year` changes, and a UniqueConstraint on
+    # (owner, publication_year, quota_position) now makes the collision
+    # impossible to store at all.
     #
-    # `quota_position` is never cleared when `publication_year` changes, so the
-    # paper arrives in its new year holding a number that year has already
-    # issued. Two papers then share position 1, both are inside a quota of 2,
-    # and the third paper of that year — which should have been paid — is not,
-    # because it is numbered 3.
+    # `quota_position` was never cleared when `publication_year` changed, so
+    # the paper arrived in its new year holding a number that year had already
+    # issued. Two papers then shared position 1, both sat inside a quota of 2,
+    # and the third paper of that year — which should have been paid — was
+    # not, because it was numbered 3.
     #
-    # There is no unique constraint on (owner, publication_year,
-    # quota_position) to stop it, and `_assign_quota_position` is a no-op once
-    # the field is set.
-    #
-    # Fix: clear `quota_position` when `publication_year` changes, and add the
-    # constraint. Reported, not fixed.
+    # A slot belongs to the year that issued it. The paper takes a fresh one
+    # in its new year the next time it is filed.
     # ------------------------------------------------------------------
-    @expectedFailure
     def test_a_corrected_year_does_not_import_a_duplicate_position(self):
         moved = self._file(year=2024, title="moved")
         settled = self._file(year=2025, title="settled")
@@ -1586,13 +1770,15 @@ class ResearchQuotaPropertyTests(TestCase):
         self.assertEqual(len(set(positions)), len(positions), f"duplicate positions: {positions}")
 
     # ------------------------------------------------------------------
-    # DEFECT 7 — two submits that interleave get the same position.
+    # DEFECT 7 — two submits that interleave got the same position.
+    # PARTLY FIXED in the model; see the note at the end of this block for
+    # what `api.py` still owes.
     #
     # `_assign_quota_position` reads MAX(quota_position) and writes MAX+1 with
-    # no lock and no unique constraint, and the read and the write are in
-    # different statements with the claim's `save()` between them. Two workers
-    # handling two submits for the same author and year at the same moment both
-    # read the same maximum and both write the same number.
+    # no lock and, until now, no unique constraint, and the read and the write
+    # are in different statements with the claim's `save()` between them. Two
+    # workers handling two submits for the same author and year at the same
+    # moment both read the same maximum and both wrote the same number.
     #
     # The test below stands in for the race by doing what the two workers do —
     # assigning both positions before either row is written. There is nothing
@@ -1603,10 +1789,20 @@ class ResearchQuotaPropertyTests(TestCase):
     # Consequence: two papers share a slot, so a quota of N zeroes N-1 papers
     # and pays one it should not have.
     #
-    # Fix: a UniqueConstraint on (owner, publication_year, quota_position) plus
-    # the retry `assign_ticket_number` already uses. Reported, not fixed.
+    # PARTLY FIXED, in the model: a UniqueConstraint on
+    # (owner, publication_year, quota_position) now makes two papers sharing a
+    # slot unstorable, and `Claim.save()` takes the next free slot instead of
+    # writing a number another row already holds. That closes the window this
+    # test stands in for.
+    #
+    # It does NOT close the true database-level race: two workers can still
+    # both pass the check-and-write in `save()` before either commits, and
+    # under the constraint the loser now gets an IntegrityError rather than a
+    # duplicate. `api.py` still needs `_assign_quota_position` to take the
+    # `select_for_update` lock and the retry that `assign_ticket_number`
+    # already uses next door. A refused save is a much better failure than a
+    # silently duplicated slot, but it is still a failure.
     # ------------------------------------------------------------------
-    @expectedFailure
     def test_two_interleaved_submits_do_not_share_a_position(self):
         a = Claim.objects.create(
             owner=self.researcher, publication_year=2024, total_authors=1, author_position=1

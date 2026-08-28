@@ -46,10 +46,23 @@ def titles_rough_match(a: str | None, b: str | None, *, min_overlap: float = 0.7
 
 
 def normalize_doi(doi: str | None) -> str | None:
+    """A DOI reduced to its bare `10.x/y` form, however it was pasted in.
+
+    The resolver prefix is stripped as many times as it appears, not once. A
+    field that prefills "https://doi.org/" and a value pasted out of a
+    browser's address bar together produce
+    "https://doi.org/https://doi.org/10.x/y", and an anchored single strip
+    normalised that to "https://doi.org/10.x/y" while the same paper filed
+    without the doubling normalised to "10.x/y". The DOI is the duplicate key
+    that `check_already_paid` and the ERP import compare on, so the two did
+    not recognise each other and the same paper could be paid twice.
+
+    Normalising is therefore idempotent: normalise(normalise(x)) == normalise(x).
+    """
     if not doi:
         return None
     s = doi.strip().lower()
-    s = re.sub(r"^https?://(dx\.)?doi\.org/", "", s)
+    s = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/)+", "", s)
     return s or None
 
 
@@ -61,7 +74,13 @@ def issn_check_digit_ok(value: str) -> bool:
     reconstruction safe to accept: of the wrong paddings, almost none pass.
     """
     cleaned = (value or "").upper()
-    if len(cleaned) != 8 or not cleaned[:7].isdigit():
+    # `str.isdigit()` is true for characters `int()` cannot parse -- "²"
+    # and the rest of the superscripts and subscripts among them -- so the
+    # guard let them through and the sum below raised ValueError. A predicate
+    # that raises is a predicate every caller has to wrap, and "10²" is a
+    # real thing a person types into a spreadsheet cell. Only ASCII 0-9 are
+    # digits for a check digit's purposes.
+    if len(cleaned) != 8 or not (cleaned[:7].isascii() and cleaned[:7].isdigit()):
         return False
     total = sum(int(d) * w for d, w in zip(cleaned[:7], range(8, 1, -1)))
     remainder = total % 11
@@ -86,7 +105,11 @@ def normalize_issn(issn: str | None) -> str | None:
     Nine thousand nine hundred and ninety-three reference rows carry the
     first, and the claim table carries the second.
     """
-    if not issn:
+    # A whitespace-only value is a blank value. Returning "" for it while an
+    # empty string returned None made the function disagree with itself:
+    # normalising once gave "", normalising that gave None. Every empty-ish
+    # input now gives the same answer, so the function is idempotent.
+    if not issn or not str(issn).strip():
         return None
     text = issn.strip()
     # Only when the whole value looks like a float, so an ISSN legitimately

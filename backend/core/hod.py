@@ -33,6 +33,28 @@ MONEY_KEYS = frozenset({
     "remuneration_is_estimate",
     "qf_amount",
     "base_amount",
+    # The same two figures under the names `discover.estimate_payout` gives
+    # them. It returns `amount`, `author_point`, `base` and `qf`; only the
+    # first two were listed here, so a payout estimate routed through
+    # `without_money` arrived with the base amount and the quartile factor
+    # intact and just the total removed -- which is most of the way to the
+    # total, for anybody who can multiply.
+    #
+    # A short key is easy to miss precisely because it does not look like a
+    # money field. That is the argument for listing both spellings rather than
+    # renaming one: this set has to match the words the code actually emits.
+    "base",
+    "qf",
+    # And the rest of that same dict. `category` is the payout band ("Category
+    # I"), `note` and `why_not` are sentences about whether money is due and
+    # why -- "carries no remuneration" tells a head exactly what the figure
+    # would have been for. Their long forms `remuneration_category` and
+    # `remuneration_note` were already listed, which is the tell: the same
+    # facts under shorter names, missed because the short names do not read
+    # like money.
+    "category",
+    "note",
+    "why_not",
     "author_point",
     "voucher_number",
     "paid_at",

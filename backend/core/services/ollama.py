@@ -70,7 +70,14 @@ class OllamaError(Exception):
 
 @dataclass(frozen=True)
 class Health:
-    """What is true about the local model service right now."""
+    """What is true about the local model service right now.
+
+    The two models are reported side by side rather than reduced to one
+    verdict, because "the considered model is here and the fast one is not" is
+    a real state with its own remedy -- one `ollama pull` -- and a screen that
+    can only say "not ready" cannot name it. The heavy features still work in
+    that state; only the interactive ones are cold.
+    """
 
     up: bool
     model_present: bool
@@ -79,10 +86,17 @@ class Health:
     version: str | None = None
     models: tuple[str, ...] = ()
     detail: str | None = None
+    fast_model: str = ""
+    fast_model_present: bool = False
+    fast_detail: str | None = None
 
     @property
     def ready(self) -> bool:
         return self.up and self.model_present
+
+    @property
+    def fast_ready(self) -> bool:
+        return self.up and self.fast_model_present
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -94,6 +108,10 @@ class Health:
             "version": self.version,
             "models": list(self.models),
             "detail": self.detail,
+            "fast_model": self.fast_model,
+            "fast_model_present": self.fast_model_present,
+            "fast_ready": self.fast_ready,
+            "fast_detail": self.fast_detail,
         }
 
 
@@ -102,10 +120,46 @@ def base_url() -> str:
 
 
 def model_name() -> str:
+    """The considered model. Unchanged meaning: this is still the default."""
     return (getattr(settings, "OLLAMA_MODEL", "") or "gemma4:12b").strip()
 
 
-def _request(path: str, payload: dict | None = None, *, timeout: int, stream: bool = False):
+def fast_model_name() -> str:
+    """The interactive model.
+
+    Small enough to answer while somebody watches. Everything on this machine
+    runs on the CPU, so throughput follows parameter count almost linearly and
+    the only way to make a reply arrive in seconds is to ask a smaller model.
+    """
+    return (getattr(settings, "OLLAMA_FAST_MODEL", "") or "gemma3:4b").strip()
+
+
+def resolve_model(fast: bool = False) -> str:
+    """Which tag a call should go to. One place, so callers name a tier."""
+    return fast_model_name() if fast else model_name()
+
+
+def keep_alive(fast: bool = False) -> str:
+    """How long Ollama should hold this tier in memory after answering.
+
+    Deliberately different per tier -- see the note in settings. Returned as a
+    string and passed through untouched: Ollama accepts durations, ``0`` to
+    unload at once and ``-1`` to pin, and reinterpreting any of those here
+    would only be a second place to get it wrong.
+    """
+    if fast:
+        return str(getattr(settings, "OLLAMA_FAST_KEEP_ALIVE", "") or "30m").strip()
+    return str(getattr(settings, "OLLAMA_KEEP_ALIVE", "") or "2m").strip()
+
+
+def _request(
+    path: str,
+    payload: dict | None = None,
+    *,
+    timeout: int,
+    stream: bool = False,
+    model: str | None = None,
+):
     url = f"{base_url()}{path}"
     if payload is None:
         req = urllib.request.Request(url, method="GET")
@@ -128,9 +182,13 @@ def _request(path: str, payload: dict | None = None, *, timeout: int, stream: bo
         # service said no", but a missing model is somebody's configuration
         # and is fixed by pulling it or naming a different one.
         if exc.code == 404 and "not found" in body.lower():
+            # Named from the call rather than from the configured default, so
+            # a missing fast model does not report the 12b tag's name and send
+            # somebody to pull a model they already have.
+            missing = model or model_name()
             raise OllamaError(
                 "model_missing",
-                f"The model {model_name()!r} is not installed on this machine.",
+                f"The model {missing!r} is not installed on this machine.",
             ) from exc
         raise OllamaError("service_error", f"The local model service answered {exc.code}.") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -148,19 +206,23 @@ def _request(path: str, payload: dict | None = None, *, timeout: int, stream: bo
 def health(*, timeout: int = HEALTH_TIMEOUT) -> Health:
     """Is the daemon up, and is the configured model actually there?
 
-    Two separate questions with two different remedies -- start the service,
-    or pull the model -- so they are answered separately rather than collapsed
-    into one "unavailable". A screen that cannot tell them apart cannot tell
-    anybody what to do about it.
+    Three separate questions now with three different remedies -- start the
+    service, pull the considered model, pull the fast one -- so they are
+    answered separately rather than collapsed into one "unavailable". A screen
+    that cannot tell them apart cannot tell anybody what to do about it, and
+    the two models fail independently: the interactive assistant can be cold
+    on a server where the venue search is perfectly well.
     """
     want = model_name()
+    want_fast = fast_model_name()
     url = base_url()
 
     try:
         version = json.load(_request("/api/version", timeout=timeout)).get("version")
     except OllamaError as exc:
         return Health(
-            up=False, model_present=False, model=want, base_url=url, detail=exc.message
+            up=False, model_present=False, model=want, base_url=url, detail=exc.message,
+            fast_model=want_fast, fast_model_present=False, fast_detail=exc.message,
         )
 
     try:
@@ -169,13 +231,12 @@ def health(*, timeout: int = HEALTH_TIMEOUT) -> Health:
         return Health(
             up=True, model_present=False, model=want, base_url=url,
             version=version, detail=exc.message,
+            fast_model=want_fast, fast_model_present=False, fast_detail=exc.message,
         )
 
     names = tuple(m.get("name", "") for m in tags.get("models", []))
-    # "gemma4:12b" and a bare "gemma4" both count, because Ollama treats a
-    # tagless name as :latest and somebody configuring this by hand will write
-    # whichever they saw in the docs.
-    present = want in names or any(n.split(":")[0] == want.split(":")[0] for n in names)
+    present = _installed(want, names)
+    fast_present = _installed(want_fast, names)
     return Health(
         up=True,
         model_present=present,
@@ -184,7 +245,28 @@ def health(*, timeout: int = HEALTH_TIMEOUT) -> Health:
         version=version,
         models=names,
         detail=None if present else f"{want!r} is not among the installed models.",
+        fast_model=want_fast,
+        fast_model_present=fast_present,
+        fast_detail=(
+            None if fast_present else f"{want_fast!r} is not among the installed models."
+        ),
     )
+
+
+def _installed(want: str, names: tuple[str, ...]) -> bool:
+    """Is this tag among the installed ones, allowing for a tagless name?
+
+    "gemma4:12b" and a bare "gemma4" both count, because Ollama treats a
+    tagless name as :latest and somebody configuring this by hand will write
+    whichever they saw in the docs. The family match stays deliberately loose
+    for that reason -- it is applied per tag, so a configured "gemma3:4b" is
+    satisfied by any gemma3 that happens to be installed. That is the same
+    latitude the single-model version gave, on the same trade: a configuration
+    typo that stops the feature is a worse failure than a size surprise.
+    """
+    if not want:
+        return False
+    return want in names or any(n.split(":")[0] == want.split(":")[0] for n in names)
 
 
 def generate(
@@ -195,6 +277,7 @@ def generate(
     max_tokens: int = 512,
     temperature: float = 0.2,
     fmt: str | dict | None = None,
+    fast: bool = False,
 ) -> str:
     """One prompt in, the whole answer out.
 
@@ -202,9 +285,17 @@ def generate(
     worth using wherever the caller is going to parse the result -- a model
     asked politely for JSON in the prompt will still occasionally wrap it in
     prose, and the constrained decoder cannot.
+
+    ``fast=True`` sends the prompt to the small model instead. It defaults to
+    False, so every existing caller stays on exactly the tag it was on.
     """
+    model = resolve_model(fast)
     payload: dict[str, Any] = {
-        "model": model_name(),
+        "model": model,
+        # Sent explicitly rather than left to Ollama's default, because the
+        # default is one number for both tiers and the whole reason there are
+        # two tiers is that they should be held for different lengths of time.
+        "keep_alive": keep_alive(fast),
         "prompt": prompt,
         "stream": False,
         # Gemma 4 reasons before answering, and does it silently: with
@@ -226,7 +317,7 @@ def generate(
     if fmt:
         payload["format"] = fmt
 
-    data = json.load(_request("/api/generate", payload, timeout=timeout))
+    data = json.load(_request("/api/generate", payload, timeout=timeout, model=model))
     return (data.get("response") or "").strip()
 
 
@@ -236,6 +327,7 @@ def generate_json(
     system: str | None = None,
     timeout: int = DEFAULT_TIMEOUT,
     max_tokens: int = 512,
+    fast: bool = False,
 ) -> Any:
     """A prompt whose answer is parsed.
 
@@ -247,14 +339,14 @@ def generate_json(
     """
     raw = generate(
         prompt, system=system, timeout=timeout, max_tokens=max_tokens,
-        temperature=0.0, fmt="json",
+        temperature=0.0, fmt="json", fast=fast,
     )
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         # Constrained decoding makes this rare; a truncated answer at the
         # token ceiling is the usual cause.
-        logger.warning("ollama_bad_json model=%s len=%d", model_name(), len(raw))
+        logger.warning("ollama_bad_json model=%s len=%d", resolve_model(fast), len(raw))
         raise OllamaError(
             "bad_output", "The local model returned something that could not be read."
         ) from None
@@ -278,6 +370,7 @@ def stream(
     temperature: float = 0.2,
     fmt: str | dict | None = None,
     should_stop: Callable[[], bool] | None = None,
+    fast: bool = False,
 ) -> Iterator[str]:
     """The answer in pieces, as it is produced.
 
@@ -302,8 +395,10 @@ def stream(
     token that breaks the schema, and the caller still sees the answer being
     built.
     """
+    model = resolve_model(fast)
     payload: dict[str, Any] = {
-        "model": model_name(),
+        "model": model,
+        "keep_alive": keep_alive(fast),
         "prompt": prompt,
         "stream": True,
         # See `generate`. With thinking on, a stream emits nothing at all
@@ -316,7 +411,7 @@ def stream(
     if fmt:
         payload["format"] = fmt
 
-    response = _request("/api/generate", payload, timeout=timeout, stream=True)
+    response = _request("/api/generate", payload, timeout=timeout, stream=True, model=model)
     try:
         for line in response:
             if should_stop is not None and should_stop():

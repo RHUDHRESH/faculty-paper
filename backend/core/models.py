@@ -641,6 +641,195 @@ class Claim(models.Model):
             models.Index(fields=["payout_month"]),
             models.Index(fields=["-submitted_at"]),
         ]
+        constraints = [
+            # A research-quota slot belongs to one paper. The position was
+            # handed out by reading MAX(quota_position) and writing MAX+1 in
+            # two separate statements with no lock, so two submits for the
+            # same author and year that interleaved both read the same maximum
+            # and both wrote the same number -- two papers sharing a slot, a
+            # quota of N zeroing N-1 papers, and one paper paid that should
+            # not have been. The retry in save() below closes the window it
+            # can see; this is the guarantee that holds when it cannot, and it
+            # is what makes a retry safe to write at all.
+            #
+            # NULLs are distinct on both backends this runs on, so the many
+            # claims with no position -- drafts, count-only filings, papers
+            # with no year, and every claim of a non-research faculty member
+            # -- are unaffected.
+            models.UniqueConstraint(
+                fields=["owner", "publication_year", "quota_position"],
+                name="uniq_claim_quota_slot_per_owner_year",
+            ),
+        ]
+
+    #: (year, position) as they stood the last time this row was read or
+    #: written, so `save()` can tell whether either actually moved without
+    #: going back to the database for a row it already has.
+    _quota_baseline = None
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        obj = super().from_db(db, field_names, values)
+        # Only when both columns were actually selected. Touching a deferred
+        # field here would fire a query per row behind every `.only()`.
+        if "publication_year" in field_names and "quota_position" in field_names:
+            obj._remember_quota_baseline()
+        return obj
+
+    def _remember_quota_baseline(self):
+        self._quota_baseline = (self.publication_year, self.quota_position)
+
+    def _quota_baseline_or_fetch(self):
+        """(year, position) as the database has them for this row.
+
+        Normally free -- it was recorded when the row was read or last
+        written. The fallback is for a row loaded with `.only()`, where the
+        two columns were never selected.
+        """
+        if self._quota_baseline is not None:
+            return self._quota_baseline
+        stored = (
+            Claim.objects.filter(pk=self.pk)
+            .values_list("publication_year", "quota_position")
+            .first()
+        )
+        return stored or (self.publication_year, self.quota_position)
+
+    def _quota_slot_taken(self, year, position):
+        if year is None or position is None or self.owner_id is None:
+            return False
+        return (
+            Claim.objects.filter(
+                owner_id=self.owner_id, publication_year=year, quota_position=position
+            )
+            .exclude(pk=self.pk)
+            .exists()
+        )
+
+    def _next_quota_slot(self, year):
+        top = (
+            Claim.objects.filter(
+                owner_id=self.owner_id,
+                publication_year=year,
+                quota_position__isnull=False,
+            )
+            .exclude(pk=self.pk)
+            .aggregate(top=models.Max("quota_position"))["top"]
+            or 0
+        )
+        return top + 1
+
+    def _close_quota_gap(self, year):
+        """Renumber a year's remaining papers 1..N after one of them leaves.
+
+        The quota means "the first N papers of the year", but it is enforced
+        as "the papers numbered 1 to N". The moment the sequence has a hole --
+        a year corrected on a rejected claim, a withdrawal, a deletion -- the
+        two stop meaning the same thing and the quota covers fewer papers than
+        it was supposed to. Three papers numbered 1, 2, 3; the first one's
+        year is corrected; the year is left holding two papers numbered 2 and
+        3 against a quota of 2, so one of them is paid for a paper the quota
+        was meant to cover.
+
+        Renumbering is by existing position order, which is filing order, so
+        no paper overtakes another -- the objection to deriving a position
+        from `created_at` or from a random uuid does not apply to reusing the
+        order already recorded.
+
+        A bucket holding a paper that has already been paid is left exactly as
+        it is. Renumbering only ever moves a position down, and moving a
+        position down can only move a paper from outside the quota to inside
+        it, which is a downward repricing of money that has already gone out.
+        The gap stays open in that bucket rather than have the fix move
+        settled money.
+        """
+        if year is None or self.owner_id is None:
+            return
+        rows = list(
+            Claim.objects.filter(
+                owner_id=self.owner_id,
+                publication_year=year,
+                quota_position__isnull=False,
+            )
+            .exclude(pk=self.pk)
+            .order_by("quota_position", "created_at")
+        )
+        moving = [
+            row
+            for row, wanted in zip(rows, range(1, len(rows) + 1))
+            if row.quota_position != wanted
+        ]
+        if not moving:
+            return
+        if any(row.status == ClaimStatus.PAID or row.paid_at is not None for row in moving):
+            return
+        # Two passes through a scratch range: the unique constraint would
+        # reject 2 -> 1 while some other row still holds 1 on the way past.
+        offset = (rows[-1].quota_position or len(rows)) + len(rows) + 1
+        for n, row in enumerate(rows, start=1):
+            if row.quota_position != n:
+                Claim.objects.filter(pk=row.pk).update(quota_position=offset + n)
+        for n, row in enumerate(rows, start=1):
+            if row.quota_position != n:
+                Claim.objects.filter(pk=row.pk).update(quota_position=n)
+                row.quota_position = n
+
+    def save(self, *args, **kwargs):
+        """Keep the research-quota slot honest across a save.
+
+        Three things the column could not look after on its own:
+
+        * A corrected `publication_year` used to carry the old year's number
+          into the new year, where that number had already been issued. Two
+          papers then shared position 1, both sat inside a quota of 2, and the
+          year's third paper -- which should have been paid -- was not. A slot
+          belongs to the year that issued it, so it is dropped when the year
+          changes and a fresh one is taken when the paper is next filed.
+        * Leaving a year opens a hole in its sequence, which shrinks that
+          year's quota. `_close_quota_gap` shuts it.
+        * Two interleaved submits could be handed the same number. The unique
+          constraint refuses the second one; this takes the next free slot
+          rather than failing the save.
+        """
+        update_fields = kwargs.get("update_fields")
+        touched = update_fields is None or bool(
+            {"publication_year", "quota_position"} & set(update_fields)
+        )
+        if not touched or self._state.adding:
+            super().save(*args, **kwargs)
+            self._remember_quota_baseline()
+            return
+
+        old_year, old_position = self._quota_baseline_or_fetch()
+        vacated = None
+        if old_year != self.publication_year:
+            if old_position is not None:
+                self.quota_position = None
+                vacated = old_year
+                if update_fields is not None:
+                    kwargs["update_fields"] = list(set(update_fields) | {"quota_position"})
+        elif self.quota_position is not None and self.quota_position != old_position:
+            if self._quota_slot_taken(self.publication_year, self.quota_position):
+                self.quota_position = self._next_quota_slot(self.publication_year)
+
+        super().save(*args, **kwargs)
+        self._remember_quota_baseline()
+        if vacated is not None:
+            self._close_quota_gap(vacated)
+
+    def delete(self, *args, **kwargs):
+        """Close the hole a deleted paper leaves in its year's sequence.
+
+        Same defect as a corrected year, reached the other way: the quota is
+        enforced as "the papers numbered 1..N", so a paper removed from the
+        middle of a year takes one of that year's payable slots with it. The
+        guard on already-paid papers in `_close_quota_gap` applies here too.
+        """
+        year = self.publication_year if self.quota_position is not None else None
+        result = super().delete(*args, **kwargs)
+        if year is not None:
+            self._close_quota_gap(year)
+        return result
 
 
 class ClaimAttachment(models.Model):

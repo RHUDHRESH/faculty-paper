@@ -426,6 +426,7 @@ export const Switch = forwardRef<
   return (
     <SideLabel id={controlId} label={label} hint={hint} disabled={disabled}>
     <button
+      id={controlId}
       ref={ref}
       type="button"
       role="switch"

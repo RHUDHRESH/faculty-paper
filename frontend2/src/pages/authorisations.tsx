@@ -20,7 +20,7 @@ import {
 import { Checkbox, Field, Textarea } from "@/ui/field"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
@@ -134,6 +134,7 @@ export function Authorisations() {
     return (
       <div className="page py-8">
         <ErrorState
+          art="closed-gate"
           title="Not open to this account"
           message="Authorising a payment is the Director's, and a super admin standing in for one."
         />
@@ -160,28 +161,42 @@ export function Authorisations() {
         </Sub>
       </header>
 
-      <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3 border-y border-line py-3">
-        <Stat label="Waiting on you" value={totals ? String(totals.count) : "—"} />
-        <Stat
-          label="Comes to"
-          value={money(totals?.amount)}
-          hint="Across everything that matches, not this page"
-        />
-        <Stat
-          label="Longest wait"
-          value={
-            totals?.longest_wait_days == null
-              ? "—"
-              : `${totals.longest_wait_days} ${totals.longest_wait_days === 1 ? "day" : "days"}`
-          }
-          hint="Since the Principal approved it"
-          tone={
-            totals?.longest_wait_days != null && totals.longest_wait_days > 30
-              ? "critical"
-              : undefined
-          }
-        />
-      </div>
+      {/* Three states, not two. Without `loading` these read "—", "—", "—"
+          while the request is out — and with `totals` undefined after a
+          failure they went on reading that way above the error banner, which
+          is a column of dashes saying "nothing is waiting on you" at the one
+          moment the screen does not know. Withheld outright on a failure
+          with nothing cached; skeletons until the figures are real. */}
+      {!(isError && !data) && (
+        <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3 border-y border-line py-3">
+          <Stat
+            label="Waiting on you"
+            loading={!totals}
+            value={totals ? String(totals.count) : "—"}
+          />
+          <Stat
+            label="Comes to"
+            loading={!totals}
+            value={money(totals?.amount)}
+            hint="Across everything that matches, not this page"
+          />
+          <Stat
+            label="Longest wait"
+            loading={!totals}
+            value={
+              totals?.longest_wait_days == null
+                ? "None"
+                : `${totals.longest_wait_days} ${totals.longest_wait_days === 1 ? "day" : "days"}`
+            }
+            hint="Since the Principal approved it"
+            tone={
+              totals?.longest_wait_days != null && totals.longest_wait_days > 30
+                ? "critical"
+                : undefined
+            }
+          />
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <Combobox
@@ -231,10 +246,27 @@ export function Authorisations() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
-          art="empty-queue"
+          // With a department chosen, "Every approved claim has been
+          // authorised" is a claim about the whole college made from one
+          // department's empty page — and it is the sentence a Director
+          // would stop working on the strength of.
+          art={department ? "no-results" : "empty-queue"}
           icon={CircleCheck}
-          title="Nothing is waiting on you"
-          message="Every approved claim has been authorised. The Principal's next batch appears here as soon as they sign it off."
+          title={
+            department ? `Nothing waiting from ${department}` : "Nothing is waiting on you"
+          }
+          message={
+            department
+              ? "Another department may still have claims waiting. Clear the filter to see the whole queue."
+              : "Every approved claim has been authorised. The Principal's next batch appears here as soon as they sign it off."
+          }
+          action={
+            department ? (
+              <Button kind="default" size="sm" onClick={() => setParam("department", "")}>
+                See every department
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <>
@@ -299,18 +331,31 @@ function Stat({
   value,
   hint,
   tone,
+  loading,
 }: {
   label: string
   value: string
   hint?: string
   tone?: "critical"
+  /** A figure that has not arrived is a placeholder, never a dash. A dash is
+   *  a value, and on this screen it is the value "none waiting". */
+  loading?: boolean
 }) {
   return (
     <div>
       <ColumnLabel className="block">{label}</ColumnLabel>
-      <p className={cn("mt-0.5 text-2xl font-semibold tabular", tone === "critical" && "text-critical")}>
-        {value}
-      </p>
+      {loading ? (
+        <Skeleton className="mt-1 h-7 w-24" />
+      ) : (
+        <p
+          className={cn(
+            "mt-0.5 text-2xl font-semibold tabular",
+            tone === "critical" && "text-critical"
+          )}
+        >
+          {value}
+        </p>
+      )}
       {hint && <Meta className="mt-0.5 block text-xs">{hint}</Meta>}
     </div>
   )

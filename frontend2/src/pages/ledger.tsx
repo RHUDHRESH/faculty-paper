@@ -129,6 +129,7 @@ export function Ledger() {
     return (
       <div className="page py-8">
         <ErrorState
+          art="closed-gate"
           title="Not open to this account"
           message="The ledger is money, and money is not a head of department's business. Finance, the Principal and the research cell can read it."
         />
@@ -241,12 +242,19 @@ export function Ledger() {
         </div>
       </div>
 
-      <Totals
-        amount={data?.total_amount}
-        count={total}
-        filtered={filtered}
-        loading={isLoading && !data}
-      />
+      {/* Withheld entirely when the request failed and there is nothing
+          cached behind it. `money(undefined)` renders an em dash and the
+          sentence under it would go on claiming "across 0 payments" — a
+          figure and a count that read as "nothing was ever paid" sitting
+          directly above a banner saying the server did not answer. */}
+      {!(isError && !data) && (
+        <Totals
+          amount={data?.total_amount}
+          count={total}
+          filtered={filtered}
+          loading={isLoading && !data}
+        />
+      )}
 
       {isLoading && !data ? (
         <SkeletonRows rows={10} rowHeight={48} />
@@ -262,7 +270,12 @@ export function Ledger() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
-          art="nothing-paid"
+          // `art` wins over `icon`, so the scene has to carry the whole
+          // distinction: a filter that matched none of a populated ledger is
+          // not the same picture as a ledger nothing has ever been paid out
+          // of, and one drawing for both says the wrong thing to whichever
+          // reader is looking at the other case.
+          art={filtered ? "no-results" : "nothing-paid"}
           icon={filtered ? SearchX : Receipt}
           title={filtered ? "No payment matches this filter" : "No payment has been made yet"}
           message={
@@ -333,10 +346,16 @@ function Totals({
           <p className="text-2xl font-semibold tabular">{money(amount)}</p>
         )}
       </div>
-      <Meta>
-        across {count.toLocaleString("en-IN")} {count === 1 ? "payment" : "payments"} — the whole
-        filter, not this page, and the same rows the export writes
-      </Meta>
+      {loading ? (
+        // The count is as unknown as the figure while the request is out,
+        // and "across 0 payments" is a claim, not a placeholder.
+        <Skeleton className="h-3 w-72" />
+      ) : (
+        <Meta>
+          across {count.toLocaleString("en-IN")} {count === 1 ? "payment" : "payments"} — the whole
+          filter, not this page, and the same rows the export writes
+        </Meta>
+      )}
     </div>
   )
 }

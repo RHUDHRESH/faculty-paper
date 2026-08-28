@@ -45,12 +45,20 @@ export function Collaborate() {
         {me.isLoading ? (
           <SkeletonRows rows={4} rowHeight={48} />
         ) : me.isError ? (
-          <ErrorState message={me.error?.message} onRetry={() => me.refetch()} />
+          // Written, not relayed. `error.message` is whatever the server put
+          // in `detail`, or "Failed to fetch" when the connection dropped —
+          // and beside a heading reading "People you have written with", a
+          // machine string is indistinguishable from the answer "none".
+          <ErrorState
+            title="Could not work out who you have written with"
+            message="The server did not answer. This screen only reads — no co-authorship has been lost or forgotten."
+            onRetry={() => me.refetch()}
+          />
         ) : me.data && me.data.worked_with.length > 0 ? (
           <WorkedWithList people={me.data.worked_with} />
         ) : (
           <EmptyState
-            art="no-results"
+            art="nothing-filed"
             icon={Users}
             title="No co-authors yet"
             message="Once a paper you have filed shares a claim with somebody else's, they will show up here — nothing to do but keep filing."
@@ -63,7 +71,11 @@ export function Collaborate() {
         {me.isLoading ? (
           <SkeletonRows rows={4} rowHeight={56} />
         ) : me.isError ? (
-          <ErrorState message={me.error?.message} onRetry={() => me.refetch()} />
+          <ErrorState
+            title="Could not work out who to suggest"
+            message="The server did not answer. Nothing about your record has changed."
+            onRetry={() => me.refetch()}
+          />
         ) : me.data && me.data.suggestions.length > 0 ? (
           <SuggestionsList people={me.data.suggestions} />
         ) : (
@@ -81,7 +93,11 @@ export function Collaborate() {
         {graph.isLoading ? (
           <Skeleton className="mx-auto aspect-square w-full max-w-md" />
         ) : graph.isError ? (
-          <ErrorState message={graph.error?.message} onRetry={() => graph.refetch()} />
+          <ErrorState
+            title="Could not draw the network"
+            message="The server did not answer. An empty drawing here would say nobody is connected, which is not what happened."
+            onRetry={() => graph.refetch()}
+          />
         ) : graph.data ? (
           <NetworkGraph graph={graph.data} meId={me.data?.me.id} />
         ) : null}

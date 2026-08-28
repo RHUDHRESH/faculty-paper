@@ -185,20 +185,19 @@ describe("controls whose label sits beside them", () => {
   })
 
   /**
-   * A LIVE DEFECT, recorded rather than papered over.
+   * Was a live defect; now the guard against it returning.
    *
-   * `Switch` computes `controlId` and hands it to `SideLabel`, which renders
-   * `<label htmlFor={controlId}>` — but the `<button role="switch">` itself
-   * never receives `id={controlId}`, so the label points at nothing. The
-   * switch has no accessible name and clicking its words does not flip it.
-   * `Checkbox` and `Radio`, three lines away, both set the id on the control.
+   * `Switch` computed `controlId`, handed it to `SideLabel` — which renders
+   * `<label htmlFor={controlId}>` — and never put `id={controlId}` on the
+   * `<button role="switch">`. The label pointed at nothing: the switch had no
+   * accessible name and clicking its words did not flip it, while `Checkbox`
+   * and `Radio` three lines away both set the id correctly.
    *
-   * The fix is one attribute on the button in `src/ui/field.tsx`. This test
-   * is marked `fails` because that file was out of scope for this change; the
-   * moment somebody adds the id, this goes red with "expected to fail" and
-   * should be turned back into a plain `it`.
+   * It was written as `it.fails` while `field.tsx` was out of scope, which is
+   * how a known bug stays visible without turning the suite red. The id is on
+   * the button now, so this is an ordinary assertion again.
    */
-  it.fails("associates a switch with its own label", () => {
+  it("associates a switch with its own label", () => {
     render(<Switch checked={false} onCheckedChange={() => {}} label="Email me on approval" />)
     expect(screen.getByRole("switch", { name: "Email me on approval" })).toBeInTheDocument()
   })

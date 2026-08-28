@@ -52,6 +52,17 @@ PROGRESS_EVERY = 0.5
 EXPECTED_TOKENS = 450
 EXPECTED_SECONDS = 95
 
+#: The same two numbers for the fast tier, measured the same way on the same
+#: machine: about 130 tokens at roughly 14 a second, plus a second of reading
+#: the prompt. Kept as separate constants rather than a ratio, because the two
+#: models are not one model scaled -- measured here, generation is 3.3x faster
+#: on the small one but reading the prompt is closer to 4x, and loading it off
+#: disk is 3.1s against 6.4s. A screen drawing a bar against a single guessed
+#: ratio would be wrong in the first few seconds, which is the part somebody
+#: actually watches.
+FAST_EXPECTED_TOKENS = 130
+FAST_EXPECTED_SECONDS = 10
+
 
 class AIError(Exception):
     """Inference did not happen, with a reason worth showing somebody.
@@ -143,9 +154,14 @@ def provider_name() -> str:
     return (getattr(settings, "AI_PROVIDER", "") or "ollama").strip().lower()
 
 
-def model_name() -> str:
+def model_name(fast: bool = False) -> str:
+    """Which model a call at this tier would actually go to.
+
+    The default argument is the considered model, so callers that ask without
+    naming a tier get the same answer they always got.
+    """
     if provider_name() == "ollama":
-        return ollama.model_name()
+        return ollama.resolve_model(fast)
     return ""
 
 
@@ -159,48 +175,68 @@ def health() -> dict[str, Any]:
     """
     name = provider_name()
     if name not in PROVIDERS:
+        detail = (
+            f"AI_PROVIDER is set to {name!r}, which this server does not "
+            f"recognise. Known providers: {', '.join(PROVIDERS)}."
+        )
         return {
             "provider": name,
             "ready": False,
             "code": "misconfigured",
-            "detail": (
-                f"AI_PROVIDER is set to {name!r}, which this server does not "
-                f"recognise. Known providers: {', '.join(PROVIDERS)}."
-            ),
+            "detail": detail,
             "model": "",
+            "fast_ready": False,
+            "fast_code": "misconfigured",
+            "fast_detail": detail,
+            "fast_model": "",
         }
 
     state = ollama.health()
     out = state.as_dict()
     out["provider"] = name
-    if state.ready:
-        out["code"] = "ready"
-        out["detail"] = None
-    elif not state.up:
-        out["code"] = "service_down"
-        out["detail"] = (
-            f"No local model service is answering on {state.base_url}. "
-            "Start Ollama and reload."
-        )
-    else:
-        out["code"] = "model_missing"
-        out["detail"] = (
-            f"The local service is running but {state.model!r} is not installed. "
-            f"Run: ollama pull {state.model}"
-        )
+    out["code"], out["detail"] = _verdict(state.up, state.model_present, state)
+    # Answered separately, because the two tiers fail separately and the
+    # remedies are different commands. A server with the 12b tag installed and
+    # the small one missing is `ready` and `fast_model_missing` at once: the
+    # venue search works, the thread assistant does not, and a screen told
+    # only "ready" would be lying to whoever is waiting for a reply.
+    out["fast_code"], out["fast_detail"] = _verdict(
+        state.up, state.fast_model_present, state, fast=True
+    )
     return out
 
 
-def available() -> bool:
-    """Whether a request would have something to talk to.
+def _verdict(up: bool, present: bool, state: ollama.Health, *, fast: bool = False):
+    """One tier's code and the sentence that says what to do about it."""
+    want = state.fast_model if fast else state.model
+    if up and present:
+        return "ready", None
+    if not up:
+        return "service_down", (
+            f"No local model service is answering on {state.base_url}. "
+            "Start Ollama and reload."
+        )
+    return "model_missing", (
+        f"The local service is running but {want!r} is not installed. "
+        f"Run: ollama pull {want}"
+    )
+
+
+def available(fast: bool = False) -> bool:
+    """Whether a request at this tier would have something to talk to.
 
     Kept as the same cheap boolean the endpoints already call, so the shape of
     the call sites does not change. It costs a loopback round trip rather than
     reading a settings string, which is the honest answer to the question --
     a configured key never meant a working model either.
+
+    ``fast=True`` asks about the small model instead, which is a genuinely
+    different answer: a caller on the fast tier must not be told the feature
+    is available because some other model is installed.
     """
+    key = "fast_ready" if fast else "ready"
     try:
-        return bool(health().get("ready"))
+        return bool(health().get(key))
     except Exception:  # noqa: BLE001 - never let a health probe break a page
         logger.exception("ai_health_probe_failed")
         return False
@@ -244,6 +280,7 @@ def ask_json(
     schema: dict[str, Any] | None = None,
     temperature: float = 0.4,
     timeout: float | None = None,
+    fast: bool = False,
 ) -> Any:
     """Ask for a JSON answer and return it parsed.
 
@@ -254,6 +291,21 @@ def ask_json(
     stronger than the hosted equivalent was: the decoder cannot produce
     non-conforming tokens, rather than being asked nicely in the prompt and
     usually complying.
+
+    `fast` chooses the tier. It is a keyword with a default rather than a new
+    positional, so nothing that already calls this changes meaning: every
+    existing caller keeps going to the considered model. Pass ``fast=True``
+    where somebody is waiting with the page open and a right answer in ninety
+    seconds is worth less than a good one in eight -- and do not pass it where
+    the answer carries money or a venue somebody will submit to, because the
+    smaller model is measurably worse at holding a schema and the argument
+    that saves that feature is the database check underneath it, not the
+    model.
+
+    The choice is the caller's on purpose. Nothing here infers a tier from
+    prompt length or time of day: which features can afford which wait is a
+    product judgement, and a heuristic that got it wrong would silently
+    downgrade the one answer that had a rupee figure attached.
     """
     name = provider_name()
     if name not in PROVIDERS:
@@ -272,6 +324,7 @@ def ask_json(
                 max_tokens=_MAX_OUTPUT_TOKENS,
                 temperature=temperature,
                 fmt=schema or "json",
+                fast=fast,
             )
         else:
             raw = _generate_watched(
@@ -280,6 +333,7 @@ def ask_json(
                 timeout=seconds,
                 temperature=temperature,
                 fmt=schema or "json",
+                fast=fast,
             )
     except ollama.OllamaError as exc:
         # Mapped rather than re-raised, so the endpoints answer the same
@@ -304,6 +358,7 @@ def _generate_watched(
     timeout: int,
     temperature: float,
     fmt: str | dict,
+    fast: bool = False,
 ) -> str:
     """The same answer as `ollama.generate`, assembled where it can be watched.
 
@@ -336,6 +391,7 @@ def _generate_watched(
             temperature=temperature,
             fmt=fmt,
             should_stop=sink.is_cancelled,
+            fast=fast,
         ):
             pieces.append(piece)
             chars += len(piece)

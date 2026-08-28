@@ -106,6 +106,7 @@ export function Requests() {
     return (
       <div className="page py-8">
         <ErrorState
+          art="closed-gate"
           title="Not open to this account"
           message="Only the research cell and a super admin can decide profile requests."
         />

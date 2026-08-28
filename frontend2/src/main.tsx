@@ -41,6 +41,7 @@ import { Publications } from "@/pages/publications"
 import { ReportBuilder } from "@/pages/report-builder"
 import { Reports } from "@/pages/reports"
 import { Requests } from "@/pages/requests"
+import { Search } from "@/pages/search"
 import { People, Person } from "@/pages/people"
 import { Policy } from "@/pages/policy"
 import { Profile } from "@/pages/profile"
@@ -121,6 +122,7 @@ function App() {
       <Routes>
         <Route element={<Shell onOpenPalette={() => palette.setOpen(true)} />}>
           <Route index element={<Home />} />
+          <Route path="/search" element={<Search />} />
           <Route path="/papers" element={<Papers />} />
           <Route path="/papers/new" element={<FilePaper />} />
           <Route path="/papers/:id/edit" element={<FilePaper />} />

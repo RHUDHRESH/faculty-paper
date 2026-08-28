@@ -34,6 +34,13 @@ def _model_ready():
         return_value={
             "provider": "ollama", "ready": True, "code": "ready", "detail": None,
             "model": "gemma4:12b", "base_url": "http://127.0.0.1:11434",
+            # The fast tier is a separate readiness with its own remedy: a
+            # machine can hold gemma4:12b and not gemma3:4b, in which case the
+            # venue search works and the thread assistant does not. A fixture
+            # that omits these describes an impossible system -- a service
+            # that is ready and has no interactive model at all.
+            "fast_ready": True, "fast_code": "ready", "fast_detail": None,
+            "fast_model": "gemma3:4b",
         },
     )
 
@@ -45,6 +52,10 @@ def _model_unavailable(code="service_down", detail="No local model service is an
         return_value={
             "provider": "ollama", "ready": False, "code": code, "detail": detail,
             "model": "gemma4:12b", "base_url": "http://127.0.0.1:11434",
+            # Down is down for both tiers unless a test says otherwise; the
+            # daemon being unreachable does not spare the small model.
+            "fast_ready": False, "fast_code": code, "fast_detail": detail,
+            "fast_model": "gemma3:4b",
         },
     )
 from core.services import research_search as rs
@@ -115,6 +126,45 @@ def _echo_verified(*args, exclude_claim_id=None, **kwargs):
         "snip": claim.snip,
         "snip_source": claim.snip_source or "SCOPUS",
         "engineering_class": claim.engineering_class,
+    }
+
+
+def _sec_reference_attachments(*numbers, seed="e"):
+    """The evidence an incentive claim is actually paid on.
+
+    `_check_mandatory_fields` refuses an incentive claim that does not attach
+    the cited paper for each SEC-affiliated reference and record the number it
+    carries in the paper's reference list — the same thing `_apply_calc`
+    counts when it works out the money. A typed `sec_refs` string no longer
+    stands in for it.
+
+    Tests below that are about something else entirely and merely need a claim
+    to *reach* submission use this, so they go on testing what they were
+    written for rather than tripping over the reference rule.
+    """
+    numbers = numbers or tuple(str(10 + i) for i in range(MIN_SEC_REFERENCES))
+    return [
+        {
+            "kind": "SEC_REFERENCE",
+            # A distinct 32-hex media name per reference. `_validated_attachments`
+            # drops a repeated URL, so re-using one would quietly file a single
+            # reference and the claim would then be refused for the right reason
+            # at the wrong moment.
+            "url": f"/media/claims/{f'{seed}{i:x}'.ljust(32, seed)[:32]}.pdf",
+            "filename": f"ref-{n}.pdf",
+            "size_bytes": 10,
+            "ref_number": str(n),
+        }
+        for i, n in enumerate(numbers)
+    ]
+
+
+def _published_paper_attachment(url="/media/claims/f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0.pdf"):
+    return {
+        "kind": "PUBLISHED_PAPER",
+        "url": url,
+        "filename": "paper.pdf",
+        "size_bytes": 20,
     }
 
 
@@ -688,6 +738,20 @@ class ClaimSubmissionRuleTests(TestCase):
         payload.update(overrides)
         return payload
 
+    def _submittable_payload(self, **overrides):
+        """A payload that can actually be filed as an incentive claim.
+
+        The policy is paid on evidenced SEC references — the cited paper
+        attached, carrying the number it has in the reference list — and
+        submission is refused without them. A test about indexing levels or
+        annexure numbers has to carry them or it never reaches the rule it was
+        written to check.
+        """
+        return self._complete_payload(
+            attachments=[_published_paper_attachment(), *_sec_reference_attachments()],
+            **overrides,
+        )
+
     def _post_claim(self, payload):
         return self.client.post(
             "/api/claims", data=json.dumps(payload), content_type="application/json"
@@ -820,18 +884,43 @@ class ClaimSubmissionRuleTests(TestCase):
         self.assertEqual(len(refs), 1)
 
     def test_attachments_alone_satisfy_the_upload_gate(self):
-        """No legacy proof_url — the attachments array must be enough to submit."""
+        """No legacy proof_url — the attachments array must be enough to submit.
+
+        Enough, but only once each reference carries the number it has in the
+        paper's reference list. The gate used to accept a bare SEC_REFERENCE
+        file while the calculator counted only numbered ones, so a claim like
+        the first one below was ticketed, sent to Finance and worked out as
+        Rs 0. It is refused at the form now instead, where it can be fixed.
+        """
         self._login(self.faculty)
-        r = self._post_claim(
+        paper = _published_paper_attachment(
+            "/media/claims/a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4.pdf"
+        )
+        unnumbered = self._post_claim(
             self._complete_payload(
                 proof_url="",
                 sec_proof_url="",
                 attachments=[
-                    {"kind": "PUBLISHED_PAPER", "url": "/media/claims/a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4.pdf",
-                     "filename": "p.pdf", "size_bytes": 10},
+                    paper,
                     {"kind": "SEC_REFERENCE", "url": "/media/claims/a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5.pdf",
                      "filename": "r.pdf", "size_bytes": 10},
                 ],
+            )
+        )
+        self.assertEqual(unnumbered.status_code, 400, unnumbered.content)
+        detail = unnumbered.json()["detail"]
+        self.assertIn("number it has in your reference list", detail)
+        self.assertIn("Rs 0", detail)
+        self.assertFalse(
+            Claim.objects.filter(status=ClaimStatus.SUBMITTED).exists(),
+            "an unnumbered claim must not reach the clearing queue",
+        )
+
+        r = self._post_claim(
+            self._complete_payload(
+                proof_url="",
+                sec_proof_url="",
+                attachments=[paper, *_sec_reference_attachments("14", "15", seed="a")],
             )
         )
         self.assertEqual(r.status_code, 200, r.content)
@@ -911,13 +1000,13 @@ class ClaimSubmissionRuleTests(TestCase):
         """A journal is often in Scopus and an annexure at the same time."""
         self._login(self.faculty)
         r = self._post_claim(
-            self._complete_payload(indexing_level="Scopus, UGC Care", submit=True)
+            self._submittable_payload(indexing_level="Scopus, UGC Care", submit=True)
         )
         self.assertEqual(r.status_code, 400, r.content)
         self.assertIn("UGC Care", r.json()["detail"])
 
         r2 = self._post_claim(
-            self._complete_payload(
+            self._submittable_payload(
                 indexing_level="Scopus, UGC Care", ugc_care_ref="NA", submit=True
             )
         )
@@ -930,7 +1019,7 @@ class ClaimSubmissionRuleTests(TestCase):
         self._login(self.faculty)
         # Both selected, only one number supplied — the missing one is named.
         r = self._post_claim(
-            self._complete_payload(
+            self._submittable_payload(
                 indexing_level="AU Annexure, UGC Care",
                 au_annexure_ref="AU-77",
                 submit=True,
@@ -940,7 +1029,7 @@ class ClaimSubmissionRuleTests(TestCase):
         self.assertIn("UGC Care", r.json()["detail"])
 
         r2 = self._post_claim(
-            self._complete_payload(
+            self._submittable_payload(
                 indexing_level="AU Annexure, UGC Care",
                 au_annexure_ref="AU-77",
                 ugc_care_ref="UGC-12",
@@ -1204,6 +1293,15 @@ class TrustBoundaryTests(TestCase):
             "sec_refs": "14, 15",
             "proof_url": "/media/claims/b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0.pdf",
             "sec_proof_url": "/media/claims/b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1.pdf",
+            # This test is about the SNIP the claimant typed, not about
+            # references — the references are attached and numbered so the
+            # claim reaches submission and the SNIP question can be asked.
+            "attachments": [
+                _published_paper_attachment(
+                    "/media/claims/b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0.pdf"
+                ),
+                *_sec_reference_attachments("14", "15", seed="b"),
+            ],
             "snip": 30.0,
             "quartile": "Q1",
             "total_authors": 1,
@@ -1222,7 +1320,29 @@ class TrustBoundaryTests(TestCase):
         self.assertEqual(body["status"], "SUBMITTED")
         self.assertIsNone(body["snip"], "self-declared SNIP must not become the verified value")
         self.assertEqual(body["self_reported_snip"], 30.0)
-        self.assertIn(body["remuneration"], (0, 0.0, None), "no money from unverified declarations")
+
+        # This used to assert a flat zero, and the zero was not the trust
+        # boundary holding: the claim carried no numbered SEC references, so
+        # the calculator zeroed it before the SNIP question was ever reached.
+        # Now that the references are attached the ticket is priced for real,
+        # and the figure is the one a paper with no *verified* SNIP earns --
+        # not a rupee of it derived from the 30.0 the claimant typed.
+        from core.services.remuneration import formula_from_model
+
+        cfg = formula_from_model(FormulaConfig.objects.filter(active=True).first())
+        believed = calculate_remuneration(
+            30.0, "Q1", 1, 1, cfg, publication_type="Journal",
+            indexing_level="Scopus", sec_reference_count=MIN_SEC_REFERENCES,
+        ).remuneration
+        unverified = calculate_remuneration(
+            None, None, 1, 1, cfg, publication_type="Journal",
+            indexing_level="Scopus", sec_reference_count=MIN_SEC_REFERENCES,
+        ).remuneration
+        self.assertGreater(believed, 1_000_000, "the hole this test guards")
+        self.assertEqual(
+            body["remuneration"], unverified,
+            "priced from the verified columns, which hold no SNIP at all",
+        )
 
     def test_manual_verification_sets_source_and_recalculates(self):
         claim = Claim.objects.create(
@@ -3365,6 +3485,15 @@ class RetractionFlagTests(TestCase):
             "sec_refs": "14, 15",
             "proof_url": "/media/claims/b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0.pdf",
             "sec_proof_url": "/media/claims/b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1.pdf",
+            # These tests are about a retracted title. The references are
+            # attached and numbered so the claim gets far enough for the
+            # retraction check to be the thing that stops it.
+            "attachments": [
+                _published_paper_attachment(
+                    "/media/claims/b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0.pdf"
+                ),
+                *_sec_reference_attachments("14", "15", seed="b"),
+            ],
             "quartile": "Q1",
             "snip": 1.0,
             "total_authors": 3,
@@ -3491,6 +3620,15 @@ class DuplicateOverrideGuardTests(TestCase):
             "sec_refs": "14, 15",
             "proof_url": "/media/claims/d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0.pdf",
             "sec_proof_url": "/media/claims/d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1.pdf",
+            # These tests are about the payment-history warning and who may
+            # wave it away. The references are attached and numbered so the
+            # duplicate check is what the claim is stopped by.
+            "attachments": [
+                _published_paper_attachment(
+                    "/media/claims/d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0.pdf"
+                ),
+                *_sec_reference_attachments("14", "15", seed="d"),
+            ],
             "quartile": "Q1",
             "snip": 1.0,
             "total_authors": 3,
@@ -4224,6 +4362,140 @@ class JournalStandingTests(TestCase):
         self.assertFalse(fallback["year_exact"])
         self.assertEqual(fallback["dataset_year"], 2025)
         self.assertEqual(fallback["requested_year"], 2019)
+
+
+class YearFallbackVisibilityTests(TestCase):
+    """Which year the figures came from, said out loud on the claim.
+
+    `lookup_scimago` falls back to the newest table it holds when the paper's
+    own year is not in the dump, and records the year it used. That number
+    reached the claim payload as a bare integer and nothing anywhere said it
+    was a fallback, so a 2019 paper priced off the 2025 ranking read exactly
+    like a 2019 one. The quartile is a term in the payout, and the dumps only
+    reach back to 2024, so this is most older papers rather than an edge.
+
+    `lookup_snip_dump` is the worse half: it takes no year at all, so there is
+    not even a year recorded to compare. The claim says that much rather than
+    guessing which year the figure belongs to.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True
+        )
+        self.faculty = User.objects.create_user(
+            email="yearfall@test.edu", password="pass", name="Year Faculty",
+            role=Role.FACULTY, department="CSE",
+        )
+
+    def _claim(self, **extra):
+        base = dict(
+            owner=self.faculty, paper_title="An Older Paper", journal_title="J",
+            issn="9999-0000", status=ClaimStatus.SUBMITTED, publication_year=2019,
+            indexing_level="Scopus", publication_type="Journal",
+            total_authors=1, author_position=1,
+        )
+        base.update(extra)
+        return Claim.objects.create(**base)
+
+    def test_a_quartile_taken_from_another_year_says_so_on_the_claim(self):
+        """End to end from the dump the lookup actually falls back to."""
+        from core.api import _apply_calc, claim_to_dict
+        from core.services.scimago import lookup_scimago
+        from core.services.verify import apply_verify_to_claim
+
+        ScimagoJournal.objects.create(
+            source_id="yf1", title="Journal Of Late Dumps", issn="99990000",
+            year=2025, categories_json=json.dumps(
+                [{"category": "Engineering", "quartile": "Q1"}]
+            ),
+        )
+        found = lookup_scimago(issn="9999-0000", year=2019)
+        self.assertFalse(found["year_exact"], "the fallback this test is about")
+
+        claim = self._claim(snip=1.2, snip_source="SCOPUS", snip_year=2019)
+        apply_verify_to_claim(
+            claim,
+            {
+                "scopus": {"indexed": True, "linked": True},
+                "scimago": {
+                    "found": True, "quartile": found["matched_quartile"],
+                    "sjr": found["sjr"], "categories": found["categories"],
+                    "year": found["year"],
+                },
+                "snip": 1.2, "snip_source": "SCOPUS",
+            },
+        )
+        _apply_calc(claim)
+        claim.save()
+
+        note = claim_to_dict(claim)["quartile_year_note"]
+        self.assertIsNotNone(note, "the fallback must not be silent")
+        self.assertIn("2025", note)
+        self.assertIn("2019", note)
+        # And on the line the ticket, the clearing queue and the approval
+        # screen already display -- a field nothing renders is not visibility.
+        self.assertIn(note, claim.remuneration_note or "")
+
+    def test_the_paper_s_own_year_raises_nothing(self):
+        """Said only when it is news. A note on every claim is a note nobody
+        reads, and the ones that matter would go with it."""
+        from core.api import claim_to_dict
+
+        claim = self._claim(
+            publication_year=2025, quartile="Q1", quartile_source="SCIMAGO",
+            scimago_verified=True, scimago_dataset_year=2025,
+        )
+        self.assertIsNone(claim_to_dict(claim)["quartile_year_note"])
+
+    def test_a_hand_entered_quartile_raises_nothing(self):
+        """Nothing fell back: an admin signed for the value, and the dataset
+        year left on the row is from whatever the lookup found before."""
+        from core.api import claim_to_dict
+
+        claim = self._claim(
+            quartile="Q1", quartile_source="MANUAL", scimago_dataset_year=2025,
+        )
+        self.assertIsNone(claim_to_dict(claim)["quartile_year_note"])
+
+    def test_the_snip_dump_is_not_year_matched_and_the_claim_says_so(self):
+        """`lookup_snip_dump(issn, title)` has no year parameter at all -- it
+        returns whichever row carries the ISSN. So unlike the quartile there is
+        nothing recorded to compare against, and the honest thing to say is
+        that the figure is unyeared, not a guess at which year it is."""
+        import inspect
+        from core.api import _apply_calc, claim_to_dict
+        from core.services.verify import lookup_snip_dump
+
+        self.assertNotIn(
+            "year", inspect.signature(lookup_snip_dump).parameters,
+            "if this gains a year, record it and the note below can go",
+        )
+        SnipSource.objects.create(
+            title="Journal Of Late Dumps", print_issn="9999-0000", snip=1.4, year=2025,
+        )
+        self.assertEqual(lookup_snip_dump("9999-0000"), 1.4)
+
+        claim = self._claim(
+            snip=1.4, snip_source="SNIP_DUMP",
+            quartile="Q1", quartile_source="MANUAL",
+        )
+        _apply_calc(claim)
+        note = claim_to_dict(claim)["snip_year_note"]
+        self.assertIsNotNone(note)
+        self.assertIn("not matched to the year of publication", note)
+        self.assertIn("2019", note)
+        self.assertIn(note, claim.remuneration_note or "")
+
+    def test_recording_the_dump_s_year_would_silence_the_note(self):
+        """The real fix belongs in `lookup_snip_dump`: return the year of the
+        row it matched so it can be stored. The day that lands, a claim
+        carrying a year stops being told its SNIP is unyeared -- without this
+        file or the serialiser changing again."""
+        from core.api import claim_to_dict
+
+        claim = self._claim(snip=1.4, snip_source="SNIP_DUMP", snip_year=2019)
+        self.assertIsNone(claim_to_dict(claim)["snip_year_note"])
 
 
 class ReportingPackTests(TestCase):
@@ -10030,6 +10302,221 @@ class ResearchQuotaTests(TestCase):
         self.assertEqual([c.quota_position for c in made], [1, 2, 3, 4, 5])
 
 
+class ResearchQuotaSlotTests(TestCase):
+    """Handing out, keeping and reading a research-quota slot.
+
+    The number itself is `ResearchQuotaTests` above. This is the column's
+    plumbing: that two submits landing together cannot lose one, that a paper
+    whose year is corrected takes a place in the new year rather than sitting
+    in it unnumbered, and what the stored number is allowed to mean.
+    """
+
+    def setUp(self):
+        FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            snip_multiplier=55000, qf_q1=50000,
+        )
+        self.researcher = User.objects.create_user(
+            email="rqs-res@test.edu", password="pass", name="Research Faculty",
+            role=Role.FACULTY, department="CSE",
+            faculty_type="RESEARCH", research_quota=2,
+        )
+        self.cell = User.objects.create_user(
+            email="rqs-cell@test.edu", password="pass", name="Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.client = Client()
+
+    def _paper(self, ticket, year=2026, **extra):
+        base = dict(
+            owner=self.researcher, status=ClaimStatus.SUBMITTED, ticket_number=ticket,
+            paper_title=f"Slot {ticket}", publication_year=year,
+            quartile="Q1", quartile_source="SCIMAGO", snip=1.0, snip_source="SCOPUS",
+            total_authors=1, author_position=1, indexing_level="Scopus",
+            publication_type="Journal", engineering_class="Engineering",
+        )
+        base.update(extra)
+        return Claim.objects.create(**base)
+
+    # ---- 1. two submits in the same instant ------------------------------
+
+    def test_a_slot_lost_to_a_concurrent_submit_is_taken_again(self):
+        """MAX + 1 is read in one statement and written in another, so two
+        submits for one author and year can be handed the same number. The
+        unique constraint now refuses the second write, which is the better of
+        the two failures and still a failure: the claimant got a 500 and their
+        submission did not happen. Retry under the bucket lock instead.
+
+        Simulated rather than threaded -- the suite runs on SQLite, where the
+        lock is a no-op and two real connections cannot interleave. What is
+        exercised is the thing the constraint actually does to this code path:
+        raise IntegrityError out of the save.
+        """
+        from django.db import IntegrityError
+
+        claim = self._paper("SLOT-RACE")
+        collided = {"once": False}
+        real_save = Claim.save
+
+        def save_that_loses_the_first_race(inner, *args, **kwargs):
+            if inner.pk == claim.pk and not collided["once"]:
+                collided["once"] = True
+                raise IntegrityError("uniq_claim_quota_slot_per_owner_year")
+            return real_save(inner, *args, **kwargs)
+
+        with patch.object(Claim, "save", save_that_loses_the_first_race):
+            api_module._assign_quota_position(claim)
+
+        self.assertTrue(collided["once"], "the collision was never reached")
+        claim.refresh_from_db()
+        self.assertEqual(claim.quota_position, 1, "the slot has to end up stored")
+
+    def test_the_position_is_written_not_left_on_the_instance(self):
+        """A number the constraint has not seen is a number nothing protects."""
+        claim = self._paper("SLOT-WRITE")
+        api_module._assign_quota_position(claim)
+        self.assertEqual(
+            Claim.objects.values_list("quota_position", flat=True).get(pk=claim.pk), 1
+        )
+
+    def test_a_second_paper_takes_the_next_slot(self):
+        first = self._paper("SLOT-A")
+        api_module._assign_quota_position(first)
+        second = self._paper("SLOT-B")
+        api_module._assign_quota_position(second)
+        self.assertEqual([first.quota_position, second.quota_position], [1, 2])
+
+    # ---- 2. a corrected year ---------------------------------------------
+
+    def test_correcting_the_year_moves_the_paper_into_the_new_year_s_sequence(self):
+        """`Claim.save` drops the slot when the year changes, because a slot
+        belongs to the year that issued it. Nothing then gave the paper one in
+        its new year: `_assign_quota_position` runs at submission and this
+        paper was submitted long ago, so it sat in 2025 unnumbered -- counting
+        against nobody's quota and spending none of it."""
+        existing = self._paper("SLOT-2025", year=2025)
+        api_module._assign_quota_position(existing)
+        moving = self._paper("SLOT-MOVED", year=2026)
+        api_module._assign_quota_position(moving)
+        self.assertEqual(moving.quota_position, 1)
+
+        self.client.force_login(self.cell)
+        r = self.client.patch(
+            f"/api/reports/pack/rows/{moving.id}",
+            data=json.dumps({
+                "field": "publication_year", "value": "2025",
+                "reason": "Published online in 2025, not 2026.",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+        moving.refresh_from_db()
+        self.assertEqual(moving.publication_year, 2025)
+        self.assertIsNotNone(
+            moving.quota_position, "a filed paper cannot sit in a year unnumbered"
+        )
+        self.assertEqual(moving.quota_position, 2, "behind the paper already in 2025")
+
+    def test_correcting_something_else_leaves_the_slot_alone(self):
+        claim = self._paper("SLOT-TITLE")
+        api_module._assign_quota_position(claim)
+        self.client.force_login(self.cell)
+        r = self.client.patch(
+            f"/api/reports/pack/rows/{claim.id}",
+            data=json.dumps({
+                "field": "paper_title", "value": "A Better Title",
+                "reason": "The publisher corrected the title.",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.quota_position, 1)
+
+    def test_a_correction_re_takes_a_slot_and_never_hands_out_a_first_one(self):
+        """Every paper filed before the quota column existed has no position,
+        which is all of them today. A year corrected on one of those must not
+        be the moment it starts spending somebody's allowance -- the slot is
+        handed out at filing, and this only replaces one the correction
+        dropped."""
+        legacy = self._paper("SLOT-LEGACY")
+        self.assertIsNone(legacy.quota_position)
+
+        self.client.force_login(self.cell)
+        r = self.client.patch(
+            f"/api/reports/pack/rows/{legacy.id}",
+            data=json.dumps({
+                "field": "publication_year", "value": "2025",
+                "reason": "Corrected against the publisher's page.",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.publication_year, 2025)
+        self.assertIsNone(
+            legacy.quota_position, "a correction is not a filing"
+        )
+
+    # ---- 3. what the stored number is allowed to mean ---------------------
+
+    def test_a_gap_protecting_a_paid_paper_is_read_as_it_stands(self):
+        """The one bucket where the stored position and the paper's rank in
+        its year disagree, and the reason `_quota_state` reads the number
+        rather than ranking.
+
+        `Claim._close_quota_gap` refuses to renumber a year when a paper that
+        would move down has already been paid, because moving it down moves it
+        from outside the quota to inside it and claws back money that has gone
+        out. Ranking in `_quota_state` would do exactly that, one layer later:
+        the paid paper would be counted as the year's second and zeroed.
+        """
+        first = self._paper("GAP-1")
+        api_module._assign_quota_position(first)
+        second = self._paper("GAP-2")
+        api_module._assign_quota_position(second)
+        third = self._paper("GAP-3", status=ClaimStatus.PAID)
+        api_module._assign_quota_position(third)
+        self.assertEqual(
+            [first.quota_position, second.quota_position, third.quota_position],
+            [1, 2, 3],
+        )
+        third.paid_at = timezone.now()
+        third.save(update_fields=["paid_at"])
+
+        # The middle paper leaves the year. Renumbering would pull the paid
+        # paper from 3 to 2, so the model leaves the gap open on purpose.
+        second.delete()
+        third.refresh_from_db()
+        self.assertEqual(third.quota_position, 3, "the gap is deliberate")
+
+        inside, why = api_module._quota_state(third)
+        self.assertFalse(
+            inside,
+            "ranking would call this the year's second paper and zero money "
+            "that has already been paid",
+        )
+        self.assertIn("beyond the 2-paper research quota", why)
+
+    def test_an_unbroken_sequence_reads_the_same_either_way(self):
+        """Which is the rest of the time, and why the rank query would buy
+        nothing: the sequence is kept hole-free everywhere else."""
+        made = [self._paper(f"RANK-{i}") for i in range(4)]
+        for claim in made:
+            api_module._assign_quota_position(claim)
+        for n, claim in enumerate(made, start=1):
+            rank = (
+                Claim.objects.filter(
+                    owner=self.researcher, publication_year=claim.publication_year,
+                    quota_position__lt=claim.quota_position,
+                ).count()
+                + 1
+            )
+            self.assertEqual(claim.quota_position, n)
+            self.assertEqual(rank, claim.quota_position)
+
+
 class StudentProjectTeamTests(TestCase):
     """The team behind a student project claim."""
 
@@ -10664,32 +11151,27 @@ class AttachmentFingerprintTests(TestCase):
         )
 
 
+# The reference rule below refuses a submission, so these read the refusal.
+from ninja.errors import HttpError
+
+
 class ZeroRupeeTrapTests(TestCase):
-    """Two rules disagree about what evidences an SEC-affiliated reference.
+    """The submission gate and the formula now measure the same thing.
 
-    DEFECT, reported and deliberately not fixed.
+    They used to disagree. `_check_mandatory_fields` was satisfied by
+    `claim.sec_refs` -- a text field the claimant types -- or by a bare
+    `sec_proof_url`. `_apply_calc` counted something else entirely:
+    SEC_REFERENCE attachments carrying a `ref_number`, and it wanted
+    `min_sec_references` of them. So a claim passed every gate, was ticketed,
+    reached Finance and was worked out as Rs 0 with a note saying the claimant
+    had cited 0 references while the form in front of them said 3.
 
-      * `_check_mandatory_fields` is satisfied by `claim.sec_refs` -- a text
-        field the claimant types -- or by a `sec_proof_url`.
-      * `_apply_calc` counts something else entirely: SEC_REFERENCE
-        attachments carrying a `ref_number`, and it wants `min_sec_references`
-        of them.
-
-    So a claim can pass every gate, reach Finance, and be worked out as Rs 0
-    with a note saying the claimant cited 0 references while the form in front
-    of them said 3.
-
-    It is left alone because closing it is a decision about who gets paid,
-    not a bug fix. Refusing these claims breaks twelve tests that encode the
-    opposite contract -- `test_attachments_alone_satisfy_the_upload_gate`
-    states it outright -- and `COUNT_ONLY` already exists as the supported way
-    to file a paper for the record with no money attached. Deriving
-    `sec_refs` from the attachments instead is worse: it is claimant-writable,
-    so clearing it deletes numbers somebody typed.
-
-    The filing wizard now warns before the claim is sent, which removes the
-    surprise without moving any money. These tests hold the shape of the
-    defect so it cannot be closed by accident.
+    The owner closed it by refusing the submission rather than by paying it:
+    the formula is the policy, and the gate was the thing that was wrong.
+    Nobody's amount moved -- every claim this refuses was already worth
+    nothing, which was the whole trap -- and COUNT_ONLY is exempt, because a
+    threshold whose only job is to decide an amount has nothing to say about a
+    claim that asks for none.
     """
 
     def setUp(self):
@@ -10716,52 +11198,145 @@ class ZeroRupeeTrapTests(TestCase):
         base.update(extra)
         return Claim.objects.create(**base)
 
-    def test_the_gate_and_the_formula_measure_different_things(self):
-        """The whole defect in one assertion."""
-        from core.api import _apply_calc, _check_mandatory_fields
-
-        claim = self.claim()          # typed numbers, a URL, no attachments
-        _check_mandatory_fields(claim)  # passes: does not raise
-        _apply_calc(claim)
-        self.assertEqual(
-            claim.remuneration or 0, 0,
-            "the trap has closed -- a claim that files now also pays",
-        )
-        self.assertIn("reference", (claim.remuneration_note or "").lower())
-
-    def test_the_note_says_zero_references_while_the_field_says_two(self):
-        """What the claimant actually reads, and why it is baffling."""
-        from core.api import _apply_calc
-
-        claim = self.claim()
-        _apply_calc(claim)
-        self.assertEqual(claim.sec_refs, "12, 27")
-        self.assertIn("0 SEC-affiliated references", claim.remuneration_note or "")
-
-    def test_attaching_the_references_with_numbers_pays(self):
-        """The remedy, so the defect above is understood as a mismatch rather
-        than as the policy refusing to pay anybody."""
-        from core.api import _apply_calc
-
-        claim = self.claim()
-        for n in ("12", "27"):
+    def attach(self, claim, *numbers):
+        """What the policy is actually paid on: the cited paper attached, and
+        the number it carries in this article's reference list."""
+        for n in numbers:
             ClaimAttachment.objects.create(
                 claim=claim, kind=AttachmentKind.SEC_REFERENCE,
-                url=f"/media/claims/{n * 16}.pdf", filename="ref.pdf",
-                size_bytes=100, ref_number=n,
+                url=f"/media/claims/{str(n).rjust(2, 'a') * 16}.pdf",
+                filename=f"ref-{n}.pdf", size_bytes=100, ref_number=str(n),
             )
+
+    def test_typed_reference_numbers_are_no_longer_evidence(self):
+        """The claim out of the old defect, filed today: refused, not ticketed
+        and then paid nothing."""
+        from core.api import _check_mandatory_fields
+
+        claim = self.claim()          # typed numbers, a URL, no attachments
+        with self.assertRaises(HttpError) as caught:
+            _check_mandatory_fields(claim)
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_the_refusal_says_what_to_do_and_what_filing_anyway_would_pay(self):
+        """A refusal a claimant cannot act on is the same trap wearing a hat."""
+        from core.api import _check_mandatory_fields
+
+        with self.assertRaises(HttpError) as caught:
+            _check_mandatory_fields(self.claim())
+        message = str(caught.exception)
+        # The two things they have to do, and why it is worth doing them.
+        self.assertIn("attach the cited paper", message)
+        self.assertIn("number it has in your reference list", message)
+        self.assertIn("Rs 0", message)
+        # And the way out for somebody who genuinely has no more to cite.
+        self.assertIn("publication count", message)
+
+    def test_one_short_of_the_minimum_is_still_refused(self):
+        """The gate counts them, rather than checking that any exists at all."""
+        from core.api import _check_mandatory_fields
+
+        claim = self.claim()
+        self.attach(claim, "12")
+        with self.assertRaises(HttpError) as caught:
+            _check_mandatory_fields(claim)
+        self.assertIn(f"1 of {MIN_SEC_REFERENCES}", str(caught.exception))
+
+    def test_an_unnumbered_attachment_is_not_a_cited_reference(self):
+        """A PDF nobody can match to a line in the reference list evidences
+        nothing, and the calculator has never counted one."""
+        from core.api import _check_mandatory_fields
+
+        claim = self.claim()
+        for i in range(MIN_SEC_REFERENCES + 1):
+            ClaimAttachment.objects.create(
+                claim=claim, kind=AttachmentKind.SEC_REFERENCE,
+                url=f"/media/claims/{'b' * 30}{i:02d}.pdf",
+                filename="ref.pdf", size_bytes=100,
+            )
+        with self.assertRaises(HttpError):
+            _check_mandatory_fields(claim)
+
+    def test_attaching_the_numbered_references_files_and_pays(self):
+        """The remedy the refusal asks for, and what it is worth -- so the rule
+        reads as a mismatch closed, not as the policy refusing to pay anybody."""
+        from core.api import _apply_calc, _check_mandatory_fields
+
+        claim = self.claim()
+        self.attach(claim, "12", "27")
+        _check_mandatory_fields(claim)   # passes: does not raise
         _apply_calc(claim)
         self.assertGreater(claim.remuneration or 0, 0)
 
-    def test_count_only_is_the_supported_way_to_file_without_payment(self):
-        """Which is why the gate cannot simply be tightened: filing a paper
-        for the record already has its own reason code."""
+    def test_count_only_is_exempt_because_it_asks_for_no_money(self):
+        """A publication filed for the record is not refused by a threshold
+        that exists only to decide an amount."""
         from core.api import _apply_calc, _check_mandatory_fields
 
         claim = self.claim(claim_reason=ClaimReason.COUNT_ONLY)
-        _check_mandatory_fields(claim)
+        _check_mandatory_fields(claim)   # passes: does not raise
         _apply_calc(claim)
         self.assertEqual(claim.remuneration or 0, 0)
+
+    def test_count_only_still_has_to_show_a_reference(self):
+        """Exempt from the threshold, not from evidence. The older, looser rule
+        stands for it: something has to be on file, or the record is a claim
+        that a paper cites Saveetha with nothing behind it."""
+        from core.api import _check_mandatory_fields
+
+        claim = self.claim(claim_reason=ClaimReason.COUNT_ONLY, sec_proof_url=None)
+        with self.assertRaises(HttpError) as caught:
+            _check_mandatory_fields(claim)
+        self.assertIn("cited reference", str(caught.exception))
+
+    def test_the_threshold_is_the_live_policys_and_not_a_hardcoded_two(self):
+        """The gate, the filing form and the formula have to move together: a
+        copy of the number in any one of them is a rule that silently stops
+        matching the money."""
+        from core.api import _check_mandatory_fields
+
+        self.cfg.min_sec_references = 3
+        self.cfg.save(update_fields=["min_sec_references"])
+
+        claim = self.claim()
+        self.attach(claim, "12", "27")
+        with self.assertRaises(HttpError) as caught:
+            _check_mandatory_fields(claim)
+        self.assertIn("2 of 3", str(caught.exception))
+
+        self.attach(claim, "41")
+        _check_mandatory_fields(claim)   # passes: does not raise
+
+        # And downwards: a policy that asks for one accepts one.
+        self.cfg.min_sec_references = 1
+        self.cfg.save(update_fields=["min_sec_references"])
+        lenient = self.claim(paper_title="A Second Paper")
+        self.attach(lenient, "12")
+        _check_mandatory_fields(lenient)
+
+    def test_closing_the_trap_moves_nobodys_money(self):
+        """The refusal is not a pay cut. Every claim it stops was already being
+        worked out as Rs 0 -- that was the trap -- and every claim that carried
+        its evidence is priced exactly as it was before."""
+        from core.api import _apply_calc
+
+        refused_now = self.claim()
+        _apply_calc(refused_now)
+        self.assertEqual(
+            refused_now.remuneration or 0, 0,
+            "these claims were already paying nothing before the gate closed",
+        )
+        self.assertIn("0 SEC-affiliated references", refused_now.remuneration_note or "")
+
+        evidenced = self.claim(paper_title="A Second Paper")
+        self.attach(evidenced, "12", "27")
+        _apply_calc(evidenced)
+        before = evidenced.remuneration
+        self.assertGreater(before or 0, 0)
+        # Priced again now the gate exists: the same figure out of the same
+        # formula. The gate decides what may be filed, never what it is worth.
+        _apply_calc(evidenced)
+        self.assertEqual(evidenced.remuneration, before)
 
 
 class MoneyBlindnessSweepTests(TestCase):

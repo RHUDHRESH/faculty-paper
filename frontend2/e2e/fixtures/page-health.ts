@@ -189,10 +189,26 @@ export async function expectPageHealthy(
   await waitForSettled(page, errors)
 
   // 1. React is still mounted and drew something.
+  //
+  // The exception goes in the message, for the same reason `waitForSettled`
+  // does it: this check and the console check below are ten lines apart, and
+  // the first one to fire ends the test — so a page that mounted, settled,
+  // and *then* threw (an effect, a late query resolving into a render that
+  // blows up) reported a bare "#root is empty" and left the actual TypeError
+  // sitting unread in `errors.uncaught`. That sends you to open a trace to
+  // find something the test already had in its hand.
   const rootChildren = await page.evaluate(
     () => document.getElementById("root")?.childElementCount ?? 0
   )
-  expect(rootChildren, `${where}: #root is empty — React unmounted or never rendered`).toBeGreaterThan(0)
+  const thrown = errors.uncaught.length
+    ? `\n  The exception that did it:\n    ${errors.uncaught.join("\n    ")}`
+    : errors.console.length
+      ? `\n  Nothing was thrown, but the console said:\n    ${errors.console.join("\n    ")}`
+      : ""
+  expect(
+    rootChildren,
+    `${where}: #root is empty — React unmounted or never rendered${thrown}`
+  ).toBeGreaterThan(0)
 
   // 2. No error state on screen. `role="alert"` is what `ui/state.tsx` gives
   //    both ErrorState and InlineError, so this catches a failed widget in

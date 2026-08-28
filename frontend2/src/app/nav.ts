@@ -70,6 +70,26 @@ const OFFICE: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
 export const NAV: NavItem[] = [
   // ---- the daily work, unlabelled -------------------------------------
   { to: "/", label: "Home", icon: Home, end: true },
+  // Everybody signed in, and second only to Home: it is the one destination
+  // that answers a question asked before anything has been filed — does this
+  // paper exist, is that journal real, has somebody here claimed it already.
+  // `/publications` below is the *filterable list of our own claims*; this is
+  // the literature and our own records at once, which is a different errand.
+  {
+    to: "/search",
+    label: "Search",
+    icon: Search,
+    keywords: [
+      "find",
+      "look up",
+      "doi",
+      "crossref",
+      "openalex",
+      "scopus",
+      "journal",
+      "everything",
+    ],
+  },
   {
     to: "/clearing",
     label: "Clearing queue",

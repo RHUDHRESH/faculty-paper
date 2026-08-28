@@ -174,6 +174,7 @@ export function Duplicates() {
     return (
       <div className="page py-8">
         <ErrorState
+          art="closed-gate"
           title="Not open to this account"
           message="These findings are about payments. Finance, the Principal and the research cell can read them."
         />
@@ -239,7 +240,11 @@ export function Duplicates() {
         />
       ) : findings.length === 0 ? (
         <EmptyState
-          art="empty-queue"
+          // A status chip that matched none of a populated queue is a filter
+          // result, not a clean set of books. Drawing the good-news tick for
+          // it tells somebody who clicked "Recovered" that nothing is wrong,
+          // when what actually happened is that nothing has been recovered.
+          art={status ? "no-results" : "empty-queue"}
           icon={CircleCheck}
           title={status ? "Nothing in this state" : "The sweep found nothing here"}
           message={
@@ -457,7 +462,7 @@ function Members({ members }: { members: Member[] }) {
     <ul className="space-y-1.5 rounded-md bg-sunken px-3 py-2.5">
       {ordered.map((m) => (
         <li key={`${m.source}-${m.id}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
-          <span className="w-24 shrink-0 tabular text-fg-muted">{m.when || "no date"}</span>
+          <span className="w-24 shrink-0 tabular text-fg-muted">{monthLabel(m.when)}</span>
           <span className="w-28 shrink-0 tabular font-medium">{money(m.amount)}</span>
           <span className="min-w-0 flex-1 truncate">
             {m.person || "unknown"}
@@ -668,6 +673,19 @@ function Chip({
       {children}
     </button>
   )
+}
+
+/** "2019-04" as "Apr 2019". The stored form is what sorts, but this column
+ *  is the one a reader scans to decide whether two payments are far enough
+ *  apart to be a resubmission or close enough to be a double entry — and
+ *  nobody reads a dash-separated pair of numbers as a date at that speed. */
+function monthLabel(value: string | null): string {
+  if (!value) return "no date"
+  const [year, month] = value.split("-")
+  const index = Number.parseInt(month ?? "", 10)
+  if (!year || Number.isNaN(index) || index < 1 || index > 12) return value
+  const d = new Date(Date.UTC(Number.parseInt(year, 10), index - 1, 1))
+  return d.toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" })
 }
 
 function short(title: string | null): string {

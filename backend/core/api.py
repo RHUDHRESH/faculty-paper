@@ -17,7 +17,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Max, Case, Count, F, IntegerField, Min, Q, Sum, Value, When
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from django.middleware.csrf import get_token
@@ -945,6 +945,49 @@ def _format_payout_month(d: date | None) -> str | None:
     return d.strftime("%Y-%m")
 
 
+def _quartile_year_note(c: Claim) -> str | None:
+    """Say when the quartile being paid on is not the paper's own year's.
+
+    `lookup_scimago` falls back to the newest table it holds when the paper's
+    year is missing from the dump, and records which year that was in
+    `scimago_dataset_year`. The number was serialised, but nothing anywhere
+    said it was a fallback: a 2019 paper priced off the 2025 ranking read
+    exactly like a 2019 one, and the quartile is a term in the amount. The
+    dumps only reach back to 2024, so this is most older papers, not an edge.
+    """
+    if c.quartile_source != "SCIMAGO" or not c.quartile:
+        return None
+    used, published = c.scimago_dataset_year, c.publication_year
+    if not used or not published or used == published:
+        return None
+    direction = "later" if used > published else "earlier"
+    return (
+        f"Quartile {c.quartile} is the journal's {used} ranking, not its "
+        f"{published} one — Scimago holds no {published} table for this "
+        f"journal, so a {direction} year was used. The quartile is a term in "
+        "the amount."
+    )
+
+
+def _snip_year_note(c: Claim) -> str | None:
+    """Say when the SNIP being paid on is not matched to the paper's year.
+
+    `lookup_snip_dump` takes no year at all: it returns whichever row carries
+    the ISSN. So unlike the quartile there is nothing recorded to compare —
+    `snip_year` stays empty — and the honest thing to say is that the figure
+    is unyeared rather than to guess which year it came from. Recording the
+    matched row's year belongs in `lookup_snip_dump` itself.
+    """
+    if c.snip is None or c.snip_source != "SNIP_DUMP" or c.snip_year is not None:
+        return None
+    published = f" (published {c.publication_year})" if c.publication_year else ""
+    return (
+        f"SNIP {c.snip:g} was read off the SNIP dataset, which holds one "
+        f"figure per journal and is not matched to the year of publication"
+        f"{published}. SNIP is a term in the amount."
+    )
+
+
 def claim_to_dict(c: Claim) -> dict[str, Any]:
     return {
         "id": c.id,
@@ -1059,6 +1102,12 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "scimago_sjr": c.scimago_sjr,
         "scimago_categories_json": c.scimago_categories_json,
         "scimago_dataset_year": c.scimago_dataset_year,
+        # The year was already here as a bare number. These two say what it
+        # means -- that a figure the money is worked out from came from a
+        # year other than the paper's -- so an approver and the claimant
+        # read a sentence instead of being left to compare two integers.
+        "quartile_year_note": _quartile_year_note(c),
+        "snip_year_note": _snip_year_note(c),
         "manual_quartile_reason": c.manual_quartile_reason,
         "total_authors": c.total_authors,
         "author_position": c.author_position,
@@ -2279,6 +2328,38 @@ def upsert_team(request: HttpRequest, payload: TeamIn):
     return {**_team_dict(team), "created": created}
 
 
+def _min_sec_references() -> int:
+    """How many evidenced SEC-affiliated references the live policy requires.
+
+    Read from the active `FormulaConfig` and only then from the code default,
+    because the same number decides three things — what the form tells a
+    claimant, whether the submission is accepted, and what the calculator
+    pays — and a hard-coded copy in any one of them is a rule that silently
+    stops matching the money.
+    """
+    cfg = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
+    raw = getattr(cfg, "min_sec_references", None)
+    return int(raw if raw is not None else MIN_SEC_REFERENCES)
+
+
+def _numbered_sec_references(claim: Claim) -> int:
+    """SEC references the claim actually evidences.
+
+    The same count `_apply_calc` pays on: a SEC_REFERENCE attachment carrying
+    the number that citation has in the paper's own reference list. A typed
+    `sec_refs` string is not this — nobody can check a number against a file
+    that was never attached.
+    """
+    if not claim.pk:
+        return 0
+    return (
+        claim.attachments.filter(kind=AttachmentKind.SEC_REFERENCE)
+        .exclude(ref_number__isnull=True)
+        .exclude(ref_number="")
+        .count()
+    )
+
+
 @api.get("/meta/filing-rules", auth=session_auth)
 def filing_rules(request: HttpRequest):
     """The eligibility rules the filing form has to enforce, from the live policy.
@@ -2291,6 +2372,10 @@ def filing_rules(request: HttpRequest):
     attached one. The rule was enforced in the calculator, mentioned in a note
     on the resulting zero, and stated nowhere a person could read it *first*.
 
+    Submission is now refused rather than ticketed at Rs 0, which makes saying
+    it here load-bearing: a form that does not repeat these sentences sends
+    people into a refusal they were never warned about.
+
     They are read from the active `FormulaConfig` rather than hard-coded, so
     a policy change moves the form on its own. A hard-coded 2 in the client
     is a rule that silently stops matching the one the money is calculated
@@ -2302,8 +2387,7 @@ def filing_rules(request: HttpRequest):
     max_authors = int(
         getattr(cfg, "max_authors", None) or MAX_ELIGIBLE_AUTHORS
     )
-    raw_min = getattr(cfg, "min_sec_references", None)
-    min_sec = int(raw_min if raw_min is not None else MIN_SEC_REFERENCES)
+    min_sec = _min_sec_references()
 
     return {
         "max_authors": max_authors,
@@ -2323,8 +2407,11 @@ def filing_rules(request: HttpRequest):
             ),
             "min_sec_references": (
                 f"The policy requires {min_sec} cited references with a Saveetha "
-                "Engineering College affiliation. Fewer than that and the paper "
-                "is counted but carries no remuneration."
+                "Engineering College affiliation, each attached and numbered as "
+                "it appears in your reference list. An incentive claim with "
+                "fewer than that is not accepted — it would be worked out as "
+                "Rs 0. File it as a publication count instead if you have no "
+                "more to cite."
             ),
         },
         "policy_version": getattr(cfg, "version", None),
@@ -2445,6 +2532,19 @@ def _quota_state(claim: Claim) -> tuple[bool, str | None]:
         # moment this runs during a submit the claim is still DRAFT, so a
         # status test here never fires. This function only *reads*.
 
+    # The stored number decides, not this paper's rank among the year's.
+    # Ranking -- count the year's papers below this one, add one -- was
+    # considered, because "a quota of 2" means "the year's first two papers"
+    # and the two readings differ the moment the sequence has a hole. They
+    # differ in exactly one bucket: the one `Claim._close_quota_gap` refuses
+    # to renumber because a paper that would move down has already been paid.
+    # Ranking there would move that paper from outside the quota to inside it
+    # and reprice settled money downward -- which is the thing the model
+    # declines to do, so doing it here would only be doing it later and in
+    # another file. Everywhere else the sequence is kept hole-free and the two
+    # readings agree, so the rank query would buy nothing and cost a COUNT on
+    # every pass of `_apply_calc` -- every create, patch, submit, re-verify,
+    # bulk clear and monthly batch row.
     if position <= quota:
         return True, (
             f"Paper {position} of a {quota}-paper research quota for {year}. "
@@ -2457,15 +2557,48 @@ def _quota_state(claim: Claim) -> tuple[bool, str | None]:
     )
 
 
+def _peek_next_quota_slot(claim: Claim) -> int:
+    """The next free position in this paper's author-and-year bucket.
+
+    Split out from the allocation so the read can be repeated after a
+    collision, and so a test can make it stale on purpose.
+    """
+    highest = (
+        Claim.objects.filter(
+            owner_id=claim.owner_id,
+            publication_year=claim.publication_year,
+            quota_position__isnull=False,
+        )
+        .exclude(pk=claim.pk)
+        .aggregate(top=Max("quota_position"))["top"]
+        or 0
+    )
+    return highest + 1
+
+
 def _assign_quota_position(claim: Claim) -> None:
     """Give a paper its place in its author's research-quota year, once.
 
     Called when the claim is filed, which is the only moment that is both
     stable and meaningful: a draft must not consume somebody's allowance, and
     a position handed out later would depend on the order an admin happened to
-    open tickets in rather than on the order they were filed.
+    open tickets in rather than on the order they were filed. It is also
+    called after a filed paper's year is corrected, because the correction
+    drops the slot the old year issued and the paper has to take one in its
+    new year.
 
     Idempotent. Re-filing a paper that was sent back keeps the slot it had.
+
+    Concurrency-safe the same way `assign_ticket_number` is, and for the same
+    reason: MAX + 1 read in one statement and written in another means two
+    submits for one author and year can read the same maximum. The unique
+    constraint on (owner, publication_year, quota_position) turns that into a
+    failed write rather than a silently shared slot — which is the better of
+    the two failures and still a failure, because what the claimant saw was a
+    500 and a submission that did not happen. So: lock the bucket, take the
+    next slot, and on a collision drop the number and try for another. The
+    position is written here rather than left on the instance, since the row
+    the constraint protects is only protected once it exists.
     """
     owner = claim.owner
     if (
@@ -2475,19 +2608,33 @@ def _assign_quota_position(claim: Claim) -> None:
         or not owner.research_quota
         or not claim.publication_year
         or claim.claim_reason == ClaimReason.COUNT_ONLY
+        or not claim.pk
     ):
         return
-    highest = (
-        Claim.objects.filter(
-            owner=owner,
-            publication_year=claim.publication_year,
-            quota_position__isnull=False,
-        )
-        .exclude(pk=claim.pk)
-        .aggregate(top=Max("quota_position"))["top"]
-        or 0
-    )
-    claim.quota_position = highest + 1
+
+    for _ in range(8):
+        try:
+            with transaction.atomic():
+                # Serialise the allocators for this one bucket. A no-op on
+                # SQLite, which serialises writers anyway; the lock is what
+                # holds on Postgres, where the college actually runs.
+                list(
+                    Claim.objects.select_for_update()
+                    .filter(
+                        owner_id=claim.owner_id,
+                        publication_year=claim.publication_year,
+                        quota_position__isnull=False,
+                    )
+                    .order_by("-quota_position")[:1]
+                )
+                claim.quota_position = _peek_next_quota_slot(claim)
+                claim.save(update_fields=["quota_position", "updated_at"])
+            return
+        except IntegrityError:
+            # Somebody else took it between the read and the write.
+            claim.quota_position = None
+            continue
+    raise RuntimeError("Could not assign a research-quota position")
 
 
 def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
@@ -2545,7 +2692,13 @@ def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
     claim.qf_amount = result.qf
     claim.calc_error = result.error
     claim.remuneration_category = result.category
-    claim.remuneration_note = result.note
+    # `remuneration_note` is the "why this amount" line the ticket, the
+    # clearing queue and the approval screen all already display. A quartile
+    # or a SNIP taken from another year is part of why the amount is what it
+    # is, so it is said here and not only in a field nothing renders.
+    claim.remuneration_note = " ".join(
+        s for s in (result.note, _quartile_year_note(claim), _snip_year_note(claim)) if s
+    ) or None
     if cfg_obj and cfg:
         claim.formula_config = cfg_obj
         claim.formula_snapshot_json = json.dumps(snapshot_formula(cfg))
@@ -2930,8 +3083,37 @@ def _check_mandatory_fields(claim: Claim) -> None:
     has_refs = AttachmentKind.SEC_REFERENCE in kinds or bool((claim.sec_proof_url or "").strip())
     if not has_paper:
         raise HttpError(400, "Upload the full-length published paper (PDF)")
-    if not has_refs:
-        raise HttpError(400, "Upload at least one cited reference with SEC affiliation (PDF)")
+
+    # The formula is the policy, and the formula counts numbered SEC_REFERENCE
+    # attachments. This gate used to count something else — a typed `sec_refs`
+    # string, or any single reference URL — so a claim could satisfy every gate,
+    # reach Finance, and be worked out as Rs 0 with a note saying it cited none
+    # while the form in front of the claimant said three. Refuse it here, where
+    # it can still be fixed, rather than pay nothing later.
+    #
+    # COUNT_ONLY is exempt: it asks for no money, so a threshold whose only job
+    # is to decide an amount has nothing to say about it. It keeps the older,
+    # looser rule — one reference on file — which is all a publication record
+    # needs.
+    if claim.claim_reason == ClaimReason.COUNT_ONLY:
+        if not has_refs:
+            raise HttpError(
+                400, "Upload at least one cited reference with SEC affiliation (PDF)"
+            )
+    else:
+        min_sec = _min_sec_references()
+        numbered = _numbered_sec_references(claim)
+        if numbered < min_sec:
+            raise HttpError(
+                400,
+                f"The incentive is paid on {min_sec} cited references with a "
+                "Saveetha Engineering College affiliation, and only the ones "
+                f"you evidence count — {numbered} of {min_sec} so far. For each "
+                "one, attach the cited paper and enter the number it has in "
+                "your reference list. Filed without them this claim would be "
+                "worked out as Rs 0; if you have no more to cite, file it as a "
+                "publication count instead.",
+            )
 
 
 def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str | None) -> None:
@@ -6663,8 +6845,18 @@ def pack_row_edit(request: HttpRequest, claim_id: str, payload: PackRowEditIn):
     if field == "doi" and value is not None:
         value = normalize_doi(value)
 
+    # A slot belongs to the year that issued it, so `Claim.save` drops it when
+    # the year is corrected. Nothing then handed the paper one in its new
+    # year: `_assign_quota_position` runs at submission and this paper was
+    # submitted long ago, so it sat in the new year unnumbered, counting
+    # against nobody's quota and taking a slot from nobody. Only a paper that
+    # actually held one gets a new one -- a draft still consumes no allowance.
+    held_a_slot = field == "publication_year" and claim.quota_position is not None
+
     setattr(claim, field, value)
     claim.save(update_fields=[field, "updated_at"])
+    if held_a_slot and claim.quota_position is None:
+        _assign_quota_position(claim)
 
     ClaimAction.objects.create(
         claim=claim, actor=user, action="PACK_CORRECT",
@@ -8932,8 +9124,22 @@ def data_edit_cell(
     if value == "":
         value = None
 
+    # Same rule as the pack screen: a corrected year drops the research-quota
+    # slot the old year issued, and the paper has to take one in the new year
+    # or it sits there unnumbered. Unreachable today -- the Claim table
+    # declares no editable columns, so this endpoint cannot touch
+    # `publication_year` at all -- and here so that the day it does, the slot
+    # is not quietly lost.
+    held_a_slot = (
+        isinstance(instance, Claim)
+        and payload.column == "publication_year"
+        and instance.quota_position is not None
+    )
+
     setattr(instance, payload.column, value)
     instance.save(update_fields=[payload.column])
+    if held_a_slot and instance.quota_position is None:
+        _assign_quota_position(instance)
 
     AuditLog.objects.create(
         actor=user, action="DATA_EDIT", entity=table.model_name,

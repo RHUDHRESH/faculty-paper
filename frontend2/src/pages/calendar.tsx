@@ -90,7 +90,7 @@ export function Calendar() {
   const query = new URLSearchParams({ start: iso(start), end: iso(end) })
   if (kind) query.set("kind", kind)
 
-  const { data, isLoading, isError, error, refetch } = useApi<CalendarPayload>(
+  const { data, isLoading, isError, refetch } = useApi<CalendarPayload>(
     ["calendar", iso(start), iso(end), kind],
     `/api/calendar?${query.toString()}`
   )
@@ -111,6 +111,9 @@ export function Calendar() {
     { value: "", label: "Everything" },
     ...(data?.kinds ?? []).map((k) => ({ value: k.key, label: k.label })),
   ]
+  // The server's own word for the filter, so an empty result names the thing
+  // that is absent rather than the code it is stored under.
+  const kindLabel = kind ? data?.kinds.find((k) => k.key === kind)?.label ?? null : null
 
   return (
     <div className="page space-y-6">
@@ -174,19 +177,37 @@ export function Calendar() {
       ) : isError ? (
         <ErrorState
           title="Could not load the calendar"
-          message={error?.message || "The server did not answer."}
+          // Written, not relayed. `error.message` is the raw `detail` string
+          // or, on a dropped connection, whatever `fetch` threw — "Failed to
+          // fetch", "Request failed (500)" — which tells a reader nothing
+          // about whether their dates are still there.
+          message="The server did not answer. Nothing on the calendar has been changed or removed."
           onRetry={() => refetch()}
         />
       ) : events.length === 0 ? (
         <EmptyState
-          art="empty-queue"
+          // A kind filter turns this into "no deadlines in these five
+          // months", which is not "the calendar is empty" — and the reader
+          // who filtered is one click from the dates they are looking for,
+          // so that is the button they get rather than "Add a date".
+          art={kind ? "no-results" : "empty-queue"}
           icon={CalendarDays}
-          title="Nothing in this window"
-          message="Add a payout run, a submission window or a deadline, and it appears here for whoever it concerns."
+          title={kindLabel ? `No ${kindLabel.toLowerCase()} in this window` : "Nothing in this window"}
+          message={
+            kindLabel
+              ? "Something else may fall in these months. Show everything, or step the window forward."
+              : "Add a payout run, a submission window or a deadline, and it appears here for whoever it concerns."
+          }
           action={
-            <Button kind="primary" size="sm" onClick={() => setAdding(true)}>
-              Add a date
-            </Button>
+            kind ? (
+              <Button kind="default" size="sm" onClick={() => setParam("kind", "")}>
+                Show everything
+              </Button>
+            ) : (
+              <Button kind="primary" size="sm" onClick={() => setAdding(true)}>
+                Add a date
+              </Button>
+            )
           }
         />
       ) : (
@@ -428,8 +449,19 @@ function EventDialog({
 /* Dates                                                                     */
 /* ------------------------------------------------------------------------ */
 
+/** The local calendar date, never `toISOString().slice(0, 10)`.
+ *
+ *  `toISOString` converts to UTC first, so anywhere east of Greenwich — this
+ *  college is at +05:30 — a date built from `new Date()` before 05:30 in the
+ *  morning comes out as yesterday. That silently shifted the window's ends by
+ *  a day and pre-filled "Add a date" with the wrong day for anybody working
+ *  early, which is exactly the class of mistake nobody thinks to check a
+ *  date field for. */
 function iso(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
 }
 
 function addDays(d: Date, days: number): Date {

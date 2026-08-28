@@ -160,6 +160,7 @@ export function Journals() {
       ) : isError ? (
         error?.status === 403 ? (
           <ErrorState
+            art="closed-gate"
             title="Not visible to this account"
             message="This list is open to heads of department, the principal, finance and the research cell — not to faculty accounts."
           />
@@ -172,6 +173,7 @@ export function Journals() {
         )
       ) : journals.length === 0 ? (
         <EmptyState
+          art={filtered ? "no-results" : "nothing-filed"}
           icon={filtered ? SearchX : BookOpen}
           title={filtered ? "No journal matches" : "Nothing published yet"}
           message={
@@ -347,6 +349,7 @@ export function JournalRecord() {
       return (
         <div className="page py-8">
           <ErrorState
+            art="closed-gate"
             title="Not visible to this account"
             message="This record is open to heads of department, the principal, finance and the research cell — not to faculty accounts."
           />
@@ -377,7 +380,15 @@ export function JournalRecord() {
   if (!report) {
     return (
       <div className="page py-8">
-        <EmptyState title="Nothing here" message="This journal has no record to show." />
+        {/* "Nothing here" is the sentence `EmptyState` exists to refuse:
+            it names nothing that is absent. The server answered without a
+            body, so what is missing is the journal's record, and the next
+            move is the list this reader came from. */}
+        <EmptyState
+          art="nothing-filed"
+          title="No record for this journal"
+          message="The server answered with nothing for this title. Nothing has been filed against it, or it is stored here under a different name."
+        />
       </div>
     )
   }
@@ -493,7 +504,14 @@ export function JournalRecord() {
         <Stat label="Departments" value={String(totals.departments)} />
         <Stat label="Active" value={activeYears} muted={activeYears === "—"} />
         {showMoney && (
-          <Stat label="Paid" value={String(totals.paid_claims)} hint={money(totals.paid_amount)} />
+          // "Paid" over a count, with a rupee figure under it, left the
+          // reader to guess which of the two the label belonged to — in a
+          // row where every other figure is a count of things.
+          <Stat
+            label="Papers paid for"
+            value={String(totals.paid_claims)}
+            hint={`${money(totals.paid_amount)} paid out`}
+          />
         )}
       </section>
 

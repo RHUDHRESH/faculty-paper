@@ -118,6 +118,7 @@ export function Data() {
     return (
       <div className="page py-8">
         <ErrorState
+          art="closed-gate"
           title="Not open to this account"
           message="The raw tables are an admin tool. Everything in them is reachable through the screens built for the job."
         />
@@ -215,11 +216,21 @@ function TableIndex({ onOpen }: { onOpen: (name: string) => void }) {
                       </span>
                       <Meta className="block truncate">{t.about}</Meta>
                     </span>
+                    {/* The figure said "4,498" over "18 columns", which
+                        leaves the bigger number the only unlabelled thing on
+                        the row — and beside a column count it reads as a
+                        second measure of the same shape rather than as how
+                        much is in the table. */}
                     <span className="shrink-0 text-right">
                       <span className="block text-base tabular">
-                        {t.rows.toLocaleString("en-IN")}
+                        {t.rows.toLocaleString("en-IN")}{" "}
+                        <span className="text-sm font-normal text-fg-muted">
+                          {t.rows === 1 ? "row" : "rows"}
+                        </span>
                       </span>
-                      <Meta className="block text-xs">{t.columns} columns</Meta>
+                      <Meta className="block text-xs">
+                        {t.columns} {t.columns === 1 ? "column" : "columns"}
+                      </Meta>
                     </span>
                   </button>
                 </li>
@@ -358,11 +369,16 @@ function TableView({ name, onBack }: { name: string; onBack: () => void }) {
                 ? "Not allowed."
                 : "The server did not answer."
           }
-          onRetry={error && error.status < 400 ? () => refetch() : () => refetch()}
+          // Both arms of this used to call `refetch`, so "There is no table
+          // by that name" came with a Try again button that could only ever
+          // fetch the same 404. A refusal is not a retryable failure.
+          onRetry={
+            error?.status === 403 || error?.status === 404 ? undefined : () => refetch()
+          }
         />
       ) : rows.length === 0 ? (
         <EmptyState
-          art="no-results"
+          art={q ? "no-results" : "nothing-filed"}
           icon={q ? SearchX : Database}
           title={q ? "Nothing matches that search" : "This table is empty"}
           message={

@@ -294,7 +294,35 @@ SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY") or os.getenv("ELSEVIER_API_KEY") or
 # silently change where the text goes.
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "ollama").strip().lower()
 OLLAMA_BASE_URL = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").strip()
+#
+# Two models, not one, and the reason is measured rather than stylistic.
+# Everything runs on the CPU here, so speed is a function of parameter count:
+# the 12b tag generates at about 4.5 tokens a second, which is fine for a
+# feature somebody starts and waits a minute for, and unusable for one that
+# answers a question in a discussion thread while they watch.
+#
+# OLLAMA_MODEL is the considered one -- the venue search, the directions, the
+# openings. OLLAMA_FAST_MODEL is the interactive one. A caller picks with
+# `ai.ask_json(..., fast=True)`; nothing picks by itself, because which
+# features can afford which wait is a product judgement, not a runtime one.
 OLLAMA_MODEL = (os.getenv("OLLAMA_MODEL") or "gemma4:12b").strip()
+OLLAMA_FAST_MODEL = (os.getenv("OLLAMA_FAST_MODEL") or "gemma3:4b").strip()
+
+# How long Ollama holds each model in memory after it answers.
+#
+# Asymmetric on purpose, and the asymmetry is the whole point of having two.
+# Measured on this machine: 8.90 GB for the 12b and 2.88 GB for the small one,
+# 11.78 GB together, with 7.5 GB still free. They fit -- but the margin is not
+# so large that both should be pinned, so they are not weighted equally. The
+# fast model is held long because its entire value is being warm when somebody
+# types and a reload costs 3.1s of a five-second answer. The considered one is
+# let go sooner because its 6.4s reload lands on a request that already takes
+# a minute and a half, which makes releasing 8.9 GB nearly free.
+#
+# Left as strings so Ollama parses them ("30m", "0" to unload immediately,
+# "-1" to pin forever).
+OLLAMA_KEEP_ALIVE = (os.getenv("OLLAMA_KEEP_ALIVE") or "2m").strip()
+OLLAMA_FAST_KEEP_ALIVE = (os.getenv("OLLAMA_FAST_KEEP_ALIVE") or "30m").strip()
 
 # Production hardening
 if not DEBUG:

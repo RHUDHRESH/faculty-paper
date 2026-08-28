@@ -14,6 +14,7 @@ publication with more is not eligible at all.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -131,6 +132,86 @@ def round2(n: float) -> float:
     return round(n * 100) / 100
 
 
+def _author_point_row(
+    total_authors: int, cfg: FormulaConfigInput
+) -> list[float] | None:
+    """Every position's point for this author count, or None if the policy
+    does not describe the whole paper.
+
+    `author_point` answers for one position; dividing money without paying out
+    more than the paper is worth needs all of them at once.
+    """
+    if not isinstance(total_authors, int) or total_authors < 1:
+        return None
+    points = cfg.author_points or DEFAULT_AUTHOR_POINTS
+    rule = points.get(str(total_authors))
+    if rule is None:
+        rule = points.get("default")
+    if isinstance(rule, bool):
+        return None
+    if isinstance(rule, (int, float)):
+        return [float(rule)] * total_authors
+    if not isinstance(rule, (list, tuple)) or len(rule) < total_authors:
+        return None
+    try:
+        return [float(x) for x in rule[:total_authors]]
+    except (TypeError, ValueError):
+        return None
+
+
+def allocate_shares(base: float, row: list[float]) -> list[float]:
+    """Divide `base` between the author positions in `row`, to the paisa.
+
+    Rounding each author's share on its own is what overspends the paper:
+    nine independent roundings can each move up to half a paisa the same way,
+    so six authors of a 55.00 paper were paid 55.01 between them. Reconciling
+    the ledger against the per-claim rows then shows a difference nobody can
+    explain, and the difference is the institution's money.
+
+    This is a largest-remainder (Hare) allocation instead. Every share is
+    floored to a whole paisa, and the paisa left between that and what the
+    paper is priced at go to the largest fractional remainders, earliest
+    position first. The shares therefore sum to exactly `round2(base x sum of
+    the points)` — no more and no less — and, because the points are
+    non-increasing and ties break towards the earlier position, an earlier
+    author is still never paid less than a later one.
+
+    The price of exactness is that one author's share can differ by a single
+    paisa from `round2(base x point)` taken alone. That is deliberate: the
+    paper's total is the quantity that has to be right.
+    """
+    exact = [base * p * 100.0 for p in row]
+    floors = [math.floor(v) for v in exact]
+    # The paper's own priced total, in paisa, computed the same way the shares
+    # are so the two cannot disagree by a float artefact.
+    target = round(math.fsum(exact))
+    short = max(0, target - sum(floors))
+    order = sorted(range(len(row)), key=lambda i: (-(exact[i] - floors[i]), i))
+    out = list(floors)
+    for i in order[:short]:
+        out[i] += 1
+    return [v / 100.0 for v in out]
+
+
+def _priced(
+    base: float,
+    point: float,
+    total_authors: int,
+    author_position: int,
+    cfg: FormulaConfigInput,
+) -> tuple[float, float]:
+    """(the paper's rounded base, this author's share of it).
+
+    The share is taken out of the *rounded* base, because the rounded base is
+    the number printed on the ticket and the one the shares have to add up to.
+    """
+    base_r = round2(base)
+    row = _author_point_row(total_authors, cfg)
+    if row is None or not (1 <= author_position <= len(row)):
+        return base_r, round2(base_r * point)
+    return base_r, allocate_shares(base_r, row)[author_position - 1]
+
+
 def qf_for(quartile: str, cfg: FormulaConfigInput) -> float:
     """The Additional Quartile Incentive for a quartile.
 
@@ -211,6 +292,21 @@ def _is_conference_or_book(publication_type: str | None) -> bool:
 def _is_journal(publication_type: str | None) -> bool:
     types = _labels(publication_type)
     return any("journal" in t for t in types) or not types
+
+
+def _no_snip_floor(publication_type: str | None, cfg: FormulaConfigInput) -> float:
+    """What this same article would have been paid carrying no SNIP at all.
+
+    Mirrors the Category II / Category III branch below, in the same order, so
+    the floor is always the rate the article would actually have fallen back
+    to. A type the scheme does not cover at all has no fallback rate and so no
+    floor.
+    """
+    if _is_conference_or_book(publication_type):
+        return float(cfg.fixed_other_no_snip)
+    if _is_journal(publication_type):
+        return float(cfg.fixed_journal_no_snip)
+    return 0.0
 
 
 def _one_multiplier(key: str, cfg: FormulaConfigInput) -> float:
@@ -322,22 +418,50 @@ def calculate_remuneration(
 
     if scopus and has_snip:
         qf = qf_for(quartile or "", cfg) if (engineering and journal) else 0.0
-        base = (float(snip) * cfg.snip_multiplier + qf) * pub_m
         if not engineering:
             note = "Non-Engineering: no quartile incentive is added."
         elif not journal:
             note = "The quartile incentive applies to journals only."
         else:
             note = None
-        return CalcResult(round2(base), point, round2(base * point), qf, None, Category.SNIP, note)
+        # A SNIP is a reason to be paid more, never a reason to be paid less.
+        # Priced on the SNIP formula alone, every SNIP below
+        # fixed-rate / multiplier -- 5000/55000 = 0.0909 for a journal,
+        # 4000/55000 = 0.0727 for a conference paper or book chapter -- came to
+        # less than the very same article would have been paid with no SNIP at
+        # all. A SNIP of 0.001 priced at 55 against a flat 5,000. New and
+        # low-citation journals genuinely sit at 0.02-0.08, so the article that
+        # had earned a SNIP was the one punished for it.
+        #
+        # The rule taken here is a floor on Category I, not "a small SNIP
+        # counts as no SNIP". Reclassifying into Category II would take the
+        # quartile incentive away with it, so a Q1 journal on a SNIP of 0.05
+        # would fall from 52,750 to 5,000 -- trading a 5,000 cliff for a
+        # 47,750 one. The floor leaves the category, the QFA and the audit
+        # trail exactly as they were and says only that Category I is never
+        # worth less than the no-SNIP rate the same article would have
+        # collected. The curve is then monotonic in SNIP across zero.
+        raw = float(snip) * cfg.snip_multiplier + qf
+        floor = _no_snip_floor(publication_type, cfg)
+        base = max(raw, floor) * pub_m
+        if floor > raw:
+            reason = (
+                f"The SNIP formula comes to {round2(raw):g}, less than the fixed "
+                f"no-SNIP rate of {floor:g}, so the fixed rate applies instead: "
+                "a SNIP never pays less than no SNIP."
+            )
+            note = f"{note} {reason}" if note else reason
+        base_r, share = _priced(base, point, total_authors, author_position, cfg)
+        return CalcResult(base_r, point, share, qf, None, Category.SNIP, note)
 
     if scopus and not has_snip:
         if _is_conference_or_book(publication_type):
             base = float(cfg.fixed_other_no_snip) * pub_m
+            base_r, share = _priced(base, point, total_authors, author_position, cfg)
             return CalcResult(
-                round2(base),
+                base_r,
                 point,
-                round2(base * point),
+                share,
                 0.0,
                 None,
                 Category.OTHER_NO_SNIP,
@@ -345,10 +469,11 @@ def calculate_remuneration(
             )
         if _is_journal(publication_type):
             base = float(cfg.fixed_journal_no_snip) * pub_m
+            base_r, share = _priced(base, point, total_authors, author_position, cfg)
             return CalcResult(
-                round2(base),
+                base_r,
                 point,
-                round2(base * point),
+                share,
                 0.0,
                 None,
                 Category.JOURNAL_NO_SNIP,
@@ -366,9 +491,8 @@ def calculate_remuneration(
         # IV, so it wins here.
         qf = qf_for(quartile or "", cfg) if (engineering and journal) else 0.0
         base = (float(cfg.fixed_web_of_science) + qf) * pub_m
-        return CalcResult(
-            round2(base), point, round2(base * point), qf, None, Category.WEB_OF_SCIENCE, None
-        )
+        base_r, share = _priced(base, point, total_authors, author_position, cfg)
+        return CalcResult(base_r, point, share, qf, None, Category.WEB_OF_SCIENCE, None)
 
     return CalcResult(
         0.0,

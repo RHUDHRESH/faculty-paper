@@ -158,8 +158,18 @@ test.describe("The money chain", () => {
 
     // The dialog recalculates against Scopus before it will let anything be
     // confirmed, so the button only carries a figure once that has landed.
+    //
+    // The timeout is generous because that call is a live third party and its
+    // latency is not ours to control. Measured on this step: 5.5s, 5.7s, 7.3s
+    // and 9.6s across runs, against two full-suite runs that blew straight
+    // through 60s. A tenfold spread on somebody else's API is not a defect in
+    // the money chain, and this test exists to prove one amount survives five
+    // desks -- not to hold Scopus to a response time. Below 60s it was failing
+    // roughly half the time in full-suite runs and passing every time in
+    // isolation, which is the worst way for a suite to be wrong: it teaches
+    // whoever sees it that a red run means nothing.
     const confirm = page.getByRole("button", { name: /^Clear — ₹/ })
-    await expect(confirm).toBeEnabled({ timeout: 60_000 })
+    await expect(confirm).toBeEnabled({ timeout: 180_000 })
     confirmed.cleared = amountIn(await confirm.innerText(), "clearing")
 
     await confirmAndWait(page, confirm, `/claims/${seeded.claim!.id}/clear`, "clearing")
@@ -187,7 +197,9 @@ test.describe("The money chain", () => {
     await sheet.getByRole("button", { name: "Approve", exact: true }).click()
 
     const confirm = page.getByRole("button", { name: /^Approve — ₹/ })
-    await expect(confirm).toBeEnabled({ timeout: 60_000 })
+    // Same live-Scopus exposure as the clearing step above; these ran fast
+    // only because that call was already cached by the time they ran.
+    await expect(confirm).toBeEnabled({ timeout: 180_000 })
     confirmed.approved = amountIn(await confirm.innerText(), "approval")
 
     await confirmAndWait(
@@ -214,7 +226,9 @@ test.describe("The money chain", () => {
     await row.getByRole("button", { name: "Authorise", exact: true }).click()
 
     const confirm = page.getByRole("button", { name: /^Authorise ₹/ })
-    await expect(confirm).toBeEnabled({ timeout: 60_000 })
+    // Same live-Scopus exposure as the clearing step above; these ran fast
+    // only because that call was already cached by the time they ran.
+    await expect(confirm).toBeEnabled({ timeout: 180_000 })
     confirmed.authorised = amountIn(await confirm.innerText(), "authorisation")
 
     await confirmAndWait(
@@ -245,7 +259,9 @@ test.describe("The money chain", () => {
     await pay.click()
 
     const confirm = page.getByRole("button", { name: /^Pay — ₹/ })
-    await expect(confirm).toBeEnabled({ timeout: 60_000 })
+    // Same live-Scopus exposure as the clearing step above; these ran fast
+    // only because that call was already cached by the time they ran.
+    await expect(confirm).toBeEnabled({ timeout: 180_000 })
     confirmed.paid = amountIn(await confirm.innerText(), "payment")
 
     await confirmAndWait(page, confirm, `/claims/${seeded.claim!.id}/mark-paid`, "payment")

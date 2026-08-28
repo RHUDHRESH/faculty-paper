@@ -111,13 +111,13 @@ type ClaimDetail = {
 
 /** The three server-side evidence values above, trimmed, as the form tracks
  *  them between saves. */
-type CarriedEvidence = {
+export type CarriedEvidence = {
   proofUrl: string
   secProofUrl: string
   secRefs: string
 }
 
-const NO_CARRIED_EVIDENCE: CarriedEvidence = { proofUrl: "", secProofUrl: "", secRefs: "" }
+export const NO_CARRIED_EVIDENCE: CarriedEvidence = { proofUrl: "", secProofUrl: "", secRefs: "" }
 
 function carriedFrom(c: ClaimDetail): CarriedEvidence {
   return {
@@ -302,7 +302,7 @@ type FilingRules = {
 
 /** Used only until the real rules arrive, and matching the server's own
  *  fallbacks so the two never briefly disagree on screen. */
-const RULE_FALLBACK: FilingRules = {
+export const RULE_FALLBACK: FilingRules = {
   max_authors: 9,
   min_sec_references: 2,
   attachment_limits: { PUBLISHED_PAPER: 10, SEC_REFERENCE: 50 },
@@ -405,7 +405,7 @@ function issnRepairNote(raw: string): string | null {
 /* Form state — the faculty-writable slice of the claim, in editor shape    */
 /* ------------------------------------------------------------------------ */
 
-type FormState = {
+export type FormState = {
   paperTitle: string
   doi: string
   publicationType: string
@@ -431,7 +431,7 @@ type FormState = {
   attachments: AttachmentRow[]
 }
 
-function emptyForm(): FormState {
+export function emptyForm(): FormState {
   return {
     teamCode: "",
     paperTitle: "",
@@ -3311,13 +3311,18 @@ function ReferencesQuestion({
  * How many of the attached references the payout will actually count, said
  * as a number, on the step where the files are.
  *
- * This is where the claim loses its money without being told. The submission
- * gate is satisfied by a `sec_proof_url` or by reference numbers left over
- * from an earlier version of the claim, so the paper files cleanly; the
- * payout formula counts only files attached here that carry a reference
- * number. A claimant who evidences references with a link therefore passes
- * every check and is paid nothing, and learns why from a note on a zero
- * weeks later.
+ * This used to be where the claim lost its money without being told: the
+ * submission gate was satisfied by a `sec_proof_url`, or by reference numbers
+ * left over from an earlier version, while the payout formula counted only
+ * files attached here carrying a reference number. A claimant who evidenced
+ * references with a link passed every check, was paid nothing, and learned
+ * why from a note on a zero weeks later.
+ *
+ * The server now refuses that submission instead of ticketing it at ₹0, so
+ * this panel says what will be refused rather than what will pay nothing. The
+ * two are not interchangeable and the wording has to keep up: telling someone
+ * a claim "will file" when it will be turned away is the same broken promise
+ * as the old zero, pointed the other way.
  */
 function ReferenceTally({
   attached,
@@ -3361,7 +3366,7 @@ function ReferenceTally({
       tone={paid ? "critical" : "caution"}
       title={
         paid
-          ? "This will file, and it will pay ₹0"
+          ? `This will be refused: ${numbered} of the ${needed} references the policy counts ${numbered === 1 ? "is" : "are"} numbered`
           : `${numbered} of the ${needed} references the policy counts are numbered`
       }
     >
@@ -4162,7 +4167,7 @@ function zeroReason(calc: CalcResult, problems: Problem[]): string {
  */
 type ProblemKind = "missing" | "unpaid" | "check"
 
-type Problem = {
+export type Problem = {
   key: string
   kind: ProblemKind
   label: string
@@ -4183,7 +4188,7 @@ type Problem = {
   step: number
 }
 
-function readiness(
+export function readiness(
   form: FormState,
   rules: FilingRules,
   opts: {
@@ -4210,6 +4215,12 @@ function readiness(
   // about it — the eligibility warnings below downgrade to a note.
   const paid = form.claimReason !== "COUNT_ONLY"
   const unpaidKind: ProblemKind = paid ? "unpaid" : "check"
+  // Short of `min_sec_references` numbered references, a paid claim is now
+  // *refused* at submission rather than ticketed at zero. So these have to
+  // block the wizard: letting somebody press Next to a server refusal is the
+  // same lie as the old ₹0, told the other way round. A count-only filing is
+  // exempt on the server, so it stays a note there.
+  const refusedKind: ProblemKind = paid ? "missing" : "check"
 
   /* ---- step 0: the paper ---- */
   if (!form.paperTitle.trim())
@@ -4400,18 +4411,18 @@ function readiness(
     if (refs.length === 0)
       add({
         key: "refs-url-only",
-        kind: unpaidKind,
-        label: "Your SEC references are a link, not attached files — this will pay ₹0",
+        kind: refusedKind,
+        label: "Your SEC references are a link, not attached files",
         detail:
-          "The submission check accepts the link, so this files without complaint. The amount counts only reference files attached here that carry a reference number, and a link carries none — so the paper prices at nothing, and the ticket comes back saying 0 references were cited. Attach each cited SEC reference and give it its number.",
+          "A link carries no reference numbers, and the amount is counted only from attached reference files that have one. The submission check no longer accepts a link in their place — it would file a claim that priced at nothing. Attach each cited SEC reference and give it the number it has in your reference list.",
         step: 3,
       })
     else
       add({
         key: "ref-numbers-zero",
-        kind: unpaidKind,
-        label: "No attached reference carries a reference number — this will pay ₹0",
-        detail: `Reference numbers left on the claim from an earlier version (${opts.carried.secRefs}) are what lets it file at all. The amount counts only the files attached here that carry a number, and none of them do. Put each reference's number from your reference list beside its file.`,
+        kind: refusedKind,
+        label: "No attached reference carries a reference number",
+        detail: `Reference numbers left on the claim from an earlier version (${opts.carried.secRefs}) no longer stand in for the files themselves — they are a note, and nobody can check a number against a file that was never attached. The amount counts only the files attached here that carry a number, and none of them do. Put each reference's number from your reference list beside its file.`,
         step: 3,
       })
   } else if (numbered < refs.length) {
@@ -4428,9 +4439,9 @@ function readiness(
   if (numbered > 0 && numbered < rules.min_sec_references)
     add({
       key: "refs-few",
-      kind: unpaidKind,
+      kind: refusedKind,
       label: `${numbered} numbered SEC reference${numbered === 1 ? "" : "s"} counted; the policy needs ${rules.min_sec_references}`,
-      detail: `${rules.why.min_sec_references} Below that the publication is recorded and the remuneration is ₹0.`,
+      detail: `${rules.why.min_sec_references} Below that the claim is refused rather than filed, because filing it would work out at ₹0. If you have no more to cite, file it as a publication count instead.`,
       step: 3,
     })
   // Two files that are one file. Nearly always a mis-drop rather than

@@ -7,6 +7,7 @@ from dataclasses import replace
 import logging
 import os
 import re
+import time
 import uuid as uuid_lib
 from datetime import date, timedelta, datetime
 from pathlib import Path
@@ -18,7 +19,7 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import models, transaction
 from django.db.models import Max, Case, Count, F, IntegerField, Min, Q, Sum, Value, When
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -55,6 +56,7 @@ from core.models import (
     Team,
     TeamMember,
     Thread,
+    ThreadParticipant,
     ThreadSubscription,
     PaidLedger,
     PriorImport,
@@ -64,7 +66,7 @@ from core.models import (
     SnipSource,
     User,
 )
-from core.services import discover as discover_service, gemini, research_search
+from core.services import ai, discover as discover_service, research_search, trends
 from core.services import rbac
 from core.services import thread_agent
 from core import discussions
@@ -442,7 +444,11 @@ _FACULTY_WRITABLE = {
     "claim_reason",
     "is_student_publication",
     "affiliation_ok",
-    "payout_month",
+    # "payout_month" is deliberately absent. It decides which month's ledger
+    # and which financial year's budget a payment lands in, and a claimant who
+    # set it to 2019-04 produced a real payment that the current year's budget
+    # report could not see and the monthly run never listed. The office sets it
+    # when the payment is prepared.
     "manual_quartile_reason",
     "total_authors",
     "author_position",
@@ -1015,6 +1021,16 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
                 "size_bytes": a.size_bytes,
                 "ref_number": a.ref_number,
                 "ref_title": a.ref_title,
+                # Sent back so a reopened draft can return it.
+                #
+                # `_persist_attachments` deletes the set and rebuilds it from
+                # whatever the payload holds, so a field this serialiser omits
+                # is a field the next save erases. This one is the file's own
+                # fingerprint, and losing it blinds the duplicate check on
+                # /claims/upload for that claim permanently -- the same PDF
+                # could then be attached to a second ticket with nothing to
+                # notice. It has been silently wiped on every edit until now.
+                "content_hash": a.content_hash,
             }
             for a in c.attachments.all()
         ]
@@ -1135,11 +1151,30 @@ def clear_login_lockout(email: str) -> None:
     )
 
 
+def _client_ip(request: HttpRequest) -> str:
+    """The address a proxy vouched for, not the one the client claimed.
+
+    X-Forwarded-For is a list the client writes the first entry of and each
+    proxy appends to, so the leftmost value is attacker-controlled. Taking it
+    meant a fresh header per request produced a fresh lockout bucket every
+    time, and the ten-attempt limit never fired -- unlimited password guessing
+    against 508 accounts, several of which can move money.
+
+    The rightmost entry is the one our own proxy wrote, so it is the last one
+    nobody downstream could forge.
+    """
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        if hops:
+            return hops[-1]
+    return request.META.get("REMOTE_ADDR", "")
+
+
 def _login_throttle_key(request: HttpRequest, email: str) -> str:
-    ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() or request.META.get(
-        "REMOTE_ADDR", ""
-    )
-    return f"login-fail:{_login_unlock_epoch(email)}:{email}:{ip}"
+    # The email is in the key as well as the address, so a rotating proxy pool
+    # still cannot get more than the allowance for the account it is guessing.
+    return f"login-fail:{_login_unlock_epoch(email)}:{email}:{_client_ip(request)}"
 
 
 @api.post("/auth/login")
@@ -1925,7 +1960,8 @@ def lookup_scimago_api(request: HttpRequest, payload: ScimagoLookupIn):
 
 @api.post("/lookup/verify", auth=session_auth)
 def lookup_verify(request: HttpRequest, payload: VerifyIn):
-    require_user(request)
+    # The response embeds the same paid-history block as /prior/check.
+    _require_may_see_money(request)
     if not (payload.title or "").strip():
         raise HttpError(400, "Title is required")
     return verify_publication(
@@ -2001,7 +2037,10 @@ def calculate(request: HttpRequest, payload: CalcIn):
 
 @api.post("/prior/check", auth=session_auth)
 def prior_check(request: HttpRequest, payload: PriorCheckIn):
-    require_user(request)
+    # Every match carries the amount a named colleague was paid and when. A
+    # head of department must not see a rupee figure by any route, and this
+    # route hands one over for any title somebody cares to type.
+    _require_may_see_money(request)
     result = check_already_paid(
         title=payload.title,
         doi=payload.doi,
@@ -4429,6 +4468,11 @@ def set_verified_values(request: HttpRequest, claim_id: str, payload: ManualVeri
 @api.get("/dashboard", auth=session_auth)
 def dashboard(request: HttpRequest):
     user = require_user(request)
+    # Returns total_paid and a remuneration on every recent row. /claims and
+    # /claims/{id} both refuse a head here and this one did not, which held
+    # only while a head owned no claims -- the condition the guard's own
+    # docstring says must never be relied on.
+    _refuse_hod_money_screens(user)
     qs = _claims_queryset(user)
     counts = {row["status"]: row["n"] for row in qs.values("status").annotate(n=Count("id"))}
     by_status = {s: counts.get(s, 0) for s in ClaimStatus.values}
@@ -5496,6 +5540,10 @@ class ThreadIn(Schema):
     title: str
     body: str
     visibility: str = "PUBLIC"
+    #: DIRECT only: who is in the conversation, besides whoever opened it.
+    #: This is the audience, not a notification list -- `visible_threads`
+    #: reads these rows, which is what makes a direct thread private.
+    participant_ids: list[str] = []
     department: Optional[str] = None
     topic: Optional[str] = None
     claim_id: Optional[str] = None
@@ -5670,9 +5718,21 @@ def create_thread(request: HttpRequest, payload: ThreadIn):
     if not body:
         raise HttpError(400, "Say something in the first post.")
 
-    refusal = discussions.check_visibility(user, payload.visibility, payload.department)
+    refusal = discussions.check_visibility(
+        user, payload.visibility, payload.department, payload.participant_ids
+    )
     if refusal:
         raise HttpError(403 if "only" in refusal.lower() else 400, refusal)
+
+    people: list[User] = []
+    if payload.visibility == Thread.Visibility.DIRECT:
+        wanted = {p for p in payload.participant_ids if p and p != user.id}
+        people = list(User.objects.filter(pk__in=wanted, active=True))
+        if len(people) != len(wanted):
+            # Named somebody who is not here. Refused rather than quietly
+            # dropped: a conversation silently missing the person it was for
+            # is worse than one that failed to open.
+            raise HttpError(404, "One of those people could not be found.")
 
     claim = None
     if payload.claim_id:
@@ -5697,8 +5757,18 @@ def create_thread(request: HttpRequest, payload: ThreadIn):
             created_by=user,
             post_count=0,
         )
+        if payload.visibility == Thread.Visibility.DIRECT:
+            # Written inside the same transaction as the thread. A direct
+            # thread that exists without its participant rows is readable by
+            # nobody at all, including its author.
+            ThreadParticipant.objects.bulk_create(
+                [ThreadParticipant(thread=thread, user=u) for u in [user, *people]],
+                ignore_conflicts=True,
+            )
         post = _write_post(thread, user, body, kind=Post.Kind.HUMAN)
         _subscribe(thread, user)
+        for u in people:
+            _subscribe(thread, u)
         for m in post.mentions.filter(kind=Mention.Kind.USER):
             _subscribe(thread, m.user)
 
@@ -6172,6 +6242,8 @@ def lookup_ticket(request: HttpRequest, q: str):
     that each want a different key.
     """
     user = require_user(request)
+    # Every ticket row carries its remuneration.
+    _refuse_hod_money_screens(user)
     term = (q or "").strip()
     if len(term) < 2:
         raise HttpError(400, "Type at least two characters")
@@ -7082,7 +7154,19 @@ def discover_status(request: HttpRequest):
     "this is switched off" rather than presenting a button that always fails.
     """
     require_user(request)
-    return {"available": gemini.available(), "model": gemini.model_name()}
+    # More than a boolean, because "off" covers three different situations
+    # with three different remedies: no service, a service with the model
+    # missing, or a provider name nobody recognises. A screen that cannot tell
+    # them apart can only shrug at somebody who could have fixed it.
+    state = ai.health()
+    return {
+        "available": bool(state.get("ready")),
+        "model": state.get("model") or "",
+        "provider": state.get("provider"),
+        "code": state.get("code"),
+        "detail": state.get("detail"),
+        "base_url": state.get("base_url"),
+    }
 
 
 @api.get("/meta/research-domains", auth=session_auth)
@@ -7144,13 +7228,22 @@ def discover_venues(request: HttpRequest, payload: VenueIn):
     and no amount, because attaching a number to a journal we cannot identify
     is how somebody ends up submitting to a venue that does not exist.
     """
-    user = require_user(request)
+    # Every suggested journal comes back with the rupee figure the policy would
+    # pay for it. /discover/reprice and /research/search return the same kind of
+    # figure and are both guarded; this one, which is where the figure is first
+    # produced, was not.
+    user = _require_may_see_money(request)
     title = (payload.title or "").strip()
     if len(title) < 8:
         raise HttpError(400, "Give the paper's title so there is something to go on")
 
-    if not gemini.available():
-        raise HttpError(503, "Suggestions are switched off — no model is configured")
+    state = ai.health()
+    if not state.get("ready"):
+        # 503 with the reason attached. "Switched off" was the only thing this
+        # ever said, and it is wrong for two of the three ways it happens --
+        # the service being down and the model not being pulled are both
+        # things somebody can fix in one command.
+        raise HttpError(503, state.get("detail") or "Suggestions are switched off.")
 
     try:
         result = discover_service.suggest_venues(
@@ -7160,21 +7253,179 @@ def discover_venues(request: HttpRequest, payload: VenueIn):
             author_position=max(1, payload.author_position),
             total_authors=max(1, payload.total_authors),
         )
-    except gemini.GeminiError as exc:
-        # 502 rather than 500: this is an upstream failing, the request was
-        # fine, and retrying is a reasonable thing for the reader to do.
-        raise HttpError(502, str(exc)) from exc
+    except ai.AIError as exc:
+        raise HttpError(_ai_failure_status(exc), str(exc)) from exc
 
+    _log_venue_search(user, title, result)
+    return result
+
+
+def _ai_failure_status(exc: ai.AIError) -> int:
+    """Which of the two ways this was not the reader's fault.
+
+    A missing model is configuration, not a bad gateway. Answering 502 for it
+    sends somebody looking for a network fault that is not there, when the fix
+    is one `ollama pull` on the machine it runs on.
+    """
+    return 503 if exc.code in ("model_missing", "unreachable", "misconfigured") else 502
+
+
+def _log_venue_search(user: User, title: str, result: dict[str, Any]) -> None:
     AuditLog.objects.create(
         actor=user,
         action="DISCOVER_VENUES",
         entity="Claim",
         entity_id="",
-        detail_json=json.dumps(
-            {"title": title[:300], "verified": len(result["journals"])}
-        ),
+        detail_json=json.dumps({"title": title[:300], "verified": len(result["journals"])}),
     )
-    return result
+
+
+def _ndjson(obj: dict[str, Any]) -> bytes:
+    """One JSON object, one line.
+
+    NDJSON rather than Server-Sent Events because this is a POST with a body
+    and `EventSource` cannot make one, so the client is a `fetch` reader
+    either way -- and once it is, splitting on newlines is less to get wrong
+    than parsing the SSE framing by hand.
+    """
+    return (json.dumps(obj, default=str) + "\n").encode("utf-8")
+
+
+@api.post("/discover/venues/stream", auth=session_auth)
+def discover_venues_stream(request: HttpRequest, payload: VenueIn):
+    """The same answer as `/discover/venues`, with the wait made visible.
+
+    The model runs on this server's CPU at about four and a half tokens a
+    second, so this request takes a minute and a half and there is nothing
+    anybody can do to make it take less. What was wrong was not the ninety
+    seconds; it was that the screen said "Searching..." for all of them and
+    offered no way out, so a request that was working looked like one that
+    had hung, and the only remedy anybody had was to reload the page --
+    which left the model generating an answer no longer going anywhere.
+
+    So: the same result, preceded by the model saying where it has got to,
+    and stoppable for real -- see `/discover/venues/cancel`, which exists
+    because a dropped connection turned out not to be something this server
+    notices.
+
+    Everything that can be refused is refused before the first byte, because
+    after that the status is 200 and a failure has to be carried in the body
+    instead. What is left -- the model failing part way through -- arrives as
+    an `error` event carrying the status it would have been.
+    """
+    user = _require_may_see_money(request)
+    title = (payload.title or "").strip()
+    if len(title) < 8:
+        raise HttpError(400, "Give the paper's title so there is something to go on")
+
+    state = ai.health()
+    if not state.get("ready"):
+        raise HttpError(503, state.get("detail") or "Suggestions are switched off.")
+
+    # Named so it can be stopped. Prefixed with the reader's own id so the
+    # endpoint that stops it can check that it is theirs to stop, and random
+    # in the rest so it is not somebody else's to guess.
+    token = f"{user.pk}:{uuid_lib.uuid4()}"
+
+    def events():
+        started = time.monotonic()
+        phase = "connecting"
+
+        def since() -> float:
+            return round(time.monotonic() - started, 1)
+
+        # Sent immediately, so the screen has a clock and an expectation
+        # before the model has done anything at all. A wait somebody was told
+        # about in advance is a different experience from the same wait
+        # discovered halfway through.
+        yield _ndjson(
+            {
+                "event": "start",
+                "token": token,
+                "model": state.get("model") or "",
+                "expected_seconds": ai.EXPECTED_SECONDS,
+                "expected_tokens": ai.EXPECTED_TOKENS,
+            }
+        )
+
+        for kind, value in ai.run_with_progress(
+            discover_service.suggest_venues,
+            {
+                "title": title,
+                "abstract": (payload.abstract or "").strip(),
+                "keywords": (payload.keywords or "").strip(),
+                "author_position": max(1, payload.author_position),
+                "total_authors": max(1, payload.total_authors),
+            },
+            token=token,
+        ):
+            if kind == "step":
+                phase = value.get("phase") or phase
+                yield _ndjson({"event": "step", "elapsed": since(), **value})
+            elif kind == "tick":
+                # Nothing new, said once a second anyway, because the first
+                # eight seconds of a cold search produce no tokens at all and
+                # a counter that has not moved since the button was pressed
+                # is the thing this endpoint exists to stop showing.
+                yield _ndjson({"event": "tick", "phase": phase, "elapsed": since()})
+            elif kind == "cancelled":
+                yield _ndjson({"event": "cancelled", "elapsed": since()})
+            elif kind == "error":
+                yield _ndjson(
+                    {
+                        "event": "error",
+                        "status": _ai_failure_status(value),
+                        "code": value.code,
+                        "detail": str(value),
+                        "elapsed": since(),
+                    }
+                )
+            elif kind == "result":
+                # Logged here rather than in the worker, on the request's own
+                # database connection, and only for a search somebody stayed
+                # for. The unverified names are not counted: the audit trail
+                # records what the database agreed to, which is the same
+                # split the screen shows.
+                _log_venue_search(user, title, value)
+                yield _ndjson({"event": "result", "elapsed": since(), "data": value})
+
+    response = StreamingHttpResponse(events(), content_type="application/x-ndjson")
+    # Nothing between here and the browser may hold this back waiting for a
+    # complete body -- buffering a progress stream turns it back into the
+    # silence it exists to replace.
+    response["Cache-Control"] = "no-cache, no-store, no-transform"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
+class CancelIn(Schema):
+    #: The token the `start` event of a venue stream carried.
+    token: str
+
+
+@api.post("/discover/venues/cancel", auth=session_auth)
+def discover_venues_cancel(request: HttpRequest, payload: CancelIn):
+    """Stop a search somebody has given up on.
+
+    A separate request rather than an inference from the stream's connection
+    dropping, because that inference does not hold. Measured on this server:
+    a client closing a streaming connection mid-answer was never noticed --
+    the writes into the dead socket went on succeeding -- and the model spent
+    another eighty-eight seconds finishing an answer with nowhere to go, on
+    the four cores the next reader was waiting for. A cancel button that only
+    stops the spinner is not a cancel button.
+
+    Answering whether it found the run is deliberate. With more than one
+    worker process the request can land on a worker that never had it, and
+    saying so is better than an empty 200 that implies something happened.
+    """
+    user = require_user(request)
+    # A token names one reader's own search. Somebody else's is not theirs to
+    # stop, and the prefix is checked rather than trusted because a cancel is
+    # a write, however small.
+    if not payload.token.startswith(f"{user.pk}:"):
+        raise HttpError(403, "That search is not yours to stop.")
+    return {"stopped": ai.stop(payload.token)}
 
 
 class RepriceIn(Schema):
@@ -7182,6 +7433,45 @@ class RepriceIn(Schema):
     issns: list[str]
     author_position: int = 1
     total_authors: int = 1
+
+
+@api.get("/trends/me", auth=session_auth)
+def trends_me(request: HttpRequest, limit: int = 12, people_limit: int = 8):
+    """What this college is working on, and who to work with.
+
+    Deliberately `require_user` and not `_require_may_see_money`: there is no
+    rupee figure anywhere in this payload, and locking a head of department
+    out of a money-free picture of their own institution would be the wrong
+    call. Both halves go through `hod.without_money` on the way out anyway, so
+    a field named `amount` added here later cannot leak one.
+
+    Never answers 503. It needs no model -- the measured half is the half that
+    must always work.
+    """
+    user = require_user(request)
+    return trends.overview(
+        user,
+        limit=max(1, min(int(limit), 30)),
+        people_limit=max(1, min(int(people_limit), 25)),
+    )
+
+
+@api.get("/trends/openings", auth=session_auth)
+def trends_openings(request: HttpRequest):
+    """The part a model wrote, kept behind its own request.
+
+    Separate from `/trends/me` on purpose. The measured picture answers in
+    milliseconds; this takes a couple of minutes on a CPU, and putting them in
+    one response would make the fast half wait for the slow one.
+    """
+    user = require_user(request)
+    state = ai.health()
+    if not state.get("ready"):
+        raise HttpError(503, state.get("detail") or "Suggestions are switched off.")
+    try:
+        return trends.suggest_openings(user=user)
+    except ai.AIError as exc:
+        raise HttpError(_ai_failure_status(exc), str(exc)) from exc
 
 
 @api.get("/programme/me", auth=session_auth)
@@ -7357,8 +7647,13 @@ def discover_directions(request: HttpRequest):
     would be reading somebody's notes.
     """
     user = require_user(request)
-    if not gemini.available():
-        raise HttpError(503, "Suggestions are switched off — no model is configured")
+    state = ai.health()
+    if not state.get("ready"):
+        # 503 with the reason attached. "Switched off" was the only thing this
+        # ever said, and it is wrong for two of the three ways it happens --
+        # the service being down and the model not being pulled are both
+        # things somebody can fix in one command.
+        raise HttpError(503, state.get("detail") or "Suggestions are switched off.")
 
     history = discover_service.publication_history(user)
     interests = list(
@@ -7376,8 +7671,8 @@ def discover_directions(request: HttpRequest):
 
     try:
         return discover_service.suggest_directions(history=history, interests=interests)
-    except gemini.GeminiError as exc:
-        raise HttpError(502, str(exc)) from exc
+    except ai.AIError as exc:
+        raise HttpError(_ai_failure_status(exc), str(exc)) from exc
 
 
 @api.get("/journals/report", auth=session_auth)
@@ -9407,6 +9702,17 @@ def admin_user_detail(request: HttpRequest, user_id: str):
 #: not been true since a head got their own department screen: standing
 #: against the college, targets they set for their staff, and a money-free
 #: view of one person. It is a real post again, and it is assignable.
+#: Roles whose appointment decides whether money moves, and which therefore
+#: only a super admin may hand out.
+#:
+#: The research cell and the coordinator manage accounts -- that is their job,
+#: and taking it away would stop the office working. But `can_manage_users`
+#: covered every role including SUPER_ADMIN, so the desk that clears a claim
+#: could promote itself, or reset the Finance password and pay the claim it had
+#: just cleared. Every separation in the approval chain was optional for the
+#: one role positioned to exploit it.
+PRIVILEGED_ROLES = (Role.SUPER_ADMIN, Role.DIRECTOR, Role.FINANCE)
+
 ASSIGNABLE_ROLES = (
     Role.FACULTY,
     Role.HOD,
@@ -9420,6 +9726,22 @@ ASSIGNABLE_ROLES = (
     Role.FINANCE,
     Role.SUPER_ADMIN,
 )
+
+
+def _check_privileged_assignment(actor: User, role: str | None) -> None:
+    """Only a super admin appoints the roles that decide whether money moves.
+
+    Separate from `_check_assignable_role`, which answers "is this a real
+    role"; this answers "is this yours to hand out". The research cell keeps
+    every other part of account management.
+    """
+    if role and role in PRIVILEGED_ROLES and actor.role != Role.SUPER_ADMIN:
+        raise HttpError(
+            403,
+            f"Only a super admin can appoint the {role.replace('_', ' ').lower()} "
+            "role. It decides whether money moves, so the office that prepares "
+            "a payment cannot also create the account that authorises it.",
+        )
 
 
 def _check_assignable_role(role: str | None) -> None:
@@ -9442,6 +9764,7 @@ def admin_create_user(request: HttpRequest, payload: UserCreateIn):
     if not rbac.can_manage_users(user.role):
         raise HttpError(403, "Forbidden")
     _check_assignable_role(payload.role)
+    _check_privileged_assignment(user, payload.role)
 
     email = payload.email.strip().lower()
     if not email:
@@ -9512,6 +9835,7 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
                 + ". You can still set the role, the department and whether the "
                 "account is active.",
             )
+    _check_privileged_assignment(actor, data.get("role"))
     # Self-lockout guard: an admin demoting or deactivating their own account
     # can leave the system with nobody able to manage users.
     if u.id == actor.id:

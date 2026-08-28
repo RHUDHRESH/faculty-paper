@@ -238,6 +238,7 @@ export function Accreditation() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          art="no-results"
           icon={CircleCheck}
           title={
             only === "incomplete"

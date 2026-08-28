@@ -36,11 +36,28 @@ export type Column<T> = {
   cell: (row: T, i: number) => React.ReactNode
 }
 
-/** The sticky, bordered, surface-coloured `<th>` — for bespoke table markup
- *  that wants the same pinned head this component uses internally. */
+/** The sticky, pinned `<th>` — for bespoke table markup that wants the same
+ *  head this component uses internally.
+ *
+ *  Two changes from a plain sticky head, both of them about the fact that
+ *  this thing is genuinely in front of the rows:
+ *
+ *  `bg-sunken` rather than `bg-surface`. The head sat on the same white as
+ *  the body, so the column names read as row zero — and in a grid whose
+ *  first row is often a total, that is a real misreading and not a stylistic
+ *  one. A tinted ground makes the head chrome.
+ *
+ *  `shadow-under` while, and only while, rows are actually passing beneath
+ *  it. A permanent drop shadow under a head is decoration; one that appears
+ *  on the first pixel of scroll is the answer to "am I still at the top of
+ *  this list, or have I lost the first twenty rows above the fold" — which
+ *  a pinned head otherwise hides completely. `TableScroller` sets the
+ *  `data-scrolled` flag this reads. */
 export const stickyHeadCell = cn(
-  "sticky top-0 z-10 whitespace-nowrap bg-surface px-3 py-2 text-left",
-  "border-b border-edge"
+  "sticky top-0 z-10 whitespace-nowrap bg-sunken px-3 py-2 text-left",
+  "border-b border-edge",
+  "transition-shadow duration-[var(--dur-2)] ease-out",
+  "group-data-[scrolled]/scroll:shadow-under"
 )
 
 // A shadow that never fully disappears because the content is one
@@ -71,6 +88,9 @@ export function TableScroller({
   const contentRef = useRef<HTMLDivElement>(null)
   const [showLeft, setShowLeft] = useState(false)
   const [showRight, setShowRight] = useState(false)
+  // Vertical, for the pinned head: rows are passing under it, so it has to
+  // say so. Same slack as the horizontal edges, for the same reason.
+  const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
     const scroller = scrollRef.current
@@ -81,6 +101,7 @@ export function TableScroller({
       const max = scroller.scrollWidth - scroller.clientWidth
       setShowLeft(scroller.scrollLeft > EDGE_SLACK)
       setShowRight(scroller.scrollLeft < max - EDGE_SLACK)
+      setScrolled(scroller.scrollTop > EDGE_SLACK)
     }
 
     update()
@@ -102,7 +123,16 @@ export function TableScroller({
     <div className={cn("relative", className)}>
       <div
         ref={scrollRef}
-        className="overflow-auto rounded-lg ring-1 ring-inset ring-edge"
+        // `bg-surface`, not the page's own ground. The page is a hair off
+        // white and a grid is the biggest object on most screens in this
+        // app; sitting it on plain surface is what makes it read as a thing
+        // resting on the page rather than as a rectangle ruled onto it. It
+        // gets no drop shadow — a table is not pressable, does not float,
+        // and is not the page's one answer, so none of the elevation steps
+        // apply to it. The tone step and the `edge` hairline are the whole
+        // treatment.
+        className="group/scroll overflow-auto rounded-lg bg-surface ring-1 ring-inset ring-edge"
+        data-scrolled={scrolled ? "" : undefined}
         style={{ maxHeight: maxHeight ?? "max(20rem, calc(100vh - 19rem))" }}
       >
         <div ref={contentRef} style={{ minWidth }}>
@@ -165,10 +195,15 @@ export function Table<T>({
 }) {
   if (rows.length === 0) {
     return (
+      // Sunken, where a populated grid is `surface`. An empty state drawn on
+      // the same white as a full one is a container that might simply have
+      // failed to paint; a recessed tray reads as a container that is
+      // genuinely empty. It also puts more distance between this and an
+      // error banner, which must never be confusable with it.
       <div
         className={cn(
           "rounded-lg px-6 py-16 text-center text-sm text-fg-muted",
-          "ring-1 ring-inset ring-edge",
+          "bg-sunken shadow-well ring-1 ring-inset ring-edge",
           className
         )}
       >
@@ -207,7 +242,16 @@ export function Table<T>({
                       key={col.key}
                       className={cn(
                         "px-3 py-2.5 align-middle",
-                        col.align === "right" && "text-right tabular",
+                        // Right-aligned means numeric in every table in this
+                        // app, and the numeric column is the one a reader
+                        // came to scan. `font-medium` against the 400 of the
+                        // text columns beside it is what lets the eye run
+                        // down the amounts without reading the names — a
+                        // step small enough that a whole grid of it does not
+                        // read as bold, and `tabular` keeps the digits on a
+                        // common rhythm so the column has a straight edge on
+                        // both sides.
+                        col.align === "right" && "text-right font-medium tabular",
                         isLead && link && "p-0",
                         col.className
                       )}

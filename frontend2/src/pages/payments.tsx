@@ -220,7 +220,19 @@ export function Payments() {
 
   const payableRows = rows.filter(isPayable)
   const allVisibleSelected = payableRows.length > 0 && payableRows.every((c) => selected.has(c.id))
+  // Anything selected at all, not just on the page being looked at.
+  //
+  // The selection deliberately survives paging -- it carries whole rows for
+  // exactly that reason -- but the bar that shows it was gated on the current
+  // page containing a selected row. Select fifteen claims on page one, turn to
+  // page two to add more, and the bar vanished: fifteen claims still selected,
+  // no count, no total, and no way to pay them without noticing the selection
+  // was still live and paging back.
+  const anySelected = selected.size > 0
+  // Still needed, but only for the select-all checkbox in the header, whose
+  // indeterminate mark is genuinely about the rows on screen.
   const someVisibleSelected = payableRows.some((c) => selected.has(c.id))
+  const selectedOffPage = selected.size - payableRows.filter((c) => selected.has(c.id)).length
 
   const selectedRows = [...selected.values()]
   const selectedTotal = selectedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
@@ -260,11 +272,17 @@ export function Payments() {
         </div>
       </header>
 
-      {someVisibleSelected && (
+      {anySelected && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
           <p className="text-sm">
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>
+            {selectedOffPage > 0 ? (
+              <span className="text-fg-muted">
+                {" "}
+                · {selectedOffPage} on {selectedOffPage === 1 ? "another page" : "other pages"}
+              </span>
+            ) : null}
           </p>
           <div className="flex items-center gap-2">
             <Button kind="quiet" size="sm" onClick={() => setSelected(new Map())}>
@@ -287,6 +305,7 @@ export function Payments() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          art="nothing-paid"
           icon={Banknote}
           title="Nothing waiting on Finance"
           message="Every ticket the Principal has approved has already been paid."

@@ -210,6 +210,8 @@ export function Department() {
       <TargetsSection
         data={targets.data}
         loading={targets.isLoading}
+        failed={targets.isError}
+        onRetry={() => void targets.refetch()}
         year={targets.data?.year ?? new Date().getFullYear()}
         onAdd={() => setEditing({ target: null, person: null })}
         onEdit={(t) => setEditing({ target: t, person: null })}
@@ -219,6 +221,8 @@ export function Department() {
         overview={overview.data}
         targets={targets.data}
         loading={overview.isLoading}
+        failed={overview.isError}
+        onRetry={() => void overview.refetch()}
         onSetFor={(person) => setEditing({ target: null, person })}
       />
 
@@ -365,12 +369,16 @@ function Compare({
 function TargetsSection({
   data,
   loading,
+  failed,
+  onRetry,
   year,
   onAdd,
   onEdit,
 }: {
   data: TargetsPayload | undefined
   loading: boolean
+  failed: boolean
+  onRetry: () => void
   year: number
   onAdd: () => void
   onEdit: (t: Target) => void
@@ -387,6 +395,14 @@ function TargetsSection({
 
       {loading ? (
         <SkeletonRows rows={3} rowHeight={52} />
+      ) : failed ? (
+        // Not the empty state below. A head whose request failed was told
+        // their department had agreed no targets at all this year.
+        <ErrorState
+          title="Could not load the targets"
+          message="The server did not answer. Any target already agreed is still there."
+          onRetry={onRetry}
+        />
       ) : !data || data.department_targets.length === 0 ? (
         <div className="border-y border-line py-10 text-center">
           <TargetIcon className="mx-auto mb-2 size-7 text-fg-subtle" aria-hidden />
@@ -477,11 +493,15 @@ function PeopleSection({
   overview,
   targets,
   loading,
+  failed,
+  onRetry,
   onSetFor,
 }: {
   overview: Overview | undefined
   targets: TargetsPayload | undefined
   loading: boolean
+  failed: boolean
+  onRetry: () => void
   onSetFor: (person: Person) => void
 }) {
   const byPerson = new Map<string, Target[]>()
@@ -501,6 +521,14 @@ function PeopleSection({
 
       {loading ? (
         <SkeletonRows rows={8} rowHeight={40} />
+      ) : failed ? (
+        // "Nobody is on the roster for this department" is a startling thing
+        // to tell a head of department because a request timed out.
+        <ErrorState
+          title="Could not load the roster"
+          message="The server did not answer. Nobody has been removed."
+          onRetry={onRetry}
+        />
       ) : people.length === 0 ? (
         <p className="border-y border-line py-8 text-center text-sm text-fg-muted">
           Nobody is on the roster for this department.

@@ -995,6 +995,10 @@ class Thread(models.Model):
         PUBLIC = "PUBLIC", "Everybody"
         DEPARTMENT = "DEPARTMENT", "One department"
         OFFICE = "OFFICE", "The office, and whoever asked"
+        #: A named set of people and nobody else. The only visibility whose
+        #: audience is a list rather than a property of the reader, which is
+        #: why it needs `ThreadParticipant` and why the other three did not.
+        DIRECT = "DIRECT", "The people in it"
 
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
     title = models.CharField(max_length=300)
@@ -1040,6 +1044,36 @@ class Thread(models.Model):
 
     def __str__(self) -> str:
         return self.title[:60]
+
+
+class ThreadParticipant(models.Model):
+    """One person who is in a direct conversation.
+
+    Distinct from `ThreadSubscription`, which is notification routing and
+    grants nothing: `visible_threads` has never consulted it. This table *is*
+    the audience, and `visible_threads` reads it. Keeping the two apart means
+    somebody can mute a conversation they are in without leaving it, and being
+    told about a thread still never implies being able to open it.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    thread = models.ForeignKey(
+        Thread, on_delete=models.CASCADE, related_name="participants"
+    )
+    user = models.ForeignKey(
+        "User", on_delete=models.CASCADE, related_name="direct_threads"
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["thread", "user"], name="one_row_per_person_per_thread"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} in {self.thread_id}"
 
 
 class Post(models.Model):
@@ -1179,9 +1213,22 @@ class CalendarEvent(models.Model):
     ends_on = models.DateField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
 
+    #: Deliberately NOT `Thread.Visibility.choices`.
+    #:
+    #: It used to be, and that stopped being safe the moment threads gained
+    #: DIRECT: a direct thread's audience is a row per person in
+    #: `ThreadParticipant`, and an event has no such table. A calendar event
+    #: marked DIRECT would be an event with an empty audience -- created
+    #: successfully, then visible to nobody, including whoever made it.
     visibility = models.CharField(
-        max_length=16, choices=Thread.Visibility.choices,
-        default=Thread.Visibility.PUBLIC, db_index=True,
+        max_length=16,
+        choices=[
+            (v, label)
+            for v, label in Thread.Visibility.choices
+            if v != Thread.Visibility.DIRECT
+        ],
+        default=Thread.Visibility.PUBLIC,
+        db_index=True,
     )
     department = models.CharField(max_length=255, blank=True, null=True, db_index=True)
 

@@ -362,6 +362,7 @@ function TableView({ name, onBack }: { name: string; onBack: () => void }) {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          art="no-results"
           icon={q ? SearchX : Database}
           title={q ? "Nothing matches that search" : "This table is empty"}
           message={

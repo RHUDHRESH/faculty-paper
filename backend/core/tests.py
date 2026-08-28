@@ -18,7 +18,35 @@ from core.services.verify import check_already_paid
 from core.models import Budget, CalendarEvent, DepartmentTarget, DuplicateFinding, JournalStanding, ScimagoJournal
 from core.models import ClaimReason, Mention, Post, Team, TeamMember, Thread, ThreadSubscription
 from core.models import SnipSource
-from core.services import discover, gemini
+from core.services import ai, discover
+
+
+def _model_ready():
+    """Pretend the local model service is up with the model installed.
+
+    Stubbed rather than probed: availability is now a loopback round trip to
+    Ollama, and a test suite that fails when a daemon is not running is a
+    suite nobody can trust on a fresh machine.
+    """
+    return patch.object(
+        ai,
+        "health",
+        return_value={
+            "provider": "ollama", "ready": True, "code": "ready", "detail": None,
+            "model": "gemma4:12b", "base_url": "http://127.0.0.1:11434",
+        },
+    )
+
+
+def _model_unavailable(code="service_down", detail="No local model service is answering."):
+    return patch.object(
+        ai,
+        "health",
+        return_value={
+            "provider": "ollama", "ready": False, "code": code, "detail": detail,
+            "model": "gemma4:12b", "base_url": "http://127.0.0.1:11434",
+        },
+    )
 from core.services import research_search as rs
 from core.services.normalize import normalize_issn
 from django.core.cache import cache
@@ -7761,27 +7789,30 @@ class DiscoveryEndpointTests(TestCase):
         self.client.force_login(self.user)
 
     def test_status_says_whether_it_can_run(self):
-        with override_settings(GEMINI_API_KEY=""):
+        with _model_unavailable():
             self.assertFalse(self.client.get("/api/discover/status").json()["available"])
-        with override_settings(GEMINI_API_KEY="test-key"):
+        with _model_ready():
             self.assertTrue(self.client.get("/api/discover/status").json()["available"])
 
     def test_no_key_is_a_supported_state_not_a_crash(self):
         """The normal condition on a developer machine, and possibly in
         production. It must say so rather than 500."""
-        with override_settings(GEMINI_API_KEY=""):
+        with _model_unavailable():
             r = self.client.post(
                 "/api/discover/venues",
                 data=json.dumps({"title": "A Paper About Something Or Other"}),
                 content_type="application/json",
             )
             self.assertEqual(r.status_code, 503)
-            self.assertIn("switched off", r.json()["detail"])
+            # It says which of the three ways it is off, because each has a
+            # different one-command remedy. "Switched off" -- the old copy --
+            # was only right for one of them.
+            self.assertIn("No local model service", r.json()["detail"])
 
             self.assertEqual(self.client.get("/api/discover/directions").status_code, 503)
 
     def test_a_title_too_short_to_work_with_is_refused_before_the_model(self):
-        with override_settings(GEMINI_API_KEY="test-key"):
+        with _model_ready():
             r = self.client.post(
                 "/api/discover/venues",
                 data=json.dumps({"title": "Hi"}),
@@ -7789,19 +7820,33 @@ class DiscoveryEndpointTests(TestCase):
             )
             self.assertEqual(r.status_code, 400)
 
-    def test_the_model_failing_is_a_502_not_a_500(self):
-        """It is an upstream failing, the request was fine, and retrying is a
-        reasonable thing for the reader to do."""
-        with override_settings(GEMINI_API_KEY="test-key"), patch(
-            "core.services.discover.gemini.ask_json",
-            side_effect=gemini.GeminiError("model is down", code="unreachable"),
-        ):
-            r = self.client.post(
-                "/api/discover/venues",
-                data=json.dumps({"title": "A Paper About Something Or Other"}),
-                content_type="application/json",
-            )
-            self.assertEqual(r.status_code, 502)
+    def test_the_model_failing_is_never_a_500(self):
+        """The request was fine; something the request depends on was not.
+
+        Which of the two it is decides the status. A model that is not
+        installed, or a service that is not running, is 503 and a one-command
+        fix on the machine it runs on. A model that answered badly is 502.
+        Both are the reader's cue to retry; neither is a bug in their request.
+        """
+        cases = [
+            ("unreachable", 503),
+            ("model_missing", 503),
+            ("misconfigured", 503),
+            ("timeout", 502),
+            ("unparsable", 502),
+        ]
+        for code, expected in cases:
+            with self.subTest(code=code):
+                with _model_ready(), patch(
+                    "core.services.discover.ai.ask_json",
+                    side_effect=ai.AIError("it did not work", code=code),
+                ):
+                    r = self.client.post(
+                        "/api/discover/venues",
+                        data=json.dumps({"title": "A Paper About Something Or Other"}),
+                        content_type="application/json",
+                    )
+                self.assertEqual(r.status_code, expected, code)
 
     def test_an_invented_journal_never_arrives_with_an_amount(self):
         """End to end: the model names two journals, only one of which is real.
@@ -7822,8 +7867,8 @@ class DiscoveryEndpointTests(TestCase):
                 {"title": "Journal of Imaginary Widgetry", "why": "also fits"},
             ]
         }
-        with override_settings(GEMINI_API_KEY="test-key"), patch(
-            "core.services.discover.gemini.ask_json", return_value=reply
+        with _model_ready(), patch(
+            "core.services.discover.ai.ask_json", return_value=reply
         ):
             body = self.client.post(
                 "/api/discover/venues",
@@ -7842,8 +7887,8 @@ class DiscoveryEndpointTests(TestCase):
     def test_the_assumptions_behind_the_amount_are_returned(self):
         """An estimate whose assumptions are invisible is a number somebody
         will treat as a promise."""
-        with override_settings(GEMINI_API_KEY="test-key"), patch(
-            "core.services.discover.gemini.ask_json", return_value={"journals": []}
+        with _model_ready(), patch(
+            "core.services.discover.ai.ask_json", return_value={"journals": []}
         ):
             body = self.client.post(
                 "/api/discover/venues",
@@ -7854,8 +7899,8 @@ class DiscoveryEndpointTests(TestCase):
         self.assertEqual(body["assumed"]["total_authors"], 5)
 
     def test_nothing_to_go_on_says_so_rather_than_asking_the_model(self):
-        with override_settings(GEMINI_API_KEY="test-key"), patch(
-            "core.services.discover.gemini.ask_json"
+        with _model_ready(), patch(
+            "core.services.discover.ai.ask_json"
         ) as asked:
             body = self.client.get("/api/discover/directions").json()
             asked.assert_not_called()
@@ -8044,14 +8089,14 @@ class RepriceAndDirectoryTests(TestCase):
         """The whole reason it exists. Asking the model the same question again
         for an answer that cannot have changed costs seconds and a paid call
         per keystroke."""
-        with patch("core.services.discover.gemini.ask_json") as asked:
+        with patch("core.services.discover.ai.ask_json") as asked:
             r = self.post({"issns": ["15684946"], "author_position": 1, "total_authors": 3})
             asked.assert_not_called()
         self.assertEqual(r.status_code, 200)
         self.assertIsNotNone(r.json()["journals"][0]["payout"]["amount"])
 
     def test_it_works_with_no_model_configured_at_all(self):
-        with override_settings(GEMINI_API_KEY=""):
+        with _model_unavailable():
             self.assertEqual(
                 self.post({"issns": ["15684946"]}).status_code, 200
             )
@@ -8261,7 +8306,7 @@ class ResearchSearchTests(TestCase):
 
     def test_the_endpoint_works_with_no_model_and_no_key(self):
         """The whole reason this exists beside the AI features."""
-        with override_settings(GEMINI_API_KEY=""), patch.dict(rs.SOURCES, {
+        with _model_unavailable(), patch.dict(rs.SOURCES, {
             "openalex": lambda q, n: [self.hit(doi="10.1/x", title="Found It")],
             "crossref": lambda q, n: [],
             "arxiv": lambda q, n: [],
@@ -9503,6 +9548,238 @@ class ThreadAgentTests(TestCase):
         self.assertEqual(posts[0]["body"], "@agent hello")
 
 
+class ThreadAgentModelTests(TestCase):
+    """The local model as a fallback, never as a substitute for a row we hold.
+
+    Every one of these stubs `ai.ask_json`. The suite must pass on a machine
+    with no daemon running, and a test that quietly takes thirty seconds when
+    one happens to be up is a test people learn to skip.
+    """
+
+    def setUp(self):
+        self.faculty = User.objects.create_user(
+            email="tam-fac@test.edu", password="pass", name="TAM Faculty",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.head = User.objects.create_user(
+            email="tam-head@test.edu", password="pass", name="TAM Head",
+            role=Role.HOD, department="CSE",
+        )
+        FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            snip_multiplier=55000, qf_q1=50000,
+        )
+        ScimagoJournal.objects.create(
+            title="Applied Soft Computing", issn="1568-4946", sjr=2.5, year=2025,
+            categories_json=json.dumps([{"category": "Software", "quartile": "Q1"}]),
+        )
+        SnipSource.objects.create(
+            title="Applied Soft Computing", print_issn="1568-4946",
+            snip=1.8, year=2025,
+        )
+        Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.PAID, ticket_number="TAM-1",
+            paper_title="Scheduling under uncertainty",
+            journal_title="Applied Soft Computing", issn="1568-4946",
+            quartile="Q1", remuneration=90000.0, publication_year=2025,
+        )
+        self.client = Client()
+
+    # -- helpers ---------------------------------------------------------- #
+
+    def _open(self, actor, body, title="Asking the assistant something"):
+        self.client.force_login(actor)
+        r = self.client.post(
+            "/api/threads",
+            data=json.dumps({"title": title, "body": body}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()["id"]
+
+    def _posts(self, thread_id, actor):
+        self.client.force_login(actor)
+        return self.client.get(f"/api/threads/{thread_id}").json()["posts"]
+
+    def _agent_body(self, thread_id, actor):
+        said = [p for p in self._posts(thread_id, actor) if p["kind"] == "AGENT"]
+        return said[-1]["body"] if said else None
+
+    def _ask(self, actor, body):
+        return self._agent_body(self._open(actor, body), actor)
+
+    def _reply(self, thread_id, actor, body):
+        self.client.force_login(actor)
+        r = self.client.post(
+            f"/api/threads/{thread_id}/posts",
+            data=json.dumps({"body": body}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        return self._agent_body(thread_id, actor)
+
+    def _answers(self, answer, journals=None):
+        return patch.object(
+            ai, "ask_json", return_value={"answer": answer, "journals": journals or []}
+        )
+
+    # -- the lookups still come first ------------------------------------- #
+
+    def test_a_fact_we_hold_is_answered_without_asking_the_model(self):
+        """The whole point of the ordering: instant, exact, and no inference."""
+        with _model_ready(), patch.object(ai, "ask_json") as asked:
+            said = self._ask(self.faculty, '@agent @journal:"Applied Soft Computing"')
+        asked.assert_not_called()
+        self.assertIn("Applied Soft Computing", said)
+        self.assertIn("Q1", said)
+
+    def test_a_literature_search_still_goes_to_the_keyless_sources(self):
+        with _model_ready(), patch.object(ai, "ask_json") as asked, patch.object(
+            rs, "search", return_value={"results": [], "failed": []}
+        ) as searched:
+            said = self._ask(self.faculty, "@agent find recent work on federated learning")
+        asked.assert_not_called()
+        searched.assert_called_once()
+        self.assertIn("Nothing came back", said)
+
+    # -- and the model answers what they cannot --------------------------- #
+
+    def test_an_open_question_reaches_the_model_and_is_grounded(self):
+        with _model_ready(), self._answers(
+            "That direction builds on the scheduling work you have already published."
+        ) as asked:
+            said = self._ask(
+                self.faculty,
+                "@agent would that venue suit the direction I have been working in?",
+            )
+        asked.assert_called_once()
+        self.assertIn("builds on the scheduling work", said)
+        # It is honest about where the sentence came from and how long it took.
+        self.assertIn("model on this machine", said)
+        # And it was told what this person has actually published.
+        prompt = asked.call_args.args[0]
+        self.assertIn("Scheduling under uncertainty", prompt)
+
+    def test_a_question_beside_a_mention_gets_the_facts_and_then_the_model(self):
+        with _model_ready(), self._answers("It is a reasonable fit for that kind of work.") as asked:
+            said = self._ask(
+                self.faculty,
+                '@agent @journal:"Applied Soft Computing" is that a sensible home for my work?',
+            )
+        asked.assert_called_once()
+        self.assertIn("Q1", said, "the looked-up standing is still printed")
+        self.assertIn("reasonable fit", said)
+
+    # -- the model proposes, the database disposes ------------------------ #
+
+    def test_a_journal_the_model_invented_is_dropped(self):
+        with _model_ready(), self._answers(
+            "Two venues take work of this kind.",
+            ["Applied Soft Computing", "International Journal of Entirely Fictional Results"],
+        ):
+            said = self._ask(
+                self.faculty, "@agent where might this line of work reasonably go?"
+            )
+        self.assertIn("Applied Soft Computing", said)
+        self.assertIn("Q1", said, "a resolved journal carries our own numbers")
+        self.assertNotIn("Entirely Fictional", said)
+
+    def test_a_quartile_asserted_by_the_model_is_thrown_away(self):
+        """A number in the house style is worse than a guess in plain words."""
+        with _model_ready(), self._answers(
+            "That journal is Q1 with a SNIP of 4.2. It suits applied work."
+        ):
+            said = self._ask(
+                self.faculty, "@agent how well regarded is that venue in practice?"
+            )
+        self.assertIn("It suits applied work", said)
+        self.assertNotIn("4.2", said)
+
+    # -- money-blindness -------------------------------------------------- #
+
+    def test_a_head_of_department_gets_no_amount_out_of_the_model(self):
+        with _model_ready(), self._answers(
+            "A paper there is worth about ₹2,00,000 to you. Beyond that I cannot say.",
+            ["Applied Soft Computing"],
+        ):
+            said = self._ask(
+                self.head,
+                "@agent what would a paper in that journal be worth to my department?",
+            )
+        self.assertIsNotNone(said)
+        self.assertNotIn("₹", said, "a head sees no amount, here as anywhere else")
+        self.assertNotIn("2,00,000", said)
+        self.assertIn("Beyond that I cannot say", said, "the founded half survives")
+        self.assertIn("Q1", said, "academic standing is still their business")
+
+    def test_the_model_may_not_price_anything_for_anybody(self):
+        with _model_ready(), self._answers("Expect roughly 1.5 lakh for that. It is a strong venue."):
+            said = self._ask(
+                self.faculty, "@agent is that venue worth the effort for someone at my stage?"
+            )
+        self.assertNotIn("lakh", said)
+        self.assertIn("It is a strong venue", said)
+
+    def test_no_rupee_figure_from_the_thread_ever_reaches_the_prompt(self):
+        thread_id = self._open(
+            self.faculty, "we were paid ₹90,000 for that one last year", title="Money talk"
+        )
+        with _model_ready(), self._answers("I would judge it on scope rather than on that.") as asked:
+            said = self._reply(
+                thread_id, self.head, "@agent should the department push for that venue?"
+            )
+        self.assertIsNotNone(said)
+        prompt = asked.call_args.args[0]
+        self.assertNotIn("₹", prompt)
+        self.assertNotIn("90,000", prompt)
+        self.assertIn("[amount withheld]", prompt)
+
+    # -- when there is no model ------------------------------------------- #
+
+    def test_no_model_means_a_keyless_answer_and_a_recorded_reason(self):
+        from core.services import thread_agent
+
+        with _model_unavailable(), patch.object(ai, "ask_json") as asked, patch.object(
+            rs, "search", return_value={"results": [], "failed": []}
+        ) as searched:
+            said = self._ask(
+                self.faculty, "@agent would that venue suit the direction I am heading in?"
+            )
+        asked.assert_not_called()
+        searched.assert_called_once()
+        self.assertIsNotNone(said, "an absent model must not silence the assistant")
+        self.assertEqual(thread_agent.last_model_error()["reason"], "unavailable")
+        self.assertEqual(thread_agent.last_model_error()["code"], "service_down")
+
+    def test_a_refused_call_is_silent_to_the_reader_and_loud_in_the_log(self):
+        from core.services import thread_agent
+
+        with _model_ready(), patch.object(
+            ai, "ask_json", side_effect=ai.AIError("too slow", code="timeout")
+        ), patch.object(rs, "search", return_value={"results": [], "failed": []}):
+            said = self._ask(
+                self.faculty, "@agent would that venue suit the direction I am heading in?"
+            )
+        self.assertIsNotNone(said)
+        self.assertNotIn("too slow", said, "the reader is not shown the plumbing")
+        self.assertEqual(thread_agent.last_model_error()["code"], "timeout")
+
+    def test_a_model_that_explodes_never_eats_the_human_post(self):
+        thread_id = self._open(self.faculty, "opening this one", title="Still standing")
+        with _model_ready(), patch.object(
+            ai, "ask_json", side_effect=RuntimeError("boom")
+        ), patch.object(rs, "search", side_effect=RuntimeError("also down")):
+            self.client.force_login(self.faculty)
+            r = self.client.post(
+                f"/api/threads/{thread_id}/posts",
+                data=json.dumps({"body": "@agent what should I be reading right now?"}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 200, r.content)
+        bodies = [p["body"] for p in self._posts(thread_id, self.faculty)]
+        self.assertIn("@agent what should I be reading right now?", bodies)
+
+
 class MentionResolutionTests(TestCase):
     """An @name points at a record, or at nothing at all."""
 
@@ -9902,6 +10179,1115 @@ class CreateAccountWithoutAPasswordTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(res.status_code, 403)
+
+
+class WalkthroughTest(TestCase):
+    """One paper, filed to paid, printing what each desk actually sees.
+
+    Every other test asserts one thing about one step. This walks the whole
+    chain in order so the result is legible to somebody who is not going to
+    read the suite -- and it asserts as it goes, so it is a test rather than a
+    demonstration that cannot fail.
+
+    Run it with -v 2 to see the transcript.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        mk = User.objects.create_user
+        self.faculty = mk(email="w-fac@sec.edu", password="x", name="Dr S Kanagamalliga",
+                          role=Role.FACULTY, department="ECE", staff_id="SEC1042")
+        self.cell = mk(email="w-cell@sec.edu", password="x", name="Research Cell",
+                       role=Role.RESEARCH_CELL)
+        self.principal = mk(email="w-prin@sec.edu", password="x", name="Principal",
+                            role=Role.PRINCIPAL)
+        self.director = mk(email="w-dir@sec.edu", password="x", name="Director",
+                           role=Role.DIRECTOR)
+        self.finance = mk(email="w-fin@sec.edu", password="x", name="Finance",
+                          role=Role.FINANCE)
+        self.hod = mk(email="w-hod@sec.edu", password="x", name="Head of ECE",
+                      role=Role.HOD, department="ECE")
+
+        # The reference tables. Production holds 32,187 Scimago rows and
+        # 32,087 SNIP rows; a test database holds none, and without the
+        # journal the formula has no quartile and no SNIP to work from and
+        # correctly prices the paper at nothing.
+        ScimagoJournal.objects.create(
+            source_id="sol-1", title="Solar Energy", issn="0038-092X", year=2025,
+            categories_json=json.dumps(
+                [{"category": "Renewable Energy, Sustainability and the Environment",
+                  "quartile": "Q1"}]
+            ),
+        )
+        SnipSource.objects.create(
+            source_id="sol-1", title="Solar Energy", print_issn="0038-092X",
+            snip=1.85, year=2025,
+        )
+
+    def as_(self, user):
+        c = Client()
+        c.force_login(user)
+        return c
+
+    def say(self, line=""):
+        print(line)
+
+    def test_a_paper_walks_from_filing_to_payment(self):
+        self.say("\n" + "=" * 68)
+        self.say("  ONE PAPER, FILED TO PAID")
+        self.say("=" * 68)
+
+        # 1. The claimant files it.
+        body = {
+            "paper_title": "Thermal Imaging for Fault Detection in Photovoltaic Arrays",
+            "journal_title": "Solar Energy",
+            "issn": "0038-092X",
+            "publication_year": 2025,
+            "publication_date": "2025-03-14",
+            "publication_type": "Article",
+            "indexing_level": "Scopus",
+            "yukthi_id": "YK-2025-118",
+            "scopus_author_url": "https://www.scopus.com/authid/detail.uri?authorId=57200000",
+            "sec_refs": "3",
+            "self_reported_quartile": "Q1",
+            "self_reported_snip": 1.85,
+            "total_authors": 3,
+            "author_position": 1,
+            "affiliation_ok": True,
+            # The submission gate wants the published paper and the SEC
+            # references on file before it will take the claim -- which is the
+            # system working: an incentive is paid against evidence.
+            "proof_url": "https://doi.org/10.1016/j.solener.2025.03.014",
+            # The policy pays only for references it can see evidence of, and
+            # the evidence is the file plus the reference number -- a declared
+            # count of 3 with nothing attached counts as nought.
+            "attachments": [
+                {"kind": "PUBLISHED_PAPER", "url": "/media/claims/%s.pdf" % ("a" * 32),
+                 "filename": "paper.pdf", "size_bytes": 812345},
+                {"kind": "SEC_REFERENCE", "url": "/media/claims/%s.pdf" % ("b" * 32),
+                 "filename": "ref1.pdf", "size_bytes": 22100, "ref_number": "12",
+                 "ref_title": "Prior SEC work on PV monitoring"},
+                {"kind": "SEC_REFERENCE", "url": "/media/claims/%s.pdf" % ("c" * 32),
+                 "filename": "ref2.pdf", "size_bytes": 19800, "ref_number": "27",
+                 "ref_title": "SEC thermal imaging study"},
+            ],
+            "submit": True,
+            # Scopus has not indexed it yet and the reference tables in a test
+            # database are empty, so auto-confirmation fails -- which is the
+            # ordinary case for a recent paper. The claimant sends it anyway
+            # with a note, and the research cell checks it by hand. That is
+            # the designed path, not a workaround.
+            "contest_forward": True,
+            "contest_note": "Published 14 March 2025; Scopus indexing is still pending.",
+        }
+        res = self.as_(self.faculty).post(
+            "/api/claims", data=json.dumps(body), content_type="application/json"
+        )
+        self.assertEqual(res.status_code, 200, res.content[:400])
+        claim = Claim.objects.get(pk=res.json()["id"])
+        self.say(f"\n  1. FACULTY files it")
+        self.say(f"     {self.faculty.name} — {claim.paper_title[:52]}")
+        self.say(f"     ticket {claim.ticket_number}   status {claim.status}")
+        self.say(f"     Scopus has not indexed it yet, so it arrives unpriced "
+                 f"(Rs {claim.remuneration or 0:,.2f}) with the claimant's note")
+        self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
+        self.assertTrue(claim.contest_forward)
+
+        # 1b. The research cell enters the verified figures by hand. This is
+        #     the designed lane for a paper the index has not caught up with,
+        #     and the note is what an auditor follows later.
+        res = self.as_(self.cell).post(
+            f"/api/admin/claims/{claim.id}/set-verified",
+            data=json.dumps({
+                "quartile": "Q1", "snip": 1.85,
+                "note": "Scimago 2025 lists Solar Energy as Q1; SNIP 1.85 from the 2025 CWTS table.",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        claim.refresh_from_db()
+        self.say()
+        self.say(f"  1b. RESEARCH CELL verifies by hand    -> {claim.quartile}, SNIP {claim.snip}")
+        self.say(f"      the formula now says Rs {claim.remuneration:,.2f}")
+        self.say(f"      why: {claim.remuneration_note or claim.calc_error or 'n/a'}")
+        self.say(f"      sec_refs={claim.sec_refs!r} category={claim.remuneration_category!r}")
+        self.assertGreater(claim.remuneration or 0, 0)
+
+        # 2. A head of department must not see any of that.
+        hod = self.as_(self.hod)
+        blocked = [
+            hod.get("/api/dashboard").status_code,
+            hod.get(f"/api/lookup/ticket?q={claim.ticket_number}").status_code,
+        ]
+        self.say(f"\n  2. HEAD OF DEPARTMENT is refused every screen carrying money")
+        self.say(f"     /api/dashboard -> {blocked[0]}   /api/lookup/ticket -> {blocked[1]}")
+        self.assertEqual(blocked, [403, 403])
+
+        # 3. The research cell clears it.
+        res = self.as_(self.cell).post(
+            f"/api/claims/{claim.id}/clear",
+            data=json.dumps({"expected_amount": float(claim.remuneration)}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        claim.refresh_from_db()
+        self.say(f"\n  3. RESEARCH CELL clears it            -> {claim.status}")
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+
+        # 4. Finance cannot jump the queue.
+        early = self.as_(self.finance).post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({"voucher_number": "V-001"}),
+            content_type="application/json",
+        )
+        self.say(f"\n  4. FINANCE tries to pay it early      -> {early.status_code} refused")
+        self.assertEqual(early.status_code, 400)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+
+        # 5. Principal, then Director.
+        claim.refresh_from_db()
+        res = self.as_(self.principal).post(
+            f"/api/claims/{claim.id}/principal-approve",
+            # Every desk that moves the claim forward confirms the figure
+            # it is looking at. An amount that changed under somebody
+            # between reading and approving is refused, not waved through.
+            data=json.dumps({"expected_amount": float(claim.remuneration)}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        claim.refresh_from_db()
+        self.say(f"\n  5. PRINCIPAL approves                 -> {claim.status}")
+        self.assertEqual(claim.status, ClaimStatus.PRINCIPAL_APPROVED)
+
+        claim.refresh_from_db()
+        res = self.as_(self.director).post(
+            f"/api/claims/{claim.id}/director-approve",
+            # Every desk that moves the claim forward confirms the figure
+            # it is looking at. An amount that changed under somebody
+            # between reading and approving is refused, not waved through.
+            data=json.dumps({"expected_amount": float(claim.remuneration)}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        claim.refresh_from_db()
+        self.say(f"  6. DIRECTOR authorises                -> {claim.status}")
+        self.assertEqual(claim.status, ClaimStatus.DIRECTOR_APPROVED)
+
+        # 7. Now Finance may pay.
+        claim.refresh_from_db()
+        confirmed = float(claim.remuneration)
+        self.say(f"     Finance confirms the figure on screen: Rs {confirmed:,.2f}")
+        res = self.as_(self.finance).post(
+            f"/api/claims/{claim.id}/mark-paid",
+            data=json.dumps({
+                "voucher_number": "V-2025-0001",
+                "expected_amount": confirmed,
+                # Scopus is unreachable in a test database. Re-verifying would
+                # wipe the hand-entered quartile and reprice the claim to
+                # nothing mid-payment, which is what the super-admin escape
+                # hatch exists for.
+                "skip_external": True,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200, res.content[:400])
+        claim.refresh_from_db()
+        self.say(f"\n  7. FINANCE pays it                    -> {claim.status}")
+        self.say(f"     voucher {claim.voucher_number}   Rs {claim.remuneration:,.2f}")
+        self.assertEqual(claim.status, ClaimStatus.PAID)
+
+        # 8. The ledger carries it, and the account cannot be deleted away.
+        rows = PaidLedger.objects.filter(claim=claim)
+        self.say(f"\n  8. LEDGER has {rows.count()} row for it")
+        self.assertEqual(rows.count(), 1)
+
+        refusal = api_module._refuses_because_paid(self.faculty)
+        self.say(f"\n  9. Deleting the account is refused:")
+        self.say(f"     \"{(refusal or '')[:66]}...\"")
+        self.assertIsNotNone(refusal)
+
+        # 10. A second identical claim is warned about.
+        dup = self.as_(self.faculty).post(
+            "/api/claims",
+            data=json.dumps({**body, "submit": False}),
+            content_type="application/json",
+        )
+        dup_claim = Claim.objects.get(pk=dup.json()["id"])
+        self.say(f"\n 10. The same paper filed again is flagged: "
+                 f"duplicate_warning={dup_claim.duplicate_warning}")
+        self.assertTrue(dup_claim.duplicate_warning)
+
+        self.say("\n" + "=" * 68)
+        self.say(f"  Rs {claim.remuneration:,.2f} paid, through five desks, "
+                 f"none able to skip another.")
+        self.say("=" * 68 + "\n")
+
+
+class DirectMessageTests(TestCase):
+    """A conversation whose audience is a list of people.
+
+    Every other visibility answers "who may read this" from a property of the
+    reader -- their department, their role, whether they opened it. A private
+    conversation cannot be expressed that way, and `ThreadSubscription` only
+    looked like the missing list: nothing in `visible_threads` has ever
+    consulted it, so subscribing somebody routed a notification and granted no
+    access at all.
+    """
+
+    def setUp(self):
+        mk = User.objects.create_user
+        self.a = mk(email="dm-a@test.edu", password="x", name="Fac A",
+                    role=Role.FACULTY, department="CSE")
+        self.b = mk(email="dm-b@test.edu", password="x", name="Fac B",
+                    role=Role.FACULTY, department="ECE")
+        self.outsider = mk(email="dm-c@test.edu", password="x", name="Fac C",
+                           role=Role.FACULTY, department="CSE")
+        self.office = mk(email="dm-o@test.edu", password="x", name="Cell",
+                         role=Role.RESEARCH_CELL)
+        self.admin = mk(email="dm-s@test.edu", password="x", name="Admin",
+                        role=Role.SUPER_ADMIN)
+
+    def as_(self, user):
+        c = Client()
+        c.force_login(user)
+        return c
+
+    def open_direct(self, author, others, **extra):
+        body = {
+            "title": "About my March claim",
+            "body": "Could we talk about this privately?",
+            "visibility": "DIRECT",
+            "participant_ids": [u.id for u in others],
+            **extra,
+        }
+        return self.as_(author).post(
+            "/api/threads", data=json.dumps(body), content_type="application/json"
+        )
+
+    # ---- who can see it ------------------------------------------------
+
+    def test_the_people_in_it_can_read_it(self):
+        res = self.open_direct(self.a, [self.b])
+        self.assertEqual(res.status_code, 200, res.content[:300])
+        tid = res.json()["id"]
+        self.assertEqual(self.as_(self.a).get(f"/api/threads/{tid}").status_code, 200)
+        self.assertEqual(self.as_(self.b).get(f"/api/threads/{tid}").status_code, 200)
+
+    def test_nobody_else_can(self):
+        tid = self.open_direct(self.a, [self.b]).json()["id"]
+        self.assertEqual(self.as_(self.outsider).get(f"/api/threads/{tid}").status_code, 404)
+
+    def test_not_even_the_office(self):
+        """The office reads every other kind of thread, and must not read this
+        one. A direct message the administration can read is a quiet
+        conversation wearing the name of a private one."""
+        tid = self.open_direct(self.a, [self.b]).json()["id"]
+        for who in (self.office, self.admin):
+            self.assertEqual(
+                self.as_(who).get(f"/api/threads/{tid}").status_code, 404, who.role
+            )
+        listed = self.as_(self.office).get("/api/threads?visibility=DIRECT").json()
+        self.assertEqual(listed["results"], [])
+
+    def test_the_office_cannot_moderate_what_it_cannot_read(self):
+        """`may_moderate` returns True for the office on any thread, which
+        would be a lock button on a conversation invisible to them."""
+        from core import discussions
+
+        tid = self.open_direct(self.a, [self.b]).json()["id"]
+        thread = Thread.objects.get(pk=tid)
+        self.assertFalse(discussions.may_moderate(self.office, thread))
+        self.assertTrue(discussions.may_moderate(self.a, thread))
+        self.assertTrue(discussions.may_moderate(self.b, thread))
+        self.assertFalse(discussions.may_moderate(self.outsider, thread))
+
+    # ---- what it refuses -----------------------------------------------
+
+    def test_a_conversation_with_nobody_in_it_is_refused(self):
+        """Otherwise it is readable by its author alone -- a private note that
+        looks like a sent message, which is the worst way for one to fail."""
+        res = self.open_direct(self.a, [])
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("at least one person", res.json()["detail"])
+
+    def test_naming_only_yourself_is_the_same_thing(self):
+        res = self.open_direct(self.a, [self.a])
+        self.assertEqual(res.status_code, 400)
+
+    def test_naming_somebody_who_is_not_here_is_refused(self):
+        """Refused rather than quietly dropped: a conversation silently
+        missing the person it was for is worse than one that failed to open."""
+        res = self.as_(self.a).post(
+            "/api/threads",
+            data=json.dumps({
+                "title": "A ghost", "body": "hello", "visibility": "DIRECT",
+                "participant_ids": ["no-such-user"],
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 404)
+        self.assertFalse(Thread.objects.filter(title="A ghost").exists())
+
+    def test_a_deactivated_account_cannot_be_added(self):
+        self.b.active = False
+        self.b.save(update_fields=["active"])
+        self.assertEqual(self.open_direct(self.a, [self.b]).status_code, 404)
+
+    def test_it_is_not_a_mailing_list(self):
+        many = [
+            User.objects.create_user(
+                email=f"dm-bulk{i}@test.edu", password="x", name=f"P{i}",
+                role=Role.FACULTY,
+            )
+            for i in range(21)
+        ]
+        res = self.open_direct(self.a, many)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("handful", res.json()["detail"])
+
+    # ---- the rows are the audience -------------------------------------
+
+    def test_the_author_is_in_their_own_conversation(self):
+        tid = self.open_direct(self.a, [self.b]).json()["id"]
+        from core.models import ThreadParticipant
+
+        people = set(
+            ThreadParticipant.objects.filter(thread_id=tid).values_list("user_id", flat=True)
+        )
+        self.assertEqual(people, {self.a.id, self.b.id})
+
+    def test_a_thread_appears_once_however_many_people_are_in_it(self):
+        """`participants` is a reverse FK, so the join repeats the thread once
+        per matching row without a distinct()."""
+        from core import discussions
+
+        c = User.objects.create_user(
+            email="dm-d@test.edu", password="x", name="Fac D", role=Role.FACULTY
+        )
+        tid = self.open_direct(self.a, [self.b, c]).json()["id"]
+        self.assertEqual(discussions.visible_threads(self.a).filter(pk=tid).count(), 1)
+
+    def test_a_subscription_still_grants_nothing(self):
+        """The distinction this whole feature rests on: being told about a
+        conversation is not being in it."""
+        from core import discussions
+
+        tid = self.open_direct(self.a, [self.b]).json()["id"]
+        thread = Thread.objects.get(pk=tid)
+        ThreadSubscription.objects.create(thread=thread, user=self.outsider)
+        self.assertFalse(discussions.may_read(self.outsider, thread))
+
+    def test_the_other_visibilities_still_work(self):
+        """The new clause must not widen anything that already existed."""
+        pub = self.as_(self.a).post(
+            "/api/threads",
+            data=json.dumps({"title": "An open thread", "body": "hi", "visibility": "PUBLIC"}),
+            content_type="application/json",
+        )
+        self.assertEqual(pub.status_code, 200, pub.content[:200])
+        tid = pub.json()["id"]
+        for who in (self.a, self.b, self.outsider, self.office):
+            self.assertEqual(
+                self.as_(who).get(f"/api/threads/{tid}").status_code, 200, who.email
+            )
+
+    def test_a_calendar_event_cannot_be_direct(self):
+        """CalendarEvent reused Thread.Visibility.choices. A DIRECT event
+        would have an empty audience -- created successfully, then visible to
+        nobody including whoever made it."""
+        from core.models import CalendarEvent
+
+        values = [v for v, _ in CalendarEvent._meta.get_field("visibility").choices]
+        self.assertNotIn("DIRECT", values)
+        self.assertIn("PUBLIC", values)
+
+
+class AttachmentFingerprintTests(TestCase):
+    """A file's fingerprint survives an edit.
+
+    `_persist_attachments` deletes the attachment set and rebuilds it from the
+    payload, so a field `_claim_dict` does not send is a field the next save
+    erases. `content_hash` was omitted, which meant every save of a reopened
+    draft silently wiped every attachment's fingerprint -- and the duplicate
+    check on /claims/upload matches on bytes, so it went blind for that claim
+    permanently. The same PDF could then be attached to a second ticket with
+    nothing left to notice.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.faculty = User.objects.create_user(
+            email="hash-fac@test.edu", password="x", name="Fac",
+            role=Role.FACULTY, department="ECE",
+        )
+        self.client = Client()
+        self.client.force_login(self.faculty)
+
+    def test_the_fingerprint_is_returned_and_survives_a_save(self):
+        url = f"/media/claims/{'a' * 32}.pdf"
+        made = self.client.post(
+            "/api/claims",
+            data=json.dumps({
+                "paper_title": "A Paper", "journal_title": "J",
+                "attachments": [{
+                    "kind": "PUBLISHED_PAPER", "url": url, "filename": "p.pdf",
+                    "size_bytes": 100, "content_hash": "deadbeef" * 8,
+                }],
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(made.status_code, 200, made.content[:200])
+        claim_id = made.json()["id"]
+
+        # It has to come back, or the client cannot return it.
+        detail = self.client.get(f"/api/claims/{claim_id}").json()
+        self.assertEqual(detail["attachments"][0]["content_hash"], "deadbeef" * 8)
+
+        # And a save that echoes what it was given must not lose it.
+        again = self.client.patch(
+            f"/api/claims/{claim_id}",
+            data=json.dumps({"attachments": detail["attachments"]}),
+            content_type="application/json",
+        )
+        self.assertEqual(again.status_code, 200, again.content[:200])
+        kept = ClaimAttachment.objects.get(claim_id=claim_id)
+        self.assertEqual(
+            kept.content_hash, "deadbeef" * 8,
+            "the fingerprint was erased by an ordinary edit",
+        )
+
+
+class ZeroRupeeTrapTests(TestCase):
+    """Two rules disagree about what evidences an SEC-affiliated reference.
+
+    DEFECT, reported and deliberately not fixed.
+
+      * `_check_mandatory_fields` is satisfied by `claim.sec_refs` -- a text
+        field the claimant types -- or by a `sec_proof_url`.
+      * `_apply_calc` counts something else entirely: SEC_REFERENCE
+        attachments carrying a `ref_number`, and it wants `min_sec_references`
+        of them.
+
+    So a claim can pass every gate, reach Finance, and be worked out as Rs 0
+    with a note saying the claimant cited 0 references while the form in front
+    of them said 3.
+
+    It is left alone because closing it is a decision about who gets paid,
+    not a bug fix. Refusing these claims breaks twelve tests that encode the
+    opposite contract -- `test_attachments_alone_satisfy_the_upload_gate`
+    states it outright -- and `COUNT_ONLY` already exists as the supported way
+    to file a paper for the record with no money attached. Deriving
+    `sec_refs` from the attachments instead is worse: it is claimant-writable,
+    so clearing it deletes numbers somebody typed.
+
+    The filing wizard now warns before the claim is sent, which removes the
+    surprise without moving any money. These tests hold the shape of the
+    defect so it cannot be closed by accident.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.faculty = User.objects.create_user(
+            email="zt-fac@test.edu", password="x", name="Fac",
+            role=Role.FACULTY, department="ECE",
+        )
+
+    def claim(self, **extra):
+        base = dict(
+            owner=self.faculty, paper_title="A Paper", journal_title="J",
+            status=ClaimStatus.DRAFT, publication_year=2025,
+            issn="0038-092X", publication_date="2025-03-01",
+            indexing_level="Scopus", yukthi_id="YK-1",
+            scopus_author_url="https://www.scopus.com/authid/detail.uri?authorId=1",
+            affiliation_ok=True, total_authors=3, author_position=1,
+            proof_url="https://doi.org/10.0/x", sec_proof_url="https://doi.org/10.0/r",
+            sec_refs="12, 27",
+        )
+        base.update(extra)
+        return Claim.objects.create(**base)
+
+    def test_the_gate_and_the_formula_measure_different_things(self):
+        """The whole defect in one assertion."""
+        from core.api import _apply_calc, _check_mandatory_fields
+
+        claim = self.claim()          # typed numbers, a URL, no attachments
+        _check_mandatory_fields(claim)  # passes: does not raise
+        _apply_calc(claim)
+        self.assertEqual(
+            claim.remuneration or 0, 0,
+            "the trap has closed -- a claim that files now also pays",
+        )
+        self.assertIn("reference", (claim.remuneration_note or "").lower())
+
+    def test_the_note_says_zero_references_while_the_field_says_two(self):
+        """What the claimant actually reads, and why it is baffling."""
+        from core.api import _apply_calc
+
+        claim = self.claim()
+        _apply_calc(claim)
+        self.assertEqual(claim.sec_refs, "12, 27")
+        self.assertIn("0 SEC-affiliated references", claim.remuneration_note or "")
+
+    def test_attaching_the_references_with_numbers_pays(self):
+        """The remedy, so the defect above is understood as a mismatch rather
+        than as the policy refusing to pay anybody."""
+        from core.api import _apply_calc
+
+        claim = self.claim()
+        for n in ("12", "27"):
+            ClaimAttachment.objects.create(
+                claim=claim, kind=AttachmentKind.SEC_REFERENCE,
+                url=f"/media/claims/{n * 16}.pdf", filename="ref.pdf",
+                size_bytes=100, ref_number=n,
+            )
+        _apply_calc(claim)
+        self.assertGreater(claim.remuneration or 0, 0)
+
+    def test_count_only_is_the_supported_way_to_file_without_payment(self):
+        """Which is why the gate cannot simply be tightened: filing a paper
+        for the record already has its own reason code."""
+        from core.api import _apply_calc, _check_mandatory_fields
+
+        claim = self.claim(claim_reason=ClaimReason.COUNT_ONLY)
+        _check_mandatory_fields(claim)
+        _apply_calc(claim)
+        self.assertEqual(claim.remuneration or 0, 0)
+
+
+class MoneyBlindnessSweepTests(TestCase):
+    """Walk every registered route as a head of department.
+
+    The existing defence was a hand-written list of paths in one test, which
+    is a list somebody has to remember to add to. It had drifted: /dashboard,
+    /lookup/ticket, /prior/check, /lookup/verify and /discover/venues all
+    returned rupee figures to a head and none of them were on it.
+
+    This asks the router instead, so a new endpoint is covered the day it is
+    written rather than the day somebody remembers it.
+    """
+
+    def setUp(self):
+        self.hod = User.objects.create_user(
+            email="sweep-hod@test.edu", password="pass", name="Head",
+            role=Role.HOD, department="CSE",
+        )
+        self.faculty = User.objects.create_user(
+            email="sweep-fac@test.edu", password="pass", name="Fac",
+            role=Role.FACULTY, department="CSE",
+        )
+        # A head who owns a paid claim. Without this the sweep passes for the
+        # wrong reason: `_claims_queryset` scopes a head to their own claims,
+        # they normally own none, and an unguarded endpoint returns an empty
+        # list that looks like a refusal.
+        self.paid = Claim.objects.create(
+            owner=self.hod, paper_title="A Head's Own Paper", journal_title="J",
+            status=ClaimStatus.PAID, remuneration=90000, publication_year=2025,
+            ticket_number="FP-2025-000001",
+        )
+        self.client = Client()
+        self.client.force_login(self.hod)
+
+    def test_no_get_route_hands_a_head_a_rupee_figure(self):
+        from core.hod import MONEY_KEYS
+
+        checked, leaked = 0, []
+        for _prefix, router in api_module.api._routers:
+            for path, view in router.path_operations.items():
+                methods = {m for op in view.operations for m in op.methods}
+                if "GET" not in methods or "{" in path:
+                    continue
+                url = f"/api{path}"
+                try:
+                    res = self.client.get(url)
+                except Exception:
+                    continue
+                if res.status_code != 200:
+                    continue
+                checked += 1
+                raw = res.content.decode("utf-8", errors="ignore")
+                for key in MONEY_KEYS:
+                    if f'"{key}"' in raw:
+                        leaked.append(f"{url} -> {key}")
+        self.assertGreater(checked, 10, "the sweep did not actually reach any route")
+        self.assertEqual(leaked, [], f"money reached a head of department: {leaked}")
+
+    def test_the_named_readers_refuse_a_head(self):
+        """The ones the sweep cannot reach, because they need an argument."""
+        self.assertEqual(self.client.get("/api/lookup/ticket?q=FP-2025").status_code, 403)
+        self.assertEqual(
+            self.client.post(
+                "/api/prior/check", data=json.dumps({"title": "A Head's Own Paper"}),
+                content_type="application/json",
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/lookup/verify", data=json.dumps({"title": "A Head's Own Paper"}),
+                content_type="application/json",
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/discover/venues",
+                data=json.dumps({"title": "A Head's Own Paper About Things"}),
+                content_type="application/json",
+            ).status_code,
+            403,
+        )
+
+    def test_a_colleague_s_payout_is_not_readable_by_title(self):
+        """/prior/check answered with an amount and a name for any title."""
+        Claim.objects.create(
+            owner=self.faculty, paper_title="Deep Learning For Widgets",
+            journal_title="J", status=ClaimStatus.PAID, remuneration=90000,
+            publication_year=2025,
+        )
+        res = self.client.post(
+            "/api/prior/check",
+            data=json.dumps({"title": "Deep Learning For Widgets"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 403)
+        self.assertNotIn("90000", res.content.decode())
+
+
+class PrivilegedRoleTests(TestCase):
+    """The desk that clears a claim cannot appoint the desk that pays it.
+
+    `can_manage_users` covers the research cell and the coordinator, which is
+    correct -- managing accounts is their job. It also covered SUPER_ADMIN,
+    DIRECTOR and FINANCE, so the clearing desk could promote itself and then
+    approve, authorise and pay the claim it had just cleared. Every separation
+    in the chain was optional for the one role placed to exploit it.
+    """
+
+    def setUp(self):
+        self.cell = User.objects.create_user(
+            email="pr-cell@test.edu", password="pass", name="Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.admin = User.objects.create_user(
+            email="pr-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.someone = User.objects.create_user(
+            email="pr-someone@test.edu", password="pass", name="Someone",
+            role=Role.FACULTY, department="CSE",
+        )
+
+    def as_(self, user):
+        c = Client()
+        c.force_login(user)
+        return c
+
+    def test_the_research_cell_cannot_mint_a_super_admin(self):
+        res = self.as_(self.cell).post(
+            "/api/admin/users",
+            data=json.dumps({"email": "new@test.edu", "name": "New", "role": "SUPER_ADMIN"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 403)
+        self.assertFalse(User.objects.filter(email="new@test.edu").exists())
+
+    def test_the_research_cell_cannot_promote_somebody_to_finance(self):
+        res = self.as_(self.cell).patch(
+            f"/api/admin/users/{self.someone.id}",
+            data=json.dumps({"role": "FINANCE"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 403)
+        self.someone.refresh_from_db()
+        self.assertEqual(self.someone.role, Role.FACULTY)
+
+    def test_nor_a_director(self):
+        res = self.as_(self.cell).patch(
+            f"/api/admin/users/{self.someone.id}",
+            data=json.dumps({"role": "DIRECTOR"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_the_cell_keeps_the_rest_of_account_management(self):
+        """The fix must not stop the office doing its job."""
+        res = self.as_(self.cell).patch(
+            f"/api/admin/users/{self.someone.id}",
+            data=json.dumps({"role": "HOD", "department": "ECE"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        self.someone.refresh_from_db()
+        self.assertEqual(self.someone.role, Role.HOD)
+
+    def test_a_super_admin_still_appoints_anybody(self):
+        res = self.as_(self.admin).patch(
+            f"/api/admin/users/{self.someone.id}",
+            data=json.dumps({"role": "FINANCE"}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200, res.content[:200])
+
+
+class DuplicateWarningSurvivesOutageTests(TestCase):
+    """A Scopus outage must not erase a duplicate-payment warning.
+
+    `check_already_paid` asks our own database and has nothing to do with
+    Scopus, but it sat after the early return on ScopusError -- so an outage
+    meant the result carried no "paid" block, and the caller wrote the default
+    (no warning, no matches) straight over a warning raised at creation.
+
+    A verbatim duplicate of an already-paid claim then reached Finance with
+    nothing on it to say so.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.faculty = User.objects.create_user(
+            email="dup-fac@test.edu", password="pass", name="Fac",
+            role=Role.FACULTY, department="CSE", staff_id="S1",
+        )
+        Claim.objects.create(
+            owner=self.faculty, paper_title="A Paper Paid Once Already",
+            journal_title="J", status=ClaimStatus.PAID, remuneration=90000,
+            publication_year=2025, normalized_title=normalize_title("A Paper Paid Once Already"),
+        )
+
+    def test_the_warning_is_kept_when_scopus_is_down(self):
+        from core.services.scopus import ScopusError
+        from core.services.verify import verify_publication
+
+        with patch(
+            "core.services.verify.search_by_title",
+            side_effect=ScopusError("unauthorized", "no key"),
+        ):
+            out = verify_publication(title="A Paper Paid Once Already")
+
+        self.assertFalse(out["ok"], "the outage should still be reported")
+        self.assertIn("paid", out, "the paid check must still have run")
+        self.assertTrue(out["paid"]["warning"], "the duplicate went unnoticed")
+
+    def test_applying_a_result_without_a_paid_block_keeps_what_was_there(self):
+        """Belt and braces: an unasked question is not a 'no'."""
+        from core.services.verify import apply_verify_to_claim
+
+        claim = Claim.objects.create(
+            owner=self.faculty, paper_title="A Paper Paid Once Already",
+            journal_title="J", status=ClaimStatus.DRAFT, publication_year=2025,
+            duplicate_warning=True,
+            duplicate_matches_json=json.dumps([{"amount": 90000.0}]),
+        )
+        apply_verify_to_claim(claim, {"ok": False, "scopus": {}})
+        self.assertTrue(claim.duplicate_warning)
+        self.assertIn("90000", claim.duplicate_matches_json)
+
+
+class LoginThrottleTests(TestCase):
+    """The lockout counter cannot be reset by a header the client writes."""
+
+    def test_the_client_half_of_x_forwarded_for_is_ignored(self):
+        factory = __import__("django.test", fromlist=["RequestFactory"]).RequestFactory()
+
+        req = factory.post("/api/auth/login", REMOTE_ADDR="10.0.0.9")
+        # Client-supplied value first, our proxy's appended last. Taking the
+        # leftmost gave a fresh bucket per request and the ten-attempt limit
+        # never fired.
+        req.META["HTTP_X_FORWARDED_FOR"] = "1.2.3.4, 203.0.113.7"
+        first = api_module._login_throttle_key(req, "a@test.edu")
+
+        req.META["HTTP_X_FORWARDED_FOR"] = "9.9.9.9, 203.0.113.7"
+        second = api_module._login_throttle_key(req, "a@test.edu")
+
+        self.assertEqual(first, second, "a spoofed hop still moved the bucket")
+        self.assertIn("203.0.113.7", first)
+
+    def test_it_falls_back_to_the_socket_address(self):
+        factory = __import__("django.test", fromlist=["RequestFactory"]).RequestFactory()
+        req = factory.post("/api/auth/login", REMOTE_ADDR="10.0.0.9")
+        self.assertIn("10.0.0.9", api_module._login_throttle_key(req, "a@test.edu"))
+
+
+class PayoutMonthTests(TestCase):
+    """The claimant does not choose which month's budget pays them."""
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        self.faculty = User.objects.create_user(
+            email="pm-fac@test.edu", password="pass", name="Fac",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.client = Client()
+        self.client.force_login(self.faculty)
+
+    def test_a_claimant_cannot_set_the_payout_month(self):
+        """It decides which financial year's budget the payment lands in. One
+        set to 2019-04 produced a real payment the current year's budget
+        report could not see."""
+        res = self.client.post(
+            "/api/claims",
+            data=json.dumps({
+                "paper_title": "A Paper", "journal_title": "J",
+                "payout_month": "2019-04",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200, res.content[:200])
+        claim = Claim.objects.get(pk=res.json()["id"])
+        self.assertIsNone(claim.payout_month)
+
+
+class LocalInferenceTests(TestCase):
+    """The provider seam, and the ways local inference is allowed to fail.
+
+    None of these need a running Ollama: the transport is stubbed at
+    `urllib.request.urlopen`, which is the boundary between our code and the
+    daemon. What is being tested is our reading of its answers, not the
+    daemon.
+    """
+
+    def setUp(self):
+        from core.services import ollama
+
+        self.ollama = ollama
+
+    def _reply(self, payload, status=200):
+        """Stand in for one urlopen call returning a JSON body."""
+        import io
+
+        return io.BytesIO(json.dumps(payload).encode())
+
+    # ---- configuration ------------------------------------------------
+
+    def test_the_provider_is_local_by_default(self):
+        self.assertEqual(ai.provider_name(), "ollama")
+
+    @override_settings(AI_PROVIDER="openai")
+    def test_an_unknown_provider_is_refused_rather_than_resolved(self):
+        """A typo in a deployment variable must stop the feature, not quietly
+        change where a faculty member's unpublished abstract is sent."""
+        state = ai.health()
+        self.assertFalse(state["ready"])
+        self.assertEqual(state["code"], "misconfigured")
+        with self.assertRaises(ai.AIError) as caught:
+            ai.ask_json("anything")
+        self.assertEqual(caught.exception.code, "misconfigured")
+
+    @override_settings(OLLAMA_BASE_URL="http://127.0.0.1:11434")
+    def test_it_only_ever_talks_to_loopback_by_default(self):
+        self.assertTrue(self.ollama.base_url().startswith("http://127.0.0.1"))
+
+    # ---- health -------------------------------------------------------
+
+    def test_a_dead_service_and_a_missing_model_are_told_apart(self):
+        """Two different situations with two different one-command remedies.
+        Collapsing them into "unavailable" leaves somebody who could have
+        fixed it in one step with nothing to act on."""
+        with patch("urllib.request.urlopen", side_effect=OSError("refused")):
+            state = ai.health()
+        self.assertFalse(state["ready"])
+        self.assertEqual(state["code"], "service_down")
+        self.assertIn("Start Ollama", state["detail"])
+
+        replies = [
+            self._reply({"version": "0.32.15"}),
+            self._reply({"models": [{"name": "qwen2.5-coder:1.5b"}]}),
+        ]
+        with patch("urllib.request.urlopen", side_effect=replies):
+            state = ai.health()
+        self.assertFalse(state["ready"])
+        self.assertEqual(state["code"], "model_missing")
+        self.assertIn("ollama pull", state["detail"])
+
+    @override_settings(OLLAMA_MODEL="gemma4:12b")
+    def test_it_is_ready_when_the_model_is_installed(self):
+        replies = [
+            self._reply({"version": "0.32.15"}),
+            self._reply({"models": [{"name": "gemma4:12b"}]}),
+        ]
+        with patch("urllib.request.urlopen", side_effect=replies):
+            state = ai.health()
+        self.assertTrue(state["ready"])
+        self.assertEqual(state["code"], "ready")
+
+    @override_settings(OLLAMA_MODEL="gemma4")
+    def test_a_tagless_name_matches_its_tagged_install(self):
+        """Ollama treats a bare name as :latest, and somebody configuring this
+        by hand writes whichever form they saw."""
+        replies = [
+            self._reply({"version": "0.32.15"}),
+            self._reply({"models": [{"name": "gemma4:12b"}]}),
+        ]
+        with patch("urllib.request.urlopen", side_effect=replies):
+            self.assertTrue(ai.health()["ready"])
+
+    def test_a_health_probe_never_takes_a_page_down(self):
+        with patch("core.services.ai.health", side_effect=RuntimeError("boom")):
+            self.assertFalse(ai.available())
+
+    # ---- failure mapping ----------------------------------------------
+
+    def test_a_missing_model_is_configuration_not_a_server_error(self):
+        import urllib.error
+
+        err = urllib.error.HTTPError(
+            "http://127.0.0.1:11434/api/generate", 404, "Not Found", {},
+            __import__("io").BytesIO(b'{"error":"model \'gemma4:12b\' not found"}'),
+        )
+        with patch("urllib.request.urlopen", side_effect=err):
+            with self.assertRaises(ai.AIError) as caught:
+                ai.ask_json("anything")
+        self.assertEqual(caught.exception.code, "model_missing")
+
+    def test_a_timeout_is_reported_as_one(self):
+        with patch("urllib.request.urlopen", side_effect=TimeoutError()):
+            with self.assertRaises(ai.AIError) as caught:
+                ai.ask_json("anything")
+        self.assertEqual(caught.exception.code, "timeout")
+
+    def test_nothing_falls_back_to_a_remote_service(self):
+        """The whole point of running locally is that the text stays here.
+        A fallback would make that stop being true exactly when nobody is
+        watching, so a dead daemon raises rather than reaching outward."""
+        with patch("urllib.request.urlopen", side_effect=OSError("refused")):
+            with self.assertRaises(ai.AIError) as caught:
+                ai.ask_json("anything")
+        self.assertEqual(caught.exception.code, "unreachable")
+
+    # ---- the request we actually send ---------------------------------
+
+    def test_thinking_is_off(self):
+        """Gemma 4 reasons before answering and does it silently. With
+        thinking left on and a normal token ceiling it spends the whole budget
+        reasoning and returns an EMPTY string with done_reason "length" -- an
+        HTTP success carrying nothing at all. Measured on this hardware:
+        20 tokens produced 0 characters with it on, and a correct answer in
+        10 with it off."""
+        seen = {}
+
+        def capture(req, timeout=None):
+            seen.update(json.loads(req.data.decode()))
+            return self._reply({"response": '{"ok": true}'})
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            ai.ask_json("anything")
+        self.assertIs(seen.get("think"), False)
+
+    def test_the_schema_is_passed_as_a_decoding_constraint(self):
+        """Stronger than asking in the prompt: the decoder cannot emit tokens
+        that break the schema. A smaller local model needs that."""
+        seen = {}
+
+        def capture(req, timeout=None):
+            seen.update(json.loads(req.data.decode()))
+            return self._reply({"response": '{"journals": []}'})
+
+        schema = {"type": "object", "properties": {"journals": {"type": "array"}}}
+        with patch("urllib.request.urlopen", side_effect=capture):
+            ai.ask_json("anything", schema=schema)
+        self.assertEqual(seen.get("format"), schema)
+
+    def test_every_call_is_bounded(self):
+        """An unbounded generate holds a worker until something else times out
+        and blames the wrong thing."""
+        seen = {}
+
+        def capture(req, timeout=None):
+            seen["timeout"] = timeout
+            return self._reply({"response": "{}"})
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            ai.ask_json("anything")
+        self.assertIsNotNone(seen["timeout"])
+        self.assertLessEqual(seen["timeout"], 600)
+
+    # ---- reading the answer -------------------------------------------
+
+    def test_a_fenced_answer_is_still_read(self):
+        with patch(
+            "urllib.request.urlopen",
+            return_value=self._reply({"response": '```json\n{"a": 1}\n```'}),
+        ):
+            self.assertEqual(ai.ask_json("x"), {"a": 1})
+
+    def test_an_empty_answer_is_an_error_not_an_empty_result(self):
+        """The failure mode thinking-on produced. A feature that silently
+        yields nothing looks exactly like one nobody switched on."""
+        with patch("urllib.request.urlopen", return_value=self._reply({"response": "  "})):
+            with self.assertRaises(ai.AIError) as caught:
+                ai.ask_json("x")
+        self.assertEqual(caught.exception.code, "empty")
+
+    def test_a_truncated_answer_says_so(self):
+        with patch(
+            "urllib.request.urlopen",
+            return_value=self._reply({"response": '{"journals": [{"title": "Half'}),
+        ):
+            with self.assertRaises(ai.AIError) as caught:
+                ai.ask_json("x")
+        self.assertEqual(caught.exception.code, "unparsable")
+
+
+class LocalInferenceShapeTests(TestCase):
+    """The callers survive a smaller model missing the shape it was asked for.
+
+    A hosted model almost always returned the object it was told to. A local
+    one at this size returns a bare array often enough that `.get` on it -- an
+    uncaught AttributeError, so a 500 -- was a question of when.
+    """
+
+    def setUp(self):
+        self.cfg = FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+
+    def test_venues_survive_a_bare_array(self):
+        with patch(
+            "core.services.discover.ai.ask_json",
+            return_value=[{"title": "Applied Soft Computing", "why": "fits"}],
+        ):
+            out = discover.suggest_venues(title="A Paper About Photovoltaic Arrays")
+        self.assertIn("journals", out)
+
+    def test_venues_survive_junk_entries(self):
+        with patch(
+            "core.services.discover.ai.ask_json",
+            return_value={"journals": ["just a string", None, {"title": "", "why": "x"}]},
+        ):
+            out = discover.suggest_venues(title="A Paper About Photovoltaic Arrays")
+        self.assertEqual(out["journals"], [])
+
+    def test_directions_survive_a_bare_array(self):
+        with patch(
+            "core.services.discover.ai.ask_json",
+            return_value=[{"topic": "PV fault detection", "why": "y", "first_step": "z"}],
+        ):
+            out = discover.suggest_directions(history=[{"title": "t", "journal": "j", "year": "2025"}], interests=[])
+        self.assertEqual(len(out["directions"]), 1)
+
+    def test_directions_survive_junk_entries(self):
+        with patch(
+            "core.services.discover.ai.ask_json",
+            return_value={"directions": ["nope", 7, {"topic": ""}]},
+        ):
+            out = discover.suggest_directions(history=[{"title": "t", "journal": "j", "year": "2025"}], interests=[])
+        self.assertEqual(out["directions"], [])
 
 
 class ClerkPublishableKeyTests(TestCase):
@@ -10424,3 +11810,1017 @@ class GoogleSignInTests(TestCase):
                 )
         self.assertEqual(r.status_code, 403)
         self.assertIn("saveetha.ac.in", r.json()["detail"])
+
+
+# --------------------------------------------------------------------------- #
+# Making a ninety-second wait legible                                          #
+# --------------------------------------------------------------------------- #
+
+from django.test import TransactionTestCase as _TransactionTestCase
+
+
+def _stream_lines(response):
+    """Every NDJSON event a streaming response produced, parsed."""
+    body = b"".join(response.streaming_content).decode()
+    return [json.loads(line) for line in body.splitlines() if line.strip()]
+
+
+class VenueStreamTests(TestCase):
+    """The progress channel in front of a request that takes a minute and a half.
+
+    The model runs on this server's CPU at about four and a half tokens a
+    second and nothing here changes that. What these cover is the difference
+    between ninety seconds that look like work and ninety seconds that look
+    like a hang: that something arrives immediately, that it keeps arriving,
+    that the reader can stop it, and that stopping it is not reported as a
+    fault.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="stream@test.edu", password="p", name="Stream", role=Role.FACULTY
+        )
+        self.client = Client()
+        self.client.force_login(self.user)
+        self.body = json.dumps({"title": "A Paper About Photovoltaic Arrays"})
+
+    def post(self, client=None, body=None):
+        return (client or self.client).post(
+            "/api/discover/venues/stream",
+            data=body or self.body,
+            content_type="application/json",
+        )
+
+    # ---- what arrives, and when ---------------------------------------
+
+    def test_something_arrives_before_the_model_has_answered(self):
+        """The whole complaint, in one assertion.
+
+        A screen that is told nothing until the answer is complete has no
+        honest way to distinguish a slow request from a dead one, so it shows
+        the same spinner for both and the reader reloads the page.
+        """
+        def answer(**kwargs):
+            sink = ai.current_progress()
+            sink.note("connecting")
+            sink.note("generating", tokens=12, chars=48)
+            sink.note("reading", chars=400)
+            return {"journals": [], "unverified": [], "assumed": {}}
+
+        with _model_ready(), patch.object(discover, "suggest_venues", side_effect=answer):
+            events = _stream_lines(self.post())
+
+        kinds = [e["event"] for e in events]
+        self.assertEqual(kinds[0], "start")
+        self.assertEqual(kinds[-1], "result")
+        self.assertEqual(
+            [e["phase"] for e in events if e["event"] == "step"],
+            ["connecting", "generating", "reading"],
+        )
+        # Said up front, so the screen can promise a duration rather than
+        # discovering one.
+        self.assertGreater(events[0]["expected_seconds"], 0)
+        self.assertEqual(events[0]["model"], "gemma4:12b")
+
+    def test_every_event_carries_how_long_it_has_been(self):
+        """Elapsed time comes from the server, not from a timer the client
+        started, so a stalled connection cannot keep counting."""
+        def answer(**kwargs):
+            ai.current_progress().note("generating", tokens=1)
+            return {"journals": [], "unverified": [], "assumed": {}}
+
+        with _model_ready(), patch.object(discover, "suggest_venues", side_effect=answer):
+            events = _stream_lines(self.post())
+        for event in events[1:]:
+            self.assertIn("elapsed", event)
+
+    def test_a_search_somebody_stayed_for_is_recorded_once(self):
+        with _model_ready(), patch.object(
+            discover, "suggest_venues",
+            return_value={"journals": [], "unverified": [], "assumed": {}},
+        ):
+            _stream_lines(self.post())
+        self.assertEqual(AuditLog.objects.filter(action="DISCOVER_VENUES").count(), 1)
+
+    # ---- failures ------------------------------------------------------
+
+    def test_what_can_be_refused_is_refused_before_the_stream_starts(self):
+        """A 200 that turns out to be a failure is worse than a failure.
+
+        Everything knowable up front -- no model, a title too short to work
+        with, a reader not allowed to see money -- keeps its real status,
+        because once the first byte is written the status is 200 for good.
+        """
+        with _model_unavailable():
+            self.assertEqual(self.post().status_code, 503)
+
+        with _model_ready():
+            self.assertEqual(self.post(body=json.dumps({"title": "Hi"})).status_code, 400)
+
+        hod = User.objects.create_user(
+            email="hod-stream@test.edu", password="p", name="H", role=Role.HOD
+        )
+        as_hod = Client()
+        as_hod.force_login(hod)
+        with _model_ready():
+            self.assertEqual(self.post(client=as_hod).status_code, 403)
+
+        self.assertEqual(self.post(client=Client()).status_code, 401)
+
+    def test_a_model_that_fails_part_way_carries_its_status_in_the_body(self):
+        """The headers are long gone by then, so the status travels in the
+        event instead -- the same 503/502 split the plain endpoint answers,
+        so one screen can read both."""
+        for code, expected in (("unreachable", 503), ("timeout", 502), ("unparsable", 502)):
+            with self.subTest(code=code):
+                with _model_ready(), patch.object(
+                    discover, "suggest_venues",
+                    side_effect=ai.AIError("it did not work", code=code),
+                ):
+                    response = self.post()
+                    events = _stream_lines(response)
+                self.assertEqual(response.status_code, 200)
+                failure = events[-1]
+                self.assertEqual(failure["event"], "error")
+                self.assertEqual(failure["status"], expected)
+                self.assertEqual(failure["code"], code)
+
+    def test_a_crash_reaches_the_reader_rather_than_hanging_the_stream(self):
+        """A response that simply stops mid-stream is the same silence this
+        exists to remove."""
+        with _model_ready(), patch.object(
+            discover, "suggest_venues", side_effect=RuntimeError("boom")
+        ):
+            events = _stream_lines(self.post())
+        self.assertEqual(events[-1]["event"], "error")
+
+    def test_nothing_is_recorded_for_a_search_that_failed(self):
+        with _model_ready(), patch.object(
+            discover, "suggest_venues",
+            side_effect=ai.AIError("no", code="timeout"),
+        ):
+            _stream_lines(self.post())
+        self.assertEqual(AuditLog.objects.filter(action="DISCOVER_VENUES").count(), 0)
+
+    # ---- stopping ------------------------------------------------------
+
+    def test_the_search_is_named_so_it_can_be_stopped(self):
+        """A cancel has to be something the reader sends. Inferring it from
+        the connection dropping does not work: measured on this server, a
+        client closing a streaming connection mid-answer was never noticed,
+        and the model spent another eighty-eight seconds finishing an answer
+        with nowhere to go."""
+        with _model_ready(), patch.object(
+            discover, "suggest_venues",
+            return_value={"journals": [], "unverified": [], "assumed": {}},
+        ):
+            events = _stream_lines(self.post())
+        self.assertTrue(events[0]["token"].startswith(f"{self.user.pk}:"))
+
+    def test_stopping_a_running_search_ends_it(self):
+        import threading
+        import time
+
+        running = threading.Event()
+        ended = threading.Event()
+
+        def slow(**kwargs):
+            sink = ai.current_progress()
+            running.set()
+            for _ in range(400):
+                try:
+                    sink.note("generating", tokens=1)
+                except ai.Cancelled:
+                    ended.set()
+                    raise
+                time.sleep(0.01)
+            return {"journals": [], "unverified": [], "assumed": {}}
+
+        with _model_ready(), patch.object(discover, "suggest_venues", side_effect=slow):
+            response = self.post()
+            stream = iter(response.streaming_content)
+            start = json.loads(next(stream))
+            # The run begins when the response is read, not when it is
+            # returned, so take one event off it before expecting one.
+            next(stream)
+            self.assertTrue(running.wait(2))
+
+            stopped = self.client.post(
+                "/api/discover/venues/cancel",
+                data=json.dumps({"token": start["token"]}),
+                content_type="application/json",
+            )
+            self.assertEqual(stopped.json(), {"stopped": True})
+            self.assertTrue(ended.wait(2))
+
+            last = [json.loads(line) for line in stream if line.strip()][-1]
+        self.assertEqual(last["event"], "cancelled")
+
+    def test_a_cancelled_search_is_not_reported_as_a_failure(self):
+        """Nothing went wrong; somebody changed their mind. A red panel for
+        an action the reader took is a lie about their own doing."""
+        with _model_ready(), patch.object(
+            discover, "suggest_venues", side_effect=ai.Cancelled()
+        ):
+            events = _stream_lines(self.post())
+        self.assertEqual(events[-1]["event"], "cancelled")
+        self.assertNotIn("error", [e["event"] for e in events])
+
+    def test_one_person_cannot_stop_another_person_search(self):
+        other = User.objects.create_user(email="other-stream@test.edu", password="p", name="O")
+        as_other = Client()
+        as_other.force_login(other)
+        r = as_other.post(
+            "/api/discover/venues/cancel",
+            data=json.dumps({"token": f"{self.user.pk}:whatever"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 403)
+
+    def test_stopping_something_this_worker_never_had_says_so(self):
+        """With more than one worker process the cancel can land on a worker
+        that never saw the run. An empty 200 would imply otherwise."""
+        r = self.client.post(
+            "/api/discover/venues/cancel",
+            data=json.dumps({"token": f"{self.user.pk}:not-a-real-run"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.json(), {"stopped": False})
+
+
+class VenueStreamSafetyTests(_TransactionTestCase):
+    """The model proposes and the database disposes, on the streaming path too.
+
+    A `TransactionTestCase` rather than the usual kind for one specific
+    reason: the resolution against our own rows now happens on a worker
+    thread, so it reads through its own database connection, and data left
+    uncommitted inside a test's transaction would be invisible to it. Testing
+    this with the rest would have meant stubbing out the very check being
+    tested.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="stream-safe@test.edu", password="p", name="Stream", role=Role.FACULTY
+        )
+        self.client = Client()
+        self.client.force_login(self.user)
+
+    def post(self, body):
+        return self.client.post(
+            "/api/discover/venues/stream", data=body, content_type="application/json"
+        )
+
+    def test_an_invented_journal_still_arrives_without_an_amount(self):
+        """The same split as the plain endpoint, because it is the same call.
+
+        A plausible venue with a confident payout beside it is how somebody
+        submits to a journal that does not exist. Streaming the wait must not
+        become a second path on which that check is skipped.
+        """
+        ScimagoJournal.objects.create(
+            source_id="1", title="Applied Soft Computing", issn="15684946", year=2025,
+            sjr=1.4, categories_json=json.dumps([{"category": "Software", "quartile": "Q1"}]),
+        )
+        SnipSource.objects.create(
+            title="Applied Soft Computing", print_issn="15684946", snip=1.831, year=2025
+        )
+        FormulaConfig.objects.create(
+            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
+            name="Policy v1", version=1,
+        )
+        reply = {
+            "journals": [
+                {"title": "Applied Soft Computing", "why": "fits the scope"},
+                {"title": "Journal of Imaginary Widgetry", "why": "also fits"},
+            ]
+        }
+
+        # The model is stubbed; everything downstream of it -- the resolution
+        # against our own rows -- is the real code.
+        with _model_ready(), patch.object(ai, "ask_json", return_value=reply):
+            events = _stream_lines(
+                self.post(json.dumps({"title": "Something About Soft Computing Methods"}))
+            )
+
+        result = [e for e in events if e["event"] == "result"][-1]["data"]
+        self.assertEqual([j["title"] for j in result["journals"]], ["Applied Soft Computing"])
+        self.assertIsNotNone(result["journals"][0]["payout"]["amount"])
+        self.assertEqual(
+            [u["title"] for u in result["unverified"]], ["Journal of Imaginary Widgetry"]
+        )
+        self.assertNotIn("payout", result["unverified"][0])
+
+
+class InferenceProgressTests(TestCase):
+    """Watching a generation, and stopping one.
+
+    Stubbed at `urllib.request.urlopen` like the rest of the local-inference
+    tests: what is under test is our handling of a stream, not Ollama's.
+    """
+
+    def _stream(self, pieces, closed=None):
+        """A stand-in for Ollama's NDJSON response body."""
+        import io
+
+        lines = [json.dumps({"response": p, "done": False}) for p in pieces]
+        lines.append(json.dumps({"response": "", "done": True}))
+
+        class Body(io.BytesIO):
+            def close(self):
+                if closed is not None:
+                    closed.append(True)
+                super().close()
+
+        return Body(("\n".join(lines) + "\n").encode())
+
+    def _sink(self, seen, cancel_after=None):
+        return ai.Progress(
+            emit=seen.append,
+            is_cancelled=(lambda: cancel_after is not None and len(seen) >= cancel_after),
+        )
+
+    # ---- reporting -----------------------------------------------------
+
+    def test_a_watched_call_returns_the_same_answer_as_an_unwatched_one(self):
+        """Progress is an addition to the call, never a different call. The
+        answer is still assembled whole and still parsed whole, because half
+        a journal name is not something to put on a screen."""
+        pieces = ['{"jour', 'nals": [', '{"title": "A"}', "]}"]
+        seen = []
+        with patch("urllib.request.urlopen", return_value=self._stream(pieces)):
+            with ai.progress_to(self._sink(seen)):
+                out = ai.ask_json("anything")
+        self.assertEqual(out, {"journals": [{"title": "A"}]})
+
+    def test_it_says_it_has_connected_before_the_first_token(self):
+        """The slowest part of the wait is the part before any token exists --
+        a cold model is eight seconds coming off disk. Silence there is the
+        whole complaint."""
+        seen = []
+        with patch("urllib.request.urlopen", return_value=self._stream(["{}"])):
+            with ai.progress_to(self._sink(seen)):
+                ai.ask_json("anything")
+        self.assertEqual(seen[0]["phase"], "connecting")
+        self.assertEqual(seen[-1]["phase"], "reading")
+
+    def test_the_count_it_reports_rises(self):
+        seen = []
+        with patch(
+            "urllib.request.urlopen",
+            return_value=self._stream(["{", '"a"', ":", "1", "}"]),
+        ):
+            with patch.object(ai, "PROGRESS_EVERY", 0):
+                with ai.progress_to(self._sink(seen)):
+                    ai.ask_json("anything")
+        counts = [e["tokens"] for e in seen if e["phase"] == "generating"]
+        self.assertEqual(counts, sorted(counts))
+        self.assertEqual(counts[-1], 5)
+
+    def test_nothing_is_watched_when_nobody_is_watching(self):
+        """The plain endpoint must keep making one unstreamed request."""
+        sent = {}
+
+        def capture(req, timeout=None):
+            import io
+
+            sent.update(json.loads(req.data.decode()))
+            return io.BytesIO(json.dumps({"response": "{}"}).encode())
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            ai.ask_json("anything")
+        self.assertIs(sent["stream"], False)
+
+    # ---- the request a watched call sends ------------------------------
+
+    def test_thinking_is_still_off_on_a_watched_call(self):
+        """Gemma 4 reasons silently, and with thinking on a stream emits
+        nothing at all until the reasoning finishes -- which would defeat the
+        entire point of streaming, on top of returning an empty string at the
+        token ceiling."""
+        sent = {}
+
+        def capture(req, timeout=None):
+            sent.update(json.loads(req.data.decode()))
+            return self._stream(["{}"])
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            with ai.progress_to(self._sink([])):
+                ai.ask_json("anything")
+        self.assertIs(sent["think"], False)
+        self.assertIs(sent["stream"], True)
+
+    def test_the_schema_still_constrains_a_watched_call(self):
+        """Streaming and structured output are not alternatives. A local model
+        this size needs the decoder held to the shape."""
+        sent = {}
+        schema = {"type": "object", "properties": {"journals": {"type": "array"}}}
+
+        def capture(req, timeout=None):
+            sent.update(json.loads(req.data.decode()))
+            return self._stream(['{"journals": []}'])
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            with ai.progress_to(self._sink([])):
+                ai.ask_json("anything", schema=schema)
+        self.assertEqual(sent["format"], schema)
+
+    def test_a_watched_call_is_still_bounded(self):
+        seen = {}
+
+        def capture(req, timeout=None):
+            seen["timeout"] = timeout
+            return self._stream(["{}"])
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            with ai.progress_to(self._sink([])):
+                ai.ask_json("anything")
+        self.assertIsNotNone(seen["timeout"])
+
+    # ---- stopping ------------------------------------------------------
+
+    def test_cancelling_closes_the_connection_to_the_model(self):
+        """The point of a cancel button. Without the close, Ollama spends the
+        next minute finishing an answer nobody will read, on the four cores
+        the next request needs."""
+        closed = []
+        seen = []
+        with patch(
+            "urllib.request.urlopen",
+            return_value=self._stream(["a", "b", "c", "d"], closed=closed),
+        ):
+            with patch.object(ai, "PROGRESS_EVERY", 0):
+                with ai.progress_to(self._sink(seen, cancel_after=2)):
+                    with self.assertRaises(ai.Cancelled):
+                        ai.ask_json("anything")
+        self.assertTrue(closed)
+
+    def test_a_cancelled_call_is_not_a_failure(self):
+        """It has no error to show and no retry to offer. Reporting it as one
+        puts a red panel on the screen for something the reader did."""
+        self.assertFalse(issubclass(ai.Cancelled, ai.AIError))
+
+    def test_abandoning_the_run_cancels_it(self):
+        """A browser going away is not a message anybody sends; it is a write
+        that fails. So the run has to be cancelled by the consumer simply
+        stopping, which is what closing the generator does."""
+        import threading
+        import time as _time
+
+        started = threading.Event()
+        noticed = threading.Event()
+
+        def slow(**kwargs):
+            sink = ai.current_progress()
+            started.set()
+            for _ in range(400):
+                try:
+                    sink.note("generating", tokens=1)
+                except ai.Cancelled:
+                    noticed.set()
+                    raise
+                _time.sleep(0.01)
+            return {"journals": []}
+
+        run = ai.run_with_progress(slow)
+        next(run)
+        self.assertTrue(started.wait(2))
+        run.close()
+        self.assertTrue(noticed.wait(2))
+
+    def test_a_run_that_finishes_hands_back_its_answer(self):
+        events = list(ai.run_with_progress(lambda **kw: {"journals": ["x"]}))
+        self.assertEqual(events[-1], ("result", {"journals": ["x"]}))
+
+    def test_a_run_that_stalls_still_says_something(self):
+        """The heartbeat. It keeps the reader's clock honest while the model
+        is loading, and it is how the server finds out the browser has gone."""
+        import time as _time
+
+        def slow(**kwargs):
+            _time.sleep(0.2)
+            return {}
+
+        with patch.object(ai, "_HEARTBEAT", 0.01):
+            kinds = [kind for kind, _ in ai.run_with_progress(slow)]
+        self.assertIn("tick", kinds)
+        self.assertEqual(kinds[-1], "result")
+
+
+# =========================================================================== #
+# Trends: what the college is working on, and what a model may add to that    #
+# =========================================================================== #
+
+
+class CollegeLandscapeTests(TestCase):
+    """The measured half. It has to be exact, and it has to work with no model.
+
+    This is the part of the trends feature that is allowed no excuses: it is
+    counted from our own claims, so a wrong number here is a wrong number the
+    software had every means to get right. The tests are about the arithmetic
+    and about the window it is computed over -- both of which are invisible on
+    screen, where a fading area and a growing one look the same until somebody
+    reads the figure.
+    """
+
+    def setUp(self):
+        from core.services import trends
+
+        self.trends = trends
+        self.cse = User.objects.create_user(
+            email="cse@test.edu", password="p", name="Ada Rao",
+            role=Role.FACULTY, department="CSE", designation="Professor",
+        )
+        self.ece = User.objects.create_user(
+            email="ece@test.edu", password="p", name="Biju Menon",
+            role=Role.FACULTY, department="ECE", designation="Assistant Professor",
+        )
+
+        def paper(owner, year, subjects, journal="Applied Soft Computing", quartile="Q1",
+                  status=ClaimStatus.PAID, title=None):
+            return Claim.objects.create(
+                owner=owner, status=status,
+                paper_title=title or f"{subjects} {year}",
+                journal_title=journal, publication_year=year,
+                subjects_json=subjects, quartile=quartile,
+            )
+
+        # Machine Learning is growing: one paper then, four now.
+        paper(self.cse, 2020, "Machine Learning (Q1)")
+        for year in (2023, 2024, 2025):
+            paper(self.cse, year, "Machine Learning (Q1); Software (Q2)")
+        paper(self.ece, 2025, "Machine Learning (Q1)")
+
+        # Signal Processing is fading: four then, one now.
+        for year in (2020, 2021, 2021, 2022):
+            paper(self.ece, year, "Signal Processing (Q2)", journal="Signal Journal", quartile="Q2")
+        paper(self.ece, 2023, "Signal Processing (Q2)", journal="Signal Journal", quartile="Q2")
+
+        # Ceramics stopped entirely -- it never appears in the recent window.
+        for year in (2020, 2021, 2022):
+            paper(self.cse, year, "Ceramics and Composites (Q3)", journal="Ceramics Today", quartile="Q3")
+
+        # A draft is not published work and must not be counted anywhere.
+        paper(self.cse, 2025, "Quantum Widgetry (Q1)", status=ClaimStatus.DRAFT,
+              title="Secret Draft")
+
+    def test_the_window_ends_where_the_data_ends(self):
+        """Not where the calendar does.
+
+        A college that files its 2025 papers through 2026 would otherwise open
+        this page in January and be told every area it has is fading.
+        """
+        window = self.trends.current_window()
+        self.assertEqual(window.latest, 2025)
+        self.assertEqual(window.recent_from, 2023)
+        self.assertEqual(window.prior_from, 2020)
+        self.assertEqual(window.prior_to, 2022)
+
+    def test_areas_are_counted_from_filed_papers(self):
+        out = self.trends.college_landscape()
+        by_area = {a["area"]: a for a in out["areas"]}
+        self.assertEqual(by_area["Machine Learning"]["papers"], 4)
+        self.assertEqual(by_area["Machine Learning"]["prior"], 1)
+        self.assertEqual(by_area["Software"]["papers"], 3)
+        # Two departments publish in it, and both are named.
+        self.assertEqual(sorted(by_area["Machine Learning"]["departments"]), ["CSE", "ECE"])
+        self.assertEqual(by_area["Machine Learning"]["people"], 2)
+
+    def test_a_draft_is_counted_nowhere(self):
+        """An unfiled ticket is a private intention, not a college trend."""
+        out = self.trends.college_landscape()
+        self.assertNotIn("Quantum Widgetry", [a["area"] for a in out["areas"]])
+        # Three from CSE and two from ECE in 2023-2025. The 2025 draft is a
+        # sixth row in the table and is not one of them.
+        self.assertEqual(out["totals"]["papers"], 5)
+
+    def test_growing_and_fading_are_told_apart(self):
+        out = self.trends.college_landscape()
+        self.assertIn("Machine Learning", [a["area"] for a in out["rising"]])
+        self.assertIn("Signal Processing", [a["area"] for a in out["fading"]])
+
+    def test_an_area_that_stopped_entirely_is_still_reported_as_fading(self):
+        """The case somebody opening this page most wants to know about.
+
+        It has no recent papers at all, so it appears in no recent count --
+        and would silently vanish rather than be reported as gone.
+        """
+        out = self.trends.college_landscape()
+        gone = [a for a in out["fading"] if a["area"] == "Ceramics and Composites"]
+        self.assertEqual(len(gone), 1)
+        self.assertEqual(gone[0]["papers"], 0)
+        self.assertEqual(gone[0]["prior"], 3)
+
+    def test_one_paper_of_difference_is_not_a_trend(self):
+        out = self.trends.college_landscape()
+        by_area = {a["area"]: a for a in out["areas"]}
+        # Software: 3 recent, 0 prior -- new. Nothing here moves by one, and
+        # the classifier must not invent a direction out of noise.
+        self.assertEqual(by_area["Software"]["trend"], "new")
+        self.assertEqual(self.trends._trend(4, 3), "steady")
+        self.assertEqual(self.trends._trend(3, 4), "steady")
+
+    def test_a_department_reports_what_it_is_moving_into(self):
+        out = self.trends.college_landscape()
+        cse = next(d for d in out["departments"] if d["department"] == "CSE")
+        self.assertIn("Machine Learning", [m["area"] for m in cse["moving_into"]])
+        self.assertNotIn("Ceramics and Composites", [m["area"] for m in cse["moving_into"]])
+
+    def test_journals_are_counted_over_the_recent_window_only(self):
+        out = self.trends.college_landscape()
+        by_journal = {j["title"]: j for j in out["journals"]}
+        self.assertEqual(by_journal["Applied Soft Computing"]["papers"], 4)
+        self.assertEqual(by_journal["Applied Soft Computing"]["quartile"], "Q1")
+        self.assertNotIn("Ceramics Today", by_journal)
+
+    def test_the_landscape_carries_no_money_of_any_kind(self):
+        """A head of department may read this page, and money-blindness is the
+        one rule in this system that is not a matter of taste."""
+        from core import hod
+
+        def walk(node, path="body"):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    self.assertNotIn(k, hod.MONEY_KEYS, f"{path}.{k} carries money")
+                    walk(v, f"{path}.{k}")
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    walk(v, f"{path}[{i}]")
+
+        walk(self.trends.college_landscape())
+        walk(self.trends.people_to_work_with(self.cse))
+
+    def test_the_measured_half_never_asks_the_model(self):
+        """The whole reason it is a separate function from the suggestions."""
+        with patch("core.services.trends.ai.ask_json") as asked:
+            self.trends.college_landscape()
+            self.trends.people_to_work_with(self.cse)
+            asked.assert_not_called()
+
+    def test_an_empty_college_is_an_empty_answer_and_not_a_crash(self):
+        Claim.objects.all().delete()
+        out = self.trends.college_landscape()
+        self.assertEqual(out["areas"], [])
+        self.assertEqual(out["totals"]["papers"], 0)
+
+    def test_a_sentinel_is_not_reported_as_a_quartile(self):
+        """Claims carry "NO QUARTILE" and "OTHERS" as well as Q1-Q4, and both
+        are in the live data. Printing one in a column headed "quartile" is
+        worse than printing nothing."""
+        Claim.objects.create(
+            owner=self.cse, status=ClaimStatus.PAID, paper_title="Sentinel",
+            journal_title="Aip Conference Proceedings", publication_year=2025,
+            subjects_json="Physics (Q1)", quartile="NO QUARTILE",
+        )
+        out = self.trends.college_landscape()
+        row = next(j for j in out["journals"] if j["title"] == "Aip Conference Proceedings")
+        self.assertIsNone(row["quartile"])
+
+    def test_an_earlier_window_too_thin_to_compare_withholds_every_direction(self):
+        """Found against the live data, and it is the whole point of the flag.
+
+        This college holds 3,028 papers in 2024-2026 and 140 in 2021-2023,
+        because the import only reaches back so far. The arithmetic then calls
+        all 193 subject areas growing and none fading -- which is not a trend,
+        it is the shape of the import showing through.
+        """
+        Claim.objects.filter(publication_year__lt=2023).delete()
+        for n in range(40):
+            Claim.objects.create(
+                owner=self.cse, status=ClaimStatus.PAID, paper_title=f"Bulk {n}",
+                journal_title="Applied Soft Computing", publication_year=2025,
+                subjects_json="Machine Learning (Q1)", quartile="Q1",
+            )
+        out = self.trends.college_landscape()
+        self.assertFalse(out["totals"]["comparable"])
+        self.assertIn("reach of the import", out["totals"]["not_comparable_why"])
+        self.assertEqual(out["rising"], [])
+        self.assertEqual(out["fading"], [])
+        self.assertTrue(all(a["trend"] == "unknown" for a in out["areas"]))
+        # The counts themselves are facts and still stand.
+        by_area = {a["area"]: a for a in out["areas"]}
+        self.assertEqual(by_area["Machine Learning"]["papers"], 44)
+
+    def test_a_populated_earlier_window_is_compared_against(self):
+        out = self.trends.college_landscape()
+        self.assertTrue(out["totals"]["comparable"])
+        self.assertIsNone(out["totals"]["not_comparable_why"])
+
+
+class WhoToWorkWithTests(TestCase):
+    """Everybody named is a row in our own User table, and the overlap is counted."""
+
+    def setUp(self):
+        from core.services import trends
+
+        self.trends = trends
+        self.me = User.objects.create_user(
+            email="me@test.edu", password="p", name="Ada Rao", department="CSE"
+        )
+        self.near = User.objects.create_user(
+            email="near@test.edu", password="p", name="Biju Menon",
+            department="ECE", designation="Professor",
+        )
+        self.far = User.objects.create_user(
+            email="far@test.edu", password="p", name="Chandra Iyer", department="MECH"
+        )
+        self.gone = User.objects.create_user(
+            email="gone@test.edu", password="p", name="Deepa Nair", department="CSE"
+        )
+        self.gone.active = False
+        self.gone.save(update_fields=["active"])
+
+        def paper(owner, year, subjects, status=ClaimStatus.PAID, title="A Paper"):
+            return Claim.objects.create(
+                owner=owner, status=status, paper_title=title,
+                journal_title="Applied Soft Computing", publication_year=year,
+                subjects_json=subjects, quartile="Q1",
+            )
+
+        paper(self.me, 2025, "Machine Learning (Q1)")
+        paper(self.near, 2025, "Machine Learning (Q1)", title="Nearby Work")
+        paper(self.near, 2024, "Machine Learning (Q1); Software (Q2)")
+        paper(self.far, 2025, "Ceramics and Composites (Q3)")
+        paper(self.gone, 2025, "Machine Learning (Q1)")
+        # Old enough to be outside the recent window: somebody who worked on
+        # this six years ago is not somebody to start a project with now.
+        paper(self.near, 2019, "Machine Learning (Q1)", title="Ancient")
+
+    def test_overlap_comes_from_published_areas(self):
+        out = self.trends.people_to_work_with(self.me)
+        names = [p["name"] for p in out["people"]]
+        self.assertIn("Biju Menon", names)
+        self.assertNotIn("Chandra Iyer", names)
+        self.assertNotIn("Ada Rao", names, "nobody is their own collaborator")
+
+    def test_an_inactive_account_is_not_offered_as_a_collaborator(self):
+        out = self.trends.people_to_work_with(self.me)
+        self.assertNotIn("Deepa Nair", [p["name"] for p in out["people"]])
+
+    def test_only_recent_output_counts(self):
+        out = self.trends.people_to_work_with(self.me)
+        biju = next(p for p in out["people"] if p["name"] == "Biju Menon")
+        self.assertEqual(biju["papers"], 2)
+        self.assertEqual(biju["recent"]["title"], "Nearby Work")
+
+    def test_a_stated_interest_matches_somebody_with_no_papers_of_your_own(self):
+        """A new lecturer has no co-authors and no history. Without this they
+        see an empty screen forever."""
+        from core.models import ResearchInterest
+
+        fresh = User.objects.create_user(
+            email="fresh@test.edu", password="p", name="Esha Pillai", department="CSE"
+        )
+        ResearchInterest.objects.create(user=fresh, domain="Machine Learning")
+        out = self.trends.people_to_work_with(fresh)
+        biju = next(p for p in out["people"] if p["name"] == "Biju Menon")
+        self.assertEqual(biju["shared_interests"], ["Machine Learning"])
+        self.assertEqual(biju["shared_areas"], [])
+
+    def test_knowing_nothing_about_somebody_says_so_rather_than_going_quiet(self):
+        blank = User.objects.create_user(
+            email="blank@test.edu", password="p", name="Faiz Khan", department="CSE"
+        )
+        out = self.trends.people_to_work_with(blank)
+        self.assertEqual(out["people"], [])
+        self.assertIn("File a paper", out["why_empty"])
+
+    def test_nobody_nearby_is_a_different_sentence_from_nothing_known(self):
+        """Nobody works on this here, and we do not know what you work on, have
+        different remedies -- so they are never the same sentence."""
+        alone = User.objects.create_user(
+            email="alone@test.edu", password="p", name="Gita Bose", department="CIVIL"
+        )
+        Claim.objects.create(
+            owner=alone, status=ClaimStatus.PAID, paper_title="Solo",
+            journal_title="J", publication_year=2025,
+            subjects_json="Hydrology (Q4)", quartile="Q4",
+        )
+        out = self.trends.people_to_work_with(alone)
+        self.assertEqual(out["people"], [])
+        self.assertIn("Nobody else here", out["why_empty"])
+
+
+class TrendSuggestionGroundingTests(TestCase):
+    """The model's half, and the seam it is held behind.
+
+    It may write prose. It may point at an area and at a colleague. It may not
+    assert either, so both are looked up in our own tables before anything is
+    shown -- and what does not resolve comes back bare, in its own block, with
+    no count and no link beside it. A confidently named colleague who does not
+    work here is the exact failure this shape exists to survive.
+    """
+
+    def setUp(self):
+        from core.services import trends
+
+        self.trends = trends
+        self.me = User.objects.create_user(
+            email="me2@test.edu", password="p", name="Ada Rao", department="CSE"
+        )
+        self.real = User.objects.create_user(
+            email="real@test.edu", password="p", name="Biju Menon", department="ECE"
+        )
+        for year in (2024, 2025):
+            Claim.objects.create(
+                owner=self.me, status=ClaimStatus.PAID,
+                paper_title=f"Learning Something {year}",
+                journal_title="Applied Soft Computing", publication_year=year,
+                subjects_json="Machine Learning (Q1)", quartile="Q1",
+            )
+        Claim.objects.create(
+            owner=self.real, status=ClaimStatus.PAID, paper_title="Nearby",
+            journal_title="Applied Soft Computing", publication_year=2025,
+            subjects_json="Machine Learning (Q1)", quartile="Q1",
+        )
+
+    def _reply(self, openings):
+        return patch("core.services.trends.ai.ask_json", return_value={"openings": openings})
+
+    def test_a_colleague_the_model_invented_is_dropped_and_reported_separately(self):
+        """The property the whole design rests on."""
+        reply = [
+            {
+                "topic": "Federated learning on campus data",
+                "why": "builds on your 2025 work",
+                "first_step": "write a one-page protocol",
+                "area": "Machine Learning",
+                "with_whom": "Biju Menon",
+            },
+            {
+                "topic": "Quantum widget scheduling",
+                "why": "adjacent",
+                "first_step": "read three papers",
+                "area": "Machine Learning",
+                "with_whom": "Dr Zephyr Quillbottom",
+            },
+        ]
+        with self._reply(reply):
+            out = self.trends.suggest_openings(user=self.me)
+
+        first, second = out["openings"][0], out["openings"][1]
+        self.assertEqual(first["with_whom"]["id"], self.real.id)
+        self.assertEqual(first["with_whom"]["department"], "ECE")
+
+        self.assertIsNone(second["with_whom"], "an invented person is never a link")
+        self.assertEqual(out["unverified"]["people"], ["Dr Zephyr Quillbottom"])
+
+    def test_an_unverified_name_carries_no_numbers(self):
+        with self._reply(
+            [{"topic": "T", "why": "W", "first_step": "S", "with_whom": "Nobody At All"}]
+        ):
+            out = self.trends.suggest_openings(user=self.me)
+        # A bare string, deliberately: there is nothing to attach a count to.
+        self.assertEqual(out["unverified"]["people"], ["Nobody At All"])
+        self.assertTrue(all(isinstance(n, str) for n in out["unverified"]["people"]))
+
+    def test_an_honorific_does_not_stop_a_real_person_resolving(self):
+        with self._reply(
+            [{"topic": "T", "why": "W", "first_step": "S", "with_whom": "Dr. Biju Menon"}]
+        ):
+            out = self.trends.suggest_openings(user=self.me)
+        self.assertEqual(out["openings"][0]["with_whom"]["id"], self.real.id)
+
+    def test_a_title_with_no_space_after_it_still_resolves(self):
+        """Found by running the real model against the real staff list.
+
+        Names here are stored as "Dr.G.NaliniPriya" -- no space -- and a model
+        handed one to copy writes "Dr. G.NaliniPriya". Requiring the space
+        stripped the title from one side only, so a colleague the model had
+        been given by name came back unverified. The failure was in the safe
+        direction, which is exactly why nothing noticed it.
+        """
+        real = User.objects.create_user(
+            email="nospace@test.edu", password="p", name="Dr.G.NaliniPriya",
+            department="IT",
+        )
+        with self._reply(
+            [{"topic": "T", "why": "W", "first_step": "S", "with_whom": "Dr. G.NaliniPriya"}]
+        ):
+            out = self.trends.suggest_openings(user=self.me)
+        self.assertEqual(out["openings"][0]["with_whom"]["id"], real.id)
+        self.assertEqual(out["unverified"]["people"], [])
+
+    def test_two_colleagues_of_the_same_name_resolve_to_neither(self):
+        """A suggestion that sends somebody to the wrong colleague of the same
+        name is worse than one that names nobody."""
+        User.objects.create_user(email="twin@test.edu", password="p", name="Biju Menon")
+        with self._reply(
+            [{"topic": "T", "why": "W", "first_step": "S", "with_whom": "Biju Menon"}]
+        ):
+            out = self.trends.suggest_openings(user=self.me)
+        self.assertIsNone(out["openings"][0]["with_whom"])
+        self.assertEqual(out["unverified"]["people"], ["Biju Menon"])
+
+    def test_an_area_the_model_invented_carries_no_count(self):
+        with self._reply(
+            [
+                {"topic": "A", "why": "W", "first_step": "S", "area": "Machine Learning"},
+                {"topic": "B", "why": "W", "first_step": "S", "area": "Advanced Quantum Widgetry"},
+            ]
+        ):
+            out = self.trends.suggest_openings(user=self.me)
+        self.assertEqual(out["openings"][0]["area"]["name"], "Machine Learning")
+        self.assertEqual(out["openings"][0]["area"]["papers"], 3)
+        self.assertIsNone(out["openings"][1]["area"])
+        self.assertEqual(out["unverified"]["areas"], ["Advanced Quantum Widgetry"])
+
+    def test_the_reader_is_never_suggested_as_their_own_collaborator(self):
+        with self._reply(
+            [{"topic": "T", "why": "W", "first_step": "S", "with_whom": "Ada Rao"}]
+        ):
+            out = self.trends.suggest_openings(user=self.me)
+        self.assertIsNone(out["openings"][0]["with_whom"])
+
+    def test_a_bare_array_from_the_model_is_still_read(self):
+        """A model this size sometimes answers with the array rather than the
+        object it was asked for. Calling `.get` on that is a 500 where a shrug
+        would do."""
+        with patch(
+            "core.services.trends.ai.ask_json",
+            return_value=[{"topic": "T", "why": "W", "first_step": "S"}],
+        ):
+            out = self.trends.suggest_openings(user=self.me)
+        self.assertEqual(out["openings"][0]["topic"], "T")
+
+    def test_nothing_to_go_on_says_so_rather_than_asking_the_model(self):
+        blank = User.objects.create_user(email="b2@test.edu", password="p", name="Blank")
+        with patch("core.services.trends.ai.ask_json") as asked:
+            out = self.trends.suggest_openings(user=blank)
+            asked.assert_not_called()
+        self.assertEqual(out["openings"], [])
+        self.assertIn("nothing of yours to build on", out["note"])
+
+    def test_what_it_was_grounded_on_comes_back_with_the_answer(self):
+        """A thin answer is usually a thin history rather than a bad model,
+        and a reader cannot tell those apart unless the screen says which."""
+        with self._reply([{"topic": "T", "why": "W", "first_step": "S"}]):
+            out = self.trends.suggest_openings(user=self.me)
+        self.assertEqual(out["grounded_on"]["papers"], 2)
+        self.assertIn("Biju Menon", out["grounded_on"]["colleagues_offered"])
+
+    def test_a_model_failure_is_raised_for_the_caller_to_map(self):
+        """Never swallowed into an empty list: a feature that silently
+        produces nothing looks exactly like one nobody switched on."""
+        with patch(
+            "core.services.trends.ai.ask_json",
+            side_effect=ai.AIError("nope", code="timeout"),
+        ):
+            with self.assertRaises(ai.AIError):
+                self.trends.suggest_openings(user=self.me)
+
+
+class TrendsDegradeHonestlyTests(TestCase):
+    """With no model at all, the counted half still answers and the page says why."""
+
+    def setUp(self):
+        from core.services import trends
+
+        self.trends = trends
+        self.me = User.objects.create_user(
+            email="deg@test.edu", password="p", name="Ada Rao", department="CSE"
+        )
+        Claim.objects.create(
+            owner=self.me, status=ClaimStatus.PAID, paper_title="A Paper",
+            journal_title="Applied Soft Computing", publication_year=2025,
+            subjects_json="Machine Learning (Q1)", quartile="Q1",
+        )
+
+    def test_status_says_which_way_it_is_off_and_what_fixes_it(self):
+        with _model_unavailable(code="model_missing", detail="gemma4:12b is not installed."):
+            state = self.trends.status()
+        self.assertFalse(state["available"])
+        self.assertEqual(state["code"], "model_missing")
+        self.assertIn("not installed", state["detail"])
+
+    def test_status_is_ready_when_the_model_is(self):
+        with _model_ready():
+            self.assertTrue(self.trends.status()["available"])
+
+    def test_a_health_probe_that_itself_fails_does_not_take_the_page_down(self):
+        with patch.object(ai, "health", side_effect=OSError("socket")):
+            state = self.trends.status()
+        self.assertFalse(state["available"])
+        self.assertEqual(state["code"], "error")
+
+    def test_the_counted_half_answers_with_no_model_anywhere(self):
+        with _model_unavailable():
+            landscape = self.trends.college_landscape()
+            people = self.trends.people_to_work_with(self.me)
+        self.assertEqual(landscape["totals"]["papers"], 1)
+        self.assertEqual([a["area"] for a in landscape["areas"]], ["Machine Learning"])
+        self.assertEqual(people["people"], [])
+
+    def test_the_overview_still_answers_in_full_with_the_model_off(self):
+        """The whole point of the split: the counted half is one request that
+        does not touch the model, and it carries the reason the other half is
+        unavailable so the page can say so without asking again."""
+        with _model_unavailable(code="service_down", detail="No local model service."), patch(
+            "core.services.trends.ai.ask_json"
+        ) as asked:
+            out = self.trends.overview(self.me)
+            asked.assert_not_called()
+        self.assertEqual(out["college"]["totals"]["papers"], 1)
+        self.assertIn("people", out["people"])
+        self.assertFalse(out["ai"]["available"])
+        self.assertEqual(out["ai"]["code"], "service_down")

@@ -239,6 +239,7 @@ export function Duplicates() {
         />
       ) : findings.length === 0 ? (
         <EmptyState
+          art="empty-queue"
           icon={CircleCheck}
           title={status ? "Nothing in this state" : "The sweep found nothing here"}
           message={

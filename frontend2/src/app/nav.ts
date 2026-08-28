@@ -12,6 +12,7 @@ import {
   FileCheck,
   FileText,
   Home,
+  Import,
   type LucideIcon,
   MessagesSquare,
   Receipt,
@@ -296,6 +297,21 @@ export const NAV: NavItem[] = [
     roles: ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"],
     group: "Set up",
     keywords: ["scimago", "snip", "quartile", "journals", "import"],
+  },
+  {
+    to: "/imports",
+    label: "Imports",
+    icon: Import,
+    // Every reading on that page -- erp-stats, the faculty master, the
+    // faculty picker, the process queue and the job poller -- is behind
+    // `rbac.can_admin_portal`, which is exactly ADMIN_ROLES. The three
+    // uploads are behind `can_import_prior`, which also allows the
+    // Principal; but a Principal is refused all five readings, so the item
+    // would be a screen of upload boxes with nothing on it to say what they
+    // had done. Gated to the narrower of the two, deliberately.
+    roles: OFFICE,
+    group: "Set up",
+    keywords: ["erp", "workbook", "xlsx", "roster", "faculty master", "prior payments", "history", "scopus", "verify", "queue", "job"],
   },
   {
     to: "/batches",

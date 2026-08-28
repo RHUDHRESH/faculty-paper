@@ -179,6 +179,7 @@ export function Calendar() {
         />
       ) : events.length === 0 ? (
         <EmptyState
+          art="empty-queue"
           icon={CalendarDays}
           title="Nothing in this window"
           message="Add a payout run, a submission window or a deadline, and it appears here for whoever it concerns."

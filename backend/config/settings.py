@@ -218,8 +218,22 @@ CORS_ALLOWED_ORIGINS = [
     if o.strip()
 ]
 CORS_ALLOW_CREDENTIALS = True
-# Allow Vercel and Netlify preview/prod hosts when set
-_cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\.(vercel|netlify)\.app")
+# Preview hosts, when somebody deliberately asks for them.
+#
+# This used to default to r"https://.*\.(vercel|netlify)\.app", which -- with
+# CORS_ALLOW_CREDENTIALS on -- made every site anybody can deploy to Vercel or
+# Netlify in five minutes a trusted origin holding this application's session.
+# An attacker page could read /api/auth/csrf and then post to any mutating
+# endpoint with the victim's cookie attached.
+#
+# SESSION_COOKIE_SAMESITE="Lax" blocked it in the default configuration, which
+# is why it went unnoticed. But CROSS_SITE_COOKIES=true sets SameSite=None,
+# and that flag is required by exactly the deployment this regex was added for
+# -- a Vercel frontend against a Cloud Run backend. The safeguard was absent
+# precisely where the regex was meant to be used.
+#
+# There is no default now. A preview host is opted into by name.
+_cors_regex = os.getenv("CORS_ORIGIN_REGEX", "").strip()
 if _cors_regex:
     CORS_ALLOWED_ORIGIN_REGEXES = [_cors_regex]
 
@@ -237,11 +251,14 @@ CSRF_TRUSTED_ORIGINS = [
     ).split(",")
     if o.strip()
 ]
-# Preview hosts are unique per deploy. CORS already allows them via regex;
-# CSRF does not, so login from a preview (or a -self / Netlify alias) 403s.
-for _csrf_host in ("https://*.vercel.app", "https://*.netlify.app"):
-    if _csrf_host not in CSRF_TRUSTED_ORIGINS:
-        CSRF_TRUSTED_ORIGINS.append(_csrf_host)
+# Preview hosts are unique per deploy, so CSRF needs the wildcard that CORS
+# gets from its regex. Same reasoning as above: trusting every site on a public
+# hosting platform is not a default anybody should get by accident, so this is
+# opted into rather than assumed.
+if os.getenv("TRUST_PREVIEW_HOSTS", "false").lower() in ("1", "true", "yes"):
+    for _csrf_host in ("https://*.vercel.app", "https://*.netlify.app"):
+        if _csrf_host not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_csrf_host)
 
 _cross_site = os.getenv("CROSS_SITE_COOKIES", "false").lower() in ("1", "true", "yes")
 if _cross_site:
@@ -266,8 +283,18 @@ SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY") or os.getenv("ELSEVIER_API_KEY") or
 # Gemini, for the two discovery features. Absent is a supported state: the
 # endpoints report that the feature is off rather than failing, which is the
 # normal condition on a developer machine.
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_API_KEY") or ""
-GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
+# Inference runs on this machine. The discovery features read a faculty
+# member's unpublished title and abstract and their whole publication history,
+# and the previous arrangement posted all of it to a hosted API in exchange for
+# a key. Nothing here needs an account, a key or a quota, and nothing leaves
+# the loopback interface.
+#
+# There is one provider and an unknown value is refused rather than quietly
+# resolved -- a typo in a deployment variable should stop the feature, not
+# silently change where the text goes.
+AI_PROVIDER = (os.getenv("AI_PROVIDER") or "ollama").strip().lower()
+OLLAMA_BASE_URL = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").strip()
+OLLAMA_MODEL = (os.getenv("OLLAMA_MODEL") or "gemma4:12b").strip()
 
 # Production hardening
 if not DEBUG:

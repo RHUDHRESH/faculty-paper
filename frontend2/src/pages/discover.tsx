@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { AlertTriangle, Compass, LoaderCircle, Search, Sparkles, X } from "lucide-react"
 
+import { ApiError, api } from "@/lib/api"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
@@ -42,13 +43,10 @@ export function Discover() {
           onRetry={() => status.refetch()}
         />
       ) : status.data && !status.data.available ? (
-        <Callout tone="caution" title="AI suggestions are switched off">
-          No model is configured for this deployment, so venue and direction suggestions cannot
-          run. The domains you work in, below, still work — they feed collaborator matching even
-          without this.
-        </Callout>
+        <ModelUnavailable status={status.data} onRetry={() => void status.refetch()} />
       ) : status.data ? (
         <>
+          <ModelBadge status={status.data} />
           <VenueFinder />
           <Directions />
         </>
@@ -63,7 +61,17 @@ export function Discover() {
 /* Types — mirrors API.md's "Discovery — the two AI features"               */
 /* ------------------------------------------------------------------------ */
 
-type DiscoverStatus = { available: boolean; model: string }
+type DiscoverStatus = {
+  available: boolean
+  model: string
+  /** "ollama". There is one, and it runs on this machine. */
+  provider?: string
+  /** ready | service_down | model_missing | misconfigured */
+  code?: string
+  /** What to do about it, when it is not ready. */
+  detail?: string | null
+  base_url?: string
+}
 
 type Payout = {
   amount: number | null
@@ -122,15 +130,143 @@ function toPositiveInt(text: string): number {
   return Number.isFinite(n) && n >= 1 ? n : 1
 }
 
+/** One line of the progress stream. See `/discover/venues/stream`. */
+type StreamEvent =
+  | {
+      event: "start"
+      token: string
+      model: string
+      expected_seconds: number
+      expected_tokens: number
+    }
+  | { event: "step"; phase: string; elapsed: number; tokens?: number; chars?: number }
+  | { event: "tick"; phase: string; elapsed: number }
+  | { event: "result"; elapsed: number; data: VenuesResult }
+  | { event: "error"; status: number; code: string; detail: string; elapsed: number }
+  | { event: "cancelled"; elapsed: number }
+
+/** Where the search has got to, as the server last reported it. */
+type Wait = {
+  phase: string
+  elapsed: number
+  tokens: number
+  expectedSeconds: number
+  expectedTokens: number
+}
+
+/** What each phase is, in a sentence somebody outside this file would write. */
+const PHASE_SAYS: Record<string, string> = {
+  connecting: "Starting the model and reading what you typed",
+  generating: "Naming journals that publish this kind of work",
+  reading: "Checking every name against our own journal data",
+}
+
+type RepriceResult = { journals: Omit<VerifiedJournal, "why">[]; assumed: Assumed }
+
+/**
+ * Read the venue search as it happens, rather than waiting for all of it.
+ *
+ * The model runs on this server's processor at a few tokens a second, so this
+ * request takes about a minute and a half and no amount of front-end work
+ * will change that. What it changes is whether the minute and a half is
+ * legible: the server sends a line whenever it has something to say and once
+ * a second regardless, so the screen can show a count that rises rather than
+ * a spinner that cannot distinguish slow from dead.
+ *
+ * Not `useApiMutation`, because that resolves once with a whole body and has
+ * nowhere to put the progress — and no way to abort. Aborting the signal ends
+ * the reader's wait; what ends the model's work is the separate cancel
+ * `stopSearch` sends, because dropping the connection was measured not to be
+ * noticed on this server at all.
+ */
+async function streamVenues(
+  body: VenueBody,
+  signal: AbortSignal,
+  onEvent: (event: StreamEvent) => void
+): Promise<void> {
+  // Fetched per search rather than cached: a search is ninety seconds and one
+  // extra loopback request is nothing, whereas a token cached across a
+  // sign-out is a 403 at the end of a long wait.
+  const csrfRes = await fetch("/api/auth/csrf", { credentials: "same-origin", signal })
+  const { csrfToken } = (await csrfRes.json()) as { csrfToken: string }
+
+  const res = await fetch("/api/discover/venues/stream", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+    body: JSON.stringify(body),
+    signal,
+  })
+
+  if (!res.ok) {
+    // Everything the server can refuse, it refuses before the first byte, so
+    // these still arrive as real statuses with a real body.
+    if (res.status === 401) window.dispatchEvent(new CustomEvent("auth:expired"))
+    const text = await res.text()
+    let detail = `Request failed (${res.status})`
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown }
+      if (parsed && typeof parsed.detail === "string") detail = parsed.detail
+    } catch {
+      /* a body that is not JSON tells us nothing more than the status did */
+    }
+    throw new ApiError(res.status, detail)
+  }
+
+  if (!res.body) throw new ApiError(0, "This browser could not read the response.")
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let cut = buffer.indexOf("\n")
+      while (cut !== -1) {
+        const line = buffer.slice(0, cut).trim()
+        buffer = buffer.slice(cut + 1)
+        if (line) onEvent(JSON.parse(line) as StreamEvent)
+        cut = buffer.indexOf("\n")
+      }
+    }
+  } catch (err) {
+    // Leaving the body locked and half-read holds the connection open for a
+    // response nobody is going to look at.
+    void reader.cancel().catch(() => undefined)
+    throw err
+  }
+}
+
+/** Best paying first, then by quartile — the order the server sorts in. */
+function byPayout(a: VerifiedJournal, b: VerifiedJournal): number {
+  const left = a.payout.amount
+  const right = b.payout.amount
+  if ((left == null) !== (right == null)) return left == null ? 1 : -1
+  if (left != null && right != null && left !== right) return right - left
+  return (a.quartile ?? "Z").localeCompare(b.quartile ?? "Z")
+}
+
 /**
  * The venue search: a title (and, better, an abstract and keywords) in,
  * a split list of journals out.
  *
- * The position/total-authors fields double as the request's inputs and the
- * live control over them — changing either re-asks the server for a fresh
- * `payout` rather than recomputing the formula here, because the formula
- * lives on the server and a client-side reimplementation of it is exactly
- * the kind of drift that turns an estimate into a wrong promise.
+ * Two things here exist because the model runs on this server's processor
+ * rather than in a data centre, and takes about a minute and a half.
+ *
+ * The search reads a progress stream instead of waiting for a whole body, and
+ * can be stopped. Before that it showed a button reading "Searching…" and
+ * nothing else for ninety seconds, which is indistinguishable from a hang —
+ * so the feature worked and was reported as broken, and the only way out
+ * anybody had was to reload, which left the model still generating.
+ *
+ * Changing the author position asks `/discover/reprice`, not the model. The
+ * answer to "which journals suit this paper" cannot depend on where somebody
+ * sits in the author list, so re-asking it was another ninety seconds for a
+ * list that could not have changed. The figures themselves still come from
+ * the server — a client-side reimplementation of the formula is exactly the
+ * drift that turns an estimate into a wrong promise.
  */
 function VenueFinder() {
   const [title, setTitle] = useState("")
@@ -141,57 +277,193 @@ function VenueFinder() {
   const [titleError, setTitleError] = useState<string | null>(null)
 
   const [result, setResult] = useState<VenuesResult | null>(null)
-  const [searchError, setSearchError] = useState<string | null>(null)
+  // The status, not just the sentence. Sniffing the message text with a
+  // regex for "model|upstream|502" broke the moment the wording changed, and
+  // it could never tell a 503 (nothing to talk to, fixable on the server)
+  // from a 502 (the model answered badly, worth retrying).
+  const [searchError, setSearchError] = useState<{ message: string; status: number } | null>(null)
   const [pending, setPending] = useState<"search" | "reposition" | null>(null)
-  const hasSearched = useRef(false)
+  const [wait, setWait] = useState<Wait | null>(null)
+  const [stoppedAfter, setStoppedAfter] = useState<number | null>(null)
+  const inFlight = useRef<AbortController | null>(null)
+  const runToken = useRef<string | null>(null)
+  // In a ref rather than read off `wait`, because the handler that needs it
+  // is the one that runs after the search was abandoned, and by then the
+  // state it closed over is a render old.
+  const secondsSoFar = useRef(0)
 
   const authorPosition = toPositiveInt(authorPositionText)
   const totalAuthors = toPositiveInt(totalAuthorsText)
 
-  const mutation = useApiMutation<VenueBody, VenuesResult>("/api/discover/venues")
+  /**
+   * Stop the search, both ends.
+   *
+   * Two things, because dropping the connection is not enough on its own:
+   * the server is not reliably told that a reader has gone, and a search that
+   * carries on is ninety seconds of this machine's four cores spent on an
+   * answer with nowhere to go — with the next person's search queued behind
+   * it. So the run is named when it starts and stopped by name here.
+   */
+  function stopSearch() {
+    const token = runToken.current
+    if (token) {
+      void api("/api/discover/venues/cancel", { method: "POST", json: { token } }).catch(
+        () => {
+          /* the search is being abandoned either way; it ends at the server's
+             own timeout if this did not reach it */
+        }
+      )
+    }
+    inFlight.current?.abort()
+  }
 
-  function runSearch(kind: "search" | "reposition") {
+  // Leaving the page is giving up on it too.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => stopSearch(), [])
+
+  async function runSearch() {
     if (pending) return
     const trimmed = title.trim()
     if (trimmed.length < 8) {
-      if (kind === "search") setTitleError("Give the title — at least 8 characters — so there is something to search from.")
+      setTitleError("Give the title — at least 8 characters — so there is something to search from.")
       return
     }
     setTitleError(null)
     setSearchError(null)
-    setPending(kind)
-    mutation.mutate(
-      {
-        title: trimmed,
-        abstract: abstract.trim() || undefined,
-        keywords: keywords.trim() || undefined,
-        author_position: authorPosition,
-        total_authors: totalAuthors,
-      },
-      {
-        onSuccess: (data) => {
-          setResult(data)
-          hasSearched.current = true
+    setStoppedAfter(null)
+    setPending("search")
+    secondsSoFar.current = 0
+    setWait({ phase: "connecting", elapsed: 0, tokens: 0, expectedSeconds: 95, expectedTokens: 450 })
+
+    const controller = new AbortController()
+    inFlight.current = controller
+    try {
+      await streamVenues(
+        {
+          title: trimmed,
+          abstract: abstract.trim() || undefined,
+          keywords: keywords.trim() || undefined,
+          author_position: authorPosition,
+          total_authors: totalAuthors,
         },
-        onError: (err) => setSearchError(err.message),
-        onSettled: () => setPending(null),
+        controller.signal,
+        (event) => {
+          if (event.event === "start") {
+            runToken.current = event.token
+            setWait((w) =>
+              w ? { ...w, expectedSeconds: event.expected_seconds, expectedTokens: event.expected_tokens } : w
+            )
+          } else if (event.event === "step" || event.event === "tick") {
+            const tokens = event.event === "step" ? event.tokens : undefined
+            secondsSoFar.current = event.elapsed
+            setWait((w) =>
+              w
+                ? { ...w, phase: event.phase, elapsed: event.elapsed, tokens: tokens ?? w.tokens }
+                : w
+            )
+          } else if (event.event === "result") {
+            setResult(event.data)
+          } else if (event.event === "cancelled") {
+            setStoppedAfter(event.elapsed)
+          } else {
+            // A failure after the first byte. It carries the status it would
+            // have had, so the same panel reads both.
+            throw new ApiError(event.status, event.detail)
+          }
+        }
+      )
+    } catch (err) {
+      if (controller.signal.aborted) {
+        // Not a failure. Nothing went wrong; somebody changed their mind.
+        setStoppedAfter(secondsSoFar.current)
+      } else {
+        setSearchError({
+          message: err instanceof Error ? err.message : "The search did not finish.",
+          status: err instanceof ApiError ? err.status : 0,
+        })
       }
-    )
+    } finally {
+      inFlight.current = null
+      runToken.current = null
+      setPending(null)
+      setWait(null)
+    }
   }
 
-  // Position or total-authors changed after at least one search has already
-  // run — re-ask for real payouts rather than leaving the reader looking at
-  // figures computed for somebody else's author order.
+  /**
+   * The same journals, priced for a different place in the author list.
+   *
+   * Every journal on screen or none of them. A list where the top three rows
+   * are priced for author two and the rest for author one is not a slower
+   * answer, it is a wrong one — so anything that cannot be re-priced by ISSN
+   * sends the whole thing back to the model rather than being left behind.
+   */
+  async function repriceFor(shown: VenuesResult) {
+    const codes = shown.journals.map((j) => j.issn ?? "")
+    let merged: VerifiedJournal[] | null = null
+    let assumed: Assumed | null = null
+
+    if (!codes.some((c) => !c)) {
+      setPending("reposition")
+      setSearchError(null)
+      try {
+        const data = await api<RepriceResult>("/api/discover/reprice", {
+          method: "POST",
+          json: { issns: codes, author_position: authorPosition, total_authors: totalAuthors },
+        })
+        const byIssn = new Map(data.journals.map((j) => [j.issn ?? "", j]))
+        const priced: VerifiedJournal[] = []
+        for (const journal of shown.journals) {
+          const row = byIssn.get(journal.issn ?? "")
+          if (!row) break
+          // `why` is the model's sentence about this paper; re-pricing is
+          // arithmetic and never had it to give back.
+          priced.push({ ...row, why: journal.why })
+        }
+        if (priced.length === shown.journals.length) {
+          merged = priced
+          assumed = data.assumed
+        }
+      } catch (err) {
+        setSearchError({
+          message: err instanceof Error ? err.message : "The amounts could not be worked out again.",
+          status: err instanceof ApiError ? err.status : 0,
+        })
+        setPending(null)
+        return
+      }
+      setPending(null)
+    }
+
+    if (merged && assumed) {
+      merged.sort(byPayout)
+      setResult({ ...shown, journals: merged, assumed })
+    } else {
+      void runSearch()
+    }
+  }
+
+  // Whenever what is on screen was worked out for a different place in the
+  // author list than the one now in the boxes, put that right. Written as the
+  // disagreement rather than as "the number changed" so that it also catches
+  // a search that started before the reader moved themselves down the list
+  // and came back priced for where they used to be.
   useEffect(() => {
-    if (!hasSearched.current) return
-    const t = setTimeout(() => runSearch("reposition"), 400)
+    if (pending || !result) return
+    if (
+      result.assumed.author_position === authorPosition &&
+      result.assumed.total_authors === totalAuthors
+    ) {
+      return
+    }
+    const t = setTimeout(() => void repriceFor(result), 400)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authorPosition, totalAuthors])
+  }, [authorPosition, totalAuthors, result, pending])
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    runSearch("search")
+    void runSearch()
   }
 
   return (
@@ -244,14 +516,22 @@ function VenueFinder() {
               />
             </Field>
           </div>
-          <Button type="submit" kind="primary" disabled={pending === "search"}>
+          <Button type="submit" kind="primary" disabled={pending !== null}>
             {pending === "search" ? <LoaderCircle className="animate-spin" /> : <Search />}
             {pending === "search" ? "Searching…" : "Find venues"}
           </Button>
+          {pending === "search" && (
+            <Button type="button" onClick={stopSearch}>
+              <X />
+              Stop
+            </Button>
+          )}
         </div>
-        {pending === "search" && (
+        {wait && <SearchProgress wait={wait} />}
+        {stoppedAfter !== null && pending === null && (
           <Meta className="block">
-            Naming real journals and checking each against our own data takes a few seconds.
+            Stopped{stoppedAfter > 0 ? ` after ${Math.round(stoppedAfter)}s` : ""}. The model was
+            told to stop too, so nothing is still running.
           </Meta>
         )}
       </form>
@@ -259,10 +539,14 @@ function VenueFinder() {
       {searchError && (
         <ErrorState
           title={
-            /model|upstream|502/i.test(searchError) ? "The model did not answer" : "Could not load this"
+            searchError.status === 503
+              ? "The model is not available"
+              : searchError.status === 502
+                ? "The model did not answer"
+                : "Could not load this"
           }
-          message={searchError}
-          onRetry={() => runSearch(hasSearched.current ? "reposition" : "search")}
+          message={searchError.message}
+          onRetry={() => void runSearch()}
         />
       )}
 
@@ -271,7 +555,9 @@ function VenueFinder() {
           <Callout tone="info" title="Every amount below is an estimate">
             Computed for a {result.assumed.publication_type.toLowerCase()}, as though you are
             author {result.assumed.author_position} of {result.assumed.total_authors} — change
-            the position above and these figures are asked for again.
+            the position above and these figures are worked out again. That is arithmetic over
+            journals we have already identified, so it answers at once: the model is not asked
+            twice for a list that cannot have changed.
             {pending === "reposition" && (
               <span className="mt-1 flex items-center gap-1.5 text-fg-muted">
                 <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
@@ -325,6 +611,65 @@ function VenueFinder() {
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * What the wait is doing, while it does it.
+ *
+ * Three things, and each answers a question somebody asked out loud of the
+ * spinner this replaced: a bar that moves (is it working?), the seconds so
+ * far against the seconds expected (how much longer?), and the word count
+ * rising (is it actually producing anything?). The bar is driven by tokens
+ * once tokens exist, because that is real progress rather than a clock
+ * animated to look like some.
+ *
+ * The one thing it must never do is claim to know the finish. It says "about"
+ * and it stops short of the end, because a bar that sits full for twenty
+ * seconds is the hang all over again with extra steps.
+ */
+function SearchProgress({ wait }: { wait: Wait }) {
+  const fraction =
+    wait.phase === "reading"
+      ? 0.97
+      : wait.tokens > 0
+        ? Math.min(0.95, wait.tokens / Math.max(1, wait.expectedTokens))
+        : Math.min(0.12, wait.elapsed / Math.max(1, wait.expectedSeconds))
+  const percent = Math.round(fraction * 100)
+
+  return (
+    <div className="space-y-2">
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        aria-label="Finding venues"
+        className="h-1 w-full max-w-md overflow-hidden rounded-sm bg-sunken"
+      >
+        <div
+          className="h-full bg-accent transition-[width] duration-[var(--dur-2)] ease-out"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+
+      {/* Live, but only the sentence: the counter beside it changes twice a
+          second and reading that aloud would be unusable. */}
+      <p className="text-sm text-fg-muted" aria-live="polite">
+        {PHASE_SAYS[wait.phase] ?? "Working"}
+      </p>
+
+      <Meta className="block tabular" aria-hidden>
+        {Math.round(wait.elapsed)}s of about {wait.expectedSeconds}s
+        {wait.tokens > 0 ? ` · ${wait.tokens} words written` : ""}
+      </Meta>
+
+      <Meta className="block">
+        The model runs on this server's processor rather than in a data centre,
+        so it is slower and nothing you typed leaves the building. Stopping is
+        safe at any point.
+      </Meta>
+    </div>
   )
 }
 
@@ -387,7 +732,10 @@ function Directions() {
         <div className="space-y-3">
           <SkeletonText lines={1} className="max-w-sm" />
           <SkeletonRows rows={3} rowHeight={84} />
-          <Meta className="block">Thinking this through can take a few seconds.</Meta>
+          <Meta className="block">
+            Thinking this through takes a minute or two — the model runs here
+            rather than in a data centre.
+          </Meta>
         </div>
       ) : q.isError ? (
         q.error.status === 503 ? (
@@ -396,7 +744,13 @@ function Directions() {
           </Callout>
         ) : (
           <ErrorState
-            title={q.error.status === 502 ? "The model did not answer" : "Could not load this"}
+            title={
+              q.error.status === 503
+                ? "The model is not available"
+                : q.error.status === 502
+                  ? "The model did not answer"
+                  : "Could not load this"
+            }
             message={q.error.message}
             onRetry={() => q.refetch()}
           />
@@ -563,5 +917,77 @@ function Interests() {
         </>
       )}
     </section>
+  )
+}
+
+
+/**
+ * Which model answered, said quietly.
+ *
+ * Worth one line because these suggestions are generated, not looked up, and
+ * a reader deciding how much to trust a venue list should be able to see what
+ * produced it. It also makes "it runs on this machine" visible, which is the
+ * substantive change from the hosted API this replaced: a paper's unpublished
+ * title and abstract no longer leave the building.
+ */
+function ModelBadge({ status }: { status: DiscoverStatus }) {
+  if (!status.model) return null
+  return (
+    <Meta className="block">
+      Suggestions come from {status.model}, running on this server. Nothing you
+      type here is sent anywhere else.
+    </Meta>
+  )
+}
+
+/**
+ * Why the suggestions cannot run, and what fixes it.
+ *
+ * Three different situations hide behind "switched off", and they have three
+ * different one-command remedies — the service is not running, the model is
+ * not installed, or the provider name is wrong. The old copy asserted the
+ * third for all of them, so somebody who could have fixed it in ten seconds
+ * was told the deployment had no model configured and stopped there.
+ */
+function ModelUnavailable({
+  status,
+  onRetry,
+}: {
+  status: DiscoverStatus
+  onRetry: () => void
+}) {
+  const fix =
+    status.code === "model_missing"
+      ? `ollama pull ${status.model}`
+      : status.code === "service_down"
+        ? "ollama serve"
+        : null
+
+  return (
+    <Callout
+      tone="caution"
+      title={
+        status.code === "model_missing"
+          ? "The suggestion model is not installed"
+          : status.code === "service_down"
+            ? "The local model service is not running"
+            : "Suggestions are switched off"
+      }
+    >
+      <p>{status.detail || "No model is available, so suggestions cannot run."}</p>
+      {fix ? (
+        <p className="mt-2">
+          On the machine running this server:{" "}
+          <code className="rounded bg-sunken px-1.5 py-0.5 text-sm">{fix}</code>
+        </p>
+      ) : null}
+      <p className="mt-2 text-sm text-fg-muted">
+        The domains you work in, below, still work — they feed collaborator
+        matching even without this.
+      </p>
+      <Button kind="quiet" size="sm" className="mt-3" onClick={onRetry}>
+        Check again
+      </Button>
+    </Callout>
   )
 }

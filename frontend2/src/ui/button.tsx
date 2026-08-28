@@ -18,13 +18,29 @@ import { cn } from "@/lib/cn"
 type Kind = "primary" | "default" | "quiet" | "danger"
 type Size = "sm" | "md" | "lg" | "icon"
 
+/**
+ * Only the two kinds that are *objects* carry elevation, and both carry the
+ * same one: `--shadow-raise`, whose whole meaning is "you can press this".
+ *
+ * `quiet` and `danger` stay flat on purpose. A quiet button is quiet because
+ * it must not compete with the primary one, and a raised quiet button in a
+ * toolbar of six of them turns the toolbar into a keyboard. A danger button
+ * should not look inviting to press.
+ *
+ * `active:shadow-none` is the other half of it: the shadow is not decoration,
+ * it is a claim about height, so pressing the thing has to spend it. Note
+ * that this is a *press* state, not a hover state — the button never rises
+ * under the pointer, which is still forbidden.
+ */
 const KIND: Record<Kind, string> = {
   primary:
     "bg-accent text-accent-fg hover:bg-accent-hover " +
-    "disabled:bg-fg-subtle",
+    "shadow-raise active:shadow-none " +
+    "disabled:bg-fg-subtle disabled:shadow-none",
   default:
     "bg-surface text-fg ring-1 ring-inset ring-edge " +
-    "hover:bg-hover",
+    "hover:bg-hover " +
+    "shadow-raise active:shadow-none disabled:shadow-none",
   quiet: "text-fg-muted hover:bg-hover hover:text-fg",
   danger:
     "text-critical ring-1 ring-inset ring-critical/25 " +

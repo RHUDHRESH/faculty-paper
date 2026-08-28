@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { Coins, Pencil, Plus } from "lucide-react"
 
@@ -19,7 +19,7 @@ import {
 } from "@/ui/dialog"
 import { Field, Input, NumberInput } from "@/ui/field"
 import { money } from "@/ui/paper"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -86,24 +86,51 @@ export function Budget() {
   const mayEdit = can(me?.role).manageMoney
 
   const [searchParams, setSearchParams] = useSearchParams()
-  const year = searchParams.get("fy") ?? ""
+  const requestedYear = searchParams.get("fy") ?? ""
+
+  // `editing` is deliberately not cleared when the dialog closes. The dialog
+  // animates out over a frame or two, and blanking the slice underneath it
+  // flips the title from "Change the allocation" to "Set an allocation" on
+  // the way past.
   const [editing, setEditing] = useState<BudgetSlice | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
   const [adding, setAdding] = useState(false)
 
-  const query = year ? `?financial_year=${encodeURIComponent(year)}` : ""
+  const query = requestedYear ? `?financial_year=${encodeURIComponent(requestedYear)}` : ""
   const { data, isLoading, isError, error, refetch } = useApi<BudgetPayload>(
-    ["budgets", year],
+    ["budgets", requestedYear],
     `/api/budgets${query}`,
     { enabled: allowed }
   )
 
-  // The server decides which year "no filter" means (the current financial
-  // one), so the picker is only ever populated from what came back.
-  const fy = data?.financial_year ?? year
-  const yearOptions: ComboboxOption[] = (data?.years_on_record ?? []).map((y) => ({
-    value: y,
-    label: `FY ${y}`,
-  }))
+  // The year list arrives with the figures, so on the first load — and on
+  // every failed one — there is nothing to build a picker from. Remembering
+  // the years the server has already named keeps the control on screen while
+  // the next year is in flight, which is exactly when a reader wants it
+  // again: they have just picked the wrong one.
+  const [seenYears, setSeenYears] = useState<string[]>([])
+  useEffect(() => {
+    if (!data) return
+    setSeenYears((prev) => {
+      const merged = new Set([...prev, ...data.years_on_record, data.financial_year])
+      return [...merged].sort().reverse()
+    })
+  }, [data])
+
+  // The server decides which year "no filter" means. Until it has answered,
+  // fall back to the same April-to-March rule it uses, so the header and the
+  // set-an-allocation dialog can both name a year before the figures land.
+  const fy = data?.financial_year || requestedYear || currentFinancialYear()
+
+  const yearOptions: ComboboxOption[] = useMemo(() => {
+    const all = new Set(seenYears)
+    all.add(currentFinancialYear())
+    all.add(fy)
+    return [...all]
+      .sort()
+      .reverse()
+      .map((y) => ({ value: y, label: `FY ${y}` }))
+  }, [seenYears, fy])
 
   function selectYear(next: string) {
     setSearchParams((prev) => {
@@ -112,6 +139,11 @@ export function Budget() {
       else p.delete("fy")
       return p
     })
+  }
+
+  function openEdit(slice: BudgetSlice) {
+    setEditing(slice)
+    setEditOpen(true)
   }
 
   if (!allowed) {
@@ -136,7 +168,7 @@ export function Budget() {
 
   return (
     <div className="page space-y-8">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="space-y-4">
         <div>
           <PageTitle>Budget</PageTitle>
           <Sub className="mt-1">
@@ -144,18 +176,26 @@ export function Budget() {
             owed but not yet paid.
           </Sub>
         </div>
-        <div className="flex items-center gap-2">
-          {yearOptions.length > 0 && (
+
+        {/* Outside the loading and error branches on purpose: a reader who
+            has landed on a year that will not load still needs a way off it,
+            and a retry button on its own cannot get them there. */}
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Financial year" className="w-44 shrink-0">
             <Combobox
               value={fy}
               onChange={selectYear}
               options={yearOptions}
-              aria-label="Financial year"
-              className="w-40"
+              searchPlaceholder="Type a year…"
             />
-          )}
+          </Field>
           {mayEdit && (
-            <Button kind="primary" size="md" onClick={() => setAdding(true)}>
+            <Button
+              kind="primary"
+              size="md"
+              onClick={() => setAdding(true)}
+              className="w-full sm:w-auto"
+            >
               <Plus />
               Set an allocation
             </Button>
@@ -164,23 +204,39 @@ export function Budget() {
       </header>
 
       {isLoading ? (
-        <SkeletonRows rows={8} rowHeight={52} />
+        <BudgetSkeleton />
       ) : isError ? (
         <ErrorState
-          title="Could not load the budget"
+          title={`Could not load the budget for FY ${fy}`}
           message={
             error?.status === 403
               ? "Not allowed. Finance, the Principal and the research cell can read this."
-              : "The server did not answer. No allocation has been changed."
+              : "The server did not answer, so every figure below is unknown rather than zero. No allocation has been changed."
           }
-          onRetry={error?.status === 403 ? undefined : () => refetch()}
+          onRetry={error?.status === 403 ? undefined : () => void refetch()}
         />
-      ) : !data ? null : (
+      ) : !data ? (
+        // Deliberately an error and not an empty state. Nothing has been
+        // established about this year, and "no budget has been allocated"
+        // is a claim the page has no evidence for.
+        <ErrorState
+          title={`Nothing came back for FY ${fy}`}
+          message="The request finished without any figures. Try again — no allocation has been changed."
+          onRetry={() => void refetch()}
+        />
+      ) : (
         <>
-          <CollegePosition slice={data.college} fy={data.financial_year} starts={data.starts} ends={data.ends} />
+          <CollegePosition
+            slice={data.college}
+            fy={data.financial_year}
+            starts={data.starts}
+            ends={data.ends}
+            mayEdit={mayEdit}
+            onEdit={openEdit}
+          />
 
           <section className="space-y-3">
-            <div className="flex items-baseline justify-between gap-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <SectionTitle>By department</SectionTitle>
               <Meta>
                 {departments.length} {departments.length === 1 ? "department" : "departments"} with
@@ -190,41 +246,82 @@ export function Budget() {
 
             {departments.length === 0 ? (
               <EmptyState
+                art="no-budget"
                 icon={Coins}
                 title="No department has an allocation or a spend yet"
-                message="A department appears here as soon as it is given an allocation, or as soon as one of its papers is approved or paid."
+                message={`Nothing at all is recorded against a department for FY ${data.financial_year}. One appears here as soon as it is given an allocation, or as soon as one of its papers is approved or paid.`}
+                action={
+                  mayEdit ? (
+                    <Button kind="default" size="sm" onClick={() => setAdding(true)}>
+                      <Plus />
+                      Set an allocation
+                    </Button>
+                  ) : undefined
+                }
               />
             ) : (
-              <DepartmentTable
-                rows={departments}
-                mayEdit={mayEdit}
-                onEdit={(slice) => setEditing(slice)}
-              />
+              <>
+                <DepartmentCards
+                  rows={departments}
+                  college={data.college}
+                  mayEdit={mayEdit}
+                  onEdit={openEdit}
+                />
+                <DepartmentTable
+                  rows={departments}
+                  college={data.college}
+                  mayEdit={mayEdit}
+                  onEdit={openEdit}
+                />
+              </>
             )}
           </section>
         </>
       )}
 
-      {data && (
+      {mayEdit && (
         <>
           <AllocationDialog
             open={adding}
             onOpenChange={setAdding}
-            fy={data.financial_year}
+            fy={fy}
             slice={null}
             takenDepartments={allocatedDepartments}
-            collegeAllocated={data.college.budget_id !== null}
+            collegeAllocated={Boolean(data?.college.budget_id)}
           />
           <AllocationDialog
-            open={editing !== null}
-            onOpenChange={(open) => !open && setEditing(null)}
-            fy={data.financial_year}
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            fy={fy}
             slice={editing}
             takenDepartments={allocatedDepartments}
-            collegeAllocated={data.college.budget_id !== null}
+            collegeAllocated={Boolean(data?.college.budget_id)}
           />
         </>
       )}
+    </div>
+  )
+}
+
+/** The shape of the loaded page rather than a stack of grey bricks — four
+ *  figures, a bar, then rows — so the numbers land where the placeholders
+ *  were instead of shoving the page down when they arrive. */
+function BudgetSkeleton() {
+  return (
+    <div className="space-y-8">
+      <section className="space-y-4">
+        <Skeleton className="h-5 w-56" />
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i}>
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="mt-2 h-7 w-32" />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="h-2 w-full rounded-full" />
+      </section>
+      <SkeletonRows rows={6} rowHeight={52} />
     </div>
   )
 }
@@ -238,24 +335,28 @@ function CollegePosition({
   fy,
   starts,
   ends,
+  mayEdit,
+  onEdit,
 }: {
   slice: BudgetSlice
   fy: string
   starts: string
   ends: string
+  mayEdit: boolean
+  onEdit: (slice: BudgetSlice) => void
 }) {
-  const over = slice.remaining !== null && slice.remaining < 0
+  const over = isOver(slice)
 
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <SectionTitle>The college, FY {fy}</SectionTitle>
         <Meta>
           {formatDay(starts)} to {formatDay(ends)}
         </Meta>
       </div>
 
-      <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-4">
         <Figure label="Allocated" value={slice.allocated} muted={slice.allocated === null} />
         <Figure label="Paid out" value={slice.spent} />
         <Figure
@@ -289,6 +390,21 @@ function CollegePosition({
           account, so this is a position to correct rather than a payment to reverse.
         </Callout>
       )}
+
+      {/* The one control that has to survive a 375px screen. On a phone the
+          department table becomes a card list further down; without this the
+          college's own allocation would have no row to be edited from. */}
+      {mayEdit && (
+        <Button
+          kind={slice.budget_id ? "quiet" : "default"}
+          size="sm"
+          onClick={() => onEdit(slice)}
+          className="w-full sm:w-auto"
+        >
+          {slice.budget_id ? <Pencil /> : <Plus />}
+          {slice.budget_id ? "Change the college allocation" : "Set an allocation for the college"}
+        </Button>
+      )}
     </section>
   )
 }
@@ -311,7 +427,7 @@ function Figure({
       <ColumnLabel className="block">{label}</ColumnLabel>
       <p
         className={cn(
-          "mt-1 text-2xl font-semibold tabular",
+          "mt-1 text-xl font-semibold tabular sm:text-2xl",
           tone === "positive" && "text-positive",
           tone === "critical" && "text-critical",
           muted && "text-fg-subtle"
@@ -333,12 +449,13 @@ function Figure({
  * is 90% used; this one tells you how much of that 90% you could still get
  * back.
  */
-function UsedBar({ slice }: { slice: BudgetSlice }) {
+function UsedBar({ slice, compact }: { slice: BudgetSlice; compact?: boolean }) {
   if (slice.allocated === null || slice.allocated <= 0) return null
 
   const spentShare = Math.max(0, Math.min(1, slice.spent / slice.allocated))
   const committedShare = Math.max(0, Math.min(1 - spentShare, slice.committed / slice.allocated))
   const used = slice.used_fraction ?? 0
+  const over = isOver(slice)
 
   return (
     <div className="space-y-1.5">
@@ -347,20 +464,30 @@ function UsedBar({ slice }: { slice: BudgetSlice }) {
         role="img"
         aria-label={`${Math.round(used * 100)} per cent of the allocation is paid or committed`}
       >
+        {/* Past the ceiling the whole bar turns critical. Two tidy segments
+            filling the track exactly to its end otherwise read as a year
+            that came out even, which is the opposite of what happened. */}
         <span
-          className="block bg-accent transition-[width] duration-500"
+          className={cn("block transition-[width] duration-500", over ? "bg-critical" : "bg-accent")}
           style={{ width: `${spentShare * 100}%` }}
         />
         <span
-          className="block bg-caution transition-[width] duration-500"
+          className={cn(
+            "block transition-[width] duration-500",
+            over ? "bg-critical" : "bg-caution"
+          )}
           style={{ width: `${committedShare * 100}%` }}
         />
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <Legend className="bg-accent">Paid {money(slice.spent)}</Legend>
-        <Legend className="bg-caution">Committed {money(slice.committed)}</Legend>
-        <Meta className="tabular">{Math.round(used * 100)}% of the allocation</Meta>
-      </div>
+      {!compact && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <Legend className={over ? "bg-critical" : "bg-accent"}>Paid {money(slice.spent)}</Legend>
+          <Legend className={over ? "bg-critical" : "bg-caution"}>
+            Committed {money(slice.committed)}
+          </Legend>
+          <Meta className="tabular">{Math.round(used * 100)}% of the allocation</Meta>
+        </div>
+      )}
     </div>
   )
 }
@@ -374,106 +501,310 @@ function Legend({ className, children }: { className: string; children: React.Re
   )
 }
 
+/** The over-allocation flag, next to the name rather than only in the "left"
+ *  column — one red figure among five right-aligned ones is missable, and
+ *  being over the ceiling is the single thing this page exists to surface. */
+function OverTag() {
+  return (
+    <span className="ml-2 inline-block rounded-sm bg-critical-wash px-1.5 py-0.5 text-xs font-medium text-critical">
+      Over
+    </span>
+  )
+}
+
 /* ------------------------------------------------------------------------ */
 /* The department table                                                      */
 /* ------------------------------------------------------------------------ */
 
 /**
- * Bespoke `<table>` markup rather than `<Table>`, because the used bar spans
- * the full width of its own row underneath the figures — a cell renderer
- * cannot draw across the columns beside it.
+ * Bespoke `<table>` markup rather than `<Table>`, because of the footer: the
+ * college total has to sit in the same column grid as the departments above
+ * it, and a generic column renderer has nowhere to put a `<tfoot>`. Hidden
+ * below the `sm` breakpoint, where `DepartmentCards` says the same thing
+ * without asking a phone to scroll sideways to reach an edit button.
  */
 function DepartmentTable({
   rows,
+  college,
   mayEdit,
   onEdit,
 }: {
   rows: BudgetSlice[]
+  college: BudgetSlice
   mayEdit: boolean
   onEdit: (slice: BudgetSlice) => void
 }) {
   return (
-    <TableScroller minWidth="48rem">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr>
-            <th scope="col" className={stickyHeadCell}>
-              <ColumnLabel>Department</ColumnLabel>
-            </th>
-            <th scope="col" className={cn(stickyHeadCell, "w-36 text-right")}>
-              <ColumnLabel>Allocated</ColumnLabel>
-            </th>
-            <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
-              <ColumnLabel>Paid</ColumnLabel>
-            </th>
-            <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
-              <ColumnLabel>Committed</ColumnLabel>
-            </th>
-            <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
-              <ColumnLabel>Left</ColumnLabel>
-            </th>
-            {mayEdit && (
-              <th scope="col" className={cn(stickyHeadCell, "w-20 text-right")}>
-                <span className="sr-only">Actions</span>
+    <div className="hidden sm:block">
+      <TableScroller minWidth="48rem">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr>
+              <th scope="col" className={stickyHeadCell}>
+                <ColumnLabel>Department</ColumnLabel>
               </th>
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => {
-            const over = row.remaining !== null && row.remaining < 0
-            return (
-              <tr key={row.department ?? "college"} className="row border-b border-line last:border-b-0">
+              <th scope="col" className={cn(stickyHeadCell, "w-36 text-right")}>
+                <ColumnLabel>Allocated</ColumnLabel>
+              </th>
+              <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
+                <ColumnLabel>Paid</ColumnLabel>
+              </th>
+              <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
+                <ColumnLabel>Committed</ColumnLabel>
+              </th>
+              <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
+                <ColumnLabel>Left</ColumnLabel>
+              </th>
+              {mayEdit && (
+                <th scope="col" className={cn(stickyHeadCell, "w-28 text-right")}>
+                  <ColumnLabel>Allocation</ColumnLabel>
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.department ?? "unrecorded"}
+                className="row border-b border-line last:border-b-0"
+              >
                 <td className="px-3 py-2.5 align-middle">
-                  <span className="block">{row.department || "No department recorded"}</span>
+                  <span className="block">
+                    {row.department || "No department recorded"}
+                    {isOver(row) && <OverTag />}
+                  </span>
                   {row.note && <Meta className="mt-0.5 block truncate">{row.note}</Meta>}
                 </td>
-                <td className="px-3 py-2.5 text-right align-middle tabular">
-                  {row.allocated === null ? (
-                    <Meta>Not set</Meta>
-                  ) : (
-                    money(row.allocated)
-                  )}
-                </td>
-                <td className="px-3 py-2.5 text-right align-middle tabular">{money(row.spent)}</td>
-                <td className="px-3 py-2.5 text-right align-middle tabular">
-                  {row.committed > 0 ? money(row.committed) : <Meta>—</Meta>}
-                </td>
-                <td
-                  className={cn(
-                    "px-3 py-2.5 text-right align-middle tabular",
-                    over && "text-critical",
-                    !over && row.remaining !== null && "text-positive"
-                  )}
-                >
-                  {row.remaining === null ? (
-                    <Meta>—</Meta>
-                  ) : over ? (
-                    `over ${money(Math.abs(row.remaining))}`
-                  ) : (
-                    money(row.remaining)
-                  )}
-                </td>
+                <MoneyCell value={row.allocated} placeholder="Not set" />
+                <MoneyCell value={row.spent} />
+                <MoneyCell value={row.committed > 0 ? row.committed : null} />
+                <RemainingCell slice={row} />
                 {mayEdit && (
                   <td className="px-3 py-2.5 text-right align-middle">
-                    <Button
-                      kind="quiet"
-                      size="sm"
-                      className="reveal"
-                      onClick={() => onEdit(row)}
-                      aria-label={`Set the allocation for ${row.department || "this department"}`}
-                    >
-                      <Pencil />
-                      {row.budget_id ? "Edit" : "Set"}
-                    </Button>
+                    <AllocationButton slice={row} onEdit={onEdit} />
                   </td>
                 )}
               </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </TableScroller>
+            ))}
+          </tbody>
+          <tfoot>
+            {/* Not the sum of the rows above it. A paper filed by somebody
+                with no department on record still spends the college's
+                money, and has no departmental row to be counted in. */}
+            <tr className="border-t border-edge bg-surface">
+              <th scope="row" className="px-3 py-2.5 text-left align-middle font-medium">
+                <span className="block">
+                  The college
+                  {isOver(college) && <OverTag />}
+                </span>
+                <Meta className="mt-0.5 block">Every department together</Meta>
+              </th>
+              <MoneyCell value={college.allocated} placeholder="Not set" strong />
+              <MoneyCell value={college.spent} strong />
+              <MoneyCell value={college.committed > 0 ? college.committed : null} strong />
+              <RemainingCell slice={college} strong />
+              {mayEdit && (
+                <td className="px-3 py-2.5 text-right align-middle">
+                  <AllocationButton slice={college} onEdit={onEdit} />
+                </td>
+              )}
+            </tr>
+          </tfoot>
+        </table>
+      </TableScroller>
+    </div>
+  )
+}
+
+function MoneyCell({
+  value,
+  placeholder = "—",
+  strong,
+}: {
+  value: number | null
+  placeholder?: string
+  strong?: boolean
+}) {
+  return (
+    <td className={cn("px-3 py-2.5 text-right align-middle tabular", strong && "font-medium")}>
+      {value === null ? <Meta>{placeholder}</Meta> : money(value)}
+    </td>
+  )
+}
+
+function RemainingCell({ slice, strong }: { slice: BudgetSlice; strong?: boolean }) {
+  const over = isOver(slice)
+  return (
+    <td
+      className={cn(
+        "px-3 py-2.5 text-right align-middle tabular",
+        strong && "font-medium",
+        over && "text-critical",
+        !over && slice.remaining !== null && "text-positive"
+      )}
+    >
+      {slice.remaining === null ? (
+        <Meta>—</Meta>
+      ) : over ? (
+        `over ${money(Math.abs(slice.remaining))}`
+      ) : (
+        money(slice.remaining)
+      )}
+    </td>
+  )
+}
+
+/**
+ * The one control that sets or changes an allocation, wherever it appears.
+ *
+ * It used to carry `.reveal`, which only reaches full opacity on
+ * `.row:hover` or `.row:focus-within`. A touch screen fires neither, so on a
+ * phone the sole route to setting a department's budget was an invisible
+ * button: the page could be read and never used. It is plainly visible at
+ * all times now, and it says *set* or *edit* according to whether there is
+ * an allocation to change, because those are different decisions.
+ */
+function AllocationButton({
+  slice,
+  onEdit,
+  className,
+}: {
+  slice: BudgetSlice
+  onEdit: (slice: BudgetSlice) => void
+  className?: string
+}) {
+  const who = slice.department || "the college"
+  return (
+    <Button
+      kind={slice.budget_id ? "quiet" : "default"}
+      size="sm"
+      className={className}
+      onClick={() => onEdit(slice)}
+      aria-label={
+        slice.budget_id ? `Change the allocation for ${who}` : `Set an allocation for ${who}`
+      }
+    >
+      {slice.budget_id ? <Pencil /> : <Plus />}
+      {slice.budget_id ? "Edit" : "Set"}
+    </Button>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* The department list, for a phone                                          */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * The same five figures stacked, for screens narrower than `sm`.
+ *
+ * A six-column table on a 375px screen is a 768px table inside a sideways
+ * scroller, and the action column is the one furthest off the right edge —
+ * so the very control Finance opens this page to press is the last thing
+ * they can reach, if they find it at all. Below `sm` the rows become cards
+ * and the control comes with them.
+ */
+function DepartmentCards({
+  rows,
+  college,
+  mayEdit,
+  onEdit,
+}: {
+  rows: BudgetSlice[]
+  college: BudgetSlice
+  mayEdit: boolean
+  onEdit: (slice: BudgetSlice) => void
+}) {
+  return (
+    <ul className="divide-y divide-line sm:hidden">
+      {rows.map((row) => (
+        <li key={row.department ?? "unrecorded"} className="py-4">
+          <DepartmentCard slice={row} mayEdit={mayEdit} onEdit={onEdit} />
+        </li>
+      ))}
+      <li className="border-t border-edge py-4">
+        <DepartmentCard
+          slice={college}
+          label="The college"
+          hint="Every department together"
+          mayEdit={mayEdit}
+          onEdit={onEdit}
+        />
+      </li>
+    </ul>
+  )
+}
+
+function DepartmentCard({
+  slice,
+  label,
+  hint,
+  mayEdit,
+  onEdit,
+}: {
+  slice: BudgetSlice
+  label?: string
+  hint?: string
+  mayEdit: boolean
+  onEdit: (slice: BudgetSlice) => void
+}) {
+  const over = isOver(slice)
+  return (
+    <div className="space-y-3">
+      <div>
+        <span className="font-medium">
+          {label ?? slice.department ?? "No department recorded"}
+          {over && <OverTag />}
+        </span>
+        {hint && <Meta className="block">{hint}</Meta>}
+      </div>
+
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <CardFigure term="Allocated" value={slice.allocated} placeholder="Not set" />
+        <CardFigure term="Paid" value={slice.spent} />
+        <CardFigure term="Committed" value={slice.committed > 0 ? slice.committed : null} />
+        <CardFigure
+          term={over ? "Over by" : "Left"}
+          value={slice.remaining === null ? null : Math.abs(slice.remaining)}
+          tone={over ? "critical" : slice.remaining === null ? undefined : "positive"}
+        />
+      </dl>
+
+      <UsedBar slice={slice} compact />
+
+      {slice.note && <Meta className="block">{slice.note}</Meta>}
+
+      {mayEdit && <AllocationButton slice={slice} onEdit={onEdit} className="w-full" />}
+    </div>
+  )
+}
+
+function CardFigure({
+  term,
+  value,
+  placeholder = "—",
+  tone,
+}: {
+  term: string
+  value: number | null
+  placeholder?: string
+  tone?: "positive" | "critical"
+}) {
+  return (
+    <div>
+      <dt>
+        <ColumnLabel>{term}</ColumnLabel>
+      </dt>
+      <dd
+        className={cn(
+          "tabular",
+          tone === "positive" && "text-positive",
+          tone === "critical" && "font-medium text-critical",
+          value === null && "text-fg-subtle"
+        )}
+      >
+        {value === null ? placeholder : money(value)}
+      </dd>
+    </div>
   )
 }
 
@@ -548,6 +879,13 @@ function AllocationDialog({
   const negative = amount.trim() !== "" && Number.isFinite(parsed) && parsed < 0
 
   const target = department || "the college as a whole"
+  // Whichever way the dialog was opened, an allocation that already exists
+  // is about to be overwritten. Worth saying before Save, not after.
+  const replacing = slice
+    ? Boolean(slice.budget_id)
+    : department
+      ? takenDepartments.has(department)
+      : collegeAllocated
 
   async function submit() {
     if (!amountValid) return
@@ -583,7 +921,9 @@ function AllocationDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent size="sm">
           <DialogHeader>
-            <DialogTitle>{slice?.budget_id ? "Change the allocation" : "Set an allocation"}</DialogTitle>
+            <DialogTitle>
+              {slice?.budget_id ? "Change the allocation" : "Set an allocation"}
+            </DialogTitle>
             <DialogDescription>
               For financial year {fy}. The change is written to the audit log against your name.
             </DialogDescription>
@@ -617,8 +957,19 @@ function AllocationDialog({
             </Field>
 
             <Field label="Note" hint="Optional — where the figure came from, or what it covers.">
-              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Sanctioned in the March governing body meeting" />
+              <Input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Sanctioned in the March governing body meeting"
+              />
             </Field>
+
+            {replacing && amountValid && (
+              <Callout tone="caution" title="This replaces the allocation already on record">
+                {target} already has an allocation for FY {fy}. Saving overwrites it with{" "}
+                {money(parsed)}. Nothing that has been paid or committed changes.
+              </Callout>
+            )}
           </DialogBody>
           <DialogFooter className="justify-between">
             {slice?.budget_id ? (
@@ -667,6 +1018,22 @@ function AllocationDialog({
 /* ------------------------------------------------------------------------ */
 /* Helpers                                                                   */
 /* ------------------------------------------------------------------------ */
+
+/** Over the ceiling, and only where there *is* a ceiling. A department with
+ *  no allocation has spent money against no limit, which is not the same
+ *  thing as having overspent. */
+function isOver(slice: BudgetSlice): boolean {
+  return slice.remaining !== null && slice.remaining < 0
+}
+
+/** India's financial year runs April to March, mirroring
+ *  `financial_year_of()` in backend/core/api.py. Used only to name a year
+ *  before the server has answered — the server's own answer always wins. */
+function currentFinancialYear(): string {
+  const now = new Date()
+  const start = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+  return `${start}-${String(start + 1).slice(-2)}`
+}
 
 function formatDay(iso: string): string {
   const d = new Date(iso)

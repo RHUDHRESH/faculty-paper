@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { useEffect, useId, useState } from "react"
+import { Link, useSearchParams } from "react-router-dom"
 import {
   Download,
   FileSearch,
@@ -206,8 +206,26 @@ function GeneralQuery() {
   function clearAll() {
     setSearchDraft("")
     setDraft(emptyGeneralFilters())
-    setSearchParams(new URLSearchParams())
+    // Sort survives. It is not a filter — it hides nothing — and having
+    // "clear filters" silently reorder the list underneath the reader is a
+    // second surprise on top of the one they asked for.
+    setSearchParams((prev) => {
+      const next = new URLSearchParams()
+      const keepSort = prev.get("sort")
+      if (keepSort) next.set("sort", keepSort)
+      return next
+    })
     setSheetOpen(false)
+  }
+
+  function clearSearch() {
+    setSearchDraft("")
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete("q")
+      next.delete("page")
+      return next
+    })
   }
 
   function removeFilter(key: GeneralFilterKey) {
@@ -425,21 +443,11 @@ function GeneralQuery() {
                   unit="₹"
                 />
               )}
-              <div className="space-y-1.5">
-                <label className="block text-sm font-medium" htmlFor="pub-month">
-                  Payout month
-                </label>
-                <input
-                  id="pub-month"
-                  type="month"
-                  value={draft.month}
-                  onChange={(e) => setDraft((d) => ({ ...d, month: e.target.value }))}
-                  className={cn(
-                    "h-8 w-full rounded-md bg-surface px-2.5 text-sm text-fg outline-none",
-                    "ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent"
-                  )}
-                />
-              </div>
+              <LabeledMonth
+                label="Payout month"
+                value={draft.month}
+                onChange={(v) => setDraft((d) => ({ ...d, month: v }))}
+              />
             </SheetBody>
             <SheetFooter>
               <Button kind="quiet" size="sm" onClick={clearAll}>
@@ -453,23 +461,37 @@ function GeneralQuery() {
         </Sheet>
       </div>
 
-      {activeKeys.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {activeKeys.map((key) => (
-            <Chip key={key} label={chipLabel(key, filters[key])} onRemove={() => removeFilter(key)} />
-          ))}
+      {/* Count and chips together, above the results: what was asked, and
+          how much came back. The search box holds a term without looking
+          like a filter, so it gets a chip of its own — an empty list with a
+          forgotten search still in the box is the case this whole strip
+          exists for. */}
+      <div className="flex min-h-7 flex-wrap items-center gap-2">
+        <div role="status" aria-live="polite">
+          {!isLoading && !isError && (
+            <Meta className="tabular">
+              {total === 1 ? "1 result" : `${total} results`}
+              {filtered ? " matching these filters" : ""}
+              {seeMoney && data && total > 0 ? ` · ${money(data.total_amount)} total` : ""}
+            </Meta>
+          )}
         </div>
-      )}
-
-      {!isLoading && !isError && (
-        <Meta className="block">
-          {total} {total === 1 ? "result" : "results"}
-          {seeMoney && data && total > 0 ? ` · ${money(data.total_amount)} total` : ""}
-        </Meta>
-      )}
+        {q && <Chip label={`Search: ${q}`} onRemove={clearSearch} />}
+        {activeKeys.map((key) => (
+          <Chip key={key} label={chipLabel(key, filters[key])} onRemove={() => removeFilter(key)} />
+        ))}
+        {filtered && (
+          <Button kind="quiet" size="sm" onClick={clearAll}>
+            Clear all
+          </Button>
+        )}
+      </div>
 
       {isLoading ? (
-        <SkeletonRows rows={8} rowHeight={48} />
+        <>
+          <SkeletonRows rows={8} rowHeight={48} className="hidden md:block" />
+          <SkeletonRows rows={5} rowHeight={84} className="md:hidden" />
+        </>
       ) : isError ? (
         error?.status === 403 ? (
           <ErrorState
@@ -485,6 +507,7 @@ function GeneralQuery() {
         )
       ) : rows.length === 0 ? (
         <EmptyState
+          art="no-results"
           icon={filtered ? SearchX : FileSearch}
           title={filtered ? "No results for this query" : "Nothing has been filed yet"}
           message={
@@ -503,16 +526,56 @@ function GeneralQuery() {
       ) : (
         <>
           <Table
+            className="hidden md:block"
             rows={rows}
             getKey={(r) => r.id}
             rowLink={(r) => `/papers/${r.id}`}
             minWidth="56rem"
             columns={columns}
           />
+
+          <ul className="divide-y divide-line border-y border-line md:hidden">
+            {rows.map((r) => (
+              <SearchCard key={r.id} row={r} seeMoney={seeMoney} />
+            ))}
+          </ul>
+
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
         </>
       )}
     </div>
+  )
+}
+
+/** The seven-column result row, restacked for a screen too narrow to hold
+ *  it. Without this the table is the only layout, and at 375px a reader is
+ *  side-scrolling a 56rem grid to find the stage of a paper whose title
+ *  they can no longer see. */
+function SearchCard({ row, seeMoney }: { row: SearchRow; seeMoney: boolean }) {
+  return (
+    <li className="row">
+      <Link to={`/papers/${row.id}`} className="block px-1 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
+            <Meta className="mt-0.5 block truncate">
+              {[row.owner_name, row.owner_department, row.ticket_number].filter(Boolean).join(" · ")}
+            </Meta>
+          </span>
+          {seeMoney && (
+            <span className="shrink-0 text-right">
+              <AmountCell row={row} />
+            </span>
+          )}
+        </div>
+        <Meta className="mt-1 block truncate">
+          {[row.journal_title, row.publication_year, row.quartile].filter(Boolean).join(" · ") || "—"}
+        </Meta>
+        <div className="mt-2">
+          <Stage stage={stageOf(row.status)} className="w-[8rem]" />
+        </div>
+      </Link>
+    </li>
   )
 }
 
@@ -581,10 +644,18 @@ function LabeledCombobox({
   onChange: (v: string) => void
   options: ComboboxOption[]
 }) {
+  // Was a <span>: the combobox had a name from `aria-label`, so it was not
+  // silent, but the words above it were not clickable and the three fields
+  // in this sheet were built three different ways. `Combobox` puts `id` on
+  // its trigger button, which is labelable, so it can take the same
+  // useId/htmlFor pairing the text and number filters use.
+  const id = useId()
   return (
     <div className="space-y-1.5">
-      <span className="block text-sm font-medium">{label}</span>
-      <Combobox value={value} onChange={onChange} options={options} aria-label={label} />
+      <label htmlFor={id} className="block text-sm font-medium">
+        {label}
+      </label>
+      <Combobox id={id} value={value} onChange={onChange} options={options} aria-label={label} />
     </div>
   )
 }
@@ -600,10 +671,22 @@ function LabeledInput({
   onChange: (v: string) => void
   placeholder?: string
 }) {
+  // A <span> is not a label: it gives the field no accessible name and
+  // clicking it does not focus anything. Nine filters here were announced as
+  // unlabelled edit boxes, while the Combobox directly above them passed
+  // aria-label all along.
+  const id = useId()
   return (
     <div className="space-y-1.5">
-      <span className="block text-sm font-medium">{label}</span>
-      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      <label htmlFor={id} className="block text-sm font-medium">
+        {label}
+      </label>
+      <Input
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
     </div>
   )
 }
@@ -619,10 +702,51 @@ function LabeledNumber({
   onChange: (v: string) => void
   unit?: string
 }) {
+  const id = useId()
   return (
     <div className="space-y-1.5">
-      <span className="block text-sm font-medium">{label}</span>
-      <NumberInput value={value} onChange={(e) => onChange(e.target.value)} unit={unit} />
+      <label htmlFor={id} className="block text-sm font-medium">
+        {label}
+      </label>
+      <NumberInput
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        unit={unit}
+      />
+    </div>
+  )
+}
+
+/** `type="month"` in the house colours. There is no `MonthInput` in
+ *  `src/ui/field.tsx` to reach for, so the ring, height and radius are
+ *  written out here to match `Input` exactly — a hand-rolled id was the one
+ *  thing that could not be matched by eye, so it uses `useId` like the rest. */
+function LabeledMonth({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  const id = useId()
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="block text-sm font-medium">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="month"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "h-8 w-full rounded-md bg-surface px-2.5 text-sm text-fg outline-none",
+          "ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent"
+        )}
+      />
     </div>
   )
 }
@@ -632,13 +756,15 @@ function LabeledNumber({
  *  minimum amount, so every chip names its own dimension. */
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-selected px-2 py-1 text-sm text-fg">
-      {label}
+    <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-selected px-2 py-1 text-sm text-fg">
+      {/* A pasted search term is not length-limited, and a chip that cannot
+          shrink pushes the page itself sideways on a phone. */}
+      <span className="min-w-0 truncate">{label}</span>
       <button
         type="button"
         onClick={onRemove}
         aria-label={`Remove filter: ${label}`}
-        className="grid size-4 place-items-center rounded-sm text-fg-muted hover:bg-hover hover:text-fg"
+        className="grid size-4 shrink-0 place-items-center rounded-sm text-fg-muted hover:bg-hover hover:text-fg"
       >
         <X className="size-3" aria-hidden />
       </button>
@@ -752,8 +878,24 @@ function HodQuery({ department }: { department: string | null }) {
     setSearchDraft("")
     setDraftYear("")
     setDraftQuartile("")
-    setSearchParams(new URLSearchParams())
+    // Sort is not a filter; see the same note in `GeneralQuery`.
+    setSearchParams((prev) => {
+      const next = new URLSearchParams()
+      const keepSort = prev.get("sort")
+      if (keepSort) next.set("sort", keepSort)
+      return next
+    })
     setSheetOpen(false)
+  }
+
+  function clearSearch() {
+    setSearchDraft("")
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete("q")
+      next.delete("page")
+      return next
+    })
   }
 
   function removeFilter(key: "year" | "quartile") {
@@ -907,22 +1049,31 @@ function HodQuery({ department }: { department: string | null }) {
         </Sheet>
       </div>
 
-      {activeFilters.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {activeFilters.map((f) => (
-            <Chip key={f.key} label={f.label} onRemove={() => removeFilter(f.key)} />
-          ))}
+      <div className="flex min-h-7 flex-wrap items-center gap-2">
+        <div role="status" aria-live="polite">
+          {!isLoading && !isError && (
+            <Meta className="tabular">
+              {total === 1 ? "1 result" : `${total} results`}
+              {filtered ? " matching these filters" : ""}
+            </Meta>
+          )}
         </div>
-      )}
-
-      {!isLoading && !isError && (
-        <Meta className="block">
-          {total} {total === 1 ? "result" : "results"}
-        </Meta>
-      )}
+        {q && <Chip label={`Search: ${q}`} onRemove={clearSearch} />}
+        {activeFilters.map((f) => (
+          <Chip key={f.key} label={f.label} onRemove={() => removeFilter(f.key)} />
+        ))}
+        {filtered && (
+          <Button kind="quiet" size="sm" onClick={clearAll}>
+            Clear all
+          </Button>
+        )}
+      </div>
 
       {isLoading ? (
-        <SkeletonRows rows={8} rowHeight={48} />
+        <>
+          <SkeletonRows rows={8} rowHeight={48} className="hidden md:block" />
+          <SkeletonRows rows={5} rowHeight={84} className="md:hidden" />
+        </>
       ) : isError ? (
         error?.status === 403 ? (
           <ErrorState
@@ -938,6 +1089,7 @@ function HodQuery({ department }: { department: string | null }) {
         )
       ) : rows.length === 0 ? (
         <EmptyState
+          art="no-results"
           icon={filtered ? SearchX : FileSearch}
           title={filtered ? "No results for this query" : "Nothing filed in this department yet"}
           message={
@@ -955,11 +1107,48 @@ function HodQuery({ department }: { department: string | null }) {
         />
       ) : (
         <>
-          <Table rows={rows} getKey={(r) => r.id} rowLink={(r) => `/papers/${r.id}`} minWidth="52rem" columns={columns} />
+          <Table
+            className="hidden md:block"
+            rows={rows}
+            getKey={(r) => r.id}
+            rowLink={(r) => `/papers/${r.id}`}
+            minWidth="52rem"
+            columns={columns}
+          />
+
+          <ul className="divide-y divide-line border-y border-line md:hidden">
+            {rows.map((r) => (
+              <HodCard key={r.id} row={r} />
+            ))}
+          </ul>
+
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
         </>
       )}
     </div>
+  )
+}
+
+/** The department row restacked for a narrow screen — the same fields, and
+ *  still no rupee figure, because this branch never has one to leak. */
+function HodCard({ row }: { row: HodRow }) {
+  return (
+    <li className="row">
+      <Link to={`/papers/${row.id}`} className="block px-1 py-3">
+        <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
+        <Meta className="mt-0.5 block truncate">
+          {[row.owner_name, row.ticket_number].filter(Boolean).join(" · ")}
+        </Meta>
+        <Meta className="mt-1 block truncate">
+          {[row.journal_title, row.publication_year, row.quartile, row.indexing_level]
+            .filter(Boolean)
+            .join(" · ") || "—"}
+        </Meta>
+        <span className={cn("mt-2 block text-sm", HOD_PROGRESS_TONE[row.progress] ?? "text-fg-muted")}>
+          {row.progress}
+        </span>
+      </Link>
+    </li>
   )
 }
 

@@ -231,6 +231,7 @@ export function Authorisations() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          art="empty-queue"
           icon={CircleCheck}
           title="Nothing is waiting on you"
           message="Every approved claim has been authorised. The Principal's next batch appears here as soon as they sign it off."

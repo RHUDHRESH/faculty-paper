@@ -122,6 +122,7 @@ export function Batches() {
         <ErrorState onRetry={() => void refetch()} />
       ) : !data || data.length === 0 ? (
         <EmptyState
+          art="empty-queue"
           title="No runs yet"
           message="Upload the month's Scopus export to start one."
         />
@@ -390,6 +391,7 @@ export function Batch() {
 
       {data.rows.length === 0 ? (
         <EmptyState
+          art="empty-queue"
           title="No rows"
           message="Nothing was read out of the uploaded file."
         />

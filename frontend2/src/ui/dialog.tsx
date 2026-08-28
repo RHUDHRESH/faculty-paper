@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { X } from "lucide-react"
 
 import { Button } from "@/ui/button"
+import { dialogVariants, overlayVariants, useMotionVariants } from "@/ui/motion"
 import { cn } from "@/lib/cn"
 
 /**
@@ -17,6 +18,10 @@ import { cn } from "@/lib/cn"
  * job to `AnimatePresence` instead, which is why open state is tracked here
  * rather than left to Radix alone: something has to tell `AnimatePresence`
  * when the exit should start.
+ *
+ * Every timing comes from `ui/motion.ts`, including what happens when the
+ * reader has asked their system to stop moving things — see the note there
+ * about why the global CSS rule cannot do that job for a JS animation.
  */
 
 const OpenContext = createContext(false)
@@ -68,6 +73,8 @@ export function DialogContent({
   ...props
 }: React.ComponentProps<typeof RadixDialog.Content> & { size?: keyof typeof WIDTH }) {
   const open = useContext(OpenContext)
+  const overlay = useMotionVariants(overlayVariants)
+  const surface = useMotionVariants(dialogVariants)
   return (
     <AnimatePresence>
       {open && (
@@ -75,19 +82,19 @@ export function DialogContent({
           <RadixDialog.Overlay asChild forceMount>
             <motion.div
               className="fixed inset-0 z-50 bg-black/20"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.16 }}
+              variants={overlay}
+              initial="hidden"
+              animate="visible"
+              exit="hidden"
             />
           </RadixDialog.Overlay>
           <div className="fixed inset-0 z-50 grid place-items-center p-4">
             <RadixDialog.Content asChild forceMount {...props}>
               <motion.div
-                initial={{ opacity: 0, y: 8, scale: 0.985 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.985 }}
-                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                variants={surface}
+                initial="hidden"
+                animate="visible"
+                exit="hidden"
                 className={cn(
                   "relative flex max-h-[85vh] w-full flex-col overflow-hidden rounded-xl",
                   "bg-surface shadow-modal",

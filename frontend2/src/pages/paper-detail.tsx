@@ -1,14 +1,22 @@
 import { useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowLeft, Paperclip } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { useApi, useApiMutation } from "@/lib/query"
+import { AttachmentGallery, type Attachment } from "@/ui/attachments"
 import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
-import { money, Stage, stageOf } from "@/ui/paper"
+import {
+  categoryLabel,
+  money,
+  payoutWorking,
+  PayoutWorking,
+  StageTrack,
+  stageOf,
+} from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonText } from "@/ui/state"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
 /**
@@ -16,21 +24,21 @@ import { toast } from "@/ui/toast"
  * to find out.
  *
  * Four questions, answered in the order somebody actually asks them: where
- * it is and who is holding it; if it came back, what to fix; why the amount
- * is what it is, with the working shown rather than only the total; and what
- * has happened to it. A rejected ticket puts its reason before anything
- * else — the old app buried a sent-back reason under the amount and the
- * stage, and the one sentence somebody arrived for was the last thing they
- * read, if they found it at all.
+ * it is, who is holding it and how long it has been there; if it came back,
+ * what to fix; why the amount is what it is, with the working shown rather
+ * than only the total; and what has happened to it. A rejected ticket puts
+ * its reason before anything else — the old app buried a sent-back reason
+ * under the amount and the stage, and the one sentence somebody arrived for
+ * was the last thing they read, if they found it at all.
+ *
+ * The test this page has to pass: somebody who has waited three weeks for
+ * ₹50,000 should be able to read it once and know where their money is, what
+ * it will be, and what — if anything — they have to do. Everything here that
+ * says a figure also says where the figure came from and whether anybody has
+ * checked it, because an unchecked SNIP is the ordinary reason a claim comes
+ * back and it is not the claimant's job to guess that from the word
+ * "manually".
  */
-
-type Attachment = {
-  id: string
-  kind: string
-  url: string
-  filename: string
-  size_bytes: number | null
-}
 
 type DuplicateMatch = {
   source?: string | null
@@ -98,6 +106,16 @@ type Claim = {
   created_at: string | null
   updated_at: string | null
   submitted_at: string | null
+  // The dates the ticket itself carries. Most paid tickets in this system
+  // were imported from the college's earlier records and have no recorded
+  // steps at all, so these are the only account of what happened to them.
+  cleared_at: string | null
+  cleared_by_name: string | null
+  principal_approved_at: string | null
+  principal_approved_by_name: string | null
+  director_approved_at: string | null
+  director_approved_by_name: string | null
+  paid_at: string | null
   actions?: ClaimAction[]
   team: Team | null
 }
@@ -163,9 +181,17 @@ export function PaperDetail() {
     if (error.status === 403) {
       return (
         <div className="page py-8">
+          {/* The server's own sentence when it sent one. The only 403 this
+              endpoint returns is the head-of-department refusal, which
+              explains where their answer actually lives — and a page that
+              overwrites it with "this paper is not yours" sends a head to
+              argue about ownership they never claimed. */}
           <ErrorState
-            title="This paper is not yours"
-            message="You can only open a paper you filed, or one waiting in a queue you handle."
+            title="You cannot open this ticket"
+            message={
+              error.message ||
+              "You can only open a paper you filed, or one waiting in a queue you handle."
+            }
           />
         </div>
       )
@@ -225,6 +251,24 @@ export function PaperDetail() {
     claim.status_note && (claim.status === "REJECTED" || sentBackByPrincipal)
   )
 
+  const settled = claim.status === "PAID"
+  const working = payoutWorking(claim)
+  // Which of the two figures the amount rests on were typed in rather than
+  // matched against a published dataset. Both are grounds for the research
+  // cell to change the amount, so the reader is told before they plan on it.
+  // A value the research cell verified by hand on purpose is not the same
+  // thing as one nobody has looked at, so `manual_verified_by_name` takes the
+  // warning away: somebody with the authority to check it has checked it.
+  const handEntered = claim.manual_verified_by_name
+    ? []
+    : [
+        claim.snip_source === "MANUAL" ? "the SNIP" : null,
+        claim.quartile_source === "MANUAL" ? "the quartile" : null,
+      ].filter((v): v is string => v !== null)
+  const dates = ticketDates(claim)
+  const waiting = waitingLine(claim)
+  const provenance = provenanceLines(claim)
+
   return (
     <div className="page space-y-10 py-8">
       {/* The one sentence a sent-back paper's owner came here for, before
@@ -279,10 +323,18 @@ export function PaperDetail() {
             </div>
           )}
         </div>
-        <div className="max-w-xs">
-          <Stage stage={stage} />
+        <div className="w-full max-w-md space-y-2">
+          <p className="text-base font-medium">{stage.label}</p>
+          <StageTrack stage={stage} />
+          {/* Who is holding it, said after the picture rather than instead of
+              it. This was the only answer the page gave. */}
+          <p className="text-sm text-fg-muted">{stage.who}</p>
+          {/* The question somebody who has waited three weeks actually opens
+              this page with. The page carried the dates in its payload and
+              printed none of them anywhere above the history, so "how long
+              has this been sitting there" had no answer on the screen. */}
+          {waiting && <Meta className="block">{waiting}</Meta>}
         </div>
-        <p className="text-sm text-fg-muted">{stage.who}</p>
       </header>
 
       {claim.duplicate_warning && (
@@ -308,14 +360,61 @@ export function PaperDetail() {
       )}
 
       <section className="space-y-4">
-        <SectionTitle>The payout</SectionTitle>
+        <SectionTitle>
+          {isOwner
+            ? settled
+              ? "What you were paid"
+              : "What you will be paid"
+            : settled
+              ? "What was paid"
+              : "What this pays"}
+        </SectionTitle>
 
-        <div>
-          <p className="text-3xl font-semibold tabular">
-            {claim.calc_error ? "—" : money(claim.remuneration)}
-          </p>
-          {claim.remuneration_category && (
-            <p className="mt-1 text-sm text-fg-muted">{claim.remuneration_category}</p>
+        {/* The page's one lead surface. Of the four questions this screen
+            answers, this is the one nobody scrolls past, and until it had a
+            ground of its own the amount sat on the same white as the ISSN. */}
+        <div className="panel-lead space-y-4 p-4 sm:p-5">
+          <div>
+            {/* A figure this size with no caption reads as a promise, and it
+                is not one until the Director has authorised it. */}
+            {!claim.calc_error && (
+              <p className="text-sm text-fg-muted">{amountCaption(claim, settled)}</p>
+            )}
+            {claim.calc_error ? (
+              <p className="text-lg font-medium text-critical">
+                No amount could be worked out for this paper
+              </p>
+            ) : (
+              <Figure className="mt-0.5 block text-3xl">{money(claim.remuneration)}</Figure>
+            )}
+            {categoryLabel(claim.remuneration_category) && (
+              <p className="mt-1 text-sm text-fg-muted">
+                {categoryLabel(claim.remuneration_category)}
+              </p>
+            )}
+          </div>
+
+          {claim.calc_error ? null : working.length > 0 ? (
+            <div className="space-y-2 border-t border-line pt-4">
+              <ColumnLabel>How that is worked out</ColumnLabel>
+              <PayoutWorking facts={claim} />
+              {claim.remuneration_category === "I" && (
+                // The old page printed `[(SNIP × 55,000) + QFA] × APP` and
+                // expanded neither initialism anywhere on the screen. The sum
+                // above is now the explanation; this stays only so an approver
+                // holding the policy document can see the two match, and it
+                // names both symbols where it uses them.
+                <p className="pt-1 text-xs text-fg-subtle">
+                  The policy writes this as [(SNIP × rate per point) + QFA] × APP,
+                  where QFA is the quartile incentive and APP the author-position
+                  share.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="border-t border-line pt-4 text-sm text-fg-muted">
+              {noWorkingReason(claim, settled)}
+            </p>
           )}
         </div>
 
@@ -327,47 +426,51 @@ export function PaperDetail() {
 
         {/* Unmissable on purpose — this is the one fact that changes what a
             reader should do with the number above. */}
-        {claim.remuneration_is_estimate && (
-          <Callout tone="caution" title="This is an estimate">
-            It rests on values reported by the claimant, not a verified SNIP or
-            quartile. It may change once the research cell checks it.
+        {claim.remuneration_is_estimate ? (
+          <Callout tone="caution" title="This is an estimate, not a decision">
+            It is worked out from the SNIP and quartile reported on the form, not
+            from figures anyone has checked. The research cell matches both
+            against Scopus and Scimago when they look at the ticket, and the
+            amount changes if either turns out to be different.
           </Callout>
-        )}
+        ) : handEntered.length > 0 && !settled ? (
+          // "Entered manually" appeared twice on the old page as a bare phrase
+          // with nothing to say why a reader should care. It means the figure
+          // was typed in rather than matched against the published data — the
+          // single most common reason a claim comes back — so it is said in
+          // those words, once, where it changes what the reader should expect.
+          <Callout
+            tone="caution"
+            title={`${capitalise(sentenceList(handEntered))} ${
+              handEntered.length === 1 ? "was" : "were"
+            } typed in by hand`}
+          >
+            Nobody has matched {handEntered.length === 1 ? "it" : "them"} against
+            the published Scopus and Scimago data yet, and the amount above rests
+            on {handEntered.length === 1 ? "it" : "them"} being right. The research
+            cell checks {handEntered.length === 1 ? "it" : "both"} before the
+            ticket moves on, and the amount changes if the published value turns
+            out to be different. Nothing for you to do unless somebody asks you
+            for the journal's page.
+          </Callout>
+        ) : null}
 
-        <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-          <Figure
-            label="SNIP"
-            value={claim.snip != null ? claim.snip.toFixed(3) : "—"}
-            note={snipNote(claim)}
-          />
-          <Figure
-            label="Quartile"
-            value={claim.quartile || "—"}
-            note={quartileNote(claim)}
-          />
-          <Figure label="QF amount" value={money(claim.qf_amount)} />
-          <Figure label="Base amount" value={money(claim.base_amount)} />
-          <Figure
-            label="Author point"
-            value={claim.author_point != null ? claim.author_point.toFixed(3) : "—"}
-            note={
-              claim.author_position && claim.total_authors
-                ? `Position ${claim.author_position} of ${claim.total_authors}`
-                : undefined
-            }
-          />
+        <div className="space-y-1.5">
+          {provenance.map((line) => (
+            <p key={line} className="text-sm text-fg-muted">
+              {line}
+            </p>
+          ))}
+          {claim.manual_verified_by_name && (
+            <p className="text-sm text-fg-muted">
+              Checked by hand by {claim.manual_verified_by_name}
+              {claim.manual_verification_note ? `: ${claim.manual_verification_note}` : "."}
+            </p>
+          )}
+          {claim.remuneration_note && (
+            <p className="text-sm text-fg-muted">{claim.remuneration_note}</p>
+          )}
         </div>
-
-        {(claim.manual_verified_by_name || claim.manual_verification_note || claim.remuneration_note) && (
-          <p className="text-sm text-fg-muted">
-            {claim.manual_verified_by_name && <>Manually verified by {claim.manual_verified_by_name}. </>}
-            {claim.manual_verification_note}
-            {claim.manual_verification_note && claim.remuneration_note ? " " : ""}
-            {claim.remuneration_note}
-          </p>
-        )}
-
-        <p className="text-xs text-fg-subtle">Formula: [(SNIP × 55,000) + QFA] × APP</p>
       </section>
 
       <section className="grid gap-x-10 gap-y-8 sm:grid-cols-2">
@@ -393,36 +496,35 @@ export function PaperDetail() {
             <DetailRow label="ISSN" value={claim.issn} />
             <DetailRow label="Published" value={formatPubDate(claim)} />
             <DetailRow label="Type" value={claim.publication_type} />
-            <DetailRow label="Authors" value={authorNames(claim) || authorsSummary(claim)} />
+            {/* Names only. "Position 1 of 1" used to appear here as well as
+                under the author-position share, and of the two places the
+                share is the one where it is doing work: it is the reason that
+                number is what it is. Repeated here it read as a second,
+                unrelated fact about the paper. */}
+            <DetailRow label="Authors" value={authorNames(claim)} />
           </dl>
         </div>
+      </section>
 
-        <div className="space-y-3">
-          <SectionTitle>Attachments</SectionTitle>
-          {claim.attachments.length === 0 ? (
-            <p className="text-sm text-fg-muted">Nothing attached.</p>
-          ) : (
-            <ul className="divide-y divide-line border-y border-line">
-              {claim.attachments.map((a) => (
-                <li key={a.id} className="row">
-                  <a
-                    href={a.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2 px-1 py-2"
-                  >
-                    <Paperclip className="size-4 shrink-0 text-fg-subtle" aria-hidden />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm">{a.filename}</span>
-                      <Meta className="block truncate">{attachmentKindLabel(a.kind)}</Meta>
-                    </span>
-                    <Meta className="shrink-0">{formatSize(a.size_bytes)}</Meta>
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      {/* Its own full-width section rather than half of the grid above. It
+          used to be a column of text links beside the journal details, which
+          is the size a list of filenames needs and nothing like the size
+          evidence needs: a thumbnail an approver can recognise, and a
+          reference's number and title beside it, do not fit in half a
+          column. */}
+      <section className="space-y-3">
+        <SectionTitle>Attachments</SectionTitle>
+        <AttachmentGallery
+          files={claim.attachments}
+          emptyLabel={
+            <>
+              No files are attached to this ticket.
+              {canEdit
+                ? " Use Edit to add the published paper and the pages showing your SEC-affiliated references."
+                : ""}
+            </>
+          }
+        />
       </section>
 
       {claim.team ? <TeamPanel team={claim.team} /> : null}
@@ -431,9 +533,7 @@ export function PaperDetail() {
 
       <section className="space-y-3">
         <SectionTitle>History</SectionTitle>
-        {!claim.actions || claim.actions.length === 0 ? (
-          <p className="text-sm text-fg-muted">No history recorded.</p>
-        ) : (
+        {claim.actions && claim.actions.length > 0 ? (
           <ul className="space-y-3 border-l border-line pl-4">
             {[...claim.actions].reverse().map((a) => (
               <li key={a.id} className="text-sm">
@@ -444,6 +544,34 @@ export function PaperDetail() {
               </li>
             ))}
           </ul>
+        ) : dates.length > 0 ? (
+          // Not "No history recorded". Almost every settled ticket in this
+          // system was brought across from the college's earlier records
+          // rather than filed here, so it genuinely has no recorded steps —
+          // but it does carry its own dates, and printing nothing while
+          // holding the date it was paid is the page keeping a secret it does
+          // not have.
+          <>
+            <p className="text-sm text-fg-muted">
+              No step-by-step record was kept for this ticket — it did not travel
+              through this system one desk at a time. These are the dates the
+              ticket itself carries, and they are all that is known about it.
+            </p>
+            <ul className="space-y-3 border-l border-line pl-4">
+              {dates.map((d) => (
+                <li key={d.label} className="text-sm">
+                  <p>{d.label}</p>
+                  <Meta>{[d.who, formatDateTime(d.at)].filter(Boolean).join(" · ")}</Meta>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="text-sm text-fg-muted">
+            Nothing has happened to this ticket yet. From the moment you file it,
+            every step — who moved it, when, and anything they wrote — is listed
+            here.
+          </p>
         )}
       </section>
 
@@ -476,16 +604,6 @@ export function PaperDetail() {
 /* Small pieces                                                             */
 /* ------------------------------------------------------------------------ */
 
-function Figure({ label, value, note }: { label: string; value: string; note?: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs text-fg-muted">{label}</p>
-      <p className="tabular text-base">{value}</p>
-      {note && <p className="text-xs text-fg-subtle">{note}</p>}
-    </div>
-  )
-}
-
 function DetailRow({ label, value }: { label: string; value: React.ReactNode | null | undefined }) {
   if (value === null || value === undefined || value === "") return null
   return (
@@ -506,42 +624,181 @@ function parseJsonArray<T>(raw: string | null | undefined): T[] {
   }
 }
 
-// Machine-confirmed and self-reported are said differently on purpose — a
-// reader must be able to tell what Scopus verified from what the claimant
-// typed, because only one of those is grounds to change the amount.
-function snipNote(c: Claim): string | undefined {
-  const parts: string[] = []
-  if (c.snip_source === "SCOPUS") parts.push("Confirmed by Scopus")
-  else if (c.snip_source === "SNIP_DUMP") parts.push("Confirmed from the SNIP dataset")
-  else if (c.snip_source === "MANUAL") parts.push("Entered manually")
-  if (c.self_reported_snip != null && c.self_reported_snip !== c.snip) {
-    parts.push(`Self-reported: ${c.self_reported_snip}`)
+/**
+ * The caption over the headline figure.
+ *
+ * A number this size with no caption is read as a promise. It is not one
+ * until the Director has authorised it, and a claimant who plans around an
+ * amount that four desks can still change has been misled by the page rather
+ * than by anybody in the chain.
+ */
+function amountCaption(c: Claim, settled: boolean): string {
+  if (settled) return c.paid_at ? `Paid on ${formatDate(c.paid_at)}` : "Paid"
+  if (c.status === "DRAFT") return "Estimated — this has not been filed yet"
+  if (c.status === "REJECTED") return "Worked out before it came back to you"
+  if (c.status === "DIRECTOR_APPROVED" || c.status === "FINANCE_APPROVED") {
+    return "Authorised — this is what Finance will pay"
   }
-  return parts.length ? parts.join(" · ") : undefined
+  return "If it is approved exactly as filed"
 }
 
-function quartileNote(c: Claim): string | undefined {
-  const parts: string[] = []
-  if (c.quartile_source === "SCIMAGO") {
-    parts.push(
-      c.scimago_sjr != null
-        ? `Scimago, SJR ${c.scimago_sjr}${c.scimago_dataset_year ? ` (${c.scimago_dataset_year})` : ""}`
-        : "Confirmed by Scimago"
+/**
+ * Why there is no sum to show, said rather than left as five em dashes.
+ *
+ * Most settled tickets here predate the system and were loaded from the
+ * college's payment records: they carry a total and none of the figures that
+ * produced it. The old page rendered that as "SNIP —, Quartile —, QF amount
+ * —, Base amount —, Author point —", which reads as five things the page
+ * failed to load rather than as a payment made before any of this existed.
+ */
+function noWorkingReason(c: Claim, settled: boolean): string {
+  if (settled) {
+    return (
+      "This payment was brought across from the college's own records when " +
+      "this system replaced them. The amount is what was actually paid; the " +
+      "figures it was worked out from were never recorded here."
     )
-  } else if (c.quartile_source === "MANUAL") {
-    parts.push("Entered manually")
+  }
+  if (c.remuneration == null) {
+    return "The amount has not been worked out yet. The research cell prices a ticket when they check it."
+  }
+  return "The figures behind this amount are not on record."
+}
+
+/**
+ * Where the two figures the money rests on came from, in one sentence.
+ *
+ * They used to be two tiny notes reading "Entered manually", a phrase that
+ * says what somebody did and nothing about what it means for the reader. What
+ * it means is that the value was never matched against Scopus, the SNIP
+ * dataset or Scimago — which is the most ordinary reason a claim is sent back
+ * — and a claimant is entitled to know which of their figures is load-bearing
+ * and unchecked.
+ */
+function provenanceLines(c: Claim): string[] {
+  const lines: string[] = []
+  // Somebody in the research cell signing for a hand-entered value is a
+  // different situation from a value nobody has looked at, and saying "nobody
+  // has matched it" a line above "checked by hand by Priya" would have the
+  // page contradicting itself.
+  const signedFor = !!c.manual_verified_by_name
+
+  if (c.snip != null) {
+    const snip = `SNIP ${c.snip.toFixed(3)}`
+    if (c.snip_source === "SCOPUS") lines.push(`${snip}, confirmed by Scopus.`)
+    else if (c.snip_source === "SNIP_DUMP") {
+      lines.push(`${snip}, confirmed against the published SNIP dataset.`)
+    } else if (c.snip_source === "MANUAL") {
+      lines.push(
+        signedFor
+          ? `${snip} was entered by hand rather than matched to the published SNIP dataset.`
+          : `${snip} was typed in by hand — nobody has matched it to the published SNIP dataset.`
+      )
+    } else lines.push(`${snip}.`)
+  }
+
+  if (c.quartile) {
+    if (c.quartile_source === "SCIMAGO") {
+      lines.push(
+        c.scimago_sjr != null
+          ? `Quartile ${c.quartile}, from Scimago (SJR ${c.scimago_sjr}${
+              c.scimago_dataset_year ? `, ${c.scimago_dataset_year} data` : ""
+            }).`
+          : `Quartile ${c.quartile}, confirmed by Scimago.`
+      )
+    } else if (c.quartile_source === "MANUAL") {
+      lines.push(
+        signedFor
+          ? `Quartile ${c.quartile} was entered by hand rather than read off Scimago.`
+          : `Quartile ${c.quartile} was typed in by hand — it has not been confirmed against Scimago.`
+      )
+    } else {
+      lines.push(`Quartile ${c.quartile}.`)
+    }
+  }
+
+  // Only worth saying when it differs from the figure actually used: a
+  // self-reported value the research cell agreed with is not news, and
+  // repeating it beside the identical verified one implies a disagreement.
+  if (c.self_reported_snip != null && c.self_reported_snip !== c.snip) {
+    lines.push(`You reported a SNIP of ${c.self_reported_snip}; the figure above is the one being used.`)
   }
   if (c.self_reported_quartile != null && c.self_reported_quartile !== c.quartile) {
-    parts.push(`Self-reported: ${c.self_reported_quartile}`)
+    lines.push(`You reported ${c.self_reported_quartile}; the quartile above is the one being used.`)
   }
-  return parts.length ? parts.join(" · ") : undefined
+
+  return lines
 }
 
-function authorsSummary(c: Claim): string | null {
-  if (c.author_position && c.total_authors) {
-    return `Position ${c.author_position} of ${c.total_authors}`
-  }
-  return null
+/** "a", "a and b", "a, b and c" — a list a person would read out loud. */
+function sentenceList(items: string[]): string {
+  if (items.length <= 1) return items[0] || ""
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`
+}
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+/**
+ * How long this has been where it is.
+ *
+ * The single most common thing a claimant wants from this page after the
+ * amount, and the page held every date it needed in its payload and printed
+ * none of them above the history.
+ */
+function waitingLine(c: Claim): string | null {
+  if (c.status === "DRAFT") return null
+  if (c.status === "PAID") return c.paid_at ? `Paid on ${formatDate(c.paid_at)}` : null
+  if (!c.submitted_at) return null
+  const days = daysSince(c.submitted_at)
+  if (days == null) return `Filed on ${formatDate(c.submitted_at)}`
+  const ago =
+    days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`
+  return `Filed on ${formatDate(c.submitted_at)} — ${ago}`
+}
+
+function daysSince(iso: string): number | null {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return null
+  return Math.max(0, Math.floor((Date.now() - then) / 86_400_000))
+}
+
+type TicketDate = { label: string; who: string | null; at: string }
+
+/**
+ * The account a ticket can give of itself when nothing was recorded about it.
+ *
+ * `claim.actions` is empty for every ticket loaded from the college's earlier
+ * records, and for anything created outside the submit path — which between
+ * them is the overwhelming majority of settled tickets. The claim still
+ * carries `submitted_at`, `cleared_at`, `principal_approved_at`,
+ * `director_approved_at` and `paid_at`, so there is something true to show,
+ * and dates that coincide exactly are the import stamping one moment on
+ * several columns rather than several things happening at once.
+ */
+function ticketDates(c: Claim): TicketDate[] {
+  const all: TicketDate[] = [
+    { label: "Filed", who: null, at: c.submitted_at || "" },
+    { label: "Checked by the research cell", who: c.cleared_by_name, at: c.cleared_at || "" },
+    {
+      label: "Approved by the Principal",
+      who: c.principal_approved_by_name,
+      at: c.principal_approved_at || "",
+    },
+    {
+      label: "Authorised by the Director",
+      who: c.director_approved_by_name,
+      at: c.director_approved_at || "",
+    },
+    { label: "Paid", who: null, at: c.paid_at || "" },
+  ].filter((d) => d.at && !Number.isNaN(new Date(d.at).getTime()))
+
+  // Later wins: an imported row carries the same instant in `submitted_at`
+  // and `paid_at`, and listing "Filed" and "Paid" a line apart at the very
+  // same second invites the reader to believe something that did not happen.
+  const kept = all.filter((d, i) => !all.some((o, j) => j > i && o.at === d.at))
+  return kept.reverse()
 }
 
 function authorNames(c: Claim): string | null {
@@ -551,24 +808,6 @@ function authorNames(c: Claim): string | null {
     .map((a) => (typeof a === "string" ? a : (a as { name?: string })?.name))
     .filter((n): n is string => !!n)
   return names.length ? names.join(", ") : null
-}
-
-function attachmentKindLabel(kind: string): string {
-  switch (kind) {
-    case "PUBLISHED_PAPER":
-      return "Full-length published paper"
-    case "SEC_REFERENCE":
-      return "Cited reference with SEC affiliation"
-    default:
-      return kind.replace(/_/g, " ").toLowerCase()
-  }
-}
-
-function formatSize(bytes: number | null | undefined): string {
-  if (bytes == null) return ""
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 function formatDateTime(iso: string | null | undefined): string {
@@ -582,6 +821,13 @@ function formatDateTime(iso: string | null | undefined): string {
     hour: "numeric",
     minute: "2-digit",
   })
+}
+
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
 }
 
 function formatPubDate(c: Claim): string | null {

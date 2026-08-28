@@ -262,6 +262,7 @@ export function Ledger() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          art="nothing-paid"
           icon={filtered ? SearchX : Receipt}
           title={filtered ? "No payment matches this filter" : "No payment has been made yet"}
           message={

@@ -156,6 +156,7 @@ export function Requests() {
 
             {pendingRows.length === 0 ? (
               <EmptyState
+                art="empty-queue"
                 icon={Inbox}
                 title="Nothing waiting"
                 message="Every request has been decided. That is good news — come back when the next one lands."

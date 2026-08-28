@@ -4,7 +4,7 @@ import { BarChart3, FileCheck } from "lucide-react"
 import { useAuth } from "@/app/auth"
 import { useApi } from "@/lib/query"
 import { money } from "@/ui/paper"
-import { Callout, InlineError, SkeletonRows } from "@/ui/state"
+import { Callout, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
 import { PageTitle, SectionTitle, Sub } from "@/ui/text"
 import {
   ClaimRow,
@@ -181,6 +181,20 @@ export function DirectorHome() {
       {/* ---- the institution's position ---- */}
       <section className="space-y-3">
         <SectionTitle>The institution</SectionTitle>
+        {report.isError || budget.isError ? (
+          // Every figure below degrades to an em dash or "Not set" on
+          // failure, so a dropped request read as "nothing published, no
+          // budget allocated" -- to the one person whose job is deciding
+          // whether the institution can afford the next payment.
+          <ErrorState
+            title="Could not load the institution's position"
+            message="The server did not answer. These figures are unavailable, not zero."
+            onRetry={() => {
+              void report.refetch()
+              void budget.refetch()
+            }}
+          />
+        ) : (
         <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
           <Figure
             label="Publications"
@@ -220,6 +234,7 @@ export function DirectorHome() {
             loading={budget.isLoading}
           />
         </div>
+        )}
       </section>
 
       <section className="space-y-2">

@@ -50,6 +50,7 @@ export function Collaborate() {
           <WorkedWithList people={me.data.worked_with} />
         ) : (
           <EmptyState
+            art="no-results"
             icon={Users}
             title="No co-authors yet"
             message="Once a paper you have filed shares a claim with somebody else's, they will show up here — nothing to do but keep filing."
@@ -67,6 +68,7 @@ export function Collaborate() {
           <SuggestionsList people={me.data.suggestions} />
         ) : (
           <EmptyState
+            art="no-results"
             icon={UserPlus}
             title="No introductions to make yet"
             message="This fills in once somebody outside your usual collaborators publishes in a journal you also publish in."
@@ -344,6 +346,7 @@ function NetworkGraph({ graph, meId }: { graph: Graph; meId?: string }) {
   if (graph.nodes.length === 0) {
     return (
       <EmptyState
+        art="no-results"
         icon={Share2}
         title="No network to draw yet"
         message="Nobody has a shared paper on record yet. Once claims start overlapping, a network will appear here."

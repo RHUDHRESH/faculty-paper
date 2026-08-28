@@ -4,7 +4,7 @@ Two questions, both asked before a paper exists, which is the point — every
 other screen in this system deals with work that is already done. This is the
 only place the software is any use *before* the writing starts.
 
-The design rule is the one in `gemini.py`: **the model proposes, the database
+The design rule is the one in `ai.py`: **the model proposes, the database
 disposes.** Gemini is asked for journal names and research directions. Journal
 names are then resolved against our own 32,189 Scimago rows and 32,087 SNIP
 rows, and what survives is shown with a real quartile, a real SNIP, and the
@@ -27,7 +27,7 @@ from typing import Any
 from django.db.models import Q
 
 from core.models import Claim, FormulaConfig, ScimagoJournal, SnipSource
-from core.services import gemini
+from core.services import ai
 from core.services.normalize import normalize_title
 from core.services.remuneration import calculate_remuneration, formula_from_model
 from core.services.scimago import best_by_quartile, parse_categories_field
@@ -36,7 +36,12 @@ logger = logging.getLogger(__name__)
 
 #: How many of the model's suggestions we bother resolving. It is asked for a
 #: few more than we show, because some will not resolve.
-ASK_FOR = 12
+#: Ask for a couple more than are shown, so that names the database cannot
+#: verify still leave eight good ones -- but not many more. Inference runs
+#: locally on the CPU here at roughly four and a half tokens a second, and
+#: every extra journal is another sentence of prose somebody is waiting on.
+#: Asking for twelve to show eight cost about a minute of that wait.
+ASK_FOR = 9
 SHOW = 8
 
 #: Words carried by so many journal titles that matching on them finds
@@ -269,8 +274,12 @@ def suggest_venues(
         "sentence on why this paper fits it — about scope and fit, not about prestige."
     )
 
-    raw = gemini.ask_json(prompt, schema=_VENUE_SCHEMA, temperature=0.3)
-    proposed = (raw or {}).get("journals") or []
+    raw = ai.ask_json(prompt, schema=_VENUE_SCHEMA, temperature=0.3)
+    # A bare list where an object was asked for is the commonest way a
+    # smaller model misses a schema, and `.get` on a list is an uncaught
+    # AttributeError -- a 500 where a shrug would do.
+    proposed = raw.get("journals") or [] if isinstance(raw, dict) else (raw or [])
+    proposed = [entry for entry in proposed if isinstance(entry, dict)]
 
     verified: list[dict[str, Any]] = []
     unverified: list[dict[str, Any]] = []
@@ -340,6 +349,17 @@ _DIRECTION_SCHEMA = {
 }
 
 
+def _as_rows(raw, key: str) -> list[dict]:
+    """The rows a model returned, whatever container it chose for them.
+
+    Asked for `{"directions": [...]}` a smaller model sometimes answers with
+    the bare array. That is close enough to right to use, and calling `.get`
+    on it is an uncaught AttributeError -- a 500 for what should be a shrug.
+    """
+    rows = raw.get(key) if isinstance(raw, dict) else raw
+    return [r for r in (rows or []) if isinstance(r, dict)]
+
+
 def suggest_directions(*, history: list[dict[str, str]], interests: list[str]) -> dict[str, Any]:
     """What this person might write next, given what they have written.
 
@@ -362,14 +382,14 @@ def suggest_directions(*, history: list[dict[str, str]], interests: list[str]) -
         "shown no sign of having."
     )
 
-    raw = gemini.ask_json(prompt, schema=_DIRECTION_SCHEMA, temperature=0.6)
+    raw = ai.ask_json(prompt, schema=_DIRECTION_SCHEMA, temperature=0.6)
     directions = [
         {
             "topic": (d.get("topic") or "").strip(),
             "why": (d.get("why") or "").strip(),
             "first_step": (d.get("first_step") or "").strip(),
         }
-        for d in ((raw or {}).get("directions") or [])
+        for d in _as_rows(raw, "directions")
         if (d.get("topic") or "").strip()
     ]
 

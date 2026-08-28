@@ -1,0 +1,495 @@
+"""The one seam every AI feature goes through.
+
+There is a single provider today and it runs on this machine. That is the
+point of the abstraction rather than an accident of it: the features here read
+a faculty member's unpublished title and abstract and their whole publication
+history, and the previous arrangement posted all of it to a third party in
+exchange for an API key. The college's own unpublished work was leaving the
+building to be told what field it was in.
+
+`AI_PROVIDER` selects the backend. It takes one value, ``"ollama"``, and an
+unknown value is refused rather than quietly resolved to something that works
+-- a typo in a deployment variable should stop the feature, not silently
+change where the text goes.
+
+**Nothing here ever falls back to a remote service.** If the local daemon is
+down the answer is that the local daemon is down. A fallback would mean the
+one property this module exists to provide -- that the text stays on this
+machine -- stops being true exactly when nobody is watching.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import queue
+import re
+import threading
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from typing import Any, Callable, Iterator
+
+from django.conf import settings
+
+from core.services import ollama
+
+logger = logging.getLogger(__name__)
+
+#: The providers this understands. Local only, deliberately.
+PROVIDERS = ("ollama",)
+
+#: How often a running generation reports itself. Every token would be a
+#: hundred writes down a socket for an answer nobody reads token by token;
+#: twice a second is enough for a counter to look alive and cheap enough to
+#: ignore.
+PROGRESS_EVERY = 0.5
+
+#: What a nine-journal answer costs on the machine this was measured on:
+#: about 450 tokens at roughly 4.5 a second. Published so a screen can draw a
+#: bar against something real rather than inventing a percentage.
+EXPECTED_TOKENS = 450
+EXPECTED_SECONDS = 95
+
+
+class AIError(Exception):
+    """Inference did not happen, with a reason worth showing somebody.
+
+    ``code`` is what a screen switches on. The old Gemini module carried the
+    same idea and nothing ever read it; here the two discovery endpoints map
+    it to distinct HTTP statuses, because "the model is not installed" and
+    "the model is thinking too slowly" need different sentences and different
+    remedies.
+    """
+
+    def __init__(self, message: str, *, code: str = "error"):
+        super().__init__(message)
+        self.code = code
+
+
+class Cancelled(Exception):
+    """Somebody stopped waiting.
+
+    Not a failure and never reported as one. A request that was cancelled has
+    no error to show, no retry to offer and nothing to log at warning level --
+    conflating it with "the model broke" produces a red panel for an action
+    the reader themselves took.
+    """
+
+
+@dataclass
+class Progress:
+    """Where a long generation says what it is doing, and how it is stopped.
+
+    Both halves matter and they are the same object on purpose. On this
+    hardware an answer is a minute and a half away, so a caller needs to be
+    told the wait is moving *and* needs a way to end it; handing those out
+    separately is how a screen ends up with a cancel button that stops the
+    spinner and leaves the model running.
+
+    `emit` receives one dict per report. `is_cancelled` is consulted once per
+    chunk of the answer, so on this hardware a cancellation is acted on within
+    about a quarter of a second.
+    """
+
+    emit: Callable[[dict[str, Any]], None]
+    is_cancelled: Callable[[], bool] = field(default=lambda: False)
+
+    def check(self) -> None:
+        if self.is_cancelled():
+            raise Cancelled()
+
+    def note(self, phase: str, **fields: Any) -> None:
+        """Report a phase. Phases are named here; the words are not.
+
+        `connecting`, `generating` and `reading` say what the model is doing,
+        with counts attached. Deliberately no sentences: what "reading" means
+        to somebody watching depends on the feature -- one is checking journal
+        names against our own tables, the other is not -- and a service that
+        writes UI copy for callers it cannot see writes it wrong for one of
+        them.
+        """
+        self.check()
+        self.emit({"phase": phase, **fields})
+
+
+#: The progress sink for the call in flight, if anything is watching.
+#:
+#: A context variable rather than an argument because the caller that wants
+#: the progress and the call that produces it are not adjacent: the request
+#: handler streams to the browser, and four frames below it a feature module
+#: -- which has no business knowing about HTTP -- asks the model a question.
+#: Threading a parameter through would mean every feature grew a progress
+#: argument it only forwards.
+_SINK: ContextVar[Progress | None] = ContextVar("ai_progress", default=None)
+
+
+@contextmanager
+def progress_to(sink: Progress):
+    """Watch whatever inference happens inside this block."""
+    token = _SINK.set(sink)
+    try:
+        yield sink
+    finally:
+        _SINK.reset(token)
+
+
+def current_progress() -> Progress | None:
+    return _SINK.get()
+
+
+def provider_name() -> str:
+    return (getattr(settings, "AI_PROVIDER", "") or "ollama").strip().lower()
+
+
+def model_name() -> str:
+    if provider_name() == "ollama":
+        return ollama.model_name()
+    return ""
+
+
+def health() -> dict[str, Any]:
+    """Everything a screen needs to explain itself, in one call.
+
+    Deliberately more than a boolean. "Off" covers three different situations
+    -- no service, service but no model, or a provider name nobody recognises
+    -- and they have three different remedies. A page that cannot tell them
+    apart can only shrug.
+    """
+    name = provider_name()
+    if name not in PROVIDERS:
+        return {
+            "provider": name,
+            "ready": False,
+            "code": "misconfigured",
+            "detail": (
+                f"AI_PROVIDER is set to {name!r}, which this server does not "
+                f"recognise. Known providers: {', '.join(PROVIDERS)}."
+            ),
+            "model": "",
+        }
+
+    state = ollama.health()
+    out = state.as_dict()
+    out["provider"] = name
+    if state.ready:
+        out["code"] = "ready"
+        out["detail"] = None
+    elif not state.up:
+        out["code"] = "service_down"
+        out["detail"] = (
+            f"No local model service is answering on {state.base_url}. "
+            "Start Ollama and reload."
+        )
+    else:
+        out["code"] = "model_missing"
+        out["detail"] = (
+            f"The local service is running but {state.model!r} is not installed. "
+            f"Run: ollama pull {state.model}"
+        )
+    return out
+
+
+def available() -> bool:
+    """Whether a request would have something to talk to.
+
+    Kept as the same cheap boolean the endpoints already call, so the shape of
+    the call sites does not change. It costs a loopback round trip rather than
+    reading a settings string, which is the honest answer to the question --
+    a configured key never meant a working model either.
+    """
+    try:
+        return bool(health().get("ready"))
+    except Exception:  # noqa: BLE001 - never let a health probe break a page
+        logger.exception("ai_health_probe_failed")
+        return False
+
+
+def _extract_json(text: str) -> Any:
+    """Get a JSON value out of whatever the model actually said.
+
+    Kept from the Gemini module and still needed. Ollama's ``format`` option
+    constrains decoding to valid JSON, which removes most of this -- but a
+    local model at this size still occasionally stops mid-object when it hits
+    the token ceiling, and a fenced block remains the commonest shape when the
+    constraint is off.
+    """
+    if not text or not text.strip():
+        raise AIError("The model returned nothing", code="empty")
+
+    fenced = re.search(r"```(?:json)?\s*(.+?)\s*```", text, re.DOTALL)
+    if fenced:
+        text = fenced.group(1)
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start, end = text.find(opener), text.rfind(closer)
+        if start != -1 and end > start:
+            try:
+                return json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                continue
+
+    raise AIError("The model did not answer in the shape we asked for", code="unparsable")
+
+
+def ask_json(
+    prompt: str,
+    *,
+    schema: dict[str, Any] | None = None,
+    temperature: float = 0.4,
+    timeout: float | None = None,
+) -> Any:
+    """Ask for a JSON answer and return it parsed.
+
+    Signature-compatible with the Gemini module this replaces, so the callers
+    did not have to change shape to move off a hosted API.
+
+    `schema` is passed to Ollama as a structured-output constraint, which is
+    stronger than the hosted equivalent was: the decoder cannot produce
+    non-conforming tokens, rather than being asked nicely in the prompt and
+    usually complying.
+    """
+    name = provider_name()
+    if name not in PROVIDERS:
+        raise AIError(
+            f"AI_PROVIDER is set to {name!r}, which this server does not recognise.",
+            code="misconfigured",
+        )
+
+    sink = _SINK.get()
+    seconds = int(timeout or ollama.DEFAULT_TIMEOUT)
+    try:
+        if sink is None:
+            raw = ollama.generate(
+                prompt,
+                timeout=seconds,
+                max_tokens=_MAX_OUTPUT_TOKENS,
+                temperature=temperature,
+                fmt=schema or "json",
+            )
+        else:
+            raw = _generate_watched(
+                prompt,
+                sink,
+                timeout=seconds,
+                temperature=temperature,
+                fmt=schema or "json",
+            )
+    except ollama.OllamaError as exc:
+        # Mapped rather than re-raised, so the endpoints answer the same
+        # statuses they always did and a screen written against the old codes
+        # keeps working.
+        raise AIError(exc.message, code=_CODE_MAP.get(exc.kind, "error")) from exc
+
+    if sink is not None:
+        # The model is finished; whatever the caller does with the answer
+        # comes next. For the venue search that is resolving every name it
+        # produced against our own Scimago and SNIP rows, which is the part
+        # worth naming on screen.
+        sink.note("reading", chars=len(raw))
+
+    return _extract_json(raw)
+
+
+def _generate_watched(
+    prompt: str,
+    sink: Progress,
+    *,
+    timeout: int,
+    temperature: float,
+    fmt: str | dict,
+) -> str:
+    """The same answer as `ollama.generate`, assembled where it can be watched.
+
+    Identical output and identical constraint -- the schema is still enforced
+    by the decoder -- so the caller parses exactly what it always parsed. The
+    only difference is that the wait stops being opaque: the first token says
+    the model has finished loading and started answering, and the count says
+    it is still going.
+
+    The pieces are collected rather than forwarded because both features here
+    parse a whole JSON document at the end. Half of one is not worth showing
+    to anybody, and showing it would put a journal name on screen before it
+    had been checked against our own tables.
+    """
+    started = time.monotonic()
+    pieces: list[str] = []
+    chars = 0
+    last_report = 0.0
+
+    # Said before the first token, because the first token is the slow one:
+    # a cold model spends about eight seconds coming off disk and more
+    # reading the prompt, and silence during that is the whole complaint.
+    sink.note("connecting")
+
+    try:
+        for piece in ollama.stream(
+            prompt,
+            timeout=timeout,
+            max_tokens=_MAX_OUTPUT_TOKENS,
+            temperature=temperature,
+            fmt=fmt,
+            should_stop=sink.is_cancelled,
+        ):
+            pieces.append(piece)
+            chars += len(piece)
+            now = time.monotonic()
+            if now - last_report >= PROGRESS_EVERY:
+                last_report = now
+                sink.note(
+                    "generating",
+                    tokens=len(pieces),
+                    chars=chars,
+                    seconds=round(now - started, 1),
+                )
+    except ollama.Stopped as exc:
+        raise Cancelled() from exc
+
+    sink.note(
+        "generating",
+        tokens=len(pieces),
+        chars=chars,
+        seconds=round(time.monotonic() - started, 1),
+    )
+    return "".join(pieces).strip()
+
+
+#: How often a run says something even when it has nothing to say. Loading a
+#: seven-gigabyte model off disk is eight silent seconds, and a reader is owed
+#: a clock that moves through them.
+_HEARTBEAT = 1.0
+
+#: Runs in flight in this process, by the token their caller named them with.
+#:
+#: There has to be a way to stop a run that is not "notice the reader's
+#: connection has dropped", because that turns out not to be dependable.
+#: Measured here: a browser closing a streaming connection mid-answer was
+#: never noticed by the server at all -- the writes into the dead socket kept
+#: succeeding, and the model spent another eighty-eight seconds finishing an
+#: answer with nowhere to go, with the next request queued behind it. So a
+#: cancel is a thing somebody sends, not a thing we infer.
+#:
+#: Process-local, which is the honest limit of it: with more than one worker
+#: process a cancel can land on a worker that has never heard of the token,
+#: and `stop` says so rather than pretending. The abandoned run still ends at
+#: `OLLAMA_TIMEOUT_SECONDS`, which is what that bound is for.
+_RUNS: dict[str, threading.Event] = {}
+_RUNS_LOCK = threading.Lock()
+
+
+def stop(token: str) -> bool:
+    """End a run somebody is no longer waiting for. True if it was here."""
+    with _RUNS_LOCK:
+        flag = _RUNS.get(token)
+    if flag is None:
+        return False
+    flag.set()
+    return True
+
+
+def run_with_progress(
+    fn: Callable[..., Any],
+    kwargs: dict[str, Any] | None = None,
+    *,
+    token: str | None = None,
+) -> Iterator[tuple[str, Any]]:
+    """Run a call that asks the model, and report on it while it runs.
+
+    Yields (kind, value) pairs:
+
+        ("step", {...})     the model reported a phase, with counts
+        ("tick", None)      nothing has changed, said so it can be seen
+        ("result", value)   the call returned
+        ("error", AIError)  it failed in a way somebody can be told about
+        ("cancelled", None) somebody stopped waiting
+
+    A cancelled run is its own kind rather than an error, because it is not
+    one and must not be shown as one.
+
+    The point of it living here rather than in a request handler: the feature
+    modules stay written as ordinary blocking functions -- `suggest_venues`
+    reads top to bottom and knows nothing about streaming -- and this is the
+    one place that knows a local generation takes ninety seconds and somebody
+    is watching it.
+
+    Cancellation is the reason for the thread. The work blocks on a socket for
+    a minute and a half, and whatever ends it -- `stop(token)`, or the
+    consumer simply abandoning this iterator -- happens somewhere else while
+    it does. Either way the flag is set, the generation loop sees it within a
+    chunk, and the connection to Ollama closes rather than finishing an answer
+    nobody will read.
+    """
+    outbox: queue.Queue[tuple[str, Any]] = queue.Queue()
+    stop_flag = threading.Event()
+    sink = Progress(emit=lambda ev: outbox.put(("step", ev)), is_cancelled=stop_flag.is_set)
+    if token:
+        with _RUNS_LOCK:
+            _RUNS[token] = stop_flag
+    kwargs = kwargs or {}
+
+    def work() -> None:
+        try:
+            with progress_to(sink):
+                outbox.put(("result", fn(**kwargs)))
+        except Cancelled:
+            outbox.put(("cancelled", None))
+        except AIError as exc:
+            outbox.put(("error", exc))
+        except Exception as exc:  # noqa: BLE001 - it must reach the consumer
+            logger.exception("ai_run_failed fn=%s", getattr(fn, "__name__", fn))
+            outbox.put(("error", AIError(str(exc) or "The suggestion failed.", code="error")))
+        finally:
+            # This ran off the request's thread, so it opened its own database
+            # connection. Nobody else will close it.
+            from django.db import connections
+
+            connections.close_all()
+            outbox.put(("done", None))
+
+    worker = threading.Thread(target=work, name="ai-run", daemon=True)
+    worker.start()
+    try:
+        while True:
+            try:
+                kind, value = outbox.get(timeout=_HEARTBEAT)
+            except queue.Empty:
+                # Nothing to say, said anyway: a reader watching a counter
+                # that has not moved for eight seconds -- which is what
+                # loading the model off disk looks like -- needs to see that
+                # the connection is still there.
+                yield ("tick", None)
+                continue
+            if kind == "done":
+                return
+            yield (kind, value)
+            if kind in ("result", "error", "cancelled"):
+                return
+    finally:
+        # Reached on GeneratorExit too, so a consumer that simply stops
+        # reading also ends the run -- second line of defence behind an
+        # explicit `stop`, and the only one on a server that does notice a
+        # dropped connection.
+        stop_flag.set()
+        if token:
+            with _RUNS_LOCK:
+                _RUNS.pop(token, None)
+
+
+#: Generous, because a truncated answer is the main way structured output
+#: fails on a local model -- it stops mid-object and the parse throws.
+_MAX_OUTPUT_TOKENS = 2048
+
+#: Ollama's failure kinds to the codes the endpoints and screens already use.
+_CODE_MAP = {
+    "unreachable": "unreachable",
+    "timeout": "timeout",
+    "model_missing": "model_missing",
+    "service_error": "rejected",
+    "bad_output": "unparsable",
+}

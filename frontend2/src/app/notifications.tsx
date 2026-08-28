@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Bell } from "lucide-react"
 
@@ -19,16 +19,23 @@ import { Meta } from "@/ui/text"
  * void, and the desks that were told a ticket needed them found out by
  * opening a queue and looking.
  *
- * Two details that are easy to get wrong and matter:
+ * Three details that are easy to get wrong and matter:
  *
  * - **The href is followed with the router, never `window.location`.** A full
  *   page load throws away the session context the app has already fetched and
  *   flashes the sign-in screen on a slow connection.
- * - **The href is translated first.** The server emits paths from the app
- *   that existed when the notification was written — `/finance`, not
- *   `/payments` — and following one literally lands on the catch-all. That is
- *   exactly the dead link `audit/routes.mjs` exists to catch for sidebar
- *   items; a notification is just a link nobody audited.
+ * - **The href is translated first, and by prefix.** The server emits paths
+ *   from the app that existed when the notification was written —
+ *   `/finance`, not `/payments` — and following one literally lands on the
+ *   catch-all. Matching whole paths only is not enough: `/faculty/profile`
+ *   and `/admin/profile-requests` are both real notifications and neither is
+ *   a bare section root, so a table keyed on exact paths sent both to Not
+ *   Found. That is the dead link `audit/routes.mjs` exists to catch for
+ *   sidebar items; a notification is just a link nobody audited.
+ * - **The panel is anchored per mount point in both axes.** This bell is
+ *   mounted twice and the two sit at opposite corners of the screen, so one
+ *   set of offsets puts one of them off the edge — which is invisible in
+ *   review, because whichever mount you are looking at is the one that works.
  */
 
 type Notification = {
@@ -44,21 +51,39 @@ type Notification = {
 const POLL_MS = 45_000
 
 //: The server writes hrefs against whichever app was current when the
-//: notification was written. These are the paths that moved.
+//: notification was written. These are the paths that moved. A moved leaf can
+//: differ from its moved section, so the leaves are listed in their own right.
 const DESTINATIONS: Record<string, string> = {
-  "/finance": "/payments",
+  "/admin/profile-requests": "/requests",
   "/admin/clearing": "/clearing",
   "/admin/users": "/people",
-  "/admin": "/",
+  "/faculty/profile": "/me",
+  "/finance": "/payments",
   "/faculty": "/papers",
   "/principal": "/approvals",
+  "/admin": "/",
 }
 
 function destinationFor(href: string | null): string | null {
   if (!href) return null
   const [path, query] = href.split("?")
-  const mapped = DESTINATIONS[path] ?? path
-  return query ? `${mapped}?${query}` : mapped
+  // Walk up the path so an unlisted child of a section that moved lands on the
+  // section rather than on the catch-all. A notification that opens Not Found
+  // is worse than one that opens the queue it was about.
+  let candidate = path
+  let mapped: string | null = null
+  while (candidate) {
+    const hit = DESTINATIONS[candidate]
+    if (hit !== undefined) {
+      mapped = hit
+      break
+    }
+    const cut = candidate.lastIndexOf("/")
+    if (cut <= 0) break
+    candidate = candidate.slice(0, cut)
+  }
+  const to = mapped ?? path
+  return query ? `${to}?${query}` : to
 }
 
 function relative(iso: string): string {
@@ -78,6 +103,8 @@ function relative(iso: string): string {
 export function NotificationBell({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const bellRef = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
   const qc = useQueryClient()
 
@@ -90,11 +117,22 @@ export function NotificationBell({ className }: { className?: string }) {
   const unread = unreadQuery.data?.unread ?? 0
 
   // The list is a bare array, not an envelope. Only fetched once the bell is
-  // actually opened: polling fifty rows every forty-five seconds to render a
-  // number is fifty rows nobody looked at.
+  // actually opened: polling fifty rows every forty-five seconds to render one
+  // number is fifty rows nobody looked at. While it is open it polls alongside
+  // the count, so the badge and the rows beneath it cannot disagree.
   const listQuery = useApi<Notification[]>(["notifications", "list"], "/api/notifications", {
     enabled: open,
+    refetchInterval: open ? POLL_MS : false,
+    refetchOnMount: "always",
   })
+
+  // Closing is not only `setOpen(false)`: a reader who opened the panel from
+  // the keyboard is left with nothing focused, and the next Tab starts again
+  // from the top of the document.
+  const close = useCallback((restoreFocus: boolean) => {
+    setOpen(false)
+    if (restoreFocus) bellRef.current?.focus()
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -102,7 +140,11 @@ export function NotificationBell({ className }: { className?: string }) {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false)
+      if (event.key !== "Escape") return
+      // Swallowed, so Escape closes the panel without also closing whatever
+      // the panel is sitting on top of.
+      event.stopPropagation()
+      close(true)
     }
     document.addEventListener("mousedown", onPointerDown)
     document.addEventListener("keydown", onKey)
@@ -110,21 +152,54 @@ export function NotificationBell({ className }: { className?: string }) {
       document.removeEventListener("mousedown", onPointerDown)
       document.removeEventListener("keydown", onKey)
     }
+  }, [open, close])
+
+  // Opening moves focus into the panel, otherwise the reader's next Tab lands
+  // on whatever follows the bell in the sidebar and never enters the dialog.
+  useEffect(() => {
+    if (open) panelRef.current?.focus()
   }, [open])
 
-  async function follow(item: Notification) {
-    setOpen(false)
-    // Marked read optimistically-ish: the navigation is what the reader
-    // asked for and must not wait on a bookkeeping request.
-    if (!item.read) {
-      void api(`/api/notifications/${item.id}/read`, { method: "POST" })
-        .then(() => {
-          void qc.invalidateQueries({ queryKey: ["notifications"] })
-        })
-        .catch(() => {})
-    }
+  function rows(): HTMLButtonElement[] {
+    const found = panelRef.current?.querySelectorAll<HTMLButtonElement>("[data-row]")
+    return found ? Array.from(found) : []
+  }
+
+  function onPanelKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
+    const list = rows()
+    if (list.length === 0) return
+    event.preventDefault()
+    const at = list.indexOf(document.activeElement as HTMLButtonElement)
+    let next: number
+    if (event.key === "Home") next = 0
+    else if (event.key === "End") next = list.length - 1
+    else if (event.key === "ArrowDown") next = at < 0 ? 0 : Math.min(at + 1, list.length - 1)
+    else next = at < 0 ? list.length - 1 : Math.max(at - 1, 0)
+    list[next]?.focus()
+  }
+
+  function markRead(id: string): Promise<void> {
+    return api(`/api/notifications/${id}/read`, { method: "POST" })
+      .then(() => {
+        // The prefix key invalidates both the count behind the badge and the
+        // rows in the panel, which is the whole reason they are nested under
+        // one name rather than being two unrelated keys.
+        void qc.invalidateQueries({ queryKey: ["notifications"] })
+      })
+      .catch(() => {})
+  }
+
+  function follow(item: Notification) {
+    // Marked read optimistically-ish: the navigation is what the reader asked
+    // for and must not wait on a bookkeeping request.
+    if (!item.read) void markRead(item.id)
     const to = destinationFor(item.href)
-    if (to) navigate(to)
+    // A notification with nowhere to go still has to be markable, and closing
+    // the panel on it would read as the click having done nothing at all.
+    if (!to) return
+    close(false)
+    navigate(to)
   }
 
   async function markAll() {
@@ -141,10 +216,12 @@ export function NotificationBell({ className }: { className?: string }) {
   return (
     <div ref={rootRef} className={cn("relative", className)}>
       <Button
+        ref={bellRef}
         kind="quiet"
         size="icon"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? close(false) : setOpen(true))}
         aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+        aria-haspopup="dialog"
         aria-expanded={open}
       >
         <span className="relative inline-flex">
@@ -164,10 +241,28 @@ export function NotificationBell({ className }: { className?: string }) {
 
       {open && (
         <div
+          ref={panelRef}
           role="dialog"
           aria-label="Notifications"
+          tabIndex={-1}
+          onKeyDown={onPanelKeyDown}
           className={cn(
-            "absolute right-0 z-50 mt-1 w-80 overflow-hidden rounded-lg bg-surface",
+            // Anchored per mount point in BOTH axes, because this bell has two
+            // and the two sit at opposite corners of the screen.
+            //
+            // Horizontally: in the mobile header it is flush right, so right-0
+            // is correct there. In the desktop sidebar its wrapper is only as
+            // wide as the button -- about 32px at the very left edge -- so
+            // right-0 put the right edge of a 320px panel at x=40 and the rest
+            // off the side of the screen. From md up it opens rightward.
+            "absolute right-0 md:right-auto md:left-0",
+            // Vertically: the mobile bell is in a 48px header at the top of the
+            // screen, so it drops down. The desktop bell is in the sidebar's
+            // footer, roughly 50px above the bottom of a full-height column, so
+            // dropping down put a 420px panel almost entirely below the fold --
+            // the same bug as the horizontal one, one axis over.
+            "top-full mt-1 md:bottom-full md:top-auto md:mb-1 md:mt-0",
+            "z-50 w-80 overflow-hidden rounded-lg bg-surface",
             "shadow-pop ring-1 ring-inset ring-edge"
           )}
         >
@@ -201,7 +296,8 @@ export function NotificationBell({ className }: { className?: string }) {
                   <li key={item.id}>
                     <button
                       type="button"
-                      onClick={() => void follow(item)}
+                      data-row=""
+                      onClick={() => follow(item)}
                       className={cn(
                         "block w-full px-3 py-2.5 text-left transition-colors",
                         "duration-[var(--dur-1)] ease-out hover:bg-hover",

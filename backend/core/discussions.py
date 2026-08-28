@@ -61,7 +61,17 @@ def visible_threads(user: User):
     else:
         condition |= Q(visibility=Thread.Visibility.OFFICE, created_by=user)
 
-    return Thread.objects.filter(condition)
+    # A direct conversation is readable by the people in it and by nobody
+    # else -- including the office, which reads every other kind. That is the
+    # difference between a private line and a quiet one, and a "direct
+    # message" the administration can read is the second thing wearing the
+    # name of the first.
+    condition |= Q(visibility=Thread.Visibility.DIRECT, participants__user=user)
+
+    # `participants` is a reverse FK, so the join can repeat a thread once per
+    # matching row. Only ever one row per person per thread, but the join is
+    # still a join.
+    return Thread.objects.filter(condition).distinct()
 
 
 def may_read(user: User, thread: Thread) -> bool:
@@ -74,11 +84,24 @@ def may_post(user: User, thread: Thread) -> bool:
 
 
 def may_moderate(user: User, thread: Thread) -> bool:
-    """The office moderates anywhere; anybody moderates their own thread."""
+    """The office moderates anywhere; anybody moderates their own thread.
+
+    Except a direct conversation, which the office cannot even read. Letting
+    them lock or delete inside one would be a moderation power over something
+    invisible to them -- and would quietly undo the privacy the visibility
+    exists to provide.
+    """
+    if thread.visibility == Thread.Visibility.DIRECT:
+        return may_read(user, thread)
     return is_office(user.role) or thread.created_by_id == user.id
 
 
-def check_visibility(user: User, visibility: str, department: str | None) -> str | None:
+def check_visibility(
+    user: User,
+    visibility: str,
+    department: str | None,
+    participant_ids: list[str] | None = None,
+) -> str | None:
     """Why this account may not open a thread with these settings, or None.
 
     A department thread is the one worth guarding: without this, anybody could
@@ -96,6 +119,15 @@ def check_visibility(user: User, visibility: str, department: str | None) -> str
             return (
                 f"You can only open a department thread for {mine or 'your own department'}."
             )
+    if visibility == Thread.Visibility.DIRECT:
+        others = {p for p in (participant_ids or []) if p and p != user.id}
+        if not others:
+            # Without this a direct thread with an empty audience is readable
+            # by its creator alone -- a private note that looks like a sent
+            # message, which is the worst way for one to fail.
+            return "Choose at least one person to talk to."
+        if len(others) > 20:
+            return "A direct conversation is for a handful of people, not a mailing list."
     return None
 
 

@@ -26,6 +26,12 @@ import { money } from "@/ui/paper"
  *    claims" is what happens when the shell prints the count and the row does
  *    too. The row states the charted quantity; the table states everything.
  *
+ * 4. **A chart of a field nobody filled in refuses to draw itself.** See
+ *    "the data gap" below. It is enforced in `Figure`, which every chart in
+ *    this file renders through, because the whole reason the old app drew
+ *    "99.4% Not calculated" as a pie was that checking was left to each page
+ *    and no page did it.
+ *
  * HTML for the ranked and mix charts — real text that truncates, links that
  * are links. SVG only for trend and distribution, which need a real axis.
  */
@@ -59,6 +65,207 @@ const axisLabel = (n: number, unit: Unit) =>
 
 const fullLabel = (n: number, unit: Unit) =>
   unit === "money" ? money(n) : n.toLocaleString("en-IN")
+
+/* ---------------------------------------------------------- the data gap */
+
+/**
+ * The labels this system prints when it has nothing to print.
+ *
+ * Every string here is one the API actually returns. `/api/reports` folds
+ * each spelling of a blank into a single row and names it per column — "Not
+ * recorded", "Not calculated", "No quartile", "No department", "Unclassified",
+ * "Not stated" — and `/api/reports/build` uses "Not recorded" throughout.
+ * Compared case-insensitively because those two endpoints do not agree on
+ * capitals ("No quartile" against "No Quartile"), and a guard that misses a
+ * capital is a guard that is not there.
+ */
+const ABSENT_LABELS = new Set([
+  "not recorded",
+  "not calculated",
+  "not stated",
+  "not checked",
+  "not classified",
+  "unclassified",
+  "unknown",
+  "no quartile",
+  "no department",
+  "no category",
+  "none",
+  "n/a",
+  "—",
+  "–",
+  "-",
+])
+
+/** Whether a row is a value or the absence of one. */
+export function isAbsentLabel(text: string | undefined): boolean {
+  return ABSENT_LABELS.has((text || "").trim().toLowerCase())
+}
+
+const absentCount = (points: Point[]) =>
+  points.reduce(
+    (n, p) => (isAbsentLabel(p.key) || isAbsentLabel(p.label) ? n + p.count : n),
+    0
+  )
+
+/**
+ * How much of a dimension is missing, 0 to 1.
+ *
+ * Always by count, never by the drawn unit. Money is the wrong denominator
+ * here twice over: the rows with no value recorded usually have no amount
+ * either, so an amount-weighted share reports a field as well populated
+ * precisely when it is not — and a head of department must never be handed a
+ * decision computed from rupees.
+ */
+export function missingShare(points: Point[]): number {
+  const total = points.reduce((n, p) => n + p.count, 0)
+  if (total <= 0) return 0
+  return absentCount(points) / total
+}
+
+/**
+ * Where a breakdown stops being a breakdown.
+ *
+ * Nine in ten, and the figure is chosen against this college's own record
+ * rather than picked as a round number. Measured on the live database:
+ * `remuneration_category` is blank on 3,208 of 3,227 filed claims (99.4%),
+ * and `base_amount`, `qf_amount` and `author_point` are blank on the same
+ * 3,208, because almost every historical claim was created by the ERP
+ * rebuild, which writes rows straight in at PAID carrying none of the
+ * working. Every other dimension the reports draw is under 10% missing —
+ * quartile 9.6%, designation 8.3%, publication type 4.1%, journal 1.6%,
+ * department 0%.
+ *
+ * So the data has a hole in it between 10% and 99% with nothing in it, and
+ * the line only has to land inside that hole. It is put at 90% rather than at
+ * 99% because 99% is a line drawn around one known case: had the import
+ * carried the field for another sixty claims, the same worthless chart would
+ * have measured 98% and drawn itself anyway. 90% is a statement instead — one
+ * row in ten still carrying a value is about the point where the ranking
+ * among the values that *are* recorded survives being read, and below it the
+ * chart is a single slice and a rounding error.
+ *
+ * It is deliberately not adjustable per chart. A threshold every caller can
+ * raise is a threshold somebody raises to make their page draw again, which
+ * is the exact failure this replaces.
+ */
+export const DATA_GAP_THRESHOLD = 0.9
+
+/** True when drawing this would mislead more than it informs. */
+export function isMostlyMissing(points: Point[]): boolean {
+  return points.length > 0 && missingShare(points) >= DATA_GAP_THRESHOLD
+}
+
+/**
+ * A percentage that never rounds away the exception.
+ *
+ * 3,208 of 3,227 is 99.41%, which `Math.round` prints as "100%" — erasing the
+ * nineteen claims that do carry a category and turning "almost none" into a
+ * claim of "none at all", which somebody would then act on. Anything short of
+ * the whole is capped at 99, anything above nothing is floored at 1.
+ */
+function sharePct(part: number, total: number): number {
+  if (!total || part <= 0) return 0
+  if (part >= total) return 100
+  return Math.min(99, Math.max(1, Math.round((part / total) * 100)))
+}
+
+/**
+ * What a chart says instead of drawing a field nobody filled in.
+ *
+ * The point is that this is not a smaller, sadder chart. A breakdown where
+ * almost everything lands in "not recorded" is not a breakdown — it is a gap
+ * in the data wearing a chart's clothes, and drawn as bars it states the gap
+ * in the same visual language as a finding. Said in a sentence it becomes the
+ * useful thing it actually is: a note of what the college does not know about
+ * its own records, and how much of it.
+ *
+ * Counts only, never amounts: this is the one panel on a report that a reader
+ * meets *because* something is wrong, and it must be safe on every screen,
+ * including a head of department's.
+ */
+function GapNotice({
+  dimension,
+  points,
+  why,
+}: {
+  dimension: string
+  points: Point[]
+  why?: ReactNode
+}) {
+  const total = points.reduce((n, p) => n + p.count, 0)
+  const missing = absentCount(points)
+  const known = points
+    .filter((p) => !isAbsentLabel(p.key) && !isAbsentLabel(p.label))
+    .sort((a, b) => b.count - a.count)
+  const knownCount = total - missing
+
+  return (
+    <div className="rounded-md bg-caution-wash px-3 py-3 text-sm leading-relaxed">
+      <p className="font-medium">Not drawn — this is a gap in the data, not a breakdown</p>
+      <p className="mt-1">
+        {dimension} is not recorded on{" "}
+        <span className="tabular font-medium">{missing.toLocaleString("en-IN")}</span> of{" "}
+        {total.toLocaleString("en-IN")} publications ({sharePct(missing, total)}%). A chart of
+        that would be one slice saying so, in the same shapes and colours the real findings on
+        this page are drawn in.
+      </p>
+      {why ? <p className="mt-1 text-fg-muted">{why}</p> : null}
+
+      {/* The one fact worth a picture here is how little is known, so that is
+          the only thing drawn. Never zero-width: a bar that vanishes reads as
+          a broken element rather than as a small number. */}
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
+        <div
+          className="h-full rounded-full bg-caution"
+          style={{ width: `${Math.max(0.5, (knownCount / Math.max(1, total)) * 100)}%` }}
+        />
+      </div>
+      <p className="mt-1.5 text-fg-muted">
+        {knownCount.toLocaleString("en-IN")} carry a value
+        {known.length
+          ? ` — ${known
+              .slice(0, 4)
+              .map((p) => `${p.label ?? p.key} ${p.count.toLocaleString("en-IN")}`)
+              .join(" · ")}`
+          : ""}
+        . Every row is in the numbers below.
+      </p>
+    </div>
+  )
+}
+
+/* -------------------------------------------------- the comparison guard */
+
+/**
+ * When two spans of this record may not be compared at all.
+ *
+ * The second refusal, and it lives beside the first because it is the same
+ * kind of mistake: a shape drawn confidently over data that cannot carry it.
+ * The numbers mirror `COMPARABLE_MIN` and `COMPARABLE_RATIO` in
+ * `backend/core/services/trends.py`, which is where they were first measured
+ * and which is the one place that can change them.
+ *
+ * The case they were measured against: this college's record holds 3,029
+ * papers for 2024–2026 and 140 for 2021–2023, because the ERP import only
+ * reaches back so far. Divide one by the other and every department, area and
+ * journal in the college is "growing" — 193 of them, with nothing fading —
+ * which is not a trend, it is the shape of the import showing through. A
+ * direction taken from a window that was never populated is not a weak signal,
+ * it is a confidently wrong one.
+ *
+ * The ratio is the test that matters. The floor only stops a handful of rows
+ * being divided into a percentage: a department with four papers then and six
+ * now is genuinely steady and should be told so, not told it is up 50%.
+ */
+export const COMPARABLE_MIN = 5
+export const COMPARABLE_RATIO = 0.2
+
+/** Whether `prior` is a real earlier window for `recent`, or just the edge of
+ *  the import. */
+export function isComparable(recent: number, prior: number): boolean {
+  return prior >= COMPARABLE_MIN && prior >= COMPARABLE_RATIO * recent
+}
 
 /**
  * A round number at or above the top of the data, so gridlines read cleanly.
@@ -121,6 +328,17 @@ function useWidth<T extends HTMLElement>() {
  * `dimension` names what the rows *are* — "Department", "Journal", "Year". The
  * old app hardcoded "Department" as that column's header on every chart it
  * drew, including the one about journals.
+ *
+ * It is also where the data-gap guard lives, and that placement is the whole
+ * point of it. Every chart in this file draws inside this shell, so a
+ * dimension that is 99% "not recorded" is refused once, here, for all four
+ * shapes and every page that will ever use them. Put the check on the pages
+ * instead and it is a thing each page has to remember; the reason the payout
+ * category was drawn as a pie for a year is that nobody did.
+ *
+ * The numbers table underneath is deliberately *not* suppressed with the
+ * drawing. "3,208 not recorded, 11 category I" is a true and useful set of
+ * rows; it is only the picture of it that lies.
  */
 function Figure({
   title,
@@ -130,6 +348,7 @@ function Figure({
   points,
   total,
   showAmounts = true,
+  gapWhy,
   children,
   className,
 }: {
@@ -154,18 +373,27 @@ function Figure({
    * the next person who adds a column here.
    */
   showAmounts?: boolean
+  /**
+   * Why this field is empty, when that is known — shown only if the gap guard
+   * fires. "The ERP import never carried it" turns a shrug into something
+   * somebody can go and fix.
+   */
+  gapWhy?: ReactNode
   children: ReactNode
   className?: string
 }) {
   const sum = total ?? points.reduce((n, p) => n + valueOf(p, unit), 0)
   const anyMoney = showAmounts && points.some((p) => p.amount != null)
+  const gap = isMostlyMissing(points)
 
   return (
     <section className={cn("min-w-0", className)}>
       <h3 className="text-lg font-semibold">{title}</h3>
       {caption ? <p className="mt-0.5 text-sm text-fg-muted">{caption}</p> : null}
 
-      <div className="mt-4 min-w-0">{children}</div>
+      <div className="mt-4 min-w-0">
+        {gap ? <GapNotice dimension={dimension} points={points} why={gapWhy} /> : children}
+      </div>
 
       {points.length > 0 && (
         <details className="group mt-3">
@@ -243,6 +471,7 @@ export function RankedBars({
   unit = "count",
   limit = 10,
   showAmounts,
+  gapWhy,
   className,
 }: {
   title: string
@@ -253,6 +482,8 @@ export function RankedBars({
   limit?: number
   /** See `Figure`. False on any screen a head of department can open. */
   showAmounts?: boolean
+  /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
+  gapWhy?: ReactNode
   className?: string
 }) {
   const sorted = [...points].sort((a, b) => valueOf(b, unit) - valueOf(a, unit))
@@ -267,6 +498,7 @@ export function RankedBars({
       unit={unit}
       points={sorted}
       showAmounts={showAmounts}
+      gapWhy={gapWhy}
       className={className}
     >
       {shown.length === 0 ? (
@@ -341,6 +573,7 @@ export function MixBar({
   points,
   unit = "count",
   showAmounts,
+  gapWhy,
   className,
 }: {
   title: string
@@ -350,6 +583,8 @@ export function MixBar({
   unit?: Unit
   /** See `Figure`. False on any screen a head of department can open. */
   showAmounts?: boolean
+  /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
+  gapWhy?: ReactNode
   className?: string
 }) {
   const sorted = [...points].sort((a, b) => valueOf(b, unit) - valueOf(a, unit))
@@ -370,6 +605,7 @@ export function MixBar({
       points={sorted}
       total={sum}
       showAmounts={showAmounts}
+      gapWhy={gapWhy}
       className={className}
     >
       {sum === 0 ? (
@@ -430,6 +666,7 @@ export function Trend({
   unit = "count",
   height = 180,
   showAmounts,
+  gapWhy,
   className,
 }: {
   title: string
@@ -440,6 +677,8 @@ export function Trend({
   height?: number
   /** See `Figure`. False on any screen a head of department can open. */
   showAmounts?: boolean
+  /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
+  gapWhy?: ReactNode
   className?: string
 }) {
   const [box, w] = useWidth<HTMLDivElement>()
@@ -474,6 +713,7 @@ export function Trend({
       unit={unit}
       points={points}
       showAmounts={showAmounts}
+      gapWhy={gapWhy}
       className={className}
     >
       <div ref={box} className="min-w-0">
@@ -601,6 +841,7 @@ export function Distribution({
   unit = "count",
   height = 160,
   showAmounts,
+  gapWhy,
   className,
 }: {
   title: string
@@ -611,6 +852,8 @@ export function Distribution({
   height?: number
   /** See `Figure`. False on any screen a head of department can open. */
   showAmounts?: boolean
+  /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
+  gapWhy?: ReactNode
   className?: string
 }) {
   const [at, setAt] = useState<number | null>(null)
@@ -624,6 +867,7 @@ export function Distribution({
       unit={unit}
       points={points}
       showAmounts={showAmounts}
+      gapWhy={gapWhy}
       className={className}
     >
       {points.length === 0 ? (

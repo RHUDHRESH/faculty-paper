@@ -22,6 +22,24 @@ and there is no CORS to maintain.
 | `DJANGO_ALLOWED_HOSTS` | `.run.app` (and custom domain if any) |
 | `CSRF_TRUSTED_ORIGINS` | The Vercel origin (the proxy forwards its `Origin` header) |
 | `SCOPUS_API_KEY` | Optional; enrich/verify degrade gracefully |
+| `AI_PROVIDER` | `ollama`. The only value. An unknown one stops the feature rather than silently redirecting where text is sent |
+| `OLLAMA_BASE_URL` | Default `http://127.0.0.1:11434`. Must be reachable from the API container |
+| `OLLAMA_MODEL` | Default `gemma4:12b` — see `docs/LOCAL-AI.md` for why that tag |
+| `OLLAMA_TIMEOUT_SECONDS` | Default 240. CPU inference is slow; this is a ceiling, not an expectation |
+| `CORS_ORIGIN_REGEX` | **No default any more.** It used to default to every `*.vercel.app` and `*.netlify.app` host, which with credentialed CORS made any site anybody could deploy in five minutes a trusted origin. Not needed for this deployment — the SPA proxies `/api`, so requests are same-origin |
+| `TRUST_PREVIEW_HOSTS` | Off. Set `true` only to CSRF-trust `*.vercel.app` / `*.netlify.app` for preview deploys, and understand what that opens |
+
+### Inference is not a Cloud Run workload
+
+`AI_PROVIDER=ollama` expects a model on the same host. Cloud Run gives no GPU,
+a cold container, and no room for a 7 GB model — the two discovery features
+will report `service_down` there and the rest of the application is unaffected
+by design, which is the correct behaviour rather than a workaround.
+
+Running them in production means an on-premise host, or a VM with a GPU that
+Cloud Run can reach on a private network via `OLLAMA_BASE_URL`. Until then the
+features are simply off in production and work on any machine that has Ollama.
+Nothing else in the system depends on them.
 
 `CROSS_SITE_COOKIES` is **not** needed with the proxy — leave it unset so
 cookies stay `SameSite=Lax`.

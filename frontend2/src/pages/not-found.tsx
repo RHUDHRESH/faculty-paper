@@ -1,8 +1,8 @@
 import { Link, useLocation } from "react-router-dom"
-import { Compass, Lock } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { NAV, navFor } from "@/app/nav"
+import { Art } from "@/ui/art"
 import { Button } from "@/ui/button"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 
@@ -43,11 +43,12 @@ export function NotFound() {
   return (
     <div className="page py-16">
       <div className="mx-auto max-w-lg space-y-4 text-center">
-        {forbidden ? (
-          <Lock className="mx-auto size-8 text-fg-subtle" aria-hidden />
-        ) : (
-          <Compass className="mx-auto size-8 text-fg-subtle" aria-hidden />
-        )}
+        {/* Two different pictures for the two different sentences, and
+            neither of them is a padlock apologising. A page that exists and
+            belongs to somebody else gets the college's own portico with a
+            bar across it; an address that is nothing at all gets a signpost
+            with nothing written on it. */}
+        <Art name={forbidden ? "closed-gate" : "no-page"} className="mx-auto" />
 
         <div>
           <PageTitle>{forbidden ? "Not open to this account" : "No page at this address"}</PageTitle>

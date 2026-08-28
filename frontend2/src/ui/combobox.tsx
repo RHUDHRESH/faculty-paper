@@ -34,6 +34,13 @@ export function Combobox({
   className,
   disabled,
   "aria-label": ariaLabel,
+  // `Field` clones id, aria-describedby and aria-invalid onto its child.
+  // Destructuring only some of them silently dropped the hint and the error
+  // announcement from every <Field><Combobox/></Field> in the app, and it
+  // typechecks either way because they are optional -- the exact failure this
+  // component's own docstring warns about.
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
 }: {
   value: string | null
   onChange: (value: string) => void
@@ -44,6 +51,8 @@ export function Combobox({
   className?: string
   disabled?: boolean
   "aria-label"?: string
+  "aria-describedby"?: string
+  "aria-invalid"?: boolean | "true" | "false"
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -158,6 +167,8 @@ export function Combobox({
         aria-expanded={open}
         aria-controls={listId}
         aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "flex h-8 w-full items-center justify-between gap-2 rounded-md bg-surface px-2.5 text-sm",

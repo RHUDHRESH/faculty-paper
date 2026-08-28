@@ -117,6 +117,14 @@ export function Field<
 /**
  * A single line of text. 32px by default, 40px (`lg`) for the forms — sign
  * in, the rare full-screen dialog — that stand alone on a page.
+ *
+ * `shadow-well` — a one-pixel inner shadow along the top edge — is on every
+ * control you type into, and on none of the ones you click. It is the
+ * cheapest possible statement of "text goes in here": a form of eight
+ * outlined rectangles on a white page gives a reader nothing to distinguish
+ * an input from a read-only value in a box, and they find out which is which
+ * by clicking. The recess says it before the click. `Checkbox` and `Radio`
+ * deliberately do not get it — an inner shadow inside a 16px box is mud.
  */
 export const Input = forwardRef<
   HTMLInputElement,
@@ -129,7 +137,7 @@ export const Input = forwardRef<
       ref={ref}
       className={cn(
         "w-full bg-surface text-fg outline-none",
-        "ring-1 ring-inset ring-field",
+        "shadow-well ring-1 ring-inset ring-field",
         "placeholder:text-fg-subtle",
         "focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
@@ -248,7 +256,7 @@ export const Textarea = forwardRef<
       style={{ maxHeight, ...style } as CSSProperties}
       className={cn(
         "w-full resize-none rounded-md bg-surface px-3 py-2 text-base text-fg outline-none",
-        "ring-1 ring-inset ring-field",
+        "shadow-well ring-1 ring-inset ring-field",
         "placeholder:text-fg-subtle",
         "focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
@@ -467,7 +475,7 @@ export const NumberInput = forwardRef<
         inputMode="decimal"
         className={cn(
           "w-full bg-surface text-right text-fg tabular-nums outline-none",
-          "ring-1 ring-inset ring-field",
+          "shadow-well ring-1 ring-inset ring-field",
           "focus-visible:ring-2 focus-visible:ring-accent",
           "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
           "aria-invalid:ring-critical",
@@ -511,7 +519,7 @@ export const DateInput = forwardRef<
       type="date"
       className={cn(
         "w-full bg-surface text-fg outline-none [color-scheme:light]",
-        "ring-1 ring-inset ring-field",
+        "shadow-well ring-1 ring-inset ring-field",
         "focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
         "aria-invalid:ring-critical",

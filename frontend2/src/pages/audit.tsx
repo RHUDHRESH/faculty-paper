@@ -571,6 +571,7 @@ export function Audit() {
         )
       ) : rows.length === 0 ? (
         <EmptyState
+          art="no-results"
           icon={filtered ? SearchX : History}
           title={filtered ? "Nothing matches" : "No activity recorded yet"}
           message={
@@ -827,6 +828,7 @@ export function Faults() {
         )
       ) : !data ? null : data.total === 0 ? (
         <EmptyState
+          art="no-results"
           icon={CheckCircle2}
           title="Nothing broken, blocked or unreconciled"
           message={`Every check the office runs against the queue and the ledger came back clean, as of ${formatCheckedAt(data.checked_at)}.`}

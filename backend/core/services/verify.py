@@ -236,6 +236,15 @@ def verify_publication(
     except ScopusError as e:
         out["ok"] = False
         out["scopus"]["message"] = f"{e.code}: {e}"
+        # Whether this paper has already been paid for is a question about our
+        # own database, and Scopus being down is no reason not to answer it.
+        # Returning without it meant the caller wrote the default -- warning
+        # False, no matches -- straight over a warning raised at creation, and
+        # a verbatim duplicate of an already-paid claim went to Finance with
+        # nothing on it to say so.
+        out["paid"] = check_already_paid(
+            title=title, doi=None, staff_id=staff_id, exclude_claim_id=exclude_claim_id
+        )
         return out
 
     if not paper:
@@ -366,7 +375,12 @@ def apply_verify_to_claim(claim: Claim, result: dict[str, Any]) -> Claim:
         claim.subjects_json = result["subjects"]
     claim.normalized_title = normalize_title(claim.paper_title)[:512]
 
-    paid = result.get("paid") or {}
-    claim.duplicate_warning = bool(paid.get("warning"))
-    claim.duplicate_matches_json = json.dumps(paid.get("matches") or [])
+    # Only when the check actually ran. Belt and braces alongside the fix in
+    # verify_publication: a result that carries no "paid" key is one where the
+    # question was never asked, and the answer to a question nobody asked is
+    # not "no". Overwriting here is how a real warning was lost.
+    if "paid" in result:
+        paid = result.get("paid") or {}
+        claim.duplicate_warning = bool(paid.get("warning"))
+        claim.duplicate_matches_json = json.dumps(paid.get("matches") or [])
     return claim

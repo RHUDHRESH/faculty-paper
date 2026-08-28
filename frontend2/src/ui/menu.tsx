@@ -1,5 +1,6 @@
 import * as RadixMenu from "@radix-ui/react-dropdown-menu"
 
+import { menuPop, popKeyframes } from "@/ui/motion"
 import { cn } from "@/lib/cn"
 
 /**
@@ -10,11 +11,12 @@ import { cn } from "@/lib/cn"
  * keeps `MenuContent` mounted for exactly as long as its close animation
  * takes, but only if that animation is a real CSS `@keyframes` — a plain
  * transition doesn't count, because Radix detects "still animating" by
- * listening for `animationend`, not by watching styles change. That's what
- * the inline `<style>` below is for: two keyframes, small enough not to
- * deserve a build step, parameterised by `--pop-x`/`--pop-y` so the same pair
- * serves all four sides. Dialog and sheet don't need this because their
- * motion (an 8px rise, a scale) is driven by `motion/react` instead.
+ * listening for `animationend`, not by watching styles change. That is why
+ * this surface is animated by the CSS half of `ui/motion.ts` (`popKeyframes`
+ * and `menuPop`) rather than by `motion/react`, which drives the dialog and
+ * the sheet. Same durations, same curve, different mechanism, because Radix
+ * owns when this element leaves the tree and `AnimatePresence` owns when
+ * those two do.
  */
 
 export const Menu = RadixMenu.Root
@@ -24,30 +26,31 @@ export function MenuContent({
   className,
   sideOffset = 6,
   align = "start",
+  style,
   ...props
 }: React.ComponentProps<typeof RadixMenu.Content>) {
   return (
     <>
-      {/* Global by nature (keyframes can't be scoped) but only ever in the
-          document while a menu is open or closing. */}
-      <style>{`
-@keyframes ui-pop-in { from { opacity: 0; transform: translate(var(--pop-x, 0), var(--pop-y, 0)); } to { opacity: 1; transform: translate(0, 0); } }
-@keyframes ui-pop-out { from { opacity: 1; transform: translate(0, 0); } to { opacity: 0; transform: translate(var(--pop-x, 0), var(--pop-y, 0)); } }
-`}</style>
+      {/* Global by nature — keyframes cannot be scoped — and shared with the
+          tooltip, so several copies of the identical rule can be in the
+          document at once. That is not a conflict; see `popKeyframes`. */}
+      <style>{popKeyframes}</style>
       <RadixMenu.Portal>
         <RadixMenu.Content
           sideOffset={sideOffset}
           align={align}
+          // Radix puts the corner nearest the trigger in this variable, so
+          // the menu grows out of the button that opened it rather than out
+          // of its own middle. Without it, a menu that opens upwards appears
+          // to come from the wrong direction.
+          style={{
+            transformOrigin: "var(--radix-dropdown-menu-content-transform-origin)",
+            ...style,
+          }}
           className={cn(
             "z-50 min-w-[10rem] overflow-hidden rounded-md bg-surface p-1",
             "shadow-pop",
-            // Direction of the 4px rise follows whichever edge Radix actually
-            // placed the menu on, which can differ from the requested side
-            // once collision detection flips it.
-            "data-[side=bottom]:[--pop-y:-4px] data-[side=top]:[--pop-y:4px]",
-            "data-[side=right]:[--pop-x:-4px] data-[side=left]:[--pop-x:4px]",
-            "data-[state=open]:animate-[ui-pop-in_120ms_var(--ease-out)]",
-            "data-[state=closed]:animate-[ui-pop-out_120ms_var(--ease-out)]",
+            menuPop,
             className
           )}
           {...props}

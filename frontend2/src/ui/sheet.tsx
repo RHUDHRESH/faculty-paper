@@ -3,6 +3,7 @@ import * as RadixDialog from "@radix-ui/react-dialog"
 import { AnimatePresence, motion } from "motion/react"
 import { X } from "lucide-react"
 
+import { overlayVariants, sheetVariants, useMotionVariants, type Edge } from "@/ui/motion"
 import { cn } from "@/lib/cn"
 
 /**
@@ -50,20 +51,18 @@ export function Sheet({
 export const SheetTrigger = RadixDialog.Trigger
 export const SheetClose = RadixDialog.Close
 
-type Side = "right" | "bottom"
+/** Which edge the sheet is fixed to. The travel itself is `sheetVariants`
+ *  in `ui/motion.ts`; this is only where the surface sits once it lands. */
+type Side = Edge
 
-// The edge each side enters from, and how far off-screen it starts. `right`
-// goes full-width below the small-screen breakpoint, because a partial-width
-// sheet on a phone leaves a sliver of the old page nobody can act on.
-const EDGE: Record<Side, { className: string; offset: { x: string } | { y: string } }> = {
-  right: {
-    className: "inset-y-0 right-0 h-full w-full sm:w-[26rem] sm:max-w-[85vw]",
-    offset: { x: "100%" },
-  },
-  bottom: {
-    className: "inset-x-0 bottom-0 max-h-[85vh] w-full rounded-t-xl",
-    offset: { y: "100%" },
-  },
+// `right` goes full-width below the small-screen breakpoint, because a
+// partial-width sheet on a phone leaves a sliver of the old page nobody can
+// act on. The rounded corner is always the one facing into the page.
+const EDGE: Record<Side, string> = {
+  right: "inset-y-0 right-0 h-full w-full sm:w-[26rem] sm:max-w-[85vw]",
+  left: "inset-y-0 left-0 h-full w-full sm:w-[26rem] sm:max-w-[85vw]",
+  bottom: "inset-x-0 bottom-0 max-h-[85vh] w-full rounded-t-xl",
+  top: "inset-x-0 top-0 max-h-[85vh] w-full rounded-b-xl",
 }
 
 export function SheetContent({
@@ -73,7 +72,8 @@ export function SheetContent({
   ...props
 }: React.ComponentProps<typeof RadixDialog.Content> & { side?: Side }) {
   const open = useContext(OpenContext)
-  const edge = EDGE[side]
+  const overlay = useMotionVariants(overlayVariants)
+  const surface = useMotionVariants(sheetVariants[side])
 
   return (
     <AnimatePresence>
@@ -82,21 +82,21 @@ export function SheetContent({
           <RadixDialog.Overlay asChild forceMount>
             <motion.div
               className="fixed inset-0 z-50 bg-black/20"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.18 }}
+              variants={overlay}
+              initial="hidden"
+              animate="visible"
+              exit="hidden"
             />
           </RadixDialog.Overlay>
           <RadixDialog.Content asChild forceMount {...props}>
             <motion.div
-              initial={{ opacity: 0, ...edge.offset }}
-              animate={{ opacity: 1, x: 0, y: 0 }}
-              exit={{ opacity: 0, ...edge.offset }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              variants={surface}
+              initial="hidden"
+              animate="visible"
+              exit="hidden"
               className={cn(
                 "fixed z-50 flex flex-col bg-surface shadow-modal",
-                edge.className,
+                EDGE[side],
                 className
               )}
             >

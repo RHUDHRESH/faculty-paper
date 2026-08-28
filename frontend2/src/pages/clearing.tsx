@@ -177,7 +177,10 @@ export function Clearing() {
 
   const rows = claims ?? []
 
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Whole rows, not just ids — the same shape `payments.tsx` uses. A row that
+  // has left this fetch still has to be able to say its own title and amount,
+  // or the bar showing the selection cannot describe what is in it.
+  const [selected, setSelected] = useState<Map<string, QueueClaim>>(new Map())
   const [active, setActive] = useState(0)
   const [openId, setOpenId] = useState<string | null>(null)
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
@@ -186,18 +189,11 @@ export function Clearing() {
     lookup: Map<string, QueueClaim>
   } | null>(null)
 
-  // A refresh underneath a selection must not wipe it — but a ticket that
-  // stopped being in the queue (cleared by someone else, or by this bulk
-  // action) has to leave the selection too, or "12 selected" keeps counting
-  // a row that no longer exists.
-  useEffect(() => {
-    setSelected((prev) => {
-      const ids = new Set(rows.map((c) => c.id))
-      const next = new Set([...prev].filter((id) => ids.has(id)))
-      return next.size === prev.size ? prev : next
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [claims])
+  // Nothing silently prunes the selection against the rows on screen. A
+  // ticket that has genuinely moved on is caught where it counts instead:
+  // bulk-clear re-checks every id server-side and skips it by name rather
+  // than clearing it, and the bar below says plainly how many of the
+  // selected rows are no longer in this queue.
 
   useEffect(() => {
     setActive((i) => Math.min(i, Math.max(0, rows.length - 1)))
@@ -223,7 +219,7 @@ export function Clearing() {
       } else if (e.key === "x") {
         e.preventDefault()
         const row = rows[active]
-        if (row) toggleSelected(row.id)
+        if (row) toggleSelected(row)
       } else if (e.key === "Enter") {
         e.preventDefault()
         const row = rows[active]
@@ -234,11 +230,23 @@ export function Clearing() {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [rows, active, openId])
 
-  function toggleSelected(id: string) {
+  function toggleSelected(c: QueueClaim) {
     setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      const next = new Map(prev)
+      if (next.has(c.id)) next.delete(c.id)
+      else next.set(c.id, c)
+      return next
+    })
+  }
+
+  function toggleAllVisible() {
+    setSelected((prev) => {
+      const next = new Map(prev)
+      const everyShownSelected = rows.length > 0 && rows.every((c) => next.has(c.id))
+      for (const c of rows) {
+        if (everyShownSelected) next.delete(c.id)
+        else next.set(c.id, c)
+      }
       return next
     })
   }
@@ -259,22 +267,30 @@ export function Clearing() {
     )
   }
 
-  const selectedRows = rows.filter((c) => selected.has(c.id))
+  const selectedRows = [...selected.values()]
   const selectedTotal = selectedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
   const selectedMissing = selectedRows.filter((c) => c.calc_error || c.remuneration == null).length
 
+  // The bar shows whenever anything at all is selected, not only when one of
+  // the selected rows is on screen. Gated on the latter, a refresh that
+  // carried a selected ticket out of the queue took the whole bar with it —
+  // the selection still live, with no count, no total and no way to act.
+  const anySelected = selected.size > 0
+  // Still about the rows on screen, because that is what the header's
+  // select-all box acts on.
   const allVisibleSelected = rows.length > 0 && rows.every((c) => selected.has(c.id))
   const someVisibleSelected = rows.some((c) => selected.has(c.id))
+  const selectedOffList = selected.size - rows.filter((c) => selected.has(c.id)).length
 
   async function runBulkClear() {
-    const ids = [...selected]
-    const lookup = new Map(rows.map((c) => [c.id, c]))
+    const ids = [...selected.keys()]
+    const lookup = new Map(selected)
     try {
       const result = await bulkClear.mutateAsync({ claim_ids: ids })
       setBulkResult({ result, lookup })
       const skippedIds = new Set(result.skipped.map((s) => s.id))
       setSelected((prev) => {
-        const next = new Set(prev)
+        const next = new Map(prev)
         for (const id of ids) if (!skippedIds.has(id)) next.delete(id)
         return next
       })
@@ -309,11 +325,17 @@ export function Clearing() {
         <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open
       </Meta>
 
-      {someVisibleSelected && (
+      {anySelected && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
           <p className="text-sm">
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>
+            {selectedOffList > 0 && (
+              <span className="text-fg-muted">
+                {" "}
+                · {selectedOffList} no longer in this queue
+              </span>
+            )}
             {selectedMissing > 0 && (
               <span className="text-fg-muted">
                 {" "}
@@ -322,7 +344,7 @@ export function Clearing() {
             )}
           </p>
           <div className="flex items-center gap-2">
-            <Button kind="quiet" size="sm" onClick={() => setSelected(new Set())}>
+            <Button kind="quiet" size="sm" onClick={() => setSelected(new Map())}>
               Clear selection
             </Button>
             <Button kind="primary" size="sm" onClick={() => setBulkConfirmOpen(true)}>
@@ -333,7 +355,10 @@ export function Clearing() {
       )}
 
       {isLoading ? (
-        <SkeletonRows rows={8} rowHeight={52} />
+        <>
+          <SkeletonRows rows={8} rowHeight={52} className="hidden md:block" />
+          <SkeletonRows rows={5} rowHeight={96} className="md:hidden" />
+        </>
       ) : isError ? (
         <ErrorState
           title="Could not load the queue"
@@ -342,28 +367,44 @@ export function Clearing() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          art="empty-queue"
           icon={Inbox}
           title="Nothing waiting"
           message="Every submitted ticket has been checked. That is good news — come back when the next one lands."
         />
       ) : (
-        <TableScroller minWidth="62rem">
+        <>
+        {/* Below `md` the same rows are stacked as cards. Seven columns do not
+            fit 375px, and a queue only reachable by dragging it sideways is a
+            queue the research cell cannot work on a phone — the page column
+            itself must never be what scrolls. */}
+        <div className="space-y-3 md:hidden">
+          <Checkbox
+            checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+            onCheckedChange={() => toggleAllVisible()}
+            label={allVisibleSelected ? "Deselect all shown" : "Select all shown"}
+          />
+          <ul className="divide-y divide-line border-y border-line">
+            {rows.map((c) => (
+              <QueueCard
+                key={c.id}
+                claim={c}
+                selected={selected.has(c.id)}
+                onToggle={() => toggleSelected(c)}
+                onOpen={() => setOpenId(c.id)}
+              />
+            ))}
+          </ul>
+        </div>
+
+        <TableScroller minWidth="62rem" className="hidden md:block">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
                 <th scope="col" className={cn(stickyHeadCell, "w-10")}>
                   <Checkbox
                     checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
-                    onCheckedChange={() => {
-                      setSelected((prev) => {
-                        if (allVisibleSelected) {
-                          const next = new Set(prev)
-                          for (const c of rows) next.delete(c.id)
-                          return next
-                        }
-                        return new Set([...prev, ...rows.map((c) => c.id)])
-                      })
-                    }}
+                    onCheckedChange={() => toggleAllVisible()}
                     aria-label={allVisibleSelected ? "Deselect all" : "Select all"}
                   />
                 </th>
@@ -389,9 +430,14 @@ export function Clearing() {
             </thead>
             <tbody>
               {rows.map((c, i) => (
+                // No `aria-selected` here. A `<tr>` in a plain `<table>` is a
+                // `row` inside a `table`, not a `grid`, so the attribute is
+                // dropped outright — the selection was announced nowhere and
+                // `bg-selected` was the whole of it. The row's own checkbox is
+                // a real `checkbox` with a real name, so its checked state is
+                // what carries the selection to a screen reader.
                 <tr
                   key={c.id}
-                  aria-selected={selected.has(c.id)}
                   onClick={() => {
                     setActive(i)
                     setOpenId(c.id)
@@ -405,8 +451,8 @@ export function Clearing() {
                   <td className="px-3 py-3 align-top" onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={selected.has(c.id)}
-                      onCheckedChange={() => toggleSelected(c.id)}
-                      aria-label={`Select ${c.paper_title || "this ticket"}`}
+                      onCheckedChange={() => toggleSelected(c)}
+                      aria-label={selectLabel(c)}
                     />
                   </td>
                   <td className="px-3 py-3 align-top">
@@ -457,6 +503,7 @@ export function Clearing() {
             </tbody>
           </table>
         </TableScroller>
+        </>
       )}
 
       <TicketSheet
@@ -470,7 +517,7 @@ export function Clearing() {
         onOpenChange={setBulkConfirmOpen}
         title={`Clear ${selected.size} ${selected.size === 1 ? "ticket" : "tickets"}?`}
         description={`${money(selectedTotal)} total. Each ticket is re-checked against its stored figures as it clears — a row whose amount has moved is skipped, not cleared at the wrong number.`}
-        confirmLabel="Clear"
+        confirmLabel={`Clear — ${money(selectedTotal)}`}
         onConfirm={runBulkClear}
       />
 
@@ -488,6 +535,78 @@ export function Clearing() {
 /* ------------------------------------------------------------------------ */
 /* Row pieces                                                               */
 /* ------------------------------------------------------------------------ */
+
+/** The checkbox's accessible name. "Select" on its own is what forty
+ *  identically-named checkboxes sound like in a row list, so the paper and
+ *  its ticket go into the name — that, plus the checkbox's own checked
+ *  state, is how the selection is announced at all. */
+function selectLabel(c: QueueClaim): string {
+  const title = c.paper_title || "this ticket"
+  return c.ticket_number ? `Select ${title}, ${c.ticket_number}` : `Select ${title}`
+}
+
+/** The same row stacked for a narrow screen. Seven columns do not fit 375px,
+ *  and dropping the amount or the duplicate flag below `md` is how a ticket
+ *  gets cleared on a phone without its reader seeing either. */
+function QueueCard({
+  claim: c,
+  selected,
+  onToggle,
+  onOpen,
+}: {
+  claim: QueueClaim
+  selected: boolean
+  onToggle: () => void
+  onOpen: () => void
+}) {
+  return (
+    <li className={cn("row flex items-start gap-3 px-1 py-3", selected && "bg-selected")}>
+      <span className="pt-1">
+        <Checkbox checked={selected} onCheckedChange={onToggle} aria-label={selectLabel(c)} />
+      </span>
+      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+        <span className="flex items-start justify-between gap-3">
+          <span className="min-w-0 flex-1">
+            <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
+            <Meta className="mt-0.5 block">
+              {c.ticket_number || "Not yet ticketed"} · {c.owner_name}
+            </Meta>
+            {c.journal_title && <Meta className="block break-words">{c.journal_title}</Meta>}
+          </span>
+          <span className="shrink-0 text-right">
+            {c.calc_error ? (
+              <span className="text-xs text-critical">No amount</span>
+            ) : (
+              <span className="block text-base tabular">{money(c.remuneration)}</span>
+            )}
+            <span
+              className={cn(
+                "block text-xs tabular",
+                (c.waiting_days ?? 0) > 7 ? "font-medium text-caution" : "text-fg-muted"
+              )}
+            >
+              {waitingLabel(c.waiting_days)}
+            </span>
+          </span>
+        </span>
+        <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {c.duplicate_warning && (
+            <RowFlag tone="critical">
+              <AlertTriangle className="size-3" /> Possible duplicate
+            </RowFlag>
+          )}
+          {c.calc_error && (
+            <RowFlag tone="critical">
+              <AlertTriangle className="size-3" /> Could not calculate
+            </RowFlag>
+          )}
+          {!c.calc_error && c.remuneration_is_estimate && <RowFlag tone="caution">Estimate</RowFlag>}
+          <VerifiedBadge ok={c.verification_ok} />
+        </span>
+      </button>
+    </li>
+  )
+}
 
 function RowFlag({ tone, children }: { tone: "critical" | "caution"; children: React.ReactNode }) {
   return (
@@ -994,6 +1113,12 @@ function ClearDialog({
           {phase === "ready" && (
             <>
               <p className="text-2xl font-semibold tabular">{money(amount)}</p>
+              {/* What confirming does, in the dialog rather than only in the
+                  toast afterwards — by then it has already happened. */}
+              <p className="text-sm text-fg-muted">
+                This clears {money(amount)} and sends the ticket to the Principal to approve. It
+                leaves this queue.
+              </p>
               <Field label="Note (optional)">
                 <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
               </Field>
@@ -1430,7 +1555,7 @@ function SecondSignatureDialog({
             disabled={selfCleared || sign.isPending}
             onClick={() => void submit()}
           >
-            {sign.isPending ? "Signing…" : "Sign it"}
+            {sign.isPending ? "Signing…" : `Sign — ${money(claim.remuneration)}`}
           </Button>
         </DialogFooter>
       </DialogContent>

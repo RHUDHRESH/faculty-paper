@@ -1,4 +1,5 @@
 import { StrictMode } from "react"
+import { MotionConfig } from "motion/react"
 import { createRoot, type Root } from "react-dom/client"
 import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { QueryClientProvider } from "@tanstack/react-query"
@@ -26,6 +27,7 @@ import { Discover } from "@/pages/discover"
 import { Discussions, Thread } from "@/pages/discussions"
 import { Duplicates } from "@/pages/duplicates"
 import { FilePaper } from "@/pages/file-paper"
+import { Imports } from "@/pages/imports"
 import { Gallery } from "@/pages/gallery"
 import { PaperDetail } from "@/pages/paper-detail"
 import { Journals, JournalRecord } from "@/pages/journals"
@@ -151,6 +153,7 @@ function App() {
           <Route path="/budget" element={<Budget />} />
           <Route path="/policy" element={<Policy />} />
           <Route path="/reference" element={<Reference />} />
+          <Route path="/imports" element={<Imports />} />
           <Route path="/batches" element={<Batches />} />
           <Route path="/batches/:id" element={<Batch />} />
           <Route path="/data" element={<Data />} />
@@ -186,6 +189,15 @@ const root = (window as unknown as { __root?: Root }).__root ?? createRoot(conta
 
 root.render(
   <StrictMode>
+    {/* Reduced motion, applied to everything at once.
+        `styles.css` caps `animation-duration` and `transition-duration` under
+        `prefers-reduced-motion`, which reaches CSS and nothing else --
+        `motion/react` drives the Web Animations API, which that rule never
+        touches. So every JS-animated surface in the app was ignoring the
+        setting outright. Components that ask `useReducedMotion()` themselves
+        were already correct; this covers the ones that forget, including any
+        added later. */}
+    <MotionConfig reducedMotion="user">
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
@@ -194,5 +206,6 @@ root.render(
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
+    </MotionConfig>
   </StrictMode>
 )

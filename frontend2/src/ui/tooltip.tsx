@@ -1,5 +1,6 @@
 import * as RadixTooltip from "@radix-ui/react-tooltip"
 
+import { popKeyframes, tooltipPop } from "@/ui/motion"
 import { cn } from "@/lib/cn"
 
 /**
@@ -18,6 +19,11 @@ import { cn } from "@/lib/cn"
  * default, set once via `TooltipProvider`) then removes that delay between
  * *adjacent* triggers, so hovering along a disabled toolbar reads each
  * reason immediately rather than waiting out the delay per icon.
+ *
+ * The animation is the one asymmetry in `ui/motion.ts`: in at `--dur-1` and
+ * out at `--dur-2`, because a reader who has already waited 300ms for the
+ * hint should not then wait for it to fade up, and a hint that disappears
+ * the instant the pointer moves flickers as they run along a row of icons.
  */
 
 export const TooltipProvider = RadixTooltip.Provider
@@ -36,24 +42,20 @@ export function Tooltip({
   return (
     <RadixTooltip.Root delayDuration={delayDuration}>
       <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
-      {/* Same technique as menu.tsx: Radix only holds an element mounted for
-          its close animation when that animation is a real @keyframes rule,
-          not a CSS transition. */}
-      <style>{`
-@keyframes ui-tip-in { from { opacity: 0; transform: translate(var(--pop-x, 0), var(--pop-y, 0)); } to { opacity: 1; transform: translate(0, 0); } }
-@keyframes ui-tip-out { from { opacity: 1; transform: translate(0, 0); } to { opacity: 0; transform: translate(var(--pop-x, 0), var(--pop-y, 0)); } }
-`}</style>
+      {/* Same technique as menu.tsx, and now the same keyframes: Radix only
+          holds an element mounted for its close animation when that animation
+          is a real @keyframes rule, not a CSS transition. */}
+      <style>{popKeyframes}</style>
       <RadixTooltip.Portal>
         <RadixTooltip.Content
           side={side}
           sideOffset={6}
+          // Grows from the corner nearest whatever it explains, so a hint on
+          // a toolbar button reads as belonging to that button.
+          style={{ transformOrigin: "var(--radix-tooltip-content-transform-origin)" }}
           className={cn(
             "z-50 max-w-64 rounded-sm bg-fg px-2 py-1 text-xs text-bg",
-            "data-[side=bottom]:[--pop-y:-4px] data-[side=top]:[--pop-y:4px]",
-            "data-[side=right]:[--pop-x:-4px] data-[side=left]:[--pop-x:4px]",
-            "data-[state=delayed-open]:animate-[ui-tip-in_120ms_var(--ease-out)]",
-            "data-[state=instant-open]:animate-[ui-tip-in_120ms_var(--ease-out)]",
-            "data-[state=closed]:animate-[ui-tip-out_120ms_var(--ease-out)]"
+            tooltipPop
           )}
         >
           {content}

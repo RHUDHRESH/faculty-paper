@@ -260,7 +260,12 @@ export function Approvals() {
     ...(data?.departments ?? []).map((d) => ({ value: d, label: d })),
   ]
 
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Whole rows, not just ids. The search, department and wait-time filters
+  // each refetch a different slice of the queue, so a row selected before a
+  // filter was narrowed is simply not in `rows` any more — keeping only its
+  // id meant its title and amount vanished with it and the bar could no
+  // longer say what was selected or what it came to.
+  const [selected, setSelected] = useState<Map<string, QueueClaim>>(new Map())
   const [active, setActive] = useState(0)
   const [openId, setOpenId] = useState<string | null>(null)
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
@@ -269,18 +274,12 @@ export function Approvals() {
     lookup: Map<string, QueueClaim>
   } | null>(null)
 
-  // A refresh underneath a selection must not wipe it — but a ticket that
-  // left the queue (approved, sent back, approved by somebody else) has to
-  // leave the selection too, or "12 selected" keeps counting a row that is
-  // no longer here to approve.
-  useEffect(() => {
-    setSelected((prev) => {
-      const ids = new Set(rows.map((c) => c.id))
-      const next = new Set([...prev].filter((id) => ids.has(id)))
-      return next.size === prev.size ? prev : next
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data])
+  // Nothing prunes the selection against the rows on screen. A refetch under
+  // a narrowed filter is not evidence that a ticket left the queue, and
+  // dropping it silently is how a Principal loses fifteen chosen rows by
+  // typing in the search box. A ticket that genuinely has moved on is caught
+  // where it matters instead: bulk-approve re-checks every id server-side and
+  // skips it by name rather than approving it.
 
   useEffect(() => {
     setActive((i) => Math.min(i, Math.max(0, rows.length - 1)))
@@ -306,7 +305,7 @@ export function Approvals() {
       } else if (e.key === "x") {
         e.preventDefault()
         const row = rows[active]
-        if (row) toggleSelected(row.id)
+        if (row) toggleSelected(row)
       } else if (e.key === "Enter") {
         e.preventDefault()
         const row = rows[active]
@@ -317,11 +316,23 @@ export function Approvals() {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [rows, active, openId])
 
-  function toggleSelected(id: string) {
+  function toggleSelected(c: QueueClaim) {
     setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      const next = new Map(prev)
+      if (next.has(c.id)) next.delete(c.id)
+      else next.set(c.id, c)
+      return next
+    })
+  }
+
+  function toggleAllVisible() {
+    setSelected((prev) => {
+      const next = new Map(prev)
+      const everyShownSelected = rows.length > 0 && rows.every((c) => next.has(c.id))
+      for (const c of rows) {
+        if (everyShownSelected) next.delete(c.id)
+        else next.set(c.id, c)
+      }
       return next
     })
   }
@@ -342,23 +353,33 @@ export function Approvals() {
     )
   }
 
-  const selectedRows = rows.filter((c) => selected.has(c.id))
+  // Off the rows themselves, so a ticket selected before a filter narrowed
+  // the queue still contributes its amount to the total shown.
+  const selectedRows = [...selected.values()]
   const selectedTotal = selectedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
   const selectedMissing = selectedRows.filter((c) => c.calc_error || c.remuneration == null).length
   const selectedNeedSecond = selectedRows.filter((c) => c.needs_second_approval).length
 
+  // The bar shows whenever anything at all is selected, not only when one of
+  // the selected rows survived the current filter. Gating it on the latter
+  // meant filtering the queue down to nothing hid the bar with the selection
+  // still live: no count, no total, and no way to act on or clear it.
+  const anySelected = selected.size > 0
+  // These two remain about the rows on screen, because that is genuinely what
+  // the header's select-all box acts on.
   const allVisibleSelected = rows.length > 0 && rows.every((c) => selected.has(c.id))
   const someVisibleSelected = rows.some((c) => selected.has(c.id))
+  const selectedOffList = selected.size - rows.filter((c) => selected.has(c.id)).length
 
   async function runBulkApprove() {
-    const ids = [...selected]
-    const lookup = new Map(rows.map((c) => [c.id, c]))
+    const ids = [...selected.keys()]
+    const lookup = new Map(selected)
     try {
       const result = await bulkApprove.mutateAsync({ claim_ids: ids })
       setBulkResult({ result, lookup })
       const skippedIds = new Set(result.skipped.map((s) => s.id))
       setSelected((prev) => {
-        const next = new Set(prev)
+        const next = new Map(prev)
         for (const id of ids) if (!skippedIds.has(id)) next.delete(id)
         return next
       })
@@ -448,11 +469,17 @@ export function Approvals() {
         )}
       </div>
 
-      {someVisibleSelected && (
+      {anySelected && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
           <p className="text-sm">
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>
+            {selectedOffList > 0 && (
+              <span className="text-fg-muted">
+                {" "}
+                · {selectedOffList} not shown by the current filters
+              </span>
+            )}
             {selectedMissing > 0 && (
               <span className="text-fg-muted"> ({selectedMissing} without an amount, excluded from this total)</span>
             )}
@@ -464,7 +491,7 @@ export function Approvals() {
             )}
           </p>
           <div className="flex items-center gap-2">
-            <Button kind="quiet" size="sm" onClick={() => setSelected(new Set())}>
+            <Button kind="quiet" size="sm" onClick={() => setSelected(new Map())}>
               Clear selection
             </Button>
             <Button kind="primary" size="sm" onClick={() => setBulkConfirmOpen(true)}>
@@ -475,7 +502,10 @@ export function Approvals() {
       )}
 
       {isLoading ? (
-        <SkeletonRows rows={8} rowHeight={52} />
+        <>
+          <SkeletonRows rows={8} rowHeight={52} className="hidden md:block" />
+          <SkeletonRows rows={5} rowHeight={96} className="md:hidden" />
+        </>
       ) : isError ? (
         <ErrorState
           title="Could not load the queue"
@@ -484,6 +514,7 @@ export function Approvals() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          art="empty-queue"
           icon={Inbox}
           title={filtered ? "Nothing matches these filters" : "Nothing waiting"}
           message={
@@ -499,23 +530,37 @@ export function Approvals() {
               Showing the first {rows.length} of {data.total}. Narrow the filters to see the rest.
             </Meta>
           )}
-          <TableScroller minWidth="66rem">
+          {/* Below `md` the same rows are stacked as cards. Seven columns do
+              not fit 375px, and a table only reachable by dragging it sideways
+              is a queue a Principal cannot triage on a phone — the page column
+              itself must never be what scrolls. */}
+          <div className="space-y-3 md:hidden">
+            <Checkbox
+              checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+              onCheckedChange={() => toggleAllVisible()}
+              label={allVisibleSelected ? "Deselect all shown" : "Select all shown"}
+            />
+            <ul className="divide-y divide-line border-y border-line">
+              {rows.map((c) => (
+                <QueueCard
+                  key={c.id}
+                  claim={c}
+                  selected={selected.has(c.id)}
+                  onToggle={() => toggleSelected(c)}
+                  onOpen={() => setOpenId(c.id)}
+                />
+              ))}
+            </ul>
+          </div>
+
+          <TableScroller minWidth="66rem" className="hidden md:block">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr>
                   <th scope="col" className={cn(stickyHeadCell, "w-10")}>
                     <Checkbox
                       checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
-                      onCheckedChange={() => {
-                        setSelected((prev) => {
-                          if (allVisibleSelected) {
-                            const next = new Set(prev)
-                            for (const c of rows) next.delete(c.id)
-                            return next
-                          }
-                          return new Set([...prev, ...rows.map((c) => c.id)])
-                        })
-                      }}
+                      onCheckedChange={() => toggleAllVisible()}
                       aria-label={allVisibleSelected ? "Deselect all" : "Select all"}
                     />
                   </th>
@@ -541,9 +586,14 @@ export function Approvals() {
               </thead>
               <tbody>
                 {rows.map((c, i) => (
+                  // No `aria-selected` here. A `<tr>` in a plain `<table>` is
+                  // a `row` inside a `table`, not a `grid`, so the attribute is
+                  // dropped outright — the selection was announced nowhere and
+                  // `bg-selected` was the whole of it. The row's own checkbox
+                  // is a real `checkbox` with a real name, so its checked state
+                  // is what carries the selection to a screen reader.
                   <tr
                     key={c.id}
-                    aria-selected={selected.has(c.id)}
                     onClick={() => {
                       setActive(i)
                       setOpenId(c.id)
@@ -557,8 +607,8 @@ export function Approvals() {
                     <td className="px-3 py-3 align-top" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
                         checked={selected.has(c.id)}
-                        onCheckedChange={() => toggleSelected(c.id)}
-                        aria-label={`Select ${c.paper_title || "this ticket"}`}
+                        onCheckedChange={() => toggleSelected(c)}
+                        aria-label={selectLabel(c)}
                       />
                     </td>
                     <td className="px-3 py-3 align-top">
@@ -617,7 +667,7 @@ export function Approvals() {
         onOpenChange={setBulkConfirmOpen}
         title={`Approve ${selected.size} ${selected.size === 1 ? "ticket" : "tickets"}?`}
         description={`${money(selectedTotal)} total, sent to Finance. Each ticket is re-checked against its stored figures as it approves — a row whose amount has moved is skipped, not approved at the wrong number.`}
-        confirmLabel="Approve"
+        confirmLabel={`Approve — ${money(selectedTotal)}`}
         onConfirm={runBulkApprove}
       />
 
@@ -631,6 +681,78 @@ export function Approvals() {
 /* ------------------------------------------------------------------------ */
 /* Row pieces                                                               */
 /* ------------------------------------------------------------------------ */
+
+/** The checkbox's accessible name. "Select" on its own is what forty
+ *  identically-named checkboxes sound like in a row list, so the paper and
+ *  its ticket go into the name — that, plus the checkbox's own checked
+ *  state, is how the selection is announced at all. */
+function selectLabel(c: QueueClaim): string {
+  const title = c.paper_title || "this ticket"
+  return c.ticket_number ? `Select ${title}, ${c.ticket_number}` : `Select ${title}`
+}
+
+/** The same row stacked for a narrow screen. Seven columns do not fit 375px,
+ *  and dropping the amount or the second-signature flag below `md` is how a
+ *  Principal approves spend on a phone without seeing what they approved. */
+function QueueCard({
+  claim: c,
+  selected,
+  onToggle,
+  onOpen,
+}: {
+  claim: QueueClaim
+  selected: boolean
+  onToggle: () => void
+  onOpen: () => void
+}) {
+  return (
+    <li className={cn("row flex items-start gap-3 px-1 py-3", selected && "bg-selected")}>
+      <span className="pt-1">
+        <Checkbox checked={selected} onCheckedChange={onToggle} aria-label={selectLabel(c)} />
+      </span>
+      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
+        <span className="flex items-start justify-between gap-3">
+          <span className="min-w-0 flex-1">
+            <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
+            <Meta className="mt-0.5 block">
+              {c.ticket_number || "Not yet ticketed"} · {c.owner_name}
+            </Meta>
+            {c.journal_title && <Meta className="block break-words">{c.journal_title}</Meta>}
+          </span>
+          <span className="shrink-0 text-right">
+            {c.calc_error ? (
+              <span className="text-xs text-critical">No amount</span>
+            ) : (
+              <span className="block text-base tabular">{money(c.remuneration)}</span>
+            )}
+            <span
+              className={cn(
+                "block text-xs tabular",
+                (c.waiting_days ?? 0) > 7 ? "font-medium text-caution" : "text-fg-muted"
+              )}
+            >
+              {waitingLabel(c.waiting_days)}
+            </span>
+          </span>
+        </span>
+        <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {c.duplicate_warning && (
+            <RowFlag tone="critical">
+              <AlertTriangle className="size-3" /> Possible duplicate
+            </RowFlag>
+          )}
+          {c.calc_error && (
+            <RowFlag tone="critical">
+              <AlertTriangle className="size-3" /> Could not calculate
+            </RowFlag>
+          )}
+          {!c.calc_error && c.remuneration_is_estimate && <RowFlag tone="caution">Estimate</RowFlag>}
+          {(c.needs_second_approval || c.second_approved_by_name) && <SecondSignature claim={c} />}
+        </span>
+      </button>
+    </li>
+  )
+}
 
 function RowFlag({ tone, children }: { tone: "critical" | "caution"; children: React.ReactNode }) {
   return (
@@ -1077,6 +1199,12 @@ function ApproveDialog({
           ) : phase === "ready" ? (
             <>
               <p className="text-2xl font-semibold tabular">{money(amount)}</p>
+              {/* What confirming does, in the dialog rather than only in the
+                  toast afterwards — by then it has already happened. */}
+              <p className="text-sm text-fg-muted">
+                This sends {money(amount)} to Finance to pay. Once it has gone, only Finance can
+                reverse it.
+              </p>
               {claim.needs_second_approval && (
                 <Callout tone="caution" title="Needs a second, different signature">
                   Cleared by {claim.cleared_by_name || "someone else"}. Approving here also serves as the second

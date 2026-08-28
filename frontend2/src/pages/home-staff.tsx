@@ -15,7 +15,7 @@ import { useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { money, Stage, stageOf } from "@/ui/paper"
-import { Callout, InlineError, Skeleton } from "@/ui/state"
+import { Callout, ErrorState, InlineError, Skeleton } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 
 /**
@@ -347,6 +347,14 @@ export function OfficeHome() {
               <li key={i} className="h-[3.25rem] animate-pulse bg-sunken" />
             ))}
           </ul>
+        ) : dashboard.isError ? (
+          // "Nothing has changed yet" on a failed request tells the office
+          // the queue is quiet when it may be full.
+          <ErrorState
+            title="Could not load recent activity"
+            message="The server did not answer. Nothing has been lost."
+            onRetry={() => void dashboard.refetch()}
+          />
         ) : (dashboard.data?.recent.length ?? 0) === 0 ? (
           <p className="border-y border-line py-10 text-center text-sm text-fg-muted">
             Nothing has changed yet.
@@ -600,6 +608,16 @@ export function FinanceHome() {
             Budget
           </Link>
         </div>
+        {budget.isError ? (
+          // Every figure below falls back to "Not set" or an em dash, so a
+          // failed request read as "this college has allocated no budget" to
+          // the one person whose job depends on knowing otherwise.
+          <ErrorState
+            title="Could not load the budget"
+            message="The server did not answer. Any allocation already made is still there."
+            onRetry={() => void budget.refetch()}
+          />
+        ) : (
         <div className="grid gap-x-10 gap-y-6 sm:grid-cols-4">
           <Figure
             label="Allocated"
@@ -640,6 +658,7 @@ export function FinanceHome() {
             loading={budget.isLoading}
           />
         </div>
+        )}
       </section>
     </div>
   )

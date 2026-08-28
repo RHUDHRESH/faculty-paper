@@ -67,6 +67,7 @@ from core.models import (
     User,
 )
 from core.services import ai, discover as discover_service, research_search, trends
+from core.services.search import KINDS as SEARCH_KINDS, search as run_search
 from core.services import rbac
 from core.services import thread_agent
 from core import discussions
@@ -3039,8 +3040,13 @@ def _check_mandatory_fields(claim: Claim) -> None:
         missing.append("Yukthi ID")
     if not (claim.scopus_author_url or "").strip():
         missing.append("Author Scopus link")
-    if not (claim.sec_refs or "").strip():
-        missing.append("Reference numbers with SEC affiliation")
+    # `sec_refs` is not in this list, and must not go back into it. There is no
+    # such box on the form any more: the wizard derives the string from the
+    # numbers entered against each attached reference, so naming it here sent a
+    # first-time claimant to look for a field that does not exist. The
+    # reference rule further down says the same thing in terms of the things
+    # they can actually act on -- attach the paper, give its number -- so it is
+    # left to say it.
     if missing:
         raise HttpError(400, "Complete these before submitting: " + ", ".join(missing))
 
@@ -7336,6 +7342,45 @@ class VenueIn(Schema):
 
 class InterestsIn(Schema):
     domains: list[str]
+
+
+@api.get("/search", auth=session_auth)
+def search_everything(
+    request: HttpRequest,
+    q: str,
+    kinds: str = "papers,venues,people",
+    limit: int = 10,
+    field: str | None = None,
+    quartile: str | None = None,
+    doi: str | None = None,
+):
+    """One box over Crossref, OpenAlex, Scopus and our own tables.
+
+    `core.services.search` was complete, tested and reachable from every
+    role's sidebar, and nothing had ever registered the route — so the page
+    shipped and every query 404'd. The route sweep could not see it: with no
+    query the page shows its prompt and looks perfectly well.
+
+    The guard is `require_user`, deliberately not `_require_may_see_money`.
+    That helper refuses a head of department outright, which is right for
+    `/prior/check` and `/discover/venues` because those exist to hand over a
+    figure — but a head is entitled to look a paper up, and refusing here
+    would take the search box away from them entirely. Money-blindness is
+    enforced inside the package instead, in `search/money.py`, which omits the
+    amount key rather than zeroing it, and everything leaves through
+    `hod.without_money` after that regardless.
+
+    `limit` is clamped by the engine (1–50), which also never raises for an
+    upstream problem: a vendor that is down is reported as a source that did
+    not answer. So the only status this endpoint returns other than 200 is the
+    401/403 that `require_user` raises.
+    """
+    user = require_user(request)
+    wanted = [k.strip() for k in (kinds or "").split(",") if k.strip()] or list(SEARCH_KINDS)
+    return run_search(
+        q, viewer=user, kinds=wanted, limit=limit,
+        field=field, quartile=quartile, doi=doi,
+    )
 
 
 @api.get("/discover/status", auth=session_auth)

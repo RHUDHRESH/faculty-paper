@@ -759,11 +759,49 @@ class ClaimSubmissionRuleTests(TestCase):
 
     def test_submit_requires_mandatory_form_fields(self):
         self._login(self.faculty)
-        r = self._post_claim(self._complete_payload(yukthi_id="", sec_refs=""))
+        r = self._post_claim(self._complete_payload(yukthi_id="", journal_title=""))
         self.assertEqual(r.status_code, 400, r.content)
         detail = r.json().get("detail", "")
         self.assertIn("Yukthi ID", detail)
-        self.assertIn("Reference numbers", detail)
+        self.assertIn("Journal name", detail)
+
+    def test_the_missing_list_names_no_field_the_form_does_not_have(self):
+        """`sec_refs` used to be in it, and it is not a box anybody can fill.
+
+        The wizard derives that column from the number entered against each
+        attached reference, so a first-time claimant -- who by definition has
+        never entered one -- was refused by the name of a field that is not on
+        their screen, and told nothing about the files or the numbers. The
+        reference rule says all of that; the missing list stands aside for it.
+        """
+        self._login(self.faculty)
+        r = self._post_claim(
+            self._complete_payload(
+                sec_refs="",
+                attachments=[
+                    _published_paper_attachment(
+                        "/media/claims/c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0.pdf"
+                    ),
+                    # Attached, and neither carries its number -- the mistake
+                    # as it is actually made the first time.
+                    {"kind": "SEC_REFERENCE", "size_bytes": 10, "filename": "r1.pdf",
+                     "url": "/media/claims/c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1.pdf"},
+                    {"kind": "SEC_REFERENCE", "size_bytes": 10, "filename": "r2.pdf",
+                     "url": "/media/claims/c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2.pdf"},
+                ],
+            )
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        detail = r.json().get("detail", "")
+        self.assertNotIn(
+            "Complete these before submitting", detail,
+            "the generic list answered a claimant it has no field to name",
+        )
+        self.assertIn(f"0 of {MIN_SEC_REFERENCES}", detail)
+        self.assertIn("attach the cited paper", detail)
+        self.assertIn("number it has in your reference list", detail)
+        self.assertIn("Rs 0", detail)
+        self.assertIn("publication count", detail)
 
     def test_annexure_indexing_requires_ref_number(self):
         self._login(self.faculty)
@@ -10515,6 +10553,134 @@ class ResearchQuotaSlotTests(TestCase):
             )
             self.assertEqual(claim.quota_position, n)
             self.assertEqual(rank, claim.quota_position)
+
+
+class SearchRouteTests(TestCase):
+    """`GET /api/search` exists, and lets a head of department through.
+
+    `core.services.search` was finished, tested and reachable from every
+    role's sidebar, and no route was ever registered for it -- so the page
+    shipped and every query came back 404. `routes.spec.ts` could not catch
+    it: with an empty box the page shows its prompt and looks perfectly well.
+
+    These ask two things of the wiring. That it is there, and that its guard
+    is `require_user` rather than `_require_may_see_money` -- the helper that
+    refuses a head outright, which is correct on `/prior/check` and
+    `/discover/venues` because those exist to hand over a figure, and would
+    take the search box away from the one role most likely to use it daily.
+    Blindness belongs inside the package, where the amount key is left out
+    rather than zeroed; `core.test_search` is where that is proved in depth.
+
+    `kinds=people` is the query used throughout, because it is the one scope
+    that asks nothing outside this machine: no Crossref, no OpenAlex, no
+    Scopus, so no test here depends on a vendor being up.
+    """
+
+    def setUp(self):
+        self.faculty = User.objects.create_user(
+            email="sr-fac@test.edu", password="pass", name="Search Faculty",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.cell = User.objects.create_user(
+            email="sr-cell@test.edu", password="pass", name="Search Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.hod = User.objects.create_user(
+            email="sr-hod@test.edu", password="pass", name="Search Head",
+            role=Role.HOD, department="CSE",
+        )
+        self.claim = Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.PAID,
+            ticket_number="FP-2026-SEARCH", paper_title="Thermal Runaway In Packed Beds",
+            normalized_title=normalize_title("Thermal Runaway In Packed Beds"),
+            journal_title="Journal of Testing", publication_year=2026,
+            remuneration=44000.0,
+        )
+        self.client = Client()
+
+    def _search(self, **params):
+        params.setdefault("kinds", "people")
+        return self.client.get("/api/search", params)
+
+    def test_the_route_is_registered_at_all(self):
+        """The whole defect: this used to be a 404 for every role."""
+        self.client.force_login(self.faculty)
+        r = self._search(q="Thermal Runaway")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["query"], "Thermal Runaway")
+
+    def test_it_finds_a_claim_this_college_has_filed_and_prices_it(self):
+        self.client.force_login(self.cell)
+        r = self._search(q="Thermal Runaway In Packed Beds")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        titles = [t["paper_title"] for t in body["tickets"]]
+        self.assertIn("Thermal Runaway In Packed Beds", titles)
+        self.assertTrue(body["money_visible"])
+        self.assertEqual(body["tickets"][0]["amount"], 44000.0)
+
+    def test_a_head_of_department_is_not_locked_out_of_the_search_box(self):
+        """The guard that would have been the obvious one to reach for.
+
+        `_require_may_see_money` 403s a head, and using it here would have
+        looked like tightening the endpoint. It would have removed the second
+        item in their own sidebar. A head may look a paper up; they are only
+        not to be told what it paid.
+        """
+        self.client.force_login(self.hod)
+        r = self._search(q="Thermal Runaway In Packed Beds")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        titles = [t["paper_title"] for t in body["tickets"]]
+        self.assertIn(
+            "Thermal Runaway In Packed Beds", titles,
+            "a head of department could not find a filed claim by its title",
+        )
+        self.assertFalse(body["money_visible"])
+        for ticket in body["tickets"]:
+            self.assertNotIn("amount", ticket, "the key is left out, not zeroed")
+        self.assertNotIn("44000", r.content.decode())
+
+    def test_signed_out_it_answers_nothing(self):
+        r = self._search(q="Thermal Runaway")
+        self.assertIn(r.status_code, (401, 403), r.content)
+
+    def test_a_query_too_short_to_ask_is_answered_not_refused(self):
+        """A keystroke must not render as an error."""
+        self.client.force_login(self.faculty)
+        r = self._search(q="a")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["tickets"], [])
+
+    def test_the_kinds_and_limit_the_client_sends_reach_the_engine(self):
+        """The parameters are what make the page's filters work, and a route
+        that dropped them would still return a plausible-looking answer."""
+        from unittest.mock import ANY
+
+        self.client.force_login(self.faculty)
+        with patch("core.api.run_search", return_value={"ok": True}) as ran:
+            r = self.client.get(
+                "/api/search",
+                {"q": "graphene", "kinds": "venues, people", "limit": "3",
+                 "field": "Chemistry", "quartile": "Q1", "doi": "10.1/x"},
+            )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json(), {"ok": True})
+        ran.assert_called_once_with(
+            "graphene", viewer=ANY, kinds=["venues", "people"], limit=3,
+            field="Chemistry", quartile="Q1", doi="10.1/x",
+        )
+
+    def test_an_empty_kinds_string_searches_everything(self):
+        """Rather than searching nothing, which is what a bare split gives."""
+        from unittest.mock import ANY
+
+        self.client.force_login(self.faculty)
+        with patch("core.api.run_search", return_value={"ok": True}) as ran:
+            self.client.get("/api/search", {"q": "graphene", "kinds": ""})
+        self.assertEqual(
+            ran.call_args.kwargs["kinds"], list(api_module.SEARCH_KINDS)
+        )
 
 
 class StudentProjectTeamTests(TestCase):

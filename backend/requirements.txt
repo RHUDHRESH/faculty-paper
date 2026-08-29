@@ -33,3 +33,7 @@ requests>=2.32
 # the runtime never imports it. Example budgets there are bounded and
 # derandomised, so a payroll property gives the same answer on every run.
 hypothesis>=6.100
+
+# Django's --parallel test runner needs tblib to reassemble tracebacks from
+# worker subprocesses. Test-only; the runtime never imports it.
+tblib>=3.0

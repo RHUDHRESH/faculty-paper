@@ -11,6 +11,7 @@ import { Button } from "@/ui/button"
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { NotificationBell } from "@/app/notifications"
 import { cn } from "@/lib/cn"
+import { useCollegeName } from "@/app/institution"
 
 //: The same wording the people screen uses, so an account reads the same
 //: name for its own role as the office reads for it.
@@ -101,6 +102,7 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
  * and the behaviour is the same.
  */
 export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
+  const collegeName = useCollegeName()
   const { me } = useAuth()
   const { pathname } = useLocation()
   const [collapsed, setCollapsed] = useState(
@@ -150,7 +152,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
                 beside it does and a second announcement is noise. */}
             <Mark
               className="size-6 text-accent"
-              title={collapsed ? "Saveetha Engineering College" : undefined}
+              title={collapsed ? collegeName : undefined}
             />
             {!collapsed && <span className="truncate text-sm font-semibold">Publications</span>}
             <button

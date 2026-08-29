@@ -1,0 +1,27 @@
+# The build context for deploy/web.Dockerfile is the repository root; these
+# never belong in an image.
+.git
+.venv
+node_modules
+frontend2/node_modules
+frontend2/e2e/.artifacts
+frontend2/test-results
+backend/media
+backend/db.sqlite3
+backend/__pycache__
+**/__pycache__
+data
+sample-data
+gui-test-screenshots
+test-results
+e2e
+*.log
+.env
+.env.local
+audit
+docs
+.claude
+.netlify
+.tools
+.vercel
+.hypothesis

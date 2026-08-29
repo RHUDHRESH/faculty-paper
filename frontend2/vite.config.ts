@@ -24,10 +24,18 @@ export default defineConfig({
     },
     // The API is same-origin in production (Vercel rewrites /api to Cloud
     // Run), so it has to be same-origin here too or the session cookie is
-    // cross-site and never sent.
+    // cross-site and never sent. The target is the local Django port unless
+    // pointed elsewhere — what lets a scratch backend (a setup-wizard check,
+    // a product smoke test) be driven through the real frontend.
     proxy: {
-      "/api": { target: "http://localhost:8000", changeOrigin: true },
-      "/media": { target: "http://localhost:8000", changeOrigin: true },
+      "/api": {
+        target: process.env.VITE_API_PROXY || "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/media": {
+        target: process.env.VITE_API_PROXY || "http://localhost:8000",
+        changeOrigin: true,
+      },
     },
   },
 })

@@ -10,6 +10,13 @@ ROOT_DIR = BASE_DIR.parent
 load_dotenv(ROOT_DIR / ".env")
 load_dotenv(BASE_DIR / ".env")
 
+# The release this build came from. scripts and the upgrade guide key on it;
+# /api/health reports it so "which version is live" has an answer.
+try:
+    APP_VERSION = (ROOT_DIR / "VERSION").read_text(encoding="utf-8").strip() or "dev"
+except OSError:
+    APP_VERSION = "dev"
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", os.getenv("AUTH_SECRET", "dev-insecure-change-me"))
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() in ("1", "true", "yes")
 if not DEBUG and SECRET_KEY in ("dev-insecure-change-me", "", "changeme"):
@@ -156,7 +163,10 @@ if _use_sqlite:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            # DJANGO_SQLITE_PATH lets a scratch instance run beside the
+            # developer's real local database -- what the setup-wizard check
+            # does, and what a product smoke test wants.
+            "NAME": Path(os.getenv("DJANGO_SQLITE_PATH") or (BASE_DIR / "db.sqlite3")),
         }
     }
 elif _db_url.startswith("postgres"):

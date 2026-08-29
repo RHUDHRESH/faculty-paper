@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from "motion/react"
 import { Eye, EyeOff, LoaderCircle } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { useCollegeName } from "@/app/institution"
 import { Mark, StageTrack } from "@/ui/art"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
@@ -29,6 +30,7 @@ import { cn } from "@/lib/cn"
  */
 export function SignIn() {
   const { signIn } = useAuth()
+  const collegeName = useCollegeName()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [shown, setShown] = useState(false)
@@ -64,11 +66,9 @@ export function SignIn() {
             {/* 64px. The mark is the only thing on this page that says whose
                 system this is, so it is the size of that job and not the size
                 of a favicon. */}
-            <Mark className="mb-5 size-16 text-accent" title="Saveetha Engineering College" />
+            <Mark className="mb-5 size-16 text-accent" title={collegeName} />
             <h1 className="text-xl font-semibold">Faculty Publication App</h1>
-            <p className="mt-1 text-base text-fg-muted">
-              Saveetha Engineering College
-            </p>
+            <p className="mt-1 text-base text-fg-muted">{collegeName}</p>
           </div>
 
           <form onSubmit={submit} className="space-y-3.5">

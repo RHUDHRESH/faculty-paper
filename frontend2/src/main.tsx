@@ -46,7 +46,9 @@ import { People, Person } from "@/pages/people"
 import { Policy } from "@/pages/policy"
 import { Profile } from "@/pages/profile"
 import { Programme } from "@/pages/programme"
+import { Setup } from "@/pages/setup"
 import { SignIn } from "@/pages/sign-in"
+import { InstitutionSettings } from "@/pages/institution-settings"
 
 import "@/styles.css"
 
@@ -112,6 +114,9 @@ function App() {
             how the components get looked at, and needing an account first is
             how a component gallery stops being used. Deleted before switch. */}
         <Route path="/gallery" element={<Gallery />} />
+        {/* First-run setup: reachable only while the system has no accounts,
+            and the page itself says "already set up" otherwise. */}
+        <Route path="/setup" element={<Setup />} />
         <Route path="*" element={<SignIn />} />
       </Routes>
     )
@@ -154,6 +159,7 @@ function App() {
           <Route path="/requests" element={<Requests />} />
           <Route path="/budget" element={<Budget />} />
           <Route path="/policy" element={<Policy />} />
+          <Route path="/settings" element={<InstitutionSettings />} />
           <Route path="/reference" element={<Reference />} />
           <Route path="/imports" element={<Imports />} />
           <Route path="/batches" element={<Batches />} />

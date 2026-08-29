@@ -283,6 +283,7 @@ def health(request: HttpRequest):
         "ok": db_ok,
         "db": db_ok,
         "service": "faculty-paper-api",
+        "version": getattr(settings, "APP_VERSION", "dev"),
         "git": (os.getenv("GIT_COMMIT") or os.getenv("K_REVISION") or "")[:24] or None,
         "media_backend": media_backend,
         "media_persistent": not media_is_ephemeral,

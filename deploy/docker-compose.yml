@@ -1,0 +1,63 @@
+# The whole product in one command:  docker compose -f deploy/docker-compose.yml up
+#
+# Three services. The database holds the college's data. The API is the Django
+# container (gunicorn + the django-q2 worker share it, exactly as on Cloud
+# Run). The web tier serves the built frontend and proxies /api and /media to
+# the API, so the browser only ever talks to one origin and there is no CORS
+# to configure — the same arrangement the Vercel deployment uses.
+#
+# First run:
+#   1. cp deploy/.env.product.example deploy/.env   (edit the password)
+#   2. docker compose -f deploy/docker-compose.yml up --build
+#   3. open http://localhost:8080/setup — the wizard creates the college and
+#      its first administrator. No seed command, no demo passwords.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: faculty
+      POSTGRES_USER: faculty
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U faculty"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ../backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DJANGO_DEBUG: "false"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in deploy/.env}
+      DATABASE_URL: postgres://faculty:${POSTGRES_PASSWORD}@db:5432/faculty
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,api
+      # The AI features answer 503 while no model service is configured,
+      # which is the correct resting state for a first install. Point this at
+      # a harness (harness/README.md) or an Ollama daemon to switch them on.
+      AI_PROVIDER: ollama
+      LOG_FORMAT: json
+    volumes:
+      - media:/app/media
+    # Media on a container volume survives container replacement but not the
+    # volume being deleted; for a college, point GS_BUCKET_NAME at a bucket
+    # instead (docs/OPS.md) and let uploads outlive the machine.
+
+  web:
+    build:
+      context: ../frontend2
+      dockerfile: ../deploy/web.Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  pgdata:
+  media:

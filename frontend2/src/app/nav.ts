@@ -308,6 +308,21 @@ export const NAV: NavItem[] = [
     group: "Set up",
     keywords: ["formula", "rates", "snip", "multiplier", "threshold"],
   },
+{
+    to: "/settings",
+    label: "Institution",
+    icon: Settings2,
+    // Read and write are different sets here, and the sidebar has to cover
+    // the union of them. `can_view_reports` reads the sheet (the office, the
+    // Principal, Finance); `can_edit_formula` is FINANCE and SUPER_ADMIN
+    // *only* — not the research cell. Gating this to OFFICE alone left the
+    // one role that can change what the college pays with no route to the
+    // screen, and gave the research cell a menu item they can only look at
+    // without ever saying so. Verified against rbac.py, not assumed.
+    roles: [...OFFICE, "FINANCE", "PRINCIPAL", "DIRECTOR"],
+    group: "Set up",
+    keywords: ["formula", "rates", "snip", "multiplier", "threshold"],
+  },
   {
     to: "/reference",
     label: "Reference data",

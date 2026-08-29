@@ -1478,3 +1478,25 @@ class ResearchInterest(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id}: {self.domain}"
+
+
+class SystemSetting(models.Model):
+    """Institution-level configuration that belongs to the data, not the code.
+
+    A college's name is not a deployment variable -- it is a fact about the
+    institution, and a fresh install of this product at another college must
+    be able to state its own without a code change. Values here are the
+    white-label layer: identity strings an office owns, never secrets (those
+    stay in the environment) and never workflow rules (those stay in the
+    versioned payout policy).
+    """
+
+    key = models.CharField(primary_key=True, max_length=64)
+    value = models.JSONField(default=dict)
+    updated_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="system_settings"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.key}"

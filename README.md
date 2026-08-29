@@ -19,6 +19,12 @@ Authorised (Director) → Paid (Finance). Finance cannot see a ticket the
 Director has not authorised. High-value claims need a second, distinct
 approver. On verify mismatch: **Edit & retry** or **Contest & forward**.
 
+## Install it at a college
+
+One Docker command and a three-step wizard — see [docs/PRODUCT.md](docs/PRODUCT.md).
+Upgrades: [docs/UPGRADE.md](docs/UPGRADE.md). Saveetha's production
+deployment runs on Vercel + Cloud Run ([docs/OPS.md](docs/OPS.md)).
+
 ## Local run
 
 ```bash

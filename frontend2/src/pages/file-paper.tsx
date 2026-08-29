@@ -20,6 +20,7 @@ import {
 
 import { api, ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
+import { useCollegeName } from "@/app/institution"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
@@ -310,7 +311,7 @@ export const RULE_FALLBACK: FilingRules = {
   why: {
     max_authors: "A paper with more than 9 authors carries no remuneration.",
     min_sec_references:
-      "The policy requires 2 cited references with a Saveetha Engineering College affiliation.",
+      "The policy requires 2 cited references that carry the college's affiliation.",
   },
   policy_version: null,
 }
@@ -799,7 +800,7 @@ const QUESTIONS: QuestionDef[] = [
   {
     id: "affiliation",
     phase: 2,
-    ask: "Does the article name Saveetha Engineering College?",
+    ask: "Does the article name the college as its institutional affiliation?",
     answered: (f) => f.affiliationOk,
   },
   {
@@ -900,6 +901,7 @@ function questionById(id: QuestionId): QuestionDef {
  * of them and each was how somebody lost work or a rupee figure they trusted.
  */
 export function FilePaper() {
+  const collegeName = useCollegeName()
   const { id } = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const isEditRoute = !!id
@@ -2183,8 +2185,8 @@ export function FilePaper() {
       >
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span>
-            One claim per article, and the affiliation printed on it must read Saveetha
-            Engineering College.
+            One claim per article, and the affiliation printed on it must read{" "}
+            {collegeName}.
           </span>
           <ClaimRulesDialog
             minReferences={rules.min_sec_references}
@@ -3173,13 +3175,14 @@ function AffiliationQuestion({
   form: FormState
   patchForm: (updater: Partial<FormState> | ((prev: FormState) => Partial<FormState>)) => void
 }) {
+  const collegeName = useCollegeName()
   return (
     <div className="space-y-4">
       <Checkbox
         checked={form.affiliationOk}
         onCheckedChange={(v) => patchForm({ affiliationOk: v === true })}
-        label="Yes — the article names Saveetha Engineering College"
-        hint="The institutional affiliation printed on the article has to read Saveetha Engineering College. A different form of the name is what the research cell sends papers back for."
+        label={`Yes — the article names ${collegeName}`}
+        hint={`The institutional affiliation printed on the article has to read ${collegeName}. A different form of the name is what the research cell sends papers back for.`}
       />
     </div>
   )
@@ -3243,6 +3246,7 @@ function ReferencesQuestion({
   onRemove: (url: string) => void
   onUpdate: (url: string, patch: Partial<AttachmentRow>) => void
 }) {
+  const collegeName = useCollegeName()
   const refs = form.attachments.filter((a) => a.kind === "SEC_REFERENCE")
   const numbered = refs.filter((r) => (r.ref_number || "").trim()).length
   const paid = form.claimReason !== "COUNT_ONLY"
@@ -3251,7 +3255,7 @@ function ReferencesQuestion({
     <div className="space-y-3">
       <AttachmentGroup
         title="Cited references with SEC affiliation"
-        hint={`Each reference in your paper that carries a Saveetha Engineering College affiliation, with the number it has in your reference list. The policy pays only when ${rules.min_sec_references} are cited and numbered.`}
+        hint={`Each reference in your paper that carries a ${collegeName} affiliation, with the number it has in your reference list. The policy pays only when ${rules.min_sec_references} are cited and numbered.`}
         kind="SEC_REFERENCE"
         rows={refs}
         busy={uploadingKind === "SEC_REFERENCE"}
@@ -4325,7 +4329,7 @@ export function readiness(
     add({
       key: "affiliation",
       kind: "missing",
-      label: "Confirm the article is affiliated to Saveetha Engineering College",
+      label: "Confirm the article is affiliated to the college",
       step: 2,
     })
   // The server refuses a student-project claim that names no team, and the
@@ -4780,6 +4784,7 @@ function PreFlight({
   form: FormState
   onGoToProblem: (p: Problem) => void
 }) {
+  const collegeName = useCollegeName()
   const refs = form.attachments.filter((a) => a.kind === "SEC_REFERENCE")
   // The count the payout uses, not the count of files. Saying "you have 3"
   // when three unnumbered files are attached is exactly the reassurance that
@@ -4808,7 +4813,7 @@ function PreFlight({
       label: `The paper has ${rules.max_authors} authors or fewer`,
       step: 2,
     },
-    { key: "affiliation", label: "Affiliated to Saveetha Engineering College", step: 2 },
+    { key: "affiliation", label: `Affiliated to ${collegeName}`, step: 2 },
     { key: "paper-file", label: "The published paper is attached", step: 3 },
     {
       key: "refs-few",

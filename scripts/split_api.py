@@ -89,7 +89,17 @@ def main() -> None:
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             if node.module == "__future__":
                 continue
-            names = [a.name for a in node.names]
+            # Keep the alias in the emitted line AND key the map by the
+            # binding the module actually uses (the asname). The first draft
+            # dropped aliases from the emitted line, so every aliased import
+            # (`from core import data_explorer as explorer`) was silently
+            # lost and the modules NameError'd at request time -- caught not
+            # by the unit suite but by the browser suite, which is why the
+            # suite exists.
+            names = [
+                a.name if a.asname is None else f"{a.name} as {a.asname}"
+                for a in node.names
+            ]
             src = f"from {node.module} import {', '.join(names)}"
             for a in node.names:
                 externals[a.asname or a.name] = (src, order)
@@ -372,9 +382,13 @@ def _external_imports(used: set[str], externals: dict[str, tuple[str, int]]) -> 
     wanted = sorted({externals[n] for n in used if n in externals}, key=lambda t: t[1])
     out: list[str] = []
     for src, _ in wanted:
-        module, _, names = _parse_import(src)
-        keep = sorted(n for n in names if n in used)
-        if len(names) == len(keep) or not names:
+        module, _, bindings = _parse_import(src)
+        # a binding is "name" or "name as alias"; the module references the
+        # alias, so the keep filter must compare against the alias, not the
+        # original name -- getting this wrong silently dropped every aliased
+        # import (KINDS as SEARCH_KINDS, data_explorer as explorer, ...).
+        keep = sorted(b for b in bindings if b.split(" as ")[-1] in used)
+        if len(bindings) == len(keep) or not bindings:
             out.append(src)
         elif keep:
             out.append(f"from {module} import {', '.join(keep)}")

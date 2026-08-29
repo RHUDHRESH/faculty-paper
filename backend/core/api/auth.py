@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from core.api.common import _notify_admin_users, api, logger, session_auth
 from core.api.schemas import LoginIn
-from core.api.deps import _me_dict, _user_dict, require_user
+from core.api.deps import _me_dict, _user_dict
+from core.api.common import require_user
 
 import json
 import time

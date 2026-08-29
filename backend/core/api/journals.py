@@ -7,9 +7,19 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import _notify_admins, _notify_director, _notify_principal, _verification_issues, api, logger, session_auth
+from core.api.common import (
+    _apply_calc,
+    _notify_admins,
+    _notify_director,
+    _notify_principal,
+    _verification_issues,
+    api,
+    logger,
+    session_auth,
+)
 from core.api.schemas import ActionIn, ClaimIn, RecalcIn, _apply_faculty_payload, _bind_identity_from_user, _persist_attachments, _validated_attachments
-from core.api.deps import claim_to_dict, require_user
+from core.api.deps import claim_to_dict
+from core.api.common import require_user
 from core.api.teams import _min_sec_references, _numbered_sec_references
 from core.api.claims import _assign_quota_position, _claims_queryset, _refuse_hod_money_screens
 
@@ -565,20 +575,6 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
 #: fresh; put_formula invalidates. It also expires on its own, because only
 #: the process that served the edit sees that invalidation — another instance
 #: would otherwise show a stale badge indefinitely.
-_THRESHOLD_CACHE: dict[str, Any] = {}
-_THRESHOLD_TTL_SECONDS = 30
-
-
-def _invalidate_threshold_cache() -> None:
-    _THRESHOLD_CACHE.clear()
-
-
-
-
-
-
-
-
 def _guard_self_cleared_override(claim: Claim, actor: User) -> None:
     """The person who set the warning aside cannot also clear the ticket.
 
@@ -1032,14 +1028,11 @@ __all__ = [
     'PrincipalBulkIn',
     '_ANNEXURE_LEVELS',
     '_RETIRED_STEP',
-    '_THRESHOLD_CACHE',
-    '_THRESHOLD_TTL_SECONDS',
     '_check_mandatory_fields',
     '_faculty_status_copy',
     '_flatten_title',
     '_guard_recomputed_amount',
     '_guard_self_cleared_override',
-    '_invalidate_threshold_cache',
     '_issn_variants',
     '_journal_reference',
     '_match_on_punctuation',

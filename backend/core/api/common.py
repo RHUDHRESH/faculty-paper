@@ -128,6 +128,10 @@ api = NinjaAPI(
 )
 session_auth = SessionAuth()
 
+IMPERSONATOR_KEY = "impersonator_id"
+
+_PASSWORD_CHANGE_EXEMPT = {"/api/auth/change-password", "/api/auth/me"}
+
 #: The expensive endpoints run under a per-account fixed-window cap. The
 #: numbers come from settings (AI_DAILY_LIMIT and friends); the counter
 #: lives in the process cache. Gunicorn runs one worker on Cloud Run, so
@@ -589,6 +593,15 @@ def _hod_scope(user: User):
 
 
 __all__ = [
+    'IMPERSONATOR_KEY',
+    '_PASSWORD_CHANGE_EXEMPT',
+    '_THRESHOLD_CACHE',
+    '_THRESHOLD_TTL_SECONDS',
+    '_invalidate_threshold_cache',
+    'require_user',
+    '_quota_state',
+    '_quartile_year_note',
+    '_snip_year_note',
     '_apply_calc',
     '_csv_row',
     '_csv_safe',
@@ -611,3 +624,163 @@ __all__ = [
     'logger',
     'session_auth',
 ]
+
+
+def require_user(request: HttpRequest) -> User:
+    if not request.user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+    user: User = request.user  # type: ignore
+    if not user.active:
+        raise HttpError(403, "Inactive")
+    # must_change_password used to be advertised in the profile payload and
+    # enforced only by the frontend, so an API client could ignore it entirely.
+    if user.must_change_password and request.path not in _PASSWORD_CHANGE_EXEMPT:
+        raise HttpError(403, "Set a new password before continuing")
+    # Impersonation is for seeing, not for doing. Enforced here rather than on
+    # each route, because "we forgot to guard that one endpoint" is exactly how
+    # a read-only mode stops being read-only.
+    if request.session.get(IMPERSONATOR_KEY) and request.method not in (
+        "GET", "HEAD", "OPTIONS",
+    ):
+        if request.path != "/api/admin/stop-impersonating":
+            raise HttpError(
+                403,
+                "You are viewing as another user. Stop impersonating before making "
+                "any change.",
+            )
+    return user
+
+
+def _quota_state(claim: Claim) -> tuple[bool, str | None]:
+    """Whether this paper falls inside a research faculty member's quota.
+
+    Research faculty are already paid to do research, so the scheme rewards
+    what exceeds the expectation rather than the expectation itself: papers up
+    to the quota carry no remuneration and only the surplus is reimbursed.
+
+    Position is **handed out once and stored**, in `quota_position`. Deriving
+    it was tried and does not work: `created_at` comes from a clock coarser
+    than the loop that writes the rows, so several claims share a timestamp to
+    the microsecond, and the id is a random uuid, so breaking that tie on the
+    id orders papers arbitrarily. With the amount recomputed at creation, a
+    paper filed fifth could take first place and be zeroed while an earlier
+    one was paid — four of five papers landed inside a quota of two before
+    this was a stored number.
+
+    A draft gets a provisional position and keeps none: an unfinished paper
+    must not consume somebody's allowance.
+
+    Returns (inside_the_quota, why).
+    """
+    owner = claim.owner
+    if owner is None or owner.faculty_type != "RESEARCH":
+        return False, None
+    quota = owner.research_quota
+    if not quota:
+        return False, None
+    if claim.claim_reason == ClaimReason.COUNT_ONLY:
+        # It asks for no money, so it cannot spend the allowance for money.
+        return False, None
+
+    year = claim.publication_year
+    if not year:
+        # No year, no bucket to count against. Left payable rather than
+        # zeroed: refusing money over a missing field somebody else is
+        # supposed to verify is the wrong way round.
+        return False, None
+
+    position = claim.quota_position
+    if position is None:
+        # The next slot, not the number of slots taken. `count()` gives the
+        # same answer only while the sequence has no gaps -- and a paper whose
+        # year is corrected leaves one, after which two papers share a slot.
+        highest = (
+            Claim.objects.filter(
+                owner=owner, publication_year=year, quota_position__isnull=False
+            )
+            .exclude(pk=claim.pk)
+            .aggregate(top=Max("quota_position"))["top"]
+            or 0
+        )
+        position = highest + 1
+        # Assigned by `_assign_quota_position` at submission, not here: at the
+        # moment this runs during a submit the claim is still DRAFT, so a
+        # status test here never fires. This function only *reads*.
+
+    # The stored number decides, not this paper's rank among the year's.
+    # Ranking -- count the year's papers below this one, add one -- was
+    # considered, because "a quota of 2" means "the year's first two papers"
+    # and the two readings differ the moment the sequence has a hole. They
+    # differ in exactly one bucket: the one `Claim._close_quota_gap` refuses
+    # to renumber because a paper that would move down has already been paid.
+    # Ranking there would move that paper from outside the quota to inside it
+    # and reprice settled money downward -- which is the thing the model
+    # declines to do, so doing it here would only be doing it later and in
+    # another file. Everywhere else the sequence is kept hole-free and the two
+    # readings agree, so the rank query would buy nothing and cost a COUNT on
+    # every pass of `_apply_calc` -- every create, patch, submit, re-verify,
+    # bulk clear and monthly batch row.
+    if position <= quota:
+        return True, (
+            f"Paper {position} of a {quota}-paper research quota for {year}. "
+            "The quota is what the post already expects, so it carries no "
+            "remuneration — only papers beyond it are reimbursed."
+        )
+    return False, (
+        f"Paper {position} for {year}, beyond the {quota}-paper research "
+        "quota, so it is reimbursed in full."
+    )
+
+
+def _quartile_year_note(c: Claim) -> str | None:
+    """Say when the quartile being paid on is not the paper's own year's.
+
+    `lookup_scimago` falls back to the newest table it holds when the paper's
+    year is missing from the dump, and records which year that was in
+    `scimago_dataset_year`. The number was serialised, but nothing anywhere
+    said it was a fallback: a 2019 paper priced off the 2025 ranking read
+    exactly like a 2019 one, and the quartile is a term in the amount. The
+    dumps only reach back to 2024, so this is most older papers, not an edge.
+    """
+    if c.quartile_source != "SCIMAGO" or not c.quartile:
+        return None
+    used, published = c.scimago_dataset_year, c.publication_year
+    if not used or not published or used == published:
+        return None
+    direction = "later" if used > published else "earlier"
+    return (
+        f"Quartile {c.quartile} is the journal's {used} ranking, not its "
+        f"{published} one — Scimago holds no {published} table for this "
+        f"journal, so a {direction} year was used. The quartile is a term in "
+        "the amount."
+    )
+
+
+def _snip_year_note(c: Claim) -> str | None:
+    """Say when the SNIP being paid on is not matched to the paper's year.
+
+    `lookup_snip_dump` takes no year at all: it returns whichever row carries
+    the ISSN. So unlike the quartile there is nothing recorded to compare —
+    `snip_year` stays empty — and the honest thing to say is that the figure
+    is unyeared rather than to guess which year it came from. Recording the
+    matched row's year belongs in `lookup_snip_dump` itself.
+    """
+    if c.snip is None or c.snip_source != "SNIP_DUMP" or c.snip_year is not None:
+        return None
+    published = f" (published {c.publication_year})" if c.publication_year else ""
+    return (
+        f"SNIP {c.snip:g} was read off the SNIP dataset, which holds one "
+        f"figure per journal and is not matched to the year of publication"
+        f"{published}. SNIP is a term in the amount."
+    )
+
+
+# The second-approval threshold's memo, moved with the function that owns it;
+# two copies of a cache would mean one of them goes stale, and this one prices money.
+
+_THRESHOLD_CACHE: dict[str, Any] = {}
+_THRESHOLD_TTL_SECONDS = 30
+
+
+def _invalidate_threshold_cache() -> None:
+    _THRESHOLD_CACHE.clear()

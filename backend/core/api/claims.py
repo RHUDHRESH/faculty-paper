@@ -8,7 +8,8 @@ order and must not be casually reordered.
 from __future__ import annotations
 
 from core.api.common import api, session_auth
-from core.api.deps import _quartile_year_note, _snip_year_note, claim_to_dict, require_user
+from core.api.deps import claim_to_dict
+from core.api.common import _quartile_year_note, _snip_year_note, require_user
 
 import json
 from dataclasses import replace
@@ -47,87 +48,6 @@ def _claims_queryset(user: User):
     return qs.filter(owner=user)
 
 
-
-
-def _quota_state(claim: Claim) -> tuple[bool, str | None]:
-    """Whether this paper falls inside a research faculty member's quota.
-
-    Research faculty are already paid to do research, so the scheme rewards
-    what exceeds the expectation rather than the expectation itself: papers up
-    to the quota carry no remuneration and only the surplus is reimbursed.
-
-    Position is **handed out once and stored**, in `quota_position`. Deriving
-    it was tried and does not work: `created_at` comes from a clock coarser
-    than the loop that writes the rows, so several claims share a timestamp to
-    the microsecond, and the id is a random uuid, so breaking that tie on the
-    id orders papers arbitrarily. With the amount recomputed at creation, a
-    paper filed fifth could take first place and be zeroed while an earlier
-    one was paid — four of five papers landed inside a quota of two before
-    this was a stored number.
-
-    A draft gets a provisional position and keeps none: an unfinished paper
-    must not consume somebody's allowance.
-
-    Returns (inside_the_quota, why).
-    """
-    owner = claim.owner
-    if owner is None or owner.faculty_type != "RESEARCH":
-        return False, None
-    quota = owner.research_quota
-    if not quota:
-        return False, None
-    if claim.claim_reason == ClaimReason.COUNT_ONLY:
-        # It asks for no money, so it cannot spend the allowance for money.
-        return False, None
-
-    year = claim.publication_year
-    if not year:
-        # No year, no bucket to count against. Left payable rather than
-        # zeroed: refusing money over a missing field somebody else is
-        # supposed to verify is the wrong way round.
-        return False, None
-
-    position = claim.quota_position
-    if position is None:
-        # The next slot, not the number of slots taken. `count()` gives the
-        # same answer only while the sequence has no gaps -- and a paper whose
-        # year is corrected leaves one, after which two papers share a slot.
-        highest = (
-            Claim.objects.filter(
-                owner=owner, publication_year=year, quota_position__isnull=False
-            )
-            .exclude(pk=claim.pk)
-            .aggregate(top=Max("quota_position"))["top"]
-            or 0
-        )
-        position = highest + 1
-        # Assigned by `_assign_quota_position` at submission, not here: at the
-        # moment this runs during a submit the claim is still DRAFT, so a
-        # status test here never fires. This function only *reads*.
-
-    # The stored number decides, not this paper's rank among the year's.
-    # Ranking -- count the year's papers below this one, add one -- was
-    # considered, because "a quota of 2" means "the year's first two papers"
-    # and the two readings differ the moment the sequence has a hole. They
-    # differ in exactly one bucket: the one `Claim._close_quota_gap` refuses
-    # to renumber because a paper that would move down has already been paid.
-    # Ranking there would move that paper from outside the quota to inside it
-    # and reprice settled money downward -- which is the thing the model
-    # declines to do, so doing it here would only be doing it later and in
-    # another file. Everywhere else the sequence is kept hole-free and the two
-    # readings agree, so the rank query would buy nothing and cost a COUNT on
-    # every pass of `_apply_calc` -- every create, patch, submit, re-verify,
-    # bulk clear and monthly batch row.
-    if position <= quota:
-        return True, (
-            f"Paper {position} of a {quota}-paper research quota for {year}. "
-            "The quota is what the post already expects, so it carries no "
-            "remuneration — only papers beyond it are reimbursed."
-        )
-    return False, (
-        f"Paper {position} for {year}, beyond the {quota}-paper research "
-        "quota, so it is reimbursed in full."
-    )
 
 
 def _peek_next_quota_slot(claim: Claim) -> int:
@@ -331,7 +251,6 @@ __all__ = [
     '_assign_quota_position',
     '_claims_queryset',
     '_peek_next_quota_slot',
-    '_quota_state',
     '_refuse_hod_money_screens',
     'claim_counts',
     'list_claims',

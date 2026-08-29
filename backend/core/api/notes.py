@@ -8,7 +8,8 @@ order and must not be casually reordered.
 from __future__ import annotations
 
 from core.api.common import rate_limit, _notify_admins, api, session_auth
-from core.api.deps import _user_dict, claim_to_dict, require_user
+from core.api.deps import _user_dict, claim_to_dict
+from core.api.common import require_user
 from core.api.claims import _claims_queryset, _refuse_hod_money_screens
 from core.api.dashboard import _claims_file, _per_paper, reports
 

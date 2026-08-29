@@ -7,7 +7,17 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import api
+from core.api.common import (
+    _PASSWORD_CHANGE_EXEMPT,
+    IMPERSONATOR_KEY,
+    _high_value_threshold,
+    _quartile_year_note,
+    _snip_year_note,
+    _needs_second_approval,
+    _waiting_days,
+    api,
+    require_user,
+)
 
 from datetime import date, datetime
 from typing import Any
@@ -19,36 +29,9 @@ from core.services.scimago import lookup_scimago
 from core.services.scopus import author_profile_url
 
 # Endpoints a user must still reach while they are being forced to set a password.
-_PASSWORD_CHANGE_EXEMPT = {"/api/auth/change-password", "/api/auth/me"}
-
-
-def require_user(request: HttpRequest) -> User:
-    if not request.user.is_authenticated:
-        raise HttpError(401, "Unauthorized")
-    user: User = request.user  # type: ignore
-    if not user.active:
-        raise HttpError(403, "Inactive")
-    # must_change_password used to be advertised in the profile payload and
-    # enforced only by the frontend, so an API client could ignore it entirely.
-    if user.must_change_password and request.path not in _PASSWORD_CHANGE_EXEMPT:
-        raise HttpError(403, "Set a new password before continuing")
-    # Impersonation is for seeing, not for doing. Enforced here rather than on
-    # each route, because "we forgot to guard that one endpoint" is exactly how
-    # a read-only mode stops being read-only.
-    if request.session.get(IMPERSONATOR_KEY) and request.method not in (
-        "GET", "HEAD", "OPTIONS",
-    ):
-        if request.path != "/api/admin/stop-impersonating":
-            raise HttpError(
-                403,
-                "You are viewing as another user. Stop impersonating before making "
-                "any change.",
-            )
-    return user
 
 
 #: Session key holding the real admin's id while they view as somebody else.
-IMPERSONATOR_KEY = "impersonator_id"
 
 
 def impersonator_of(request: HttpRequest) -> User | None:
@@ -97,49 +80,6 @@ def _format_payout_month(d: date | None) -> str | None:
     if not d:
         return None
     return d.strftime("%Y-%m")
-
-
-def _quartile_year_note(c: Claim) -> str | None:
-    """Say when the quartile being paid on is not the paper's own year's.
-
-    `lookup_scimago` falls back to the newest table it holds when the paper's
-    year is missing from the dump, and records which year that was in
-    `scimago_dataset_year`. The number was serialised, but nothing anywhere
-    said it was a fallback: a 2019 paper priced off the 2025 ranking read
-    exactly like a 2019 one, and the quartile is a term in the amount. The
-    dumps only reach back to 2024, so this is most older papers, not an edge.
-    """
-    if c.quartile_source != "SCIMAGO" or not c.quartile:
-        return None
-    used, published = c.scimago_dataset_year, c.publication_year
-    if not used or not published or used == published:
-        return None
-    direction = "later" if used > published else "earlier"
-    return (
-        f"Quartile {c.quartile} is the journal's {used} ranking, not its "
-        f"{published} one — Scimago holds no {published} table for this "
-        f"journal, so a {direction} year was used. The quartile is a term in "
-        "the amount."
-    )
-
-
-def _snip_year_note(c: Claim) -> str | None:
-    """Say when the SNIP being paid on is not matched to the paper's year.
-
-    `lookup_snip_dump` takes no year at all: it returns whichever row carries
-    the ISSN. So unlike the quartile there is nothing recorded to compare —
-    `snip_year` stays empty — and the honest thing to say is that the figure
-    is unyeared rather than to guess which year it came from. Recording the
-    matched row's year belongs in `lookup_snip_dump` itself.
-    """
-    if c.snip is None or c.snip_source != "SNIP_DUMP" or c.snip_year is not None:
-        return None
-    published = f" (published {c.publication_year})" if c.publication_year else ""
-    return (
-        f"SNIP {c.snip:g} was read off the SNIP dataset, which holds one "
-        f"figure per journal and is not matched to the year of publication"
-        f"{published}. SNIP is a term in the amount."
-    )
 
 
 def claim_to_dict(c: Claim) -> dict[str, Any]:
@@ -321,14 +261,9 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
 
 
 __all__ = [
-    'IMPERSONATOR_KEY',
-    '_PASSWORD_CHANGE_EXEMPT',
     '_format_payout_month',
     '_me_dict',
-    '_quartile_year_note',
-    '_snip_year_note',
     '_user_dict',
     'claim_to_dict',
     'impersonator_of',
-    'require_user',
 ]

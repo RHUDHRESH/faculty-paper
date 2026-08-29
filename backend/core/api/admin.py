@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from core.api.common import api, session_auth
 from core.api.schemas import FormulaIn, ResetPasswordByEmailIn, ResetPasswordIn, UserCreateIn, UserUpdateIn
-from core.api.deps import _user_dict, claim_to_dict, require_user
+from core.api.deps import _user_dict, claim_to_dict
+from core.api.common import require_user
 from core.api.auth import FIELD_LABELS, IDENTITY_FIELDS, clear_login_lockout
 from core.api.claims import _CLAIM_SORTS
-from core.api.journals import _invalidate_threshold_cache
+from core.api.common import _invalidate_threshold_cache
 
 import csv
 import io

@@ -7,8 +7,9 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import rate_limit, api, session_auth
-from core.api.deps import claim_to_dict, require_user
+from core.api.common import _hod_scope, _require_may_see_money, api, rate_limit, session_auth
+from core.api.deps import claim_to_dict
+from core.api.common import require_user
 from core.api.journals import _journal_reference
 from core.api.dashboard import _split_subjects
 
@@ -24,9 +25,10 @@ from ninja import File, Schema
 from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, ResearchInterest, Role, User
-from core.services import ai, research_search, trends
+from core.services import ai, discover as discover_service, research_search, trends
 from core.services import rbac
 from core.services.normalize import normalize_issn
+from core.services.search import KINDS as SEARCH_KINDS, search as run_search
 from core import hod
 
 # ---------- what to write next, and where to send it ----------

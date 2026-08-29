@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from core.api.common import api, session_auth
 from core.api.schemas import BatchProcessIn
-from core.api.deps import claim_to_dict, require_user
+from core.api.deps import claim_to_dict
+from core.api.common import require_user
 
 import csv
 import io

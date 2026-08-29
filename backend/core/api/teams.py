@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from core.api.common import api, session_auth
 from core.api.schemas import ATTACHMENT_LIMITS
-from core.api.deps import require_user
+from core.api.common import require_user
 from core.api.lookups import MAX_UPLOAD_BYTES
 
 import json

@@ -7,8 +7,9 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
+from core import data_explorer as explorer
 from core.api.common import rate_limit, _csv_row, api, session_auth
-from core.api.deps import require_user
+from core.api.common import require_user
 from core.api.claims import _assign_quota_position
 
 import csv

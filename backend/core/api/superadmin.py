@@ -8,7 +8,8 @@ order and must not be casually reordered.
 from __future__ import annotations
 
 from core.api.common import api, session_auth
-from core.api.deps import IMPERSONATOR_KEY, _user_dict, impersonator_of, require_user
+from core.api.deps import _user_dict, impersonator_of
+from core.api.common import IMPERSONATOR_KEY, require_user
 
 import json
 from typing import Any

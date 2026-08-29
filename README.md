@@ -1,20 +1,23 @@
 # Faculty Publication Ticket ERP
 
-Vite React SPA + Django Ninja API + Postgres.
+Vite React SPA + Django Ninja API + Postgres. The app is `frontend2/`; the
+production proxy lives in `frontend2/vercel.json`.
 
 ## Portals
 
 | Portal | Role | URL |
 |--------|------|-----|
-| Faculty | FACULTY | `/faculty` |
-| Principal (oversight) | PRINCIPAL | `/principal` |
-| Finance | FINANCE | `/finance` |
-| Admin / research cell | SUPER_ADMIN | `/admin` |
+| Faculty | FACULTY | `/papers` |
+| Head of department | HOD | `/department` (money-blind server-side) |
+| Principal (approves the spend) | PRINCIPAL | `/approvals` |
+| Director (authorises it) | DIRECTOR | `/authorisations` |
+| Finance (pays) | FINANCE | `/payments` |
+| Admin / research cell | SUPER_ADMIN | `/clearing` |
 
-**Workflow:** Faculty submit (auto-verify) → research cell clears (amount re-verified
-and confirmed) → Finance marks paid. High-value claims need a second, distinct approver.
-On verify mismatch: **Edit & retry** or **Contest & forward** with a note, or the research
-cell enters manually verified values.
+**Workflow:** Filed → Checked (research cell) → Approved (Principal) →
+Authorised (Director) → Paid (Finance). Finance cannot see a ticket the
+Director has not authorised. High-value claims need a second, distinct
+approver. On verify mismatch: **Edit & retry** or **Contest & forward**.
 
 ## Local run
 
@@ -29,10 +32,10 @@ cp .env.example .env   # set SCOPUS_API_KEY, DJANGO_*
 ./.venv/Scripts/python backend/manage.py runserver 8000
 
 # Frontend
-cd frontend && npm install && npm run dev
+cd frontend2 && npm install && npm run dev    # port 5174, proxies /api
 ```
 
-Open http://localhost:5173
+Open http://localhost:5174
 
 ### Import ERP Excel masters
 

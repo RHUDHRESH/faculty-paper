@@ -121,8 +121,8 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | 3.4h | Carry on with a draft | `/papers/new` | ✅ | Autosave always kept it; nothing ever offered it back |
 | 3.4i | Pre-flight list | `/papers/new` | ✅ | Every rule and whether this paper satisfies it, including the ones it passes |
 | 3.5 | Withdraw / edit a draft | `/papers/:id` | ✅ |Wired in `paper-detail.tsx` — a submitted paper is pulled back with `/withdraw` |
-| 3.6 | Why was this the amount | `/papers/:id` | ⬜ | The formula shown against this paper's own numbers |
-| 3.7 | Sent back — what to fix | `/papers/:id` | ⬜ | The reason, at the top, with the fields it concerns marked |
+| 3.6 | Why was this the amount | `/papers/:id` | ✅ | The formula shown against this paper's own numbers, with the working |
+| 3.7 | Sent back — what to fix | `/papers/:id` | ✅ | The reason, at the top, with the fields it concerns marked |
 
 ---
 
@@ -143,9 +143,9 @@ listed so the rebuild is checked against them, not so they are re-implemented.
 | 4.9 | Faults | `/faults` | ✅ | Grouped, every row openable, empty reads as good news |
 | 4.10 | Duplicates | `/duplicates` | ✅ | Same paper paid twice; evidence, and a decision |
 | 4.11 | Audit log | `/audit` | ✅ | Append-only, no edit affordance, before/after diffs, action codes as sentences |
-| 4.12 | Monthly run | `/policy/monthly` | ⬜ | Batch processing with progress and resumability |
-| 4.13 | ERP import | `/policy/import` | ⬜ | Upload, preview, apply, with the row-level report |
-| 4.14 | Journal reference data | `/policy/journals` | ⬜ | SCImago and SNIP dumps, sync and status |
+| 4.12 | Monthly run | `/policy/monthly` | ✅ | Batch processing with progress and resumability — `/batches` |
+| 4.13 | ERP import | `/policy/import` | ✅ | Upload, preview, apply, with the row-level report — `/imports` |
+| 4.14 | Journal reference data | `/policy/journals` | ✅ | SCImago and SNIP dumps, sync and status — in the data explorer |
 | 4.15 | Policy / formula | `/policy` | ✅ | Rates, multipliers, thresholds — versioned, with effect dates |
 | 4.16 | Data explorer | `/data` | ✅ | 19 tables, correctable reference values |
 | 4.17 | Delete a row · empty the system | `/data` | ✅ | Both refuse anything carrying a payment |

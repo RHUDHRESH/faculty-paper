@@ -7,7 +7,7 @@ Do **not** ship demo passwords to real faculty without changing them.
 
 ## Architecture
 
-The SPA never calls Cloud Run directly. `frontend/vercel.json` rewrites
+The SPA never calls Cloud Run directly. `frontend2/vercel.json` rewrites
 `/api/*` and `/media/*` to the Cloud Run service, so the browser only ever
 talks to the Vercel origin: cookies stay first-party and there is no CORS or
 cross-site-cookie configuration to get wrong.
@@ -77,11 +77,17 @@ gcloud run jobs create seed --image ... # or POST /api/admin/erp-import for mast
 
 ## C. Frontend on Vercel
 
-`frontend/vercel.json` holds the API address, so there is no build-time env
-var to forget. Point its rewrites at the Cloud Run URL, then:
+The SPA is `frontend2/`. `frontend2/vercel.json` holds the API address, so
+there is no build-time env var to forget. Its rewrites point at the Cloud Run
+URL; the Vercel project's **Root Directory** setting decides which app builds
+— `frontend/` for the old one, `frontend2/` for the rebuilt one. The cutover
+is that one setting plus a push; the old app stays in the repo until the new
+one has served production for a while.
+
+Local check of the same flow:
 
 ```bash
-cd frontend
+cd frontend2
 vercel deploy --prod
 ```
 

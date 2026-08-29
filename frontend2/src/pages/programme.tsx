@@ -1110,29 +1110,33 @@ function groundedOn(data: OpeningsPayload): string {
 }
 
 /**
- * Why the suggestions cannot run, and the one command that fixes it.
+ * Why the suggestions cannot run, and what to do about it.
  *
  * Three different situations hide behind "switched off" — the service is not
- * running, the model is not installed, or the provider name is wrong — and
+ * answering, the model is not loaded, or the provider name is wrong — and
  * they have three different remedies. Saying only that it is off tells
- * somebody who could have fixed it in ten seconds to give up.
+ * somebody who could have fixed it in ten seconds to give up. The remedy
+ * sentence comes from the backend, which knows which provider is configured;
+ * the laptop commands here are the only case where a command is ours to add.
  */
 function ModelOff({ ai }: { ai: AiState }) {
   const fix =
-    ai.code === "model_missing"
-      ? `ollama pull ${ai.model}`
-      : ai.code === "service_down"
-        ? "ollama serve"
-        : null
+    ai.provider !== "ollama"
+      ? null
+      : ai.code === "model_missing"
+        ? `ollama pull ${ai.model}`
+        : ai.code === "service_down"
+          ? "ollama serve"
+          : null
 
   return (
     <Callout
       tone="caution"
       title={
         ai.code === "model_missing"
-          ? "The suggestion model is not installed"
+          ? "The suggestion model is not loaded"
           : ai.code === "service_down"
-            ? "The local model service is not running"
+            ? "The model service is not answering"
             : "Suggestions are switched off"
       }
     >

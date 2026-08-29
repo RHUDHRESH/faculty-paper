@@ -64,7 +64,7 @@ export function Discover() {
 type DiscoverStatus = {
   available: boolean
   model: string
-  /** "ollama". There is one, and it runs on this machine. */
+  /** "ollama" (a laptop) or "harness" (the college's own inference service). */
   provider?: string
   /** ready | service_down | model_missing | misconfigured */
   code?: string
@@ -956,21 +956,27 @@ function ModelUnavailable({
   status: DiscoverStatus
   onRetry: () => void
 }) {
+  // The laptop commands are only true of the laptop provider. In production
+  // the harness answers, and the backend's detail sentence already names the
+  // remedy for that arrangement — so this card says what it is told and adds
+  // a command only where one exists to run.
   const fix =
-    status.code === "model_missing"
-      ? `ollama pull ${status.model}`
-      : status.code === "service_down"
-        ? "ollama serve"
-        : null
+    status.provider !== "ollama"
+      ? null
+      : status.code === "model_missing"
+        ? `ollama pull ${status.model}`
+        : status.code === "service_down"
+          ? "ollama serve"
+          : null
 
   return (
     <Callout
       tone="caution"
       title={
         status.code === "model_missing"
-          ? "The suggestion model is not installed"
+          ? "The suggestion model is not loaded"
           : status.code === "service_down"
-            ? "The local model service is not running"
+            ? "The model service is not answering"
             : "Suggestions are switched off"
       }
     >

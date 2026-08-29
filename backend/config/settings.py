@@ -289,9 +289,10 @@ SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY") or os.getenv("ELSEVIER_API_KEY") or
 # a key. Nothing here needs an account, a key or a quota, and nothing leaves
 # the loopback interface.
 #
-# There is one provider and an unknown value is refused rather than quietly
-# resolved -- a typo in a deployment variable should stop the feature, not
-# silently change where the text goes.
+# There are two providers -- "ollama" for a developer laptop, "harness" for
+# the college's own inference service on Google Cloud -- and an unknown value
+# is refused rather than quietly resolved -- a typo in a deployment variable
+# should stop the feature, not silently change where the text goes.
 AI_PROVIDER = (os.getenv("AI_PROVIDER") or "ollama").strip().lower()
 OLLAMA_BASE_URL = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").strip()
 #
@@ -323,6 +324,31 @@ OLLAMA_FAST_MODEL = (os.getenv("OLLAMA_FAST_MODEL") or "gemma3:4b").strip()
 # "-1" to pin forever).
 OLLAMA_KEEP_ALIVE = (os.getenv("OLLAMA_KEEP_ALIVE") or "2m").strip()
 OLLAMA_FAST_KEEP_ALIVE = (os.getenv("OLLAMA_FAST_KEEP_ALIVE") or "30m").strip()
+
+# The second provider: the college's own inference harness -- a purpose-built
+# service for the Gemma models, deployed on Google Cloud next to the API and
+# reached over a private address. It exists so the features that need a model
+# do not depend on a developer's laptop, while the property that started this
+# still holds: the college's unpublished work is sent to hardware the college
+# controls, and to nothing else. There is deliberately no third-party
+# provider in this list, and an unknown AI_PROVIDER still stops the feature
+# rather than silently changing where the text goes.
+#
+# Google Cloud and Vercel are the only outside services this deployment
+# uses; the harness is our own container on Cloud Run (GPU) or a GCE VM, and
+# its weights are pulled from our own bucket at startup. See harness/README.md.
+HARNESS_BASE_URL = (os.getenv("HARNESS_BASE_URL") or "http://127.0.0.1:8300").strip()
+# Shared secret on deployments where the harness is not behind IAM -- sent as
+# X-Harness-Token on every call. Unset means the harness is trusted by network
+# position (Cloud Run ingress=internal), which is the intended arrangement.
+HARNESS_TOKEN = (os.getenv("HARNESS_TOKEN") or "").strip()
+HARNESS_MODEL = (os.getenv("HARNESS_MODEL") or "gemma-3-12b-it-q4_k_m").strip()
+HARNESS_FAST_MODEL = (os.getenv("HARNESS_FAST_MODEL") or "gemma-3-4b-it-q4_k_m").strip()
+HARNESS_TIMEOUT_SECONDS = int(os.getenv("HARNESS_TIMEOUT_SECONDS", "240"))
+# The harness holds each slot in memory for this long after it answers, the
+# same two-tier asymmetry as the Ollama settings above.
+HARNESS_KEEP_ALIVE = (os.getenv("HARNESS_KEEP_ALIVE") or "10m").strip()
+HARNESS_FAST_KEEP_ALIVE = (os.getenv("HARNESS_FAST_KEEP_ALIVE") or "30m").strip()
 
 # Production hardening
 if not DEBUG:

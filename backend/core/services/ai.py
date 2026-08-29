@@ -1,21 +1,22 @@
 """The one seam every AI feature goes through.
 
-There is a single provider today and it runs on this machine. That is the
-point of the abstraction rather than an accident of it: the features here read
-a faculty member's unpublished title and abstract and their whole publication
-history, and the previous arrangement posted all of it to a third party in
-exchange for an API key. The college's own unpublished work was leaving the
-building to be told what field it was in.
+Two providers, both under the college's control, selected by ``AI_PROVIDER``:
 
-`AI_PROVIDER` selects the backend. It takes one value, ``"ollama"``, and an
-unknown value is refused rather than quietly resolved to something that works
--- a typo in a deployment variable should stop the feature, not silently
-change where the text goes.
+- ``ollama`` -- a daemon on the developer's own machine. The laptop case.
+- ``harness`` -- the college's own inference service for the Gemma models,
+  deployed on Google Cloud beside the API and reached over a private
+  address. The production case: the features follow the app out of
+  localhost without the text following anything else.
 
-**Nothing here ever falls back to a remote service.** If the local daemon is
-down the answer is that the local daemon is down. A fallback would mean the
-one property this module exists to provide -- that the text stays on this
-machine -- stops being true exactly when nobody is watching.
+Both providers keep one property that is the reason this module exists
+rather than a call to somebody's API: a faculty member's unpublished title
+and abstract, and their whole publication history, are sent to hardware the
+college runs -- and to nothing else. There is deliberately no hosted
+provider here, and an unknown ``AI_PROVIDER`` is refused rather than
+quietly resolved: a typo in a deployment variable should stop the feature,
+not silently change where the text goes. For the same reason **nothing here
+ever falls back to the other provider.** If the configured one is down, the
+answer is that it is down.
 """
 
 from __future__ import annotations
@@ -33,12 +34,12 @@ from typing import Any, Callable, Iterator
 
 from django.conf import settings
 
-from core.services import ollama
+from core.services import harness, ollama
 
 logger = logging.getLogger(__name__)
 
-#: The providers this understands. Local only, deliberately.
-PROVIDERS = ("ollama",)
+#: The providers this understands. Both run on hardware the college controls.
+PROVIDERS = ("ollama", "harness")
 
 #: How often a running generation reports itself. Every token would be a
 #: hundred writes down a socket for an answer nobody reads token by token;
@@ -154,13 +155,29 @@ def provider_name() -> str:
     return (getattr(settings, "AI_PROVIDER", "") or "ollama").strip().lower()
 
 
+def _backend():
+    """The inference module for the configured provider.
+
+    Both modules expose the same surface -- generate, stream, Stopped, an
+    *Error with kind/message, DEFAULT_TIMEOUT, resolve_model, health -- so
+    everything below dispatches on this one call.
+    """
+    name = provider_name()
+    if name == "harness":
+        return harness
+    return ollama
+
+
 def model_name(fast: bool = False) -> str:
     """Which model a call at this tier would actually go to.
 
     The default argument is the considered model, so callers that ask without
     naming a tier get the same answer they always got.
     """
-    if provider_name() == "ollama":
+    name = provider_name()
+    if name == "harness":
+        return harness.resolve_model(fast)
+    if name == "ollama":
         return ollama.resolve_model(fast)
     return ""
 
@@ -191,30 +208,48 @@ def health() -> dict[str, Any]:
             "fast_model": "",
         }
 
-    state = ollama.health()
+    backend = _backend()
+    state = backend.health()
     out = state.as_dict()
     out["provider"] = name
     out["code"], out["detail"] = _verdict(state.up, state.model_present, state)
     # Answered separately, because the two tiers fail separately and the
-    # remedies are different commands. A server with the 12b tag installed and
-    # the small one missing is `ready` and `fast_model_missing` at once: the
-    # venue search works, the thread assistant does not, and a screen told
-    # only "ready" would be lying to whoever is waiting for a reply.
+    # remedies are different commands. A server with the considered slot
+    # loaded and the fast one missing is `ready` and `fast_model_missing` at
+    # once: the venue search works, the thread assistant does not, and a
+    # screen told only "ready" would be lying to whoever is waiting for a
+    # reply.
     out["fast_code"], out["fast_detail"] = _verdict(
         state.up, state.fast_model_present, state, fast=True
     )
     return out
 
 
-def _verdict(up: bool, present: bool, state: ollama.Health, *, fast: bool = False):
-    """One tier's code and the sentence that says what to do about it."""
+def _verdict(up: bool, present: bool, state, *, fast: bool = False):
+    """One tier's code and the sentence that says what to do about it.
+
+    The remedy names the provider's own fix -- on a laptop that is an
+    ``ollama pull``, on the harness it is loading the slot's weights -- so
+    the sentence somebody reads is the command they can actually run.
+    """
     want = state.fast_model if fast else state.model
+    on_harness = provider_name() == "harness"
     if up and present:
         return "ready", None
     if not up:
+        if on_harness:
+            return "service_down", (
+                f"No inference harness is answering on {state.base_url}. "
+                "Check the harness deployment and reload."
+            )
         return "service_down", (
             f"No local model service is answering on {state.base_url}. "
             "Start Ollama and reload."
+        )
+    if on_harness:
+        return "model_missing", (
+            f"The harness is up but {want!r} is not loaded on it. "
+            "See harness/README.md for loading a slot."
         )
     return "model_missing", (
         f"The local service is running but {want!r} is not installed. "
@@ -314,11 +349,12 @@ def ask_json(
             code="misconfigured",
         )
 
+    backend = _backend()
     sink = _SINK.get()
-    seconds = int(timeout or ollama.DEFAULT_TIMEOUT)
+    seconds = int(timeout or backend.DEFAULT_TIMEOUT)
     try:
         if sink is None:
-            raw = ollama.generate(
+            raw = backend.generate(
                 prompt,
                 timeout=seconds,
                 max_tokens=_MAX_OUTPUT_TOKENS,
@@ -330,15 +366,17 @@ def ask_json(
             raw = _generate_watched(
                 prompt,
                 sink,
+                backend=backend,
                 timeout=seconds,
                 temperature=temperature,
                 fmt=schema or "json",
                 fast=fast,
             )
-    except ollama.OllamaError as exc:
+    except (ollama.OllamaError, harness.HarnessError) as exc:
         # Mapped rather than re-raised, so the endpoints answer the same
         # statuses they always did and a screen written against the old codes
-        # keeps working.
+        # keeps working. Both providers raise errors with the same
+        # kind/message shape, so one table serves both.
         raise AIError(exc.message, code=_CODE_MAP.get(exc.kind, "error")) from exc
 
     if sink is not None:
@@ -355,12 +393,13 @@ def _generate_watched(
     prompt: str,
     sink: Progress,
     *,
+    backend,
     timeout: int,
     temperature: float,
     fmt: str | dict,
     fast: bool = False,
 ) -> str:
-    """The same answer as `ollama.generate`, assembled where it can be watched.
+    """The same answer as `backend.generate`, assembled where it can be watched.
 
     Identical output and identical constraint -- the schema is still enforced
     by the decoder -- so the caller parses exactly what it always parsed. The
@@ -384,7 +423,7 @@ def _generate_watched(
     sink.note("connecting")
 
     try:
-        for piece in ollama.stream(
+        for piece in backend.stream(
             prompt,
             timeout=timeout,
             max_tokens=_MAX_OUTPUT_TOKENS,
@@ -404,7 +443,7 @@ def _generate_watched(
                     chars=chars,
                     seconds=round(now - started, 1),
                 )
-    except ollama.Stopped as exc:
+    except (ollama.Stopped, harness.Stopped) as exc:
         raise Cancelled() from exc
 
     sink.note(
@@ -541,7 +580,8 @@ def run_with_progress(
 #: fails on a local model -- it stops mid-object and the parse throws.
 _MAX_OUTPUT_TOKENS = 2048
 
-#: Ollama's failure kinds to the codes the endpoints and screens already use.
+#: The providers' failure kinds to the codes the endpoints and screens
+#: already use. One table for both, because both raise the same kinds.
 _CODE_MAP = {
     "unreachable": "unreachable",
     "timeout": "timeout",

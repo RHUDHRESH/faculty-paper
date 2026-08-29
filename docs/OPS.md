@@ -1,7 +1,19 @@
 # Production ops — Faculty Paper Remuneration
 
-Single-college deployment: **Vercel** (SPA) + **Google Cloud Run** (Django API)
-+ **Neon** (Postgres) + **Cloud Storage** (uploaded evidence).
+Single-college deployment. **The outside services are Google Cloud and
+Vercel, and nothing else** — anything the system needs beyond them is built
+here and owned here.
+
+- **Vercel** — the SPA, proxying `/api` and `/media`
+- **Google Cloud Run** — the Django API
+- **Google Cloud SQL** — Postgres (the settings take any Postgres URL, but
+  the deployment constraint above is why the database lives on Google Cloud)
+- **Google Cloud Storage** — uploaded evidence
+- **The harness** — the college's own inference service for the Gemma
+  models, our container on Cloud Run (GPU) or a GCE VM; see
+  `harness/README.md`. No third-party inference vendor exists in this
+  arrangement, and none is wanted: the college's unpublished work goes to
+  hardware the college runs, or it does not go at all.
 
 The SPA proxies `/api` and `/media` to Cloud Run via `frontend/vercel.json`,
 so the browser only ever talks to the Vercel origin — cookies are first-party
@@ -22,24 +34,40 @@ and there is no CORS to maintain.
 | `DJANGO_ALLOWED_HOSTS` | `.run.app` (and custom domain if any) |
 | `CSRF_TRUSTED_ORIGINS` | The Vercel origin (the proxy forwards its `Origin` header) |
 | `SCOPUS_API_KEY` | Optional; enrich/verify degrade gracefully |
-| `AI_PROVIDER` | `ollama`. The only value. An unknown one stops the feature rather than silently redirecting where text is sent |
-| `OLLAMA_BASE_URL` | Default `http://127.0.0.1:11434`. Must be reachable from the API container |
+| `AI_PROVIDER` | `ollama` (a developer laptop) or `harness` (the college's own inference service). An unknown value stops the feature rather than silently redirecting where text is sent |
+| `HARNESS_BASE_URL` | Default `http://127.0.0.1:8300`. The harness service URL; with `AI_PROVIDER=harness` this is the production inference path |
+| `HARNESS_TOKEN` | Shared secret sent as `X-Harness-Token`. Unset when the harness is behind Cloud Run ingress=internal, which is the intended arrangement |
+| `HARNESS_MODEL` / `HARNESS_FAST_MODEL` | The two slots, considered and interactive. Defaults `gemma-3-12b-it-q4_k_m` / `gemma-3-4b-it-q4_k_m` |
+| `HARNESS_TIMEOUT_SECONDS` | Default 240. A ceiling for a wedged generation, not an expectation |
+| `HARNESS_KEEP_ALIVE` / `HARNESS_FAST_KEEP_ALIVE` | How long each slot stays warm; same asymmetry as the Ollama pair |
+| `OLLAMA_BASE_URL` | Default `http://127.0.0.1:11434`. Used only when `AI_PROVIDER=ollama` — the laptop provider |
 | `OLLAMA_MODEL` | Default `gemma4:12b` — see `docs/LOCAL-AI.md` for why that tag |
 | `OLLAMA_TIMEOUT_SECONDS` | Default 240. CPU inference is slow; this is a ceiling, not an expectation |
 | `CORS_ORIGIN_REGEX` | **No default any more.** It used to default to every `*.vercel.app` and `*.netlify.app` host, which with credentialed CORS made any site anybody could deploy in five minutes a trusted origin. Not needed for this deployment — the SPA proxies `/api`, so requests are same-origin |
 | `TRUST_PREVIEW_HOSTS` | Off. Set `true` only to CSRF-trust `*.vercel.app` / `*.netlify.app` for preview deploys, and understand what that opens |
 
-### Inference is not a Cloud Run workload
+### Inference runs on the harness in production
 
-`AI_PROVIDER=ollama` expects a model on the same host. Cloud Run gives no GPU,
-a cold container, and no room for a 7 GB model — the two discovery features
-will report `service_down` there and the rest of the application is unaffected
-by design, which is the correct behaviour rather than a workaround.
+`AI_PROVIDER=harness` sends every model question to the college's own
+inference service — the container built from `harness/`, deployed on Cloud
+Run with an L4 GPU (or a GCE VM with a T4) and reached over a private
+address. The features follow the app out of a developer's laptop without the
+text following anything else: the harness is our code, the weights are our
+licensed copy in our bucket, and nothing along the path is a third-party
+inference vendor.
 
-Running them in production means an on-premise host, or a VM with a GPU that
-Cloud Run can reach on a private network via `OLLAMA_BASE_URL`. Until then the
-features are simply off in production and work on any machine that has Ollama.
-Nothing else in the system depends on them.
+Two things to know about running it:
+
+- **Scale-to-zero has a cold start.** With `--min-instances 0` the GPU is
+  billed only when used, but the first request after an idle period waits
+  for a new instance to pull the weights (tens of seconds, inside
+  `HARNESS_TIMEOUT_SECONDS`). `--min-instances 1` buys warmth back at GPU
+  prices; the fast slot's 30-minute keep-alive is for the case in between.
+- **The laptop provider still exists for a reason.** `AI_PROVIDER=ollama`
+  runs the same features against a local daemon with no network at all, and
+  the whole seam is tested against both — `core/test_inference.py` for the
+  laptop, `core/test_harness_provider.py` for the harness — so the screens
+  never learn which one answered.
 
 `CROSS_SITE_COOKIES` is **not** needed with the proxy — leave it unset so
 cookies stay `SameSite=Lax`.

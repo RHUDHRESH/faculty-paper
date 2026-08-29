@@ -58,3 +58,23 @@ jobs:
       # e2e (Playwright) needs the Django API with seeded data and is run
       # from a workstation against a real backend; wiring it into CI needs a
       # service container and is deliberately not attempted here yet.
+
+  # The harness's own tests: protocol, auth, cancellation, error vocabulary.
+  # No weights and no llama.cpp -- the engine is injected as a fake -- so the
+  # job installs only the HTTP layer and runs in seconds. Installing the
+  # full harness/requirements.txt would compile llama-cpp-python from
+  # source, which no CI run needs to do.
+  harness:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: harness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install fastapi httpx pytest
+      - name: Tests
+        run: python -m pytest test_app.py -q

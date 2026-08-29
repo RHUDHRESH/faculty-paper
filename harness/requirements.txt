@@ -1,0 +1,13 @@
+# The harness is its own container with its own dependencies -- deliberately
+# separate from the Django API's, which never needs the model runtime.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+llama-cpp-python>=0.3.0
+
+# Weight fetch from the college's own bucket at cold start. Importable
+# lazily; a CPU-only developer box without it still runs the tests.
+google-cloud-storage>=2.17
+
+# Test-only: fastapi.testclient rides on httpx.
+httpx>=0.27
+pytest>=8.0

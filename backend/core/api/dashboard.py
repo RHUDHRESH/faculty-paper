@@ -7,7 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import _csv_row, api, session_auth
+from core.api.common import rate_limit, _csv_row, api, session_auth
 from core.api.deps import _format_payout_month, claim_to_dict, require_user
 from core.api.claims import _claims_queryset, _refuse_hod_money_screens
 
@@ -20,6 +20,7 @@ from typing import Any, Optional
 from django.db.models import Count, Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
+from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimReason, ClaimStatus, PAYABLE_STATUSES, User
 from core.services import rbac
@@ -718,6 +719,7 @@ def reports_build(
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
 
+    rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     wanted = [d.strip() for d in (dimensions or "").split(",") if d.strip()]
     if not wanted:
         raise HttpError(400, "Choose at least one breakdown")
@@ -1046,6 +1048,7 @@ def search_export(
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
+    rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     qs = _search_queryset(
         user,
         q=q, department=department, status=status, quartile=quartile,
@@ -1082,6 +1085,7 @@ def reports_export(
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
+    rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     qs = _reports_queryset(user, year, department, month).select_related("owner")
     rows = qs.order_by("owner__department", "-publication_year")[:5000]
     stem = "-".join([

@@ -7,7 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import _notify_admins, api, session_auth
+from core.api.common import rate_limit, _notify_admins, api, session_auth
 from core.api.deps import _user_dict, claim_to_dict, require_user
 from core.api.claims import _claims_queryset, _refuse_hod_money_screens
 from core.api.dashboard import _claims_file, _per_paper, reports
@@ -19,6 +19,7 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
+from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimNote, ClaimStatus, Role, User
 from core.services import rbac
@@ -295,6 +296,7 @@ def reports_pack(request: HttpRequest, year: Optional[int] = None, fmt: str = "x
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
 
+    rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     pack = build_pack(year=year, scope=_claims_queryset(user))
     # "preview" is the on-screen view: the same tables, capped, so the page
     # can show what it is about to hand over. A pack that could only be

@@ -7,7 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import _csv_row, api, session_auth
+from core.api.common import rate_limit, _csv_row, api, session_auth
 from core.api.deps import require_user
 
 import csv
@@ -20,6 +20,7 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
+from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, DepartmentTarget, Role, User
 from core import hod
@@ -695,6 +696,7 @@ def hod_export(
     everything is how a wrong number reaches a review meeting.
     """
     user = _require_hod(request)
+    rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     qs = _hod_scope(user)
     if q:
         term = q.strip()

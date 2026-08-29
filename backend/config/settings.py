@@ -52,6 +52,7 @@ Q_CLUSTER = {
 }
 
 MIDDLEWARE = [
+    "core.log.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -119,6 +120,14 @@ def _database_from_url(url: str) -> dict:
     }
 
 
+# Kill a single runaway SQL statement after this many milliseconds. Off by
+# default: the monthly batch and the ERP import legitimately run long
+# transactions, and they share these settings through the job worker. When
+# set, set it on the API service's environment; the honest default for that
+# deployment is 120000, and a query a report needs that runs longer than two
+# minutes should be an index or a job, not a held connection.
+_db_statement_timeout = int(os.getenv("DB_STATEMENT_TIMEOUT", "0"))
+
 _db_url = (
     os.getenv("DJANGO_DATABASE_URL")
     or os.getenv("DATABASE_URL")
@@ -154,6 +163,13 @@ elif _db_url.startswith("postgres"):
     DATABASES = {"default": _database_from_url(_db_url)}
     DATABASES["default"]["CONN_MAX_AGE"] = int(os.getenv("CONN_MAX_AGE", "60"))
     DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+    if _db_statement_timeout > 0:
+        # Postgres's server-side statement_timeout, set per connection at
+        # connect time. libpq takes it through the options parameter; the
+        # value is milliseconds.
+        DATABASES["default"]["OPTIONS"]["options"] = (
+            f"-c statement_timeout={_db_statement_timeout}"
+        )
 else:
     DATABASES = {
         "default": {
@@ -350,6 +366,25 @@ HARNESS_TIMEOUT_SECONDS = int(os.getenv("HARNESS_TIMEOUT_SECONDS", "240"))
 HARNESS_KEEP_ALIVE = (os.getenv("HARNESS_KEEP_ALIVE") or "10m").strip()
 HARNESS_FAST_KEEP_ALIVE = (os.getenv("HARNESS_FAST_KEEP_ALIVE") or "30m").strip()
 
+# ---------------------------------------------------------------------------
+# Rate limits on the expensive endpoints, per account, in a fixed window.
+#
+# These guard two kinds of cost: the harness's GPU minutes (every AI answer
+# is compute somebody pays for) and the report exports (a workbook over
+# 3,236 publications is seconds of CPU and a chunk of memory per click).
+# The counter lives in the process cache; gunicorn runs one worker, so one
+# process is the whole deployment. If workers ever multiply, the caps become
+# per-worker -- core/api/common.py says so next to the implementation.
+AI_DAILY_LIMIT = int(os.getenv("AI_DAILY_LIMIT", "100"))
+AGENT_DAILY_LIMIT = int(os.getenv("AGENT_DAILY_LIMIT", "50"))
+SEARCH_DAILY_LIMIT = int(os.getenv("SEARCH_DAILY_LIMIT", "200"))
+EXPORT_HOURLY_LIMIT = int(os.getenv("EXPORT_HOURLY_LIMIT", "40"))
+
+# "json" makes every log line one JSON object -- severity, message, request
+# id, traceback -- which is what Cloud Logging and Error Reporting parse
+# best. Default follows the environment: json in production, text on a laptop.
+LOG_FORMAT = (os.getenv("LOG_FORMAT") or ("text" if DEBUG else "json")).strip().lower()
+
 # Production hardening
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -386,20 +421,29 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("1", "true", "yes
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        "request_id": {"()": "core.log.RequestIdFilter"},
+    },
     "formatters": {
         "verbose": {
             "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
-        }
+        },
+        # One JSON object per line: Cloud Logging parses severity and the
+        # trace field natively, Error Reporting groups the tracebacks, and
+        # the request id ties every line of one request together.
+        "json": {"()": "core.log.JsonFormatter"},
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            "formatter": LOG_FORMAT if LOG_FORMAT in ("json",) else "verbose",
+            "filters": ["request_id"],
         }
     },
     "loggers": {
         "core": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
         "core.api": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
+        "core.log": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
     },
 }
 

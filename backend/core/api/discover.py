@@ -7,7 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import api, session_auth
+from core.api.common import rate_limit, api, session_auth
 from core.api.deps import claim_to_dict, require_user
 from core.api.journals import _journal_reference
 from core.api.dashboard import _split_subjects
@@ -21,6 +21,7 @@ from django.db.models import Count, Sum
 from django.http import HttpRequest, StreamingHttpResponse
 from django.utils import timezone
 from ninja import File, Schema
+from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, ResearchInterest, Role, User
 from core.services import ai, research_search, trends
@@ -84,6 +85,7 @@ def search_everything(
     401/403 that `require_user` raises.
     """
     user = require_user(request)
+    rate_limit(request, "search", settings.SEARCH_DAILY_LIMIT, "day", what="searching")
     wanted = [k.strip() for k in (kinds or "").split(",") if k.strip()] or list(SEARCH_KINDS)
     return run_search(
         q, viewer=user, kinds=wanted, limit=limit,
@@ -173,6 +175,7 @@ def discover_venues(request: HttpRequest, payload: VenueIn):
     and no amount, because attaching a number to a journal we cannot identify
     is how somebody ends up submitting to a venue that does not exist.
     """
+    rate_limit(request, "ai", settings.AI_DAILY_LIMIT, "day", what="the AI suggestions")
     # Every suggested journal comes back with the rupee figure the policy would
     # pay for it. /discover/reprice and /research/search return the same kind of
     # figure and are both guarded; this one, which is where the figure is first
@@ -258,6 +261,7 @@ def discover_venues_stream(request: HttpRequest, payload: VenueIn):
     instead. What is left -- the model failing part way through -- arrives as
     an `error` event carrying the status it would have been.
     """
+    rate_limit(request, "ai", settings.AI_DAILY_LIMIT, "day", what="the AI suggestions")
     user = _require_may_see_money(request)
     title = (payload.title or "").strip()
     if len(title) < 8:
@@ -592,6 +596,7 @@ def discover_directions(request: HttpRequest):
     would be reading somebody's notes.
     """
     user = require_user(request)
+    rate_limit(request, "ai", settings.AI_DAILY_LIMIT, "day", what="the AI suggestions")
     state = ai.health()
     if not state.get("ready"):
         # 503 with the reason attached. "Switched off" was the only thing this

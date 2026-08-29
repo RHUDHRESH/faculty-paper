@@ -128,6 +128,54 @@ api = NinjaAPI(
 )
 session_auth = SessionAuth()
 
+#: The expensive endpoints run under a per-account fixed-window cap. The
+#: numbers come from settings (AI_DAILY_LIMIT and friends); the counter
+#: lives in the process cache. Gunicorn runs one worker on Cloud Run, so
+#: that cache is the deployment; if the worker count ever grows, each worker
+#: gets its own counter and this is the line to revisit -- a shared cache
+#: (Redis would be a second outside service, so probably the database) is
+#: the fix, not deleting the caps.
+_RATE_WINDOWS = {"day": 86400, "hour": 3600}
+
+
+def rate_limit_for(user: User | None, bucket: str, limit: int, window: str, *, what: str) -> None:
+    """Refuse the call when `user` has had `limit` of `bucket` this window.
+
+    Raises HttpError 429 with the time the window has left, which the screen
+    can show instead of a bare refusal. A request that carries no account
+    (an anonymous probe) is keyed by address instead -- those are the
+    requests most worth capping.
+    """
+    import time as _time
+
+    from django.core.cache import cache
+
+    who = getattr(user, "pk", None) or "anon"
+    seconds = _RATE_WINDOWS[window]
+    epoch = int(_time.time()) // seconds
+    key = f"rate:{bucket}:{epoch}:{who}"
+    try:
+        seen = cache.incr(key)
+    except ValueError:
+        cache.set(key, 1, seconds)
+        seen = 1
+    if seen > limit:
+        remaining = int((epoch + 1) * seconds - _time.time())
+        minutes = max(1, -(-remaining // 60))
+        logger.warning(
+            "rate_limited bucket=%s who=%s seen=%s limit=%s", bucket, who, seen, limit
+        )
+        raise HttpError(
+            429,
+            f"That is a lot of {what} for one {'day' if window == 'day' else 'hour'} "
+            f"— the limit is {limit}. Try again in about {minutes} minute"
+            f"{'s' if minutes != 1 else ''}.",
+        )
+
+
+def rate_limit(request: HttpRequest, bucket: str, limit: int, window: str, *, what: str) -> None:
+    rate_limit_for(getattr(request, "user", None), bucket, limit, window, what=what)
+
 
 def _csv_safe(value: Any) -> Any:
     """Neutralise spreadsheet formula injection in exported free text.
@@ -182,6 +230,19 @@ def _worker_status() -> dict[str, Any]:
         return {"alive": None, "error": str(e)[:120]}
 
 
+def _migrations_pending() -> bool:
+    """Are there migration files the database has not recorded?"""
+    try:
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+
+        executor = MigrationExecutor(connection)
+        plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+        return bool(plan)
+    except Exception:  # never let the health probe itself fall over
+        return False
+
+
 @api.get("/health", auth=None)
 def health(request: HttpRequest):
     db_ok = False
@@ -209,6 +270,11 @@ def health(request: HttpRequest):
     # and the revision looks perfectly healthy while queued work — ERP imports,
     # monthly batches — silently stops running. Nothing else would notice.
     worker = _worker_status()
+    # Migrations run on container start, so "the new revision is up but the
+    # schema is not" should be a visible fact for the minute or two it is
+    # true, not something discovered when a query names a column that does
+    # not exist yet.
+    migrations_pending = _migrations_pending()
     payload = {
         "ok": db_ok,
         "db": db_ok,
@@ -217,6 +283,7 @@ def health(request: HttpRequest):
         "media_backend": media_backend,
         "media_persistent": not media_is_ephemeral,
         "worker": worker,
+        "migrations_pending": migrations_pending,
         "time": timezone.now().isoformat(),
     }
     if media_is_ephemeral:

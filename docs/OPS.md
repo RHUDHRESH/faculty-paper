@@ -40,6 +40,10 @@ and there is no CORS to maintain.
 | `HARNESS_MODEL` / `HARNESS_FAST_MODEL` | The two slots, considered and interactive. Defaults `gemma-3-12b-it-q4_k_m` / `gemma-3-4b-it-q4_k_m` |
 | `HARNESS_TIMEOUT_SECONDS` | Default 240. A ceiling for a wedged generation, not an expectation |
 | `HARNESS_KEEP_ALIVE` / `HARNESS_FAST_KEEP_ALIVE` | How long each slot stays warm; same asymmetry as the Ollama pair |
+| `AI_DAILY_LIMIT` / `AGENT_DAILY_LIMIT` / `SEARCH_DAILY_LIMIT` | Per-account daily caps: AI suggestions (default 100), assistant replies (50), search (200) |
+| `EXPORT_HOURLY_LIMIT` | Per-account hourly cap on workbook/CSV/PDF exports (default 40) |
+| `LOG_FORMAT` | `json` in production by default — one JSON object per log line, which Cloud Logging and Error Reporting parse. `text` on a laptop |
+| `DB_STATEMENT_TIMEOUT` | Off by default. When set (milliseconds), kills any single SQL statement that runs longer — recommended 120000 on the API service. Off deliberately: the monthly batch and ERP import share these settings through the job worker and legitimately run long transactions |
 | `OLLAMA_BASE_URL` | Default `http://127.0.0.1:11434`. Used only when `AI_PROVIDER=ollama` — the laptop provider |
 | `OLLAMA_MODEL` | Default `gemma4:12b` — see `docs/LOCAL-AI.md` for why that tag |
 | `OLLAMA_TIMEOUT_SECONDS` | Default 240. CPU inference is slow; this is a ceiling, not an expectation |
@@ -73,10 +77,61 @@ Two things to know about running it:
 cookies stay `SameSite=Lax`.
 
 ## Background jobs
+
 django-q2 runs inside the API container. Cloud Run throttles CPU between
 requests, so deploy with `--min-instances 1 --no-cpu-throttling` to keep the
 worker alive. Interrupted monthly batches are re-enqueued automatically by the
 5-minute `recover-stale-batches` schedule.
+
+## Logs and errors
+
+Every log line is one JSON object on stdout (`LOG_FORMAT=json`, the
+production default): `severity`, `message`, the traceback when there is one,
+and a **request id** on every line a request produces — the id Cloud Run
+puts in `X-Cloud-Trace-Context`, echoed to the browser as `X-Request-ID`.
+A complaint with the id becomes a grep, not a hunt.
+
+There is no error-tracking vendor, on purpose: this deployment runs on
+Google Cloud and Vercel and nothing else. **Google Cloud Error Reporting**
+reads these tracebacks from Cloud Logging automatically — check it after any
+deploy, it needs no setup. The access log is one structured line per request
+(method, path, status, duration, user) emitted by the same middleware;
+gunicorn's plain-text access log is switched off because it was a second,
+worse copy of the same facts.
+
+## Backups (Cloud SQL)
+
+The database is the money. Automated backups and point-in-time recovery are
+a property of the instance, not of this repository, so enable and verify
+them with the instance:
+
+```bash
+# automated backups + PITR, 7 days retained
+gcloud sql instances patch faculty-paper \
+  --backup-start-time 03:00 \
+  --retained-backups-count 7 --enable-point-in-time-recovery
+
+# verify: restore to a throwaway instance and count what came back
+gcloud sql backups list --instance faculty-paper
+gcloud sql backups restore BACKUP_ID --restore-instance=faculty-paper-restore \
+  --backup-instance=faculty-paper
+python manage.py shell -c "from core.models import Claim; print(Claim.objects.count())"
+```
+
+The restore step is the runbook. A backup that has never been restored is a
+hope, not a backup; count the claims, then delete the throwaway instance.
+
+## Rate limits
+
+Expensive endpoints are capped per account (per-worker counters — the API
+runs one gunicorn worker; if that changes, see `core/api/common.py`):
+
+| Bucket | Window | Default | Covers |
+|---|---|---|---|
+| `ai` | day | 100 | venue search, directions — the harness GPU minutes |
+| `agent` | day | 50 | the thread assistant; over the cap the post stands and the assistant stays quiet |
+| `search` | day | 200 | the search page's upstream calls |
+| `export` | hour | 40 | every workbook/CSV/PDF export |
 
 ## Optional email
 Set `EMAIL_NOTIFICATIONS=true` plus SMTP (`EMAIL_HOST`, `EMAIL_HOST_USER`,

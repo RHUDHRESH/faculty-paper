@@ -1,0 +1,21 @@
+# Dependency hygiene without a human remembering to look. Weekly proposals,
+# grouped nowhere -- one small PR per package is easier to read than one
+# large one, and pip-audit in CI reports what a bump actually fixes.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/backend"
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: "/harness"
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: "/frontend2"
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

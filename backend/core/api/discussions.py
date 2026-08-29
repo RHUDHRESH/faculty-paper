@@ -7,7 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import api, logger, session_auth
+from core.api.common import api, logger, rate_limit_for, session_auth
 from core.api.deps import require_user
 
 import json
@@ -18,6 +18,7 @@ from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
+from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, Mention, Notification, Post, Thread, ThreadParticipant, ThreadSubscription, User
 from core.services import rbac
@@ -273,6 +274,16 @@ def create_thread(request: HttpRequest, payload: ThreadIn):
 
 def _maybe_answer(thread: Thread, post: Post, asker: User) -> Post | None:
     """Let the assistant reply, if it was asked and it has something to say."""
+    try:
+        rate_limit_for(
+            asker, "agent", settings.AGENT_DAILY_LIMIT, "day",
+            what="asking the assistant",
+        )
+    except HttpError:
+        # Over the day's cap. The post itself is already written and stands;
+        # like a failing assistant, an absent one must not lose it.
+        logger.info("agent_rate_limited post=%s asker=%s", post.id, asker.pk)
+        return None
     try:
         text = thread_agent.answer(post, asker)
     except Exception:

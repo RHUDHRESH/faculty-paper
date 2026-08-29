@@ -7,7 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import _csv_row, api, session_auth
+from core.api.common import rate_limit, _csv_row, api, session_auth
 from core.api.deps import require_user
 from core.api.claims import _assign_quota_position
 
@@ -21,6 +21,7 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
+from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, Role
 from core.services import rbac
@@ -195,6 +196,7 @@ def data_export(
     up in a report.
     """
     user = require_user(request)
+    rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     if not _may_browse_data(user.role):
         raise HttpError(403, "Forbidden")
     table = explorer.BY_NAME.get(table_name)

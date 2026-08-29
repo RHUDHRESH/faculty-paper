@@ -7,7 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import _csv_row, _require_admin_ops, api, session_auth
+from core.api.common import _csv_row, _require_admin_ops, api, rate_limit, session_auth
 from core.api.schemas import MonthlyCreateIn
 from core.api.deps import _format_payout_month, require_user
 
@@ -19,6 +19,7 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import File, Form, UploadedFile
+from django.conf import settings
 from ninja.errors import HttpError
 from core.models import MonthlyBatch, MonthlyRow, PaidLedger
 from core.services import rbac
@@ -87,6 +88,7 @@ def admin_ledger_export(request: HttpRequest, month: Optional[str] = None, depar
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
+    rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     qs = _ledger_queryset(month, department)
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -244,6 +246,7 @@ def start_batch(request: HttpRequest, batch_id: str):
 def export_batch(request: HttpRequest, batch_id: str):
     user = require_user(request)
     _require_admin_ops(user)
+    rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     batch = get_object_or_404(MonthlyBatch, pk=batch_id)
     buf = io.StringIO()
     w = csv.writer(buf)

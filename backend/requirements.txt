@@ -27,7 +27,7 @@ python-docx>=1.1
 # dependency was dropped or pinned differently.
 google-auth>=2.35
 PyJWT[crypto]>=2.9
-requests>=2.32
+requests>=2.34.2
 
 # Property-based testing for the money logic (core/test_logic.py). Test-only;
 # the runtime never imports it. Example budgets there are bounded and

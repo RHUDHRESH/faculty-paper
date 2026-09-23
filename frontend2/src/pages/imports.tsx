@@ -163,6 +163,7 @@ export function Imports() {
       <PriorPaymentsSection stats={stats.data} onImported={refreshStats} />
       <WorkbookSection onImported={refreshStats} />
       <ProcessQueueSection />
+      {me?.role === "SUPER_ADMIN" && <RestoreSection onImported={refreshStats} />}
     </div>
   )
 }
@@ -1508,4 +1509,75 @@ function formatElapsed(seconds: number): string {
   const s = seconds % 60
   if (m < 60) return `${m}m ${String(s).padStart(2, "0")}s`
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`
+}
+
+/* ------------------------------------------------------------------------ */
+/* Restore a full export into a fresh installation                          */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Moving the college onto a new host with no shell: upload the dumpdata
+ * export once, as the first super admin. The server refuses it as soon as the
+ * installation holds any claim, so it cannot overwrite live data.
+ */
+function RestoreSection({ onImported }: { onImported: () => void }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [confirm, setConfirm] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [jobId, setJobId] = useState<string | null>(null)
+
+  async function start() {
+    if (!file) return
+    setBusy(true)
+    try {
+      const body = new FormData()
+      body.append("file", file)
+      body.append("confirm", confirm)
+      const res = await api<{ job_id: string }>("/api/admin/restore", {
+        method: "POST",
+        body,
+      } as unknown as Parameters<typeof api>[1])
+      setJobId(res.job_id)
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="panel space-y-4 p-5" aria-labelledby="restore-title">
+      <div>
+        <SectionTitle id="restore-title">Restore a full export</SectionTitle>
+        <Sub className="mt-1">
+          For a new installation only: loads everything from a previous one (accounts, claims,
+          payments, reference data). Refused once any claim exists here.
+        </Sub>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Export file (.json or .json.gz)</span>
+          <input
+            type="file"
+            accept=".json,.gz,application/json,application/gzip"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            aria-label="Export file"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Type RESTORE to confirm</span>
+          <input
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="h-9 rounded-md bg-surface px-2 ring-1 ring-inset ring-field"
+            aria-label="Type RESTORE to confirm"
+          />
+        </label>
+        <Button kind="primary" disabled={!file || confirm.trim().toUpperCase() !== "RESTORE" || busy} onClick={() => void start()}>
+          {busy ? "Uploading…" : "Restore"}
+        </Button>
+      </div>
+      {jobId && <JobProgress jobId={jobId} what="Restore" onSettled={onImported} />}
+    </section>
+  )
 }

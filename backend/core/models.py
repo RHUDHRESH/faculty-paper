@@ -1612,3 +1612,15 @@ class SystemSetting(models.Model):
 
     def __str__(self) -> str:
         return f"{self.key}"
+
+
+class StoredFile(models.Model):
+    """An uploaded file kept in the database (core.storage_db.DatabaseStorage)."""
+
+    name = models.CharField(max_length=512, unique=True)
+    content = models.BinaryField()
+    size = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return self.name

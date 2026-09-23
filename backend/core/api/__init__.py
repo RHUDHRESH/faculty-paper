@@ -42,3 +42,4 @@ from core.api.admin import *  # noqa: F401,F403
 from core.api.masters import *  # noqa: F401,F403
 from core.api.finance import *  # noqa: F401,F403
 from core.api.institution import *  # noqa: F401,F403
+from core.api.restore import *  # noqa: F401,F403

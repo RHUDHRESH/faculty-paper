@@ -292,6 +292,9 @@ def health(request: HttpRequest):
     elif s3_bucket:
         media_backend = f"s3://{s3_bucket}"
         media_is_ephemeral = False
+    elif getattr(settings, "MEDIA_IN_DATABASE", False):
+        media_backend = "database"
+        media_is_ephemeral = False
     else:
         media_backend = str(Path(settings.MEDIA_ROOT).resolve())
         media_is_ephemeral = not settings.DEBUG

@@ -1,14 +1,23 @@
-# Render blueprint for the Django API (free plan).
+# Render blueprint: the whole app on Render's free plan, with no secret to paste.
 #
-# The SPA stays on Vercel and proxies /api and /media here (frontend2/vercel.json),
-# so the browser only ever talks to one origin. Postgres is Neon (free) and
-# uploads go to Cloudflare R2 (free, S3-compatible) -- both set below as
-# secrets you paste in the Render dashboard, never committed.
+#   faculty-paper-db   free Postgres (expires 30 days after creation unless
+#                      upgraded -- see DEPLOY.md); Render wires DATABASE_URL.
+#   faculty-paper-api  the Django API (Docker). Uploaded PDFs are stored in the
+#                      database (DJANGO_MEDIA_STORAGE=db): the free plan has no
+#                      persistent disk. Sleeps after ~15 min idle; the first
+#                      request after that waits ~30-50 s.
+#   faculty-paper      the SPA as a static site; /api and /media are rewritten
+#                      to the API, so the browser talks to one origin.
 #
-# Free-plan facts worth knowing: the service sleeps after ~15 minutes idle and
-# the first request after that waits ~30-50 s while it wakes; the job worker
-# (django-q2) runs inside the same container, so queued work runs while it is
-# awake. Migrations run on every start (backend/scripts/start.sh).
+# Data: open https://faculty-paper.onrender.com/setup, create the first
+# administrator, then Imports -> "Restore a full export" with the dumpdata file.
+databases:
+  - name: faculty-paper-db
+    plan: free
+    region: singapore
+    databaseName: faculty
+    user: faculty
+
 services:
   - type: web
     name: faculty-paper-api
@@ -20,43 +29,29 @@ services:
     healthCheckPath: /api/health
     autoDeploy: false
     envVars:
-      - key: DJANGO_DEBUG
-        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: faculty-paper-db
+          property: connectionString
       - key: DJANGO_SECRET_KEY
         generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
       - key: DJANGO_ALLOWED_HOSTS
         value: .onrender.com
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://faculty-paper.onrender.com
       - key: SECURE_SSL_REDIRECT
         value: "true"
+      - key: DJANGO_MEDIA_STORAGE
+        value: db
       - key: LOG_FORMAT
         value: json
       - key: GOOGLE_HOSTED_DOMAIN
         value: saveetha.ac.in
       - key: GOOGLE_OAUTH_CLIENT_ID
         value: 635082195334-p8h4j4o75r9jqk24hsfq6bbom0s8fjei.apps.googleusercontent.com
-      # Pasted in the dashboard:
-      - key: DATABASE_URL            # Supabase (or Neon) Postgres URL, ?sslmode=require
-        sync: false
-      - key: CSRF_TRUSTED_ORIGINS    # the site origin, e.g. https://faculty-paper.onrender.com
-        sync: false
-      - key: S3_BUCKET_NAME          # Supabase Storage bucket (private), S3-compatible
-        sync: false
-      - key: S3_ENDPOINT_URL         # https://<project>.supabase.co/storage/v1/s3
-        sync: false
-      - key: AWS_ACCESS_KEY_ID       # Supabase S3 access key id
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY   # Supabase S3 secret
-        sync: false
-      - key: S3_ADDRESSING_STYLE
-        value: path
-      - key: S3_REGION           # the Supabase project region, e.g. ap-south-1
-        sync: false
-      - key: SCOPUS_API_KEY          # optional
-        sync: false
 
-  # The SPA as a free Render static site. /api and /media are rewritten to the
-  # API service, so the browser talks to one origin (first-party cookies, no
-  # CORS) -- the same arrangement the Vercel rewrites gave.
   - type: web
     name: faculty-paper
     runtime: static

@@ -241,8 +241,13 @@ elif os.getenv("S3_BUCKET_NAME", "").strip():
             "addressing_style": os.getenv("S3_ADDRESSING_STYLE", "").strip() or None,
         },
     }
+elif os.getenv("DJANGO_MEDIA_STORAGE", "").strip().lower() == "db":
+    # No disk and no object store (Render free): files live in Postgres,
+    # beside the claims they belong to. See core/storage_db.py.
+    _default_storage = {"BACKEND": "core.storage_db.DatabaseStorage"}
 else:
     _default_storage = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+MEDIA_IN_DATABASE = os.getenv("DJANGO_MEDIA_STORAGE", "").strip().lower() == "db"
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "").strip()
 
 STORAGES = {

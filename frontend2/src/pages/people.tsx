@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react"
-import { Link, useParams, useSearchParams } from "react-router-dom"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeft, FilePlus, UserPlus, KeyRound, Pencil, Search, SearchX, Users } from "lucide-react"
 
 import { can, useAuth, type Role } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
+import { api, forgetCsrf } from "@/lib/api"
 import { Button } from "@/ui/button"
 import {
   Dialog,
@@ -414,6 +415,21 @@ export function Person() {
 function CollegePerson() {
   const { id } = useParams<{ id: string }>()
   const { me } = useAuth()
+  const { refresh } = useAuth()
+  const navigate = useNavigate()
+
+  // A super admin sees exactly what this person sees. The server records the
+  // start and the end in the audit log, and the banner says so throughout.
+  async function viewAs() {
+    try {
+      await api(`/api/admin/impersonate/${id}`, { method: "POST" })
+      forgetCsrf() // the server logged us in as them, which rotates the token
+      await refresh()
+      navigate("/")
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
   const showMoney = can(me?.role).seeMoney
   const [editing, setEditing] = useState(false)
   const [resetting, setResetting] = useState(false)
@@ -577,6 +593,26 @@ function CollegePerson() {
           </div>
         )}
       </header>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {/* One person's record as a file: what an appraisal or a promotion
+            panel asks the office for. */}
+        {id && (
+          <>
+            <Button kind="default" size="sm" asChild>
+              <a href={`/api/faculty/${id}/report/export?fmt=xlsx`}>Download record (Excel)</a>
+            </Button>
+            <Button kind="quiet" size="sm" asChild>
+              <a href={`/api/faculty/${id}/report/export?fmt=csv`}>CSV</a>
+            </Button>
+          </>
+        )}
+        {me?.role === "SUPER_ADMIN" && id && faculty.role !== "SUPER_ADMIN" && (
+          <Button kind="quiet" size="sm" className="ml-auto" onClick={() => void viewAs()}>
+            View the app as {faculty.name?.split(" ")[0] || "them"}
+          </Button>
+        )}
+      </div>
 
       {editing && id && <AccountEditor userId={id} onClose={() => setEditing(false)} />}
       {resetting && id && (

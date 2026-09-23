@@ -146,6 +146,6 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 ### Super admin
 96. [ ] Full ticket timeline: every step, every actor
 97. [ ] "View as" another account, with a banner
-98. [ ] SCImago online sync button
+98. [x] SCImago download in one click — *from the officer's browser, not the server: SCImago answers a server with HTTP 403 and a Cloudflare challenge (checked 2026-09-23), so the old server-side sync button could never succeed*
 99. [ ] Export one faculty member's record
 100. [ ] Demo seed with every role and a ticket at every stage, for training

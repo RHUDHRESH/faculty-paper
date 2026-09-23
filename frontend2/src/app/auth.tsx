@@ -21,6 +21,8 @@ export type Me = {
   designation?: string | null
   staff_id?: string | null
   must_change_password?: boolean
+  /** Set while a super admin is viewing as this account. */
+  impersonated_by?: { id: string; name: string; email: string } | null
 }
 
 type Ctx = {

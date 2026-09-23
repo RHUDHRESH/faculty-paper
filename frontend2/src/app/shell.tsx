@@ -12,6 +12,8 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { useTheme, type ThemeChoice } from "@/app/theme"
 import { NotificationBell } from "@/app/notifications"
 import { cn } from "@/lib/cn"
+import { api, forgetCsrf } from "@/lib/api"
+import { toast } from "@/ui/toast"
 import { useCollegeName } from "@/app/institution"
 
 //: The same wording the people screen uses, so an account reads the same
@@ -305,6 +307,8 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
             <NotificationBell />
           </header>
 
+          {me?.impersonated_by && <ViewingAs name={me.name} role={me.role} />}
+
           <main className="min-w-0 flex-1 py-8">
             <Suspense fallback={<PageLoading />}>
               <Outlet />
@@ -385,6 +389,48 @@ function PageLoading() {
   return (
     <div className="page" aria-busy="true" aria-label="Loading">
       <div className="h-7 w-48 animate-[pulse_1.6s_ease-in-out_infinite] rounded-md bg-hover opacity-0 [animation-delay:250ms]" />
+    </div>
+  )
+}
+
+/**
+ * Always on screen while a super admin is viewing as somebody else, so no
+ * action taken in that state can be mistaken for one's own. The server
+ * records the start and the end; this is the way back.
+ */
+function ViewingAs({ name, role }: { name: string; role: Role }) {
+  const { refresh } = useAuth()
+  const nav = useNavigate()
+  const [busy, setBusy] = useState(false)
+  return (
+    <div
+      role="status"
+      className="sticky top-0 z-40 flex flex-wrap items-center gap-3 bg-caution-wash px-4 py-2 text-sm text-caution ring-1 ring-inset ring-caution/30 print:hidden"
+    >
+      <span className="flex-1">
+        You are viewing the app as <strong>{name}</strong> ({ROLE_LABEL[role]}). Anything you do here
+        is done as them.
+      </span>
+      <Button
+        kind="default"
+        size="sm"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          try {
+            await api("/api/admin/stop-impersonating", { method: "POST" })
+            forgetCsrf() // back to our own session: a new token again
+            await refresh()
+            nav("/people")
+          } catch (err) {
+            toast.fail(err)
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        Back to your own account
+      </Button>
     </div>
   )
 }

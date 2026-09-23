@@ -2,11 +2,32 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 
 from django.core.management.base import BaseCommand
 
 from core.models import FacultyMaster, Role, User
+
+
+COLLEGE_DOMAIN = os.getenv("COLLEGE_EMAIL_DOMAIN", "saveetha.ac.in").lower()
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def pick_email(raw: str | None) -> str | None:
+    """The address to sign in with, out of whatever the spreadsheet cell holds.
+
+    The ERP's email cells hold "gmail, college", "college & gmail", two
+    addresses separated by a space, or a qualification typed into the wrong
+    column. Taken whole, none of those is an address anybody can sign in
+    with. The college address wins (it is the one Google sign-in accepts);
+    otherwise the first real address; otherwise nothing.
+    """
+    found = [e.lower() for e in _EMAIL.findall(raw or "")]
+    for e in found:
+        if e.endswith("@" + COLLEGE_DOMAIN):
+            return e
+    return found[0] if found else None
 
 
 class Command(BaseCommand):
@@ -23,12 +44,16 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         dry = options["dry_run"]
-        default_pw = options["password"] or secrets.token_urlsafe(12)
+        # One password for every account created in a run meant one secret
+        # opened all of them. Each account now gets its own unless --password
+        # is given explicitly (and every new account must change it anyway).
+        shared_pw = options["password"] or None
         created = updated = skipped = 0
 
         for f in FacultyMaster.objects.exclude(email__isnull=True).exclude(email=""):
-            email = f.email.strip().lower()
+            email = pick_email(f.email)
             if not email:
+                self.stdout.write(self.style.WARNING(f"No usable email for {f.name}: {f.email!r}"))
                 skipped += 1
                 continue
             user = User.objects.filter(email=email).first()
@@ -39,7 +64,7 @@ class Command(BaseCommand):
                     continue
                 user = User.objects.create_user(
                     email=email,
-                    password=default_pw,
+                    password=shared_pw or secrets.token_urlsafe(12),
                     name=f.name,
                     role=Role.FACULTY,
                     department=f.department,

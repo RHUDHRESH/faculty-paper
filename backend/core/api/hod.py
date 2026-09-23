@@ -14,6 +14,7 @@ import csv
 import io
 import json
 import time
+from datetime import date
 from typing import Any, Optional
 from django.db.models import Count, Q
 from django.http import HttpRequest, HttpResponse
@@ -143,6 +144,8 @@ class TargetIn(Schema):
     #: Omitted or null sets the target on the department as a whole.
     person_id: Optional[str] = None
     note: Optional[str] = None
+    #: When it should be reached by. Omitted or null means "within the year".
+    due_date: Optional[date] = None
 
 
 def _target_progress(qs, metric: str, person_id: str | None) -> int:
@@ -195,6 +198,7 @@ def hod_targets(request: HttpRequest, year: Optional[int] = None):
             "person_id": t.person_id,
             "person_name": t.person.name if t.person_id else None,
             "note": t.note,
+            "due_date": t.due_date.isoformat() if t.due_date else None,
             "set_by": t.set_by.name if t.set_by_id else None,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
         }
@@ -251,6 +255,7 @@ def hod_set_target(request: HttpRequest, payload: TargetIn):
         defaults={
             "target": payload.target,
             "note": (payload.note or "").strip() or None,
+            "due_date": payload.due_date,
             "set_by": user,
         },
     )
@@ -259,6 +264,7 @@ def hod_set_target(request: HttpRequest, payload: TargetIn):
         detail_json=json.dumps({
             "department": department, "year": payload.year, "metric": payload.metric,
             "target": payload.target, "person": person.id if person else None,
+            "due_date": payload.due_date.isoformat() if payload.due_date else None,
             "created": created,
         }),
     )

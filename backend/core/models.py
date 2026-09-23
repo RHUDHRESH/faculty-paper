@@ -245,6 +245,10 @@ class DepartmentTarget(models.Model):
         related_name="targets_set_on_them",
     )
     note = models.TextField(blank=True, null=True)
+    #: When the number is meant to be reached by. Optional: a year-long
+    #: target already has the year as its horizon, and a head who wants the
+    #: Q1 papers in before the accreditation visit can say so.
+    due_date = models.DateField(blank=True, null=True)
     set_by = models.ForeignKey(
         "User", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="targets_set",
@@ -272,6 +276,96 @@ class DepartmentTarget(models.Model):
     def __str__(self) -> str:
         who = self.person.name if self.person_id else self.department
         return f"{who} {self.year} {self.metric}: {self.target}"
+
+
+class DepartmentPlan(models.Model):
+    """What a department says it is for, in the head's words.
+
+    A target says how much; nothing said *what*. A new lecturer asking "what
+    should I be working on here" had nobody's answer but whoever they happened
+    to ask, and two heads in succession could steer the same department in
+    different directions without either direction ever being written down.
+
+    One row per department. `research_areas` is a short list of short labels
+    ("Photonics", "Condensed matter") rather than prose, so it can be shown as
+    chips and matched against later; the prose belongs in `vision`.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    department = models.CharField(max_length=255, unique=True)
+    vision = models.TextField(blank=True, default="")
+    research_areas = models.JSONField(default=list, blank=True)
+    updated_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="department_plans_updated",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.department} plan"
+
+
+class DepartmentAssignment(models.Model):
+    """A piece of work a head has handed to somebody in their department.
+
+    Three kinds, because a head hands out three different things: a task
+    ("draft the criterion 3 narrative"), a pairing of two people who should
+    write together, and a research area somebody is asked to take up. They
+    share a status and a deadline, and the people on one see it on their own
+    home screen -- which is the whole point: an instruction given in a
+    corridor has no record, and nobody can tell later whether it was done.
+
+    Both people must be in the department the assignment belongs to; that is
+    checked by the endpoints, which know who is asking. The database refuses
+    the one shape that is wrong whoever asks: a person paired with themselves.
+    Deliberately carries no money -- a head is money-blind.
+    """
+
+    class Kind(models.TextChoices):
+        TASK = "TASK", "Task"
+        PAIRING = "PAIRING", "Co-author pairing"
+        RESEARCH_AREA = "RESEARCH_AREA", "Research area"
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        IN_PROGRESS = "IN_PROGRESS", "In progress"
+        DONE = "DONE", "Done"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    department = models.CharField(max_length=255, db_index=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    title = models.CharField(max_length=200)
+    notes = models.TextField(blank=True, default="")
+    assignee = models.ForeignKey(
+        "User", on_delete=models.CASCADE, related_name="assignments"
+    )
+    #: The second author of a PAIRING; empty for every other kind.
+    partner = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="paired_assignments",
+    )
+    due_date = models.DateField(blank=True, null=True)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True
+    )
+    created_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="assignments_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(partner=models.F("assignee")),
+                name="assignment_partner_is_not_the_assignee",
+            ),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.department} {self.kind}: {self.title[:40]}"
 
 
 class JournalStanding(models.Model):

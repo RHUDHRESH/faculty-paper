@@ -213,6 +213,30 @@ CAPABILITIES: list[Capability] = [
         "A head works from a spreadsheet in a review meeting. The file carries "
         "no money column, like the screen it comes from.",
         None, "Department"),
+    cap("Read the department's plan", "GET", "/api/hod/plan",
+        {FACULTY, HOD, SUPER_ADMIN},
+        "A direction nobody in the department can see is not a direction, so "
+        "its own faculty read it. Every other desk has college-wide screens.",
+        None, "Department"),
+    cap("Write the department's plan", "PUT", "/api/hod/plan",
+        {HOD, SUPER_ADMIN},
+        "The head's own words about their own department; a super admin may "
+        "stand in for any department.",
+        {"vision": "Matrix probe", "research_areas": []}, "Department"),
+    cap("List work handed out in the department", "GET", "/api/hod/assignments",
+        {HOD, SUPER_ADMIN},
+        "Who has been asked to do what is the head's to manage. The people it "
+        "is for see their own at /api/me/assignments.",
+        None, "Department"),
+    cap("Hand out work in the department", "POST", "/api/hod/assignments",
+        {HOD, SUPER_ADMIN},
+        "A head is not an approver, but directing the department's work is "
+        "the job. Only to people inside it.",
+        {"kind": "TASK", "title": "Matrix probe", "assignee_id": "{user}"}, "Department"),
+    cap("Remind people in the department", "POST", "/api/hod/nudge",
+        {HOD, SUPER_ADMIN},
+        "One reminder per person per day, and only inside the department.",
+        {"user_ids": ["{user}"], "message": "A matrix probe reminder."}, "Department"),
     cap("Read the claim list", "GET", "/api/claims",
         {FACULTY, PRINCIPAL, FINANCE} | ADMINS,
         "The claim payload carries the remuneration. A head has their own "

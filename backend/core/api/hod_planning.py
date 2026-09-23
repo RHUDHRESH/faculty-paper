@@ -195,10 +195,12 @@ def hod_set_plan(request: HttpRequest, payload: PlanIn, department: Optional[str
     areas = _clean_areas(payload.research_areas)
 
     with transaction.atomic():
-        plan = DepartmentPlan.objects.select_for_update().filter(department__iexact=chosen).first()
-        created = plan is None
-        if created:
-            plan = DepartmentPlan(department=chosen)
+        # get_or_create rather than a locked read: there is no row to lock the
+        # first time, and two first saves racing would otherwise meet at the
+        # unique constraint as a 500.
+        plan, created = DepartmentPlan.objects.get_or_create(
+            department__iexact=chosen, defaults={"department": chosen}
+        )
         plan.vision = vision
         plan.research_areas = areas
         plan.updated_by = user

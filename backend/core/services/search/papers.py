@@ -24,6 +24,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+import httpx
 from django.conf import settings
 
 from core.services.normalize import normalize_doi, normalize_issn, normalize_title
@@ -140,6 +141,33 @@ def fetch_crossref(query: str, limit: int) -> list[dict[str, Any]]:
         upstream.cache_key("works", "crossref", query.lower(), limit),
         upstream.WORKS_TTL,
         produce,
+    )
+
+
+def fetch_crossref_work(doi: str) -> dict[str, Any] | None:
+    """One DOI, straight from the registry: /works/{doi}.
+
+    None when Crossref has no such DOI (it answers 404). Anything else going
+    wrong raises, as every source here does, for the caller to report.
+    """
+    doi = normalize_doi(doi)
+    if not doi:
+        return None
+
+    def produce() -> dict[str, Any] | None:
+        try:
+            payload = upstream.get_json(
+                f"{CROSSREF_WORKS}/{doi}", {"mailto": upstream.contact()}
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                return None
+            raise
+        work = (payload or {}).get("message")
+        return _from_crossref(work) if isinstance(work, dict) else None
+
+    return upstream.cached(
+        upstream.cache_key("work", "crossref", doi), upstream.WORKS_TTL, produce
     )
 
 

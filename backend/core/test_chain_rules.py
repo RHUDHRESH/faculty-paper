@@ -1097,3 +1097,193 @@ class DemoSeedTests(TestCase):
         with self.assertRaisesRegex(CommandError, "Refusing to seed"):
             call_command("seed", "--demo", verbosity=0)
         self.assertFalse(Claim.objects.exists())
+
+
+# --------------------------------------------------------------------------- #
+# 8. The filing wizard's DOI and title lookup, when Scopus cannot answer      #
+# --------------------------------------------------------------------------- #
+
+
+class LookupFallbackTests(ChainBase):
+    """No network: Scopus is stubbed through patch_api, and Crossref at the one
+    function every outbound search call goes through, upstream.get_json."""
+
+    DOI = "10.5555/demo.2025.0042"
+    WORK = {
+        "DOI": DOI,
+        "title": ["A Lightweight Transformer for Traffic Sign Recognition"],
+        "container-title": ["IEEE Access"],
+        "ISSN": ["2169-3536"],
+        "issued": {"date-parts": [[2025, 3, 14]]},
+        "author": [{"given": "Ananya", "family": "Rao"}, {"given": "Karthik", "family": "S"}],
+        "type": "journal-article",
+        "publisher": "IEEE",
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.asked = []
+
+    def _crossref(self, *, down=False):
+        from unittest.mock import patch
+
+        import httpx
+
+        def get_json(url, params=None, **kwargs):
+            self.asked.append(url)
+            if down:
+                raise httpx.ConnectError("no route to api.crossref.org")
+            if url == f"https://api.crossref.org/works/{self.DOI}":
+                return {"status": "ok", "message": self.WORK}
+            if url == "https://api.crossref.org/works":
+                return {"status": "ok", "message": {"items": [self.WORK]}}
+            raise AssertionError(f"unexpected request to {url}")
+
+        return patch("core.services.search.upstream.get_json", side_effect=get_json)
+
+    def _no_scopus(self):
+        from django.test import override_settings
+
+        return override_settings(SCOPUS_API_KEY="")
+
+    def _scopus_down(self):
+        from django.test import override_settings
+
+        return override_settings(SCOPUS_API_KEY="a-configured-key")
+
+    def _enrich(self, **body):
+        return self._post(self.faculty, "/api/lookup/enrich", body)
+
+    def _assert_declared(self, body):
+        self.assertEqual(body["source"], "crossref")
+        self.assertIs(body["verified"], False)
+        self.assertEqual(body["matched_title"], self.WORK["title"][0])
+        self.assertEqual(body["journal"], "IEEE Access")
+        self.assertEqual(body["issn"], "2169-3536")
+        self.assertEqual(body["publication_year"], 2025)
+        self.assertEqual(body["doi"], self.DOI)
+        self.assertEqual(body["authors"], ["Ananya Rao", "Karthik S"])
+        # A declared value is never a verified one: nothing from Crossref is
+        # a SNIP, and the paper carries no Scopus identity.
+        self.assertIsNone(body["snip"])
+        self.assertIsNone(body["eid"])
+
+    def test_a_doi_goes_to_crossref_when_scopus_is_not_configured(self):
+        # The real Scopus client: with no key it raises before any request.
+        with self._no_scopus(), self._crossref():
+            r = self._enrich(doi=self.DOI)
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body["scopus_status"], "not_configured")
+        self._assert_declared(body)
+        self.assertEqual(self.asked, [f"https://api.crossref.org/works/{self.DOI}"])
+
+    def test_a_doi_goes_to_crossref_when_scopus_fails(self):
+        from core.services.scopus import ScopusError
+
+        down = patch_api("lookup_paper_by_doi", side_effect=ScopusError("Scopus API 503", code="error"))
+        with self._scopus_down(), self._crossref(), down:
+            r = self._enrich(doi=self.DOI)
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body["scopus_status"], "unavailable")
+        self._assert_declared(body)
+
+    def test_a_title_goes_to_a_crossref_search(self):
+        with self._no_scopus(), self._crossref():
+            r = self._enrich(title="lightweight transformer traffic sign")
+        self.assertEqual(r.status_code, 200, r.content)
+        self._assert_declared(r.json())
+        self.assertEqual(self.asked, ["https://api.crossref.org/works"])
+
+    def test_a_doi_crossref_does_not_know_falls_back_to_the_title(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        def get_json(url, params=None, **kwargs):
+            self.asked.append(url)
+            if url.startswith("https://api.crossref.org/works/"):
+                request = httpx.Request("GET", url)
+                raise httpx.HTTPStatusError(
+                    "404", request=request, response=httpx.Response(404, request=request)
+                )
+            return {"status": "ok", "message": {"items": [self.WORK]}}
+
+        with self._no_scopus(), patch("core.services.search.upstream.get_json", side_effect=get_json):
+            r = self._enrich(doi="10.5555/not.registered", title="traffic sign transformer")
+        self.assertEqual(r.status_code, 200, r.content)
+        self._assert_declared(r.json())
+        self.assertEqual(self.asked, [
+            "https://api.crossref.org/works/10.5555/not.registered",
+            "https://api.crossref.org/works",
+        ])
+
+    def test_a_scopus_answer_is_marked_as_one(self):
+        paper = {
+            "title": "From Scopus", "doi": self.DOI, "issn": "2169-3536",
+            "journal_title": "IEEE Access", "publication_year": 2025, "eid": "2-s2.0-1",
+        }
+        with self._scopus_down(), self._crossref(), \
+                patch_api("lookup_paper_by_doi", return_value=paper), \
+                patch_api("lookup_serial_by_issn", return_value={"snip": 1.5, "snip_year": 2024}):
+            r = self._enrich(doi=self.DOI)
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual((body["source"], body["verified"], body["scopus_status"]),
+                         ("scopus", True, "ok"))
+        self.assertEqual(body["snip"], 1.5)
+        self.assertEqual(self.asked, [], "Crossref is the fallback, not a second opinion")
+
+    def test_when_both_are_down_the_error_says_which_scopus_state_it_was(self):
+        from core.services.scopus import ScopusError
+
+        with self._no_scopus(), self._crossref(down=True):
+            r = self._enrich(doi=self.DOI)
+        self.assertEqual(r.status_code, 502, r.content)
+        self.assertTrue(r.json()["detail"].startswith("not_configured:"), r.json())
+
+        down = patch_api("lookup_paper_by_doi", side_effect=ScopusError("timeout", code="error"))
+        with self._scopus_down(), self._crossref(down=True), down:
+            r = self._enrich(doi=self.DOI)
+        self.assertEqual(r.status_code, 502, r.content)
+        self.assertTrue(r.json()["detail"].startswith("unavailable:"), r.json())
+
+    def test_the_candidate_search_falls_back_too(self):
+        with self._no_scopus(), self._crossref():
+            r = self._post(self.faculty, "/api/lookup/candidates", {"title": "traffic sign transformer"})
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body["scopus_status"], "not_configured")
+        self.assertEqual(len(body["candidates"]), 1)
+        row = body["candidates"][0]
+        self.assertEqual((row["source"], row["verified"]), ("crossref", False))
+        self.assertEqual(row["doi"], self.DOI)
+        self.assertEqual(row["journal_title"], "IEEE Access")
+        self.assertEqual(row["authors"], ["Ananya Rao", "Karthik S"])
+        self.assertIsNone(row["linked_to_author"], "Crossref cannot say whose profile it is on")
+
+    def test_listing_an_author_profile_says_it_needs_scopus(self):
+        with self._no_scopus(), self._crossref():
+            r = self._post(self.faculty, "/api/lookup/candidates", {"author_id": "57200000001"})
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual((body["ok"], body["scopus_status"], body["candidates"]),
+                         (False, "not_configured", []))
+        self.assertIn("title or DOI", body["message"])
+        self.assertEqual(self.asked, [])
+
+    def test_verify_reports_the_scopus_state_without_falling_back(self):
+        """Verification is exactly what a declared value cannot satisfy."""
+        # verify_publication reports a Scopus failure as ok=False.
+        failed = {"ok": False, "scopus": {"indexed": False, "message": "error"}}
+        for settings_, expected in ((self._no_scopus(), "not_configured"),
+                                    (self._scopus_down(), "unavailable")):
+            with settings_, patch_api("verify_publication", return_value=failed), self._crossref():
+                r = self._post(self.faculty, "/api/lookup/verify", {"title": "Anything at all here"})
+            self.assertEqual(r.status_code, 200, r.content)
+            self.assertEqual(r.json()["scopus_status"], expected)
+        self.assertEqual(self.asked, [], "no fallback for verification")
+
+        r = self._post(self.faculty, "/api/lookup/verify", {"title": "Anything at all here"})
+        self.assertEqual(r.json()["scopus_status"], "ok")

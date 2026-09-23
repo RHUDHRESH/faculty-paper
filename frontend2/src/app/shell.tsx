@@ -15,19 +15,7 @@ import { cn } from "@/lib/cn"
 import { api, forgetCsrf } from "@/lib/api"
 import { toast } from "@/ui/toast"
 import { useCollegeName } from "@/app/institution"
-
-//: The same wording the people screen uses, so an account reads the same
-//: name for its own role as the office reads for it.
-const ROLE_LABEL: Record<Role, string> = {
-  FACULTY: "Faculty",
-  HOD: "Head of department",
-  PRINCIPAL: "Principal",
-  DIRECTOR: "Director",
-  FINANCE: "Finance",
-  RESEARCH_CELL: "Research cell",
-  RESEARCH_COORDINATOR: "Research coordinator",
-  SUPER_ADMIN: "Super admin",
-}
+import { ROLE_LABEL } from "@/app/account"
 
 /**
  * Who you are signed in as, and the two things you can do about it.

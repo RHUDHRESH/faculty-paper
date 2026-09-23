@@ -160,6 +160,21 @@ class User(AbstractBaseUser, PermissionsMixin):
     #: as a penalty rather than as an agreement.
     research_quota_note = models.TextField(blank=True, null=True)
 
+    #: The one detail on an account its owner edits directly
+    #: (PATCH /auth/profile/self). Nothing is paid or checked against it, so
+    #: routing it through a super admin would only guarantee it goes stale.
+    phone = models.CharField(max_length=32, blank=True, null=True)
+
+    #: A Google account the person linked from their profile, identified by
+    #: Google's stable subject id rather than by email: a personal Gmail
+    #: address never matches the college address the account was made with,
+    #: and an address can be renamed where the subject cannot. Unique, so one
+    #: Google account opens at most one account here.
+    google_sub = models.CharField(max_length=255, unique=True, blank=True, null=True)
+    #: Shown back on the profile so the person can see which account it is.
+    google_email = models.EmailField(blank=True, null=True)
+    google_linked_at = models.DateTimeField(blank=True, null=True)
+
     active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

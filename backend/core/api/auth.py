@@ -9,16 +9,19 @@ from __future__ import annotations
 
 from core.api.common import _notify_admin_users, api, logger, session_auth
 from core.api.schemas import LoginIn
-from core.api.deps import _me_dict, _user_dict
+from core.api.deps import _google_link, _me_dict, _user_dict
 from core.api.common import require_user
 
 import json
+import re
 import time
 import uuid as uuid_lib
 from typing import Optional
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
+from django.db import IntegrityError, transaction
 from django.http import HttpRequest
+from django.utils import timezone
 from django.middleware.csrf import get_token
 from ninja import Schema
 from ninja.errors import HttpError
@@ -149,20 +152,22 @@ def google_config(request: HttpRequest):
     }
 
 
-@api.post("/auth/google", auth=None)
-def auth_google(request: HttpRequest, payload: GoogleSignInIn):
-    """Sign in with a Google ID token, into an account that already exists.
+_GOOGLE_UNVERIFIED = "That Google sign-in could not be verified. Try again."
+_GOOGLE_TAKEN = (
+    "That Google account already belongs to another account here, so it cannot "
+    "be linked to this one. Choose a different Google account."
+)
+
+
+def _verified_google_claims(credential: str) -> dict:
+    """The claims of a Google ID token minted for us, or an HttpError.
 
     Verified server-side against Google's public keys, with our own client id
     as the audience. The token the browser hands over is the only thing that
     crosses, and a token minted for somebody else's application will not
     verify against ours -- which is the whole reason this is not "trust the
-    email the client sent us".
-
-    **No account is ever created here.** An address Google recognises and this
-    college does not is refused. Accounts carry staff ids, biometric ids and a
-    Scopus link; they decide who gets paid, and letting anybody with a Google
-    account mint one would put a payable identity behind a free signup form.
+    email the client sent us". Signing in and linking both come through here,
+    so neither can be looser than the other.
     """
     from google.auth.transport import requests as google_requests
     from google.oauth2 import id_token as google_id_token
@@ -173,39 +178,134 @@ def auth_google(request: HttpRequest, payload: GoogleSignInIn):
 
     try:
         claims = google_id_token.verify_oauth2_token(
-            payload.credential, google_requests.Request(), client_id
+            credential, google_requests.Request(), client_id
         )
     except Exception:
         # Deliberately not echoed back. The reasons a token fails to verify
         # (expired, wrong audience, bad signature) are useful to an attacker
         # and useless to the person in front of the screen.
-        logger.warning("google_signin_rejected")
-        raise HttpError(401, "That Google sign-in could not be verified. Try again.")
+        logger.warning("google_token_rejected")
+        raise HttpError(401, _GOOGLE_UNVERIFIED)
 
     if not claims.get("email_verified"):
         raise HttpError(403, "That Google account has no verified email address.")
+    return claims
 
-    hosted = (getattr(settings, "GOOGLE_HOSTED_DOMAIN", "") or "").strip()
-    if hosted and (claims.get("hd") or "").lower() != hosted.lower():
-        raise HttpError(403, f"Sign in with your {hosted} account.")
 
-    email = (claims.get("email") or "").strip().lower()
-    user = User.objects.filter(email__iexact=email).first()
+@api.post("/auth/google", auth=None)
+def auth_google(request: HttpRequest, payload: GoogleSignInIn):
+    """Sign in with a Google ID token, into an account that already exists.
+
+    A Google account somebody linked from their profile is found by its
+    subject id first, and is let in whatever its domain: they chose it while
+    signed in with their password, which is how about fourteen staff with
+    only a personal Gmail get Google sign-in at all. Anything else falls back
+    to matching the college address, and that path keeps the hosted-domain
+    rule.
+
+    **No account is ever created here.** An address Google recognises and this
+    college does not is refused. Accounts carry staff ids, biometric ids and a
+    Scopus link; they decide who gets paid, and letting anybody with a Google
+    account mint one would put a payable identity behind a free signup form.
+    """
+    claims = _verified_google_claims(payload.credential)
+
+    sub = str(claims.get("sub") or "")
+    user = User.objects.filter(google_sub=sub).first() if sub else None
+    via = "linked"
     if user is None:
-        raise HttpError(
-            403,
-            f"There is no account here for {email}. Ask the research cell to "
-            "create one — signing in with Google does not make one.",
-        )
+        via = "email"
+        hosted = (getattr(settings, "GOOGLE_HOSTED_DOMAIN", "") or "").strip()
+        if hosted and (claims.get("hd") or "").lower() != hosted.lower():
+            raise HttpError(
+                403,
+                f"Sign in with your {hosted} account, or with a Google account "
+                "you have linked on your profile.",
+            )
+
+        email = (claims.get("email") or "").strip().lower()
+        user = User.objects.filter(email__iexact=email).first()
+        if user is None:
+            raise HttpError(
+                403,
+                f"There is no account here for {email}. Ask the research cell to "
+                "create one — signing in with Google does not make one.",
+            )
     if not user.active:
         raise HttpError(403, "That account is not active.")
 
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
     clear_login_lockout(user.email)
     AuditLog.objects.create(
-        actor=user, action="LOGIN_GOOGLE", entity="User", entity_id=user.id
+        actor=user, action="LOGIN_GOOGLE", entity="User", entity_id=user.id,
+        detail_json=json.dumps({"via": via}),
     )
     return _me_dict(request, user)
+
+
+@api.post("/auth/google/link", auth=session_auth)
+def link_google(request: HttpRequest, payload: GoogleSignInIn):
+    """Let a Google account sign in to the account already signed in here.
+
+    The hosted domain is deliberately not required. This session was opened
+    with the account's own password, so choosing a personal Gmail is the
+    owner's explicit decision rather than a stranger's claim -- and it is the
+    only way the staff who have no college Google account get it at all.
+
+    Refused (409) when that Google account already opens another account
+    here, or when its address *is* another account's email: otherwise that
+    colleague pressing "Continue with Google" with their own college account
+    would land in this one. Neither refusal says whose account it is.
+    """
+    u = require_user(request)
+    claims = _verified_google_claims(payload.credential)
+    sub = str(claims.get("sub") or "")
+    if not sub:
+        raise HttpError(401, _GOOGLE_UNVERIFIED)
+    email = (claims.get("email") or "").strip().lower()
+
+    taken = User.objects.filter(google_sub=sub).exclude(pk=u.pk).exists() or (
+        bool(email) and User.objects.filter(email__iexact=email).exclude(pk=u.pk).exists()
+    )
+    if taken:
+        raise HttpError(409, _GOOGLE_TAKEN)
+
+    if u.google_sub == sub:
+        return {"google": _google_link(u)}
+
+    replaced = u.google_email if u.google_sub else None
+    u.google_sub = sub
+    u.google_email = email or None
+    u.google_linked_at = timezone.now()
+    try:
+        with transaction.atomic():
+            u.save(update_fields=["google_sub", "google_email", "google_linked_at", "updated_at"])
+    except IntegrityError:
+        # Two accounts linking the same Google account at the same moment:
+        # the unique column decides, and the loser is told what the check
+        # above would have told them.
+        raise HttpError(409, _GOOGLE_TAKEN)
+    AuditLog.objects.create(
+        actor=u, action="GOOGLE_LINKED", entity="User", entity_id=u.id,
+        detail_json=json.dumps({"google_email": email, "replaced": replaced}),
+    )
+    return {"google": _google_link(u)}
+
+
+@api.delete("/auth/google/link", auth=session_auth)
+def unlink_google(request: HttpRequest):
+    """Stop a linked Google account signing in here. The password is untouched."""
+    u = require_user(request)
+    if u.google_sub:
+        AuditLog.objects.create(
+            actor=u, action="GOOGLE_UNLINKED", entity="User", entity_id=u.id,
+            detail_json=json.dumps({"google_email": u.google_email}),
+        )
+        u.google_sub = None
+        u.google_email = None
+        u.google_linked_at = None
+        u.save(update_fields=["google_sub", "google_email", "google_linked_at", "updated_at"])
+    return {"google": None}
 
 
 class ClerkSignInIn(Schema):
@@ -324,6 +424,68 @@ class CorrectionRequestIn(Schema):
     note: Optional[str] = None
 
 
+class SelfDetailsIn(Schema):
+    """The details a person changes without asking anybody. Only these.
+
+    Anything else in the body is refused outright (422) rather than dropped:
+    a client that sends a staff id here and reads back a 200 would believe it
+    had been saved.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    phone: Optional[str] = None
+
+
+#: What a phone number may look like: digits, with the spaces, dashes,
+#: brackets and leading plus people actually type. Loose on purpose -- it is a
+#: number somebody rings, not a key anything is matched on.
+_PHONE_SHAPE = re.compile(r"^\+?[0-9 ()\-.]+$")
+
+
+def _clean_phone(raw: Optional[str]) -> Optional[str]:
+    value = " ".join((raw or "").split())
+    if not value:
+        return None
+    digits = sum(ch.isdigit() for ch in value)
+    if not _PHONE_SHAPE.match(value) or not 7 <= digits <= 15 or len(value) > 32:
+        raise HttpError(
+            400,
+            "That does not look like a phone number. Use digits, with spaces, "
+            "dashes or a leading + if you like — for example +91 98400 12345.",
+        )
+    return value
+
+
+@api.patch("/auth/profile/self", auth=session_auth)
+def update_own_details(request: HttpRequest, payload: SelfDetailsIn):
+    """Change the details that are nobody's business but your own.
+
+    `SelfDetailsIn` is the allow-list: nothing on it is paid on, checked
+    against, or decides who sees what. Everything that does goes through
+    /auth/profile/correction instead.
+    """
+    u = require_user(request)
+    data = payload.dict(exclude_unset=True)
+    if "phone" in data:
+        data["phone"] = _clean_phone(data["phone"])
+    changed = sorted(k for k, v in data.items() if getattr(u, k) != v)
+    if changed:
+        for k in changed:
+            setattr(u, k, data[k])
+        u.save(update_fields=[*changed, "updated_at"])
+        AuditLog.objects.create(
+            actor=u,
+            action="PROFILE_SELF_UPDATE",
+            entity="User",
+            entity_id=u.id,
+            # Which fields, not what they now say: a phone number does not
+            # belong in a log every oversight role can read.
+            detail_json=json.dumps({"fields": changed}),
+        )
+    return _user_dict(u)
+
+
 @api.patch("/auth/profile", auth=session_auth)
 def update_profile(request: HttpRequest, payload: ProfileUpdateIn):
     """Refused for everyone but a super admin.
@@ -382,15 +544,62 @@ FIELD_LABELS = {
 }
 
 IDENTITY_FIELDS = frozenset(CORRECTABLE) - {"department"} | {
-    # Not a correctable field — a claimant cannot even ask for it — but it
-    # belongs in the same super-admin-only tier, and for the same reason the
-    # rest are here. Being marked research faculty with a quota of four means
-    # four papers a year are paid nothing. The research cell processes the
-    # claims that decides the outcome of, so it cannot also set it.
+    # Not a profile correction, but it belongs in the same super-admin-only
+    # tier, and for the same reason the rest are here. Being marked research
+    # faculty with a quota of four means four papers a year are paid nothing.
+    # The research cell processes the claims that decides the outcome of, so
+    # it cannot also set it.
     "faculty_type",
     "research_quota",
     "research_quota_note",
 }
+
+#: Decisions about the post rather than lines on the profile. Nobody sets
+#: them for themselves, and until now nobody could even ask: somebody wrongly
+#: marked research faculty -- papers zeroed up to the quota -- had no route
+#: but an email. They go through the same queue, to a super admin only, and
+#: approving one runs the account editor's own checks (one head per
+#: department, no appointing yourself).
+ACCOUNT_REQUESTABLE = {
+    "role": "Role",
+    "faculty_type": "Faculty type",
+    "research_quota": "Research quota",
+}
+
+#: Every field a person may ask to have changed.
+REQUESTABLE = {**CORRECTABLE, **ACCOUNT_REQUESTABLE}
+
+#: Requests only a super admin may decide, and only a super admin is told
+#: about. The role is here although the research cell may set most roles in
+#: the account editor: a request is somebody asking for their own post, and
+#: that is the super admin's call.
+SUPER_ADMIN_DECIDES = IDENTITY_FIELDS | {"role"}
+
+
+def _requested_value(field: str, raw: str) -> str:
+    """`raw` in the form the field is stored in, or a 400 saying what is wanted.
+
+    Checked when asked, not only when approved: a request for a role nothing
+    recognises would otherwise sit in the queue until a super admin found out
+    it could never be applied.
+    """
+    if field == "role":
+        from core.api.admin import ASSIGNABLE_ROLES
+
+        value = raw.upper()
+        if value not in ASSIGNABLE_ROLES:
+            raise HttpError(400, "That is not a role anybody here can hold.")
+        return value
+    if field == "faculty_type":
+        value = raw.upper()
+        if value not in ("REGULAR", "RESEARCH"):
+            raise HttpError(400, "Faculty type is either regular or research.")
+        return value
+    if field == "research_quota":
+        if not re.fullmatch(r"[0-9]{1,3}", raw):
+            raise HttpError(400, "A research quota is a whole number of papers a year.")
+        return str(int(raw))
+    return raw
 
 
 @api.post("/auth/profile/correction", auth=session_auth)
@@ -403,14 +612,18 @@ def request_profile_correction(request: HttpRequest, payload: CorrectionRequestI
     u = require_user(request)
     field = (payload.field or "").strip()
     proposed = (payload.proposed or "").strip()
-    if field not in CORRECTABLE:
+    if field not in REQUESTABLE:
         raise HttpError(400, "That is not a profile detail you can request a change to")
     if not proposed:
         raise HttpError(400, "Say what it should be")
+    proposed = _requested_value(field, proposed)
+    label = REQUESTABLE[field]
 
     current = getattr(u, field, None)
-    if str(current or "").strip() == proposed:
-        raise HttpError(400, f"{CORRECTABLE[field]} already says that.")
+    # A quota of 0 is a value, not a blank.
+    current_text = "" if current is None else str(current)
+    if current_text.strip() == proposed:
+        raise HttpError(400, f"{label} already says that.")
 
     # One open request per field. Asking twice because nothing visibly
     # happened should not put two of the same thing in the queue.
@@ -420,14 +633,14 @@ def request_profile_correction(request: HttpRequest, payload: CorrectionRequestI
     if existing:
         existing.proposed_value = proposed
         existing.note = (payload.note or "").strip()[:500] or None
-        existing.current_value = str(current or "")
+        existing.current_value = current_text
         existing.save()
         req = existing
     else:
         req = ProfileChangeRequest.objects.create(
             user=u,
             field=field,
-            current_value=str(current or ""),
+            current_value=current_text,
             proposed_value=proposed,
             note=(payload.note or "").strip()[:500] or None,
         )
@@ -440,26 +653,26 @@ def request_profile_correction(request: HttpRequest, payload: CorrectionRequestI
         detail_json=json.dumps({
             "request_id": req.id,
             "field": field,
-            "label": CORRECTABLE[field],
-            "current": str(current or ""),
+            "label": label,
+            "current": current_text,
             "proposed": proposed,
             "note": (payload.note or "").strip()[:500],
         }),
     )
     _notify_admin_users(
         f"Profile correction requested · {u.name or u.email}",
-        f"{CORRECTABLE[field]}: “{current or 'not set'}” → “{proposed}”",
+        f"{label}: “{current_text or 'not set'}” → “{proposed}”",
         "/admin/profile-requests",
         # Only a super admin can action an identity change, so only a super
         # admin is told about one -- a notification the reader cannot act on
         # trains them to ignore the rest.
-        super_admin_only=field in IDENTITY_FIELDS,
+        super_admin_only=field in SUPER_ADMIN_DECIDES,
     )
     return {
         "ok": True,
         "id": req.id,
         "field": field,
-        "label": CORRECTABLE[field],
+        "label": label,
         "proposed": proposed,
         "status": req.status,
     }
@@ -468,6 +681,7 @@ def request_profile_correction(request: HttpRequest, payload: CorrectionRequestI
 
 
 __all__ = [
+    'ACCOUNT_REQUESTABLE',
     'CORRECTABLE',
     'ClerkSignInIn',
     'CorrectionRequestIn',
@@ -475,12 +689,21 @@ __all__ = [
     'GoogleSignInIn',
     'IDENTITY_FIELDS',
     'ProfileUpdateIn',
+    'REQUESTABLE',
+    'SUPER_ADMIN_DECIDES',
+    'SelfDetailsIn',
+    '_GOOGLE_TAKEN',
+    '_GOOGLE_UNVERIFIED',
     '_LOGIN_HINT_AFTER',
     '_LOGIN_LOCKOUT_SECONDS',
     '_LOGIN_MAX_FAILURES',
+    '_PHONE_SHAPE',
+    '_clean_phone',
     '_client_ip',
     '_login_throttle_key',
     '_login_unlock_epoch',
+    '_requested_value',
+    '_verified_google_claims',
     'auth_clerk',
     'auth_google',
     'auth_login',
@@ -490,6 +713,9 @@ __all__ = [
     'clerk_config',
     'csrf',
     'google_config',
+    'link_google',
     'request_profile_correction',
+    'unlink_google',
+    'update_own_details',
     'update_profile',
 ]

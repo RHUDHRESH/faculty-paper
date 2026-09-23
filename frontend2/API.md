@@ -121,7 +121,8 @@ filed. Anything it returns is an **estimate** and must be labelled as one.
 
 ```
 GET   /api/auth/me                    -> the account (see below)
-PATCH /api/auth/profile               -> only fields a person may change themselves
+PATCH /api/auth/profile/self          { phone }   -> the account; the only self-service write
+PATCH /api/auth/profile               -> 403 for everyone but a super admin
 POST  /api/auth/change-password       { current_password, new_password }
 POST  /api/auth/profile/correction    { field, proposed, note? }
 GET   /api/auth/profile/corrections   -> { results: [...] }
@@ -129,12 +130,27 @@ GET   /api/auth/profile/corrections   -> { results: [...] }
 
 `me` carries: `id, email, name, role, department, employee_id, staff_id,
 biometric_id, designation, scopus_author_url, scopus_author_id,
-must_change_password, active, portal`.
+must_change_password, active, faculty_type, research_quota,
+research_quota_note, phone, portal, google`. `google` is `{ email, linked_at }`
+or `null` — only on `/auth/me`, never on anybody else's record.
 
-**Identity is not self-service.** A claimant cannot edit `name`, `staff_id`,
+**Self-service is an allow-list of one.** `PATCH /auth/profile/self` accepts
+`phone` and nothing else: any other key is a 422, not silently dropped. The
+number is lightly checked (digits with spaces, dashes, brackets or a leading
+`+`; 7–15 digits) and an empty string clears it. The audit row names the field,
+not the number. Research interests (`/api/me/interests`) are the other thing a
+person sets for themselves.
+
+**Everything else is a request.** A claimant cannot edit `name`, `staff_id`,
 `biometric_id`, `designation`, `scopus_author_url` or `scopus_author_id` —
 those decide who gets paid. They ask, via `/auth/profile/correction`, and an
 admin decides. `department` is correctable too but is not an identity field.
+`role`, `faculty_type` (`REGULAR`|`RESEARCH`) and `research_quota` (a whole
+number) can be asked for the same way; they are checked when asked, go to a
+super admin only, and approving one runs the account editor's checks — one
+head per department (409, nobody is replaced from the queue), no approving
+your own role, a quota only on a research post, and a regular post drops its
+quota.
 
 The correction endpoint refuses a proposal identical to the current value, and
 **re-asking for the same field updates the open request rather than queueing a
@@ -270,6 +286,24 @@ domain.
 A token that fails to verify answers 401 **without saying why** — expired,
 wrong audience and bad signature are useful to an attacker and useless to the
 person at the screen.
+
+```
+POST   /api/auth/google/link   { credential }   -> { google: { email, linked_at } }
+DELETE /api/auth/google/link                    -> { google: null }
+```
+
+Linking is done from a signed-in session and **does not require the hosted
+domain**: the session was opened with the account's own password, so choosing
+a personal Gmail is the owner's decision. The Google account is stored by its
+`sub`, not its email. `email_verified` is still required. 409 when that Google
+account already opens another account here, or its address is another
+account's email — without saying whose. Both are audited (`GOOGLE_LINKED`,
+`GOOGLE_UNLINKED`).
+
+Sign-in looks up the `sub` first: a linked account signs in whatever its
+domain. Anything not linked falls back to the email match, which keeps the
+`GOOGLE_HOSTED_DOMAIN` rule. The client must therefore not pass Google's `hd`
+option — it would hide a linked personal Gmail from the account chooser.
 
 ### Reference data
 

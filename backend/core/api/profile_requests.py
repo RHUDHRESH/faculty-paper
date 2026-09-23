@@ -10,11 +10,12 @@ from __future__ import annotations
 from core.api.common import api, session_auth
 from core.api.schemas import ChangePasswordIn
 from core.api.common import require_user
-from core.api.auth import CORRECTABLE, IDENTITY_FIELDS
+from core.api.auth import REQUESTABLE, SUPER_ADMIN_DECIDES
 
 import json
 from typing import Any, Optional
 from django.contrib.auth import update_session_auth_hash
+from django.db import transaction
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -26,20 +27,80 @@ from core.services import rbac
 # ---------- the queue those requests land in ----------
 
 
+def _as_text(value: Any) -> str:
+    """A field's value as the queue compares it. A quota of 0 is not blank."""
+    return "" if value is None else str(value)
+
+
+def _apply_request(req: ProfileChangeRequest, actor: User) -> Any:
+    """Write an approved request onto the account; return what it said before.
+
+    Profile corrections are a plain write. A request about the post runs the
+    account editor's own checks, because a queue that could appoint a second
+    head of department, or let a super admin approve their own role, would be
+    the account editor with its guards taken off.
+    """
+    from core.api.admin import (
+        _appoint_head,
+        _check_assignable_role,
+        _check_privileged_assignment,
+    )
+
+    u = req.user
+    field, value = req.field, req.proposed_value
+    before = getattr(u, field, None)
+    fields = [field]
+
+    if field == "role":
+        if u.pk == actor.pk:
+            raise HttpError(400, "You cannot change your own role — ask another super admin.")
+        _check_assignable_role(value)
+        _check_privileged_assignment(actor, value)
+        u.role = value
+        if value == Role.HOD:
+            # 409 names the head already in post. Replacing them is a
+            # deliberate act in the account editor, not a side effect of
+            # approving somebody else's request.
+            _appoint_head(u, replace=False, actor=actor)
+    elif field == "faculty_type":
+        u.faculty_type = value
+        if value != "RESEARCH":
+            # A quota on a regular post is a number that never applies.
+            u.research_quota = None
+            u.research_quota_note = None
+            fields += ["research_quota", "research_quota_note"]
+    elif field == "research_quota":
+        if u.faculty_type != "RESEARCH":
+            raise HttpError(
+                400,
+                "A research quota only applies to research faculty. Approve the "
+                "faculty type first, or decline this.",
+            )
+        u.research_quota = int(value)
+    else:
+        setattr(u, field, value)
+        if field == "department" and u.role == Role.HOD:
+            # A head moving department is a head arriving in that one.
+            _appoint_head(u, replace=False, actor=actor)
+
+    u.save(update_fields=[*fields, "updated_at"])
+    return before
+
+
 def _request_dict(r) -> dict[str, Any]:
     return {
         "id": r.id,
         "field": r.field,
-        "label": CORRECTABLE.get(r.field, r.field),
+        "label": REQUESTABLE.get(r.field, r.field),
         "current_value": r.current_value or "",
         "proposed_value": r.proposed_value,
         # The record may have moved since the request was made, and an
         # approver overwriting something different from what was asked about
         # should be told so rather than left to compare two screens.
-        "value_now": str(getattr(r.user, r.field, "") or ""),
+        "value_now": _as_text(getattr(r.user, r.field, None)),
         "note": r.note or "",
         "status": r.status,
-        "identity": r.field in IDENTITY_FIELDS,
+        "identity": r.field in SUPER_ADMIN_DECIDES,
         "requested_by": {
             "id": r.user_id,
             "name": r.user.name or r.user.email,
@@ -104,10 +165,10 @@ def decide_profile_request(
     # Identity is super-admin only, here as much as everywhere else it is
     # written. The research cell processes the claims these fields decide the
     # outcome of, so it cannot also set them.
-    if req.field in IDENTITY_FIELDS and actor.role != Role.SUPER_ADMIN:
+    if req.field in SUPER_ADMIN_DECIDES and actor.role != Role.SUPER_ADMIN:
         raise HttpError(
             403,
-            f"Only a super admin can change {CORRECTABLE[req.field].lower()}. "
+            f"Only a super admin can change {REQUESTABLE[req.field].lower()}. "
             "You can decline it, or leave it for one.",
         )
 
@@ -115,19 +176,20 @@ def decide_profile_request(
     if not payload.approve and len(note) < 5:
         raise HttpError(400, "Say why it is being declined — the person is told.")
 
-    if payload.approve:
-        before = getattr(req.user, req.field, None)
-        setattr(req.user, req.field, req.proposed_value)
-        req.user.save(update_fields=[req.field, "updated_at"])
-        req.status = ProfileChangeRequest.State.APPROVED
-    else:
-        before = None
-        req.status = ProfileChangeRequest.State.DECLINED
+    with transaction.atomic():
+        if payload.approve:
+            # Refused inside the transaction, so a head-of-department clash
+            # leaves both the account and the request exactly as they were.
+            before = _apply_request(req, actor)
+            req.status = ProfileChangeRequest.State.APPROVED
+        else:
+            before = None
+            req.status = ProfileChangeRequest.State.DECLINED
 
-    req.decided_by = actor
-    req.decided_at = timezone.now()
-    req.decision_note = note or None
-    req.save()
+        req.decided_by = actor
+        req.decided_at = timezone.now()
+        req.decision_note = note or None
+        req.save()
 
     AuditLog.objects.create(
         actor=actor,
@@ -146,7 +208,7 @@ def decide_profile_request(
 
     # The person who asked finds out. Not being told was half of why the old
     # flow felt like shouting into a cupboard.
-    label = CORRECTABLE.get(req.field, req.field)
+    label = REQUESTABLE.get(req.field, req.field)
     Notification.objects.create(
         user=req.user,
         title=(
@@ -193,6 +255,8 @@ def change_password(request: HttpRequest, payload: ChangePasswordIn):
 
 __all__ = [
     'ProfileDecisionIn',
+    '_apply_request',
+    '_as_text',
     '_request_dict',
     'change_password',
     'decide_profile_request',

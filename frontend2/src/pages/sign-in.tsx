@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from "motion/react"
 import { Eye, EyeOff, LoaderCircle } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { loadGoogleIdentity, type GoogleConfig } from "@/app/google"
 import { useInstitution } from "@/app/institution"
 import { Mark } from "@/ui/art"
 import { JOURNEY } from "@/ui/journey"
@@ -275,12 +276,6 @@ function BrandPanel({ collegeName, still }: { collegeName: string; still: boolea
   )
 }
 
-type GoogleConfig = {
-  enabled: boolean
-  client_id: string | null
-  hosted_domain: string | null
-}
-
 /**
  * Continue with Google — for an account this college already has.
  *
@@ -294,11 +289,15 @@ type GoogleConfig = {
  * and this college does not is refused, and the refusal says so plainly —
  * these accounts carry staff ids and decide who gets paid, so a free signup
  * form is not a thing that can be allowed to mint one.
+ *
+ * No domain hint is passed to Google. A Google account linked from the
+ * profile page may be a personal Gmail, and Google's `hd` option would hide
+ * it from the account chooser; the server enforces the college domain for
+ * anyone who has not linked one.
  */
 function GoogleButton({ onError }: { onError: (message: string | null) => void }) {
   const { signInWithGoogle } = useAuth()
   const [config, setConfig] = useState<GoogleConfig | null>(null)
-  const [ready, setReady] = useState(false)
   const slot = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -318,47 +317,39 @@ function GoogleButton({ onError }: { onError: (message: string | null) => void }
   // Google's script is loaded only once we know there is a client id to give
   // it, so a college that does not use this never fetches it at all.
   useEffect(() => {
-    if (!config?.enabled) return
-    const existing = document.getElementById("gsi-script")
-    if (existing) {
-      setReady(true)
-      return
+    const clientId = config?.enabled ? config.client_id : null
+    if (!clientId) return
+    let live = true
+    loadGoogleIdentity()
+      .then((google) => {
+        if (!live || !slot.current) return
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: ({ credential }) => {
+            onError(null)
+            void signInWithGoogle(credential).catch((err: unknown) =>
+              onError(
+                err instanceof Error
+                  ? err.message
+                  : "Could not sign in with that Google account."
+              )
+            )
+          },
+        })
+        google.accounts.id.renderButton(slot.current, {
+          theme: "outline",
+          size: "large",
+          width: 336,
+          text: "continue_with",
+        })
+      })
+      // Not shown: the password form above works either way, and a script
+      // that did not load is not something the person can act on.
+      .catch(() => {})
+    return () => {
+      live = false
     }
-    const el = document.createElement("script")
-    el.id = "gsi-script"
-    el.src = "https://accounts.google.com/gsi/client"
-    el.async = true
-    el.defer = true
-    el.onload = () => setReady(true)
-    document.head.appendChild(el)
-  }, [config?.enabled])
-
-  useEffect(() => {
-    if (!ready || !config?.client_id || !slot.current) return
-    const google = (window as unknown as { google?: GoogleIdentity }).google
-    if (!google) return
-
-    google.accounts.id.initialize({
-      client_id: config.client_id,
-      hosted_domain: config.hosted_domain || undefined,
-      callback: ({ credential }) => {
-        onError(null)
-        void signInWithGoogle(credential).catch((err: unknown) =>
-          onError(
-            err instanceof Error
-              ? err.message
-              : "Could not sign in with that Google account."
-          )
-        )
-      },
-    })
-    google.accounts.id.renderButton(slot.current, {
-      theme: "outline",
-      size: "large",
-      width: 336,
-      text: "continue_with",
-    })
-  }, [ready, config, signInWithGoogle, onError])
+  }, [config, signInWithGoogle, onError])
 
   if (!config?.enabled) return null
 
@@ -368,28 +359,12 @@ function GoogleButton({ onError }: { onError: (message: string | null) => void }
           form does not jump when it arrives. */}
       <div ref={slot} className="grid min-h-10 place-items-center" />
       <p className="mt-3 text-xs text-fg-subtle">
-        Use the Google account the college gave you. This signs you in to an
-        account that already exists — it does not create one.
+        Use your college Google account, or one you have linked on your profile.
+        This signs you in to an account that already exists — it does not create
+        one.
       </p>
     </div>
   )
-}
-
-/** The slice of Google Identity Services this page uses. */
-type GoogleIdentity = {
-  accounts: {
-    id: {
-      initialize: (options: {
-        client_id: string
-        hosted_domain?: string
-        callback: (response: { credential: string }) => void
-      }) => void
-      renderButton: (
-        parent: HTMLElement,
-        options: { theme: string; size: string; width: number; text: string }
-      ) => void
-    }
-  }
 }
 
 

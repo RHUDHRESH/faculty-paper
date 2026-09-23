@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Inbox, Lock } from "lucide-react"
 
+import { requestValueLabel } from "@/app/account"
 import { can, useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
@@ -22,9 +23,10 @@ import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
 /**
- * The office's side of `profile.tsx`'s "Request a correction" — every
- * pending ask for a name, staff ID, biometric ID, designation, department or
- * Scopus link, and what became of the ones already decided.
+ * The office's side of `profile.tsx`'s "Request a change" — every pending
+ * ask for a name, staff ID, biometric ID, designation, department, Scopus
+ * link, role, faculty type or research quota, and what became of the ones
+ * already decided.
  *
  * Before this screen existed, a correction request was write-only: an admin
  * who missed the notification lost it outright, there was no list of what
@@ -33,8 +35,8 @@ import { toast } from "@/ui/toast"
  * first, oldest ask first inside it, and a decided request stays visible
  * with its outcome rather than vanishing the moment somebody acts on it.
  *
- * Identity fields (`identity: true` — everything but department) can only be
- * decided by a super admin, on the server as much as here: `POST
+ * Identity fields and the post itself (`identity: true` — everything but
+ * department) can only be decided by a super admin, on the server as much as here: `POST
  * /api/admin/profile-requests/{id}` answers 403 to a research-cell account
  * for one of those, unconditionally, even to decline it. Offering the
  * buttons anyway would just turn every identity row into a guaranteed
@@ -128,8 +130,9 @@ export function Requests() {
       <header>
         <PageTitle>Profile requests</PageTitle>
         <Sub className="mt-1">
-          Corrections a claimant cannot make themselves — those fields decide who gets paid
-          and whose record a paper is checked against, so an admin decides here instead.
+          Changes people cannot make to their own account — these details decide who gets
+          paid, whose record a paper is checked against and what an account can do, so an
+          admin decides here instead.
         </Sub>
       </header>
 
@@ -195,7 +198,7 @@ function IdentityBadge() {
   return (
     <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-caution-wash px-1.5 py-0.5 text-xs font-medium text-caution">
       <Lock className="size-3" aria-hidden />
-      Identity — super admin only
+      Super admin only
     </span>
   )
 }
@@ -232,17 +235,17 @@ function RequestRow({ request, isSuperAdmin }: { request: ProfileRequest; isSupe
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="rounded-md bg-sunken px-2 py-1">{request.current_value || "Not set"}</span>
+        <span className="rounded-md bg-sunken px-2 py-1">{shown(request, request.current_value) || "Not set"}</span>
         <span className="text-fg-subtle" aria-hidden>
           →
         </span>
-        <span className="rounded-md bg-accent-wash px-2 py-1 font-medium">{request.proposed_value}</span>
+        <span className="rounded-md bg-accent-wash px-2 py-1 font-medium">{shown(request, request.proposed_value)}</span>
       </div>
 
       {moved && (
         <Callout tone="caution" title="The record moved while this was waiting">
-          {request.label} now reads “{request.value_now || "not set"}”, not “
-          {request.current_value || "not set"}” — what was asked about. Approving overwrites
+          {request.label} now reads “{shown(request, request.value_now) || "not set"}”, not “
+          {shown(request, request.current_value) || "not set"}” — what was asked about. Approving overwrites
           today's value, not the one this request was compared against.
         </Callout>
       )}
@@ -260,7 +263,7 @@ function RequestRow({ request, isSuperAdmin }: { request: ProfileRequest; isSupe
         </div>
       ) : (
         <p className="text-sm text-fg-subtle">
-          Only a super admin can act on this — it decides identity, not routing.
+          Only a super admin can act on this — it decides pay or identity, not routing.
         </p>
       )}
 
@@ -293,7 +296,7 @@ function ApproveDialog({
   async function confirm() {
     try {
       await decide.mutateAsync({ approve: true })
-      toast.ok(`Approved — ${request.label} → “${request.proposed_value}” for ${request.requested_by.name}`)
+      toast.ok(`Approved — ${request.label} → “${shown(request, request.proposed_value)}” for ${request.requested_by.name}`)
     } catch (err) {
       toast.fail(err)
       // Re-thrown so ConfirmDialog's own confirm() sees the failure and
@@ -310,8 +313,8 @@ function ApproveDialog({
       title={`Approve — ${request.label}?`}
       description={
         moved
-          ? `This writes “${request.proposed_value}” to ${request.requested_by.name}'s ${request.label.toLowerCase()}, replacing what it says today — “${request.value_now || "not set"}” — not what was originally asked about.`
-          : `This writes “${request.proposed_value}” to ${request.requested_by.name}'s ${request.label.toLowerCase()} straight away. That field decides who gets paid and whose record a paper is checked against.`
+          ? `This writes “${shown(request, request.proposed_value)}” to ${request.requested_by.name}'s ${request.label.toLowerCase()}, replacing what it says today — “${shown(request, request.value_now) || "not set"}” — not what was originally asked about.`
+          : `This writes “${shown(request, request.proposed_value)}” to ${request.requested_by.name}'s ${request.label.toLowerCase()} straight away. That field decides who gets paid and whose record a paper is checked against.`
       }
       confirmLabel="Approve"
       onConfirm={confirm}
@@ -370,7 +373,7 @@ function DeclineDialog({
         <DialogHeader>
           <DialogTitle>Decline — {request.label}?</DialogTitle>
           <DialogDescription>
-            {request.requested_by.name} asked for “{request.proposed_value}”.
+            {request.requested_by.name} asked for “{shown(request, request.proposed_value)}”.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -432,9 +435,9 @@ function DecidedRow({ request }: { request: ProfileRequest }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-        <span>{request.current_value || "Not set"}</span>
+        <span>{shown(request, request.current_value) || "Not set"}</span>
         <span aria-hidden>→</span>
-        <span>{request.proposed_value}</span>
+        <span>{shown(request, request.proposed_value)}</span>
       </div>
 
       {request.decision_note && <p className="text-sm text-fg-muted">“{request.decision_note}”</p>}
@@ -450,6 +453,11 @@ function DecidedRow({ request }: { request: ProfileRequest }) {
 /* ------------------------------------------------------------------------ */
 /* Small helpers                                                            */
 /* ------------------------------------------------------------------------ */
+
+/** A requested value as a person reads it: "Head of department", not "HOD". */
+function shown(request: ProfileRequest, value: string): string {
+  return requestValueLabel(request.field, value)
+}
 
 function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return ""

@@ -179,6 +179,17 @@ def can_view_audit(role: str) -> bool:
     return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE)
 
 
+def can_review_flags(role: str) -> bool:
+    """Raise, read and resolve discrepancy flags, and browse the whole history.
+
+    The desks that judge a paper: the office roles and the Principal. Not the
+    Director or Finance, who authorise and pay what those desks decided and
+    are not shown the doubts about it (the same rule as a contested
+    payment-history match, `core.visibility`); not a claimant.
+    """
+    return role in (*ADMIN_ROLES, Role.PRINCIPAL)
+
+
 # Back-compat aliases used by older api paths
 def can_admin_approve(role: str) -> bool:
     return can_clear_claims(role)

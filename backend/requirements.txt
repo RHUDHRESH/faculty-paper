@@ -18,6 +18,10 @@ django-storages[google,s3]>=1.14
 reportlab>=4.2
 python-docx>=1.1
 
+# Reads the text of every PDF attached to a claim so it can be compared with
+# what the claim says (core/services/content_check.py). Pure Python.
+pypdf>=6.0
+
 # Sign-in providers. Both verify a token against the issuer's published keys
 # rather than holding a secret, so neither needs a credential in settings.
 #

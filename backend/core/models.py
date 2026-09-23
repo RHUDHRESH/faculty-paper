@@ -1624,3 +1624,115 @@ class StoredFile(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class ClaimFlag(models.Model):
+    """A discrepancy somebody noticed on a claim, which never stops it.
+
+    The college's rule (2026-09-23): a claim with a question over it keeps
+    moving and can be paid. Holding the money until the question is answered
+    is what a hold is for; a flag is the record that the question was asked,
+    by whom, and what the answer was -- so that paying a claim somebody had
+    doubts about is a visible decision rather than an unnoticed one.
+
+    Seen by the research cell, the coordinator, the Principal and the super
+    admin. Never by the Director or Finance (the same rule as the contested
+    payment-history match, `core.visibility`) and never by the claimant.
+    """
+
+    class Kind(models.TextChoices):
+        CONTENT_MISMATCH = "CONTENT_MISMATCH", "The file does not match the claim"
+        AMOUNT = "AMOUNT", "Amount"
+        AUTHOR = "AUTHOR", "Author"
+        AFFILIATION = "AFFILIATION", "Affiliation"
+        DUPLICATE = "DUPLICATE", "Possible duplicate"
+        OTHER = "OTHER", "Something else"
+
+    class Source(models.TextChoices):
+        AUTO = "AUTO", "Raised by a check"
+        MANUAL = "MANUAL", "Raised by a reviewer"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="flags")
+    kind = models.CharField(max_length=32, choices=Kind.choices, db_index=True)
+    source = models.CharField(max_length=8, choices=Source.choices, default=Source.MANUAL)
+    note = models.TextField()
+    #: Null for a flag a check raised on its own.
+    raised_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="flags_raised"
+    )
+    raised_at = models.DateTimeField(auto_now_add=True)
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="flags_resolved"
+    )
+    resolved_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    resolution_note = models.TextField(blank=True, null=True)
+    #: What an automatic check keys its flag on -- one flag per file, per
+    #: import rule -- so running the check again raises nothing twice, and a
+    #: flag somebody has resolved is not raised again behind their back.
+    #: Null on a reviewer's own flag: two people may well ask two questions.
+    auto_key = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        ordering = ["-raised_at"]
+        indexes = [models.Index(fields=["claim", "resolved_at"])]
+        constraints = [
+            models.UniqueConstraint(fields=["claim", "auto_key"], name="one_auto_flag_per_key")
+        ]
+
+    @property
+    def is_open(self) -> bool:
+        return self.resolved_at is None
+
+    def __str__(self) -> str:
+        return f"{self.kind} on {self.claim_id}"
+
+
+class AttachmentCheck(models.Model):
+    """What one file on a claim was found to say, against what the claim says.
+
+    Keyed on the claim and the file's URL rather than on the attachment row:
+    a draft's attachment set is deleted and rebuilt on every save
+    (`_persist_attachments`), and a result tied to the row would vanish with
+    it while the file itself had not changed.
+    """
+
+    class Outcome(models.TextChoices):
+        MATCHED = "MATCHED", "The file says what the claim says"
+        MISMATCH = "MISMATCH", "The title or DOI is not in the file"
+        NO_TEXT = "NO_TEXT", "No text to read -- probably scanned"
+        UNREADABLE = "UNREADABLE", "The file could not be opened"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="file_checks")
+    url = models.TextField()
+    kind = models.CharField(max_length=32, choices=AttachmentKind.choices)
+    filename = models.CharField(max_length=255, blank=True, null=True)
+    #: The bytes that were read.
+    content_hash = models.CharField(max_length=64, blank=True, null=True)
+    #: The claim's facts the file was compared with, hashed
+    #: (`content_check.claim_fingerprint`). A result is reused only while the
+    #: claim still says the same thing; change the title and the file is read
+    #: again.
+    claim_fingerprint = models.CharField(max_length=64, blank=True, null=True)
+    outcome = models.CharField(max_length=16, choices=Outcome.choices)
+    #: Which of the claim's facts turned up in the text, and which did not:
+    #: title, doi, journal, claimant, affiliation (a published paper) or
+    #: reference_title, affiliation (a cited reference).
+    found_json = models.TextField(default="[]")
+    missing_json = models.TextField(default="[]")
+    #: Found as a share of what could be looked for, 0-100. Null when there
+    #: was no text to look in.
+    score = models.PositiveSmallIntegerField(blank=True, null=True)
+    detail = models.TextField(blank=True, null=True)
+    text_chars = models.PositiveIntegerField(default=0)
+    checked_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["checked_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["claim", "url"], name="one_check_per_claim_file")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.outcome} {self.url}"

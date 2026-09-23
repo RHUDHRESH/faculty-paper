@@ -115,6 +115,19 @@ def run_bulk_verify(claim_ids: list[str], actor_id: str | None = None) -> dict:
     return {"verified": done, "failed": failed}
 
 
+def run_claim_file_check(claim_id: str, force: bool = True) -> dict:
+    """Read a claim's PDFs and compare them with the claim.
+
+    Queued when a paper is filed and when a reviewer asks for it: a 10 MB
+    publisher PDF takes seconds to parse, which a filing request should not
+    wait on. See core.services.content_check.
+    """
+    from core.services.content_check import check_claim_files
+
+    checks, raised = check_claim_files(claim_id, force=force)
+    return {"claim": claim_id, "checked": len(checks), "flags_raised": raised}
+
+
 def recover_stale_batches() -> list[str]:
     """Re-enqueue RUNNING batches whose heartbeat went stale.
 

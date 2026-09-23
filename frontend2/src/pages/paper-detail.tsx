@@ -3,8 +3,10 @@ import { Link, useParams } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { reviewsFlags } from "@/app/nav"
 import { useApi, useApiMutation } from "@/lib/query"
-import { AttachmentGallery, type Attachment } from "@/ui/attachments"
+import { ClaimFlagsPanel, FileCheckLine, useClaimReview } from "@/pages/claim-review"
+import { AttachmentGallery, extensionOf, isOwnMedia, type Attachment } from "@/ui/attachments"
 import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
 import {
@@ -169,6 +171,13 @@ export function PaperDetail() {
     `/api/claims/${id}/withdraw`,
     { invalidates: [["claim", id], ["my-claims"]] }
   )
+
+  // The desks that judge a paper also see its flags and what its files were
+  // found to say. Asked for here, above the early returns, because a hook
+  // cannot wait for the claim to load; the server refuses anybody else.
+  const reviewer = reviewsFlags(me?.role)
+  const review = useClaimReview(id, reviewer)
+  const checksByUrl = new Map((review.data?.file_checks ?? []).map((c) => [c.url, c]))
 
   if (isLoading) {
     return (
@@ -552,6 +561,16 @@ export function PaperDetail() {
         <SectionTitle>Attachments</SectionTitle>
         <AttachmentGallery
           files={claim.attachments}
+          annotate={
+            reviewer
+              ? (file) => (
+                  <FileCheckLine
+                    check={checksByUrl.get(file.url)}
+                    readable={isOwnMedia(file.url) && extensionOf(file) === "pdf"}
+                  />
+                )
+              : undefined
+          }
           emptyLabel={
             <>
               No files are attached to this ticket.
@@ -564,6 +583,16 @@ export function PaperDetail() {
       </section>
 
       {claim.team ? <TeamPanel team={claim.team} /> : null}
+
+      {reviewer && claim.status !== "DRAFT" && (
+        <ClaimFlagsPanel
+          claimId={claim.id}
+          review={review.data}
+          loading={review.isLoading}
+          failed={review.isError}
+          onRetry={() => void review.refetch()}
+        />
+      )}
 
       <Notes claimId={claim.id} />
 

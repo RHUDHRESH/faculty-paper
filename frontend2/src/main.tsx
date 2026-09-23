@@ -45,6 +45,8 @@ const Discover = page(() => import("@/pages/discover"), "Discover")
 const Discussions = page(() => import("@/pages/discussions"), "Discussions")
 const Thread = page(() => import("@/pages/discussions"), "Thread")
 const Duplicates = page(() => import("@/pages/duplicates"), "Duplicates")
+const Flags = page(() => import("@/pages/flags"), "Flags")
+const PastClaims = page(() => import("@/pages/archive"), "PastClaims")
 const FilePaper = page(() => import("@/pages/file-paper"), "FilePaper")
 const Imports = page(() => import("@/pages/imports"), "Imports")
 const Gallery = page(() => import("@/pages/gallery"), "Gallery")
@@ -173,6 +175,8 @@ function App() {
           <Route path="/accreditation" element={<Accreditation />} />
           <Route path="/ledger" element={<Ledger />} />
           <Route path="/duplicates" element={<Duplicates />} />
+          <Route path="/flags" element={<Flags />} />
+          <Route path="/archive" element={<PastClaims />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/faults" element={<Faults />} />
           <Route path="/people" element={<People />} />

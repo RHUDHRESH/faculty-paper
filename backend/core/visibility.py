@@ -40,6 +40,12 @@ faculty member who also heads the department, so on their own claims they are
 the claimant: those are shaped exactly as above and keep their amounts. Every
 row that names anybody else as its owner loses every money key
 (`hod.for_head`, which holds the rule and its one exception).
+
+**Discrepancy flags and file checks are for the desks that judge a paper.**
+The office roles and the Principal see them (`rbac.can_review_flags`);
+everybody else -- the Director and Finance, the claimant, a head of
+department -- has every `FLAG_KEYS` key removed, and the audit entries flags
+leave behind are withheld from the Director and Finance with the contest's.
 """
 from __future__ import annotations
 
@@ -50,6 +56,7 @@ from django.utils import timezone
 
 from core import hod
 from core.models import ClaimStatus, Role
+from core.services import rbac
 
 #: Every key that carries a contested or duplicate flag, under the names the
 #: serialisers actually emit.
@@ -73,10 +80,22 @@ CONTEST_BLIND_ROLES = frozenset({Role.DIRECTOR, Role.FINANCE})
 #: History steps whose note is the claimant's contest note.
 _CONTEST_ACTIONS = {"CONTEST_FORWARD": "SUBMIT", "RESUBMIT": "RESUBMIT"}
 
-#: Audit entries that exist only because of a duplicate. Filtered out of the
-#: audit log for the contest-blind roles by the audit endpoint itself, since a
-#: row has to be dropped from the count as well as from the page.
-CONTEST_AUDIT_ACTIONS = ("DUPLICATE_REVIEW",)
+#: Every key a discrepancy flag or a file check travels under. Shown to the
+#: desks that judge a paper (`rbac.can_review_flags`) and stripped from what
+#: anybody else receives -- the Director and Finance for the same reason as a
+#: contest, the claimant because the doubt is about their own paper. The
+#: endpoints that carry them refuse everybody else anyway; this is the net
+#: under a future endpoint that forgets.
+FLAG_KEYS = frozenset({"flags", "open_flags", "file_checks"})
+
+#: Audit entries a flag leaves behind.
+FLAG_AUDIT_ACTIONS = ("CLAIM_FLAG_RAISE", "CLAIM_FLAG_RESOLVE", "CLAIM_FILES_CHECK")
+
+#: Audit entries that exist only because of a duplicate or a flag. Filtered
+#: out of the audit log for the contest-blind roles by the audit endpoint
+#: itself, since a row has to be dropped from the count as well as from the
+#: page.
+CONTEST_AUDIT_ACTIONS = ("DUPLICATE_REVIEW", *FLAG_AUDIT_ACTIONS)
 
 
 def is_contest_blind(role: str | None) -> bool:
@@ -255,9 +274,20 @@ def for_claimant(value: Any, *, owner_id: Any = None) -> Any:
     return value
 
 
+def without_flags(value: Any) -> Any:
+    """The same structure with every discrepancy flag and file check removed."""
+    if isinstance(value, dict):
+        return {k: without_flags(v) for k, v in value.items() if k not in FLAG_KEYS}
+    if isinstance(value, (list, tuple)):
+        return [without_flags(v) for v in value]
+    return value
+
+
 def for_viewer(user: Any, value: Any) -> Any:
     """`value` as the signed-in `user` may see it."""
     role = getattr(user, "role", None)
+    if not rbac.can_review_flags(role):
+        value = without_flags(value)
     if is_contest_blind(role):
         return without_contest_flags(value)
     if role == Role.FACULTY:

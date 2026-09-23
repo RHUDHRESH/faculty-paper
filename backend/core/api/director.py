@@ -45,6 +45,7 @@ from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, Notification, PAYABLE_STATUSES, PaidLedger, Role, User
 from core import visibility
+from core.services import flags as flag_service
 from core.services import rbac
 from core.services.verify import apply_verify_to_claim, verify_publication
 
@@ -473,6 +474,9 @@ def _mark_one_paid(
         if voucher_number:
             claim.voucher_number = str(voucher_number)[:64]
         _transition(claim, user, ClaimStatus.PAID, "MARK_PAID", note)
+        # Paid, not held: a flag never stops a payment. The super admin is
+        # told that one went out with a question still open.
+        flag_service.announce_paid_with_open_flags(claim)
         payout = claim.payout_month
         if not payout:
             today = timezone.now().date()

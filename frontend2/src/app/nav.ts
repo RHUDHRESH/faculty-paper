@@ -11,6 +11,8 @@ import {
   Database,
   FileCheck,
   FileText,
+  Flag,
+  History,
   Home,
   Import,
   type LucideIcon,
@@ -68,6 +70,15 @@ const ALL_STAFF: Role[] = [
 const OFFICE: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
 //: Mirrors `rbac.CLAIMANT_ROLES`: the people who file their own papers.
 const CLAIMANTS: Role[] = ["FACULTY", "HOD"]
+//: Mirrors `rbac.can_review_flags`: the desks that judge a paper. Not the
+//: Director or Finance, who are not shown the doubts about what they
+//: authorise and pay, and not a claimant.
+export const REVIEWERS: Role[] = [...OFFICE, "PRINCIPAL"]
+
+/** Raise, read and resolve flags, and browse the whole history. */
+export function reviewsFlags(role: Role | undefined): boolean {
+  return !!role && REVIEWERS.includes(role)
+}
 
 export const NAV: NavItem[] = [
   // ---- the daily work, unlabelled -------------------------------------
@@ -253,6 +264,24 @@ export const NAV: NavItem[] = [
     roles: [...OFFICE, "PRINCIPAL"],
     group: "Look at",
     keywords: ["double payment", "repeats"],
+  },
+  {
+    to: "/flags",
+    label: "Flags",
+    icon: Flag,
+    // `rbac.can_review_flags`. A flag never holds a payment, so the queue is
+    // for reading and answering, not for unblocking anything.
+    roles: REVIEWERS,
+    group: "Look at",
+    keywords: ["discrepancy", "mismatch", "question", "concern", "content check", "scanned"],
+  },
+  {
+    to: "/archive",
+    label: "Past claims",
+    icon: History,
+    roles: REVIEWERS,
+    group: "Look at",
+    keywords: ["history", "paid", "imported", "erp", "old", "archive", "look back"],
   },
   {
     to: "/faults",

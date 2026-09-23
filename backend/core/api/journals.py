@@ -444,6 +444,12 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
     )
     headline = f"{'Needs review: ' if claim.contest_forward else ''}{claim.paper_title}"
     _notify_admins(claim, f"To clear · {claim.ticket_number}", headline)
+    # Read the files now the claim says what it will say. Queued, and never
+    # able to undo or refuse the filing: a paper that does not match its
+    # files is flagged for the desk, not bounced back to the claimant.
+    from core.services.content_check import enqueue_file_check
+
+    enqueue_file_check(claim.id)
 
 
 @api.patch("/claims/{claim_id}", auth=session_auth)

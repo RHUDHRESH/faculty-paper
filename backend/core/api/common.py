@@ -362,12 +362,19 @@ def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
 
 
 def _notify_admin_users(
-    title: str, body: str, href: str, *, super_admin_only: bool = False
+    title: str,
+    body: str,
+    href: str,
+    *,
+    super_admin_only: bool = False,
+    claim_id: str | None = None,
 ) -> None:
-    """An admin notification that is not about a particular ticket."""
+    """An admin notification, about one ticket when `claim_id` says which."""
     roles = (Role.SUPER_ADMIN,) if super_admin_only else rbac.ADMIN_ROLES
     for u in User.objects.filter(role__in=roles, active=True):
-        Notification.objects.create(user=u, title=title, body=body, href=href)
+        Notification.objects.create(
+            user=u, title=title, body=body, href=href, claim_id=claim_id
+        )
         send_optional_email(u.email, title, body)
 
 

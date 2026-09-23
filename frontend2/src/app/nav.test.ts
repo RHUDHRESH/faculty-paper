@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { can } from "@/app/auth"
-import { navFor } from "@/app/nav"
+import { navFor, reviewsFlags } from "@/app/nav"
 
 /**
  * A head of department is a faculty member who also heads the department
@@ -20,6 +20,21 @@ describe("a head of department files papers", () => {
     expect(paths("FACULTY")).toEqual(expect.arrayContaining(["/papers", "/papers/new"]))
     for (const role of ["PRINCIPAL", "DIRECTOR", "FINANCE"] as const) {
       expect(paths(role)).not.toContain("/papers/new")
+    }
+  })
+
+  it("offers Flags and Past claims to the desks that judge a paper, and to nobody else", () => {
+    for (const role of ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL"] as const) {
+      expect(paths(role)).toEqual(expect.arrayContaining(["/flags", "/archive"]))
+      expect(reviewsFlags(role)).toBe(true)
+    }
+    // `rbac.can_review_flags`: the Director and Finance are not shown the
+    // doubts about what they authorise and pay; a claimant is not shown the
+    // doubts about their own paper.
+    for (const role of ["DIRECTOR", "FINANCE", "FACULTY", "HOD"] as const) {
+      expect(paths(role)).not.toContain("/flags")
+      expect(paths(role)).not.toContain("/archive")
+      expect(reviewsFlags(role)).toBe(false)
     }
   })
 

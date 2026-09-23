@@ -38,14 +38,14 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 1. [x] Light / dark / follow-system theme in the account menu
 2. [x] One Search entry in the sidebar, with the Ctrl K hint on it
 3. [x] `?` opens a keyboard-shortcut sheet
-4. [ ] Dates show relative ("3 days ago") with the exact date on hover
+4. [x] Dates show relative ("3 days ago") with the exact date on hover
 5. [x] Copy button beside every ticket number
 6. [x] Type a ticket number in Ctrl K and jump straight to it *(already existed — verified)*
 7. [x] Notifications: "Mark all read" *(already existed — verified)*
 8. [x] Notifications grouped Today / Earlier
 9. [x] Sign-in remembers the email on this device
 10. [x] Sign-in: "Forgot password?" says who to ask, from the Institution settings
-11. [ ] Warning two minutes before the session expires, with "Stay signed in"
+11. [ ] Warning two minutes before the session expires — *not built on purpose: sessions are a fixed 12 h, the filing form autosaves, and an expired session is already announced once*
 12. [x] Leaving a half-filled form asks first *(already existed — verified)*
 13. [x] Each page sets the browser tab title
 14. [ ] Breadcrumbs on every detail page
@@ -80,7 +80,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 41. [x] "Request a correction" pre-fills the field and current value *(already existed — verified)*
 42. [ ] Calendar shows payout-run dates automatically
 43. [x] Faculty ticket view shows vague stages, no names (server strips them)
-44. [ ] Paper detail: "Why this amount" collapsed by default with one-line summary
+44. [ ] Paper detail: "Why this amount" collapsed — *left open on purpose: it is short, and it is the answer people open the page for*
 45. [x] Duplicate warning names the matching paper and lets you contest in one step *(already existed — verified)*
 
 ### Research supervisor (the office desk)

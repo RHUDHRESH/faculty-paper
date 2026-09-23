@@ -17,6 +17,7 @@ import {
 } from "@/ui/paper"
 import { Journey, facultyStage } from "@/ui/journey"
 import { CopyButton } from "@/ui/copy"
+import { When } from "@/ui/when"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonText } from "@/ui/state"
 import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -1164,7 +1165,9 @@ function ClaimantHistory({ claim }: { claim: Claim }) {
         <li key={e.id} className="text-sm">
           <p>{e.text}</p>
           {e.note && <p className="text-fg-muted">{e.note}</p>}
-          <Meta>{formatDateTime(e.at)}</Meta>
+          <Meta>
+            <When iso={e.at} />
+          </Meta>
         </li>
       ))}
     </ul>

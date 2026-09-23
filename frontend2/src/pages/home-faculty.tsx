@@ -9,6 +9,7 @@ import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
 import { Journey, facultyStage } from "@/ui/journey"
 import { cn } from "@/lib/cn"
+import { When } from "@/ui/when"
 
 /**
  * What a claimant opens the app to find out: is my money coming, and is
@@ -205,7 +206,7 @@ export function FacultyHome() {
               <li key={c.id} className="panel flex flex-wrap items-center justify-between gap-3 p-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-fg-muted">
-                    Draft{c.updated_at ? ` · last edited ${onDate(c.updated_at)}` : ""}
+                    Draft{c.updated_at ? <> · last edited <When iso={c.updated_at} /></> : ""}
                   </p>
                   <p className="mt-0.5 truncate font-medium">{c.paper_title || (c.doi ? `DOI ${c.doi}` : "Untitled paper")}</p>
                   {!c.remuneration && (
@@ -277,7 +278,7 @@ export function FacultyHome() {
                   >
                     <Wallet className="size-4 shrink-0 text-positive" aria-hidden />
                     <span className="min-w-0 flex-1 truncate">{c.paper_title}</span>
-                    <span className="hidden text-sm text-fg-muted sm:block">{onDate(c.paid_at)}</span>
+                    <When iso={c.paid_at} className="hidden text-sm text-fg-muted sm:block" />
                     <Amount claim={c} />
                   </Link>
                 </li>

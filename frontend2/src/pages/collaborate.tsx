@@ -401,8 +401,8 @@ function NetworkGraph({ graph, meId }: { graph: Graph; meId?: string }) {
           : ""}
       </Meta>
 
-      <div className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(0,1fr)_14rem]">
-        <div ref={box} className="mx-auto aspect-square w-full max-w-md">
+      <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-x-6 gap-y-3 sm:grid-cols-[minmax(0,1fr)_14rem]">
+        <div ref={box} className="mx-auto aspect-square w-full min-w-0 max-w-md">
           {w > 0 && (
             <svg
               width={w}

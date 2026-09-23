@@ -151,6 +151,10 @@ session_auth = SessionAuth()
 
 IMPERSONATOR_KEY = "impersonator_id"
 
+#: POSTs a viewer may still make: leaving the view, and the payout
+#: calculator, which works a figure out and stores nothing.
+_WRITES_ALLOWED_WHILE_VIEWING = {"/api/admin/stop-impersonating", "/api/calculate"}
+
 _PASSWORD_CHANGE_EXEMPT = {"/api/auth/change-password", "/api/auth/me"}
 
 #: The expensive endpoints run under a per-account fixed-window cap. The
@@ -686,7 +690,7 @@ def require_user(request: HttpRequest) -> User:
     if request.session.get(IMPERSONATOR_KEY) and request.method not in (
         "GET", "HEAD", "OPTIONS",
     ):
-        if request.path != "/api/admin/stop-impersonating":
+        if request.path not in _WRITES_ALLOWED_WHILE_VIEWING:
             raise HttpError(
                 403,
                 "You are viewing as another user. Stop impersonating before making "

@@ -2521,6 +2521,16 @@ class SuperAdminPowersTests(TestCase):
         own.force_login(self.alice)
         self.assertEqual(own.get("/api/claims").status_code, 403)
 
+    def test_stopping_works_after_viewing_somebody_who_owes_a_password_change(self):
+        self.alice.must_change_password = True
+        self.alice.save()
+        self.client.force_login(self.admin)
+        self.post(f"/api/admin/impersonate/{self.alice.id}", {})
+        self.client.get("/api/claims")
+        r = self.post("/api/admin/stop-impersonating", {})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(self.client.get("/api/auth/me").json()["email"], "power-admin@test.edu")
+
 
     def test_stopping_returns_the_admin_to_themselves(self):
         self.client.force_login(self.admin)

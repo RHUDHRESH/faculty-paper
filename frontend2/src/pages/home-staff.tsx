@@ -508,6 +508,21 @@ export function FinanceHome() {
     `/api/admin/payouts?status=DIRECTOR_APPROVED&limit=${PAYABLE_PAGE}`
   )
   const budget = useApi<BudgetSummary>(["budgets", ""], "/api/budgets")
+  // What went out this month and last, straight off the ledger (reversals
+  // included, so a voided payment is not counted twice).
+  const now = new Date()
+  const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+  const thisMonth = ym(now)
+  const lastMonth = ym(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+  const paidThis = useApi<{ total: number; total_amount: number }>(
+    ["ledger", "month", thisMonth],
+    `/api/admin/ledger?month=${thisMonth}&limit=1`
+  )
+  const paidLast = useApi<{ total: number; total_amount: number }>(
+    ["ledger", "month", lastMonth],
+    `/api/admin/ledger?month=${lastMonth}&limit=1`
+  )
+  const monthName = (d: Date) => d.toLocaleDateString("en-IN", { month: "long" })
 
   const rows = payable.data?.results ?? []
   const total = payable.data?.total ?? 0
@@ -522,7 +537,7 @@ export function FinanceHome() {
       <header>
         <PageTitle>{greeting(me?.name)}</PageTitle>
         <Sub className="mt-1">
-          Everything the Principal has approved and Finance has not yet paid.
+          Everything the Director has authorised and Finance has not yet paid.
         </Sub>
       </header>
 
@@ -551,6 +566,21 @@ export function FinanceHome() {
           tone={blocked.length ? "caution" : undefined}
           loading={payable.isLoading}
           muted={blocked.length === 0}
+        />
+      </section>
+
+      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+        <Figure
+          label={`Paid in ${monthName(now)}`}
+          value={money(paidThis.data?.total_amount)}
+          hint={paidThis.data ? `${paidThis.data.total} ledger row${paidThis.data.total === 1 ? "" : "s"}` : undefined}
+          loading={paidThis.isLoading}
+        />
+        <Figure
+          label={`Paid in ${monthName(new Date(now.getFullYear(), now.getMonth() - 1, 1))}`}
+          value={money(paidLast.data?.total_amount)}
+          hint={paidLast.data ? `${paidLast.data.total} ledger row${paidLast.data.total === 1 ? "" : "s"}` : undefined}
+          loading={paidLast.isLoading}
         />
       </section>
 
@@ -588,8 +618,8 @@ export function FinanceHome() {
             </ul>
           ) : ready.length === 0 ? (
             <p className="border-y border-line py-10 text-center text-sm text-fg-muted">
-              Nothing is payable. Approved papers appear here the moment the Principal signs them
-              off.
+              Nothing is payable. A paper appears here the moment the Director authorises
+              it.
             </p>
           ) : (
             <ul className="divide-y divide-line border-y border-line">

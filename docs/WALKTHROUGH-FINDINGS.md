@@ -30,6 +30,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 | [x] D18 | Filing | Heading flips to "Edit your draft" after first autosave; no "step n of 5" | walkthrough |
 | [x] D19 | Look | Sign-in half empty; homes are bare numbers on grey; serif titles read as a blog | screenshots |
 | [x] D20 | Faculty screens | `stageOf().who` told claimants "Waiting for the Principal / Director / with Finance" on home, My papers and the ticket page | code |
+| [x] D21 | Finance | Finance's home and payments said a paper is payable once "the Principal" approves it — it is the Director's authorisation | screenshot |
 | ~~F5~~ | Filing | *False positive:* the DOI input is labelled; the browser tool named it by placeholder | checked in page |
 
 ## The 100 improvements
@@ -130,7 +131,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 83. [x] Bank payment file export (CSV)
 84. [x] Void moves to super admin only
 85. [x] No Duplicates page
-86. [ ] Monthly paid summary
+86. [x] Monthly paid summary
 87. [x] Printable payment register
 88. [ ] Payment date defaults to today, changeable
 

@@ -33,7 +33,7 @@ import { toast } from "@/ui/toast"
 
 /**
  * Where money actually leaves the college — the queue of tickets the
- * Principal has approved, waiting on a voucher and a click.
+ * Director has authorised, waiting on a voucher and a click.
  *
  * `Payments` pays; `PaymentsDone` shows what has already gone out and is the
  * only place a payment can be undone. Both guard the same thing: the figure
@@ -309,7 +309,7 @@ export function Payments() {
           art="nothing-paid"
           icon={Banknote}
           title="Nothing waiting on Finance"
-          message="Every ticket the Principal has approved has already been paid."
+          message="Every ticket the Director has authorised has already been paid."
         />
       ) : (
         <>

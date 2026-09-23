@@ -81,8 +81,9 @@ CAPABILITIES: list[Capability] = [
         "Only finance moves money.",
         {"expected_amount": 1}, "Money"),
     cap("Void a payment", "POST", "/api/claims/{claim}/void-payment",
-        {FINANCE, SUPER_ADMIN},
-        "Reversing a payment is the same power as making one.",
+        {SUPER_ADMIN},
+        "Finance pays and does nothing else; reversing a payment sends the "
+        "paper backwards, which is the super admin's rescue.",
         {"note": "reversing an incorrect disbursement"}, "Money"),
     cap("Second-approve a high-value ticket", "POST",
         "/api/claims/{claim}/second-approve",
@@ -100,6 +101,39 @@ CAPABILITIES: list[Capability] = [
     cap("Approve a batch as principal", "POST", "/api/principal/bulk-approve",
         {PRINCIPAL, SUPER_ADMIN}, "The approval step, at scale.",
         {"claim_ids": ["{claim}"]}, "Money"),
+
+    # ---- the review desks ------------------------------------------------
+    # The probe claim is SUBMITTED, so it sits at the research supervisor's
+    # desk. Payloads are deliberately too short to succeed: an allowed role
+    # reaches the handler and is refused with a 400, and the probe claim never
+    # moves -- a claim rejected by the first role would change what every
+    # later door is asked about.
+    cap("Hold a paper at its desk", "POST", "/api/claims/{claim}/hold",
+        ADMINS,
+        "Only whoever sits at the desk the paper is at. A submitted paper is at "
+        "the research supervisor's desk, so not the Principal's.",
+        {"reason": "short"}, "Desks"),
+    cap("Resume a held paper", "POST", "/api/claims/{claim}/resume",
+        ADMINS, "The desk that may hold it may resume it.", {}, "Desks"),
+    cap("Return a paper to the faculty", "POST",
+        "/api/claims/{claim}/return-to-faculty",
+        ADMINS,
+        "From the desk the paper is at. The Director and Finance only move a "
+        "paper forward.",
+        {"note": "x"}, "Desks"),
+    cap("Reject a paper outright", "POST", "/api/claims/{claim}/reject-outright",
+        ADMINS, "The same desks, the same rule, and final.", {"note": "x"}, "Desks"),
+    cap("Return a paper one step", "POST", "/api/claims/{claim}/return-one-step",
+        {PRINCIPAL, SUPER_ADMIN},
+        "The Principal's desk returns a cleared paper to the research "
+        "supervisor's.",
+        {"note": "x"}, "Desks"),
+    cap("Send an approved paper back from the Director's desk", "POST",
+        "/api/claims/{claim}/director-reject",
+        {SUPER_ADMIN},
+        "The Director authorises and does not send back; a super admin keeps "
+        "this as the rescue.",
+        {"note": "x"}, "Desks"),
 
     # ---- the rules money is computed by ---------------------------------
     cap("Rewrite the payout formula", "PUT", "/api/admin/formula",

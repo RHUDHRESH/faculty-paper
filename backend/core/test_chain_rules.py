@@ -491,3 +491,114 @@ class ReturnAndRejectTests(ChainBase):
         self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
         self.assertFalse(claim.rejected_outright)
 
+
+# --------------------------------------------------------------------------- #
+# 3. The Director and Finance only move a paper forward                       #
+# --------------------------------------------------------------------------- #
+
+
+class ForwardOnlyTests(ChainBase):
+    def _approved(self, ticket="FW-1"):
+        return self._claim(
+            ClaimStatus.PRINCIPAL_APPROVED, ticket=ticket,
+            cleared_by=self.cell, cleared_at=timezone.now(),
+            principal_approved_by=self.principal, principal_approved_at=timezone.now(),
+        )
+
+    def _authorised(self, ticket="FW-A"):
+        return self._claim(
+            ClaimStatus.DIRECTOR_APPROVED, ticket=ticket,
+            cleared_by=self.cell, cleared_at=timezone.now(),
+            principal_approved_by=self.principal, principal_approved_at=timezone.now(),
+            second_approved_by=self.principal, second_approved_at=timezone.now(),
+            director_approved_by=self.director, director_approved_at=timezone.now(),
+        )
+
+    def _paid(self, ticket="FW-P"):
+        from datetime import date
+
+        from core.models import PaidLedger
+
+        claim = self._authorised(ticket)
+        claim.status = ClaimStatus.PAID
+        claim.paid_at = timezone.now()
+        claim.save()
+        PaidLedger.objects.create(
+            claim=claim, payout_month=date(2026, 9, 1), amount=claim.remuneration,
+            faculty_name=self.faculty.name, voucher_number="V-FW",
+        )
+        return claim
+
+    def test_the_director_cannot_send_a_paper_back(self):
+        claim = self._approved()
+        r = self._post(
+            self.director, f"/api/claims/{claim.id}/director-reject",
+            {"note": "Past the quarter's allocation"},
+        )
+        self.assertEqual(r.status_code, 403, r.content)
+        self.assertIn("authorise", r.json()["detail"].lower())
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.PRINCIPAL_APPROVED)
+        self.assertEqual(claim.principal_approved_by, self.principal)
+
+    def test_a_super_admin_can_still_send_one_back_from_there(self):
+        claim = self._approved()
+        r = self._post(
+            self.admin, f"/api/claims/{claim.id}/director-reject",
+            {"note": "Approved against the wrong budget head"},
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+        self.assertIsNone(claim.principal_approved_by_id)
+
+    def test_the_director_still_authorises_one_and_many(self):
+        one = self._approved("FW-1")
+        many = self._approved("FW-2")
+        r = self._post(
+            self.director, f"/api/claims/{one.id}/director-approve",
+            {"expected_amount": one.remuneration},
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        r = self._post(self.director, "/api/director/bulk-approve", {"claim_ids": [many.id]})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["approved"], 1)
+
+    def test_finance_still_pays(self):
+        claim = self._authorised()
+        r = self._post(
+            self.finance, f"/api/claims/{claim.id}/mark-paid",
+            {"expected_amount": claim.remuneration},
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.PAID)
+
+    def test_finance_cannot_void_a_payment(self):
+        claim = self._paid()
+        r = self._post(
+            self.finance, f"/api/claims/{claim.id}/void-payment",
+            {"note": "Paid against the wrong voucher"},
+        )
+        self.assertEqual(r.status_code, 403, r.content)
+        self.assertIn("super admin", r.json()["detail"].lower())
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.PAID)
+        self.assertEqual(claim.ledger_rows.count(), 1)
+
+    def test_only_a_super_admin_voids_a_payment(self):
+        claim = self._paid()
+        for who in (self.director, self.principal, self.cell, self.coordinator):
+            r = self._post(
+                who, f"/api/claims/{claim.id}/void-payment",
+                {"note": "Paid against the wrong voucher"},
+            )
+            self.assertEqual(r.status_code, 403, f"{who.role}: {r.content}")
+        r = self._post(
+            self.admin, f"/api/claims/{claim.id}/void-payment",
+            {"note": "Paid against the wrong voucher"},
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+

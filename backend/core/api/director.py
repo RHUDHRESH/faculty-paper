@@ -257,13 +257,22 @@ def director_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
 def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
     """Send an approved ticket back to the Principal with a reason.
 
-    Back one step, not all the way: what the Director is querying is the
-    approval, so it returns to the person who gave it. Dropping it to the
-    claimant instead would have somebody who did nothing wrong re-filing a
-    paper to answer a question about the institution's budget.
+    Super admin only. The chain past the Principal is forward-only: the
+    Director authorises, and a question about a Principal-approved paper is
+    raised with the Principal rather than by bouncing the paper. A super admin
+    keeps this as the rescue for an approval given against the wrong facts.
+
+    Back one step, not all the way: what is being queried is the approval, so
+    it returns to the person who gave it.
     """
     user = require_user(request)
-    if not _may_approve_as_director(user.role):
+    if user.role == Role.DIRECTOR:
+        raise HttpError(
+            403,
+            "The Director authorises and does not send papers back. Raise the "
+            "question with the Principal, or ask a super admin to return it.",
+        )
+    if user.role != Role.SUPER_ADMIN:
         raise HttpError(403, "Forbidden")
     note = (payload.note or "").strip()
     if len(note) < 5:
@@ -289,7 +298,7 @@ def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
     ):
         Notification.objects.create(
             user=u,
-            title=f"Sent back by the Director \u00b7 {claim.ticket_number}",
+            title=f"Returned to the Principal's desk \u00b7 {claim.ticket_number}",
             body=note[:300],
             href=f"/approvals?claim={claim.id}",
             claim_id=claim.id,
@@ -610,10 +619,17 @@ def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
     The ledger is append-only: voiding writes a negative reversing row rather
     than deleting anything, and the claim returns to CLEARED so it can be
     corrected and paid again.
+
+    Super admin only. Finance pays and does nothing else: undoing a payment
+    sends the paper backwards, and backwards is not Finance's direction.
     """
     user = require_user(request)
-    if not rbac.can_approve_as_finance(user.role):
-        raise HttpError(403, "Forbidden")
+    if user.role != Role.SUPER_ADMIN:
+        raise HttpError(
+            403,
+            "Only a super admin can void a payment. Finance pays; a payment "
+            "made in error is reversed by a super admin.",
+        )
     note = (payload.note or "").strip()
     if len(note) < 10:
         raise HttpError(400, "Add a reason (10+ characters) — it goes to the audit trail and the ledger")

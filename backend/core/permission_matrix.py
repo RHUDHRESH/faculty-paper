@@ -307,6 +307,16 @@ CAPABILITIES: list[Capability] = [
         "The roster decides who may claim for a team. A claimant writing a "
         "team could name themselves its mentor.",
         {"code": "MATRIX-TEAM", "members": [{"name": "A"}]}, "Filing"),
+    cap("Import Scopus author profiles", "POST", "/api/admin/scopus-profiles/import",
+        ADMINS,
+        "The office's profile workbook, linked to accounts by Scopus id.",
+        None, "Filing", upload=True),
+    cap("Read the Scopus verification list", "GET",
+        "/api/admin/scopus-profiles/verification",
+        ADMINS,
+        "Which profiles match no account and which accounts carry no or a "
+        "different Scopus id -- the office's list to put right.",
+        None, "Reading"),
 ]
 
 

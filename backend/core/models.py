@@ -1123,6 +1123,48 @@ class TeamMember(models.Model):
         return f"{self.name} ({self.register_number or 'no register number'})"
 
 
+class ScopusProfile(models.Model):
+    """One author's Scopus profile, as the office's profile workbook has it.
+
+    Academic figures, not money: publications, citations, the h-index and the
+    document list Scopus holds for the author. Imported rather than fetched,
+    because the college's workbook is what it has and the Scopus API key is
+    rationed for verifying claims.
+
+    `user` is the account the profile was linked to when it was imported --
+    by the account's own Scopus id, or through the faculty master's. It is a
+    record of that match, not the only way to find a person's profile: an id
+    corrected on an account afterwards is matched again on the next import,
+    and `core.services.scopus_profiles.profile_for` looks the id up directly.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    #: Digits only. The workbook hands them over as floats ("57527550200.0").
+    scopus_id = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="scopus_profiles"
+    )
+    author_name = models.CharField(max_length=255, blank=True, null=True)
+    affiliation = models.CharField(max_length=512, blank=True, null=True)
+    total_publications = models.PositiveIntegerField(blank=True, null=True)
+    total_citations = models.PositiveIntegerField(blank=True, null=True)
+    h_index = models.PositiveIntegerField(blank=True, null=True)
+    #: Every Metric | Value pair on the sheet, as read, plus the Year |
+    #: Publications table under "Publications by year".
+    metrics = models.JSONField(default=dict, blank=True)
+    #: The sheet's document list, one object per paper keyed by its headings.
+    documents = models.JSONField(default=list, blank=True)
+    source_sheet = models.CharField(max_length=255, blank=True, default="")
+    source_file = models.CharField(max_length=255, blank=True, null=True)
+    imported_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["author_name", "scopus_id"]
+
+    def __str__(self) -> str:
+        return f"{self.scopus_id} ({self.source_sheet})"
+
+
 class PaidLedger(models.Model):
     """Master_List_Accounts style month ledger."""
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)

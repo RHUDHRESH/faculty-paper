@@ -26,6 +26,7 @@ from core.models import AuditLog, Claim, ClaimNote, ClaimStatus, Role, User
 from core.services import rbac
 from core.services import exporters
 from core.services.reporting_pack import build_pack
+from core.services.scopus_profiles import profile_dict, profile_for
 
 # ---------- notes on a ticket, and lookup ----------
 
@@ -260,6 +261,9 @@ def faculty_report(request: HttpRequest, user_id: str):
         "by_position": _authorship(claims),
         "per_paper": _per_paper(paid),
         "claims": [claim_to_dict(c) for c in claims[:200]],
+        # What Scopus holds for them, from the office's profile import. Null
+        # when none is loaded, which the page says rather than showing zeros.
+        "scopus_profile": profile_dict(profile_for(person)),
     }
 
 

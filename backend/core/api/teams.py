@@ -12,16 +12,18 @@ from core.api.schemas import ATTACHMENT_LIMITS
 from core.api.common import require_user
 from core.api.lookups import MAX_UPLOAD_BYTES
 
+import io
 import json
 import time
 from typing import Any, Optional
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest
-from ninja import File, Schema
+from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
-from core.models import AttachmentKind, AuditLog, Claim, FacultyMaster, FormulaConfig, Role, Team, TeamMember, User
+from core.models import AttachmentKind, AuditLog, Claim, ClaimReason, ClaimStatus, FacultyMaster, FormulaConfig, Role, Team, TeamMember, User
 from core.services import rbac
+from core.services.fyp_roster import RosterError, import_roster, read_roster
 from core.services.remuneration import MAX_ELIGIBLE_AUTHORS, MIN_SEC_REFERENCES
 
 # ---------- student project teams ----------
@@ -112,8 +114,20 @@ def upsert_team(request: HttpRequest, payload: TeamIn):
     typed, the team comes up, and what comes back is either agreed with or
     edited. Two endpoints would mean the screen deciding which of them it is
     in, and getting it wrong the first time a code is mistyped.
+
+    The office's alone. Under the final-year project scheme a team is what a
+    fixed payment is claimed against, by its mentor -- so a claimant who could
+    create a team naming themselves as mentor, or re-point an imported team's
+    mentor at themselves, could mint a claimable team. The roster import is
+    how teams arrive; this is how the office corrects one by hand.
     """
     user = require_user(request)
+    if not rbac.can_admin_portal(user.role):
+        raise HttpError(
+            403,
+            "Teams come from the final-year project roster the research office "
+            "imports. Ask the office to add or correct this one.",
+        )
     code = (payload.code or "").strip()
     if len(code) < 2:
         raise HttpError(400, "A team needs a code.")
@@ -180,6 +194,87 @@ def upsert_team(request: HttpRequest, payload: TeamIn):
     )
     team.refresh_from_db()
     return {**_team_dict(team), "created": created}
+
+
+def _holding_claims():
+    """Student-project claims that hold their team.
+
+    The scheme pays once per team, so one filed claim is all a team can carry.
+    A claim holds its team from the moment it is filed until it is paid and
+    forever after -- including while it is sent back to its mentor to fix,
+    because it is still theirs to refile. Two things let go: withdrawing it
+    (back to a draft), and a rejection outright, which cannot be refiled.
+    A draft that was never filed holds nothing; it has not claimed anything.
+    """
+    return (
+        Claim.objects.filter(claim_reason=ClaimReason.STUDENT_PROJECT, team__isnull=False)
+        .exclude(status=ClaimStatus.DRAFT)
+        .exclude(status=ClaimStatus.REJECTED, rejected_outright=True)
+    )
+
+
+def _require_office(request: HttpRequest) -> User:
+    user = require_user(request)
+    if not rbac.can_admin_portal(user.role):
+        raise HttpError(403, "Forbidden")
+    return user
+
+
+def _unmatched_mentors(qs) -> list[dict[str, Any]]:
+    return [
+        {
+            "code": t.code,
+            "faculty_id": t.mentor_staff_id,
+            "mentor_name": t.mentor_name,
+            "department": t.department,
+        }
+        for t in qs.filter(mentor__isnull=True).order_by("department", "code")
+    ]
+
+
+@api.post("/admin/fyp-teams/import", auth=session_auth)
+def import_fyp_teams(
+    request: HttpRequest,
+    file: UploadedFile = File(...),
+    academic_year: Optional[str] = Form(None),
+):
+    """Load the final-year project roster workbook -- the same importer as
+    `manage.py import_fyp_teams`, so the two cannot read a file differently."""
+    user = _require_office(request)
+    if file.size and file.size > MAX_UPLOAD_BYTES:
+        raise HttpError(400, "That file is too large to be the roster workbook.")
+    try:
+        roster = read_roster(io.BytesIO(file.read()), academic_year=academic_year)
+    except RosterError as exc:
+        raise HttpError(400, str(exc)) from exc
+    return import_roster(roster, actor=user)
+
+
+@api.get("/admin/fyp-teams", auth=session_auth)
+def fyp_teams_summary(request: HttpRequest):
+    """What the roster holds: how many teams, which years, which mentors have
+    no account yet, and how many teams have been claimed against."""
+    _require_office(request)
+    qs = Team.objects.all()
+    return {
+        "teams": qs.count(),
+        "imported": qs.filter(imported_at__isnull=False).count(),
+        "academic_years": sorted(
+            {y for y in qs.values_list("academic_year", flat=True) if y}, reverse=True
+        ),
+        "last_imported_at": (
+            last.isoformat()
+            if (
+                last := qs.filter(imported_at__isnull=False)
+                .order_by("-imported_at")
+                .values_list("imported_at", flat=True)
+                .first()
+            )
+            else None
+        ),
+        "claimed": qs.filter(claims__in=_holding_claims()).distinct().count(),
+        "mentors_unmatched": _unmatched_mentors(qs),
+    }
 
 
 def _min_sec_references() -> int:
@@ -292,11 +387,16 @@ def list_departments(request: HttpRequest):
 __all__ = [
     'TeamIn',
     'TeamMemberIn',
+    '_holding_claims',
     '_min_sec_references',
     '_numbered_sec_references',
+    '_require_office',
     '_team_dict',
+    '_unmatched_mentors',
     'filing_rules',
+    'fyp_teams_summary',
     'get_team',
+    'import_fyp_teams',
     'list_departments',
     'list_teams',
     'upsert_team',

@@ -1061,6 +1061,15 @@ class Team(models.Model):
     #: Kept as text as well, because the roster carries mentors this system has
     #: no account for and losing the name is worse than not linking it.
     mentor_name = models.CharField(max_length=255, blank=True, null=True)
+    #: The roster's "Faculty ID" exactly as the department wrote it. `mentor`
+    #: is linked by matching it against `User.staff_id`; kept on its own so an
+    #: unmatched mentor can still be found and linked once their account
+    #: exists, rather than the one identifier the roster gave being lost.
+    mentor_staff_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    #: When the office's roster import last wrote this team. Null for a team
+    #: entered by hand. A student-project claim is paid per team, so where the
+    #: team came from is part of why the claim is payable.
+    imported_at = models.DateTimeField(blank=True, null=True)
 
     active = models.BooleanField(default=True)
     created_by = models.ForeignKey(

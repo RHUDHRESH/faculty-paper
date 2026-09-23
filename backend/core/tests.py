@@ -10790,15 +10790,21 @@ class SearchRouteTests(TestCase):
 
 
 class StudentProjectTeamTests(TestCase):
-    """The team behind a student project claim."""
+    """The team behind a student project claim.
+
+    Written by the office. These used to sign in as a faculty member, because
+    anybody could create a team; under the final-year project scheme a team is
+    what a fixed payment is claimed against, so writing one is the office's
+    (see test_fyp_scheme.TeamWritesAreTheOfficesTests for the refusal).
+    """
 
     def setUp(self):
-        self.faculty = User.objects.create_user(
-            email="tm-fac@test.edu", password="pass", name="Team Faculty",
-            role=Role.FACULTY, department="CSE",
+        self.office = User.objects.create_user(
+            email="tm-office@test.edu", password="pass", name="Team Office",
+            role=Role.RESEARCH_CELL, department="CSE",
         )
         self.client = Client()
-        self.client.force_login(self.faculty)
+        self.client.force_login(self.office)
 
     def _make(self, **kw):
         payload = {

@@ -244,7 +244,9 @@ export const NAV: NavItem[] = [
     to: "/duplicates",
     label: "Duplicates",
     icon: Coins,
-    roles: ALL_STAFF,
+    // Contested and duplicate flags are hidden from the Director and Finance
+    // (the college's rule; enforced on the server too).
+    roles: [...OFFICE, "PRINCIPAL"],
     group: "Look at",
     keywords: ["double payment", "repeats"],
   },
@@ -263,7 +265,9 @@ export const NAV: NavItem[] = [
     icon: ShieldCheck,
     // `rbac.can_view_audit` is wider than the office — the Principal and
     // Finance may read the audit log, and were being offered no way in.
-    roles: [...OFFICE, "PRINCIPAL", "DIRECTOR", "FINANCE"],
+    // The Director works from a summary and Finance only pays; the trail
+    // belongs to the office and the Principal.
+    roles: [...OFFICE, "PRINCIPAL"],
     group: "Look at",
     keywords: ["who did what", "trail"],
   },
@@ -304,7 +308,7 @@ export const NAV: NavItem[] = [
     // one role that can change what the college pays with no route to the
     // screen, and gave the research cell a menu item they can only look at
     // without ever saying so. Verified against rbac.py, not assumed.
-    roles: [...OFFICE, "FINANCE", "PRINCIPAL", "DIRECTOR"],
+    roles: [...OFFICE, "FINANCE", "PRINCIPAL"],
     group: "Set up",
     keywords: ["formula", "rates", "snip", "multiplier", "threshold"],
   },

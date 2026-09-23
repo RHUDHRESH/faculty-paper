@@ -87,7 +87,7 @@ describe("FacultyHome", () => {
     expect(screen.queryByText(/nothing filed yet/i)).toBeNull()
   })
 
-  it("says who is holding the money and for how long, not just how much", async () => {
+  it("says how far a paper has come and how long it has waited, never whose desk", async () => {
     mount([
       claim({
         status: "PRINCIPAL_APPROVED",
@@ -96,15 +96,14 @@ describe("FacultyHome", () => {
         ticket_number: "FP-2026-000001",
       }),
     ])
-    // The figure is the easy half. "Where is it" is the question, and the
-    // answer is a desk and a number of days.
-    // Once as the total on its way, once on the paper's own row below.
+    // Once as the total on its way, once on the paper's own card.
     expect(await screen.findAllByText("₹1,05,000")).toHaveLength(2)
-    // In the panel that answers the question, and again on the row in the
-    // record below it.
-    expect(screen.getAllByText(/with the director/i).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/21 days at this desk/i).length).toBeGreaterThan(0)
-    expect(screen.getByText(/more than a week/i)).toBeInTheDocument()
+    expect(screen.getAllByText("Under review").length).toBeGreaterThan(0)
+    expect(screen.getByText(/waiting 21 days/i)).toBeInTheDocument()
+    // The college's rule: a claimant is never told which desk holds it.
+    for (const desk of [/principal/i, /director/i, /finance/i, /research cell/i]) {
+      expect(screen.queryByText(desk)).toBeNull()
+    }
   })
 
   it("does not present a draft with no worked-out amount as ₹0", async () => {
@@ -118,8 +117,18 @@ describe("FacultyHome", () => {
       }),
     ])
     expect(await screen.findByText(/not worked out yet/i)).toBeInTheDocument()
-    // Received to date is genuinely nil and says so; the draft is not.
-    expect(screen.getAllByText("₹0")).toHaveLength(2)
+    // The three money figures are genuinely nil and say so; the draft is not.
+    expect(screen.getAllByText("₹0")).toHaveLength(3)
+  })
+
+  it("puts a paper that was sent back first, with the reason and a way to fix it", async () => {
+    mount([claim({ status: "REJECTED", status_note: "Attach the SEC reference PDFs", paid_at: null })])
+    expect(await screen.findByText("Sent back to you")).toBeInTheDocument()
+    expect(screen.getByText("Attach the SEC reference PDFs")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /fix and send again/i })).toHaveAttribute(
+      "href",
+      "/papers/c1/edit"
+    )
   })
 
   it("offers a retry rather than leaving the reader to reload the page", async () => {

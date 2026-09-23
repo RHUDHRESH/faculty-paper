@@ -15,6 +15,7 @@ import {
   StageTrack,
   stageOf,
 } from "@/ui/paper"
+import { Journey, facultyStage } from "@/ui/journey"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonText } from "@/ui/state"
 import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -61,6 +62,9 @@ type ClaimAction = {
 }
 
 type Claim = {
+  faculty_stage?: string | null
+  days_waiting?: number | null
+  waiting_days?: number | null
   id: string
   ticket_number: string | null
   paper_title: string
@@ -247,8 +251,10 @@ export function PaperDetail() {
   // and nobody could read it anywhere. The ticket simply reappeared in the
   // clearing queue with no explanation attached.
   const sentBackByPrincipal = lastRejection?.action === "PRINCIPAL_SEND_BACK"
+  // A Principal's send-back to the office is internal: the claimant is only
+  // shown a send-back that came to them.
   const showSendBack = Boolean(
-    claim.status_note && (claim.status === "REJECTED" || sentBackByPrincipal)
+    claim.status_note && (claim.status === "REJECTED" || (sentBackByPrincipal && !isOwner))
   )
 
   const settled = claim.status === "PAID"
@@ -324,11 +330,20 @@ export function PaperDetail() {
           )}
         </div>
         <div className="w-full max-w-md space-y-2">
-          <p className="text-base font-medium">{stage.label}</p>
-          <StageTrack stage={stage} />
-          {/* Who is holding it, said after the picture rather than instead of
-              it. This was the only answer the page gave. */}
-          <p className="text-sm text-fg-muted">{stage.who}</p>
+          {isOwner ? (
+            // The claimant sees how far it has come and how long it has
+            // waited -- never whose desk it is on (the college's rule).
+            <Journey
+              stage={claim.faculty_stage || facultyStage(claim.status)}
+              daysWaiting={claim.days_waiting ?? claim.waiting_days ?? null}
+            />
+          ) : (
+            <>
+              <p className="text-base font-medium">{stage.label}</p>
+              <StageTrack stage={stage} />
+              <p className="text-sm text-fg-muted">{stage.who}</p>
+            </>
+          )}
           {/* The question somebody who has waited three weeks actually opens
               this page with. The page carried the dates in its payload and
               printed none of them anywhere above the history, so "how long
@@ -533,7 +548,9 @@ export function PaperDetail() {
 
       <section className="space-y-3">
         <SectionTitle>History</SectionTitle>
-        {claim.actions && claim.actions.length > 0 ? (
+        {isOwner ? (
+          <ClaimantHistory claim={claim} />
+        ) : claim.actions && claim.actions.length > 0 ? (
           <ul className="space-y-3 border-l border-line pl-4">
             {[...claim.actions].reverse().map((a) => (
               <li key={a.id} className="text-sm">
@@ -1091,5 +1108,57 @@ function roleLabel(role: string) {
       RESEARCH_COORDINATOR: "Research coordinator",
       PRINCIPAL: "Principal",
     }[role] || role.toLowerCase().replace(/_/g, " ")
+  )
+}
+
+/**
+ * The history a claimant is shown: what they did, what came back to them,
+ * and the two outcomes that matter -- approved for payment, paid. The desks in
+ * between are not named and their steps are not listed (the college's rule),
+ * so the office's internal back-and-forth never reads as "stuck with X".
+ */
+const CLAIMANT_EVENTS: Record<string, string> = {
+  CREATE_DRAFT: "You started this draft",
+  ADMIN_CREATE: "The research cell started this on your behalf",
+  SUBMIT: "You filed it",
+  CONTEST_FORWARD: "You filed it, and asked for the possible match to be reviewed",
+  RESUBMIT: "You filed it again",
+  WITHDRAW: "You withdrew it to make changes",
+  REJECT: "It was sent back to you",
+  RETURN_TO_FACULTY: "It was sent back to you",
+  DIRECTOR_APPROVE: "Approved for payment",
+  MARK_PAID: "Paid",
+}
+
+function ClaimantHistory({ claim }: { claim: Claim }) {
+  const events = (claim.actions || [])
+    .filter((a) => CLAIMANT_EVENTS[a.action])
+    .map((a) => ({
+      id: a.id,
+      text: CLAIMANT_EVENTS[a.action],
+      note: a.action === "REJECT" || a.action === "RETURN_TO_FACULTY" ? a.note : null,
+      at: a.created_at,
+    }))
+  if (!events.some((e) => e.text === "Approved for payment") && claim.director_approved_at) {
+    events.push({ id: "approved", text: "Approved for payment", note: null, at: claim.director_approved_at })
+  }
+  if (!events.some((e) => e.text === "Paid") && claim.paid_at) {
+    events.push({ id: "paid", text: "Paid", note: null, at: claim.paid_at })
+  }
+  if (!events.some((e) => e.text.startsWith("You filed")) && claim.submitted_at) {
+    events.push({ id: "filed", text: "You filed it", note: null, at: claim.submitted_at })
+  }
+  events.sort((a, b) => (b.at || "").localeCompare(a.at || ""))
+  if (!events.length) return <p className="text-sm text-fg-muted">Nothing has happened to it yet.</p>
+  return (
+    <ul className="space-y-3 border-l border-line pl-4">
+      {events.map((e) => (
+        <li key={e.id} className="text-sm">
+          <p>{e.text}</p>
+          {e.note && <p className="text-fg-muted">{e.note}</p>}
+          <Meta>{formatDateTime(e.at)}</Meta>
+        </li>
+      ))}
+    </ul>
   )
 }

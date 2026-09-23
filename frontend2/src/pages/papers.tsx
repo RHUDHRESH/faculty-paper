@@ -9,7 +9,8 @@ import { Input } from "@/ui/field"
 import { Table, type Column } from "@/ui/table"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
-import { money, Stage, stageOf } from "@/ui/paper"
+import { money, stageOf } from "@/ui/paper"
+import { Journey, facultyStage } from "@/ui/journey"
 import { Pagination } from "@/ui/pagination"
 
 /**
@@ -38,6 +39,7 @@ type Claim = {
   journal_title: string | null
   publication_year: number | null
   status: string
+  faculty_stage?: string | null
   remuneration: number | null
   remuneration_is_estimate: boolean
   calc_error: string | null
@@ -238,7 +240,7 @@ export function Papers() {
       key: "stage",
       header: "Stage",
       className: "w-36",
-      cell: (c) => <Stage stage={stageOf(c.status)} />,
+      cell: (c) => <StageWord status={c.status} stage={c.faculty_stage} />,
     },
     {
       key: "journal",
@@ -508,6 +510,16 @@ function AmountCell({ claim }: { claim: Claim }) {
  * words ("over a week") as well as in colour, so the flag survives a reader
  * who cannot use the colour.
  */
+/** The claimant's stage: the word and a four-part bar, never a desk. */
+function StageWord({ status, stage, className }: { status: string; stage?: string | null; className?: string }) {
+  return (
+    <span className={cn("block min-w-[7rem]", className)}>
+      <span className="block text-sm">{stage || facultyStage(status)}</span>
+      <Journey size="sm" stage={stage || facultyStage(status)} className="mt-1 w-24" />
+    </span>
+  )
+}
+
 function WaitingCell({ claim, className }: { claim: Claim; className?: string }) {
   const stage = stageOf(claim.status)
   const desk = DESK[claim.status]
@@ -529,7 +541,8 @@ function WaitingCell({ claim, className }: { claim: Claim; className?: string })
   } else if (desk) {
     late = (days ?? 0) > SLOW_DAYS
     value = days == null ? "Not recorded" : dayCount(days)
-    under = `with ${desk}${late ? " · over a week" : ""}`
+    // Never the desk: a claimant is told how long, not whose office.
+    under = late ? "over a week" : null
   } else {
     // An unknown status: `stageOf` still has a word for it, and printing that
     // beats a dash nobody can interpret.
@@ -557,7 +570,6 @@ function WaitingCell({ claim, className }: { claim: Claim; className?: string })
  *  columns — the same fields, stacked, because leaving one off below `md`
  *  is how a claimant misses the one thing they opened the page to check. */
 function PaperCard({ claim }: { claim: Claim }) {
-  const stage = stageOf(claim.status)
   return (
     <li className="row">
       <Link to={`/papers/${claim.id}`} className="block px-1 py-3">
@@ -577,7 +589,7 @@ function PaperCard({ claim }: { claim: Claim }) {
           </span>
         </div>
         <div className="mt-2 flex items-end justify-between gap-3">
-          <Stage stage={stage} className="w-[8rem]" />
+          <StageWord status={claim.status} stage={claim.faculty_stage} className="w-[8rem]" />
           <WaitingCell claim={claim} className="text-sm" />
         </div>
       </Link>

@@ -45,57 +45,15 @@
  * forbidden — which is most things.
  */
 
-/* Newsreader, for page titles only.
- *
- * Declared here by hand rather than by importing the package's stylesheet,
- * for one reason: fontsource ships `font-display: swap`, and a swap reflows
- * every title on the screen a beat after the page has painted. `optional` is
- * the one value that cannot shift layout — the browser gives the file about
- * 100ms, and if it is not ready it uses the fallback for that page load and
- * never swaps. The face is cached from the first visit onward, so in practice
- * it is there; it is simply never allowed to arrive late enough to move
- * anything. A title is not worth a reflow.
- *
- * Latin and latin-ext only. Titles in this app are English, and the
- * `unicode-range` means anything outside it is drawn by the body face, which
- * is what should happen anyway.
- */
-@font-face {
-  font-family: "Newsreader Variable";
-  font-style: normal;
-  font-display: optional;
-  font-weight: 200 800;
-  src: url("@fontsource-variable/newsreader/files/newsreader-latin-wght-normal.woff2")
-    format("woff2-variations");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
-    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
-    U+2212, U+2215, U+FEFF, U+FFFD;
-}
-@font-face {
-  font-family: "Newsreader Variable";
-  font-style: normal;
-  font-display: optional;
-  font-weight: 200 800;
-  src: url("@fontsource-variable/newsreader/files/newsreader-latin-ext-wght-normal.woff2")
-    format("woff2-variations");
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
-    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
-    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-
 @theme {
   /* ---- type -----------------------------------------------------------
-     Two families, each with exactly one job. Inter's variable axis does the
-     work inside the interface that a second family would; Newsreader does
-     the one job Inter cannot, which is to make a page title look unlike
-     every other piece of bold text on the screen. */
+     One family. Inter's variable axis carries titles, body and figures; a
+     serif for page titles made a working tool read like an article. */
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
-  /* Page titles only — see `.display` below and rule 8 in CONVENTIONS.md.
-     Never a number: Newsreader's figures are lovely and do not line up in a
-     column, and a column that lines up is worth more here than a nice 7. */
-  --font-display: "Newsreader Variable", "Iowan Old Style", "Palatino Linotype",
-    Palatino, Georgia, serif;
+  /* Page titles — see `.display` below. Kept as a token so a title face can
+     be swapped in one place. */
+  --font-display: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 
   /* A scale with only the steps this app uses. Every extra step is one more
      chance for two things that mean the same to look different. */
@@ -156,7 +114,7 @@
      reader has to be able to see both at once on the same row. Pulled a step
      off `accent-wash` so it still separates from `hover`, which is now close
      to it in lightness and differs from it only in hue. */
-  --color-selected: #e6ebfd;  /* L* 93.2 */
+  --color-selected: #e4eafc;  /* L* 93.2 */
 
   /* Rules. `line` separates rows; `edge` bounds a region. Two weights only. */
   --color-line: #ebedf0;
@@ -165,11 +123,18 @@
 
   /* One accent. Indigo rather than violet — it stays legible at small sizes
      and against white, which the old purple did not at 13px. */
-  --color-accent: #4f46e5;
-  --color-accent-hover: #4338ca;
+  --color-accent: #2447c6;
+  --color-accent-hover: #1c389f;
   --color-accent-fg: #ffffff;
-  --color-accent-wash: #eef2ff;
-  --color-accent-line: #c7d2fe;
+  --color-accent-wash: #eef2fd;
+  --color-accent-line: #c8d3f7;
+
+  /* The brand ground: the one large field of colour (sign-in panel). Not
+     the accent, because the accent lightens in dark mode to stay legible as
+     text, and a lightened field reads as washed out. Saveetha's colour goes
+     here when the college supplies it. */
+  --color-brand: #2447c6;
+  --color-brand-fg: #ffffff;
 
   /* State. Held to 4.5:1 as text, because all three are rendered as words
      and not only as fills. */
@@ -436,17 +401,12 @@
     );
   }
 
-  /* A page title. The one place the display face is used.
-     `font-weight: 560` rather than 600: Newsreader is a variable font and
-     its axis is continuous, so the weight can be chosen for how it looks at
-     26px instead of rounded to the nearest named step. 600 sets too dark
-     above 14px body copy; 500 goes limp. Tracking is pulled back to near
-     zero because the global -0.018em on headings is tuned for Inter and
-     closes a serif's counters up. */
+  /* A page title: heavier and tighter than a section heading, so the name of
+     the place you are standing in is never mistaken for bold body text. */
   .display {
     font-family: var(--font-display);
-    font-weight: 560;
-    letter-spacing: -0.008em;
+    font-weight: 660;
+    letter-spacing: -0.028em;
   }
 
   /* A figure that is the answer to something.
@@ -508,4 +468,44 @@
       animation: none;
     }
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Dark theme. The same token names, redefined, so no page carries a colour of
+ * its own and every screen follows. Chosen in the account menu (light, dark
+ * or the system's setting) and applied before first paint by index.html.
+ * ------------------------------------------------------------------------ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-fg: #e7e9ee;
+  --color-fg-muted: #a0a7b4;
+  --color-fg-subtle: #6f7686;
+  --color-surface: #171b23;
+  --color-bg: #0f1218;
+  --color-sunken: #13161d;
+  --color-hover: #1d222c;
+  --color-active: #262c38;
+  --color-selected: #1d2849;
+  --color-line: #232833;
+  --color-edge: #2f3644;
+  --color-field: #3b4354;
+  --color-accent: #7b96ff;
+  --color-accent-hover: #9bb0ff;
+  --color-accent-fg: #0b1020;
+  --color-accent-wash: #1a2341;
+  --color-accent-line: #2e3f78;
+  --color-brand: #1a2f86;
+  --color-brand-fg: #ffffff;
+  --color-positive: #4ade80;
+  --color-positive-wash: #0f2619;
+  --color-caution: #facc15;
+  --color-caution-wash: #29230d;
+  --color-critical: #f87171;
+  --color-critical-wash: #2c1515;
+  --shadow-well: inset 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-raise: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 16px -6px rgb(0 0 0 / 0.5);
+  --shadow-under: 0 4px 8px -6px rgb(0 0 0 / 0.7);
+  --shadow-pop: 0 8px 24px -6px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --shadow-modal: 0 24px 48px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.08);
 }

@@ -1,4 +1,4 @@
-import { StrictMode } from "react"
+import { lazy, StrictMode, Suspense, type ComponentType } from "react"
 import { MotionConfig } from "motion/react"
 import { createRoot, type Root } from "react-dom/client"
 import { BrowserRouter, Route, Routes } from "react-router-dom"
@@ -10,47 +10,65 @@ import { Palette, usePalette } from "@/app/palette"
 import { ForcePasswordChange } from "@/app/password"
 import { Shell } from "@/app/shell"
 import { queryClient } from "@/lib/query"
-import { FacultyHome } from "@/pages/home-faculty"
-import { DirectorHome } from "@/pages/home-director"
-import { FinanceHome, HodHome, OfficeHome, PrincipalHome } from "@/pages/home-staff"
-import { Accreditation } from "@/pages/accreditation"
-import { Approvals } from "@/pages/approvals"
-import { Budget } from "@/pages/budget"
-import { Calendar } from "@/pages/calendar"
-import { Audit, Faults } from "@/pages/audit"
-import { Authorisations } from "@/pages/authorisations"
-import { Clearing } from "@/pages/clearing"
-import { Data } from "@/pages/data"
-import { Department } from "@/pages/department"
-import { Collaborate } from "@/pages/collaborate"
-import { Discover } from "@/pages/discover"
-import { Discussions, Thread } from "@/pages/discussions"
-import { Duplicates } from "@/pages/duplicates"
-import { FilePaper } from "@/pages/file-paper"
-import { Imports } from "@/pages/imports"
-import { Gallery } from "@/pages/gallery"
-import { PaperDetail } from "@/pages/paper-detail"
-import { Journals, JournalRecord } from "@/pages/journals"
-import { NotBuilt, NotFound } from "@/pages/not-found"
-import { Batch, Batches } from "@/pages/batches"
-import { Reference } from "@/pages/reference"
-import { Ledger } from "@/pages/ledger"
-import { Papers } from "@/pages/papers"
-import { Payments, PaymentsDone } from "@/pages/payments"
-import { Publications } from "@/pages/publications"
-import { ReportBuilder } from "@/pages/report-builder"
-import { Reports } from "@/pages/reports"
-import { Requests } from "@/pages/requests"
-import { Search } from "@/pages/search"
-import { People, Person } from "@/pages/people"
-import { Policy } from "@/pages/policy"
-import { Profile } from "@/pages/profile"
-import { Programme } from "@/pages/programme"
-import { Setup } from "@/pages/setup"
 import { SignIn } from "@/pages/sign-in"
-import { InstitutionSettings } from "@/pages/institution-settings"
+import { NotBuilt, NotFound } from "@/pages/not-found"
 
 import "@/styles.css"
+
+/**
+ * Every page loads when it is first opened, not on sign-in. A claimant never
+ * downloads the Finance desk, and the first screen arrives in a fraction of
+ * the old single bundle.
+ */
+function page<K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) {
+  return lazy(() => load().then((m) => ({ default: m[name] })))
+}
+const FacultyHome = page(() => import("@/pages/home-faculty"), "FacultyHome")
+const DirectorHome = page(() => import("@/pages/home-director"), "DirectorHome")
+const FinanceHome = page(() => import("@/pages/home-staff"), "FinanceHome")
+const HodHome = page(() => import("@/pages/home-staff"), "HodHome")
+const OfficeHome = page(() => import("@/pages/home-staff"), "OfficeHome")
+const PrincipalHome = page(() => import("@/pages/home-staff"), "PrincipalHome")
+const Accreditation = page(() => import("@/pages/accreditation"), "Accreditation")
+const Approvals = page(() => import("@/pages/approvals"), "Approvals")
+const Budget = page(() => import("@/pages/budget"), "Budget")
+const Calendar = page(() => import("@/pages/calendar"), "Calendar")
+const Audit = page(() => import("@/pages/audit"), "Audit")
+const Faults = page(() => import("@/pages/audit"), "Faults")
+const Authorisations = page(() => import("@/pages/authorisations"), "Authorisations")
+const Clearing = page(() => import("@/pages/clearing"), "Clearing")
+const Data = page(() => import("@/pages/data"), "Data")
+const Department = page(() => import("@/pages/department"), "Department")
+const Collaborate = page(() => import("@/pages/collaborate"), "Collaborate")
+const Discover = page(() => import("@/pages/discover"), "Discover")
+const Discussions = page(() => import("@/pages/discussions"), "Discussions")
+const Thread = page(() => import("@/pages/discussions"), "Thread")
+const Duplicates = page(() => import("@/pages/duplicates"), "Duplicates")
+const FilePaper = page(() => import("@/pages/file-paper"), "FilePaper")
+const Imports = page(() => import("@/pages/imports"), "Imports")
+const Gallery = page(() => import("@/pages/gallery"), "Gallery")
+const PaperDetail = page(() => import("@/pages/paper-detail"), "PaperDetail")
+const Journals = page(() => import("@/pages/journals"), "Journals")
+const JournalRecord = page(() => import("@/pages/journals"), "JournalRecord")
+const Batch = page(() => import("@/pages/batches"), "Batch")
+const Batches = page(() => import("@/pages/batches"), "Batches")
+const Reference = page(() => import("@/pages/reference"), "Reference")
+const Ledger = page(() => import("@/pages/ledger"), "Ledger")
+const Papers = page(() => import("@/pages/papers"), "Papers")
+const Payments = page(() => import("@/pages/payments"), "Payments")
+const PaymentsDone = page(() => import("@/pages/payments"), "PaymentsDone")
+const Publications = page(() => import("@/pages/publications"), "Publications")
+const ReportBuilder = page(() => import("@/pages/report-builder"), "ReportBuilder")
+const Reports = page(() => import("@/pages/reports"), "Reports")
+const Requests = page(() => import("@/pages/requests"), "Requests")
+const Search = page(() => import("@/pages/search"), "Search")
+const People = page(() => import("@/pages/people"), "People")
+const Person = page(() => import("@/pages/people"), "Person")
+const Policy = page(() => import("@/pages/policy"), "Policy")
+const Profile = page(() => import("@/pages/profile"), "Profile")
+const Programme = page(() => import("@/pages/programme"), "Programme")
+const Setup = page(() => import("@/pages/setup"), "Setup")
+const InstitutionSettings = page(() => import("@/pages/institution-settings"), "InstitutionSettings")
 
 /**
  * One app, one router, one shell.
@@ -108,17 +126,17 @@ function App() {
 
   if (!me) {
     return (
+      <Suspense fallback={null}>
       <Routes>
-        {/* The gallery renders components against fixed props and asks the
-            server for nothing, so it is reachable without signing in. It is
-            how the components get looked at, and needing an account first is
-            how a component gallery stops being used. Deleted before switch. */}
-        <Route path="/gallery" element={<Gallery />} />
+        {/* The component gallery is a development tool: absent from a
+            production build, so it cannot be reached without an account. */}
+        {import.meta.env.DEV && <Route path="/gallery" element={<Gallery />} />}
         {/* First-run setup: reachable only while the system has no accounts,
             and the page itself says "already set up" otherwise. */}
         <Route path="/setup" element={<Setup />} />
         <Route path="*" element={<SignIn />} />
       </Routes>
+      </Suspense>
     )
   }
 
@@ -166,8 +184,7 @@ function App() {
           <Route path="/batches/:id" element={<Batch />} />
           <Route path="/data" element={<Data />} />
           <Route path="/me" element={<Profile />} />
-          {/* Not in the sidebar. Deleted before the switch. */}
-          <Route path="/gallery" element={<Gallery />} />
+          {import.meta.env.DEV && <Route path="/gallery" element={<Gallery />} />}
           {/* Never a silent redirect home: see the note in not-found.tsx. */}
           <Route path="*" element={<NotFound />} />
         </Route>

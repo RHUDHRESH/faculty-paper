@@ -1,14 +1,15 @@
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, Suspense, useEffect, useState } from "react"
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import * as RadixDialog from "@radix-ui/react-dialog"
 import { AnimatePresence, motion } from "motion/react"
-import { ChevronsUpDown, PanelLeft, PanelLeftClose, Search } from "lucide-react"
+import { Check, ChevronsUpDown, Command, Monitor, Moon, PanelLeft, PanelLeftClose, Search, Sun } from "lucide-react"
 
 import { useAuth, type Role } from "@/app/auth"
-import { navFor } from "@/app/nav"
+import { NAV, navFor } from "@/app/nav"
 import { Mark } from "@/ui/art"
 import { Button } from "@/ui/button"
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/ui/menu"
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
+import { useTheme, type ThemeChoice } from "@/app/theme"
 import { NotificationBell } from "@/app/notifications"
 import { cn } from "@/lib/cn"
 import { useCollegeName } from "@/app/institution"
@@ -41,9 +42,16 @@ const ROLE_LABEL: Record<Role, string> = {
  * returning to the trigger) and behaves identically in the sidebar and
  * inside the mobile drawer, where it opens on top of a dialog.
  */
+const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "Match this device", icon: Monitor },
+]
+
 function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
   const { me, signOut } = useAuth()
   const nav = useNavigate()
+  const [theme, setTheme] = useTheme()
 
   return (
     <Menu>
@@ -73,6 +81,26 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
         </div>
         <MenuSeparator />
         <MenuItem onSelect={() => nav("/me")}>Your profile</MenuItem>
+        <MenuSeparator />
+        <MenuLabel>Appearance</MenuLabel>
+        {THEMES.map(({ value, label, icon: Icon }) => (
+          <MenuItem
+            key={value}
+            onSelect={(e) => {
+              e.preventDefault()
+              setTheme(value)
+            }}
+            aria-checked={theme === value}
+            role="menuitemradio"
+          >
+            <span className="flex w-full items-center gap-2">
+              <Icon className="size-4 text-fg-subtle" aria-hidden />
+              <span className="flex-1">{label}</span>
+              {theme === value && <Check className="size-4 text-accent" aria-hidden />}
+            </span>
+          </MenuItem>
+        ))}
+        <MenuSeparator />
         <MenuItem onSelect={() => void signOut()}>Sign out</MenuItem>
       </MenuContent>
     </Menu>
@@ -131,6 +159,15 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
     return () => wide.removeEventListener("change", onChange)
   }, [])
 
+  // The browser tab says where you are, so a row of tabs is not ten copies
+  // of the same name. Longest matching route wins (/reports/build over
+  // /reports); detail pages fall back to their section.
+  useEffect(() => {
+    const hit = NAV.filter((n) => (n.to === "/" ? pathname === "/" : pathname.startsWith(n.to)))
+      .sort((a, b) => b.to.length - a.to.length)[0]
+    document.title = hit ? `${hit.label} · Publications` : "Publications"
+  }, [pathname])
+
   const items = navFor(me?.role)
   const seen = new Set<string>()
 
@@ -154,7 +191,12 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
               className="size-6 text-accent"
               title={collapsed ? collegeName : undefined}
             />
-            {!collapsed && <span className="truncate text-sm font-semibold">Publications</span>}
+            {!collapsed && (
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate text-sm font-semibold">Publications</span>
+                <span className="block truncate text-[11px] text-fg-subtle">{collegeName}</span>
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setCollapsed((v) => !v)}
@@ -222,10 +264,10 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
                 "text-fg-muted hover:bg-hover hover:text-fg"
               )}
             >
-              <Search className="size-4 shrink-0" />
+              <Command className="size-4 shrink-0" />
               {!collapsed && (
                 <>
-                  <span>Search</span>
+                  <span>Jump to…</span>
                   <kbd className="ml-auto rounded border border-edge px-1 text-[10px] text-fg-subtle">
                     Ctrl K
                   </kbd>
@@ -256,7 +298,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
               size="icon"
               className="ml-auto"
               onClick={onOpenPalette}
-              aria-label="Search"
+              aria-label="Jump to a page or ticket"
             >
               <Search />
             </Button>
@@ -264,7 +306,9 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
           </header>
 
           <main className="min-w-0 flex-1 py-8">
-            <Outlet />
+            <Suspense fallback={<PageLoading />}>
+              <Outlet />
+            </Suspense>
           </main>
         </div>
       </div>
@@ -331,5 +375,16 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
         )}
       </AnimatePresence>
     </RadixDialog.Root>
+  )
+}
+
+/** What the page area shows while a page's code arrives: nothing that could
+ *  be mistaken for content, and only after a beat, so a fast load shows
+ *  nothing at all. */
+function PageLoading() {
+  return (
+    <div className="page" aria-busy="true" aria-label="Loading">
+      <div className="h-7 w-48 animate-[pulse_1.6s_ease-in-out_infinite] rounded-md bg-hover opacity-0 [animation-delay:250ms]" />
+    </div>
   )
 }

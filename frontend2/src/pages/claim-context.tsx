@@ -193,3 +193,31 @@ export function ClaimContext({ claim }: { claim: ContextClaim }) {
     </section>
   )
 }
+
+/** Where to check the paper itself: its DOI and its Scopus record. */
+export function PaperLinks({
+  doi,
+  eid,
+  scopusUrl,
+}: {
+  doi?: string | null
+  eid?: string | null
+  scopusUrl?: string | null
+}) {
+  const scopus = scopusUrl || (eid ? `https://www.scopus.com/record/display.uri?eid=${encodeURIComponent(eid)}&origin=resultslist` : null)
+  if (!doi && !scopus) return null
+  return (
+    <p className="mt-1 flex flex-wrap gap-x-4 text-sm">
+      {doi && (
+        <a className="text-accent hover:underline" href={`https://doi.org/${doi}`} target="_blank" rel="noreferrer">
+          Open the paper (DOI)
+        </a>
+      )}
+      {scopus && (
+        <a className="text-accent hover:underline" href={scopus} target="_blank" rel="noreferrer">
+          Open in Scopus
+        </a>
+      )}
+    </p>
+  )
+}

@@ -323,6 +323,13 @@ export function PaperDetail() {
               {claim.journal_title ? ` · ${claim.journal_title}` : ""}
             </Sub>
           </div>
+          {isOwner && claim.status === "PAID" && (
+            // The ticket page is the payment advice: amount, how it was worked
+            // out, voucher and date. Printing it prints just the page.
+            <Button kind="default" className="shrink-0 print:hidden" onClick={() => window.print()}>
+              Print payment advice
+            </Button>
+          )}
           {(canEdit || canWithdraw) && (
             <div className="flex shrink-0 items-center gap-2">
               {canEdit && (

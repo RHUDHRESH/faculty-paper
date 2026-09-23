@@ -29,7 +29,7 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { Checkbox, Field, Input, NumberInput, Textarea } from "@/ui/field"
-import { ClaimContext } from "@/pages/claim-context"
+import { ClaimContext, PaperLinks } from "@/pages/claim-context"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
@@ -174,6 +174,23 @@ export function Approvals() {
   const department = searchParams.get("department") ?? ""
   const sort = searchParams.get("sort") ?? "waiting"
   const waitingOverParam = searchParams.get("waiting_over") ?? ""
+  const minAmountParam = searchParams.get("min_amount") ?? ""
+  const quartile = searchParams.get("quartile") ?? ""
+  const [minDraft, setMinDraft] = useState(minAmountParam)
+  useEffect(() => setMinDraft(minAmountParam), [minAmountParam])
+  useEffect(() => {
+    if (minDraft === minAmountParam) return
+    const t = setTimeout(() => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        if (minDraft) next.set("min_amount", minDraft)
+        else next.delete("min_amount")
+        return next
+      }, { replace: true })
+    }, 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minDraft])
 
   const [searchDraft, setSearchDraft] = useState(q)
   useEffect(() => setSearchDraft(q), [q])
@@ -231,6 +248,7 @@ export function Approvals() {
   function clearFilters() {
     setSearchDraft("")
     setWaitingDraft("")
+    setMinDraft("")
     setSearchParams(new URLSearchParams())
   }
 
@@ -239,6 +257,8 @@ export function Approvals() {
   if (department) listQuery.set("department", department)
   if (sort && sort !== "waiting") listQuery.set("sort", sort)
   if (waitingOverParam) listQuery.set("waiting_over", waitingOverParam)
+  if (minAmountParam) listQuery.set("min_amount", minAmountParam)
+  if (quartile) listQuery.set("quartile", quartile)
   listQuery.set("limit", String(RESULT_LIMIT))
 
   const {
@@ -254,7 +274,8 @@ export function Approvals() {
   )
 
   const rows = data?.results ?? []
-  const filtered = Boolean(q) || Boolean(department) || Boolean(waitingOverParam)
+  const filtered =
+    Boolean(q) || Boolean(department) || Boolean(waitingOverParam) || Boolean(minAmountParam) || Boolean(quartile)
 
   const departmentOptions: ComboboxOption[] = [
     { value: "", label: "All departments" },
@@ -463,9 +484,44 @@ export function Approvals() {
             min={0}
           />
         </div>
+        <div className="w-40">
+          <NumberInput
+            value={minDraft}
+            onChange={(e) => setMinDraft(e.target.value)}
+            placeholder="Over"
+            unit="₹"
+            aria-label="Only claims over this amount, in rupees"
+            min={0}
+          />
+        </div>
+        <select
+          value={quartile}
+          onChange={(e) =>
+            setSearchParams((prev) => {
+              const p = new URLSearchParams(prev)
+              if (e.target.value) p.set("quartile", e.target.value)
+              else p.delete("quartile")
+              return p
+            })
+          }
+          aria-label="Filter by quartile"
+          className="h-9 rounded-md border-0 bg-surface px-2 text-sm shadow-well ring-1 ring-inset ring-field"
+        >
+          <option value="">Any quartile</option>
+          {["Q1", "Q2", "Q3", "Q4"].map((x) => (
+            <option key={x} value={x}>
+              {x}
+            </option>
+          ))}
+        </select>
         {filtered && (
           <Button kind="quiet" size="sm" onClick={clearFilters}>
             Clear filters
+          </Button>
+        )}
+        {rows.length > 0 && (
+          <Button kind="quiet" size="sm" className="ml-auto" onClick={() => downloadApprovals(rows)}>
+            Download these {rows.length} as CSV
           </Button>
         )}
       </div>
@@ -922,6 +978,11 @@ function TicketSheet({
                 {claim.ticket_number || "Not yet ticketed"}
                 {claim.journal_title ? ` · ${claim.journal_title}` : ""}
               </SheetDescription>
+              <PaperLinks
+                doi={(claim as { doi?: string | null }).doi}
+                eid={(claim as { eid?: string | null }).eid}
+                scopusUrl={(claim as { scopus_url?: string | null }).scopus_url}
+              />
             </SheetHeader>
 
             <SheetBody className="space-y-8">
@@ -1455,4 +1516,21 @@ function actionSentence(a: ClaimAction): string {
     }
   })()
   return a.note ? `${base} — ${a.note}` : base
+}
+
+/** The approvals list as it is filtered on screen, for the Principal's own records. */
+function downloadApprovals(rows: QueueClaim[]) {
+  const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
+  const head = ["Ticket", "Paper", "Claimant", "Department", "Journal", "Quartile", "Waiting days", "Amount (INR)"]
+  const lines = rows.map((c) =>
+    [c.ticket_number, c.paper_title, c.owner_name, c.owner_department, c.journal_title, (c as { quartile?: string | null }).quartile, (c as { waiting_days?: number | null }).waiting_days, c.remuneration]
+      .map(cell)
+      .join(",")
+  )
+  const blob = new Blob(["\uFEFF" + [head.map(cell).join(","), ...lines].join("\r\n")], { type: "text/csv;charset=utf-8" })
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = `approvals-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
 }

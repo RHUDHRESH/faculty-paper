@@ -25,7 +25,7 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { Checkbox, Field, Input, Textarea } from "@/ui/field"
-import { ClaimContext } from "@/pages/claim-context"
+import { ClaimContext, PaperLinks } from "@/pages/claim-context"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
@@ -553,12 +553,15 @@ export function Clearing() {
                         {issuesOf(c).length > 1 && ` (+${issuesOf(c).length - 1} more)`}
                       </p>
                     )}
-                    {(c.duplicate_warning || c.calc_error || c.remuneration_is_estimate) && (
+                    {(c.duplicate_warning || c.contest_forward || c.calc_error || c.remuneration_is_estimate) && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {c.duplicate_warning && (
                           <RowFlag tone="critical">
                             <AlertTriangle className="size-3" /> Possible duplicate
                           </RowFlag>
+                        )}
+                        {c.contest_forward && (
+                          <RowFlag tone="caution">Contested by the claimant</RowFlag>
                         )}
                         {c.calc_error && (
                           <RowFlag tone="critical">
@@ -612,6 +615,15 @@ export function Clearing() {
       <TicketSheet
         openId={openId}
         onClose={() => setOpenId(null)}
+        // Working a queue is one ticket after another: once this one is
+        // cleared or sent back, the next in queue order opens rather than
+        // dropping the reader back at the list to find their place.
+        onFinished={() => {
+          const at = rows.findIndex((r) => r.id === openId)
+          const next = rows[at + 1] ?? rows[at - 1]
+          setOpenId(next && next.id !== openId ? next.id : null)
+          if (next) setActive(Math.max(0, at))
+        }}
         isSuperAdmin={me?.role === "SUPER_ADMIN"}
       />
 
@@ -839,10 +851,13 @@ function BulkResultDialog({
 function TicketSheet({
   openId,
   onClose,
+  onFinished = onClose,
   isSuperAdmin,
 }: {
   openId: string | null
   onClose: () => void
+  /** After a clear or a send-back: by default, the next ticket in the queue. */
+  onFinished?: () => void
   isSuperAdmin: boolean
 }) {
   const {
@@ -891,6 +906,11 @@ function TicketSheet({
                 {claim.ticket_number || "Not yet ticketed"}
                 {claim.journal_title ? ` · ${claim.journal_title}` : ""}
               </SheetDescription>
+              <PaperLinks
+                doi={claim.doi}
+                eid={(claim as { eid?: string | null }).eid}
+                scopusUrl={(claim as { scopus_url?: string | null }).scopus_url}
+              />
             </SheetHeader>
 
             <SheetBody className="space-y-8">
@@ -1075,9 +1095,9 @@ function TicketSheet({
               open={clearOpen}
               onOpenChange={setClearOpen}
               isSuperAdmin={isSuperAdmin}
-              onCleared={onClose}
+              onCleared={onFinished}
             />
-            <RejectDialog claim={claim} open={rejectOpen} onOpenChange={setRejectOpen} onRejected={onClose} />
+            <RejectDialog claim={claim} open={rejectOpen} onOpenChange={setRejectOpen} onRejected={onFinished} />
             <ManualVerifyDialog claim={claim} open={verifyOpen} onOpenChange={setVerifyOpen} />
             <SecondSignatureDialog
               claim={claim}

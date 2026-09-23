@@ -9,10 +9,10 @@ from core.models import FacultyMaster, User
 class PickEmailTests(TestCase):
     def test_the_college_address_wins_over_a_personal_one(self):
         self.assertEqual(
-            pick_email("rohini@gmail.com, rohinim@saveetha.ac.in"), "rohinim@saveetha.ac.in"
+            pick_email("staff.one@gmail.com, staffone@saveetha.ac.in"), "staffone@saveetha.ac.in"
         )
         self.assertEqual(
-            pick_email("indhu@saveetha.ac.in & indhu@gmail.com"), "indhu@saveetha.ac.in"
+            pick_email("stafftwo@saveetha.ac.in & staff.two@gmail.com"), "stafftwo@saveetha.ac.in"
         )
         self.assertEqual(pick_email("a@yahoo.co.in hod.ece@saveetha.ac.in"), "hod.ece@saveetha.ac.in")
 

@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   Copy,
   FileCheck,
+  Plus,
   TriangleAlert,
   Users,
 } from "lucide-react"
@@ -14,6 +15,15 @@ import {
 import { useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
+import {
+  MoneySkeleton,
+  MoneyStrip,
+  NeedsYou,
+  OnTheWay,
+  PaidList,
+  useOwnPapers,
+} from "@/pages/home-faculty"
+import { Button } from "@/ui/button"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Callout, ErrorState, InlineError, Skeleton } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
@@ -740,6 +750,63 @@ type HodOverview = {
 }
 
 /**
+ * The head's own papers: a head of department is a faculty member who also
+ * heads the department (the college's decision of 2026-09-23), and keeps
+ * filing their own.
+ *
+ * The same pieces a faculty member's home is built from, so the two cannot
+ * drift: their own money, anything sent back to them, and every paper still
+ * moving drawn as the claimant's journey — never which desk holds it. The
+ * amounts are theirs; `/api/claims` carries a figure on a head's own papers
+ * and on nobody else's (`hod.for_head`).
+ */
+function YourPapers() {
+  const own = useOwnPapers()
+  const { claims, isLoading, isError, refetch } = own
+
+  return (
+    <section aria-label="Your papers" className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <SectionTitle>Your papers</SectionTitle>
+          <Meta className="block">
+            What you have filed yourself, with your own amounts. Your department's figures
+            carry none.
+          </Meta>
+        </div>
+        <Button kind="default" asChild>
+          <Link to="/papers/new">
+            <Plus />
+            File a paper
+          </Link>
+        </Button>
+      </div>
+
+      {isError ? (
+        // A dropped request is not an empty record: no ₹0 in its place.
+        <InlineError
+          message="Could not load your papers. Nothing has been lost."
+          onRetry={() => void refetch()}
+        />
+      ) : isLoading ? (
+        <MoneySkeleton />
+      ) : claims.length === 0 ? (
+        <p className="text-base text-fg-muted">
+          Nothing filed yet. File a paper and follow it here, as any claimant does.
+        </p>
+      ) : (
+        <>
+          <MoneyStrip own={own} />
+          <NeedsYou sentBack={own.sentBack} drafts={own.drafts} />
+          <OnTheWay moving={own.moving} />
+          <PaidList paid={own.paid} />
+        </>
+      )}
+    </section>
+  )
+}
+
+/**
  * A head's department, and — the part no other screen answers — who in it has
  * published nothing.
  *
@@ -809,6 +876,8 @@ export function HodHome() {
           onRetry={overview.error?.status === 403 ? undefined : () => overview.refetch()}
         />
       )}
+
+      <YourPapers />
 
       {totals && (
         <section className="space-y-2">

@@ -40,7 +40,7 @@ from core.services import rbac
 from core.services.normalize import normalize_issn
 from core.services.notify_email import send_optional_email
 from core.services.tickets import assign_ticket_number
-from core import hod
+from core import hod, visibility
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
 
 # ---------- journals ----------
@@ -183,6 +183,7 @@ def get_claim(request: HttpRequest, claim_id: str):
             "from_status": a.from_status,
             "to_status": a.to_status,
             "note": a.note,
+            "actor_id": a.actor_id,
             "actor_name": a.actor.name,
             "created_at": a.created_at.isoformat(),
         }
@@ -491,41 +492,52 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
 
 
 def _faculty_status_copy(
-    to_status: str, note: str | None = None, *, outright: bool = False
+    to_status: str,
+    note: str | None = None,
+    *,
+    outright: bool = False,
+    from_status: str | None = None,
+    ticket_number: str | None = None,
 ) -> tuple[str, str]:
-    """Short faculty-facing notification title/body — no internal process detail."""
-    if to_status == ClaimStatus.REJECTED and outright:
+    """What the claimant is told when their paper reaches `to_status`.
+
+    Written in terms of the claimant's stage (core.visibility.faculty_stage),
+    never the desk: it used to say "with the Principal", "the Director has
+    authorised", "processed by Finance", which told the claimant exactly
+    whose desk their paper was on. The only desk-written text passed through is
+    the reason a paper was sent back to them, which is written for them.
+    """
+    stage = visibility.faculty_stage(
+        to_status, rejected_outright=outright, ticket_number=ticket_number
+    )
+    if stage == "Not accepted":
         return ("Not accepted", note or "Your paper was not accepted.")
-    if to_status == ClaimStatus.CLEARED:
+    if stage == "Sent back to you":
         return (
-            "Checked — with the Principal",
-            "The research cell has checked your ticket. It is now with the "
-            "Principal for approval.",
+            "Sent back to you",
+            note or "Your paper needs changes. Edit the details and submit it again.",
         )
-    if to_status == ClaimStatus.HOD_APPROVED:
-        return ("Approved by HoD", "Your ticket was approved by HoD and is with the Principal.")
-    if to_status == ClaimStatus.PRINCIPAL_APPROVED:
+    if stage == "Approved for payment":
         return (
-            "Approved — with the Director",
-            "The Principal has approved your ticket. It is with the Director to "
-            "be authorised.",
+            "Approved for payment",
+            "Your paper has been approved for payment. You will be told when it is paid.",
         )
-    if to_status == ClaimStatus.DIRECTOR_APPROVED:
+    if stage == "Paid":
+        return ("Paid", "The incentive for your paper has been paid.")
+    if stage == "Withdrawn":
         return (
-            "Authorised — with Finance",
-            "The Director has authorised your ticket. It is with Finance for payment.",
+            "Withdrawn",
+            "You withdrew this paper. Edit it and submit it again when it is ready.",
         )
-    if to_status == ClaimStatus.PAID:
+    if stage == "Draft":
+        return ("Back to draft", "Your paper is back in draft.")
+    if from_status == ClaimStatus.PAID:
         return (
-            "Payment processed",
-            "Your remuneration has been processed by Finance.",
+            "Payment reversed",
+            "A payment on your paper was reversed. It is under review again, and "
+            "you will be told when it moves.",
         )
-    if to_status == ClaimStatus.REJECTED:
-        return (
-            "Needs changes",
-            note or "Your ticket was sent back. Edit the details and submit again.",
-        )
-    return (f"Ticket update", note or f"Status is now {to_status}")
+    return ("Under review", "Your paper is under review.")
 
 
 def _notify_claimant(claim: Claim, title: str, body: str) -> None:
@@ -603,6 +615,11 @@ def _withdraw_approvals(claim: Claim) -> None:
 
 def _transition(claim: Claim, user: User, to_status: str, action: str, note: str | None = None):
     from_status = claim.status
+    stage_before = visibility.faculty_stage(
+        from_status,
+        rejected_outright=claim.rejected_outright and from_status == ClaimStatus.REJECTED,
+        ticket_number=claim.ticket_number,
+    )
     claim.status = to_status
     if to_status == ClaimStatus.PAID:
         claim.paid_at = timezone.now()
@@ -645,8 +662,18 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
         to_status,
         user.email,
     )
-    title, body = _faculty_status_copy(to_status, note, outright=claim.rejected_outright)
-    _notify_claimant(claim, title, body)
+    # Told only when what they are shown changes. Every hop between filing and
+    # the authorisation is "Under review" to them; a message at each one would
+    # let them count the desks.
+    stage_after = visibility.faculty_stage(
+        to_status, rejected_outright=claim.rejected_outright, ticket_number=claim.ticket_number
+    )
+    if stage_after != stage_before:
+        title, body = _faculty_status_copy(
+            to_status, note, outright=claim.rejected_outright,
+            from_status=from_status, ticket_number=claim.ticket_number,
+        )
+        _notify_claimant(claim, title, body)
 
 
 #: Display-path cache for the second-approval threshold, so serializing a

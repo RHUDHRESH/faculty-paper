@@ -4069,19 +4069,20 @@ class FiveStepChainTests(TestCase):
         )
         self.assertIn(Role.FINANCE, told)
 
-    def test_the_claimant_is_told_where_their_ticket_actually_is(self):
-        """It said "with Finance" at a point where Finance could not pay it."""
-        title, body = api_module._faculty_status_copy(ClaimStatus.CLEARED)
-        self.assertIn("Principal", title + body)
-        self.assertNotIn("with Finance", body)
-
-        # Approved is not "with Finance" either: the director has it.
-        title, body = api_module._faculty_status_copy(ClaimStatus.PRINCIPAL_APPROVED)
-        self.assertIn("Director", title + body)
-        self.assertNotIn("with Finance", body)
-
-        title, body = api_module._faculty_status_copy(ClaimStatus.DIRECTOR_APPROVED)
-        self.assertIn("Finance", body)
+    def test_the_claimant_is_told_the_stage_and_never_the_desk(self):
+        """It once said "with Finance" where Finance could not pay, and then
+        named every desk correctly. The college has since decided a claimant is
+        not told whose desk their paper is on at all (core/test_chain_rules.py)."""
+        for status, stage in (
+            (ClaimStatus.CLEARED, "Under review"),
+            (ClaimStatus.PRINCIPAL_APPROVED, "Under review"),
+            (ClaimStatus.DIRECTOR_APPROVED, "Approved for payment"),
+            (ClaimStatus.PAID, "Paid"),
+        ):
+            title, body = api_module._faculty_status_copy(status)
+            self.assertEqual(title, stage, status)
+            for desk in ("Principal", "Director", "Finance", "research cell"):
+                self.assertNotIn(desk, title + body, status)
 
     def test_approved_is_still_not_payable_until_the_director_authorises(self):
         claim = self._cleared("CH-2")
@@ -9079,11 +9080,14 @@ class DirectorChainTests(TestCase):
     # ---- what the claimant is told --------------------------------------
 
     def test_the_claimant_is_not_sent_to_finance_a_step_early(self):
+        # In the claimant's own words now, which name no desk
+        # (core/test_chain_rules.py): approved by the Principal is still under
+        # review; only the Director's authorisation is approval for payment.
         title, body = api_module._faculty_status_copy(ClaimStatus.PRINCIPAL_APPROVED)
-        self.assertIn("Director", title + body)
-        self.assertNotIn("Finance", title)
+        self.assertEqual(title, "Under review")
+        self.assertNotIn("payment", (title + body).lower())
         title, body = api_module._faculty_status_copy(ClaimStatus.DIRECTOR_APPROVED)
-        self.assertIn("Finance", title + body)
+        self.assertEqual(title, "Approved for payment")
 
 
 class ReportBuilderTests(TestCase):

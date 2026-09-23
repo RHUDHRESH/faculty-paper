@@ -774,3 +774,197 @@ class ContestedFlagVisibilityTests(ChainBase):
         self.assertIn("second approver", detail)
         self.assertNotIn("payment-history", detail)
         self.assertNotIn(self.faculty.name.lower(), detail)
+
+
+# --------------------------------------------------------------------------- #
+# 5. A faculty member never learns which desk, or which person, has the paper #
+# 6. Everyone else keeps the full timeline                                    #
+# --------------------------------------------------------------------------- #
+
+
+class FacultyViewTests(ChainBase):
+    STAFF_NAMES = (
+        "Ravi Cellperson", "Meera Coordinator", "Suresh Superadmin",
+        "Lakshmi Principal", "Vikram Director", "Kavya Financeperson",
+    )
+    #: Words that name a desk. None may appear in anything composed for the
+    #: claimant -- a notification, or a timeline note written by the system.
+    DESK_WORDS = ("principal", "director", "finance", "research", "cell",
+                  "supervisor", "office", "admin", "hod", "coordinator")
+
+    def _walk_the_whole_chain(self):
+        """A paper filed by the claimant and taken all the way to paid through
+        the real endpoints, with a hold and a one-step return on the way."""
+        claim = self._claim(ClaimStatus.SUBMITTED, ticket="FV-1")
+        ClaimAction.objects.create(
+            claim=claim, actor=self.faculty, from_status=ClaimStatus.DRAFT,
+            to_status=ClaimStatus.SUBMITTED, action="SUBMIT", note="Filed by me",
+        )
+        amount = {"expected_amount": claim.remuneration}
+        steps = [
+            (self.cell, "hold", {"reason": "Checking the co-author list with the dean"}),
+            (self.cell, "resume", {}),
+            (self.cell, "clear", {**amount, "note": "Ravi checked the SNIP"}),
+            (self.principal, "return-one-step", {"note": "Lakshmi wants the DOI checked"}),
+            (self.coordinator, "clear", {**amount, "note": "DOI fine"}),
+            (self.principal, "principal-approve", {**amount, "note": "Approved by the Principal"}),
+            (self.director, "director-approve", {**amount, "note": "Authorised by the Director"}),
+            (self.finance, "mark-paid", {**amount, "note": "Paid by Finance"}),
+        ]
+        for who, verb, body in steps:
+            r = self._post(who, f"/api/claims/{claim.id}/{verb}", body)
+            self.assertEqual(r.status_code, 200, f"{who.role} {verb}: {r.content}")
+        return claim
+
+    # ---- the stage --------------------------------------------------------
+
+    def test_every_status_has_a_faculty_stage(self):
+        expected = {
+            "FS-DRAFT": (dict(status=ClaimStatus.DRAFT, ticket_number=None), "Draft"),
+            "FS-WD": (dict(status=ClaimStatus.DRAFT), "Withdrawn"),
+            "FS-SUB": (dict(status=ClaimStatus.SUBMITTED), "Under review"),
+            "FS-HELD": (dict(status=ClaimStatus.SUBMITTED, on_hold=True,
+                             hold_reason="Waiting on the publisher", held_by=self.cell,
+                             held_at=timezone.now()), "Under review"),
+            "FS-CLR": (dict(status=ClaimStatus.CLEARED), "Under review"),
+            "FS-PA": (dict(status=ClaimStatus.PRINCIPAL_APPROVED), "Under review"),
+            "FS-DA": (dict(status=ClaimStatus.DIRECTOR_APPROVED), "Approved for payment"),
+            "FS-PAID": (dict(status=ClaimStatus.PAID), "Paid"),
+            "FS-BACK": (dict(status=ClaimStatus.REJECTED), "Sent back to you"),
+            "FS-OUT": (dict(status=ClaimStatus.REJECTED, rejected_outright=True), "Not accepted"),
+        }
+        for key, (fields, _) in expected.items():
+            fields = dict(fields)
+            status = fields.pop("status")
+            fields.setdefault("ticket_number", key)
+            self._claim(status, paper_title=f"Stage {key}", **fields)
+
+        rows = self._as(self.faculty).get("/api/claims?limit=200").json()["results"]
+        got = {r["paper_title"].removeprefix("Stage "): r["faculty_stage"] for r in rows}
+        self.assertEqual(got, {k: stage for k, (_, stage) in expected.items()})
+
+    def test_days_waiting_counts_from_filing_not_from_the_last_desk(self):
+        """Counting from the last status change would reset the clock each
+        time the paper changed desks -- which is telling the claimant it had."""
+        filed = timezone.now() - timedelta(days=9)
+        claim = self._claim(
+            ClaimStatus.CLEARED, ticket="FV-W", submitted_at=filed,
+            cleared_by=self.cell, cleared_at=timezone.now() - timedelta(days=1),
+        )
+        body = self._as(self.faculty).get(f"/api/claims/{claim.id}").json()
+        self.assertEqual(body["days_waiting"], 9)
+
+        for status in (ClaimStatus.DRAFT, ClaimStatus.PAID, ClaimStatus.REJECTED):
+            other = self._claim(status, ticket=f"FV-{status}", submitted_at=filed)
+            body = self._as(self.faculty).get(f"/api/claims/{other.id}").json()
+            self.assertIsNone(body["days_waiting"], status)
+
+    # ---- the timeline and the people --------------------------------------
+
+    def test_the_timeline_names_nobody_but_the_claimant(self):
+        claim = self._walk_the_whole_chain()
+        r = self._as(self.faculty).get(f"/api/claims/{claim.id}")
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        raw = r.content.decode()
+        for name in self.STAFF_NAMES:
+            self.assertNotIn(name, raw, f"{name} reached the claimant")
+
+        own = [a for a in body["actions"] if a["actor_name"] == self.faculty.name]
+        theirs = [a for a in body["actions"] if a["actor_name"] != self.faculty.name]
+        self.assertEqual([a["action"] for a in own], ["SUBMIT"])
+        self.assertEqual(own[0]["note"], "Filed by me", "their own words stay theirs")
+        self.assertGreaterEqual(len(theirs), 8)
+        for step in theirs:
+            self.assertEqual(step["actor_name"], "The college")
+            self.assertIsNone(step["actor_id"])
+            self.assertIsNone(step["note"], step)
+            for word in self.DESK_WORDS:
+                self.assertNotIn(word, step["action"].lower(), step)
+        self.assertEqual(theirs[-1]["action"], "PAID")
+
+    def test_no_person_or_private_note_on_the_claimant_s_copy(self):
+        claim = self._claim(
+            ClaimStatus.CLEARED, ticket="FV-N",
+            cleared_by=self.cell, cleared_at=timezone.now(),
+            second_approved_by=self.coordinator, second_approved_at=timezone.now(),
+            manual_verified_by=self.admin, manual_verified_at=timezone.now(),
+            on_hold=True, hold_reason="The Principal is away until Monday",
+            held_by=self.principal, held_at=timezone.now(),
+            status_note="Internal: Lakshmi asked for this",
+        )
+        body = self._as(self.faculty).get(f"/api/claims/{claim.id}").json()
+        for key in ("cleared_by_name", "second_approved_by_name", "manual_verified_by_name",
+                    "principal_approved_by_name", "director_approved_by_name",
+                    "held_by_name", "hold_reason", "status_note"):
+            self.assertIsNone(body[key], key)
+        self.assertTrue(body["on_hold"], "that it is paused is theirs to know")
+        self.assertEqual(body["faculty_stage"], "Under review")
+
+    def test_the_reason_it_was_sent_back_is_theirs_to_read(self):
+        claim = self._claim(ClaimStatus.SUBMITTED, ticket="FV-R")
+        self._post(self.cell, f"/api/claims/{claim.id}/return-to-faculty",
+                   {"note": "Attach the published version, not the preprint"})
+        body = self._as(self.faculty).get(f"/api/claims/{claim.id}").json()
+        self.assertEqual(body["faculty_stage"], "Sent back to you")
+        self.assertEqual(body["status_note"], "Attach the published version, not the preprint")
+        sent_back = [a for a in body["actions"] if a["action"] == "SENT_BACK"]
+        self.assertEqual(sent_back[0]["note"], "Attach the published version, not the preprint")
+
+    # ---- what they are told ---------------------------------------------
+
+    def test_nothing_the_claimant_is_sent_names_a_desk_or_a_person(self):
+        Notification.objects.all().delete()
+        self._walk_the_whole_chain()
+        back = self._claim(ClaimStatus.CLEARED, ticket="FV-B")
+        self._post(self.principal, f"/api/claims/{back.id}/return-to-faculty",
+                   {"note": "Attach the published version"})
+        out = self._claim(ClaimStatus.SUBMITTED, ticket="FV-O")
+        self._post(self.cell, f"/api/claims/{out.id}/reject-outright",
+                   {"note": "The venue is not an indexed journal"})
+
+        told = list(Notification.objects.filter(user=self.faculty).values_list("title", "body"))
+        self.assertTrue(told)
+        for title, body in told:
+            text = f"{title} {body}"
+            for word in self.DESK_WORDS:
+                self.assertNotIn(word, text.lower(), text)
+            for name in self.STAFF_NAMES:
+                self.assertNotIn(name.split()[0], text, text)
+
+        titles = " | ".join(t for t, _ in told)
+        for expected in ("On hold", "Review resumed", "Approved for payment", "Paid",
+                         "Sent back to you", "Not accepted"):
+            self.assertIn(expected, titles)
+
+    def test_moves_between_desks_are_not_announced_to_the_claimant(self):
+        """Every step between filing and approval for payment is "Under review"
+        to them. A message at each one would let them count the desks."""
+        claim = self._claim(ClaimStatus.SUBMITTED, ticket="FV-Q")
+        Notification.objects.all().delete()
+        amount = {"expected_amount": claim.remuneration}
+        self._post(self.cell, f"/api/claims/{claim.id}/clear", amount)
+        self._post(self.principal, f"/api/claims/{claim.id}/return-one-step",
+                   {"note": "Check the DOI again"})
+        self._post(self.cell, f"/api/claims/{claim.id}/clear", amount)
+        self._post(self.principal, f"/api/claims/{claim.id}/principal-approve", amount)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.PRINCIPAL_APPROVED)
+        self.assertFalse(Notification.objects.filter(user=self.faculty).exists())
+
+    # ---- 6. staff keep the full timeline ----------------------------------
+
+    def test_the_super_admin_the_office_and_the_principal_see_every_name(self):
+        claim = self._walk_the_whole_chain()
+        for who in (self.admin, self.cell, self.coordinator, self.principal):
+            body = self._as(who).get(f"/api/claims/{claim.id}").json()
+            names = [a["actor_name"] for a in body["actions"]]
+            for expected in ("Asha Faculty", "Ravi Cellperson", "Meera Coordinator",
+                             "Lakshmi Principal", "Vikram Director", "Kavya Financeperson"):
+                self.assertIn(expected, names, who.role)
+            self.assertNotIn("The college", names, who.role)
+            codes = [a["action"] for a in body["actions"]]
+            self.assertIn("PRINCIPAL_APPROVE", codes, who.role)
+            self.assertIn("PRINCIPAL_SEND_BACK", codes, who.role)
+            self.assertEqual(body["principal_approved_by_name"], "Lakshmi Principal", who.role)
+            self.assertNotIn("faculty_stage", body, "the staff payload is unchanged")

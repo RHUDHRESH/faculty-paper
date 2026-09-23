@@ -650,6 +650,8 @@ const QUARTILE_OPTIONS: ComboboxOption[] = [
 const INDEXING_OPTIONS = ["Scopus", "Web of Science", "AU Annexure", "UGC Care"] as const
 
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx"
+/** The server refuses larger files (upload_claim_file, "max 10MB"). */
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 /** What to call a field when reporting back what a lookup filled in. The form
  *  state's own names are camelCase identifiers, and "selfReportedSnip was
@@ -1525,6 +1527,17 @@ export function FilePaper() {
   const [uploadingKind, setUploadingKind] = useState<AttachmentRow["kind"] | null>(null)
 
   async function addAttachment(kind: AttachmentRow["kind"], file: File) {
+    // Said before a byte is sent: a 40 MB scan used to upload in full and
+    // only then be refused by the server.
+    const ext = (file.name.split(".").pop() || "").toLowerCase()
+    if (!ACCEPT.split(",").includes("." + ext)) {
+      toast.fail(new Error(`${file.name} is not a file this form takes — use a PDF, an image or a Word document.`))
+      return
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.fail(new Error(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is 10 MB. Save it smaller (a PDF of just the relevant pages is enough) and try again.`))
+      return
+    }
     setUploadingKind(kind)
     try {
       const res = await uploadAttachment(file)
@@ -3446,9 +3459,28 @@ function AttachmentGroup({
   renderExtra?: (row: AttachmentRow) => React.ReactNode
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const [over, setOver] = useState(false)
 
+  // The whole group is a drop target: a PDF dragged from the downloads bar
+  // lands here without a trip through the file dialog. One file per drop,
+  // the same as the picker, so each gets its own fingerprint check.
   return (
-    <div className="space-y-2">
+    <div
+      className={cn("space-y-2 rounded-md transition-shadow", over && "ring-2 ring-accent ring-offset-4 ring-offset-bg")}
+      onDragOver={(e) => {
+        if (busy || !e.dataTransfer.types.includes("Files")) return
+        e.preventDefault()
+        setOver(true)
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        setOver(false)
+        if (busy) return
+        e.preventDefault()
+        const file = e.dataTransfer.files?.[0]
+        if (file) onAdd(kind, file)
+      }}
+    >
       <div>
         <p className="text-sm font-medium">{title}</p>
         <p className="text-xs text-fg-muted">{hint}</p>
@@ -3542,6 +3574,7 @@ function AttachmentGroup({
         {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
         {busy ? "Uploading — wait for this one" : rows.length ? "Add another file" : "Upload a file"}
       </Button>
+      {!busy && <span className="ml-2 text-xs text-fg-subtle">or drop it here</span>}
     </div>
   )
 }

@@ -1,11 +1,15 @@
+import { useState } from "react"
 import { Link } from "react-router-dom"
-import { BarChart3, FileCheck } from "lucide-react"
+import { BarChart3, FileCheck, Stamp } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { useApi } from "@/lib/query"
+import { Button } from "@/ui/button"
+import { BulkAuthoriseDialog, type Claim as QueueClaim } from "@/pages/authorisations"
 import { money } from "@/ui/paper"
 import { Callout, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
 import { PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { cn } from "@/lib/cn"
 import {
   ClaimRow,
   Figure,
@@ -36,7 +40,7 @@ import {
 
 type DirectorQueue = {
   total: number
-  results: Claim[]
+  results: (Claim & Partial<QueueClaim>)[]
   /** Over everything that matches, not the page. */
   totals: { count: number; amount: number; longest_wait_days: number | null }
 }
@@ -55,7 +59,10 @@ type ReportSummary = {
 export function DirectorHome() {
   const { me } = useAuth()
 
-  const queue = useApi<DirectorQueue>(["director-queue", "home"], "/api/director/queue?limit=6")
+  // The whole queue, not a page of it: the summary sums it, the batch button
+  // authorises it, and the list below shows the six that have waited longest.
+  const queue = useApi<DirectorQueue>(["director-queue", "home"], "/api/director/queue?limit=200")
+  const [batchOpen, setBatchOpen] = useState(false)
   const areas = useApi<AreasPayload>(["reports", "areas"], "/api/reports/areas?limit=12")
   const report = useApi<ReportSummary>(["reports", "summary"], "/api/reports")
   const budget = useApi<BudgetSummary>(["budgets", ""], "/api/budgets")
@@ -63,15 +70,94 @@ export function DirectorHome() {
   const totals = queue.data?.totals
   const longest = totals?.longest_wait_days ?? null
   const coverage = areas.data?.coverage
+  const waiting = queue.data?.results ?? []
+  const byQuartile = ["Q1", "Q2", "Q3", "Q4"].map((q) => ({
+    q,
+    n: waiting.filter((c) => (c.quartile || "").toUpperCase() === q).length,
+  }))
+  const unranked = waiting.length - byQuartile.reduce((s, x) => s + x.n, 0)
+  const largest = [...waiting].sort((a, b) => (b.remuneration || 0) - (a.remuneration || 0)).slice(0, 3)
+  const remaining = budget.data?.college.remaining ?? null
+  const allFetched = (queue.data?.total ?? 0) <= waiting.length
 
   return (
     <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">
-          What is waiting on your authorisation, and what the institution is publishing.
-        </Sub>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <PageTitle>{greeting(me?.name)}</PageTitle>
+          <Sub className="mt-1">
+            What is waiting on your authorisation, what it would mean, and what the
+            institution is publishing.
+          </Sub>
+        </div>
+        {waiting.length > 0 && allFetched && (
+          <Button kind="primary" size="lg" onClick={() => setBatchOpen(true)}>
+            <Stamp />
+            Authorise all {waiting.length} · {money(totals?.amount)}
+          </Button>
+        )}
       </header>
+
+      {waiting.length > 0 && (
+        <section aria-label="What authorising would mean" className="grid gap-px overflow-hidden rounded-lg bg-line ring-1 ring-line md:grid-cols-3">
+          <div className="bg-surface p-5">
+            <p className="text-sm text-fg-muted">Budget left this year</p>
+            {remaining == null ? (
+              <>
+                <p className="figure mt-1 text-2xl text-fg-subtle">Not set</p>
+                <p className="mt-1 text-sm text-fg-muted">No allocation entered for {budget.data?.financial_year ?? "this year"}.</p>
+              </>
+            ) : (
+              <>
+                <p className={cn("figure mt-1 text-2xl", remaining < 0 ? "text-critical" : "text-positive")}>
+                  {remaining < 0 ? "Over by " : ""}{money(Math.abs(remaining))}
+                </p>
+                <p className="mt-1 text-sm text-fg-muted">
+                  Already sets aside the {money(totals?.amount)} waiting on you.
+                </p>
+              </>
+            )}
+          </div>
+          <div className="bg-surface p-5">
+            <p className="text-sm text-fg-muted">What is waiting, by quartile</p>
+            <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-base">
+              {byQuartile.map(({ q, n }) => (
+                <span key={q}>
+                  <span className={cn("figure", q === "Q1" && n > 0 && "text-positive")}>{n}</span>{" "}
+                  <span className="text-fg-muted">{q}</span>
+                </span>
+              ))}
+              {unranked > 0 && (
+                <span>
+                  <span className="figure">{unranked}</span> <span className="text-fg-muted">unranked</span>
+                </span>
+              )}
+            </p>
+            <p className="mt-1 text-sm text-fg-muted">Each is a Scopus-indexed paper the accreditation tables count.</p>
+          </div>
+          <div className="bg-surface p-5">
+            <p className="text-sm text-fg-muted">Largest amounts waiting</p>
+            <ul className="mt-2 space-y-1 text-sm">
+              {largest.map((c) => (
+                <li key={c.id} className="flex items-baseline justify-between gap-3">
+                  <Link to={`/papers/${c.id}`} className="min-w-0 truncate hover:underline">
+                    {c.owner_name || c.paper_title}
+                  </Link>
+                  <span className="figure shrink-0">{money(c.remuneration)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {batchOpen && (
+        <BulkAuthoriseDialog
+          claims={waiting as QueueClaim[]}
+          onClose={() => setBatchOpen(false)}
+          onDone={() => void queue.refetch()}
+        />
+      )}
 
       {/* Waiting on you, first: this is the only desk whose silence stops a
           payment outright. */}
@@ -126,7 +212,7 @@ export function DirectorHome() {
             </ul>
           ) : (
             <ul className="divide-y divide-line border-y border-line">
-              {queue.data?.results.map((c) => (
+              {queue.data?.results.slice(0, 6).map((c) => (
                 <ClaimRow key={c.id} claim={c} />
               ))}
             </ul>

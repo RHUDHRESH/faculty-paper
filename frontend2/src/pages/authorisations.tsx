@@ -47,7 +47,7 @@ const PAGE_SIZE = 50
 /* Data — read out of director_queue() in backend/core/api.py               */
 /* ------------------------------------------------------------------------ */
 
-type Claim = {
+export type Claim = {
   id: string
   ticket_number: string | null
   paper_title: string
@@ -662,7 +662,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
  * Those reasons are reported individually. "Authorised 12 of 15" with no word
  * on the other three is how three claims get forgotten.
  */
-function BulkAuthoriseDialog({
+export function BulkAuthoriseDialog({
   claims,
   onClose,
   onDone,

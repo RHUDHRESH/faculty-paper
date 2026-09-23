@@ -116,9 +116,11 @@ export function facultyStage(status: string): string {
   switch (status) {
     case "DRAFT":
       return "Draft"
+    // Filed is already with the college, so already under review -- the
+    // server's rule (core/visibility.py). Telling "Submitted" apart from the
+    // later steps would tell the claimant which desk has it.
     case "SUBMITTED":
     case "HOD_APPROVED":
-      return "Submitted"
     case "CLEARED":
     case "RESEARCH_APPROVED":
     case "PRINCIPAL_APPROVED":

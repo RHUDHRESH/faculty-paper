@@ -69,6 +69,15 @@ def erp_figures(raw_json: str | None) -> dict[str, float | None]:
     return out
 
 
+def zero_both_ways(figures: dict[str, float | None]) -> bool:
+    """The ERP paid nothing and its own working also comes to nothing.
+
+    That is the ERP agreeing with itself -- a paper its formula prices at
+    zero -- not a lost figure, so it is no discrepancy.
+    """
+    return not (figures.get("amount") or 0) and figures.get("working") == 0
+
+
 def _paid_zero_note(claim, figures: dict[str, float | None]) -> str:
     said = [
         "Paid nothing on the ERP import, and the row does not say it was "
@@ -158,7 +167,10 @@ def flag_import_discrepancies(registry=None, *, notify: bool = True) -> dict[str
                 .order_by("created_at")
                 .first()
             )
-            note = compose(claim, erp_figures(ledger.raw_json) if ledger else {})
+            figures = erp_figures(ledger.raw_json) if ledger else {}
+            if rule == RULE_PAID_ZERO and zero_both_ways(figures):
+                continue
+            note = compose(claim, figures)
             try:
                 with transaction.atomic():
                     flag = ClaimFlag.objects.create(
@@ -191,3 +203,31 @@ def flag_import_discrepancies(registry=None, *, notify: bool = True) -> dict[str
                 href="/flags",
             )
     return counts
+
+
+def close_zero_both_ways(registry=None) -> int:
+    """Resolve open import flags whose ERP figures are both zero. Returns how many."""
+    from django.apps import apps as live
+    from django.utils import timezone
+
+    registry = registry or live
+    ClaimFlag = registry.get_model("core", "ClaimFlag")
+    PaidLedger = registry.get_model("core", "PaidLedger")
+    closed = 0
+    for flag in ClaimFlag.objects.filter(auto_key=RULE_PAID_ZERO, resolved_at__isnull=True):
+        ledger = (
+            PaidLedger.objects.filter(claim_id=flag.claim_id)
+            .exclude(raw_json__isnull=True)
+            .exclude(raw_json="")
+            .order_by("created_at")
+            .first()
+        )
+        if ledger and zero_both_ways(erp_figures(ledger.raw_json)):
+            flag.resolved_at = timezone.now()
+            flag.resolution_note = (
+                "Closed by the import check: the ERP's amount and its own working are both "
+                "₹0, so the figures agree."
+            )
+            flag.save(update_fields=["resolved_at", "resolution_note"])
+            closed += 1
+    return closed

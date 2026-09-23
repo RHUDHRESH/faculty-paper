@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
@@ -157,6 +157,7 @@ type Note = {
 
 export function PaperDetail() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { me } = useAuth()
   const [confirmWithdraw, setConfirmWithdraw] = useState(false)
 
@@ -308,13 +309,26 @@ export function PaperDetail() {
         </Callout>
       )}
 
-      <Link
-        to="/papers"
-        className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
-      >
-        <ArrowLeft className="size-3.5" aria-hidden />
-        My papers
-      </Link>
+      {/* The claimant's way back is their list; anybody else arrived from a
+          queue, a search or the flags, so "My papers" would be wrong. */}
+      {isOwner || window.history.length <= 1 ? (
+        <Link
+          to={isOwner ? "/papers" : "/"}
+          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden />
+          {isOwner ? "My papers" : "Home"}
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden />
+          Back
+        </button>
+      )}
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1178,15 +1192,30 @@ const CLAIMANT_EVENTS: Record<string, string> = {
   RETURN_TO_FACULTY: "It was sent back to you",
   DIRECTOR_APPROVE: "Approved for payment",
   MARK_PAID: "Paid",
+  // What the server sends a claimant instead (core/visibility.py renames
+  // every step somebody else took, so no desk can be read off the history).
+  CREATED: "Started",
+  SUBMITTED: "Filed",
+  SENT_BACK: "The college sent it back",
+  NOT_ACCEPTED: "The college did not accept it",
+  APPROVED_FOR_PAYMENT: "Approved for payment",
+  PAID: "Paid",
+  PAYMENT_REVERSED: "The payment was reversed",
 }
+
+/** Steps whose note is the reason, written for the claimant to act on. */
+const REASON_STEPS = new Set(["REJECT", "RETURN_TO_FACULTY", "SENT_BACK", "NOT_ACCEPTED"])
 
 function ClaimantHistory({ claim }: { claim: Claim }) {
   const events = (claim.actions || [])
     .filter((a) => CLAIMANT_EVENTS[a.action])
     .map((a) => ({
       id: a.id,
-      text: CLAIMANT_EVENTS[a.action],
-      note: a.action === "REJECT" || a.action === "RETURN_TO_FACULTY" ? a.note : null,
+      text:
+        REASON_STEPS.has(a.action) && a.note
+          ? `${CLAIMANT_EVENTS[a.action]} — ${a.note}`
+          : CLAIMANT_EVENTS[a.action],
+      note: null,
       at: a.created_at,
     }))
   if (!events.some((e) => e.text === "Approved for payment") && claim.director_approved_at) {
@@ -1195,7 +1224,7 @@ function ClaimantHistory({ claim }: { claim: Claim }) {
   if (!events.some((e) => e.text === "Paid") && claim.paid_at) {
     events.push({ id: "paid", text: "Paid", note: null, at: claim.paid_at })
   }
-  if (!events.some((e) => e.text.startsWith("You filed")) && claim.submitted_at) {
+  if (!events.some((e) => /^(You filed|Filed)/.test(e.text)) && claim.submitted_at) {
     events.push({ id: "filed", text: "You filed it", note: null, at: claim.submitted_at })
   }
   events.sort((a, b) => (b.at || "").localeCompare(a.at || ""))

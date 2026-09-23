@@ -102,8 +102,14 @@ async function confirmAndWait(
     `${where}: ${endpoint} answered ${response.status()} — ${await response.text().catch(() => "")}`
   ).toBe(200)
   // The dialog closes on success. Until it has, the page behind it is still
-  // `aria-hidden` and nothing on it can be asserted.
-  await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 20_000 })
+  // `aria-hidden` and nothing on it can be asserted. The clearing sheet is
+  // the exception: with more tickets waiting it moves straight on to the
+  // next one, so it is closed here by hand once the decision has landed.
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toHaveCount(0, { timeout: 5_000 }).catch(async () => {
+    await page.keyboard.press("Escape")
+  })
+  await expect(dialog).toHaveCount(0, { timeout: 20_000 })
 }
 
 test.describe("The money chain", () => {
@@ -136,9 +142,9 @@ test.describe("The money chain", () => {
     await page.getByLabel("Search your papers").fill(seeded.claim!.ticket_number)
     const row = page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row).toHaveCount(1)
-    // A claimant sees how far it has come ("Submitted"), never whose desk it
-    // is on -- the college's rule (ui/journey.tsx).
-    await expect(row).toContainText("Submitted")
+    // A claimant sees how far it has come, never whose desk it is on: a filed
+    // paper is "Under review" from the moment it is filed (core/visibility.py).
+    await expect(row).toContainText("Under review")
 
     await done(page)
   })
@@ -306,7 +312,8 @@ test.describe("The money chain", () => {
     // step, so matching the bare word is ambiguous and was passing only by
     // luck about which of the two rendered first.
     await expect(page.getByLabel("Stage: Paid")).toBeVisible()
-    await expect(page.getByText("Settled.")).toBeVisible()
+    // And the history records it, without naming who paid it.
+    await expect(page.getByRole("listitem").filter({ hasText: /^Paid/ }).first()).toBeVisible()
 
     await done(page)
   })

@@ -808,6 +808,23 @@ class ImportDiscrepancyTests(FlagBase):
         self._sweep()
         self.assertEqual(ClaimFlag.objects.get(claim=claim).kind, ClaimFlag.Kind.AMOUNT)
 
+    def test_zero_paid_and_zero_worked_out_is_the_erp_agreeing_with_itself(self):
+        claim = self._imported("ERP-Z0", amount=0, raw={"Amount": "0", "(SNIP * 55000)+QF": "0", "QF Amount": "0"})
+        self._sweep()
+        self.assertFalse(ClaimFlag.objects.filter(claim=claim).exists())
+
+    def test_flags_already_raised_on_zero_both_ways_are_closed(self):
+        from core.services.import_discrepancies import RULE_PAID_ZERO, close_zero_both_ways
+
+        zero = self._imported("ERP-C1", amount=0, raw={"Amount": "0", "(SNIP * 55000)+QF": "0"})
+        real = self._imported("ERP-C2", amount=0, raw={"Amount": "0", "(SNIP * 55000)+QF": "4000"})
+        for c in (zero, real):
+            ClaimFlag.objects.create(claim=c, kind="AMOUNT", source="AUTO", note="x", auto_key=RULE_PAID_ZERO)
+        self.assertEqual(close_zero_both_ways(), 1)
+        self.assertIsNotNone(ClaimFlag.objects.get(claim=zero).resolved_at)
+        self.assertIsNone(ClaimFlag.objects.get(claim=real).resolved_at)
+
+
     def test_papers_paid_nothing_on_purpose_are_left_alone(self):
         for n, note in enumerate(("Processed only for count", "No remuneration - student paper", "no renumeration")):
             self._imported(f"ERP-Z3{n}", amount=0, note=note)

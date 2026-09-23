@@ -586,9 +586,9 @@ class SnipTests(SimpleTestCase):
         self.assertEqual(r.remuneration, 0.05 * CFG.snip_multiplier + CFG.qf_q1)
 
     def test_a_floored_paper_says_that_it_was_floored(self):
-        note = self._paid(0.001).note or ""
+        note = self._paid(0.001, engineering_class="Engineering").note or ""
         self.assertIn("never pays less than no SNIP", note)
-        self.assertIsNone(self._paid(2.0).note)
+        self.assertIsNone(self._paid(2.0, engineering_class="Engineering").note)
 
 
 # ---------------------------------------------------------------------------

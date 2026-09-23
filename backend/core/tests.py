@@ -5885,9 +5885,19 @@ class ZeroPayoutExplanationTests(TestCase):
         self.assertIn("publication count only", body["note"])
 
     def test_a_paying_combination_carries_no_note(self):
-        body = self._calc(snip=1.5, quartile="Q1", total_authors=1, author_position=1)
+        body = self._calc(snip=1.5, quartile="Q1", total_authors=1, author_position=1,
+                          engineering_class="Engineering")
         self.assertGreater(body["remuneration"], 0)
         self.assertIsNone(body["note"])
+
+    def test_an_unclassified_journal_is_not_given_the_quartile_incentive(self):
+        """The college's rule: QFA only for a journal classified Engineering;
+        one whose subject area is not known yet is paid without it, and says why."""
+        classified = self._calc(snip=1.5, quartile="Q1", total_authors=1, author_position=1,
+                                engineering_class="Engineering")
+        pending = self._calc(snip=1.5, quartile="Q1", total_authors=1, author_position=1)
+        self.assertAlmostEqual(classified["remuneration"] - pending["remuneration"], 50000, places=2)
+        self.assertIn("not classified", pending["note"])
 
 
 PNG_BYTES = (

@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { Checkbox, Field, Input, NumberInput, Textarea } from "@/ui/field"
+import { ClaimContext } from "@/pages/claim-context"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
@@ -931,6 +932,8 @@ function TicketSheet({
                   {[claim.owner_department, claim.owner_email].filter(Boolean).join(" · ")}
                 </Meta>
               </section>
+
+              <ClaimContext claim={claim} />
 
               <section className="space-y-2">
                 <SectionTitle>Cleared by the research cell</SectionTitle>

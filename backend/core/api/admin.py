@@ -31,7 +31,7 @@ from core.models import AuditLog, Claim, ClaimStatus, FormulaConfig, PriorImport
 from core import visibility
 from core.services import rbac
 from core.services.normalize import normalize_doi, normalize_title
-from core.services.remuneration import DEFAULT_AUTHOR_POINTS, DEFAULT_PUB_TYPE_MULTIPLIERS, MAX_ELIGIBLE_AUTHORS, MIN_SEC_REFERENCES
+from core.services.remuneration import DEFAULT_AUTHOR_POINTS, DEFAULT_PUB_TYPE_MULTIPLIERS, DEFAULT_STUDENT_PROJECT_AMOUNT, MAX_ELIGIBLE_AUTHORS, MIN_SEC_REFERENCES
 from core.services.scimago_sync import SCIMAGO_RANK_URL, ScimagoSyncError, import_csv_text, sync_year
 
 # ---------- admin ----------
@@ -363,6 +363,7 @@ def get_formula(request: HttpRequest):
             "fixed_web_of_science": 5000,
             "max_authors": MAX_ELIGIBLE_AUTHORS,
             "min_sec_references": MIN_SEC_REFERENCES,
+            "student_project_amount": DEFAULT_STUDENT_PROJECT_AMOUNT,
         }
     return {
         "id": cfg.id,
@@ -389,6 +390,7 @@ def get_formula(request: HttpRequest):
         "fixed_web_of_science": cfg.fixed_web_of_science,
         "max_authors": cfg.max_authors,
         "min_sec_references": cfg.min_sec_references,
+        "student_project_amount": cfg.student_project_amount,
         "notes": cfg.notes,
     }
 
@@ -468,6 +470,7 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
         ("qf_q4", payload.qf_q4),
         ("qf_others", payload.qf_others),
         ("high_value_threshold", payload.high_value_threshold),
+        ("student_project_amount", payload.student_project_amount or 0),
     ):
         if amount < 0:
             raise HttpError(400, f"{label} cannot be negative")
@@ -475,6 +478,11 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
     with transaction.atomic():
         prev = FormulaConfig.objects.filter(active=True).order_by("-version").first()
         next_version = (prev.version + 1) if prev else 1
+        student_project_amount = (
+            payload.student_project_amount
+            if payload.student_project_amount is not None
+            else (prev.student_project_amount if prev else DEFAULT_STUDENT_PROJECT_AMOUNT)
+        )
         FormulaConfig.objects.filter(active=True).update(active=False)
         cfg = FormulaConfig.objects.create(
             name=payload.name or f"Policy v{next_version}",
@@ -500,6 +508,7 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
             fixed_web_of_science=payload.fixed_web_of_science,
             max_authors=payload.max_authors,
             min_sec_references=payload.min_sec_references,
+            student_project_amount=student_project_amount,
             notes=payload.notes,
             updated_by=user,
             active=True,

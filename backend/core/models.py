@@ -497,6 +497,11 @@ class FormulaConfig(models.Model):
     )
     student_remuneration_zero = models.BooleanField(default=True)
     qf_only_for_no_snip = models.BooleanField(default=True)
+    #: The Final Year Student Project Reimbursement Scheme: a fixed amount per
+    #: team per conference paper, paid to the team's mentor. A scheme of its
+    #: own -- not the SNIP formula, no author-position split (college decision
+    #: of 2026-09-23, "15k per conference").
+    student_project_amount = models.FloatField(default=15000)
     active = models.BooleanField(default=True)
     notes = models.TextField(blank=True, null=True)
     updated_by = models.ForeignKey(

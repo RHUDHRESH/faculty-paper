@@ -21,10 +21,16 @@ from django.db.models import Q
 from django.http import HttpRequest
 from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
-from core.models import AttachmentKind, AuditLog, Claim, ClaimReason, ClaimStatus, FacultyMaster, FormulaConfig, Role, Team, TeamMember, User
+from core.models import AttachmentKind, AuditLog, Claim, FacultyMaster, FormulaConfig, Role, Team, TeamMember, User
 from core.services import rbac
 from core.services.fyp_roster import RosterError, import_roster, read_roster
-from core.services.remuneration import MAX_ELIGIBLE_AUTHORS, MIN_SEC_REFERENCES
+from core.services.remuneration import (
+    DEFAULT_STUDENT_PROJECT_AMOUNT,
+    MAX_ELIGIBLE_AUTHORS,
+    MIN_SEC_REFERENCES,
+    format_inr,
+)
+from core.services.student_projects import holding_claims
 
 # ---------- student project teams ----------
 
@@ -90,9 +96,44 @@ def get_team(request: HttpRequest, code: str):
 
 
 @api.get("/teams", auth=session_auth)
-def list_teams(request: HttpRequest, q: Optional[str] = None, limit: int = 20):
+def list_teams(
+    request: HttpRequest, q: Optional[str] = None, limit: int = 20, mine: bool = False
+):
+    """Teams, searched -- or, with `mine`, the ones the signed-in person mentors.
+
+    `mine` is the filing form's picker for a student-project claim. It is the
+    mentor's own teams and nobody else's, whatever the role asking, and each
+    says whether a filed claim already holds it: the scheme pays once per
+    team, so a held team is shown with the ticket that holds it rather than
+    offered and then refused.
+    """
     user = require_user(request)
     qs = Team.objects.prefetch_related("members").select_related("mentor")
+    if mine:
+        own = list(qs.filter(mentor=user).order_by("code")[:200])
+        holders = {
+            c.team_id: c
+            for c in holding_claims()
+            .filter(team__in=own)
+            .order_by("-submitted_at")
+        }
+        return {
+            "results": [
+                {
+                    **_team_dict(t),
+                    "claimed_by": (
+                        {
+                            "claim_id": holders[t.id].id,
+                            "ticket_number": holders[t.id].ticket_number,
+                            "status": holders[t.id].status,
+                        }
+                        if t.id in holders
+                        else None
+                    ),
+                }
+                for t in own
+            ]
+        }
     if q:
         term = q.strip()
         qs = qs.filter(
@@ -196,23 +237,6 @@ def upsert_team(request: HttpRequest, payload: TeamIn):
     return {**_team_dict(team), "created": created}
 
 
-def _holding_claims():
-    """Student-project claims that hold their team.
-
-    The scheme pays once per team, so one filed claim is all a team can carry.
-    A claim holds its team from the moment it is filed until it is paid and
-    forever after -- including while it is sent back to its mentor to fix,
-    because it is still theirs to refile. Two things let go: withdrawing it
-    (back to a draft), and a rejection outright, which cannot be refiled.
-    A draft that was never filed holds nothing; it has not claimed anything.
-    """
-    return (
-        Claim.objects.filter(claim_reason=ClaimReason.STUDENT_PROJECT, team__isnull=False)
-        .exclude(status=ClaimStatus.DRAFT)
-        .exclude(status=ClaimStatus.REJECTED, rejected_outright=True)
-    )
-
-
 def _require_office(request: HttpRequest) -> User:
     user = require_user(request)
     if not rbac.can_admin_portal(user.role):
@@ -272,7 +296,7 @@ def fyp_teams_summary(request: HttpRequest):
             )
             else None
         ),
-        "claimed": qs.filter(claims__in=_holding_claims()).distinct().count(),
+        "claimed": qs.filter(claims__in=holding_claims()).distinct().count(),
         "mentors_unmatched": _unmatched_mentors(qs),
     }
 
@@ -337,10 +361,15 @@ def filing_rules(request: HttpRequest):
         getattr(cfg, "max_authors", None) or MAX_ELIGIBLE_AUTHORS
     )
     min_sec = _min_sec_references()
+    raw_amount = getattr(cfg, "student_project_amount", None)
+    student_project_amount = float(
+        raw_amount if raw_amount is not None else DEFAULT_STUDENT_PROJECT_AMOUNT
+    )
 
     return {
         "max_authors": max_authors,
         "min_sec_references": min_sec,
+        "student_project_amount": student_project_amount,
         "attachment_limits": {
             "PUBLISHED_PAPER": ATTACHMENT_LIMITS[AttachmentKind.PUBLISHED_PAPER],
             "SEC_REFERENCE": ATTACHMENT_LIMITS[AttachmentKind.SEC_REFERENCE],
@@ -361,6 +390,13 @@ def filing_rules(request: HttpRequest):
                 "fewer than that is not accepted — it would be worked out as "
                 "Rs 0. File it as a publication count instead if you have no "
                 "more to cite."
+            ),
+            "student_project": (
+                "The final-year project scheme pays a fixed "
+                f"{format_inr(student_project_amount)} per team for a conference "
+                "paper, to the team's mentor, once per team. It is for conference "
+                "papers only, is not worked out by the faculty publication "
+                "formula, and does not need SEC-affiliated references."
             ),
         },
         "policy_version": getattr(cfg, "version", None),
@@ -387,7 +423,6 @@ def list_departments(request: HttpRequest):
 __all__ = [
     'TeamIn',
     'TeamMemberIn',
-    '_holding_claims',
     '_min_sec_references',
     '_numbered_sec_references',
     '_require_office',

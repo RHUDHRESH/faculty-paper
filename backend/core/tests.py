@@ -12456,9 +12456,11 @@ class StudentProjectClaimTests(TestCase):
         self.assertEqual(Claim.objects.get(pk=res.json()["id"]).team_id, self.team.id)
 
     def test_an_unknown_code_is_refused_and_says_what_to_do(self):
+        # It used to say "Create the team first". A claimant can no longer
+        # create one: teams come from the office's roster import.
         res = self.create(team_code="NOPE-1")
         self.assertEqual(res.status_code, 404)
-        self.assertIn("Create the team first", res.json()["detail"])
+        self.assertIn("roster", res.json()["detail"])
 
     def test_the_ticket_carries_the_team_and_its_students(self):
         res = self.create(team_code="CSE-24-011")

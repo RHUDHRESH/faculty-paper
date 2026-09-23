@@ -35,9 +35,10 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Notification, Role, ScimagoJournal, SnipSource, User
+from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Notification, Role, ScimagoJournal, SnipSource, Team, User
 from core.services import rbac
 from core.services.normalize import normalize_issn
+from core.services.student_projects import StudentProjectRefusal, check_student_project
 from core.services.notify_email import send_optional_email
 from core.services.tickets import assign_ticket_number
 from core import hod, visibility
@@ -275,18 +276,12 @@ def _check_mandatory_fields(claim: Claim) -> None:
     if missing:
         raise HttpError(400, "Complete these before submitting: " + ", ".join(missing))
 
-    # The one field that is mandatory on some claims and meaningless on the
-    # rest. Checked here rather than added to `missing` above so the message
-    # can say what to do about it: "Team" in a list of missing fields does not
-    # tell somebody that the team has to exist before the claim can name it.
-    if claim.claim_reason == ClaimReason.STUDENT_PROJECT and claim.team_id is None:
-        raise HttpError(
-            400,
-            "A student project claim has to name the team. Enter the team "
-            "code and confirm the students on it before submitting — the "
-            "incentive is claimed on their project, and a ticket that names "
-            "only you does not show whose work it was.",
-        )
+    # The final-year project scheme's own rule: one of the claimant's own
+    # teams, not already claimed, on a conference paper. Checked here rather
+    # than added to `missing` above so each refusal can say what to do about
+    # it: "Team" in a list of missing fields tells nobody that only the mentor
+    # may claim, or which ticket already holds the team.
+    _refuse_student_project(claim, filing=True)
 
     # A journal is often listed in several places at once — Scopus and UGC Care,
     # say — so indexing_level holds a comma-separated set, and any annexure
@@ -326,7 +321,14 @@ def _check_mandatory_fields(claim: Claim) -> None:
     # is to decide an amount has nothing to say about it. It keeps the older,
     # looser rule — one reference on file — which is all a publication record
     # needs.
-    if claim.claim_reason == ClaimReason.COUNT_ONLY:
+    #
+    # STUDENT_PROJECT is exempt altogether. The two-reference minimum is the
+    # faculty publication remuneration scheme's eligibility rule, and the
+    # policy puts the final-year project scheme outside that scheme; its fixed
+    # amount is not gated on references.
+    if claim.claim_reason == ClaimReason.STUDENT_PROJECT:
+        pass
+    elif claim.claim_reason == ClaimReason.COUNT_ONLY:
         if not has_refs:
             raise HttpError(
                 400, "Upload at least one cited reference with SEC affiliation (PDF)"
@@ -345,6 +347,13 @@ def _check_mandatory_fields(claim: Claim) -> None:
                 "worked out as Rs 0; if you have no more to cite, file it as a "
                 "publication count instead.",
             )
+
+
+def _refuse_student_project(claim: Claim, *, filing: bool) -> None:
+    try:
+        check_student_project(claim, filing=filing)
+    except StudentProjectRefusal as refusal:
+        raise HttpError(refusal.status, refusal.message) from refusal
 
 
 def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str | None) -> None:
@@ -418,20 +427,32 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
             claim.override_by = user
             claim.override_at = timezone.now()
 
-    # assign_ticket_number retries on collision; next_ticket_number alone races,
-    # because the row lock is released before the claim is written. Two people
-    # submitting in the same instant got an IntegrityError and a lost claim.
-    assign_ticket_number(claim)
+    with transaction.atomic():
+        if claim.claim_reason == ClaimReason.STUDENT_PROJECT and claim.team_id:
+            # Once per team, made to hold under concurrency: two submits for
+            # one team both passed the check above before either was filed.
+            # Locking the team row serialises them here, and the check is
+            # repeated under the lock so the second is refused, naming the
+            # first. (verify_publication is an outbound call, which is why
+            # the lock is taken here and not held across it.)
+            Team.objects.select_for_update().filter(pk=claim.team_id).first()
+            _refuse_student_project(claim, filing=True)
 
-    claim.status = ClaimStatus.SUBMITTED
-    claim.submitted_at = timezone.now()
-    # The paper is now in its author's year, so it takes a slot -- and the
-    # amount is worked out again, because the first pass priced it without
-    # one. Without this every research-faculty paper is "paper 1" and pays
-    # nothing, which is what happened.
-    _assign_quota_position(claim)
-    _apply_calc(claim)
-    claim.save()
+        # assign_ticket_number retries on collision; next_ticket_number alone
+        # races, because the row lock is released before the claim is written.
+        # Two people submitting in the same instant got an IntegrityError and a
+        # lost claim.
+        assign_ticket_number(claim)
+
+        claim.status = ClaimStatus.SUBMITTED
+        claim.submitted_at = timezone.now()
+        # The paper is now in its author's year, so it takes a slot -- and the
+        # amount is worked out again, because the first pass priced it without
+        # one. Without this every research-faculty paper is "paper 1" and pays
+        # nothing, which is what happened.
+        _assign_quota_position(claim)
+        _apply_calc(claim)
+        claim.save()
     ClaimAction.objects.create(
         claim=claim,
         actor=user,
@@ -1169,6 +1190,7 @@ __all__ = [
     '_DESK_NAMES',
     '_RETIRED_STEP',
     '_check_mandatory_fields',
+    '_refuse_student_project',
     '_faculty_status_copy',
     '_flatten_title',
     '_guard_recomputed_amount',

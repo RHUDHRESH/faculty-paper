@@ -100,7 +100,9 @@ def _assign_quota_position(claim: Claim) -> None:
         or owner.faculty_type != "RESEARCH"
         or not owner.research_quota
         or not claim.publication_year
-        or claim.claim_reason == ClaimReason.COUNT_ONLY
+        # Neither takes a slot: a count asks for no money, and a student
+        # project is paid under its own scheme, outside the quota.
+        or claim.claim_reason in (ClaimReason.COUNT_ONLY, ClaimReason.STUDENT_PROJECT)
         or not claim.pk
     ):
         return

@@ -1033,6 +1033,36 @@ export function FilePaper() {
   // worse, stay quiet about one that is.
   const [carried, setCarried] = useState<CarriedEvidence>(NO_CARRIED_EVIDENCE)
 
+  // "File another in this journal": start from a previous claim's journal,
+  // not its paper. Title, DOI, date, files and author position belong to the
+  // new paper and are never copied.
+  const copyId = isEditRoute ? null : searchParams.get("copy")
+  const { data: copySource } = useApi<ClaimDetail>(["claim", copyId], `/api/claims/${copyId}`, {
+    enabled: !!copyId,
+  })
+  const copiedRef = useRef(false)
+  useEffect(() => {
+    if (!copySource || copiedRef.current) return
+    copiedRef.current = true
+    const c = formFromClaim(copySource)
+    setForm((prev) => ({
+      ...prev,
+      journalTitle: c.journalTitle,
+      issn: c.issn,
+      publicationType: c.publicationType,
+      indexing: c.indexing,
+      auAnnexureRef: c.auAnnexureRef,
+      ugcCareRef: c.ugcCareRef,
+      subjectCategory: c.subjectCategory,
+      selfReportedQuartile: c.selfReportedQuartile,
+      selfReportedSnip: c.selfReportedSnip,
+      impactFactor: c.impactFactor,
+      totalAuthors: c.totalAuthors,
+      claimReason: c.claimReason,
+    }))
+    toast.info(`Started from ${copySource.journal_title || "your earlier claim"} — the journal is filled in; add this paper's own details and files.`)
+  }, [copySource])
+
   // Pre-fill from the existing claim (edit route) exactly once, without
   // marking the form dirty — a page load is not an edit.
   useEffect(() => {

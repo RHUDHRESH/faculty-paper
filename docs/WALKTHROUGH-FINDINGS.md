@@ -71,7 +71,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 31. [x] Export my papers to Excel
 32. [x] Drafts list with "last edited" and Resume
 33. [ ] Discard a draft
-34. [ ] Start a new claim from a previous one (same journal, co-authors)
+34. [x] Start a new claim from a previous one (same journal, co-authors)
 35. [ ] Pick your author position from the author list
 36. [x] Upload checks type and size before sending, with a clear message
 37. [x] Drag and drop files onto the upload area

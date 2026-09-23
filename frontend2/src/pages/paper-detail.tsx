@@ -323,6 +323,11 @@ export function PaperDetail() {
               {claim.journal_title ? ` · ${claim.journal_title}` : ""}
             </Sub>
           </div>
+          {isOwner && claim.journal_title && claim.status !== "DRAFT" && (
+            <Button kind="quiet" className="shrink-0 print:hidden" asChild>
+              <Link to={`/papers/new?copy=${claim.id}`}>File another in this journal</Link>
+            </Button>
+          )}
           {isOwner && claim.status === "PAID" && (
             // The ticket page is the payment advice: amount, how it was worked
             // out, voucher and date. Printing it prints just the page.

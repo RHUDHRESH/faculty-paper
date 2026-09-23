@@ -118,6 +118,7 @@ type QueueClaim = {
   authors_json: string | null
   attachments: Attachment[]
   duplicate_warning: boolean
+  contest_forward?: boolean | null
   duplicate_matches_json: string | null
   override_duplicate: boolean | null
   override_reason: string | null
@@ -175,7 +176,30 @@ export function Clearing() {
     { enabled: allowed, placeholderData: (prev) => prev }
   )
 
-  const rows = claims ?? []
+  const all = claims ?? []
+
+  // Narrowing only: the server's oldest-first order is the queue's priority
+  // and is never re-sorted here. Keyboard moves and "select all shown" work
+  // on what is on screen.
+  const [q, setQ] = useState("")
+  const [dept, setDept] = useState("")
+  const [check, setCheck] = useState<"" | "passed" | "failed" | "flagged">("")
+  const needle = q.trim().toLowerCase()
+  const rows = all.filter(
+    (c) =>
+      (!dept || (c.owner_department || "—") === dept) &&
+      (!check ||
+        (check === "passed" && c.verification_ok === true) ||
+        (check === "failed" && c.verification_ok === false) ||
+        (check === "flagged" && (c.duplicate_warning || c.contest_forward))) &&
+      (!needle ||
+        [c.paper_title, c.ticket_number, c.owner_name, c.journal_title]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(needle)))
+  )
+  const byDept = [...all.reduce((m, c) => m.set(c.owner_department || "—", (m.get(c.owner_department || "—") || 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])
+  const queueTotal = all.reduce((s, c) => s + (c.remuneration || 0), 0)
+  const oldest = all.reduce((m, c) => Math.max(m, c.waiting_days ?? 0), 0)
 
   // Whole rows, not just ids — the same shape `payments.tsx` uses. A row that
   // has left this fetch still has to be able to say its own title and amount,
@@ -318,6 +342,64 @@ export function Clearing() {
         </Button>
       </header>
 
+      {all.length > 0 && (
+        <section aria-label="The queue at a glance" className="space-y-3">
+          <p className="text-sm text-fg-muted">
+            <span className="font-semibold text-fg">{all.length}</span> waiting ·{" "}
+            <span className="tabular font-semibold text-fg">{money(queueTotal)}</span> in all · oldest{" "}
+            <span className={cn("font-semibold", oldest > 14 ? "text-critical" : oldest > 7 ? "text-caution" : "text-fg")}>
+              {waitingLabel(oldest).toLowerCase()}
+            </span>
+          </p>
+          {byDept.length > 1 && (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by department">
+              {byDept.map(([d, n]) => (
+                <button
+                  key={d}
+                  type="button"
+                  aria-pressed={dept === d}
+                  onClick={() => setDept(dept === d ? "" : d)}
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-xs ring-1 ring-inset",
+                    dept === d ? "bg-accent text-accent-fg ring-accent" : "bg-surface text-fg-muted ring-line hover:text-fg"
+                  )}
+                >
+                  {d} <span className="tabular">{n}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Filter by title, ticket, claimant or journal"
+              aria-label="Filter the queue"
+              className="max-w-sm"
+            />
+            <select
+              value={check}
+              onChange={(e) => setCheck(e.target.value as typeof check)}
+              aria-label="Filter by verification"
+              className="h-9 rounded-md border-0 bg-surface px-2 text-sm shadow-well ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <option value="">Any verification</option>
+              <option value="passed">Verification passed</option>
+              <option value="failed">Verification failed</option>
+              <option value="flagged">Duplicate or contested</option>
+            </select>
+            {(q || dept || check) && (
+              <Button kind="quiet" size="sm" onClick={() => { setQ(""); setDept(""); setCheck("") }}>
+                Show all {all.length}
+              </Button>
+            )}
+            <Button kind="quiet" size="sm" className="ml-auto" onClick={() => downloadQueue(rows)}>
+              Download these {rows.length} as CSV
+            </Button>
+          </div>
+        </section>
+      )}
+
       <Meta className="block">
         <kbd className="rounded border border-edge px-1 text-[10px]">j</kbd>/
         <kbd className="rounded border border-edge px-1 text-[10px]">k</kbd> or arrows to move ·{" "}
@@ -364,6 +446,12 @@ export function Clearing() {
           title="Could not load the queue"
           message="The server did not answer. Nothing has been lost or cleared."
           onRetry={() => refetch()}
+        />
+      ) : all.length > 0 && rows.length === 0 ? (
+        <EmptyState
+          icon={Inbox}
+          title="No ticket matches these filters"
+          message={`${all.length} are waiting in all.`}
         />
       ) : rows.length === 0 ? (
         <EmptyState
@@ -458,6 +546,12 @@ export function Clearing() {
                   <td className="px-3 py-3 align-top">
                     <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
                     <Meta className="mt-0.5 block">{c.ticket_number || "Not yet ticketed"}</Meta>
+                    {c.verification_ok === false && issuesOf(c)[0] && (
+                      <p className="mt-1 text-xs text-critical">
+                        {issuesOf(c)[0]}
+                        {issuesOf(c).length > 1 && ` (+${issuesOf(c).length - 1} more)`}
+                      </p>
+                    )}
                     {(c.duplicate_warning || c.calc_error || c.remuneration_is_estimate) && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {c.duplicate_warning && (
@@ -484,7 +578,15 @@ export function Clearing() {
                     {c.journal_title || "—"}
                   </td>
                   <td className="px-3 py-3 align-top text-right">
-                    <span className={cn("tabular", (c.waiting_days ?? 0) > 7 && "font-medium text-caution")}>
+                    <span
+                      className={cn(
+                        "tabular",
+                        (c.waiting_days ?? 0) > 14
+                          ? "font-medium text-critical"
+                          : (c.waiting_days ?? 0) > 7 && "font-medium text-caution"
+                      )}
+                      title={(c.waiting_days ?? 0) > 7 ? "Waiting more than a week" : undefined}
+                    >
                       {waitingLabel(c.waiting_days)}
                     </span>
                   </td>
@@ -496,7 +598,7 @@ export function Clearing() {
                     )}
                   </td>
                   <td className="px-3 py-3 align-top">
-                    <VerifiedBadge ok={c.verification_ok} />
+                    <VerifiedBadge ok={c.verification_ok} issues={issuesOf(c)} />
                   </td>
                 </tr>
               ))}
@@ -621,7 +723,34 @@ function RowFlag({ tone, children }: { tone: "critical" | "caution"; children: R
   )
 }
 
-function VerifiedBadge({ ok }: { ok: boolean | null }) {
+/** The plain-English reasons verification recorded, for the row itself. */
+function issuesOf(c: QueueClaim): string[] {
+  try {
+    const snap = JSON.parse(c.verification_snapshot_json || "{}") as { issues?: unknown }
+    return Array.isArray(snap.issues) ? snap.issues.filter((i): i is string => typeof i === "string") : []
+  } catch {
+    return []
+  }
+}
+
+/** The queue as it stands on screen, for the office's own spreadsheet. */
+function downloadQueue(rows: QueueClaim[]) {
+  const head = ["Ticket", "Paper", "Claimant", "Department", "Journal", "Waiting days", "Amount", "Verified"]
+  const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
+  const body = rows.map((c) =>
+    [c.ticket_number, c.paper_title, c.owner_name, c.owner_department, c.journal_title, c.waiting_days, c.remuneration, c.verification_ok === true ? "passed" : c.verification_ok === false ? "failed" : "not checked"]
+      .map(cell)
+      .join(",")
+  )
+  const blob = new Blob(["\uFEFF" + [head.map(cell).join(","), ...body].join("\r\n")], { type: "text/csv;charset=utf-8" })
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = `clearing-queue-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+function VerifiedBadge({ ok, issues = [] }: { ok: boolean | null; issues?: string[] }) {
   if (ok === true) {
     return (
       <span className="inline-flex items-center gap-1 text-sm text-positive">
@@ -631,8 +760,11 @@ function VerifiedBadge({ ok }: { ok: boolean | null }) {
   }
   if (ok === false) {
     return (
-      <span className="inline-flex items-center gap-1 text-sm text-critical">
+      <span className="inline-flex flex-wrap items-center gap-1 text-sm text-critical" title={issues.join("\n") || undefined}>
         <XCircle className="size-3.5" aria-hidden /> Failed
+        {issues.length > 0 && (
+          <span className="sr-only">: {issues.join("; ")}</span>
+        )}
       </span>
     )
   }

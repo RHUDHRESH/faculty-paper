@@ -22,6 +22,7 @@ from core.api.teams import *  # noqa: F401,F403
 from core.api.claims import *  # noqa: F401,F403
 from core.api.journals import *  # noqa: F401,F403
 from core.api.director import *  # noqa: F401,F403
+from core.api.desks import *  # noqa: F401,F403
 from core.api.dashboard import *  # noqa: F401,F403
 from core.api.discussions import *  # noqa: F401,F403
 from core.api.calendar import *  # noqa: F401,F403

@@ -114,13 +114,55 @@ def can_clear_claims(role: str) -> bool:
 
 
 def can_reject_claims(role: str) -> bool:
-    """Whoever can clear can also send a ticket back; Finance can too, since a
-    payment problem surfaces there and nowhere earlier."""
-    return role in (*ADMIN_ROLES, Role.FINANCE)
+    """Whoever sits at a review desk may send a paper back from it.
+
+    Which paper, from which desk, is decided against the paper's status (see
+    `can_act_at_desk`). Finance used to be here, on the grounds that a payment
+    problem surfaces there first; the chain is now forward-only past the
+    Principal, so Finance pays and the Director authorises, and neither sends
+    anything back.
+    """
+    return sits_at_a_desk(role)
 
 
 def can_approve_as_finance(role: str) -> bool:
     return role in (Role.FINANCE, Role.SUPER_ADMIN)
+
+
+# ---- the two review desks ---------------------------------------------------
+#
+# A filed paper waits at one of two desks before anybody agrees to spend money
+# on it: the research supervisor's (the office roles, status SUBMITTED) and the
+# Principal's (status CLEARED). Holding, returning and rejecting happen only at
+# those two desks, and only by whoever sits at the desk the paper is at. A super
+# admin sits at both. The Director and Finance sit at neither: they move a paper
+# forward and nothing else.
+
+SUPERVISOR_DESK = "supervisor"
+PRINCIPAL_DESK = "principal"
+
+
+def desk_for_status(status: str | None) -> str | None:
+    """Which review desk a paper at this status is sitting at, if any."""
+    from core.models import ClaimStatus
+
+    if status == ClaimStatus.SUBMITTED:
+        return SUPERVISOR_DESK
+    if status == ClaimStatus.CLEARED:
+        return PRINCIPAL_DESK
+    return None
+
+
+def can_act_at_desk(role: str, desk: str | None) -> bool:
+    if desk == SUPERVISOR_DESK:
+        return role in ADMIN_ROLES
+    if desk == PRINCIPAL_DESK:
+        return role in (Role.PRINCIPAL, Role.SUPER_ADMIN)
+    return False
+
+
+def sits_at_a_desk(role: str) -> bool:
+    return can_act_at_desk(role, SUPERVISOR_DESK) or can_act_at_desk(role, PRINCIPAL_DESK)
 
 
 def can_view_audit(role: str) -> bool:

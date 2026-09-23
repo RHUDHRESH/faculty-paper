@@ -2015,7 +2015,8 @@ class PaymentLifecycleTests(TestCase):
 
     def test_void_writes_a_reversing_ledger_row_and_returns_to_cleared(self):
         claim = self._paid_claim()
-        self.client.force_login(self.finance)
+        # A super admin's power: Finance only pays (core/test_chain_rules.py).
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/void-payment",
             data=json.dumps({"note": "Paid against the wrong voucher"}),
@@ -2043,7 +2044,7 @@ class PaymentLifecycleTests(TestCase):
             claim=claim, payout_month=date(2026, 8, 1), amount=0.0,
             faculty_name=self.faculty.name, voucher_number="V-ZERO",
         )
-        self.client.force_login(self.finance)
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/void-payment",
             data=json.dumps({"note": "Paid at zero against the wrong ticket"}),
@@ -2077,7 +2078,7 @@ class PaymentLifecycleTests(TestCase):
 
     def test_void_requires_a_reason_and_a_paid_claim(self):
         claim = self._paid_claim("LC-PAID2")
-        self.client.force_login(self.finance)
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/void-payment",
             data=json.dumps({"note": "oops"}),
@@ -2094,7 +2095,7 @@ class PaymentLifecycleTests(TestCase):
 
     def test_void_then_repay_is_allowed(self):
         claim = self._paid_claim("LC-PAID3")
-        self.client.force_login(self.finance)
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/void-payment",
             data=json.dumps({"note": "Wrong amount was disbursed"}),
@@ -2107,6 +2108,7 @@ class PaymentLifecycleTests(TestCase):
         # exactly the case where a second look is worth the friction.
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.CLEARED)
+        self.client.force_login(self.finance)
         r = self.client.post(
             f"/api/claims/{claim.id}/mark-paid",
             data=json.dumps({"voucher_number": "V101", "expected_amount": 85000.0}),
@@ -4067,19 +4069,20 @@ class FiveStepChainTests(TestCase):
         )
         self.assertIn(Role.FINANCE, told)
 
-    def test_the_claimant_is_told_where_their_ticket_actually_is(self):
-        """It said "with Finance" at a point where Finance could not pay it."""
-        title, body = api_module._faculty_status_copy(ClaimStatus.CLEARED)
-        self.assertIn("Principal", title + body)
-        self.assertNotIn("with Finance", body)
-
-        # Approved is not "with Finance" either: the director has it.
-        title, body = api_module._faculty_status_copy(ClaimStatus.PRINCIPAL_APPROVED)
-        self.assertIn("Director", title + body)
-        self.assertNotIn("with Finance", body)
-
-        title, body = api_module._faculty_status_copy(ClaimStatus.DIRECTOR_APPROVED)
-        self.assertIn("Finance", body)
+    def test_the_claimant_is_told_the_stage_and_never_the_desk(self):
+        """It once said "with Finance" where Finance could not pay, and then
+        named every desk correctly. The college has since decided a claimant is
+        not told whose desk their paper is on at all (core/test_chain_rules.py)."""
+        for status, stage in (
+            (ClaimStatus.CLEARED, "Under review"),
+            (ClaimStatus.PRINCIPAL_APPROVED, "Under review"),
+            (ClaimStatus.DIRECTOR_APPROVED, "Approved for payment"),
+            (ClaimStatus.PAID, "Paid"),
+        ):
+            title, body = api_module._faculty_status_copy(status)
+            self.assertEqual(title, stage, status)
+            for desk in ("Principal", "Director", "Finance", "research cell"):
+                self.assertNotIn(desk, title + body, status)
 
     def test_approved_is_still_not_payable_until_the_director_authorises(self):
         claim = self._cleared("CH-2")
@@ -8994,7 +8997,9 @@ class DirectorChainTests(TestCase):
         claim = self._claim(
             status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="D-6"
         )
-        self.client.force_login(self.director)
+        # The Director is forward-only now; the send-back is a super admin's
+        # rescue (core/test_chain_rules.py ForwardOnlyTests).
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/director-reject",
             data=json.dumps({"note": "Past the quarter's allocation"}),
@@ -9014,7 +9019,7 @@ class DirectorChainTests(TestCase):
         claim = self._claim(
             status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="D-7"
         )
-        self.client.force_login(self.director)
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/director-reject",
             data=json.dumps({"note": "no"}),
@@ -9075,11 +9080,14 @@ class DirectorChainTests(TestCase):
     # ---- what the claimant is told --------------------------------------
 
     def test_the_claimant_is_not_sent_to_finance_a_step_early(self):
+        # In the claimant's own words now, which name no desk
+        # (core/test_chain_rules.py): approved by the Principal is still under
+        # review; only the Director's authorisation is approval for payment.
         title, body = api_module._faculty_status_copy(ClaimStatus.PRINCIPAL_APPROVED)
-        self.assertIn("Director", title + body)
-        self.assertNotIn("Finance", title)
+        self.assertEqual(title, "Under review")
+        self.assertNotIn("payment", (title + body).lower())
         title, body = api_module._faculty_status_copy(ClaimStatus.DIRECTOR_APPROVED)
-        self.assertIn("Finance", title + body)
+        self.assertEqual(title, "Approved for payment")
 
 
 class ReportBuilderTests(TestCase):

@@ -18,7 +18,8 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AuditLog, DuplicateFinding, Role
+from core import visibility
+from core.models import AuditLog, DuplicateFinding
 from core.services import rbac
 
 # ---------- duplicate findings ----------
@@ -28,6 +29,17 @@ class FindingReviewIn(Schema):
     status: str
     note: Optional[str] = None
     recovered_amount: Optional[float] = None
+
+
+def _refuse_contest_blind(user) -> None:
+    """The Director and Finance are not shown payment-history matches at all
+    (see core.visibility), and this screen is nothing but those."""
+    if visibility.is_contest_blind(user.role):
+        raise HttpError(
+            403,
+            "Payment-history findings are reviewed by the research supervisor's "
+            "desk and the Principal.",
+        )
 
 
 @api.get("/admin/duplicate-findings", auth=session_auth)
@@ -42,6 +54,7 @@ def list_duplicate_findings(
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
+    _refuse_contest_blind(user)
 
     qs = DuplicateFinding.objects.select_related("reviewed_by")
     if kind:
@@ -107,7 +120,8 @@ def review_duplicate_finding(request: HttpRequest, finding_id: str, payload: Fin
     review, and the next sweep would raise it again with nothing to go on.
     """
     user = require_user(request)
-    if user.role not in rbac.ADMIN_ROLES and user.role != Role.FINANCE:
+    _refuse_contest_blind(user)
+    if user.role not in rbac.ADMIN_ROLES:
         raise HttpError(403, "Forbidden")
     valid = {s.value for s in DuplicateFinding.Status}
     if payload.status not in valid:
@@ -141,6 +155,7 @@ def review_duplicate_finding(request: HttpRequest, finding_id: str, payload: Fin
 
 __all__ = [
     'FindingReviewIn',
+    '_refuse_contest_blind',
     'list_duplicate_findings',
     'review_duplicate_finding',
 ]

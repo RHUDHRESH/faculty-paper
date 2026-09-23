@@ -20,7 +20,16 @@ from core.api.common import (
 from core.api.schemas import ActionIn, ManualVerifyIn, OverrideStatusIn
 from core.api.deps import claim_to_dict
 from core.api.common import require_user
-from core.api.journals import PrincipalBulkIn, _guard_recomputed_amount, _may_approve_as_principal, _reverify_or_recalc, _transition, clear_claim
+from core.api.journals import (
+    PrincipalBulkIn,
+    _guard_recomputed_amount,
+    _may_approve_as_principal,
+    _require_own_desk,
+    _reverify_or_recalc,
+    _transition,
+    _withdraw_approvals,
+    clear_claim,
+)
 
 import json
 import re
@@ -35,6 +44,7 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, Notification, PAYABLE_STATUSES, PaidLedger, Role, User
+from core import visibility
 from core.services import rbac
 from core.services.verify import apply_verify_to_claim, verify_publication
 
@@ -248,13 +258,22 @@ def director_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
 def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
     """Send an approved ticket back to the Principal with a reason.
 
-    Back one step, not all the way: what the Director is querying is the
-    approval, so it returns to the person who gave it. Dropping it to the
-    claimant instead would have somebody who did nothing wrong re-filing a
-    paper to answer a question about the institution's budget.
+    Super admin only. The chain past the Principal is forward-only: the
+    Director authorises, and a question about a Principal-approved paper is
+    raised with the Principal rather than by bouncing the paper. A super admin
+    keeps this as the rescue for an approval given against the wrong facts.
+
+    Back one step, not all the way: what is being queried is the approval, so
+    it returns to the person who gave it.
     """
     user = require_user(request)
-    if not _may_approve_as_director(user.role):
+    if user.role == Role.DIRECTOR:
+        raise HttpError(
+            403,
+            "The Director authorises and does not send papers back. Raise the "
+            "question with the Principal, or ask a super admin to return it.",
+        )
+    if user.role != Role.SUPER_ADMIN:
         raise HttpError(403, "Forbidden")
     note = (payload.note or "").strip()
     if len(note) < 5:
@@ -280,7 +299,7 @@ def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
     ):
         Notification.objects.create(
             user=u,
-            title=f"Sent back by the Director \u00b7 {claim.ticket_number}",
+            title=f"Returned to the Principal's desk \u00b7 {claim.ticket_number}",
             body=note[:300],
             href=f"/approvals?claim={claim.id}",
             claim_id=claim.id,
@@ -290,7 +309,7 @@ def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
 
 @api.post("/claims/{claim_id}/principal-reject", auth=session_auth)
 def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
-    """Send a cleared ticket back to the research cell with a reason.
+    """Return a cleared ticket one step, to the research supervisor's desk.
 
     Back to the cell rather than to the claimant: what the principal is
     querying is the checking, and a claimant told "sent back" with no reason
@@ -308,6 +327,10 @@ def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
         if claim.status != ClaimStatus.CLEARED:
             raise HttpError(400, "Only a cleared ticket can be sent back from here")
         claim.status_note = note
+        # The clearing goes with the status, as the Director's send-back takes
+        # the Principal's approval with it: the desk will clear it again.
+        claim.cleared_by = None
+        claim.cleared_at = None
         _transition(claim, user, ClaimStatus.SUBMITTED, "PRINCIPAL_SEND_BACK", note)
 
     _notify_admins(
@@ -316,6 +339,12 @@ def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
         note[:300],
     )
     return claim_to_dict(claim)
+
+
+@api.post("/claims/{claim_id}/return-one-step", auth=session_auth)
+def return_one_step(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """The Principal's one-step return, under the name the chain gives it."""
+    return principal_reject(request, claim_id, payload)
 
 
 @api.post("/claims/{claim_id}/approve", auth=session_auth)
@@ -416,6 +445,15 @@ def _mark_one_paid(
             # including whether it needs a second signature.
             _guard_recomputed_amount(claim, expected_amount)
             if _needs_second_approval(claim):
+                if visibility.is_contest_blind(user.role):
+                    # Finance is not told about a contested payment-history
+                    # match (core.visibility), so the refusal says what is
+                    # missing without saying why it is required.
+                    raise HttpError(
+                        400,
+                        "A second approver, different from the person who "
+                        "cleared it, must approve before this is paid.",
+                    )
                 if claim.duplicate_warning and claim.override_duplicate:
                     who = claim.override_by.name if claim.override_by else "somebody"
                     raise HttpError(
@@ -591,10 +629,17 @@ def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
     The ledger is append-only: voiding writes a negative reversing row rather
     than deleting anything, and the claim returns to CLEARED so it can be
     corrected and paid again.
+
+    Super admin only. Finance pays and does nothing else: undoing a payment
+    sends the paper backwards, and backwards is not Finance's direction.
     """
     user = require_user(request)
-    if not rbac.can_approve_as_finance(user.role):
-        raise HttpError(403, "Forbidden")
+    if user.role != Role.SUPER_ADMIN:
+        raise HttpError(
+            403,
+            "Only a super admin can void a payment. Finance pays; a payment "
+            "made in error is reversed by a super admin.",
+        )
     note = (payload.note or "").strip()
     if len(note) < 10:
         raise HttpError(400, "Add a reason (10+ characters) — it goes to the audit trail and the ledger")
@@ -672,26 +717,60 @@ def withdraw_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
     return claim_to_dict(claim)
 
 
-@api.post("/claims/{claim_id}/reject", auth=session_auth)
-def reject_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
+def _send_to_faculty(request: HttpRequest, claim_id: str, payload: ActionIn, *, outright: bool):
+    """Return a paper to its claimant, or reject it outright, from a review desk.
+
+    Both land on REJECTED; `rejected_outright` is what tells them apart. The
+    research supervisor's desk does this to a submitted paper, the Principal's
+    desk to a cleared one, and a super admin at either -- or, as the rescue
+    role, to a paper past both desks that has not been paid.
+    """
     user = require_user(request)
     if not rbac.can_reject_claims(user.role):
-        raise HttpError(403, "Forbidden")
-    claim = get_object_or_404(Claim.objects.all(), pk=claim_id)
-    if claim.status not in (ClaimStatus.SUBMITTED, *PAYABLE_STATUSES):
-        raise HttpError(400, "Invalid status for reject")
-    # The faculty member has to write 10 characters to contest a failed check;
-    # sending their claim back without saying why was the cheaper action. The
-    # reason is also what the rejection notification shows them.
-    note = (payload.note or "").strip()
-    if len(note) < 10:
         raise HttpError(
-            400, "Add a reason (10+ characters) so the faculty member knows what to fix"
+            403,
+            "Only the research supervisor's desk and the Principal's desk send a "
+            "paper back. The Director and Finance only move a paper forward.",
         )
-    claim.status_note = note[:255]
-    claim.save(update_fields=["status_note"])
-    _transition(claim, user, ClaimStatus.REJECTED, "REJECT", note)
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if claim.status not in (ClaimStatus.SUBMITTED, *PAYABLE_STATUSES):
+            raise HttpError(400, "Invalid status for reject")
+        _require_own_desk(user, claim)
+        # The faculty member has to write 10 characters to contest a failed
+        # check; sending their claim back without saying why was the cheaper
+        # action. The reason is also what the notification shows them.
+        note = (payload.note or "").strip()
+        if len(note) < 10:
+            raise HttpError(
+                400, "Add a reason (10+ characters) so the faculty member knows what to fix"
+            )
+        claim.status_note = note[:255]
+        claim.rejected_outright = outright
+        _withdraw_approvals(claim)
+        _transition(
+            claim, user, ClaimStatus.REJECTED,
+            "REJECT_OUTRIGHT" if outright else "REJECT", note,
+        )
     return claim_to_dict(claim)
+
+
+@api.post("/claims/{claim_id}/reject", auth=session_auth)
+def reject_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Return to the faculty to fix and refile. The ticket number is kept."""
+    return _send_to_faculty(request, claim_id, payload, outright=False)
+
+
+@api.post("/claims/{claim_id}/return-to-faculty", auth=session_auth)
+def return_to_faculty(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """The same as /reject, under a name that cannot be mistaken for the final one."""
+    return _send_to_faculty(request, claim_id, payload, outright=False)
+
+
+@api.post("/claims/{claim_id}/reject-outright", auth=session_auth)
+def reject_outright(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Not accepted: the claimant cannot edit or refile it."""
+    return _send_to_faculty(request, claim_id, payload, outright=True)
 
 
 def _verify_claim(claim: Claim) -> Claim:
@@ -814,6 +893,7 @@ __all__ = [
     'BulkMarkPaidItem',
     '_mark_one_paid',
     '_may_approve_as_director',
+    '_send_to_faculty',
     '_verify_claim',
     'admin_approve',
     'bulk_mark_paid',
@@ -826,7 +906,10 @@ __all__ = [
     'override_status',
     'principal_reject',
     'reject_claim',
+    'reject_outright',
     'research_approve',
+    'return_one_step',
+    'return_to_faculty',
     'second_approve',
     'set_verified_values',
     'verify_claim_endpoint',

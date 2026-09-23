@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom"
 import { FilePlus, Plus, Search, SearchX, X } from "lucide-react"
 
 import { useApi } from "@/lib/query"
+import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { Input } from "@/ui/field"
@@ -276,12 +277,17 @@ export function Papers() {
           <PageTitle>Your papers</PageTitle>
           <Sub className="mt-1">Every paper you have filed, and every draft still waiting on you.</Sub>
         </div>
-        <Button kind="primary" asChild>
-          <Link to="/papers/new">
-            <Plus />
-            File a paper
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button kind="quiet" onClick={() => void downloadMine()}>
+            Download all as CSV
+          </Button>
+          <Button kind="primary" asChild>
+            <Link to="/papers/new">
+              <Plus />
+              File a paper
+            </Link>
+          </Button>
+        </div>
       </header>
 
       <div className="flex flex-wrap items-center gap-4">
@@ -397,7 +403,7 @@ export function Papers() {
           message={
             filtered
               ? "No paper matches this stage and search. Try a different stage or clear the search."
-              : "File a paper and it goes to the research cell to be checked, then to the Principal, then to Finance."
+              : "File a paper and it is checked, approved and paid. You can follow how far it has come from here."
           }
           action={
             filtered ? (
@@ -597,3 +603,22 @@ function PaperCard({ claim }: { claim: Claim }) {
   )
 }
 
+
+/** Every paper on record, for the claimant's own spreadsheet or appraisal
+ *  file: what, where, which stage, how much. */
+async function downloadMine() {
+  const res = await api<{ results: (Claim & Record<string, unknown>)[] }>("/api/claims?limit=500")
+  const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
+  const head = ["Ticket", "Paper", "Journal", "Year", "DOI", "Stage", "Amount (INR)", "Paid on"]
+  const rows = res.results.map((c) =>
+    [c.ticket_number, c.paper_title, c.journal_title, c.publication_year, c.doi, c.faculty_stage || facultyStage(c.status), c.remuneration, c.paid_at ? String(c.paid_at).slice(0, 10) : ""]
+      .map(cell)
+      .join(",")
+  )
+  const blob = new Blob(["\uFEFF" + [head.map(cell).join(","), ...rows].join("\r\n")], { type: "text/csv;charset=utf-8" })
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = `my-papers-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}

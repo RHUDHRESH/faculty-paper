@@ -25,6 +25,14 @@ export const FACULTY: Me = {
   department: "Mechanical Engineering",
 }
 
+export const HOD: Me = {
+  id: "u-hod",
+  email: "head.physics@example.edu",
+  name: "Dr Meera Pillai",
+  role: "HOD",
+  department: "Physics",
+}
+
 export const FINANCE: Me = {
   id: "u-finance",
   email: "finance@example.edu",

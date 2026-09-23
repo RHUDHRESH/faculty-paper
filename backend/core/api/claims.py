@@ -139,20 +139,34 @@ _CLAIM_SORTS = {
 }
 
 
+_HOD_ELSEWHERE = (
+    "Heads of department see their department's publications under "
+    "Department, which carry no payment details."
+)
+
+
 def _refuse_hod_money_screens(user: User) -> None:
     """A head of department has their own screens, which carry no money.
 
-    The claim payload carries the remuneration, and while a head owns no
-    claims -- they cannot file one -- an open door that returns an empty list
-    today returns a paid amount the day somebody gives the account a claim.
-    Refused outright, pointing at the screen that answers their question.
+    For the endpoints that total or list money across whatever the viewer may
+    see (`/dashboard`, `/lookup/ticket`). A head's own papers are on `/claims`,
+    where each row is either theirs -- and keeps its figure -- or somebody
+    else's and loses it (`hod.for_head`); a total has no owner to ask.
     """
     if user.role == Role.HOD:
-        raise HttpError(
-            403,
-            "Heads of department see their department's publications under "
-            "Department, which carry no payment details.",
-        )
+        raise HttpError(403, _HOD_ELSEWHERE)
+
+
+def _refuse_hod_unless_own(user: User, claim_id: str) -> None:
+    """A head opens their own papers here, like any claimant; nobody else's.
+
+    `_claims_queryset` already scopes a head to their own claims, so a
+    colleague's would 404. The 403 says where that paper actually lives --
+    the department screens link to it, and "this paper does not exist" would
+    send a head looking for a paper that is sitting in their own department.
+    """
+    if user.role == Role.HOD and not Claim.objects.filter(pk=claim_id, owner=user).exists():
+        raise HttpError(403, _HOD_ELSEWHERE)
 
 
 @api.get("/claims", auth=session_auth)
@@ -173,7 +187,8 @@ def list_claims(
     no such ticket.
     """
     user = require_user(request)
-    _refuse_hod_money_screens(user)
+    # A head is here for their own papers: `_claims_queryset` gives them only
+    # those, and the renderer strips the figure off anything that is not.
     qs = _claims_queryset(user)
     if status:
         qs = qs.filter(status=status)
@@ -252,6 +267,7 @@ __all__ = [
     '_claims_queryset',
     '_peek_next_quota_slot',
     '_refuse_hod_money_screens',
+    '_refuse_hod_unless_own',
     'claim_counts',
     'list_claims',
 ]

@@ -66,6 +66,8 @@ const ALL_STAFF: Role[] = [
 //: Mirrors `rbac.ADMIN_ROLES`. The research coordinator checks papers at
 //: the same step as the admin office, so every office destination is theirs.
 const OFFICE: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
+//: Mirrors `rbac.CLAIMANT_ROLES`: the people who file their own papers.
+const CLAIMANTS: Role[] = ["FACULTY", "HOD"]
 
 export const NAV: NavItem[] = [
   // ---- the daily work, unlabelled -------------------------------------
@@ -125,18 +127,20 @@ export const NAV: NavItem[] = [
     roles: ["HOD"],
     keywords: ["standing", "targets", "quota", "staff", "contribution", "college"],
   },
+  // `rbac.CLAIMANT_ROLES`. A head of department is a faculty member who also
+  // heads the department, and keeps filing their own papers.
   {
     to: "/papers",
     label: "My papers",
     icon: FileText,
-    roles: ["FACULTY"],
+    roles: CLAIMANTS,
     keywords: ["publications", "tickets", "claims"],
   },
   {
     to: "/papers/new",
     label: "File a paper",
     icon: FileText,
-    roles: ["FACULTY"],
+    roles: CLAIMANTS,
     keywords: ["submit", "claim", "new"],
   },
 

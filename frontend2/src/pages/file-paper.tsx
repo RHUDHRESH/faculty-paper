@@ -1684,10 +1684,11 @@ export function FilePaper() {
    * research cell.
    *
    * `/lookup/verify` is behind `_require_may_see_money`, which refuses only a
-   * head of department. A head of department cannot file a claim at all
-   * (`can_issue_claims`), so nobody who can reach this screen is refused —
-   * but the 403 is still handled below rather than assumed away, because an
-   * endpoint's guard is not this screen's to promise.
+   * head of department: its answer quotes what colleagues were paid for
+   * similar papers. A head files their own papers (the college's decision of
+   * 2026-09-23), so a head filing here is refused this one check -- the 403
+   * is handled below, says filing is unaffected, and the research cell runs
+   * the same check on the filed ticket.
    */
   const [verify, setVerify] = useState<VerifyResult | null>(null)
   const [verifyBusy, setVerifyBusy] = useState(false)

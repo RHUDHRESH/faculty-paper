@@ -78,17 +78,19 @@ function daysOf(c: Claim): number | null {
   return c.days_waiting ?? c.waiting_days ?? null
 }
 
-export function FacultyHome() {
-  const { me } = useAuth()
-  const { data, isLoading, isError, refetch } = useApi<Payload>(
-    ["my-claims"],
-    "/api/claims?limit=200"
-  )
-  // Secondary to the money, so a failure here draws nothing rather than a
-  // second error box on the page every claimant lands on.
-  const assigned = useApi<MyAssignment[]>(["my-assignments"], "/api/me/assignments")
+/**
+ * The signed-in claimant's own papers, and the money on them, worked out once
+ * for whichever home draws them: a faculty member's, or a head of
+ * department's -- who is a faculty member too, and files their own.
+ *
+ * `/api/claims` is "my claims" for both, and the amounts on it are theirs:
+ * the server strips a figure from anything that is not the viewer's own
+ * before it leaves (`hod.for_head`).
+ */
+export function useOwnPapers() {
+  const query = useApi<Payload>(["my-claims"], "/api/claims?limit=200")
 
-  const claims = data?.results || []
+  const claims = query.data?.results || []
   const paid = claims.filter((c) => c.status === "PAID")
   const moving = claims
     .filter((c) => MOVING.has(stageOfClaim(c)))
@@ -108,6 +110,33 @@ export function FacultyHome() {
       .sort()
       .pop()
   )
+  return {
+    isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
+    claims,
+    paid,
+    moving,
+    sentBack,
+    drafts,
+    received,
+    since,
+    thisYear,
+    coming,
+    lastPaidOn,
+  }
+}
+
+export type OwnPapers = ReturnType<typeof useOwnPapers>
+
+export function FacultyHome() {
+  const { me } = useAuth()
+  const own = useOwnPapers()
+  const { claims, paid, moving, sentBack, drafts, isLoading, isError, refetch } = own
+  // Secondary to the money, so a failure here draws nothing rather than a
+  // second error box on the page every claimant lands on.
+  const assigned = useApi<MyAssignment[]>(["my-assignments"], "/api/me/assignments")
+
   const firstName = (me?.name || "").replace(/^(Dr|Mr|Ms|Mrs|Prof)\.?\s*/i, "").split(" ")[0]
 
   // A failed request is not an empty record: telling somebody with a year of
@@ -144,162 +173,184 @@ export function FacultyHome() {
         </Button>
       </header>
 
-      {isLoading ? (
-        <MoneySkeleton />
-      ) : (
-        <section
-          aria-label="Your money"
-          className="grid gap-px overflow-hidden rounded-lg bg-line ring-1 ring-line sm:grid-cols-3"
-        >
-          <Stat
-            label="Received this academic year"
-            value={money(thisYear)}
-            hint={`Since 1 June ${since.getFullYear()}`}
-          />
-          <Stat
-            label="Received to date"
-            value={money(received)}
-            hint={
-              paid.length
-                ? `${paid.length} payment${paid.length === 1 ? "" : "s"}${lastPaidOn ? `, latest on ${lastPaidOn}` : ""}`
-                : claims.length
-                  ? "Nothing paid out yet"
-                  : "New account — nothing filed yet"
-            }
-          />
-          <Stat
-            label="On the way"
-            value={money(coming)}
-            hint={
-              moving.length
-                ? `${moving.length} paper${moving.length === 1 ? "" : "s"} moving${moving.some((c) => c.remuneration_is_estimate) ? " · includes estimates" : ""}`
-                : "Nothing filed, so nothing is due"
-            }
-          />
-        </section>
-      )}
+      {isLoading ? <MoneySkeleton /> : <MoneyStrip own={own} />}
 
       {!isLoading && claims.length === 0 && <FirstSteps />}
 
-      {(sentBack.length > 0 || drafts.length > 0) && (
-        <section className="space-y-3">
-          <div>
-            <SectionTitle>Needs you</SectionTitle>
-            <Meta className="block">Nothing happens to these until you act on them.</Meta>
-          </div>
-          <ul className="space-y-2">
-            {sentBack.map((c) => (
-              <li
-                key={c.id}
-                className="rounded-lg bg-caution-wash p-4 ring-1 ring-inset ring-caution/25"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-caution">Sent back to you</p>
-                    <p className="mt-0.5 truncate font-medium">{c.paper_title}</p>
-                    {c.status_note && (
-                      <p className="mt-1 text-sm text-fg-muted">
-                        <span className="text-fg">Why: </span>
-                        {c.status_note}
-                      </p>
-                    )}
-                  </div>
-                  <Button kind="primary" asChild>
-                    <Link to={`/papers/${c.id}/edit`}>
-                      Fix and send again
-                      <ArrowRight />
-                    </Link>
-                  </Button>
-                </div>
-              </li>
-            ))}
-            {drafts.map((c) => (
-              <li key={c.id} className="panel flex flex-wrap items-center justify-between gap-3 p-4">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-fg-muted">
-                    Draft{c.updated_at ? <> · last edited <When iso={c.updated_at} /></> : ""}
-                  </p>
-                  <p className="mt-0.5 truncate font-medium">{c.paper_title || (c.doi ? `DOI ${c.doi}` : "Untitled paper")}</p>
-                  {!c.remuneration && (
-                    <p className="text-sm text-fg-muted">Amount not worked out yet</p>
-                  )}
-                </div>
-                <Button asChild>
-                  <Link to={`/papers/${c.id}/edit`}>Carry on</Link>
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <NeedsYou sentBack={sentBack} drafts={drafts} />
 
       {assigned.data && assigned.data.length > 0 && <AssignedToYou items={assigned.data} />}
 
-      {moving.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-baseline justify-between gap-3">
-            <SectionTitle>On the way</SectionTitle>
-            <Link to="/papers" className="text-sm text-accent hover:underline">
-              All your papers
-            </Link>
-          </div>
-          <ul className="grid gap-3 md:grid-cols-2">
-            {moving.map((c) => (
-              <li key={c.id}>
-                <Link
-                  to={`/papers/${c.id}`}
-                  className="panel block p-4 transition-colors hover:bg-hover"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="line-clamp-2 font-medium">{c.paper_title}</p>
-                      <p className="mt-0.5 truncate text-sm text-fg-muted">
-                        {c.journal_title || "Journal not given"}
-                        {c.ticket_number ? ` · ${c.ticket_number}` : ""}
-                      </p>
-                    </div>
-                    <Amount claim={c} />
-                  </div>
-                  <Journey className="mt-4" stage={stageOfClaim(c)} daysWaiting={daysOf(c)} />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <OnTheWay moving={moving} />
 
-      {paid.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-baseline justify-between gap-3">
-            <SectionTitle>Paid</SectionTitle>
-            {paid.length > 6 && (
-              <Link to="/papers?stage=paid" className="text-sm text-accent hover:underline">
-                See all {paid.length}
-              </Link>
-            )}
-          </div>
-          <ul className="divide-y divide-line rounded-lg ring-1 ring-line">
-            {paid
-              .slice()
-              .sort((a, b) => (b.paid_at || "").localeCompare(a.paid_at || ""))
-              .slice(0, 6)
-              .map((c) => (
-                <li key={c.id}>
-                  <Link
-                    to={`/papers/${c.id}`}
-                    className="row flex items-center gap-4 px-4 py-3"
-                  >
-                    <Wallet className="size-4 shrink-0 text-positive" aria-hidden />
-                    <span className="min-w-0 flex-1 truncate">{c.paper_title}</span>
-                    <When iso={c.paid_at} className="hidden text-sm text-fg-muted sm:block" />
-                    <Amount claim={c} />
-                  </Link>
-                </li>
-              ))}
-          </ul>
-        </section>
-      )}
+      <PaidList paid={paid} />
     </div>
+  )
+}
+
+/** Received this year, received to date, and on the way -- all the claimant's own. */
+export function MoneyStrip({ own }: { own: OwnPapers }) {
+  const { claims, paid, moving, received, since, thisYear, coming, lastPaidOn } = own
+  return (
+    <section
+      aria-label="Your money"
+      className="grid gap-px overflow-hidden rounded-lg bg-line ring-1 ring-line sm:grid-cols-3"
+    >
+      <Stat
+        label="Received this academic year"
+        value={money(thisYear)}
+        hint={`Since 1 June ${since.getFullYear()}`}
+      />
+      <Stat
+        label="Received to date"
+        value={money(received)}
+        hint={
+          paid.length
+            ? `${paid.length} payment${paid.length === 1 ? "" : "s"}${lastPaidOn ? `, latest on ${lastPaidOn}` : ""}`
+            : claims.length
+              ? "Nothing paid out yet"
+              : "New account — nothing filed yet"
+        }
+      />
+      <Stat
+        label="On the way"
+        value={money(coming)}
+        hint={
+          moving.length
+            ? `${moving.length} paper${moving.length === 1 ? "" : "s"} moving${moving.some((c) => c.remuneration_is_estimate) ? " · includes estimates" : ""}`
+            : "Nothing filed, so nothing is due"
+        }
+      />
+    </section>
+  )
+}
+
+/** A paper sent back with its reason, and drafts never filed. Draws nothing when there are none. */
+export function NeedsYou({ sentBack, drafts }: { sentBack: Claim[]; drafts: Claim[] }) {
+  if (sentBack.length === 0 && drafts.length === 0) return null
+  return (
+    <section className="space-y-3">
+      <div>
+        <SectionTitle>Needs you</SectionTitle>
+        <Meta className="block">Nothing happens to these until you act on them.</Meta>
+      </div>
+      <ul className="space-y-2">
+        {sentBack.map((c) => (
+          <li
+            key={c.id}
+            className="rounded-lg bg-caution-wash p-4 ring-1 ring-inset ring-caution/25"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-caution">Sent back to you</p>
+                <p className="mt-0.5 truncate font-medium">{c.paper_title}</p>
+                {c.status_note && (
+                  <p className="mt-1 text-sm text-fg-muted">
+                    <span className="text-fg">Why: </span>
+                    {c.status_note}
+                  </p>
+                )}
+              </div>
+              <Button kind="primary" asChild>
+                <Link to={`/papers/${c.id}/edit`}>
+                  Fix and send again
+                  <ArrowRight />
+                </Link>
+              </Button>
+            </div>
+          </li>
+        ))}
+        {drafts.map((c) => (
+          <li key={c.id} className="panel flex flex-wrap items-center justify-between gap-3 p-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-fg-muted">
+                Draft{c.updated_at ? <> · last edited <When iso={c.updated_at} /></> : ""}
+              </p>
+              <p className="mt-0.5 truncate font-medium">{c.paper_title || (c.doi ? `DOI ${c.doi}` : "Untitled paper")}</p>
+              {!c.remuneration && (
+                <p className="text-sm text-fg-muted">Amount not worked out yet</p>
+              )}
+            </div>
+            <Button asChild>
+              <Link to={`/papers/${c.id}/edit`}>Carry on</Link>
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** Every paper still moving, drawn as a journey with how long it has waited. */
+export function OnTheWay({ moving }: { moving: Claim[] }) {
+  if (moving.length === 0) return null
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <SectionTitle>On the way</SectionTitle>
+        <Link to="/papers" className="text-sm text-accent hover:underline">
+          All your papers
+        </Link>
+      </div>
+      <ul className="grid gap-3 md:grid-cols-2">
+        {moving.map((c) => (
+          <li key={c.id}>
+            <Link
+              to={`/papers/${c.id}`}
+              className="panel block p-4 transition-colors hover:bg-hover"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="line-clamp-2 font-medium">{c.paper_title}</p>
+                  <p className="mt-0.5 truncate text-sm text-fg-muted">
+                    {c.journal_title || "Journal not given"}
+                    {c.ticket_number ? ` · ${c.ticket_number}` : ""}
+                  </p>
+                </div>
+                <Amount claim={c} />
+              </div>
+              <Journey className="mt-4" stage={stageOfClaim(c)} daysWaiting={daysOf(c)} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** The six most recent payments. */
+export function PaidList({ paid }: { paid: Claim[] }) {
+  if (paid.length === 0) return null
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <SectionTitle>Paid</SectionTitle>
+        {paid.length > 6 && (
+          <Link to="/papers?stage=paid" className="text-sm text-accent hover:underline">
+            See all {paid.length}
+          </Link>
+        )}
+      </div>
+      <ul className="divide-y divide-line rounded-lg ring-1 ring-line">
+        {paid
+          .slice()
+          .sort((a, b) => (b.paid_at || "").localeCompare(a.paid_at || ""))
+          .slice(0, 6)
+          .map((c) => (
+            <li key={c.id}>
+              <Link
+                to={`/papers/${c.id}`}
+                className="row flex items-center gap-4 px-4 py-3"
+              >
+                <Wallet className="size-4 shrink-0 text-positive" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{c.paper_title}</span>
+                <When iso={c.paid_at} className="hidden text-sm text-fg-muted sm:block" />
+                <Amount claim={c} />
+              </Link>
+            </li>
+          ))}
+      </ul>
+    </section>
   )
 }
 
@@ -422,7 +473,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   )
 }
 
-function MoneySkeleton() {
+export function MoneySkeleton() {
   return (
     <div className="grid gap-4 sm:grid-cols-3" aria-busy="true" aria-label="Loading your money">
       {[0, 1, 2].map((i) => (

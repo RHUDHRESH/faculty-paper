@@ -459,7 +459,12 @@ def _zero_payout_note(payload: CalcIn, result, cfg) -> str | None:
 
 @api.post("/calculate", auth=session_auth)
 def calculate(request: HttpRequest, payload: CalcIn):
-    _require_may_see_money(request)
+    # `require_user`, not `_require_may_see_money`: this is the filing wizard's
+    # estimate for the asker's own paper, and a head of department files their
+    # own. It prices the inputs it is given against the policy -- nobody's
+    # claim, nobody's payment -- which a head could get anyway by saving a
+    # draft of their own and reading its amount.
+    require_user(request)
     cfg_obj = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
     cfg = formula_from_model(cfg_obj) if cfg_obj else None
     result = calculate_remuneration(

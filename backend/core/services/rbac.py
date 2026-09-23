@@ -2,9 +2,14 @@ from core.models import Role
 
 # The chain, in order: FACULTY files, the admin office (SUPER_ADMIN) clears,
 # PRINCIPAL approves the spend, DIRECTOR authorises it, FINANCE pays. HOD and
-# RESEARCH_CELL are not in the chain; their values survive in Role so existing
-# accounts keep loading -- RESEARCH_CELL folded into SUPER_ADMIN, HOD down to
-# faculty rights plus a money-blind view of its own department.
+# RESEARCH_CELL are not approvers; RESEARCH_CELL survives in Role so existing
+# accounts keep loading and folded into SUPER_ADMIN.
+#
+# HOD is a faculty member who also heads the department (the college's
+# decision of 2026-09-23): they file and track their own papers exactly as
+# faculty do, and on top of that have a money-blind view of their department.
+# "Money-blind" now means blind to everybody's money but their own -- see
+# `hod.for_head`.
 ROLE_RANK = {
     Role.FACULTY: 1,
     Role.HOD: 1,
@@ -28,13 +33,18 @@ ROLE_RANK = {
 #: may do, and that includes the second signature on a high-value claim.
 ADMIN_ROLES = (Role.SUPER_ADMIN, Role.RESEARCH_CELL, Role.RESEARCH_COORDINATOR)
 
+#: The accounts a claim can belong to: the people who publish. A head of
+#: department is one of them -- they are faculty who also head the department,
+#: and they keep filing their own papers.
+CLAIMANT_ROLES = (Role.FACULTY, Role.HOD)
+
 
 def has_min_role(user_role: str, required: str) -> bool:
     return ROLE_RANK.get(user_role, 0) >= ROLE_RANK.get(required, 99)
 
 
 def can_faculty_portal(role: str) -> bool:
-    return role in (Role.FACULTY, Role.HOD)
+    return role in CLAIMANT_ROLES
 
 
 def can_principal_portal(role: str) -> bool:
@@ -104,8 +114,8 @@ def can_view_reports(role: str) -> bool:
 
 
 def can_issue_claims(role: str) -> bool:
-    """File a ticket on a faculty member's behalf, and upload its evidence."""
-    return role in (Role.FACULTY, *ADMIN_ROLES)
+    """File a ticket -- one's own, or on a claimant's behalf -- and upload its evidence."""
+    return role in (*CLAIMANT_ROLES, *ADMIN_ROLES)
 
 
 def can_clear_claims(role: str) -> bool:

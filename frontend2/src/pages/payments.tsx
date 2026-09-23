@@ -257,7 +257,7 @@ export function Payments() {
         <div>
           <PageTitle>Payments</PageTitle>
           <Sub className="mt-1">
-            Approved by the Principal, waiting on Finance. Every figure here is
+            Authorised by the Director, waiting on Finance. Every figure here is
             recomputed from stored, verified values at the moment of payment —
             never from Scopus, so an outage never blocks a payout.
           </Sub>

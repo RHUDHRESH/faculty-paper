@@ -1,3 +1,4 @@
+import { firstName } from "@/lib/names"
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import {
@@ -228,12 +229,12 @@ export function Programme() {
   const [topic, setTopic] = useState<string | null>(null)
   const activeTopic = topic ?? programme.data?.search_terms[0] ?? null
 
-  const firstName = (me?.name || "").replace(/^(Dr|Mr|Ms|Mrs|Prof)\.?\s*/i, "").split(" ")[0]
+  const first = firstName(me?.name)
 
   return (
     <div className="page space-y-10">
       <header>
-        <PageTitle>{firstName ? `${firstName}'s research` : "Your research"}</PageTitle>
+        <PageTitle>{first ? `${first}'s research` : "Your research"}</PageTitle>
         <Sub className="mt-1">
           What this college is working on, what you work on, who else is nearby, and what to
           try next.

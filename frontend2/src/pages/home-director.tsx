@@ -18,6 +18,7 @@ import {
   greeting,
   type BudgetSummary,
   type Claim,
+  collegeSince,
 } from "@/pages/home-staff"
 
 /**
@@ -65,6 +66,10 @@ export function DirectorHome() {
   const [batchOpen, setBatchOpen] = useState(false)
   const areas = useApi<AreasPayload>(["reports", "areas"], "/api/reports/areas?limit=12")
   const report = useApi<ReportSummary>(["reports", "summary"], "/api/reports")
+  const college = useApi<{ ledger_total?: number; ledger_since?: string | null }>(
+    ["dashboard"],
+    "/api/dashboard"
+  )
   const budget = useApi<BudgetSummary>(["budgets", ""], "/api/budgets")
 
   const totals = queue.data?.totals
@@ -293,8 +298,9 @@ export function DirectorHome() {
           />
           <Figure
             label="Paid to date"
-            value={money(report.data?.totals.paid_amount)}
-            loading={report.isLoading}
+            value={money(college.data?.ledger_total ?? report.data?.totals.paid_amount)}
+            hint={collegeSince(college.data?.ledger_since)}
+            loading={report.isLoading || college.isLoading}
           />
           <Figure
             label="Committed"

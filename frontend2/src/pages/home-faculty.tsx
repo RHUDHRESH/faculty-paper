@@ -1,3 +1,4 @@
+import { firstName } from "@/lib/names"
 import { Link } from "react-router-dom"
 import { ArrowRight, FilePlus2, FileSearch, Plus, Upload, Wallet } from "lucide-react"
 
@@ -55,6 +56,33 @@ type Claim = {
 
 type Payload = { results: Claim[]; total: number }
 
+/** The ledger's view of what this person has been paid (`/api/me/payments`). */
+export type Payment = {
+  id: number
+  claim_id: string | null
+  payout_month: string | null
+  paper_title: string | null
+  journal_title: string | null
+  amount: number
+  voucher_number: string | null
+}
+type MyPayments = {
+  total: number
+  this_year: number
+  since: string
+  count: number
+  latest_month: string | null
+  rows: Payment[]
+}
+
+/** "2025-03" -> "Mar 2025". */
+export function monthLabel(ym: string | null | undefined): string | null {
+  if (!ym) return null
+  const [y, m] = ym.split("-").map(Number)
+  if (!y || !m) return ym
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+}
+
 const MOVING = new Set(["Submitted", "Under review", "Approved for payment"])
 
 /** The Indian academic year this date falls in starts on 1 June. */
@@ -89,6 +117,9 @@ function daysOf(c: Claim): number | null {
  */
 export function useOwnPapers() {
   const query = useApi<Payload>(["my-claims"], "/api/claims?limit=200")
+  // Money comes from the ledger, which also holds everything paid before this
+  // app existed. Claims alone told people with years of payments "₹0".
+  const ledger = useApi<MyPayments>(["my-payments"], "/api/me/payments")
 
   const claims = query.data?.results || []
   const paid = claims.filter((c) => c.status === "PAID")
@@ -103,15 +134,16 @@ export function useOwnPapers() {
     .filter((c) => c.paid_at && new Date(c.paid_at) >= since)
     .reduce((s, c) => s + (c.remuneration || 0), 0)
   const coming = moving.reduce((s, c) => s + (c.remuneration || 0), 0)
-  const lastPaidOn = onDate(
+  const fromClaims = onDate(
     paid
       .map((c) => c.paid_at)
       .filter((d): d is string => Boolean(d))
       .sort()
       .pop()
   )
+  const pay = ledger.data
   return {
-    isLoading: query.isLoading,
+    isLoading: query.isLoading || ledger.isLoading,
     isError: query.isError,
     refetch: query.refetch,
     claims,
@@ -119,11 +151,13 @@ export function useOwnPapers() {
     moving,
     sentBack,
     drafts,
-    received,
+    received: pay ? pay.total : received,
     since,
-    thisYear,
+    thisYear: pay ? pay.this_year : thisYear,
     coming,
-    lastPaidOn,
+    lastPaidOn: pay ? monthLabel(pay.latest_month) : fromClaims,
+    paymentCount: pay ? pay.count : paid.filter((c) => (c.remuneration || 0) > 0).length,
+    payments: pay?.rows || [],
   }
 }
 
@@ -132,12 +166,12 @@ export type OwnPapers = ReturnType<typeof useOwnPapers>
 export function FacultyHome() {
   const { me } = useAuth()
   const own = useOwnPapers()
-  const { claims, paid, moving, sentBack, drafts, isLoading, isError, refetch } = own
+  const { claims, moving, sentBack, drafts, isLoading, isError, refetch } = own
   // Secondary to the money, so a failure here draws nothing rather than a
   // second error box on the page every claimant lands on.
   const assigned = useApi<MyAssignment[]>(["my-assignments"], "/api/me/assignments")
 
-  const firstName = (me?.name || "").replace(/^(Dr|Mr|Ms|Mrs|Prof)\.?\s*/i, "").split(" ")[0]
+  const first = firstName(me?.name)
 
   // A failed request is not an empty record: telling somebody with a year of
   // payments behind them that they have "₹0" is the worst thing this page
@@ -158,7 +192,7 @@ export function FacultyHome() {
     <div className="page space-y-10">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <PageTitle>{firstName ? `Hello, ${firstName}` : "Your papers"}</PageTitle>
+          <PageTitle>{first ? `Hello, ${first}` : "Your papers"}</PageTitle>
           <Sub className="mt-1">
             {isLoading
               ? "Loading your record…"
@@ -183,14 +217,14 @@ export function FacultyHome() {
 
       <OnTheWay moving={moving} />
 
-      <PaidList paid={paid} />
+      <PaidList payments={own.payments} />
     </div>
   )
 }
 
 /** Received this year, received to date, and on the way -- all the claimant's own. */
 export function MoneyStrip({ own }: { own: OwnPapers }) {
-  const { claims, paid, moving, received, since, thisYear, coming, lastPaidOn } = own
+  const { claims, paymentCount, moving, received, since, thisYear, coming, lastPaidOn } = own
   return (
     <section
       aria-label="Your money"
@@ -205,8 +239,8 @@ export function MoneyStrip({ own }: { own: OwnPapers }) {
         label="Received to date"
         value={money(received)}
         hint={
-          paid.length
-            ? `${paid.length} payment${paid.length === 1 ? "" : "s"}${lastPaidOn ? `, latest on ${lastPaidOn}` : ""}`
+          paymentCount
+            ? `${paymentCount} payment${paymentCount === 1 ? "" : "s"}${lastPaidOn ? `, latest ${lastPaidOn}` : ""}`
             : claims.length
               ? "Nothing paid out yet"
               : "New account — nothing filed yet"
@@ -294,7 +328,7 @@ export function OnTheWay({ moving }: { moving: Claim[] }) {
       </div>
       <ul className="grid gap-3 md:grid-cols-2">
         {moving.map((c) => (
-          <li key={c.id}>
+          <li key={c.id} className="min-w-0">
             <Link
               to={`/papers/${c.id}`}
               className="panel block p-4 transition-colors hover:bg-hover"
@@ -318,38 +352,50 @@ export function OnTheWay({ moving }: { moving: Claim[] }) {
   )
 }
 
-/** The six most recent payments. */
-export function PaidList({ paid }: { paid: Claim[] }) {
-  if (paid.length === 0) return null
+/** The most recent payments from the ledger. */
+export function PaidList({ payments }: { payments: Payment[] }) {
+  if (payments.length === 0) return null
   return (
     <section className="space-y-3">
       <div className="flex items-baseline justify-between gap-3">
         <SectionTitle>Paid</SectionTitle>
-        {paid.length > 6 && (
-          <Link to="/papers?stage=paid" className="text-sm text-accent hover:underline">
-            See all {paid.length}
-          </Link>
-        )}
+        <Meta>From the college ledger, newest first</Meta>
       </div>
       <ul className="divide-y divide-line rounded-lg ring-1 ring-line">
-        {paid
-          .slice()
-          .sort((a, b) => (b.paid_at || "").localeCompare(a.paid_at || ""))
-          .slice(0, 6)
-          .map((c) => (
-            <li key={c.id}>
-              <Link
-                to={`/papers/${c.id}`}
-                className="row flex items-center gap-4 px-4 py-3"
-              >
-                <Wallet className="size-4 shrink-0 text-positive" aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{c.paper_title}</span>
-                <When iso={c.paid_at} className="hidden text-sm text-fg-muted sm:block" />
-                <Amount claim={c} />
-              </Link>
+        {payments.slice(0, 8).map((p) => {
+          const body = (
+            <>
+              <Wallet className="size-4 shrink-0 text-positive" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{p.paper_title || "Payment"}</span>
+                {p.journal_title && (
+                  <span className="block truncate text-sm text-fg-muted">{p.journal_title}</span>
+                )}
+              </span>
+              <span className="hidden shrink-0 text-sm text-fg-muted sm:block">
+                {monthLabel(p.payout_month)}
+              </span>
+              <span className="shrink-0 font-medium tabular-nums">{money(p.amount)}</span>
+            </>
+          )
+          return (
+            <li key={p.id}>
+              {p.claim_id ? (
+                <Link to={`/papers/${p.claim_id}`} className="row flex items-center gap-4 px-4 py-3">
+                  {body}
+                </Link>
+              ) : (
+                <div className="flex items-center gap-4 px-4 py-3">{body}</div>
+              )}
             </li>
-          ))}
+          )
+        })}
       </ul>
+      {payments.length > 8 && (
+        <Meta className="block">
+          {payments.length - 8} earlier payment{payments.length - 8 === 1 ? "" : "s"} not shown.
+        </Meta>
+      )}
     </section>
   )
 }
@@ -485,7 +531,7 @@ export function MoneySkeleton() {
 
 function Amount({ claim }: { claim: Claim }) {
   if (claim.remuneration == null) {
-    return <span className="shrink-0 text-sm text-fg-subtle">Not worked out yet</span>
+    return <span className="w-24 shrink-0 text-right text-sm leading-snug text-fg-subtle">Not worked out yet</span>
   }
   return (
     <span className={cn("figure shrink-0 text-base", claim.status === "PAID" && "text-positive")}>

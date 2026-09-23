@@ -1,3 +1,4 @@
+import { firstName } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeft, FilePlus, UserPlus, KeyRound, Pencil, Search, SearchX, Users } from "lucide-react"
@@ -660,7 +661,7 @@ function CollegePerson() {
         )}
         {me?.role === "SUPER_ADMIN" && id && faculty.role !== "SUPER_ADMIN" && (
           <Button kind="quiet" size="sm" className="ml-auto" onClick={() => void viewAs()}>
-            View the app as {faculty.name?.split(" ")[0] || "them"}
+            View the app as {firstName(faculty.name) || "them"}
           </Button>
         )}
       </div>

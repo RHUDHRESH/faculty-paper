@@ -1,5 +1,7 @@
+import { firstName } from "@/lib/names"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
+import { useState } from "react"
 import {
   ArrowUpRight,
   BarChart3,
@@ -53,7 +55,7 @@ import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 /* ------------------------------------------------------------------------ */
 
 export function greeting(name: string | undefined): string {
-  const first = (name || "").replace(/^(Dr|Mr|Ms|Mrs|Prof)\.?\s*/i, "").split(" ")[0]
+  const first = firstName(name)
   return first ? `Hello, ${first}` : "Home"
 }
 
@@ -232,7 +234,20 @@ type StageCounts = {
 type FaultsSummary = { total: number; urgent: number; checked_at: string }
 type RequestsSummary = { pending: number }
 type DuplicatesSummary = { summary: { open: number; at_issue: number } }
-type Dashboard = { recent: Claim[]; total_paid: number }
+type Dashboard = {
+  recent: Claim[]
+  total_paid: number
+  ledger_total?: number
+  ledger_since?: string | null
+}
+
+/** "Every payment in the ledger since Jan 2024", or nothing without a ledger. */
+export function collegeSince(ym: string | null | undefined): string | undefined {
+  if (!ym) return undefined
+  const [y, m] = ym.split("-").map(Number)
+  const d = new Date(y, (m || 1) - 1, 1)
+  return `Every payment in the ledger since ${d.toLocaleDateString("en-IN", { month: "short", year: "numeric" })}`
+}
 
 /**
  * What is stuck, what is waiting, and what moved.
@@ -284,7 +299,8 @@ export function OfficeHome() {
         />
         <Figure
           label="Paid to date"
-          value={money(dashboard.data?.total_paid)}
+          value={money(dashboard.data?.ledger_total ?? dashboard.data?.total_paid)}
+          hint={collegeSince(dashboard.data?.ledger_since)}
           loading={dashboard.isLoading}
         />
       </section>
@@ -479,7 +495,8 @@ export function PrincipalHome() {
         </div>
         <Figure
           label="Paid to date"
-          value={money(dashboard.data?.total_paid)}
+          value={money(dashboard.data?.ledger_total ?? dashboard.data?.total_paid)}
+          hint={collegeSince(dashboard.data?.ledger_since)}
           loading={dashboard.isLoading}
         />
       </section>
@@ -799,7 +816,7 @@ function YourPapers() {
           <MoneyStrip own={own} />
           <NeedsYou sentBack={own.sentBack} drafts={own.drafts} />
           <OnTheWay moving={own.moving} />
-          <PaidList paid={own.paid} />
+          <PaidList payments={own.payments} />
         </>
       )}
     </section>
@@ -926,19 +943,7 @@ export function HodHome() {
             under the scheme. That is not the same as having published nothing — a paper nobody
             filed a claim for does not appear anywhere in this system.
           </p>
-          <ul className="divide-y divide-line border-y border-line">
-            {silent.map((p) => (
-              <li key={p.id} className="row">
-                <Link to={`/people/${p.id}`} className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-base">{p.name}</span>
-                    <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
-                  </span>
-                  <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <SilentList people={silent} />
         </section>
       )}
 
@@ -1057,6 +1062,38 @@ export function HodHome() {
           />
         </ul>
       </section>
+    </div>
+  )
+}
+
+/**
+ * Members with nothing filed, as a compact grid: a department of seventy
+ * would otherwise push everything after it off the bottom of the page. The
+ * first twelve are shown; the rest are one press away.
+ */
+function SilentList({ people }: { people: { id: string; name: string; designation?: string | null }[] }) {
+  const [all, setAll] = useState(false)
+  const shown = all ? people : people.slice(0, 12)
+  return (
+    <div className="space-y-2">
+      <ul className="grid gap-x-6 border-y border-line sm:grid-cols-2 lg:grid-cols-3">
+        {shown.map((p) => (
+          <li key={p.id} className="row min-w-0 border-b border-line last:border-b-0">
+            <Link to={`/people/${p.id}`} className="flex items-center gap-3 px-1 py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{p.name}</span>
+                <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
+              </span>
+              <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {people.length > 12 && (
+        <Button kind="quiet" size="sm" onClick={() => setAll((v: boolean) => !v)}>
+          {all ? "Show fewer" : `Show all ${people.length}`}
+        </Button>
+      )}
     </div>
   )
 }

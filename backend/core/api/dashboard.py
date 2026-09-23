@@ -18,12 +18,12 @@ import json
 import re
 import time
 from typing import Any, Optional
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Min, Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from django.conf import settings
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimReason, ClaimStatus, PAYABLE_STATUSES, User
+from core.models import AuditLog, Claim, ClaimReason, ClaimStatus, PAYABLE_STATUSES, PaidLedger, Role, User
 from core.services import rbac
 from core.services import exporters
 from core.services.remuneration import CATEGORY_LABELS
@@ -46,7 +46,18 @@ def dashboard(request: HttpRequest):
     total_paid = (
         qs.filter(status=ClaimStatus.PAID).aggregate(total=Sum("remuneration"))["total"] or 0
     )
-    return {"by_status": by_status, "recent": recent, "total_paid": total_paid}
+    out = {"by_status": by_status, "recent": recent, "total_paid": total_paid}
+    # The college-wide figure the office homes print. Claims carry money only
+    # for what this app processed; the ledger also holds every payment made
+    # before it, which is the number a principal means by "paid to date".
+    if user.role in LEDGER_ROLES:
+        agg = PaidLedger.objects.aggregate(total=Sum("amount"), since=Min("payout_month"))
+        out["ledger_total"] = round(agg["total"] or 0, 2)
+        out["ledger_since"] = _format_payout_month(agg["since"])
+    return out
+
+
+LEDGER_ROLES = {Role.RESEARCH_CELL, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE, Role.SUPER_ADMIN}
 
 
 def _reports_queryset(

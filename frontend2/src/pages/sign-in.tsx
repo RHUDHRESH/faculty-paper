@@ -82,13 +82,15 @@ export function SignIn() {
         >
           {/* On a phone the brand panel is not drawn, so the page names the
               college itself. */}
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <Mark className="size-10 text-accent" />
-            <div>
-              <p className="font-semibold">Faculty Publications</p>
-              <p className="text-sm text-fg-muted">{collegeName}</p>
-            </div>
-          </div>
+          {/* The college's full wordmark, on the white side where its navy,
+              red and yellow read as the college prints them. */}
+          <img
+            src="/brand/wordmark.png"
+            alt={collegeName}
+            width={1024}
+            height={206}
+            className="mb-8 h-auto w-full max-w-[22rem] dark:rounded-md dark:bg-white dark:p-2"
+          />
 
           <h1 className="display text-xl">Sign in</h1>
           <p className="mt-1 text-base text-fg-muted">
@@ -183,7 +185,7 @@ export function SignIn() {
                 onChange={(e) => setRemember(e.target.checked)}
                 className="size-4 accent-[var(--color-accent)]"
               />
-              Remember my email on this device
+              Remember me on this device
             </label>
 
             {error && (
@@ -224,7 +226,7 @@ export function SignIn() {
 function BrandPanel({ collegeName, still }: { collegeName: string; still: boolean }) {
   return (
     <aside className="relative hidden overflow-hidden bg-brand text-brand-fg lg:flex lg:flex-col lg:justify-between lg:p-12">
-      <Mark className="pointer-events-none absolute -bottom-24 -right-20 size-[26rem] opacity-[0.08]" />
+      <Mark className="pointer-events-none absolute -bottom-24 -right-20 size-[26rem] opacity-[0.07] grayscale" />
 
       <div className="relative flex items-center gap-3">
         <Mark className="size-9" />

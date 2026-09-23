@@ -237,6 +237,8 @@ elif os.getenv("S3_BUCKET_NAME", "").strip():
             "default_acl": None,
             "querystring_auth": True,
             "file_overwrite": False,
+            # Supabase Storage (and some R2 setups) need path-style URLs.
+            "addressing_style": os.getenv("S3_ADDRESSING_STYLE", "").strip() or None,
         },
     }
 else:

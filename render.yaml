@@ -35,17 +35,46 @@ services:
       - key: GOOGLE_OAUTH_CLIENT_ID
         value: 635082195334-p8h4j4o75r9jqk24hsfq6bbom0s8fjei.apps.googleusercontent.com
       # Pasted in the dashboard:
-      - key: DATABASE_URL            # Neon: postgresql://…?sslmode=require
+      - key: DATABASE_URL            # Supabase (or Neon) Postgres URL, ?sslmode=require
         sync: false
-      - key: CSRF_TRUSTED_ORIGINS    # the Vercel origin, e.g. https://faculty-paper.vercel.app
+      - key: CSRF_TRUSTED_ORIGINS    # the site origin, e.g. https://faculty-paper.onrender.com
         sync: false
-      - key: S3_BUCKET_NAME          # Cloudflare R2 bucket (private)
+      - key: S3_BUCKET_NAME          # Supabase Storage bucket (private), S3-compatible
         sync: false
-      - key: S3_ENDPOINT_URL         # https://<account>.r2.cloudflarestorage.com
+      - key: S3_ENDPOINT_URL         # https://<project>.supabase.co/storage/v1/s3
         sync: false
-      - key: AWS_ACCESS_KEY_ID       # R2 API token key id
+      - key: AWS_ACCESS_KEY_ID       # Supabase S3 access key id
         sync: false
-      - key: AWS_SECRET_ACCESS_KEY   # R2 API token secret
+      - key: AWS_SECRET_ACCESS_KEY   # Supabase S3 secret
+        sync: false
+      - key: S3_ADDRESSING_STYLE
+        value: path
+      - key: S3_REGION           # the Supabase project region, e.g. ap-south-1
         sync: false
       - key: SCOPUS_API_KEY          # optional
         sync: false
+
+  # The SPA as a free Render static site. /api and /media are rewritten to the
+  # API service, so the browser talks to one origin (first-party cookies, no
+  # CORS) -- the same arrangement the Vercel rewrites gave.
+  - type: web
+    name: faculty-paper
+    runtime: static
+    rootDir: frontend2
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeploy: false
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://faculty-paper-api.onrender.com/api/*
+      - type: rewrite
+        source: /media/*
+        destination: https://faculty-paper-api.onrender.com/media/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable

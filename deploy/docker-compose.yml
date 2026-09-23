@@ -15,6 +15,7 @@
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: faculty
       POSTGRES_USER: faculty
@@ -37,7 +38,12 @@ services:
       DJANGO_DEBUG: "false"
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in deploy/.env}
       DATABASE_URL: postgres://faculty:${POSTGRES_PASSWORD}@db:5432/faculty
-      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,api
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,api}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+      SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-false}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_HOSTED_DOMAIN: ${GOOGLE_HOSTED_DOMAIN:-}
+      SCOPUS_API_KEY: ${SCOPUS_API_KEY:-}
       # The AI features answer 503 while no model service is configured,
       # which is the correct resting state for a first install. Point this at
       # a harness (harness/README.md) or an Ollama daemon to switch them on.
@@ -45,18 +51,22 @@ services:
       LOG_FORMAT: json
     volumes:
       - media:/app/media
+    restart: unless-stopped
     # Media on a container volume survives container replacement but not the
     # volume being deleted; for a college, point GS_BUCKET_NAME at a bucket
     # instead (docs/OPS.md) and let uploads outlive the machine.
 
   web:
+    # The Dockerfile copies frontend2/ and deploy/nginx.conf, so its context
+    # is the repository root (it was frontend2/, which could not build).
     build:
-      context: ../frontend2
-      dockerfile: ../deploy/web.Dockerfile
+      context: ..
+      dockerfile: deploy/web.Dockerfile
     depends_on:
       - api
     ports:
       - "${WEB_PORT:-8080}:80"
+    restart: unless-stopped
 
 volumes:
   pgdata:

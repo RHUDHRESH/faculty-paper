@@ -274,20 +274,24 @@ CAPABILITIES: list[Capability] = [
         {HOD, SUPER_ADMIN},
         "One reminder per person per day, and only inside the department.",
         {"user_ids": ["{user}"], "message": "A matrix probe reminder."}, "Department"),
-    cap("Read the claim list", "GET", "/api/claims",
-        {FACULTY, PRINCIPAL, FINANCE} | ADMINS,
-        "The claim payload carries the remuneration. A head has their own "
-        "screens, which do not, so they are refused this one outright rather "
-        "than being handed an empty list that would fill up later.",
-        None, "Reading"),
+    # "Read the claim list" (GET /api/claims) was a line here, closed to a
+    # head. Since the college's decision of 2026-09-23 a head files their own
+    # papers and reads them there like any claimant, which opens the door to
+    # every role -- and a door open to everybody is not a line this grid can
+    # draw. What each role *sees* through it is the rule now: its scope is
+    # `_claims_queryset`, and a head's rows are shaped by
+    # `visibility.for_viewer` (their own keep their amounts, nobody else's
+    # do). `test_head_of_department` pins that, endpoint by endpoint.
 
     # ---- filing ----------------------------------------------------------
     cap("File a claim", "POST", "/api/claims",
-        {FACULTY} | ADMINS,
-        "A claimant files their own; the research cell files on their behalf.",
+        {FACULTY, HOD} | ADMINS,
+        "A claimant files their own -- a head of department is one, since the "
+        "college's 2026-09-23 decision -- and the research cell files on their "
+        "behalf.",
         {"paper_title": "Matrix probe", "journal_title": "J"}, "Filing"),
     cap("Upload evidence", "POST", "/api/claims/upload",
-        {FACULTY} | ADMINS,
+        {FACULTY, HOD} | ADMINS,
         "Whoever may file may attach the proof.", None, "Filing", upload=True),
     cap("Import prior payments", "POST", "/api/admin/prior/import",
         ADMINS | {PRINCIPAL},

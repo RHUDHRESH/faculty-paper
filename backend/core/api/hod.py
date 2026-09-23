@@ -25,6 +25,7 @@ from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, DepartmentTarget, Role, User
 from core import hod
+from core.services import rbac
 
 # ---------- head of department ----------
 
@@ -55,9 +56,11 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
         return sorted(out.values(), key=lambda r: -r["count"])
 
     # Members of the department, whether or not they have published: a head
-    # needs to see who has nothing as much as who has most.
+    # needs to see who has nothing as much as who has most. The head is one of
+    # them -- faculty who also heads the department, filing their own papers,
+    # which the totals below already count.
     people = User.objects.filter(
-        role=Role.FACULTY, department__iexact=hod.department_of(user)
+        role__in=rbac.CLAIMANT_ROLES, department__iexact=hod.department_of(user)
     ).order_by("name")
     counts = {
         row["owner_id"]: row["n"]
@@ -450,9 +453,9 @@ def hod_standing(request: HttpRequest, year: Optional[int] = None):
     college_total = sum(per_department.values())
 
     heads = User.objects.filter(
-        role=Role.FACULTY, department__iexact=department, active=True
+        role__in=rbac.CLAIMANT_ROLES, department__iexact=department, active=True
     ).count()
-    college_heads = User.objects.filter(role=Role.FACULTY, active=True).count()
+    college_heads = User.objects.filter(role__in=rbac.CLAIMANT_ROLES, active=True).count()
 
     mine_rates = rates(mine)
     college_rates = rates(college)
@@ -509,8 +512,9 @@ def hod_opportunities(request: HttpRequest, year: Optional[int] = None):
         ]
 
     members = list(
-        User.objects.filter(role=Role.FACULTY, department__iexact=department, active=True)
-        .order_by("name")
+        User.objects.filter(
+            role__in=rbac.CLAIMANT_ROLES, department__iexact=department, active=True
+        ).order_by("name")
     )
     filed = set(qs.values_list("owner_id", flat=True))
     with_q1 = set(qs.filter(quartile__iexact="Q1").values_list("owner_id", flat=True))

@@ -21,7 +21,7 @@ from core.api.schemas import ActionIn, ClaimIn, RecalcIn, _apply_faculty_payload
 from core.api.deps import claim_to_dict
 from core.api.common import require_user
 from core.api.teams import _min_sec_references, _numbered_sec_references
-from core.api.claims import _assign_quota_position, _claims_queryset, _refuse_hod_money_screens
+from core.api.claims import _assign_quota_position, _claims_queryset, _refuse_hod_unless_own
 
 import json
 import re
@@ -174,7 +174,7 @@ def _journal_reference(title: str, issn: str | None) -> dict[str, Any]:
 @api.get("/claims/{claim_id}", auth=session_auth)
 def get_claim(request: HttpRequest, claim_id: str):
     user = require_user(request)
-    _refuse_hod_money_screens(user)
+    _refuse_hod_unless_own(user, claim_id)
     claim = get_object_or_404(_claims_queryset(user), pk=claim_id)
     actions = [
         {
@@ -203,7 +203,9 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
     if payload.owner_id:
         if not rbac.can_clear_claims(user.role):
             raise HttpError(403, "Only admin can submit on behalf of faculty")
-        owner = get_object_or_404(User, pk=payload.owner_id, role=Role.FACULTY, active=True)
+        owner = get_object_or_404(
+            User, pk=payload.owner_id, role__in=rbac.CLAIMANT_ROLES, active=True
+        )
         admin_proxy = True
     elif not rbac.can_issue_claims(user.role):
         raise HttpError(403, "Only faculty can create tickets")

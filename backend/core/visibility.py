@@ -34,6 +34,12 @@ status note unless it is the reason the paper was sent back to them), and in
 its history every step taken by somebody else reads as "The college", under an
 action name that does not name a desk. The raw `status` stays, because the
 client screens are built on it.
+
+**A head of department sees nobody's money but their own.** A head is a
+faculty member who also heads the department, so on their own claims they are
+the claimant: those are shaped exactly as above and keep their amounts. Every
+row that names anybody else as its owner loses every money key
+(`hod.for_head`, which holds the rule and its one exception).
 """
 from __future__ import annotations
 
@@ -42,6 +48,7 @@ from typing import Any
 
 from django.utils import timezone
 
+from core import hod
 from core.models import ClaimStatus, Role
 
 #: Every key that carries a contested or duplicate flag, under the names the
@@ -233,13 +240,18 @@ def _claim_for_claimant(claim: dict) -> dict:
     return claim
 
 
-def for_claimant(value: Any) -> Any:
-    """The same structure with every claim in it shaped for its claimant."""
+def for_claimant(value: Any, *, owner_id: Any = None) -> Any:
+    """The same structure with every claim in it shaped for its claimant.
+
+    With `owner_id`, only that person's claims are shaped: a head of
+    department is the claimant on their own papers and not on anybody else's.
+    """
     if isinstance(value, dict):
-        out = {k: for_claimant(v) for k, v in value.items()}
-        return _claim_for_claimant(out) if _is_claim(out) else out
+        out = {k: for_claimant(v, owner_id=owner_id) for k, v in value.items()}
+        mine = owner_id is None or out.get("owner_id") == owner_id
+        return _claim_for_claimant(out) if _is_claim(out) and mine else out
     if isinstance(value, (list, tuple)):
-        return [for_claimant(v) for v in value]
+        return [for_claimant(v, owner_id=owner_id) for v in value]
     return value
 
 
@@ -250,4 +262,9 @@ def for_viewer(user: Any, value: Any) -> Any:
         return without_contest_flags(value)
     if role == Role.FACULTY:
         return for_claimant(value)
+    if role == Role.HOD:
+        # A faculty member who also heads the department: the claimant's view
+        # of their own papers, and nobody's money but their own.
+        viewer_id = getattr(user, "pk", None)
+        return hod.for_head(for_claimant(value, owner_id=viewer_id), viewer_id)
     return value

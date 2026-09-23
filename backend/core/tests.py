@@ -486,10 +486,13 @@ class TicketHierarchyTests(TestCase):
             titles = [c["paper_title"] for c in self.client.get("/api/claims").json()["results"]]
             self.assertNotIn("Half-written idea", titles, f"{viewer.role} saw a draft")
 
-        # A head reaches neither this list nor their own department screens
-        # with a draft in them: an unfinished ticket is not output.
+        # A head's claim list is their own papers (a head files like any
+        # faculty member), and neither it nor their department screens carry
+        # somebody else's draft: an unfinished ticket is not output.
         self._login(self.hod)
-        self.assertEqual(self.client.get("/api/claims").status_code, 403)
+        r = self.client.get("/api/claims")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("Half-written idea", [c["paper_title"] for c in r.json()["results"]])
         self.hod.department = "CSE"
         self.hod.save()
         self._login(self.hod)
@@ -506,8 +509,9 @@ class TicketHierarchyTests(TestCase):
 
     def test_a_head_of_department_is_kept_away_from_the_money_screens(self):
         """The role is live again, with its own department portal. What it must
-        never reach is anything carrying a remuneration -- and the claim list
-        carries one on every row."""
+        never reach is anybody else's remuneration -- and the claim list carries
+        one on every row. A head is also a claimant now (2026-09-23), so the
+        list answers them, with their own papers only."""
         other = User.objects.create_user(
             email="o@test.edu",
             password="pass",
@@ -515,16 +519,21 @@ class TicketHierarchyTests(TestCase):
             role=Role.FACULTY,
             department="CSE",  # same department the old HoD used to oversee
         )
-        Claim.objects.create(
+        theirs = Claim.objects.create(
             owner=other,
             paper_title="CSE Paper",
             status=ClaimStatus.SUBMITTED,
             ticket_number="FP-2026-000002",
             quartile="Q2",
+            remuneration=64321.5,
         )
         self._login(self.hod)
         r = self.client.get("/api/claims")
-        self.assertEqual(r.status_code, 403, "the claim list carries the remuneration")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["results"], [], "a colleague's claim is not on a head's list")
+        self.assertNotIn("64321.5", r.content.decode())
+        r = self.client.get(f"/api/claims/{theirs.id}")
+        self.assertEqual(r.status_code, 403, "nor can it be opened by id")
         self.assertIn("no payment details", r.json()["detail"])
 
         # They land in their own portal, not somebody else's.
@@ -4981,25 +4990,34 @@ class PermissionMatrixTests(TestCase):
 
         client = Client()
         client.force_login(self.users["SUPER_ADMIN"])
+        # MECH, not CSE: CSE already has its head (`users["HOD"]`), and a
+        # department has one.
         r = client.patch(
             f"/api/admin/users/{self.target.id}",
-            data=json.dumps({"role": "HOD", "department": "CSE"}),
+            data=json.dumps({"role": "HOD", "department": "MECH"}),
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200, r.content)
         self.target.refresh_from_db()
         self.assertEqual(self.target.role, Role.HOD)
 
-    def test_a_head_holds_no_capability_that_touches_money(self):
-        """The whole point of the role. Every door it can open must be one of
-        its own department screens."""
-        from core.permission_matrix import CAPABILITIES, HOD
+    def test_a_head_holds_no_capability_that_touches_anybody_else_s_money(self):
+        """The whole point of the role. Every door it can open is one of its
+        own department screens -- which carry no money -- or a door every
+        claimant has, which answers with their own papers only (a head files
+        their own since 2026-09-23)."""
+        from core.permission_matrix import CAPABILITIES, FACULTY, HOD
 
         for capability in CAPABILITIES:
             if HOD in capability.allowed:
+                department_screen = capability.path.startswith("/api/hod/")
+                claimant_door = (
+                    FACULTY in capability.allowed and capability.path.startswith("/api/claims")
+                )
                 self.assertTrue(
-                    capability.path.startswith("/api/hod/"),
-                    f"a head may reach {capability.path}, which is not a department screen",
+                    department_screen or claimant_door,
+                    f"a head may reach {capability.path}, which is neither a department "
+                    "screen nor a door every claimant has",
                 )
 
     def test_a_real_role_is_still_accepted(self):
@@ -5428,12 +5446,19 @@ class HeadOfDepartmentTests(TestCase):
             "/api/admin/payouts?limit=1",
             "/api/admin/data/Claim?limit=1",
             "/api/principal/queue",
-            "/api/claims?limit=1",
             f"/api/claims/{self.paid.id}",
             "/api/admin/duplicate-findings",
         ):
             r = self.client.get(path)
             self.assertIn(r.status_code, (403, 404), f"{path}: {r.status_code}")
+
+        # The claim list answers a head now -- they file their own papers --
+        # with their own papers only. This head has none; the colleague's paid
+        # claim is not among them.
+        r = self.client.get("/api/claims?limit=50")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["results"], [])
+        self.assertNotIn("90000", r.content.decode())
 
     def test_nobody_else_can_use_the_department_screens(self):
         """They answer for the signed-in person's own department, so another
@@ -5452,9 +5477,12 @@ class HeadOfDepartmentTests(TestCase):
         self.assertEqual(totals["publications"], 1)
         self.assertEqual(totals["q1"], 1)
         self.assertEqual(totals["first_author"], 1)
-        self.assertEqual(totals["faculty_in_department"], 1)
+        # The head is one of the department's faculty (2026-09-23): they file
+        # their own papers, which the totals count, so they are counted too.
+        self.assertEqual(totals["faculty_in_department"], 2)
         names = {p["name"] for p in body["people"]}
         self.assertIn("CSE Person", names)
+        self.assertIn("Head of CSE", names)
         self.assertNotIn("ECE Person", names)
 
     def test_a_head_with_no_department_is_told_rather_than_shown_everything(self):
@@ -9416,9 +9444,13 @@ class HodTargetsTests(TestCase):
         body = self.client.get("/api/hod/opportunities").json()
         groups = {g["key"]: g for g in body["groups"]}
 
-        # Somebody with nothing filed is named, not just counted.
-        self.assertEqual(groups["silent"]["count"], 1)
-        self.assertEqual(groups["silent"]["people"][0]["name"], "Quiet Physicist")
+        # Somebody with nothing filed is named, not just counted -- the head
+        # included, who is faculty too (2026-09-23) and has filed nothing here.
+        self.assertEqual(groups["silent"]["count"], 2)
+        self.assertEqual(
+            {p["name"] for p in groups["silent"]["people"]},
+            {"Quiet Physicist", "Head of Physics"},
+        )
         self.assertNotIn(quiet.id, [p["id"] for p in groups["no_q1"]["people"]])
 
         # Publishing but never in a Q1 journal.
@@ -11634,20 +11666,41 @@ class MoneyBlindnessSweepTests(TestCase):
         )
         # A head who owns a paid claim. Without this the sweep passes for the
         # wrong reason: `_claims_queryset` scopes a head to their own claims,
-        # they normally own none, and an unguarded endpoint returns an empty
-        # list that looks like a refusal.
+        # and an unguarded endpoint returns an empty list that looks like a
+        # refusal. A head files their own papers (2026-09-23) and sees their
+        # own amount on it; the sweep checks that is the only figure they get.
         self.paid = Claim.objects.create(
             owner=self.hod, paper_title="A Head's Own Paper", journal_title="J",
             status=ClaimStatus.PAID, remuneration=90000, publication_year=2025,
             ticket_number="FP-2025-000001",
         )
+        # And a colleague in the same department with a paid claim of their
+        # own, whose figure must reach the head by no route at all.
+        Claim.objects.create(
+            owner=self.faculty, paper_title="A Colleague's Paper", journal_title="J",
+            status=ClaimStatus.PAID, remuneration=61803.25, publication_year=2025,
+            ticket_number="FP-2025-000002",
+        )
         self.client = Client()
         self.client.force_login(self.hod)
 
-    def test_no_get_route_hands_a_head_a_rupee_figure(self):
+    def _money_outside_own_rows(self, node, where, found):
+        """Every money key that is not inside a row naming the head as owner."""
         from core.hod import MONEY_KEYS
 
-        checked, leaked = 0, []
+        if isinstance(node, dict):
+            if node.get("owner_id") == self.hod.id:
+                return  # their own claim: its figures are theirs to see
+            for key, value in node.items():
+                if key in MONEY_KEYS:
+                    found.append(f"{where} -> {key}")
+                self._money_outside_own_rows(value, where, found)
+        elif isinstance(node, list):
+            for item in node:
+                self._money_outside_own_rows(item, where, found)
+
+    def test_no_get_route_hands_a_head_a_rupee_figure_that_is_not_theirs(self):
+        checked, leaked, own_seen = 0, [], False
         for _prefix, router in api_module.api._routers:
             for path, view in router.path_operations.items():
                 methods = {m for op in view.operations for m in op.methods}
@@ -11662,11 +11715,17 @@ class MoneyBlindnessSweepTests(TestCase):
                     continue
                 checked += 1
                 raw = res.content.decode("utf-8", errors="ignore")
-                for key in MONEY_KEYS:
-                    if f'"{key}"' in raw:
-                        leaked.append(f"{url} -> {key}")
+                if "61803.25" in raw:
+                    leaked.append(f"{url} -> the colleague's figure")
+                own_seen = own_seen or "90000" in raw
+                try:
+                    body = res.json()
+                except ValueError:
+                    continue  # a file; its columns are checked by the export tests
+                self._money_outside_own_rows(body, url, leaked)
         self.assertGreater(checked, 10, "the sweep did not actually reach any route")
         self.assertEqual(leaked, [], f"money reached a head of department: {leaked}")
+        self.assertTrue(own_seen, "the head's own amount should reach them on /claims")
 
     def test_the_named_readers_refuse_a_head(self):
         """The ones the sweep cannot reach, because they need an argument."""

@@ -1,11 +1,16 @@
-"""What a Head of Department may see: their own department, and no money.
+"""What a Head of Department may see: their own department, and no money but their own.
 
 The HoD role existed as a relic with no permissions at all -- an account
 holding it could sign in and do nothing. It now has a real job: a head needs
 to know what their department is publishing, where, and by whom, and to pull
 that into a spreadsheet for a review meeting.
 
-What they must never see is what anybody was paid. That is somebody's
+A head is also a faculty member (the college's decision of 2026-09-23): they
+keep filing their own papers, and see their own amounts on them exactly as any
+claimant does. `for_head` below is where that exception lives, and it is the
+only one.
+
+What they must never see is what anybody *else* was paid. That is somebody's
 remuneration, and a head is not in the payment chain. So money-blindness is
 enforced here, in one place, rather than by remembering to leave a column out
 of each of four endpoints:
@@ -23,6 +28,7 @@ journal rather than of somebody's bank account.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 #: Every key carrying a rupee figure, or revealing that money moved.
@@ -102,6 +108,77 @@ def without_money(value: Any) -> Any:
         }
     if isinstance(value, (list, tuple)):
         return [without_money(v) for v in value]
+    return value
+
+
+#: Places inside a head's *own* claim where other people's payments are
+#: quoted: the payment-history match on a possible duplicate names who was
+#: paid for a similar paper, and how much. Both are stored as JSON text, and
+#: `duplicate_matches` is the same list already parsed.
+_QUOTED_PAYMENTS_JSON = ("duplicate_matches_json", "verification_snapshot_json")
+_QUOTED_PAYMENTS = "duplicate_matches"
+
+
+def _without_quoted_payments(key: str, value: Any) -> Any:
+    """The claim's own field, with every figure paid to somebody else removed."""
+    if key == _QUOTED_PAYMENTS:
+        return without_money(value)
+    if not isinstance(value, str) or not value.strip():
+        return value
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        # Nothing this system writes; not something to pass on unread either.
+        return None
+    if key == "verification_snapshot_json" and isinstance(parsed, dict):
+        # Only the payment-history block: the rest of the snapshot is the
+        # claimant's own verification, and `without_money` would also eat its
+        # `note`s and `category`s, which are not money there.
+        if "paid" in parsed:
+            parsed["paid"] = without_money(parsed["paid"])
+        return json.dumps(parsed)
+    return json.dumps(without_money(parsed))
+
+
+def _is_owned_by(value: dict, viewer_id: Any) -> bool:
+    return viewer_id is not None and value.get("owner_id") == viewer_id
+
+
+def for_head(value: Any, viewer_id: Any) -> Any:
+    """What a head of department receives: nobody's money but their own.
+
+    Walks the payload the way `without_money` does, and decides per row by the
+    one thing every claim row carries, `owner_id`:
+
+    - **A row naming the head as its owner is theirs.** It keeps its figures,
+      because it is their own claim and their own pay -- the one exception to
+      a head's money-blindness, and the only place it is made. Other people's
+      payments quoted inside it (the duplicate check's matches) still lose
+      their amounts.
+    - **A row naming anybody else is stripped whole** with `without_money`,
+      however it is shaped and however deep the figure sits.
+    - **Anything else is walked, not stripped.** Totals and department
+      screens carry no owner to ask; they are made money-free by the
+      endpoints that build them (`without_money` on every `/hod/*` payload,
+      `_require_may_see_money` and `can_view_reports` refusals elsewhere). A
+      blanket strip here would also eat `note` and `category` off journals and
+      discussions, where they are not money.
+    """
+    if isinstance(value, dict):
+        if "owner_id" in value:
+            if not _is_owned_by(value, viewer_id):
+                return without_money(value)
+            return {
+                k: (
+                    _without_quoted_payments(k, v)
+                    if k in _QUOTED_PAYMENTS_JSON or k == _QUOTED_PAYMENTS
+                    else for_head(v, viewer_id)
+                )
+                for k, v in value.items()
+            }
+        return {k: for_head(v, viewer_id) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [for_head(v, viewer_id) for v in value]
     return value
 
 

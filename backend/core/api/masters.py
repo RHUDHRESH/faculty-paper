@@ -23,7 +23,7 @@ from django.db.models import Q
 from django.http import HttpRequest
 from ninja import File, Form, UploadedFile
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimStatus, FacultyMaster, PaidLedger, PriorPayment, Role, ScimagoJournal, SnipSource, User
+from core.models import AuditLog, Claim, ClaimStatus, FacultyMaster, PaidLedger, PriorPayment, ScimagoJournal, SnipSource, User
 from core.services import rbac
 
 # ---------- process queue ----------
@@ -163,7 +163,9 @@ def faculty_options(request: HttpRequest, q: Optional[str] = None):
     # keystroke cost the whole master list.
     limit = 30 if q else 200
     masters_qs = FacultyMaster.objects.order_by("department", "name")
-    users_qs = User.objects.filter(role=Role.FACULTY, active=True)
+    # Whoever a claim can belong to: faculty, and a head of department, who is
+    # faculty too and files their own papers.
+    users_qs = User.objects.filter(role__in=rbac.CLAIMANT_ROLES, active=True)
     if q:
         match = (
             Q(name__icontains=q)
@@ -176,7 +178,7 @@ def faculty_options(request: HttpRequest, q: Optional[str] = None):
     masters = list(masters_qs[:limit])
     staff_ids = [f.staff_id for f in masters if f.staff_id]
     emails = {e for f in masters if f.email for e in (f.email, f.email.lower())}
-    linked_qs = User.objects.filter(role=Role.FACULTY, active=True).filter(
+    linked_qs = User.objects.filter(role__in=rbac.CLAIMANT_ROLES, active=True).filter(
         Q(staff_id__in=staff_ids) | Q(email__in=list(emails))
     )
     users_by_staff = {u.staff_id: u for u in linked_qs if u.staff_id}

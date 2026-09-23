@@ -1876,6 +1876,22 @@ export function FilePaper() {
     return problems.filter((p) => p.kind === "missing" && questionFor(p) === id)
   }
 
+  // Ctrl Enter continues, the same as pressing Continue -- from inside a text
+  // box too, where Enter alone has to stay a newline. Not on the last screen:
+  // filing is a confirmed action and keeps its own button and dialog.
+  const forward = useRef(goForward)
+  forward.current = goForward
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && currentId !== "review" && !fileBusy) {
+        e.preventDefault()
+        forward.current()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [currentId, fileBusy])
+
   function goForward() {
     // Checked every time, including on the way back through a screen already
     // passed. Going back and emptying a field has to stop the reader again;
@@ -4716,23 +4732,38 @@ function Readiness({
  */
 function FlowProgress({ phase }: { phase: number }) {
   const done = Math.min(PHASES.length, phase + 1)
+  // Five named segments: all five stretches are visible from the first screen,
+  // so nobody wonders how long the form is -- still with no question count.
   return (
-    <div className="space-y-2">
-      <p className="text-sm font-medium text-fg-muted">{PHASES[phase]?.title}</p>
-      <div
-        className="h-1 w-full overflow-hidden rounded-full bg-line"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={PHASES.length}
-        aria-valuenow={done}
-        aria-valuetext={`${PHASES[phase]?.title}, part ${done} of ${PHASES.length}`}
-      >
-        <div
-          className="h-full rounded-full bg-accent transition-[width] duration-[var(--dur-2)] ease-out"
-          style={{ width: `${(done / PHASES.length) * 100}%` }}
-        />
-      </div>
-    </div>
+    <ol
+      className="grid grid-cols-5 gap-1.5"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={PHASES.length}
+      aria-valuenow={done}
+      aria-valuetext={`${PHASES[phase]?.title}, part ${done} of ${PHASES.length}`}
+    >
+      {PHASES.map((p, i) => (
+        <li key={p.id} className="min-w-0">
+          <span
+            aria-hidden
+            className={cn(
+              "block h-1.5 rounded-full transition-colors duration-[var(--dur-2)]",
+              i <= phase ? "bg-accent" : "bg-active"
+            )}
+          />
+          <span
+            className={cn(
+              "mt-1.5 hidden truncate text-xs sm:block",
+              i === phase ? "font-medium text-fg" : i < phase ? "text-fg-muted" : "text-fg-subtle"
+            )}
+          >
+            {p.title}
+          </span>
+        </li>
+      ))}
+      <li className="col-span-5 text-sm font-medium text-fg-muted sm:hidden">{PHASES[phase]?.title}</li>
+    </ol>
   )
 }
 

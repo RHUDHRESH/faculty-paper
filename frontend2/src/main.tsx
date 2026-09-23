@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from "@/app/auth"
 import { Palette, usePalette } from "@/app/palette"
 import { ForcePasswordChange } from "@/app/password"
 import { Shell } from "@/app/shell"
+import { Shortcuts } from "@/app/shortcuts"
 import { queryClient } from "@/lib/query"
 import { SignIn } from "@/pages/sign-in"
 import { NotBuilt, NotFound } from "@/pages/not-found"
@@ -194,6 +195,7 @@ function App() {
           that owe a password change are precisely the ones who have never
           been to their profile. 498 of 508 live accounts carry the flag. */}
       <ForcePasswordChange />
+      <Shortcuts />
     </>
   )
 }

@@ -16,6 +16,7 @@ import {
   stageOf,
 } from "@/ui/paper"
 import { Journey, facultyStage } from "@/ui/journey"
+import { CopyButton } from "@/ui/copy"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonText } from "@/ui/state"
 import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -310,7 +311,14 @@ export function PaperDetail() {
           <div className="min-w-0">
             <PageTitle className="break-words">{claim.paper_title || "Untitled"}</PageTitle>
             <Sub className="mt-1">
-              {claim.ticket_number ? `Ticket ${claim.ticket_number}` : "Not yet filed"}
+              {claim.ticket_number ? (
+                <>
+                  Ticket {claim.ticket_number}{" "}
+                  <CopyButton value={claim.ticket_number} label="ticket number" />
+                </>
+              ) : (
+                "Not yet filed"
+              )}
               {claim.journal_title ? ` · ${claim.journal_title}` : ""}
             </Sub>
           </div>

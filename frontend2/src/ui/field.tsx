@@ -484,11 +484,13 @@ export const NumberInput = forwardRef<
           // right-aligned unit sitting beside it — the field draws its own
           // affordance for "this is a number" via alignment instead.
           "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
-          unit && "pr-9",
           CONTROL_SIZE[size],
           className
         )}
+        // Room for the unit however long it is: a fixed pr-9 fitted "₹" and
+        // let a right-aligned "Waiting over" run underneath "days".
         {...props}
+        style={unit ? { paddingRight: `calc(${unit.length}ch + 1.25rem)`, ...props.style } : props.style}
       />
       {unit && (
         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-fg-subtle">

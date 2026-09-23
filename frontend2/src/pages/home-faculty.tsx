@@ -29,6 +29,7 @@ type Claim = {
   id: string
   ticket_number: string | null
   paper_title: string
+  doi?: string | null
   journal_title: string | null
   status: string
   status_note?: string | null
@@ -206,7 +207,7 @@ export function FacultyHome() {
                   <p className="text-sm text-fg-muted">
                     Draft{c.updated_at ? ` · last edited ${onDate(c.updated_at)}` : ""}
                   </p>
-                  <p className="mt-0.5 truncate font-medium">{c.paper_title || "Untitled paper"}</p>
+                  <p className="mt-0.5 truncate font-medium">{c.paper_title || (c.doi ? `DOI ${c.doi}` : "Untitled paper")}</p>
                   {!c.remuneration && (
                     <p className="text-sm text-fg-muted">Amount not worked out yet</p>
                   )}

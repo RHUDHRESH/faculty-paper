@@ -291,8 +291,14 @@ export function NotificationBell({ className }: { className?: string }) {
                 Nothing yet. You will hear when a ticket needs you.
               </p>
             ) : (
+              <>
+              {groupByDay(items).map(([label, group]) => (
+              <div key={label}>
+              <p className="sticky top-0 z-10 bg-surface px-3 pb-1 pt-2 text-xs font-medium text-fg-subtle">
+                {label}
+              </p>
               <ul className="divide-y divide-line">
-                {items.map((item) => (
+                {group.map((item) => (
                   <li key={item.id}>
                     <button
                       type="button"
@@ -324,10 +330,29 @@ export function NotificationBell({ className }: { className?: string }) {
                   </li>
                 ))}
               </ul>
+              </div>
+              ))}
+              </>
             )}
           </div>
         </div>
       )}
     </div>
   )
+}
+
+/** Today, Yesterday, Earlier -- in that order, empty groups left out. */
+function groupByDay<T extends { created_at: string }>(items: T[]): [string, T[]][] {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  const today = start.getTime()
+  const yesterday = today - 86_400_000
+  const groups: Record<string, T[]> = { Today: [], Yesterday: [], Earlier: [] }
+  for (const item of items) {
+    const t = new Date(item.created_at).getTime()
+    groups[t >= today ? "Today" : t >= yesterday ? "Yesterday" : "Earlier"].push(item)
+  }
+  return (["Today", "Yesterday", "Earlier"] as const)
+    .filter((k) => groups[k].length)
+    .map((k) => [k, groups[k]])
 }

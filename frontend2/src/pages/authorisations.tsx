@@ -5,7 +5,7 @@ import { CircleCheck, Stamp } from "lucide-react"
 import { can, useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
-import { useApi, useApiMutation } from "@/lib/query"
+import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
@@ -478,7 +478,7 @@ function AuthoriseDialog({ claim, onClose }: { claim: Claim; onClose: () => void
 
   const authorise = useApiMutation<{ note?: string; expected_amount: number }, Claim>(
     `/api/claims/${claim.id}/director-approve`,
-    { invalidates: [["director-queue"], ["claim", claim.id], ["dashboard"]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   async function confirm() {
@@ -590,7 +590,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
 
   const reject = useApiMutation<{ note: string }, Claim>(
     `/api/claims/${claim.id}/director-reject`,
-    { invalidates: [["director-queue"], ["claim", claim.id]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   const trimmed = note.trim()
@@ -676,7 +676,7 @@ function BulkAuthoriseDialog({
 
   const bulk = useApiMutation<{ claim_ids: string[]; note?: string }, BulkResult>(
     "/api/director/bulk-approve",
-    { invalidates: [["director-queue"], ["dashboard"]] }
+    { invalidates: [...CHAIN] }
   )
 
   const total = claims.reduce((sum, c) => sum + (c.remuneration || 0), 0)

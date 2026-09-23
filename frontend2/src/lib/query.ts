@@ -52,3 +52,19 @@ export function useApiMutation<TBody, TResult = unknown>(
     },
   })
 }
+
+/**
+ * Every list a claim appears in on its way through the chain. A claim moved
+ * at one desk leaves one queue and joins the next, so an action at any desk
+ * refreshes all of them: authorising at the Director's desk used to leave
+ * Finance's open "payable" list stale, and a void left the office's queue
+ * without the ticket it had just got back. Only lists on screen refetch.
+ */
+export const CHAIN: unknown[][] = [
+  ["clearing-queue"],
+  ["principal-queue"],
+  ["director-queue"],
+  ["payouts"],
+  ["dashboard"],
+  ["my-claims"],
+]

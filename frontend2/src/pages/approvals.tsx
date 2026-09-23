@@ -15,7 +15,7 @@ import {
 import { useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
-import { useApi, useApiMutation } from "@/lib/query"
+import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
@@ -339,7 +339,7 @@ export function Approvals() {
 
   const bulkApprove = useApiMutation<{ claim_ids: string[]; note?: string }, BulkApproveResult>(
     "/api/principal/bulk-approve",
-    { invalidates: [["principal-queue"]] }
+    { invalidates: [...CHAIN] }
   )
 
   if (!allowed) {
@@ -1144,7 +1144,7 @@ function ApproveDialog({
 
   const approve = useApiMutation<{ note?: string; expected_amount: number }, ClaimDetail>(
     `/api/claims/${claim.id}/principal-approve`,
-    { invalidates: [["principal-queue"], ["claim", claim.id]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   async function confirmApprove() {
@@ -1264,7 +1264,7 @@ function RejectDialog({
 }) {
   const [note, setNote] = useState("")
   const reject = useApiMutation<{ note: string }, ClaimDetail>(`/api/claims/${claim.id}/principal-reject`, {
-    invalidates: [["principal-queue"], ["claim", claim.id]],
+    invalidates: [...CHAIN, ["claim", claim.id]],
   })
 
   useEffect(() => {

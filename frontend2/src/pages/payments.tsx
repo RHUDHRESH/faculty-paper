@@ -12,7 +12,7 @@ import {
 import { can, useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
-import { useApi, useApiMutation } from "@/lib/query"
+import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import {
   Dialog,
@@ -496,7 +496,7 @@ function SinglePayDialog({
 
   const pay = useApiMutation<{ voucher_number?: string; expected_amount: number }, unknown>(
     `/api/claims/${claim.id}/mark-paid`,
-    { invalidates: [["payouts"]] }
+    { invalidates: [...CHAIN] }
   )
 
   useEffect(() => {
@@ -643,7 +643,7 @@ function BulkPayDialog({
   const bulkPay = useApiMutation<
     { items: { claim_id: string; voucher_number?: string; expected_amount: number }[] },
     BulkPayResult
-  >("/api/admin/bulk-mark-paid", { invalidates: [["payouts"]] })
+  >("/api/admin/bulk-mark-paid", { invalidates: [...CHAIN] })
 
   async function confirm() {
     const items = rows.map((c) => ({
@@ -912,7 +912,7 @@ function VoidDialog({
 
   const voidPayment = useApiMutation<{ note: string }, unknown>(
     `/api/claims/${claim.id}/void-payment`,
-    { invalidates: [["payouts"]] }
+    { invalidates: [...CHAIN] }
   )
 
   useEffect(() => {

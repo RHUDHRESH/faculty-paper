@@ -11,7 +11,7 @@ import {
 import { can, useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
-import { useApi, useApiMutation } from "@/lib/query"
+import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Combobox } from "@/ui/combobox"
 import {
@@ -253,7 +253,7 @@ export function Clearing() {
 
   const bulkClear = useApiMutation<{ claim_ids: string[]; note?: string }, BulkClearResult>(
     "/api/admin/bulk-clear",
-    { invalidates: [["clearing-queue"]] }
+    { invalidates: [...CHAIN] }
   )
 
   if (!allowed) {
@@ -1013,11 +1013,11 @@ function ClearDialog({
     // Recalculating persists the fresh verified values even if this dialog
     // is then cancelled, so the list and the sheet underneath must not go on
     // showing the figure from before this call.
-    { invalidates: [["clearing-queue"], ["claim", claim.id]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
   const clear = useApiMutation<{ note?: string; expected_amount?: number }, ClaimDetail>(
     `/api/claims/${claim.id}/clear`,
-    { invalidates: [["clearing-queue"], ["claim", claim.id]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   async function runRecalc(skipExternal = false) {
@@ -1174,7 +1174,7 @@ function RejectDialog({
 }) {
   const [note, setNote] = useState("")
   const reject = useApiMutation<{ note: string }, ClaimDetail>(`/api/claims/${claim.id}/reject`, {
-    invalidates: [["clearing-queue"], ["claim", claim.id]],
+    invalidates: [...CHAIN, ["claim", claim.id]],
   })
 
   useEffect(() => {
@@ -1393,7 +1393,7 @@ function ManualVerifyDialog({
     { snip?: number; quartile?: string; note: string },
     unknown
   >(`/api/admin/claims/${claim.id}/set-verified`, {
-    invalidates: [["claim", claim.id], ["clearing-queue"]],
+    invalidates: [...CHAIN, ["claim", claim.id]],
   })
 
   const trimmed = note.trim()
@@ -1500,7 +1500,7 @@ function SecondSignatureDialog({
 
   const sign = useApiMutation<{ note?: string; expected_amount?: number }, unknown>(
     `/api/claims/${claim.id}/second-approve`,
-    { invalidates: [["claim", claim.id], ["clearing-queue"], ["payouts"]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   const selfCleared = Boolean(
@@ -1593,7 +1593,7 @@ function OverrideStatusDialog({
 
   const override = useApiMutation<{ to_status: string; note: string }, unknown>(
     `/api/admin/claims/${claim.id}/override-status`,
-    { invalidates: [["claim", claim.id], ["clearing-queue"], ["admin", "faults"]] }
+    { invalidates: [...CHAIN, ["claim", claim.id], ["admin", "faults"]] }
   )
 
   const trimmed = note.trim()

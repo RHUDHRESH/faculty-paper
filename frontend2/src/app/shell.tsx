@@ -396,8 +396,8 @@ function ViewingAs({ name, role }: { name: string; role: Role }) {
       className="sticky top-0 z-40 flex flex-wrap items-center gap-3 bg-caution-wash px-4 py-2 text-sm text-caution ring-1 ring-inset ring-caution/30 print:hidden"
     >
       <span className="flex-1">
-        You are viewing the app as <strong>{name}</strong> ({ROLE_LABEL[role]}). Anything you do here
-        is done as them.
+        You are viewing the app as <strong>{name}</strong> ({ROLE_LABEL[role]}). You can look around;
+        nothing can be changed while viewing.
       </span>
       <Button
         kind="default"

@@ -38,7 +38,7 @@ def _claims_queryset(user: User):
     qs = (
         Claim.objects.select_related(
             "owner", "manual_verified_by", "cleared_by", "second_approved_by",
-            "override_by",
+            "override_by", "held_by",
         )
         .prefetch_related("attachments")
         .all()

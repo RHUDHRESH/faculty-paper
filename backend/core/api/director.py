@@ -20,7 +20,16 @@ from core.api.common import (
 from core.api.schemas import ActionIn, ManualVerifyIn, OverrideStatusIn
 from core.api.deps import claim_to_dict
 from core.api.common import require_user
-from core.api.journals import PrincipalBulkIn, _guard_recomputed_amount, _may_approve_as_principal, _reverify_or_recalc, _transition, clear_claim
+from core.api.journals import (
+    PrincipalBulkIn,
+    _guard_recomputed_amount,
+    _may_approve_as_principal,
+    _require_own_desk,
+    _reverify_or_recalc,
+    _transition,
+    _withdraw_approvals,
+    clear_claim,
+)
 
 import json
 import re
@@ -290,7 +299,7 @@ def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
 
 @api.post("/claims/{claim_id}/principal-reject", auth=session_auth)
 def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
-    """Send a cleared ticket back to the research cell with a reason.
+    """Return a cleared ticket one step, to the research supervisor's desk.
 
     Back to the cell rather than to the claimant: what the principal is
     querying is the checking, and a claimant told "sent back" with no reason
@@ -308,6 +317,10 @@ def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
         if claim.status != ClaimStatus.CLEARED:
             raise HttpError(400, "Only a cleared ticket can be sent back from here")
         claim.status_note = note
+        # The clearing goes with the status, as the Director's send-back takes
+        # the Principal's approval with it: the desk will clear it again.
+        claim.cleared_by = None
+        claim.cleared_at = None
         _transition(claim, user, ClaimStatus.SUBMITTED, "PRINCIPAL_SEND_BACK", note)
 
     _notify_admins(
@@ -316,6 +329,12 @@ def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
         note[:300],
     )
     return claim_to_dict(claim)
+
+
+@api.post("/claims/{claim_id}/return-one-step", auth=session_auth)
+def return_one_step(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """The Principal's one-step return, under the name the chain gives it."""
+    return principal_reject(request, claim_id, payload)
 
 
 @api.post("/claims/{claim_id}/approve", auth=session_auth)
@@ -672,26 +691,60 @@ def withdraw_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
     return claim_to_dict(claim)
 
 
-@api.post("/claims/{claim_id}/reject", auth=session_auth)
-def reject_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
+def _send_to_faculty(request: HttpRequest, claim_id: str, payload: ActionIn, *, outright: bool):
+    """Return a paper to its claimant, or reject it outright, from a review desk.
+
+    Both land on REJECTED; `rejected_outright` is what tells them apart. The
+    research supervisor's desk does this to a submitted paper, the Principal's
+    desk to a cleared one, and a super admin at either -- or, as the rescue
+    role, to a paper past both desks that has not been paid.
+    """
     user = require_user(request)
     if not rbac.can_reject_claims(user.role):
-        raise HttpError(403, "Forbidden")
-    claim = get_object_or_404(Claim.objects.all(), pk=claim_id)
-    if claim.status not in (ClaimStatus.SUBMITTED, *PAYABLE_STATUSES):
-        raise HttpError(400, "Invalid status for reject")
-    # The faculty member has to write 10 characters to contest a failed check;
-    # sending their claim back without saying why was the cheaper action. The
-    # reason is also what the rejection notification shows them.
-    note = (payload.note or "").strip()
-    if len(note) < 10:
         raise HttpError(
-            400, "Add a reason (10+ characters) so the faculty member knows what to fix"
+            403,
+            "Only the research supervisor's desk and the Principal's desk send a "
+            "paper back. The Director and Finance only move a paper forward.",
         )
-    claim.status_note = note[:255]
-    claim.save(update_fields=["status_note"])
-    _transition(claim, user, ClaimStatus.REJECTED, "REJECT", note)
+    with transaction.atomic():
+        claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if claim.status not in (ClaimStatus.SUBMITTED, *PAYABLE_STATUSES):
+            raise HttpError(400, "Invalid status for reject")
+        _require_own_desk(user, claim)
+        # The faculty member has to write 10 characters to contest a failed
+        # check; sending their claim back without saying why was the cheaper
+        # action. The reason is also what the notification shows them.
+        note = (payload.note or "").strip()
+        if len(note) < 10:
+            raise HttpError(
+                400, "Add a reason (10+ characters) so the faculty member knows what to fix"
+            )
+        claim.status_note = note[:255]
+        claim.rejected_outright = outright
+        _withdraw_approvals(claim)
+        _transition(
+            claim, user, ClaimStatus.REJECTED,
+            "REJECT_OUTRIGHT" if outright else "REJECT", note,
+        )
     return claim_to_dict(claim)
+
+
+@api.post("/claims/{claim_id}/reject", auth=session_auth)
+def reject_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Return to the faculty to fix and refile. The ticket number is kept."""
+    return _send_to_faculty(request, claim_id, payload, outright=False)
+
+
+@api.post("/claims/{claim_id}/return-to-faculty", auth=session_auth)
+def return_to_faculty(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """The same as /reject, under a name that cannot be mistaken for the final one."""
+    return _send_to_faculty(request, claim_id, payload, outright=False)
+
+
+@api.post("/claims/{claim_id}/reject-outright", auth=session_auth)
+def reject_outright(request: HttpRequest, claim_id: str, payload: ActionIn):
+    """Not accepted: the claimant cannot edit or refile it."""
+    return _send_to_faculty(request, claim_id, payload, outright=True)
 
 
 def _verify_claim(claim: Claim) -> Claim:
@@ -814,6 +867,7 @@ __all__ = [
     'BulkMarkPaidItem',
     '_mark_one_paid',
     '_may_approve_as_director',
+    '_send_to_faculty',
     '_verify_claim',
     'admin_approve',
     'bulk_mark_paid',
@@ -826,7 +880,10 @@ __all__ = [
     'override_status',
     'principal_reject',
     'reject_claim',
+    'reject_outright',
     'research_approve',
+    'return_one_step',
+    'return_to_faculty',
     'second_approve',
     'set_verified_values',
     'verify_claim_endpoint',

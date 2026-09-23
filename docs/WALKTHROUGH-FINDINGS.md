@@ -118,7 +118,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 ### Director
 73. [x] Summary: budget impact of what is waiting
 74. [x] Summary: research output this period
-75. [ ] Summary: accreditation effect
+75. [x] Summary: accreditation effect — *stated honestly: accreditation counts every filed paper, so authorising changes the spend, not the count*
 76. [x] Summary: highest-value items (no contested flags shown)
 77. [x] Authorise the whole batch with one confirmed total
 78. [x] Open any claim read-only from the summary

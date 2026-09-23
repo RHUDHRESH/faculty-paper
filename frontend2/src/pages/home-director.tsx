@@ -133,7 +133,7 @@ export function DirectorHome() {
                 </span>
               )}
             </p>
-            <p className="mt-1 text-sm text-fg-muted">Each is a Scopus-indexed paper the accreditation tables count.</p>
+            <p className="mt-1 text-sm text-fg-muted">Already counted in the accreditation tables, which count every filed paper; authorising changes the spend, not the count.</p>
           </div>
           <div className="bg-surface p-5">
             <p className="text-sm text-fg-muted">Largest amounts waiting</p>

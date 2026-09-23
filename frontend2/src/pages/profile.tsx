@@ -147,6 +147,15 @@ function valueFor(me: FullMe, field: CorrectableFieldKey): string {
   return me[field] || ""
 }
 
+/** The profile fields a claim is checked against, by the label shown below. */
+function missingForClaims(me: FullMe): string[] {
+  const out: string[] = []
+  if (!me.staff_id) out.push("Staff ID")
+  if (!me.department) out.push("Department")
+  if (!me.scopus_author_id && !me.scopus_author_url) out.push("Scopus author profile")
+  return out
+}
+
 function formatRole(role: string): string {
   return role
     .toLowerCase()
@@ -282,6 +291,15 @@ export function Profile() {
         </Sub>
         {summary && <Meta className="mt-1 block">{summary}</Meta>}
       </header>
+
+      {me.role === "FACULTY" && missingForClaims(me).length > 0 && (
+        <Callout tone="caution" title="Your profile is missing what a claim needs">
+          {missingForClaims(me).join(", ")}{" "}
+          {missingForClaims(me).length === 1 ? "is" : "are"} not set. A claim is checked against
+          these, so ask for {missingForClaims(me).length === 1 ? "it" : "them"} to be filled in
+          below before you file.
+        </Callout>
+      )}
 
       {!me.active && (
         <Callout tone="critical" title="This account is deactivated">
@@ -511,7 +529,13 @@ function CorrectableRow({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <FieldLabel>{meta.label}</FieldLabel>
-          <p className="mt-1 text-base break-words">{value}</p>
+          {value.startsWith("http://") || value.startsWith("https://") ? (
+            <a href={value} target="_blank" rel="noreferrer" className="mt-1 block break-all text-base text-accent hover:underline">
+              {value}
+            </a>
+          ) : (
+            <p className="mt-1 text-base break-words">{value}</p>
+          )}
           <p className="mt-1 max-w-md text-sm text-fg-muted">
             {meta.identity
               ? "Set by the research cell — this decides who gets paid and whose record a paper is checked against."

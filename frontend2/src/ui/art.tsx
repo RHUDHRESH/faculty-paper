@@ -79,31 +79,19 @@ export function Mark({
   /** An accessible name. Omit when the college is named in text alongside. */
   title?: string
 }) {
+  // The college's own emblem, from public/brand/emblem.png -- replace that
+  // file to brand the app for another institution. Intrinsic size is set so
+  // it occupies its box from the first paint.
   return (
-    <svg
-      viewBox="0 0 32 32"
+    <img
+      src="/brand/emblem-192.png"
       width={24}
       height={24}
-      // Intrinsic width and height are on the element and not only in a
-      // class, so the mark occupies its box from the first paint. A logo
-      // that arrives with a size is a logo that shoves the sidebar heading
-      // sideways on every cold load.
-      className={cn("shrink-0", className)}
-      role={title ? "img" : undefined}
+      alt={title ?? ""}
       aria-hidden={title ? undefined : "true"}
-      focusable="false"
-      fill="currentColor"
-    >
-      {title ? <title>{title}</title> : null}
-      {/* The arch: an outer radius of 13 and an inner of 9, so the band is
-          four units thick at every point, including the crown. */}
-      <path d="M3 16a13 13 0 0 1 26 0h-4a9 9 0 0 0-18 0Z" />
-      {/* The cornice, one unit proud of the arch on each side. The overhang
-          is the whole reason this reads as a building and not as a tunnel. */}
-      <path d="M2 16h28v4H2Z" />
-      {/* Two piers, aligned with the inner face of the arch. */}
-      <path d="M7 20h4v10H7ZM21 20h4v10h-4Z" />
-    </svg>
+      draggable={false}
+      className={cn("shrink-0 rounded-full object-contain", className)}
+    />
   )
 }
 

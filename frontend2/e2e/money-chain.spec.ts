@@ -136,8 +136,9 @@ test.describe("The money chain", () => {
     await page.getByLabel("Search your papers").fill(seeded.claim!.ticket_number)
     const row = page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row).toHaveCount(1)
-    // "Awaiting check" is how `ui/paper.tsx` words SUBMITTED to a claimant.
-    await expect(row).toContainText("Awaiting check")
+    // A claimant sees how far it has come ("Submitted"), never whose desk it
+    // is on -- the college's rule (ui/journey.tsx).
+    await expect(row).toContainText("Submitted")
 
     await done(page)
   })
@@ -304,7 +305,7 @@ test.describe("The money chain", () => {
     // which this screen writes twice, once as the status and once as the last
     // step, so matching the bare word is ambiguous and was passing only by
     // luck about which of the two rendered first.
-    await expect(page.getByLabel("Step 5 of 5: Paid")).toBeVisible()
+    await expect(page.getByLabel("Stage: Paid")).toBeVisible()
     await expect(page.getByText("Settled.")).toBeVisible()
 
     await done(page)

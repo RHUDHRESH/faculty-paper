@@ -168,6 +168,15 @@ class Command(BaseCommand):
         year = options["year"]
         limit = options["limit"] or 0
         actor = User.objects.filter(role="SUPER_ADMIN").first()
+        if actor is None:
+            # Every batch records who loaded it (PriorImport.imported_by is not
+            # nullable). On a fresh install the faculty accounts are created by
+            # this very import, so there is nobody to fall back to -- it used to
+            # crash half-way with an IntegrityError instead of saying so.
+            raise CommandError(
+                "No super admin account exists yet. Create the first administrator "
+                "(open /setup, or run manage.py createsuperuser) and run the import again."
+            )
         claims_only = options["claims_only"]
 
         if not claims_only:

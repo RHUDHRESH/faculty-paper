@@ -47,7 +47,7 @@ export function ReasonChips({ onPick }: { onPick: (text: string) => void }) {
   const stock = common(college)
   const chips = [...mine, ...stock.filter((c) => !mine.includes(c))].slice(0, 9)
   return (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Common reasons">
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Quick picks">
       {chips.map((c) => (
         <button
           key={c}

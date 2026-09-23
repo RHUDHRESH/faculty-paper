@@ -6,6 +6,9 @@
 @source not "../src/**/*.md";
 @import "@fontsource-variable/inter";
 
+/* dark: follows the app's own theme choice (account menu), not only the OS. */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
 /**
  * Faculty Publication App — the ground rules.
  *
@@ -123,8 +126,8 @@
 
   /* One accent. Indigo rather than violet — it stays legible at small sizes
      and against white, which the old purple did not at 13px. */
-  --color-accent: #2447c6;
-  --color-accent-hover: #1c389f;
+  --color-accent: #2b398f;
+  --color-accent-hover: #212c72;
   --color-accent-fg: #ffffff;
   --color-accent-wash: #eef2fd;
   --color-accent-line: #c8d3f7;
@@ -133,7 +136,7 @@
      the accent, because the accent lightens in dark mode to stay legible as
      text, and a lightened field reads as washed out. Saveetha's colour goes
      here when the college supplies it. */
-  --color-brand: #2447c6;
+  --color-brand: #2b398f;
   --color-brand-fg: #ffffff;
 
   /* State. Held to 4.5:1 as text, because all three are rendered as words
@@ -494,7 +497,7 @@
   --color-accent-fg: #0b1020;
   --color-accent-wash: #1a2341;
   --color-accent-line: #2e3f78;
-  --color-brand: #1a2f86;
+  --color-brand: #1f2a6b;
   --color-brand-fg: #ffffff;
   --color-positive: #4ade80;
   --color-positive-wash: #0f2619;

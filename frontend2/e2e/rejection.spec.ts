@@ -129,7 +129,12 @@ test.describe("A ticket sent back, and filed again", () => {
       `send back answered ${response.status()} — ${await response.text().catch(() => "")}`
     ).toBe(200)
 
-    await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 20_000 })
+    // After a send-back the sheet moves on to the next ticket in the queue
+    // (or closes when there is none); either way this ticket's sheet is gone.
+    await expect(
+      page.getByRole("dialog").filter({ hasText: seeded.claim!.ticket_number })
+    ).toHaveCount(0, { timeout: 20_000 })
+    await page.keyboard.press("Escape")
     await expect(
       page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number }),
       "a ticket that was sent back is still in the clearing queue"
@@ -314,13 +319,11 @@ test.describe("A ticket sent back, and filed again", () => {
     // The claimant's own screens say it is travelling again.
     await faculty.goto(`/papers/${seeded.claim!.id}`)
     await waitForSettled(faculty)
-    // The tracker is back on the road at step one. Its accessible name is
-    // `Step <n> of 5: <label>`, and the label is the claimant's word for the
-    // status ("Awaiting check"), not the step's name ("Filed") — a sent-back
-    // ticket has no step at all and draws no track, so this locator existing
-    // is itself the assertion that it is travelling again.
-    await expect(faculty.getByLabel("Step 1 of 5: Awaiting check")).toBeVisible()
-    await expect(faculty.getByText("With the research cell.")).toBeVisible()
+    // The journey is back on the road at its first stage, named for the
+    // claimant ("Stage: Submitted"). It never says whose desk it is on --
+    // the college's rule -- so the old desk sentence must be gone.
+    await expect(faculty.getByLabel("Stage: Submitted")).toBeVisible()
+    await expect(faculty.getByText("With the research cell.")).toHaveCount(0)
     // And the sent-back callout is gone, because it no longer describes
     // anything the claimant has to do.
     await expect(

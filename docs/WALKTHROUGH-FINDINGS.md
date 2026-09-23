@@ -100,16 +100,16 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 59. [x] Count per department above the queue
 60. [x] Scopus outage no longer stops clearing (stored verified values, audited)
 61. [ ] "Open in Scopus" link on each ticket
-62. [ ] Office-only notes on a ticket
+62. [x] Office-only notes on a ticket *(already existed — verified)*
 
 ### Principal
 63. [ ] Ledger-style list: claimant, department, journal, quartile, amount, waiting
-64. [ ] Claim drawer: the faculty member's past claims
-65. [ ] Claim drawer: this journal's history at the college
-66. [ ] Claim drawer: department trend
-67. [ ] Claim drawer: red-flag summary
+64. [x] Claim drawer: the faculty member's past claims
+65. [x] Claim drawer: this journal's history at the college
+66. [x] Claim drawer: department trend
+67. [x] Claim drawer: red-flag summary
 68. [ ] Hold / return one step / return to faculty / reject
-69. [ ] Approve selected, with the total shown before confirming
+69. [x] Approve selected, with the total shown before confirming *(already existed — verified)*
 70. [ ] Filter by amount range
 71. [x] Fix the overlapping "Waiting days" filter
 72. [ ] Export the approvals list
@@ -145,7 +145,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 
 ### Super admin
 96. [ ] Full ticket timeline: every step, every actor
-97. [ ] "View as" another account, with a banner
+97. [x] "View as" another account, with a banner
 98. [x] SCImago download in one click — *from the officer's browser, not the server: SCImago answers a server with HTTP 403 and a Cloudflare challenge (checked 2026-09-23), so the old server-side sync button could never succeed*
-99. [ ] Export one faculty member's record
+99. [x] Export one faculty member's record
 100. [ ] Demo seed with every role and a ticket at every stage, for training

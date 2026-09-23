@@ -536,11 +536,6 @@ function CorrectableRow({
           ) : (
             <p className="mt-1 text-base break-words">{value}</p>
           )}
-          <p className="mt-1 max-w-md text-sm text-fg-muted">
-            {meta.identity
-              ? "Set by the research cell — this decides who gets paid and whose record a paper is checked against."
-              : "Routing, not identity, but still set by the research cell rather than typed here."}
-          </p>
         </div>
         <Button kind="quiet" size="sm" onClick={onAsk} className="shrink-0">
           {pending ? "Change what you asked for" : "Request a correction"}

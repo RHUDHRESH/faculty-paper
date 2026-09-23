@@ -26,6 +26,7 @@ import {
 } from "@/ui/dialog"
 import { Checkbox, Field, Input, Textarea } from "@/ui/field"
 import { ClaimContext, PaperLinks } from "@/pages/claim-context"
+import { ReasonChips, rememberReason } from "@/ui/reasons"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
@@ -1343,6 +1344,7 @@ function RejectDialog({
   async function submit() {
     try {
       await reject.mutateAsync({ note: trimmed })
+      rememberReason(trimmed)
       toast.ok(`Sent back${claim.ticket_number ? ` — ${claim.ticket_number}` : ""}`)
       onOpenChange(false)
       onRejected()
@@ -1371,6 +1373,9 @@ function RejectDialog({
               placeholder="What needs to change before this can be filed again"
             />
           </Field>
+          <div className="mt-3">
+            <ReasonChips onPick={(t) => setNote((n) => (n.trim() ? `${n.trim()} ${t}` : t))} />
+          </div>
         </DialogBody>
         <DialogFooter>
           <Button kind="quiet" onClick={() => onOpenChange(false)} disabled={reject.isPending}>

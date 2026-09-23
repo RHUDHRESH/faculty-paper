@@ -1636,7 +1636,7 @@ function NewAccount({ onClose }: { onClose: () => void }) {
           <Callout tone="info" title="No password is set here">
             The account is created without one. Use "Set a password" on their
             record afterwards and hand the value over, or let them sign in with
-            their college Google account.
+            the Google account for their email.
           </Callout>
 
           <div className="grid gap-4 sm:grid-cols-2">

@@ -103,7 +103,7 @@ describe("SignIn — Google", () => {
         json: { credential: "id-token-from-google" },
       })
     )
-    expect(screen.getByText(/or one you have linked on your profile/)).toBeInTheDocument()
+    expect(screen.getByText(/then link Google from your profile/)).toBeInTheDocument()
   })
 
   it("shows the server's refusal", async () => {
@@ -112,13 +112,13 @@ describe("SignIn — Google", () => {
     const user = mount(() => {
       throw new ApiError(
         403,
-        "Sign in with your example.edu account, or with a Google account you have linked on your profile."
+        "This Google account is not linked to an account here. Sign in with your email and password, then link Google from your profile."
       )
     })
     await user.click(
       await screen.findByRole("button", { name: "Continue with Google" }, GOOGLE_BUTTON_WAIT)
     )
-    expect(await screen.findByRole("alert")).toHaveTextContent(/linked on your profile/)
+    expect(await screen.findByRole("alert")).toHaveTextContent(/then link Google from your profile/)
   })
 
   it("never loads Google's script when the server has it switched off", async () => {
@@ -127,6 +127,6 @@ describe("SignIn — Google", () => {
     expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument()
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
     expect(loadGoogleIdentity).not.toHaveBeenCalled()
-    expect(screen.queryByText(/linked on your profile/)).toBeNull()
+    expect(screen.queryByText(/then link Google from your profile/)).toBeNull()
   })
 })

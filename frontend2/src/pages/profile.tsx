@@ -441,7 +441,7 @@ export function Profile() {
               )}
             </dd>
           </div>
-          <GoogleRow link={me.google} />
+          <GoogleRow link={me.google} email={me.email} />
         </dl>
       </section>
 
@@ -706,7 +706,7 @@ function DetailRow({
  * With Google sign-in off on the server the line says so, instead of drawing
  * a button that renders, is pressed, and does nothing.
  */
-function GoogleRow({ link }: { link: GoogleLink | null }) {
+function GoogleRow({ link, email }: { link: GoogleLink | null; email: string }) {
   const config = useApi<GoogleConfig>(["auth", "google-config"], "/api/auth/google/config")
   const [picking, setPicking] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -833,8 +833,9 @@ function GoogleRow({ link }: { link: GoogleLink | null }) {
           <div className="min-w-0">
             <p className="text-base">Not linked</p>
             <p className="mt-1 max-w-md text-sm text-fg-muted">
-              Link a Google account and you can sign in with it instead of typing your
-              password. A personal Gmail is fine.
+              If {email} is a Google account, “Continue with Google” on the sign-in
+              page already works and links it the first time. To use a different Google
+              account, link it here. A personal Gmail is fine.
             </p>
           </div>
           {!picking && (

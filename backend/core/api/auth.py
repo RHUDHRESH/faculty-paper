@@ -192,6 +192,13 @@ def _verified_google_claims(credential: str) -> dict:
     return claims
 
 
+#: Said to somebody whose Google account opens nothing here.
+GOOGLE_NOT_LINKED = (
+    "This Google account is not linked to an account here. Sign in with your "
+    "email and password, then link Google from your profile."
+)
+
+
 @api.post("/auth/google", auth=None)
 def auth_google(request: HttpRequest, payload: GoogleSignInIn):
     """Sign in with a Google ID token, into an account that already exists.
@@ -200,8 +207,9 @@ def auth_google(request: HttpRequest, payload: GoogleSignInIn):
     subject id first, and is let in whatever its domain: they chose it while
     signed in with their password, which is how about fourteen staff with
     only a personal Gmail get Google sign-in at all. Anything else falls back
-    to matching the college address, and that path keeps the hosted-domain
-    rule.
+    to the address on record, whatever its domain, and the first such
+    sign-in links the Google account so it keeps working if the address
+    later changes.
 
     **No account is ever created here.** An address Google recognises and this
     college does not is refused. Accounts carry staff ids, biometric ids and a
@@ -214,23 +222,25 @@ def auth_google(request: HttpRequest, payload: GoogleSignInIn):
     user = User.objects.filter(google_sub=sub).first() if sub else None
     via = "linked"
     if user is None:
+        # Not linked yet: the address on record is the link. Google has
+        # verified the address belongs to whoever holds this token, and the
+        # account was issued to that address -- college or personal Gmail
+        # alike -- so the first Google sign-in links it for good.
         via = "email"
-        hosted = (getattr(settings, "GOOGLE_HOSTED_DOMAIN", "") or "").strip()
-        if hosted and (claims.get("hd") or "").lower() != hosted.lower():
-            raise HttpError(
-                403,
-                f"Sign in with your {hosted} account, or with a Google account "
-                "you have linked on your profile.",
-            )
-
         email = (claims.get("email") or "").strip().lower()
-        user = User.objects.filter(email__iexact=email).first()
+        user = User.objects.filter(email__iexact=email).first() if email else None
         if user is None:
-            raise HttpError(
-                403,
-                f"There is no account here for {email}. Ask the research cell to "
-                "create one — signing in with Google does not make one.",
-            )
+            raise HttpError(403, GOOGLE_NOT_LINKED)
+        if user.active and not user.google_sub and sub:
+            user.google_sub = sub
+            user.google_email = email
+            user.google_linked_at = timezone.now()
+            try:
+                with transaction.atomic():
+                    user.save(update_fields=["google_sub", "google_email", "google_linked_at", "updated_at"])
+                via = "email, linked now"
+            except IntegrityError:
+                raise HttpError(409, _GOOGLE_TAKEN)
     if not user.active:
         raise HttpError(403, "That account is not active.")
 

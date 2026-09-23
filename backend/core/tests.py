@@ -12889,7 +12889,7 @@ class GoogleSignInTests(TestCase):
                     content_type="application/json",
                 )
         self.assertEqual(r.status_code, 403, r.content)
-        self.assertIn("no account", r.json()["detail"].lower())
+        self.assertIn("not linked", r.json()["detail"].lower())
         self.assertFalse(User.objects.filter(email="a-stranger@gmail.com").exists())
 
     def test_a_known_address_signs_into_the_account_that_already_has_it(self):
@@ -12931,8 +12931,8 @@ class GoogleSignInTests(TestCase):
                 )
         self.assertEqual(r.status_code, 403)
 
-    def test_a_hosted_domain_can_be_required(self):
-        claims = {"email": "gs-person@test.edu", "email_verified": True, "hd": "elsewhere.com"}
+    def test_an_address_nobody_here_has_is_refused_whatever_the_domain(self):
+        claims = {"email": "gs-other@elsewhere.com", "email_verified": True, "hd": "elsewhere.com"}
         with override_settings(
             GOOGLE_OAUTH_CLIENT_ID="test-client-id", GOOGLE_HOSTED_DOMAIN="saveetha.ac.in"
         ):
@@ -12943,7 +12943,7 @@ class GoogleSignInTests(TestCase):
                     content_type="application/json",
                 )
         self.assertEqual(r.status_code, 403)
-        self.assertIn("saveetha.ac.in", r.json()["detail"])
+        self.assertIn("email and password", r.json()["detail"])
 
 
 @override_settings(GOOGLE_OAUTH_CLIENT_ID="test-client-id", GOOGLE_HOSTED_DOMAIN="college.edu")
@@ -13097,14 +13097,33 @@ class GoogleLinkTests(TestCase):
             AuditLog.objects.filter(action="LOGIN_GOOGLE", entity_id=self.person.id).exists()
         )
 
-    def test_an_unlinked_gmail_outside_the_domain_is_still_refused(self):
-        # Even with an email that matches an account: the email path keeps
-        # the hosted-domain rule.
+    def test_the_first_sign_in_by_address_links_the_account(self):
+        # The address on record is the link: the first Google sign-in with it
+        # records the Google account, so later sign-ins go by its id.
         r = self.sign_in_with_google(
-            {"sub": "never-linked", "email": "gl-person@college.edu", "email_verified": True}
+            {"sub": "first-time", "email": "gl-person@college.edu", "email_verified": True}
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.google_sub, "first-time")
+        self.assertEqual(r.json()["google"]["email"], "gl-person@college.edu")
+
+    def test_a_personal_gmail_on_record_signs_in_and_links(self):
+        self.person.email = "gl.person@gmail.com"
+        self.person.save()
+        r = self.sign_in_with_google(
+            {"sub": "gmail-sub", "email": "gl.person@gmail.com", "email_verified": True}
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.google_sub, "gmail-sub")
+
+    def test_an_unknown_gmail_is_told_to_sign_in_with_a_password_and_link(self):
+        r = self.sign_in_with_google(
+            {"sub": "nobody", "email": "someone-else@gmail.com", "email_verified": True}
         )
         self.assertEqual(r.status_code, 403, r.content)
-        self.assertIn("college.edu", r.json()["detail"])
+        self.assertIn("link google from your profile", r.json()["detail"].lower())
 
     def test_the_college_account_still_signs_in_by_email(self):
         r = self.sign_in_with_google({

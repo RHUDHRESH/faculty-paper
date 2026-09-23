@@ -359,9 +359,9 @@ function GoogleButton({ onError }: { onError: (message: string | null) => void }
           form does not jump when it arrives. */}
       <div ref={slot} className="grid min-h-10 place-items-center" />
       <p className="mt-3 text-xs text-fg-subtle">
-        Use your college Google account, or one you have linked on your profile.
-        This signs you in to an account that already exists — it does not create
-        one.
+        Use the Google account for the email on your account, or one you have
+        linked. Not linked yet? Sign in with your email and password below,
+        then link Google from your profile.
       </p>
     </div>
   )

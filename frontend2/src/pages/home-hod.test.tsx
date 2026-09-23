@@ -8,7 +8,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import { api } from "@/lib/api"
 import { HodHome } from "@/pages/home-staff"
-import { HOD, failing, fakeApi, renderWithProviders, type ApiTable } from "@/test/harness"
+import { HOD, failing, fakeApi, ledgerOf, renderWithProviders, type ApiTable } from "@/test/harness"
 
 /**
  * A head of department is also a faculty member who files their own papers
@@ -60,6 +60,7 @@ function mount(claims: ReturnType<typeof claim>[], extra: ApiTable = {}) {
       "/api/hod/standing": () => null,
       "/api/hod/targets": () => ({ year: 2026, department_targets: [] }),
       "/api/claims": () => ({ results: claims, total: claims.length }),
+      "/api/me/payments": () => ledgerOf(claims),
       ...extra,
     })
   )

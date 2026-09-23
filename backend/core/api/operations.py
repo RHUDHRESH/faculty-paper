@@ -160,7 +160,12 @@ def admin_faults(request: HttpRequest):
 
     # ---- money that does not add up ----
     paid = claims.filter(status=ClaimStatus.PAID)
-    paid_zero = paid.filter(Q(remuneration__isnull=True) | Q(remuneration=0))
+    # The accounts workbook pays some papers nothing on purpose -- student
+    # publications and uncited ones are "processed only for count" -- and
+    # says so in the status. Those are not a lost figure.
+    paid_zero = paid.filter(Q(remuneration__isnull=True) | Q(remuneration=0)).exclude(
+        Q(status_note__icontains="only for count") | Q(status_note__iregex=r"no\s*re[nm]u")
+    )
     self_cleared = paid.filter(cleared_by__isnull=False, cleared_by=F("owner"))
     no_ledger = paid.filter(ledger_rows__isnull=True)
     voided = claims.filter(ledger_rows__amount__lt=0).distinct()

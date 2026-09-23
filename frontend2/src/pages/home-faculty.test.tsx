@@ -9,7 +9,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import { api } from "@/lib/api"
 import { FacultyHome } from "@/pages/home-faculty"
-import { FACULTY, fakeApi, failing, renderWithProviders } from "@/test/harness"
+import { FACULTY, failing, fakeApi, ledgerOf, renderWithProviders } from "@/test/harness"
 
 /**
  * The screen 499 of 525 accounts land on, and the one that shipped the worst
@@ -74,6 +74,7 @@ function mount(
     fakeApi({
       "/api/auth/me": () => FACULTY,
       "/api/claims": () => ({ results: claims, total: claims.length }),
+      "/api/me/payments": () => ledgerOf(claims),
       "/api/me/assignments": () => assignments,
       ...extra,
     })

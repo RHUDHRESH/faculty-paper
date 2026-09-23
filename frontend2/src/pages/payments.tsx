@@ -257,9 +257,8 @@ export function Payments() {
         <div>
           <PageTitle>Payments</PageTitle>
           <Sub className="mt-1">
-            Authorised by the Director, waiting on Finance. Every figure here is
-            recomputed from stored, verified values at the moment of payment —
-            never from Scopus, so an outage never blocks a payout.
+            Authorised by the Director and ready to pay. Each amount is worked out
+            again from the checked figures when you pay it.
           </Sub>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -854,7 +853,7 @@ export function PaymentsDone() {
           <Button kind="quiet" size="sm" asChild className="-ml-2 mb-1">
             <Link to="/payments">
               <ArrowLeft />
-              Payment orders
+              Payments
             </Link>
           </Button>
           <PageTitle>Paid</PageTitle>

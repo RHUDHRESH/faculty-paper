@@ -126,7 +126,7 @@ export const NAV: NavItem[] = [
   },
   {
     to: "/payments",
-    label: "Payment orders",
+    label: "Payments",
     icon: Wallet,
     roles: ["FINANCE"],
     keywords: ["pay", "disburse", "voucher"],

@@ -614,7 +614,7 @@ export function FinanceHome() {
       {partial && (
         <Callout tone="info" title={`Showing the first ${rows.length} of ${total}`}>
           The server returns at most {PAYABLE_PAGE} rows at a time, so the figures above cover
-          those rows rather than the whole approved queue. Payment orders pages through all of
+          those rows rather than the whole approved queue. Payments pages through all of
           them.
         </Callout>
       )}
@@ -634,7 +634,7 @@ export function FinanceHome() {
           <div className="flex items-baseline justify-between gap-3">
             <SectionTitle>Next to pay</SectionTitle>
             <Link to="/payments" className="text-sm text-accent underline-offset-4 hover:underline">
-              Payment orders{total ? ` (${total})` : ""}
+              Payments{total ? ` (${total})` : ""}
             </Link>
           </div>
           {payable.isLoading ? (

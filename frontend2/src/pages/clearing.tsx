@@ -202,6 +202,7 @@ export function Clearing() {
   )
   const byDept = [...all.reduce((m, c) => m.set(c.owner_department || "—", (m.get(c.owner_department || "—") || 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])
   const queueTotal = all.reduce((s, c) => s + (c.remuneration || 0), 0)
+  const priced = all.filter((c) => c.remuneration != null).length
   const oldest = all.reduce((m, c) => Math.max(m, c.waiting_days ?? 0), 0)
 
   // Whole rows, not just ids — the same shape `payments.tsx` uses. A row that
@@ -349,7 +350,15 @@ export function Clearing() {
         <section aria-label="The queue at a glance" className="space-y-3">
           <p className="text-sm text-fg-muted">
             <span className="font-semibold text-fg">{all.length}</span> waiting ·{" "}
-            <span className="tabular font-semibold text-fg">{money(queueTotal)}</span> in all · oldest{" "}
+            {priced === 0 ? (
+              "amounts not worked out yet"
+            ) : (
+              <>
+                <span className="tabular font-semibold text-fg">{money(queueTotal)}</span>{" "}
+                {priced < all.length ? `across the ${priced} priced` : "in all"}
+              </>
+            )}{" "}
+            · oldest{" "}
             <span className={cn("font-semibold", oldest > 14 ? "text-critical" : oldest > 7 ? "text-caution" : "text-fg")}>
               {waitingLabel(oldest).toLowerCase()}
             </span>

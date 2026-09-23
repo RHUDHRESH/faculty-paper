@@ -40,7 +40,7 @@ from core.services import rbac
 from core.services.normalize import normalize_issn
 from core.services.notify_email import send_optional_email
 from core.services.tickets import assign_ticket_number
-from core import hod
+from core import hod, visibility
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
 
 # ---------- journals ----------
@@ -183,6 +183,7 @@ def get_claim(request: HttpRequest, claim_id: str):
             "from_status": a.from_status,
             "to_status": a.to_status,
             "note": a.note,
+            "actor_id": a.actor_id,
             "actor_name": a.actor.name,
             "created_at": a.created_at.isoformat(),
         }
@@ -449,6 +450,11 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
     claim = get_object_or_404(Claim, pk=claim_id, owner=user)
     if claim.status not in (ClaimStatus.DRAFT, ClaimStatus.REJECTED):
         raise HttpError(400, "Only draft/rejected claims can be edited")
+    if claim.rejected_outright:
+        raise HttpError(
+            400,
+            "This paper was not accepted, so it cannot be edited or filed again.",
+        )
     attachments = _validated_attachments(payload)
     _apply_faculty_payload(claim, payload)
     _bind_identity_from_user(claim, user, payload)
@@ -485,45 +491,146 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
     return claim_to_dict(claim)
 
 
-def _faculty_status_copy(to_status: str, note: str | None = None) -> tuple[str, str]:
-    """Short faculty-facing notification title/body — no internal process detail."""
-    if to_status == ClaimStatus.CLEARED:
+def _faculty_status_copy(
+    to_status: str,
+    note: str | None = None,
+    *,
+    outright: bool = False,
+    from_status: str | None = None,
+    ticket_number: str | None = None,
+) -> tuple[str, str]:
+    """What the claimant is told when their paper reaches `to_status`.
+
+    Written in terms of the claimant's stage (core.visibility.faculty_stage),
+    never the desk: it used to say "with the Principal", "the Director has
+    authorised", "processed by Finance", which told the claimant exactly
+    whose desk their paper was on. The only desk-written text passed through is
+    the reason a paper was sent back to them, which is written for them.
+    """
+    stage = visibility.faculty_stage(
+        to_status, rejected_outright=outright, ticket_number=ticket_number
+    )
+    if stage == "Not accepted":
+        return ("Not accepted", note or "Your paper was not accepted.")
+    if stage == "Sent back to you":
         return (
-            "Checked — with the Principal",
-            "The research cell has checked your ticket. It is now with the "
-            "Principal for approval.",
+            "Sent back to you",
+            note or "Your paper needs changes. Edit the details and submit it again.",
         )
-    if to_status == ClaimStatus.HOD_APPROVED:
-        return ("Approved by HoD", "Your ticket was approved by HoD and is with the Principal.")
-    if to_status == ClaimStatus.PRINCIPAL_APPROVED:
+    if stage == "Approved for payment":
         return (
-            "Approved — with the Director",
-            "The Principal has approved your ticket. It is with the Director to "
-            "be authorised.",
+            "Approved for payment",
+            "Your paper has been approved for payment. You will be told when it is paid.",
         )
-    if to_status == ClaimStatus.DIRECTOR_APPROVED:
+    if stage == "Paid":
+        return ("Paid", "The incentive for your paper has been paid.")
+    if stage == "Withdrawn":
         return (
-            "Authorised — with Finance",
-            "The Director has authorised your ticket. It is with Finance for payment.",
+            "Withdrawn",
+            "You withdrew this paper. Edit it and submit it again when it is ready.",
         )
-    if to_status == ClaimStatus.PAID:
+    if stage == "Draft":
+        return ("Back to draft", "Your paper is back in draft.")
+    if from_status == ClaimStatus.PAID:
         return (
-            "Payment processed",
-            "Your remuneration has been processed by Finance.",
+            "Payment reversed",
+            "A payment on your paper was reversed. It is under review again, and "
+            "you will be told when it moves.",
         )
-    if to_status == ClaimStatus.REJECTED:
-        return (
-            "Needs changes",
-            note or "Your ticket was sent back. Edit the details and submit again.",
+    return ("Under review", "Your paper is under review.")
+
+
+def _notify_claimant(claim: Claim, title: str, body: str) -> None:
+    """Tell the person who filed the paper, in the app and by mail."""
+    full_title = f"{claim.ticket_number or 'Ticket'} · {title}"
+    Notification.objects.create(
+        user=claim.owner,
+        title=full_title,
+        body=body,
+        href=f"/faculty?claim={claim.id}",
+        claim_id=claim.id,
+    )
+    send_optional_email(claim.owner.email, full_title, body)
+
+
+def _refuse_if_held(claim: Claim) -> None:
+    """A held paper stays where it is until the desk that holds it resumes it."""
+    if claim.on_hold:
+        raise HttpError(
+            409,
+            f"{claim.ticket_number or 'This ticket'} is on hold"
+            + (f" ({claim.hold_reason})" if claim.hold_reason else "")
+            + ". Resume it before moving it on.",
         )
-    return (f"Ticket update", note or f"Status is now {to_status}")
+
+
+def _lift_hold(claim: Claim) -> None:
+    claim.on_hold = False
+    claim.hold_reason = None
+    claim.held_by = None
+    claim.held_at = None
+
+
+_DESK_NAMES = {
+    rbac.SUPERVISOR_DESK: "the research supervisor's desk",
+    rbac.PRINCIPAL_DESK: "the Principal's desk",
+}
+
+
+def _require_own_desk(user: User, claim: Claim) -> None:
+    """Refuse (403) unless `user` sits at the review desk this paper is at.
+
+    A paper past both desks and not yet paid -- approved, or authorised --
+    belongs to no review desk any more. Only a super admin reaches back for
+    one of those, as the rescue role; the Director and Finance move it forward
+    and nothing else.
+    """
+    desk = rbac.desk_for_status(claim.status)
+    if desk is None:
+        if user.role != Role.SUPER_ADMIN:
+            raise HttpError(
+                403,
+                "This paper is past both review desks; only a super admin can "
+                "send it back from here.",
+            )
+        return
+    if not rbac.can_act_at_desk(user.role, desk):
+        raise HttpError(403, f"This paper is at {_DESK_NAMES[desk]}, which is not yours.")
+
+
+def _withdraw_approvals(claim: Claim) -> None:
+    """Take the desk signatures off a paper that is going back to the claimant.
+
+    The same reasoning as the Director's send-back withdrawing the Principal's
+    approval: a name and a date left on a paper that is no longer cleared or
+    approved reads, later, as a sign-off that still stands.
+    """
+    claim.cleared_by = None
+    claim.cleared_at = None
+    claim.principal_approved_by = None
+    claim.principal_approved_at = None
+    claim.director_approved_by = None
+    claim.director_approved_at = None
 
 
 def _transition(claim: Claim, user: User, to_status: str, action: str, note: str | None = None):
     from_status = claim.status
+    stage_before = visibility.faculty_stage(
+        from_status,
+        rejected_outright=claim.rejected_outright and from_status == ClaimStatus.REJECTED,
+        ticket_number=claim.ticket_number,
+    )
     claim.status = to_status
     if to_status == ClaimStatus.PAID:
         claim.paid_at = timezone.now()
+    if from_status != to_status and claim.on_hold:
+        # The hold was on the paper *at that desk*. Once it has moved -- back,
+        # forward, or out to the claimant -- there is nothing left to hold.
+        _lift_hold(claim)
+    if to_status != ClaimStatus.REJECTED:
+        # "Not accepted" describes a rejection; a paper rescued out of one by
+        # a status override is not carrying it any more.
+        claim.rejected_outright = False
     claim.save()
     ClaimAction.objects.create(
         claim=claim,
@@ -555,19 +662,18 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
         to_status,
         user.email,
     )
-    title, body = _faculty_status_copy(to_status, note)
-    Notification.objects.create(
-        user=claim.owner,
-        title=f"{claim.ticket_number or 'Ticket'} · {title}",
-        body=body,
-        href=f"/faculty?claim={claim.id}",
-        claim_id=claim.id,
+    # Told only when what they are shown changes. Every hop between filing and
+    # the authorisation is "Under review" to them; a message at each one would
+    # let them count the desks.
+    stage_after = visibility.faculty_stage(
+        to_status, rejected_outright=claim.rejected_outright, ticket_number=claim.ticket_number
     )
-    send_optional_email(
-        claim.owner.email,
-        f"{claim.ticket_number or 'Ticket'} · {title}",
-        body,
-    )
+    if stage_after != stage_before:
+        title, body = _faculty_status_copy(
+            to_status, note, outright=claim.rejected_outright,
+            from_status=from_status, ticket_number=claim.ticket_number,
+        )
+        _notify_claimant(claim, title, body)
 
 
 #: Display-path cache for the second-approval threshold, so serializing a
@@ -712,6 +818,7 @@ def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         if claim.status != ClaimStatus.SUBMITTED:
             raise HttpError(400, "Only a submitted ticket can be cleared")
+        _refuse_if_held(claim)
         _guard_self_cleared_override(claim, user)
         _reverify_or_recalc(claim, user, skip_external=bool(payload.skip_external))
         _guard_recomputed_amount(claim, payload.expected_amount)
@@ -765,6 +872,14 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
                 if claim.status != ClaimStatus.SUBMITTED:
                     skipped.append(
                         {"id": claim_id, "reason": f"Status is {claim.status}, not SUBMITTED"}
+                    )
+                    continue
+                if claim.on_hold:
+                    skipped.append(
+                        {
+                            "id": claim_id,
+                            "reason": f"{claim.ticket_number or claim_id}: on hold — resume it first",
+                        }
                     )
                     continue
                 # A dismissed duplicate is exactly the row that must not go
@@ -860,6 +975,7 @@ def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
                 "Only a ticket the research cell has cleared can be approved"
                 f" — this one is {claim.status}",
             )
+        _refuse_if_held(claim)
         # The amount on the screen is the amount being approved. Recomputing
         # here means an approval cannot be given for one figure and paid at
         # another.
@@ -913,7 +1029,7 @@ def principal_queue(
 
     qs = (
         Claim.objects.filter(status=ClaimStatus.CLEARED)
-        .select_related("owner", "cleared_by", "override_by")
+        .select_related("owner", "cleared_by", "override_by", "held_by")
         .prefetch_related("attachments")
     )
     if q:
@@ -1007,6 +1123,12 @@ def principal_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
                     "reason": f"{claim.ticket_number or claim_id}: status is {claim.status}",
                 })
                 continue
+            if claim.on_hold:
+                skipped.append({
+                    "id": claim_id,
+                    "reason": f"{claim.ticket_number or claim_id}: on hold — resume it first",
+                })
+                continue
             shown = claim.remuneration
             _apply_calc(claim)
             if round(shown or 0, 2) != round(claim.remuneration or 0, 2):
@@ -1044,6 +1166,7 @@ __all__ = [
     'BulkClearIn',
     'PrincipalBulkIn',
     '_ANNEXURE_LEVELS',
+    '_DESK_NAMES',
     '_RETIRED_STEP',
     '_check_mandatory_fields',
     '_faculty_status_copy',
@@ -1052,11 +1175,16 @@ __all__ = [
     '_guard_self_cleared_override',
     '_issn_variants',
     '_journal_reference',
+    '_lift_hold',
     '_match_on_punctuation',
     '_may_approve_as_principal',
+    '_notify_claimant',
+    '_refuse_if_held',
+    '_require_own_desk',
     '_reverify_or_recalc',
     '_submit_claim',
     '_transition',
+    '_withdraw_approvals',
     'bulk_clear',
     'clear_claim',
     'create_claim',

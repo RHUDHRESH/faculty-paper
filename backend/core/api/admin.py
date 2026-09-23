@@ -28,6 +28,7 @@ from django.utils import timezone
 from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
+from core import visibility
 from core.services import rbac
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.remuneration import DEFAULT_AUTHOR_POINTS, DEFAULT_PUB_TYPE_MULTIPLIERS, MAX_ELIGIBLE_AUTHORS, MIN_SEC_REFERENCES
@@ -531,6 +532,10 @@ def admin_audit(
     if not rbac.can_view_audit(user.role):
         raise HttpError(403, "Forbidden")
     qs = AuditLog.objects.select_related("actor").order_by("-created_at")
+    if visibility.is_contest_blind(user.role):
+        # Dropped from the query rather than from the page, so the total does
+        # not count rows the reader is not shown.
+        qs = qs.exclude(action__in=visibility.CONTEST_AUDIT_ACTIONS)
     if action:
         qs = qs.filter(action__icontains=action)
     if q:

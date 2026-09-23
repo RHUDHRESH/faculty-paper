@@ -703,6 +703,24 @@ class Claim(models.Model):
     )
     override_at = models.DateTimeField(null=True, blank=True)
 
+    #: Paused at the desk it is sitting at, without leaving it. A flag rather
+    #: than a status, so the paper keeps its place in the chain and every
+    #: status filter -- the queues, the counts, the budget, the reports --
+    #: goes on finding it where it was. Only the research supervisor's desk
+    #: (SUBMITTED) and the Principal's (CLEARED) can hold a paper; any status
+    #: change lifts the hold, because the paper is no longer where it was held.
+    on_hold = models.BooleanField(default=False)
+    hold_reason = models.TextField(blank=True, null=True)
+    held_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL, related_name="held_claims"
+    )
+    held_at = models.DateTimeField(null=True, blank=True)
+    #: REJECTED has always meant "returned to the claimant to fix and file
+    #: again". This marks the other kind of rejection -- not accepted at all --
+    #: which cannot be edited or refiled. A flag on REJECTED rather than a new
+    #: status, so everything that counts rejections keeps counting both.
+    rejected_outright = models.BooleanField(default=False)
+
     year_mismatch = models.BooleanField(default=False)
     year_mismatch_override = models.BooleanField(default=False)
     year_mismatch_reason = models.TextField(blank=True, null=True)

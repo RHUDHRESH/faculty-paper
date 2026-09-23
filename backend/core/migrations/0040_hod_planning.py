@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0037_systemsetting'),
+        ('core', '0039_claim_rejected_outright'),
     ]
 
     operations = [

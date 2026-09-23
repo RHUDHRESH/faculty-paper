@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 
@@ -62,8 +63,21 @@ class RankYearTests(TestCase):
 class ThreadSearchToolTests(TestCase):
     """The tool as the reader meets it."""
 
+    def setUp(self):
+        # `search` caches by query, and these tests reuse queries other tests
+        # ask. A result left over from elsewhere means the stub is never
+        # called and the test proves nothing about it.
+        cache.clear()
+
     def _stub(self, hits):
-        return patch.dict(rs.SOURCES, {"crossref": lambda q, limit: list(hits)}, clear=True)
+        # Fresh dicts on every call, as a real source returns. `merge` pops
+        # "source" off each hit it is handed, so a stub sharing the module's
+        # HITS dicts left them without one after the first uncached search,
+        # and the next test raised KeyError -- passing only when an earlier
+        # test had happened to leave the same query in the cache.
+        return patch.dict(
+            rs.SOURCES, {"crossref": lambda q, limit: [dict(h) for h in hits]}, clear=True
+        )
 
     def test_it_answers_with_what_it_found(self):
         with self._stub(HITS):
@@ -102,6 +116,9 @@ class ThreadSearchToolTests(TestCase):
 
 
 class SearchYearResolutionTests(TestCase):
+    def setUp(self):
+        cache.clear()  # see ThreadSearchToolTests.setUp
+
     def test_search_without_a_year_uses_this_one(self):
         with patch.dict(rs.SOURCES, {"crossref": lambda q, limit: [dict(h) for h in HITS]}, clear=True):
             with patch.object(rs, "rank", wraps=rs.rank) as ranked:

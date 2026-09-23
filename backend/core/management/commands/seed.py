@@ -25,6 +25,15 @@ class Command(BaseCommand):
                 "payments. Almost never what you want."
             ),
         )
+        parser.add_argument(
+            "--demo",
+            action="store_true",
+            help=(
+                "Also create a demo college: an account for every role, six more "
+                "faculty, and fifteen papers spread across every stage of the "
+                "chain. Safe to run again; it adds only what is missing."
+            ),
+        )
 
     def handle(self, *args, **options):
         allow = (
@@ -45,7 +54,13 @@ class Command(BaseCommand):
         from core.models import Claim, ClaimStatus
 
         real_people = User.objects.exclude(email__endswith="@college.edu").count()
-        real_payments = Claim.objects.filter(status=ClaimStatus.PAID).count()
+        # The demo papers are paid to demo accounts; counting those would make
+        # `seed --demo` refuse to run a second time on its own output.
+        real_payments = (
+            Claim.objects.filter(status=ClaimStatus.PAID)
+            .exclude(owner__email__endswith="@college.edu")
+            .count()
+        )
         if (real_people or real_payments) and not options.get("i_know_this_is_live"):
             raise CommandError(
                 f"This database holds {real_people} real accounts and "
@@ -107,49 +122,7 @@ class Command(BaseCommand):
                 "Principal",
             ),
         ]
-        for email, password, name, role, dept, emp, staff_id, bio_id, designation in users:
-            u, created = User.objects.get_or_create(
-                email=email,
-                defaults={
-                    "name": name,
-                    "role": role,
-                    "department": dept,
-                    "employee_id": emp,
-                    "staff_id": staff_id,
-                    "biometric_id": bio_id,
-                    "designation": designation,
-                    "is_staff": role == Role.SUPER_ADMIN,
-                    "must_change_password": role == Role.SUPER_ADMIN,
-                },
-            )
-            if created:
-                u.set_password(password)
-                u.active = True
-                u.save()
-                self.stdout.write(f"Created {email}")
-                continue
-
-            # Never re-set the password or reactivate an existing account. Re-running
-            # seed used to revert a password that had been deliberately changed after
-            # deployment, and switch a disabled account back on.
-            changed = False
-            for attr, val in (
-                ("name", name),
-                ("role", role),
-                ("department", dept),
-                ("employee_id", emp),
-                ("staff_id", staff_id),
-                ("biometric_id", bio_id),
-                ("designation", designation),
-            ):
-                if getattr(u, attr) != val:
-                    setattr(u, attr, val)
-                    changed = True
-            if changed:
-                u.save()
-                self.stdout.write(f"Updated {email} (password and status left alone)")
-            else:
-                self.stdout.write(f"OK {email}")
+        self._ensure_users(users)
 
         if not FormulaConfig.objects.filter(active=True).exists():
             # Every figure here comes from Step 8 of the Publication Processing
@@ -259,4 +232,68 @@ class Command(BaseCommand):
             )
         self.stdout.write(f"Seeded {len(sample_snip)} SnipSource rows")
 
+        if options.get("demo"):
+            self._seed_demo()
+
         self.stdout.write(self.style.SUCCESS("Seed complete."))
+
+    def _seed_demo(self):
+        """Every role, six more faculty, and a paper at every stage."""
+        from core.api import _apply_calc  # late: core.api imports every model
+        from core.management.commands import _demo
+
+        self._ensure_users(_demo.demo_accounts())
+        n = _demo.seed_journals()
+        self.stdout.write(f"Seeded {n} demo journals")
+        emails = {p.owner for p in _demo.PAPERS} | set(_demo._DESK.values())
+        people = {u.email: u for u in User.objects.filter(email__in=emails)}
+        created, kept = _demo.seed_demo_college(people, _apply_calc)
+        self.stdout.write(f"Demo papers: {created} created, {kept} already there")
+
+    def _ensure_users(self, users):
+        """Create what is missing; bring the rest's details in line.
+
+        Never re-set the password or reactivate an existing account. Re-running
+        seed used to revert a password that had been deliberately changed after
+        deployment, and switch a disabled account back on.
+        """
+        for email, password, name, role, dept, emp, staff_id, bio_id, designation in users:
+            u, created = User.objects.get_or_create(
+                email=email,
+                defaults={
+                    "name": name,
+                    "role": role,
+                    "department": dept,
+                    "employee_id": emp,
+                    "staff_id": staff_id,
+                    "biometric_id": bio_id,
+                    "designation": designation,
+                    "is_staff": role == Role.SUPER_ADMIN,
+                    "must_change_password": role == Role.SUPER_ADMIN,
+                },
+            )
+            if created:
+                u.set_password(password)
+                u.active = True
+                u.save()
+                self.stdout.write(f"Created {email}")
+                continue
+
+            changed = False
+            for attr, val in (
+                ("name", name),
+                ("role", role),
+                ("department", dept),
+                ("employee_id", emp),
+                ("staff_id", staff_id),
+                ("biometric_id", bio_id),
+                ("designation", designation),
+            ):
+                if getattr(u, attr) != val:
+                    setattr(u, attr, val)
+                    changed = True
+            if changed:
+                u.save()
+                self.stdout.write(f"Updated {email} (password and status left alone)")
+            else:
+                self.stdout.write(f"OK {email}")

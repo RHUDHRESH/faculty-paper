@@ -91,6 +91,13 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "owner_department": c.owner.department,
         "status": c.status,
         "status_note": c.status_note,
+        # Paused at its desk, not moved: `status` still says where it is.
+        "on_hold": c.on_hold,
+        "hold_reason": c.hold_reason,
+        "held_by_name": c.held_by.name if c.held_by_id else None,
+        "held_at": c.held_at.isoformat() if c.held_at else None,
+        # REJECTED either way; this says whether it can be fixed and refiled.
+        "rejected_outright": c.rejected_outright,
         "ticket_number": c.ticket_number,
         "contest_forward": c.contest_forward,
         "contest_note": c.contest_note,

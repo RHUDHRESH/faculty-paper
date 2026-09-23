@@ -968,3 +968,132 @@ class FacultyViewTests(ChainBase):
             self.assertIn("PRINCIPAL_SEND_BACK", codes, who.role)
             self.assertEqual(body["principal_approved_by_name"], "Lakshmi Principal", who.role)
             self.assertNotIn("faculty_stage", body, "the staff payload is unchanged")
+
+
+# --------------------------------------------------------------------------- #
+# 7. seed --demo: a demo college with a paper at every stage                  #
+# --------------------------------------------------------------------------- #
+
+
+class DemoSeedTests(TestCase):
+    LIVE_STATUSES = {
+        ClaimStatus.DRAFT, ClaimStatus.SUBMITTED, ClaimStatus.CLEARED,
+        ClaimStatus.PRINCIPAL_APPROVED, ClaimStatus.DIRECTOR_APPROVED,
+        ClaimStatus.PAID, ClaimStatus.REJECTED,
+    }
+
+    def _seed(self):
+        from django.core.management import call_command
+
+        call_command("seed", "--demo", force=True, verbosity=0)
+
+    def _counts(self):
+        from core.models import PaidLedger, ScimagoJournal, SnipSource
+
+        return {
+            "users": User.objects.count(),
+            "claims": Claim.objects.count(),
+            "actions": ClaimAction.objects.count(),
+            "attachments": ClaimAttachment.objects.count(),
+            "ledger": PaidLedger.objects.count(),
+            "scimago": ScimagoJournal.objects.count(),
+            "snip": SnipSource.objects.count(),
+        }
+
+    def test_it_runs_twice_and_the_second_run_adds_nothing(self):
+        self._seed()
+        first = self._counts()
+        self._seed()
+        self.assertEqual(self._counts(), first)
+        self.assertGreaterEqual(first["claims"], 13)
+
+    def test_there_is_a_paper_at_every_stage(self):
+        self._seed()
+        claims = Claim.objects.all()
+        self.assertEqual(set(claims.values_list("status", flat=True)), self.LIVE_STATUSES)
+        self.assertTrue(claims.filter(status=ClaimStatus.SUBMITTED, on_hold=True).exists())
+        back = claims.get(status=ClaimStatus.REJECTED, rejected_outright=False)
+        self.assertTrue(back.status_note, "sent back with a reason")
+        self.assertTrue(back.ticket_number, "and it keeps its ticket number")
+        self.assertTrue(claims.filter(status=ClaimStatus.REJECTED, rejected_outright=True).exists())
+        contested = claims.get(contest_forward=True)
+        self.assertTrue(contested.duplicate_warning)
+        self.assertTrue(contested.override_duplicate)
+        self.assertTrue(json.loads(contested.duplicate_matches_json))
+        self.assertTrue(
+            claims.filter(status=ClaimStatus.DRAFT, ticket_number__isnull=False).exists(),
+            "a withdrawn paper",
+        )
+
+    def test_the_amounts_are_the_formula_s_own(self):
+        self._seed()
+        for claim in Claim.objects.all():
+            stored = claim.remuneration
+            _apply_calc(claim)
+            self.assertAlmostEqual(stored, claim.remuneration, 2, claim.ticket_number)
+            self.assertGreater(stored or 0, 0, f"{claim.ticket_number}: {claim.remuneration_note}")
+        for claim in Claim.objects.filter(status=ClaimStatus.PAID):
+            ledger = sum(r.amount for r in claim.ledger_rows.all())
+            self.assertAlmostEqual(ledger, claim.remuneration, 2)
+            self.assertIsNotNone(claim.payout_month)
+            self.assertIsNotNone(claim.paid_at)
+
+    def test_each_paper_carries_the_history_of_every_step(self):
+        from core.models import ScimagoJournal
+
+        self._seed()
+        director = User.objects.get(email="director@college.edu")
+        finance = User.objects.get(email="finance@college.edu")
+        for claim in Claim.objects.all():
+            steps = list(claim.actions.order_by("created_at").values_list("action", "to_status"))
+            self.assertTrue(steps, claim.ticket_number)
+            self.assertEqual(steps[-1][1], claim.status, f"{claim.ticket_number}: {steps}")
+            self.assertTrue(
+                ScimagoJournal.objects.filter(issn=claim.issn).exists(),
+                f"{claim.ticket_number} uses a journal the tables hold",
+            )
+        for claim in Claim.objects.filter(status=ClaimStatus.PAID):
+            last = claim.actions.order_by("-created_at").first()
+            self.assertEqual((last.action, last.actor), ("MARK_PAID", finance))
+            self.assertTrue(claim.actions.filter(action="DIRECTOR_APPROVE", actor=director).exists())
+            self.assertEqual(claim.director_approved_by, director)
+
+    def test_every_role_has_an_account_and_existing_passwords_are_kept(self):
+        from django.core.management import call_command
+
+        call_command("seed", force=True, verbosity=0)
+        faculty = User.objects.get(email="faculty@college.edu")
+        faculty.set_password("set-after-deploy")
+        faculty.save()
+
+        self._seed()
+        faculty.refresh_from_db()
+        self.assertTrue(faculty.check_password("set-after-deploy"))
+        for email, password, role in (
+            ("hod@college.edu", "hod123", Role.HOD),
+            ("director@college.edu", "director123", Role.DIRECTOR),
+            ("research@college.edu", "research123", Role.RESEARCH_CELL),
+            ("principal@college.edu", "principal123", Role.PRINCIPAL),
+            ("finance@college.edu", "finance123", Role.FINANCE),
+        ):
+            user = User.objects.get(email=email)
+            self.assertEqual(user.role, role, email)
+            self.assertTrue(user.check_password(password), email)
+        self.assertEqual(User.objects.get(email="hod@college.edu").department, "CSE")
+
+        demo_faculty = User.objects.filter(role=Role.FACULTY).exclude(email="faculty@college.edu")
+        self.assertEqual(demo_faculty.count(), 6)
+        self.assertEqual(
+            set(demo_faculty.values_list("department", flat=True)), {"CSE", "ECE", "MECH"}
+        )
+        staff_ids = list(demo_faculty.values_list("staff_id", flat=True))
+        self.assertTrue(all(staff_ids))
+        self.assertEqual(len(set(staff_ids)), 6)
+
+    def test_demo_is_refused_outside_debug_without_force(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        with self.assertRaisesRegex(CommandError, "Refusing to seed"):
+            call_command("seed", "--demo", verbosity=0)
+        self.assertFalse(Claim.objects.exists())

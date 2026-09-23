@@ -44,6 +44,7 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, Notification, PAYABLE_STATUSES, PaidLedger, Role, User
+from core import visibility
 from core.services import rbac
 from core.services.verify import apply_verify_to_claim, verify_publication
 
@@ -444,6 +445,15 @@ def _mark_one_paid(
             # including whether it needs a second signature.
             _guard_recomputed_amount(claim, expected_amount)
             if _needs_second_approval(claim):
+                if visibility.is_contest_blind(user.role):
+                    # Finance is not told about a contested payment-history
+                    # match (core.visibility), so the refusal says what is
+                    # missing without saying why it is required.
+                    raise HttpError(
+                        400,
+                        "A second approver, different from the person who "
+                        "cleared it, must approve before this is paid.",
+                    )
                 if claim.duplicate_warning and claim.override_duplicate:
                     who = claim.override_by.name if claim.override_by else "somebody"
                     raise HttpError(

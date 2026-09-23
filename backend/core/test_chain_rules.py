@@ -602,3 +602,175 @@ class ForwardOnlyTests(ChainBase):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.CLEARED)
 
+
+# --------------------------------------------------------------------------- #
+# 4. A contested payment-history match is not shown to the Director or Finance #
+# --------------------------------------------------------------------------- #
+
+
+def _keys_anywhere(value, found=None):
+    found = set() if found is None else found
+    if isinstance(value, dict):
+        for k, v in value.items():
+            found.add(k)
+            _keys_anywhere(v, found)
+    elif isinstance(value, list):
+        for v in value:
+            _keys_anywhere(v, found)
+    return found
+
+
+class ContestedFlagVisibilityTests(ChainBase):
+    CONTEST = "CONTESTSENTINEL the earlier payment was for a different paper"
+    OVERRIDE = "OVERRIDESENTINEL checked with the publisher"
+    MATCH = "DUPSENTINEL An Earlier Paper With A Similar Title"
+    #: Every one of these names a contested or duplicate flag, and none may
+    #: reach the Director or Finance under any spelling.
+    FLAG_KEYS = {
+        "contest_forward", "contest_note", "verification_ok",
+        "verification_snapshot_json", "duplicate_warning", "duplicate_matches",
+        "duplicate_matches_json", "override_duplicate", "override_reason",
+        "override_by_name", "override_at",
+    }
+    SENTINELS = ("CONTESTSENTINEL", "OVERRIDESENTINEL", "DUPSENTINEL",
+                 "Payment history may already", "CONTEST_FORWARD", "DUPLICATE_REVIEW")
+
+    def setUp(self):
+        super().setUp()
+        from core.models import DuplicateFinding
+
+        flags = dict(
+            contest_forward=True,
+            contest_note=self.CONTEST,
+            verification_ok=False,
+            verification_snapshot_json=json.dumps(
+                {"issues": ["Payment history may already include this paper"]}
+            ),
+            duplicate_warning=True,
+            duplicate_matches_json=json.dumps([{"title": self.MATCH, "amount": 40000}]),
+            override_duplicate=True,
+            override_reason=self.OVERRIDE,
+            override_by=self.faculty,
+            override_at=timezone.now(),
+            publication_year=2026,
+            cleared_by=self.cell,
+            cleared_at=timezone.now(),
+        )
+        self.approved = self._claim(
+            ClaimStatus.PRINCIPAL_APPROVED, ticket="CT-1",
+            principal_approved_by=self.principal, principal_approved_at=timezone.now(),
+            **flags,
+        )
+        self.authorised = self._claim(
+            ClaimStatus.DIRECTOR_APPROVED, ticket="CT-2",
+            principal_approved_by=self.principal, principal_approved_at=timezone.now(),
+            director_approved_by=self.director, director_approved_at=timezone.now(),
+            **flags,
+        )
+        self.contested = [self.approved, self.authorised]
+        for claim in self.contested:
+            ClaimAction.objects.create(
+                claim=claim, actor=self.faculty, from_status=ClaimStatus.DRAFT,
+                to_status=ClaimStatus.SUBMITTED, action="CONTEST_FORWARD", note=self.CONTEST,
+            )
+            ClaimAction.objects.create(
+                claim=claim, actor=self.faculty, from_status=ClaimStatus.REJECTED,
+                to_status=ClaimStatus.SUBMITTED, action="RESUBMIT", note=self.CONTEST,
+            )
+        self.finding = DuplicateFinding.objects.create(
+            kind=DuplicateFinding.Kind.SAME_PERSON, matched_on="title",
+            paper_title=self.MATCH, faculty_name=self.faculty.name,
+            payment_count=2, total_amount=80000, extra_amount=40000, rows_json="[]",
+        )
+        AuditLog.objects.create(
+            actor=self.admin, action="DUPLICATE_REVIEW", entity="DuplicateFinding",
+            entity_id=self.finding.id, detail_json=json.dumps({"status": "DISMISSED"}),
+        )
+
+    def _paths_for(self, user):
+        paths = [f"/api/claims/{c.id}" for c in self.contested] + [
+            "/api/claims?limit=200",
+            "/api/dashboard",
+            "/api/reports",
+            "/api/reports/search?limit=50",
+            "/api/reports/pack/rows?limit=200",
+            "/api/reports/pack?fmt=json",
+            "/api/reports/export",
+            "/api/reports/search/export",
+            "/api/lookup/ticket?q=CT-",
+            f"/api/faculty/{self.faculty.id}/report",
+            "/api/admin/audit?limit=500",
+            "/api/admin/payouts?status=DIRECTOR_APPROVED",
+            "/api/admin/payouts?status=PRINCIPAL_APPROVED",
+        ]
+        if user.role == Role.DIRECTOR:
+            paths.append("/api/director/queue")
+        return paths
+
+    def test_no_contested_flag_reaches_the_director_or_finance(self):
+        for who in (self.director, self.finance):
+            client = self._as(who)
+            answered = 0
+            for path in self._paths_for(who):
+                r = client.get(path)
+                if r.status_code == 403:
+                    continue
+                self.assertEqual(r.status_code, 200, f"{who.role} {path}: {r.content[:300]}")
+                answered += 1
+                raw = r.content.decode("utf-8", errors="ignore")
+                for sentinel in self.SENTINELS:
+                    self.assertNotIn(sentinel, raw, f"{who.role} {path} carries {sentinel!r}")
+                if r["Content-Type"].startswith("application/json"):
+                    leaked = _keys_anywhere(r.json()) & self.FLAG_KEYS
+                    self.assertEqual(leaked, set(), f"{who.role} {path}")
+            # Not vacuous: most of these doors are open to both roles.
+            self.assertGreaterEqual(answered, 12, who.role)
+
+    def test_the_claim_itself_still_reaches_them(self):
+        """Stripping flags, not claims: the Director still sees what to authorise."""
+        body = self._as(self.director).get("/api/director/queue").json()
+        self.assertEqual([r["ticket_number"] for r in body["results"]], ["CT-1"])
+        detail = self._as(self.finance).get(f"/api/claims/{self.authorised.id}").json()
+        self.assertEqual(detail["ticket_number"], "CT-2")
+        self.assertEqual(detail["remuneration"], self.authorised.remuneration)
+        self.assertEqual(
+            [a["action"] for a in detail["actions"]], ["SUBMIT", "RESUBMIT"],
+            "the history is still there, told without the contest",
+        )
+
+    def test_everyone_else_in_the_chain_still_sees_the_flag(self):
+        for who in (self.faculty, self.cell, self.coordinator, self.principal, self.admin):
+            detail = self._as(who).get(f"/api/claims/{self.approved.id}").json()
+            self.assertTrue(detail["contest_forward"], who.role)
+            self.assertEqual(detail["contest_note"], self.CONTEST, who.role)
+            self.assertTrue(detail["override_duplicate"], who.role)
+
+    def test_the_duplicate_findings_screens_are_refused_to_them(self):
+        for who in (self.director, self.finance):
+            r = self._as(who).get("/api/admin/duplicate-findings")
+            self.assertEqual(r.status_code, 403, who.role)
+            r = self._post(
+                who, f"/api/admin/duplicate-findings/{self.finding.id}",
+                {"status": "CONFIRMED", "note": "Paid twice in error"},
+            )
+            self.assertEqual(r.status_code, 403, who.role)
+        for who in (self.principal, self.admin, self.cell):
+            r = self._as(who).get("/api/admin/duplicate-findings")
+            self.assertEqual(r.status_code, 200, who.role)
+
+    def test_a_refused_payment_does_not_tell_finance_why_it_was_contested(self):
+        """An overridden duplicate needs a second signature at any amount. When
+        Finance is stopped for want of one, the refusal says so -- and not that
+        the reason is a set-aside payment-history warning."""
+        # No second signature from anybody but the person who cleared it.
+        self.authorised.second_approved_by = self.cell
+        self.authorised.save()
+        r = self._post(
+            self.finance, f"/api/claims/{self.authorised.id}/mark-paid",
+            {"expected_amount": self.authorised.remuneration},
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        detail = r.json()["detail"].lower()
+        self.assertIn("second approver", detail)
+        self.assertNotIn("payment-history", detail)
+        self.assertNotIn(self.faculty.name.lower(), detail)

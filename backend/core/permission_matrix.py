@@ -216,7 +216,10 @@ CAPABILITIES: list[Capability] = [
         "each movement.",
         None, "Reading"),
     cap("Read duplicate findings", "GET", "/api/admin/duplicate-findings",
-        OVERSIGHT, "Possible double payments, for anyone who oversees spend.",
+        ADMINS | {PRINCIPAL},
+        "Possible double payments are weighed by the review desks. The "
+        "Director and Finance act on what those desks decided and are not "
+        "shown payment-history matches at all.",
         None, "Reading"),
     cap("Read the faults screen", "GET", "/api/admin/faults",
         ADMINS | {PRINCIPAL},

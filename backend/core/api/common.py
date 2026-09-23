@@ -32,6 +32,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import NinjaAPI, Schema, UploadedFile, File, Form
 from ninja.errors import HttpError
+from ninja.renderers import JSONRenderer
 from ninja.security import SessionAuth
 
 logger = logging.getLogger("core.api")
@@ -118,6 +119,25 @@ from core.services.retraction import looks_retracted
 from core.services.uploads import ACCEPTED_LABEL, sniff
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
 
+class ViewerAwareRenderer(JSONRenderer):
+    """Every JSON response, shaped for whoever is signed in, on its way out.
+
+    The rules about what a seat in the chain must not see live in
+    `core.visibility`. Applying them here rather than at each endpoint is the
+    point: a new endpoint that returns a claim is covered by default. Files
+    (CSV, workbooks) are HttpResponses and do not pass through a renderer;
+    their columns carry none of the fields in question.
+    """
+
+    def render(self, request: HttpRequest, data: Any, *, response_status: int) -> Any:
+        from core import visibility
+
+        user = getattr(request, "user", None)
+        if getattr(user, "is_authenticated", False):
+            data = visibility.for_viewer(user, data)
+        return super().render(request, data, response_status=response_status)
+
+
 api = NinjaAPI(
     title="Faculty Remuneration",
     version="1.0.0",
@@ -125,6 +145,7 @@ api = NinjaAPI(
     # stay off outside development.
     docs_url="/docs" if settings.DEBUG else None,
     openapi_url="/openapi.json" if settings.DEBUG else None,
+    renderer=ViewerAwareRenderer(),
 )
 session_auth = SessionAuth()
 
@@ -595,6 +616,7 @@ def _hod_scope(user: User):
 
 __all__ = [
     'IMPERSONATOR_KEY',
+    'ViewerAwareRenderer',
     '_PASSWORD_CHANGE_EXEMPT',
     '_THRESHOLD_CACHE',
     '_THRESHOLD_TTL_SECONDS',

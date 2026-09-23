@@ -509,3 +509,27 @@
   --shadow-pop: 0 8px 24px -6px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
   --shadow-modal: 0 24px 48px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.08);
 }
+
+/* Printing a ticket, the paid register or a report prints the page, not the
+   app around it: no sidebar, white paper, black text, links not underlined
+   in blue. */
+@media print {
+  :root {
+    color-scheme: light;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  main {
+    padding-block: 0 !important;
+  }
+  .page {
+    max-width: none;
+    padding-inline: 0;
+  }
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

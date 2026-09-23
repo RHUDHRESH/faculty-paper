@@ -60,6 +60,7 @@ type PayoutClaim = {
   remuneration: number | null
   calc_error: string | null
   voucher_number: string | null
+  staff_id?: string | null
   cleared_by_name: string | null
   second_approved_by_name: string | null
   principal_approved_by_name: string | null
@@ -671,6 +672,41 @@ function BulkPayDialog({
   }
 
   const total = rows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
+  const [prefix, setPrefix] = useState(() => `PV-${new Date().getFullYear()}-`)
+  const [start, setStart] = useState("1")
+
+  /** Fill every empty voucher, in the order shown, from prefix + a running
+   *  number. Typed vouchers are left exactly as they are. */
+  function numberBlanks() {
+    let n = Number.parseInt(start, 10)
+    if (!Number.isFinite(n)) n = 1
+    const next = { ...vouchers }
+    for (const c of rows) {
+      if (!next[c.id]?.trim()) next[c.id] = `${prefix}${n++}`
+    }
+    setVouchers(next)
+    writeVouchers(next)
+    setStart(String(n))
+  }
+
+  /** The batch as a list for the bank or payroll: who, staff id, voucher, amount. */
+  function downloadList() {
+    const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
+    const lines = [
+      ["Staff id", "Name", "Department", "Ticket", "Voucher", "Amount (INR)"].map(cell).join(","),
+      ...rows.map((c) =>
+        [c.staff_id, c.owner_name, c.owner_department, c.ticket_number, vouchers[c.id] || "", c.remuneration ?? ""]
+          .map(cell)
+          .join(",")
+      ),
+    ]
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" })
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = `payment-list-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -688,7 +724,23 @@ function BulkPayDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody>
+        <DialogBody className="space-y-4">
+          {!result && (
+            <div className="flex flex-wrap items-end gap-2 rounded-md bg-sunken p-3">
+              <Field label="Voucher prefix" className="w-40">
+                <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} />
+              </Field>
+              <Field label="Next number" className="w-28">
+                <Input value={start} inputMode="numeric" onChange={(e) => setStart(e.target.value.replace(/[^0-9]/g, ""))} />
+              </Field>
+              <Button kind="default" onClick={numberBlanks}>
+                Number the empty ones
+              </Button>
+              <Button kind="quiet" className="ml-auto" onClick={downloadList}>
+                Download payment list
+              </Button>
+            </div>
+          )}
           <div className="overflow-hidden rounded-lg ring-1 ring-inset ring-edge">
             <table className="w-full border-collapse text-sm">
               <thead>
@@ -807,15 +859,20 @@ export function PaymentsDone() {
           </Button>
           <PageTitle>Paid</PageTitle>
           <Sub className="mt-1">
-            Every payment on record, most recent first. Voiding one reverses it
-            on the ledger and sends the ticket back to Checked — nothing here
-            is ever deleted.
+            Every payment on record, most recent first. Nothing here is ever
+            deleted; a payment made in error is reversed by a super admin, which
+            writes a balancing ledger row.
           </Sub>
         </div>
-        <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 print:hidden">
+          <Button kind="quiet" size="sm" onClick={() => window.print()}>
+            Print register
+          </Button>
+          <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
+            <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
       </header>
 
       {isLoading ? (
@@ -867,10 +924,15 @@ export function PaymentsDone() {
                     <td className="px-3 py-3 align-top text-sm text-fg-muted">{formatDateTime(c.paid_at)}</td>
                     <td className="px-3 py-3 align-top text-right tabular">{money(c.remuneration)}</td>
                     <td className="px-3 py-3 align-top text-right">
-                      <Button kind="quiet" size="sm" onClick={() => setVoidId(c.id)}>
-                        <Undo2 className="size-3.5" />
-                        Void
-                      </Button>
+                      {/* The college's rule: Finance pays and does not undo. A
+                          reversal is a super admin's decision (the server
+                          refuses anyone else). */}
+                      {me?.role === "SUPER_ADMIN" && (
+                        <Button kind="quiet" size="sm" onClick={() => setVoidId(c.id)}>
+                          <Undo2 className="size-3.5" />
+                          Void
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -180,7 +180,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
           className={cn(
             "sticky top-0 hidden h-svh shrink-0 flex-col border-r border-line",
-            "bg-sunken md:flex"
+            "bg-sunken md:flex print:hidden"
           )}
         >
           <div className="flex h-12 items-center gap-2 px-3">
@@ -285,7 +285,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
         </motion.aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/85 px-3 backdrop-blur md:hidden">
+          <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/85 px-3 backdrop-blur md:hidden print:hidden">
             <RadixDialog.Trigger asChild>
               <Button kind="quiet" size="icon" aria-label="Menu">
                 <PanelLeft />

@@ -1,0 +1,51 @@
+# Render blueprint for the Django API (free plan).
+#
+# The SPA stays on Vercel and proxies /api and /media here (frontend2/vercel.json),
+# so the browser only ever talks to one origin. Postgres is Neon (free) and
+# uploads go to Cloudflare R2 (free, S3-compatible) -- both set below as
+# secrets you paste in the Render dashboard, never committed.
+#
+# Free-plan facts worth knowing: the service sleeps after ~15 minutes idle and
+# the first request after that waits ~30-50 s while it wakes; the job worker
+# (django-q2) runs inside the same container, so queued work runs while it is
+# awake. Migrations run on every start (backend/scripts/start.sh).
+services:
+  - type: web
+    name: faculty-paper-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: .onrender.com
+      - key: SECURE_SSL_REDIRECT
+        value: "true"
+      - key: LOG_FORMAT
+        value: json
+      - key: GOOGLE_HOSTED_DOMAIN
+        value: saveetha.ac.in
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        value: 635082195334-p8h4j4o75r9jqk24hsfq6bbom0s8fjei.apps.googleusercontent.com
+      # Pasted in the dashboard:
+      - key: DATABASE_URL            # Neon: postgresql://…?sslmode=require
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS    # the Vercel origin, e.g. https://faculty-paper.vercel.app
+        sync: false
+      - key: S3_BUCKET_NAME          # Cloudflare R2 bucket (private)
+        sync: false
+      - key: S3_ENDPOINT_URL         # https://<account>.r2.cloudflarestorage.com
+        sync: false
+      - key: AWS_ACCESS_KEY_ID       # R2 API token key id
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY   # R2 API token secret
+        sync: false
+      - key: SCOPUS_API_KEY          # optional
+        sync: false

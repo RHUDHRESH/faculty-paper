@@ -285,8 +285,12 @@ def health(request: HttpRequest):
     # health check is the one place it can be noticed before someone looks for
     # a proof that is no longer there.
     bucket = getattr(settings, "GS_BUCKET_NAME", "")
+    s3_bucket = getattr(settings, "S3_BUCKET_NAME", "")
     if bucket:
         media_backend = f"gs://{bucket}"
+        media_is_ephemeral = False
+    elif s3_bucket:
+        media_backend = f"s3://{s3_bucket}"
         media_is_ephemeral = False
     else:
         media_backend = str(Path(settings.MEDIA_ROOT).resolve())
@@ -315,7 +319,7 @@ def health(request: HttpRequest):
     if media_is_ephemeral:
         payload["warnings"] = [
             "Uploads are on the container filesystem and will be lost on the "
-            "next deploy. Set GS_BUCKET_NAME to a Google Cloud Storage bucket."
+            "next deploy. Set GS_BUCKET_NAME (Google Cloud Storage) or S3_BUCKET_NAME (S3 / Cloudflare R2)."
         ]
         logger.warning("media_storage_ephemeral backend=%s", media_backend)
     if not db_ok:

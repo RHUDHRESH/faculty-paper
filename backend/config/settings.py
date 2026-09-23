@@ -224,8 +224,24 @@ if GS_BUCKET_NAME:
             "max_memory_size": 10 * 1024 * 1024,
         },
     }
+elif os.getenv("S3_BUCKET_NAME", "").strip():
+    # Any S3-compatible store -- Cloudflare R2 on the free deployment. Private
+    # bucket, same authenticated /media view; credentials come from
+    # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, never from this file.
+    _default_storage = {
+        "BACKEND": "storages.backends.s3.S3Storage",
+        "OPTIONS": {
+            "bucket_name": os.getenv("S3_BUCKET_NAME", "").strip(),
+            "endpoint_url": os.getenv("S3_ENDPOINT_URL", "").strip() or None,
+            "region_name": os.getenv("S3_REGION", "auto"),
+            "default_acl": None,
+            "querystring_auth": True,
+            "file_overwrite": False,
+        },
+    }
 else:
     _default_storage = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "").strip()
 
 STORAGES = {
     "default": _default_storage,

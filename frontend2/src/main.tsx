@@ -48,6 +48,7 @@ const Duplicates = page(() => import("@/pages/duplicates"), "Duplicates")
 const FilePaper = page(() => import("@/pages/file-paper"), "FilePaper")
 const Imports = page(() => import("@/pages/imports"), "Imports")
 const Gallery = page(() => import("@/pages/gallery"), "Gallery")
+const Privacy = page(() => import("@/pages/privacy"), "Privacy")
 const PaperDetail = page(() => import("@/pages/paper-detail"), "PaperDetail")
 const Journals = page(() => import("@/pages/journals"), "Journals")
 const JournalRecord = page(() => import("@/pages/journals"), "JournalRecord")
@@ -135,6 +136,7 @@ function App() {
         {/* First-run setup: reachable only while the system has no accounts,
             and the page itself says "already set up" otherwise. */}
         <Route path="/setup" element={<Setup />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route path="*" element={<SignIn />} />
       </Routes>
       </Suspense>
@@ -185,6 +187,7 @@ function App() {
           <Route path="/batches/:id" element={<Batch />} />
           <Route path="/data" element={<Data />} />
           <Route path="/me" element={<Profile />} />
+          <Route path="/privacy" element={<Privacy />} />
           {import.meta.env.DEV && <Route path="/gallery" element={<Gallery />} />}
           {/* Never a silent redirect home: see the note in not-found.tsx. */}
           <Route path="*" element={<NotFound />} />

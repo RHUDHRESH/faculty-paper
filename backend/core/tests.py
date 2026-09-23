@@ -2509,6 +2509,19 @@ class SuperAdminPowersTests(TestCase):
         self.assertEqual(blocked.status_code, 403)
         self.assertIn("Stop impersonating", blocked.json()["detail"])
 
+    def test_viewing_as_somebody_who_owes_a_password_change_still_shows_their_record(self):
+        # Every imported account starts owing one; the view must not go blank.
+        self.alice.must_change_password = True
+        self.alice.save()
+        self.client.force_login(self.admin)
+        self.post(f"/api/admin/impersonate/{self.alice.id}", {})
+        self.assertEqual(self.client.get("/api/claims").status_code, 200)
+        # Alice herself is still held to it.
+        own = Client()
+        own.force_login(self.alice)
+        self.assertEqual(own.get("/api/claims").status_code, 403)
+
+
     def test_stopping_returns_the_admin_to_themselves(self):
         self.client.force_login(self.admin)
         self.post(f"/api/admin/impersonate/{self.alice.id}", {})

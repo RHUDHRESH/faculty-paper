@@ -518,7 +518,7 @@ export function PaperDetail() {
         </div>
       </section>
 
-      <section className="grid gap-x-10 gap-y-8 sm:grid-cols-2">
+      <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-8 sm:grid-cols-2 [&>*]:min-w-0">
         <div className="space-y-3">
           <SectionTitle>The paper</SectionTitle>
           <dl className="space-y-2 text-sm">

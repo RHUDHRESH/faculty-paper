@@ -671,7 +671,14 @@ def require_user(request: HttpRequest) -> User:
         raise HttpError(403, "Inactive")
     # must_change_password used to be advertised in the profile payload and
     # enforced only by the frontend, so an API client could ignore it entirely.
-    if user.must_change_password and request.path not in _PASSWORD_CHANGE_EXEMPT:
+    # A super admin viewing as somebody is not that person, and cannot change
+    # their password anyway (impersonation is read-only below): holding the
+    # view hostage to it made every account nobody had signed in to yet blank.
+    if (
+        user.must_change_password
+        and not request.session.get(IMPERSONATOR_KEY)
+        and request.path not in _PASSWORD_CHANGE_EXEMPT
+    ):
         raise HttpError(403, "Set a new password before continuing")
     # Impersonation is for seeing, not for doing. Enforced here rather than on
     # each route, because "we forgot to guard that one endpoint" is exactly how

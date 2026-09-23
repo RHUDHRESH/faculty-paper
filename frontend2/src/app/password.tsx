@@ -44,7 +44,8 @@ import { toast } from "@/ui/toast"
  */
 export function ForcePasswordChange() {
   const { me, refresh } = useAuth()
-  if (!me?.must_change_password) return null
+  // Viewing as somebody is read-only; their password is theirs to change.
+  if (!me?.must_change_password || me.impersonated_by) return null
   return (
     <PasswordDialog
       forced

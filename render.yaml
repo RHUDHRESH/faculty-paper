@@ -62,10 +62,10 @@ services:
     routes:
       - type: rewrite
         source: /api/*
-        destination: https://faculty-paper-api.onrender.com/api/*
+        destination: https://faculty-paper-api-4iso.onrender.com/api/*
       - type: rewrite
         source: /media/*
-        destination: https://faculty-paper-api.onrender.com/media/*
+        destination: https://faculty-paper-api-4iso.onrender.com/media/*
       - type: rewrite
         source: /*
         destination: /index.html

@@ -21,6 +21,46 @@ from core.models import SnipSource
 from core.services import ai, discover
 
 
+class patch_api:
+    """Patch a name everywhere the API package looks it up.
+
+    core/api.py became a package of modules that each import their service
+    functions directly, so patching `core.api.<name>` no longer intercepts
+    anything. This patches the name in every `core.api.*` module that holds
+    it, with one shared mock, and behaves like `patch` (context manager or
+    start/stop) so call sites keep their assertions.
+    """
+
+    def __init__(self, name, **kwargs):
+        import importlib, pkgutil
+        from unittest.mock import MagicMock
+        import core.api as pkg
+        self.mock = MagicMock(**kwargs)
+        self._patches = []
+        for info in pkgutil.iter_modules(pkg.__path__):
+            mod = importlib.import_module(f"core.api.{info.name}")
+            if hasattr(mod, name):
+                self._patches.append(patch.object(mod, name, self.mock))
+        if not self._patches:
+            raise AttributeError(f"no core.api module uses {name}")
+
+    def start(self):
+        for p in self._patches:
+            p.start()
+        return self.mock
+
+    def stop(self):
+        for p in reversed(self._patches):
+            p.stop()
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *exc):
+        self.stop()
+        return False
+
+
 def _model_ready():
     """Pretend the local model service is up with the model installed.
 
@@ -227,7 +267,7 @@ class TicketHierarchyTests(TestCase):
             role=Role.SUPER_ADMIN,
         )
         self.client = Client()
-        verify_patch = patch("core.api.verify_publication", side_effect=_echo_verified)
+        verify_patch = patch_api("verify_publication", side_effect=_echo_verified)
         verify_patch.start()
         self.addCleanup(verify_patch.stop)
 
@@ -1349,7 +1389,7 @@ class TrustBoundaryTests(TestCase):
             "contest_forward": True,
             "contest_note": "Submitting with faculty-provided journal details.",
         }
-        with patch("core.api.verify_publication", return_value=dict(_VERIFY_MISS)):
+        with patch_api("verify_publication", return_value=dict(_VERIFY_MISS)):
             r = self.client.post(
                 "/api/claims", data=json.dumps(payload), content_type="application/json"
             )
@@ -1682,7 +1722,7 @@ class PaymentLifecycleTests(TestCase):
             role=Role.DIRECTOR,
         )
         self.client = Client()
-        verify_patch = patch("core.api.verify_publication", side_effect=_echo_verified)
+        verify_patch = patch_api("verify_publication", side_effect=_echo_verified)
         verify_patch.start()
         self.addCleanup(verify_patch.stop)
 
@@ -1751,7 +1791,7 @@ class PaymentLifecycleTests(TestCase):
     def test_recalculate_refreshes_from_scopus(self):
         claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-RC")
         self.client.force_login(self.admin)
-        with patch("core.api.verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
+        with patch_api("verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
             r = self.client.post(
                 f"/api/claims/{claim.id}/recalculate",
                 data=json.dumps({}),
@@ -1784,7 +1824,7 @@ class PaymentLifecycleTests(TestCase):
     def test_clear_refuses_when_reverify_changes_the_amount(self):
         claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-RV")
         self.client.force_login(self.admin)
-        with patch("core.api.verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
+        with patch_api("verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
             r = self.client.post(
                 f"/api/claims/{claim.id}/clear",
                 data=json.dumps({"expected_amount": 85000.0}),
@@ -1817,7 +1857,7 @@ class PaymentLifecycleTests(TestCase):
     def test_clear_scopus_down_leaves_status_untouched(self):
         claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-502")
         self.client.force_login(self.admin)
-        with patch("core.api.verify_publication", return_value={"ok": False}):
+        with patch_api("verify_publication", return_value={"ok": False}):
             r = self.client.post(
                 f"/api/claims/{claim.id}/clear",
                 data=json.dumps({"expected_amount": 85000.0}),
@@ -1839,7 +1879,7 @@ class PaymentLifecycleTests(TestCase):
         """
         claim = self._claim(status=ClaimStatus.DIRECTOR_APPROVED, remuneration=85000.0, ticket="LC-P502")
         self.client.force_login(self.finance)
-        with patch("core.api.verify_publication", return_value={"ok": False}) as called:
+        with patch_api("verify_publication", return_value={"ok": False}) as called:
             r = self.client.post(
                 f"/api/claims/{claim.id}/mark-paid",
                 data=json.dumps({"expected_amount": 85000.0}),
@@ -2370,6 +2410,39 @@ class SuperAdminPowersTests(TestCase):
         r = self.post(f"/api/admin/claims/{self.claim.id}/edit",
                       {"fields": {"remuneration": 999999}, "reason": "trying it on"})
         self.assertEqual(r.status_code, 403)
+
+    def test_an_edit_cannot_move_a_claim_through_the_chain(self):
+        """Status and approval columns move only through their own actions;
+        an edit that set PAID would skip the Director and write no ledger."""
+        unpaid = Claim.objects.create(
+            owner=self.alice, status=ClaimStatus.SUBMITTED, ticket_number="PWR-2",
+            paper_title="Unpaid", remuneration=1000,
+        )
+        self.client.force_login(self.admin)
+        for fields in ({"status": "PAID"}, {"director_approved_at": "2026-01-01T00:00:00Z"},
+                       {"override_duplicate": True}, {"snip": 9.9}):
+            r = self.post(f"/api/admin/claims/{unpaid.id}/edit",
+                          {"fields": fields, "reason": "Trying to skip the chain"})
+            self.assertEqual(r.status_code, 400, (fields, r.content))
+        unpaid.refresh_from_db()
+        self.assertEqual(unpaid.status, ClaimStatus.SUBMITTED)
+
+    def test_an_unpaid_amount_cannot_be_set_by_hand(self):
+        unpaid = Claim.objects.create(
+            owner=self.alice, status=ClaimStatus.CLEARED, ticket_number="PWR-3",
+            paper_title="Unpaid", remuneration=1000,
+        )
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/claims/{unpaid.id}/edit",
+                      {"fields": {"remuneration": 99999}, "reason": "Setting the amount by hand"})
+        self.assertEqual(r.status_code, 400, r.content)
+
+    def test_an_edit_rejects_a_value_of_the_wrong_type(self):
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/claims/{self.claim.id}/edit",
+                      {"fields": {"publication_year": "not a year"},
+                       "reason": "Year was wrong in the import"})
+        self.assertEqual(r.status_code, 400, r.content)
 
     # ---- reassignment ----
 
@@ -2992,7 +3065,7 @@ class JobInfraTests(TestCase):
         stale.save(update_fields=["heartbeat_at"])
 
         self.client.force_login(self.admin)
-        with patch("core.api.start_batch_async") as started:
+        with patch_api("start_batch_async") as started:
             r = self.client.post(f"/api/monthly/{fresh.id}/start")
             self.assertEqual(r.status_code, 400, "a heartbeating batch is genuinely running")
             r = self.client.post(f"/api/monthly/{stale.id}/start")
@@ -3639,8 +3712,7 @@ class DuplicateOverrideGuardTests(TestCase):
             )
             return out
 
-        verify_patch = patch(
-            "core.api.verify_publication", side_effect=_no_scopus_but_real_duplicate_check
+        verify_patch = patch_api("verify_publication", side_effect=_no_scopus_but_real_duplicate_check
         )
         verify_patch.start()
         self.addCleanup(verify_patch.stop)
@@ -3910,7 +3982,7 @@ class FiveStepChainTests(TestCase):
         # Clearing re-verifies against the index; replaying the stored values
         # keeps the amount steady so the guard does not fire on a figure that
         # is not what this test is about.
-        with patch("core.api.verify_publication", side_effect=_echo_verified):
+        with patch_api("verify_publication", side_effect=_echo_verified):
             r = self.client.post(
                 f"/api/claims/{claim.id}/clear",
                 data=json.dumps({"expected_amount": 105000.0}),
@@ -5570,7 +5642,7 @@ class ScopusCandidateSearchTests(TestCase):
             return [entries[0]] if author_id else entries
 
         self.client.force_login(self.faculty)
-        with patch("core.api.search_candidates", side_effect=fake):
+        with patch_api("search_candidates", side_effect=fake):
             r = self.client.post(
                 "/api/lookup/candidates",
                 data=json.dumps({"title": "Mine", "scopus_author_url": self.faculty.scopus_author_url}),
@@ -5591,8 +5663,7 @@ class ScopusCandidateSearchTests(TestCase):
 
     def test_endpoint_reports_unknown_linkage_without_an_author_id(self):
         self.client.force_login(self._faculty_without_scopus())
-        with patch(
-            "core.api.search_candidates",
+        with patch_api("search_candidates",
             return_value=[parse_search_entry(self._entry("Mine", "2-s2.0-mine"))],
         ):
             r = self.client.post(
@@ -5706,7 +5777,7 @@ class AuthorProfileBrowseTests(TestCase):
             seen.update({"author_id": author_id, "sort": sort, "title": title})
             return [self._paper("Newest", "2-s2.0-1"), self._paper("Older", "2-s2.0-2")]
 
-        with patch("core.api.search_candidates", side_effect=fake):
+        with patch_api("search_candidates", side_effect=fake):
             r = self.client.post(
                 "/api/lookup/candidates", data=json.dumps({}), content_type="application/json"
             )
@@ -5723,8 +5794,7 @@ class AuthorProfileBrowseTests(TestCase):
             owner=self.faculty, paper_title="Newest", doi="10.1000/mine",
             status=ClaimStatus.SUBMITTED,
         )
-        with patch(
-            "core.api.search_candidates",
+        with patch_api("search_candidates",
             return_value=[
                 self._paper("Newest", "2-s2.0-1", "10.1000/mine"),
                 self._paper("Other", "2-s2.0-2", "10.1000/other"),
@@ -5742,8 +5812,7 @@ class AuthorProfileBrowseTests(TestCase):
             owner=self.faculty, paper_title="Newest", doi="10.1000/mine",
             status=ClaimStatus.REJECTED,
         )
-        with patch(
-            "core.api.search_candidates",
+        with patch_api("search_candidates",
             return_value=[self._paper("Newest", "2-s2.0-1", "10.1000/mine")],
         ):
             r = self.client.post(
@@ -5759,8 +5828,7 @@ class AuthorProfileBrowseTests(TestCase):
             owner=other, paper_title="Theirs", doi="10.1000/theirs",
             status=ClaimStatus.SUBMITTED,
         )
-        with patch(
-            "core.api.search_candidates",
+        with patch_api("search_candidates",
             return_value=[self._paper("Theirs", "2-s2.0-9", "10.1000/theirs")],
         ):
             r = self.client.post(
@@ -6454,7 +6522,7 @@ class PolicyUseCaseTests(TestCase):
             )
 
         c = Client()
-        with patch("core.api.verify_publication", side_effect=_echo_verified):
+        with patch_api("verify_publication", side_effect=_echo_verified):
             c.force_login(admin)
             r = c.post(
                 f"/api/claims/{claim.id}/clear",
@@ -6537,7 +6605,7 @@ class PolicyUseCaseTests(TestCase):
 
         c = Client()
         c.force_login(finance)
-        with patch("core.api.verify_publication", side_effect=AssertionError(
+        with patch_api("verify_publication", side_effect=AssertionError(
             "payment must not call Scopus"
         )):
             r = c.post(
@@ -8723,7 +8791,7 @@ class DirectorChainTests(TestCase):
             role=Role.FINANCE,
         )
         self.client = Client()
-        verify_patch = patch("core.api.verify_publication", side_effect=_echo_verified)
+        verify_patch = patch_api("verify_publication", side_effect=_echo_verified)
         verify_patch.start()
         self.addCleanup(verify_patch.stop)
 
@@ -10658,7 +10726,7 @@ class SearchRouteTests(TestCase):
         from unittest.mock import ANY
 
         self.client.force_login(self.faculty)
-        with patch("core.api.run_search", return_value={"ok": True}) as ran:
+        with patch_api("run_search", return_value={"ok": True}) as ran:
             r = self.client.get(
                 "/api/search",
                 {"q": "graphene", "kinds": "venues, people", "limit": "3",
@@ -10676,10 +10744,10 @@ class SearchRouteTests(TestCase):
         from unittest.mock import ANY
 
         self.client.force_login(self.faculty)
-        with patch("core.api.run_search", return_value={"ok": True}) as ran:
+        with patch_api("run_search", return_value={"ok": True}) as ran:
             self.client.get("/api/search", {"q": "graphene", "kinds": ""})
         self.assertEqual(
-            ran.call_args.kwargs["kinds"], list(api_module.SEARCH_KINDS)
+            ran.call_args.kwargs["kinds"], list(__import__("core.services.search", fromlist=["KINDS"]).KINDS)
         )
 
 

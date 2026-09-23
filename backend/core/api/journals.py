@@ -640,6 +640,21 @@ def _reverify_or_recalc(claim: Claim, user, *, skip_external: bool) -> None:
         exclude_claim_id=claim.id,
     )
     if not result.get("ok"):
+        if claim.manual_verified_at:
+            # The manual lane exists for papers Scopus cannot confirm, and its
+            # values are authoritative (apply_verify_to_claim never overwrites
+            # MANUAL). Requiring Scopus to answer before such a claim can move
+            # would close the lane it was built for.
+            previous = claim.remuneration
+            _apply_calc(claim)
+            AuditLog.objects.create(
+                actor=user,
+                action="CLAIM_RECALC_MANUAL_VALUES",
+                entity="Claim",
+                entity_id=claim.id,
+                detail_json=json.dumps({"previous": previous, "recomputed": claim.remuneration}),
+            )
+            return
         raise HttpError(
             502,
             "Scopus could not be reached, so the values were not refreshed. "

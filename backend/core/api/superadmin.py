@@ -14,6 +14,7 @@ from core.api.common import IMPERSONATOR_KEY, require_user
 import json
 from typing import Any
 from django.contrib.auth import login
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 from django.http import HttpRequest
@@ -24,6 +25,23 @@ from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, PaidLedger, Role, User
 
 # ---------- super-admin powers ----------
+
+# What an import can get wrong and an admin may put right. Everything else --
+# status, approvals, verification, the formula's working, duplicates, payment
+# -- moves only through the action that enforces its rule, so an edit can
+# never walk a claim past the Director or pay it without a ledger row.
+# `remuneration` is here only for correcting a settled amount (checked below).
+CORRECTABLE_CLAIM_FIELDS = frozenset({
+    "paper_title", "journal_title", "issn", "doi", "eid", "scopus_url",
+    "publication_year", "publication_date", "cover_date", "publication_type",
+    "aggregation_type", "indexing_level", "indexing_ref", "au_annexure_ref",
+    "ugc_care_ref", "yukthi_id", "impact_factor", "subject_category",
+    "engineering_class", "staff_id", "biometric_id", "designation",
+    "scopus_author_url", "scopus_author_id", "proof_url", "sec_refs",
+    "sec_proof_url", "reference_articles", "claim_reason", "total_authors",
+    "author_position", "authors_json", "is_student_publication", "status_note",
+    "remuneration",
+})
 
 
 class ClaimEditIn(Schema):
@@ -51,13 +69,25 @@ def admin_edit_claim(request: HttpRequest, claim_id: str, payload: ClaimEditIn):
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
-        editable = {f.name for f in Claim._meta.get_fields() if hasattr(f, "attname")}
-        editable -= {"id", "owner", "created_at", "updated_at"}
 
         before, after = {}, {}
         for key, value in (payload.fields or {}).items():
-            if key not in editable:
-                raise HttpError(400, f"{key} is not a field on a claim")
+            if key not in CORRECTABLE_CLAIM_FIELDS:
+                raise HttpError(
+                    400,
+                    f"{key} cannot be edited here — status, approvals, verification "
+                    "and payment move only through their own actions",
+                )
+            if key == "remuneration" and claim.status != ClaimStatus.PAID:
+                raise HttpError(
+                    400,
+                    "An unpaid claim's amount is recomputed from verified values; "
+                    "only a settled amount can be corrected here",
+                )
+            try:
+                value = Claim._meta.get_field(key).clean(value, claim)
+            except ValidationError as exc:
+                raise HttpError(400, f"{key}: {'; '.join(exc.messages)}")
             old = getattr(claim, key, None)
             if old == value:
                 continue

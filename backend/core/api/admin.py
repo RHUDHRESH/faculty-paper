@@ -29,7 +29,7 @@ from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
 from core import visibility
-from core.services import rbac
+from core.services import heads, rbac
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.remuneration import DEFAULT_AUTHOR_POINTS, DEFAULT_PUB_TYPE_MULTIPLIERS, MAX_ELIGIBLE_AUTHORS, MIN_SEC_REFERENCES
 from core.services.scimago_sync import SCIMAGO_RANK_URL, ScimagoSyncError, import_csv_text, sync_year
@@ -44,10 +44,15 @@ def admin_users(
     role: Optional[str] = None,
     department: Optional[str] = None,
     active: Optional[str] = None,
+    faculty_type: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ):
     """The staff directory, searched and paged server-side.
+
+    `faculty_type` (REGULAR or RESEARCH) sits beside `role` because the office
+    asks both questions of a person separately: are they head, and are they
+    research faculty.
 
     It used to return every account as one array — the college has hundreds of
     faculty, so the screen loaded them all and filtered in the browser.
@@ -75,6 +80,8 @@ def admin_users(
         qs = qs.filter(department__iexact=department.strip())
     if active in ("true", "false"):
         qs = qs.filter(active=(active == "true"))
+    if faculty_type in ("REGULAR", "RESEARCH"):
+        qs = qs.filter(faculty_type=faculty_type)
     # Staff accounts first, then faculty alphabetically: the people an admin
     # opens this screen to find are never the 400 imported faculty.
     qs = qs.annotate(
@@ -168,6 +175,21 @@ def _check_privileged_assignment(actor: User, role: str | None) -> None:
         )
 
 
+def _appoint_head(u: User, *, replace: bool, actor: User) -> None:
+    """One head per department (`services.heads`), answered as HTTP.
+
+    409 names the head already in post, so the office can decide rather than
+    guess; `replace_hod` is the explicit decision, and demotes them in the same
+    transaction as this write.
+    """
+    try:
+        heads.appoint(u, replace=replace, actor=actor, via="account editor")
+    except heads.NoDepartment as exc:
+        raise HttpError(400, str(exc))
+    except heads.HeadAlreadyAppointed as exc:
+        raise HttpError(409, str(exc))
+
+
 def _check_assignable_role(role: str | None) -> None:
     """Refuse a role nothing recognises, rather than writing it.
 
@@ -205,30 +227,34 @@ def admin_create_user(request: HttpRequest, payload: UserCreateIn):
             " Use a different address, or change that account's role instead.",
         )
 
-    u = User.objects.create_user(
-        email=email,
-        # `None` here is not "no password", it is "no password that works":
-        # Django stores an unusable marker that no input can ever match.
-        password=payload.password or None,
-        name=payload.name,
-        role=payload.role,
-        department=payload.department,
-        employee_id=payload.employee_id,
-        staff_id=payload.staff_id,
-        biometric_id=payload.biometric_id,
-        designation=payload.designation,
-        scopus_author_url=payload.scopus_author_url,
-        scopus_author_id=payload.scopus_author_id,
-        # An account with no usable password must be made to set one; the
-        # flag is not the caller's to turn off in that case.
-        must_change_password=payload.must_change_password or not payload.password,
-    )
-    if not payload.password:
-        u.set_unusable_password()
-        u.save(update_fields=["password"])
-    AuditLog.objects.create(
-        actor=user, action="USER_CREATE", entity="User", entity_id=u.id
-    )
+    with transaction.atomic():
+        u = User.objects.create_user(
+            email=email,
+            # `None` here is not "no password", it is "no password that works":
+            # Django stores an unusable marker that no input can ever match.
+            password=payload.password or None,
+            name=payload.name,
+            role=payload.role,
+            department=payload.department,
+            employee_id=payload.employee_id,
+            staff_id=payload.staff_id,
+            biometric_id=payload.biometric_id,
+            designation=payload.designation,
+            scopus_author_url=payload.scopus_author_url,
+            scopus_author_id=payload.scopus_author_id,
+            # An account with no usable password must be made to set one; the
+            # flag is not the caller's to turn off in that case.
+            must_change_password=payload.must_change_password or not payload.password,
+        )
+        if u.role == Role.HOD:
+            # A refusal here unwinds the account created just above.
+            _appoint_head(u, replace=bool(payload.replace_hod), actor=user)
+        if not payload.password:
+            u.set_unusable_password()
+            u.save(update_fields=["password"])
+        AuditLog.objects.create(
+            actor=user, action="USER_CREATE", entity="User", entity_id=u.id
+        )
     return {
         "id": u.id,
         "email": u.email,
@@ -243,6 +269,8 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
         raise HttpError(403, "Forbidden")
     u = get_object_or_404(User, pk=user_id)
     data = payload.dict(exclude_unset=True)
+    # An instruction about this write, not a field of the account.
+    replace_hod = bool(data.pop("replace_hod", False))
     if "role" in data:
         _check_assignable_role(data["role"])
     # Identity is super-admin only, here as much as on the profile page.
@@ -280,15 +308,22 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
     if u.faculty_type != "RESEARCH":
         u.research_quota = None
         u.research_quota_note = None
-    u.save()
     changed = {k: {"from": before[k], "to": data[k]} for k in data if before[k] != data[k]}
-    AuditLog.objects.create(
-        actor=actor,
-        action="USER_UPDATE",
-        entity="User",
-        entity_id=u.id,
-        detail_json=json.dumps(changed) if changed else None,
-    )
+    with transaction.atomic():
+        # Checked only when this edit changes who holds the post -- the role,
+        # where they sit, or whether the account is on. An unrelated edit to a
+        # department that already has two heads from before the rule must not
+        # be frozen by it.
+        if u.role == Role.HOD and changed.keys() & {"role", "department", "active"}:
+            _appoint_head(u, replace=replace_hod, actor=actor)
+        u.save()
+        AuditLog.objects.create(
+            actor=actor,
+            action="USER_UPDATE",
+            entity="User",
+            entity_id=u.id,
+            detail_json=json.dumps(changed) if changed else None,
+        )
     return _user_dict(u)
 
 

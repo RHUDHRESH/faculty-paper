@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom"
 import { useEffect, useState } from "react"
 import {
   AlertTriangle,
@@ -958,7 +959,13 @@ function TicketSheet({
                     <ul className="mt-2 space-y-1.5">
                       {duplicateMatches.map((m, i) => (
                         <li key={m.id ?? i} className="text-sm">
-                          {[m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"}
+                          {m.source === "claim" && m.id ? (
+                            <Link to={`/papers/${m.id}`} className="underline underline-offset-2">
+                              {[m.reference, m.who, m.when].filter(Boolean).join(" · ") || "The other claim"}
+                            </Link>
+                          ) : (
+                            [m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"
+                          )}
                           {m.amount != null && <> — {money(m.amount)}</>}
                         </li>
                       ))}

@@ -89,10 +89,10 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 48. [x] "Failed" verification explains why on hover
 49. [ ] Put on hold, with a reason; resume later
 50. [ ] Return one step / return to faculty, with the reason required
-51. [ ] Saved reasons for sending back (pick, edit, send)
+51. [x] Saved reasons for sending back (pick, edit, send)
 52. [x] After acting, the next ticket opens automatically
-53. [ ] Declared vs verified values side by side
-54. [ ] Duplicate match links to the other ticket
+53. [x] Declared vs verified values side by side *(already existed — verified)*
+54. [x] Duplicate match links to the other ticket
 55. [x] Contested badge in the queue
 56. [x] Waiting time coloured: 7+ days amber, 14+ red
 57. [ ] Claim a ticket so two officers don't work the same one

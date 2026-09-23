@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import math
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from django.conf import settings
@@ -156,8 +157,10 @@ def fetch_crossref_work(doi: str) -> dict[str, Any] | None:
 
     def produce() -> dict[str, Any] | None:
         try:
+            # Encoded, slash aside: old SICI-style DOIs carry <, >, ; and #,
+            # and a bare # or ? would end the path where the DOI does not.
             payload = upstream.get_json(
-                f"{CROSSREF_WORKS}/{doi}", {"mailto": upstream.contact()}
+                f"{CROSSREF_WORKS}/{quote(doi, safe='/')}", {"mailto": upstream.contact()}
             )
         except httpx.HTTPStatusError as exc:
             if exc.response is not None and exc.response.status_code == 404:

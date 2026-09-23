@@ -1219,6 +1219,26 @@ class LookupFallbackTests(ChainBase):
             "https://api.crossref.org/works",
         ])
 
+    def test_a_doi_with_reserved_characters_reaches_crossref_whole(self):
+        """Old SICI-style DOIs carry <, >, ; and # -- a raw # would cut the path."""
+        from unittest.mock import patch
+
+        doi = "10.1002/(sici)1097-4636(199706)35:4<415::aid-jbm3>3.0.co;2-q#x"
+
+        def get_json(url, params=None, **kwargs):
+            self.asked.append(url)
+            return {"status": "ok", "message": self.WORK}
+
+        with self._no_scopus(), patch("core.services.search.upstream.get_json", side_effect=get_json):
+            r = self._enrich(doi=doi)
+        self.assertEqual(r.status_code, 200, r.content)
+        (url,) = self.asked
+        self.assertEqual(
+            url,
+            "https://api.crossref.org/works/"
+            "10.1002/%28sici%291097-4636%28199706%2935%3A4%3C415%3A%3Aaid-jbm3%3E3.0.co%3B2-q%23x",
+        )
+
     def test_a_scopus_answer_is_marked_as_one(self):
         paper = {
             "title": "From Scopus", "doi": self.DOI, "issn": "2169-3536",

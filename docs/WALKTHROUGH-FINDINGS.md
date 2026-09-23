@@ -65,7 +65,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 26. [x] Wizard shows every step's name and "Step n of 5"
 27. [ ] Wizard step rail stays pinned while scrolling
 28. [x] Ctrl Enter continues to the next step
-29. [ ] Download a paid paper's payment advice
+29. [x] Download a paid paper's payment advice
 30. [x] "Received this academic year" total on home
 31. [x] Export my papers to Excel
 32. [x] Drafts list with "last edited" and Resume
@@ -90,29 +90,29 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 49. [ ] Put on hold, with a reason; resume later
 50. [ ] Return one step / return to faculty, with the reason required
 51. [ ] Saved reasons for sending back (pick, edit, send)
-52. [ ] After acting, the next ticket opens automatically
+52. [x] After acting, the next ticket opens automatically
 53. [ ] Declared vs verified values side by side
 54. [ ] Duplicate match links to the other ticket
-55. [ ] Contested badge in the queue
+55. [x] Contested badge in the queue
 56. [x] Waiting time coloured: 7+ days amber, 14+ red
 57. [ ] Claim a ticket so two officers don't work the same one
 58. [x] Export the queue to Excel
 59. [x] Count per department above the queue
 60. [x] Scopus outage no longer stops clearing (stored verified values, audited)
-61. [ ] "Open in Scopus" link on each ticket
+61. [x] "Open in Scopus" link on each ticket
 62. [x] Office-only notes on a ticket *(already existed — verified)*
 
 ### Principal
-63. [ ] Ledger-style list: claimant, department, journal, quartile, amount, waiting
+63. [x] Ledger-style list: claimant, department, journal, quartile, amount, waiting *(already existed — verified)*
 64. [x] Claim drawer: the faculty member's past claims
 65. [x] Claim drawer: this journal's history at the college
 66. [x] Claim drawer: department trend
 67. [x] Claim drawer: red-flag summary
 68. [ ] Hold / return one step / return to faculty / reject
 69. [x] Approve selected, with the total shown before confirming *(already existed — verified)*
-70. [ ] Filter by amount range
+70. [x] Filter by amount range
 71. [x] Fix the overlapping "Waiting days" filter
-72. [ ] Export the approvals list
+72. [x] Export the approvals list
 
 ### Director
 73. [x] Summary: budget impact of what is waiting
@@ -125,7 +125,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 80. [x] No Duplicates page
 
 ### Finance
-81. [ ] Pay-only screen: selected total, vouchers
+81. [x] Pay-only screen: selected total, vouchers *(already existed — verified)*
 82. [x] Voucher numbers generated on request
 83. [x] Bank payment file export (CSV)
 84. [x] Void moves to super admin only
@@ -144,7 +144,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 95. [ ] Export the department report
 
 ### Super admin
-96. [ ] Full ticket timeline: every step, every actor
+96. [x] Full ticket timeline: every step, every actor *(already existed — verified)*
 97. [x] "View as" another account, with a banner
 98. [x] SCImago download in one click — *from the officer's browser, not the server: SCImago answers a server with HTTP 403 and a Cloudflare challenge (checked 2026-09-23), so the old server-side sync button could never succeed*
 99. [x] Export one faculty member's record

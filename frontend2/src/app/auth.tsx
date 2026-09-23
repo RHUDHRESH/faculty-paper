@@ -127,8 +127,19 @@ export function can(role: Role | undefined) {
   const office =
     r === "SUPER_ADMIN" || r === "RESEARCH_CELL" || r === "RESEARCH_COORDINATOR"
   return {
-    /** Money is not a head of department's business, anywhere. */
+    /**
+     * Money across the college or the department. Not a head of department's
+     * business -- except on their own papers, which the server leaves the
+     * figures on (`hod.for_head`) and which the screens built on `/api/claims`
+     * show whatever this says.
+     */
     seeMoney: !!r && r !== "HOD",
+    /**
+     * `rbac.CLAIMANT_ROLES`: files, edits, withdraws and tracks their own
+     * papers. A head of department is a faculty member who also heads the
+     * department (the college's decision of 2026-09-23), so they are one.
+     */
+    fileOwnPapers: r === "FACULTY" || r === "HOD",
 
     // These four mirror named functions in `backend/core/services/rbac.py`
     // and `api.py`. Where they disagree, the screen hides a control the

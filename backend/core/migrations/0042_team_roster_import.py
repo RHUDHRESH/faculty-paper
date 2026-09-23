@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0040_hod_planning'),
+        ('core', '0041_stored_file'),
     ]
 
     operations = [

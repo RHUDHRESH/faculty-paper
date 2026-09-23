@@ -266,7 +266,10 @@ function BrandPanel({ collegeName, still }: { collegeName: string; still: boolea
 
       <p className="relative text-sm opacity-70">
         Signing in never creates an account. Every account here was made by the
-        research cell.
+        research cell.{" "}
+        <a href="/privacy" className="underline underline-offset-2">
+          Privacy
+        </a>
       </p>
     </aside>
   )

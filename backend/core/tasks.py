@@ -136,3 +136,30 @@ def recover_stale_batches() -> list[str]:
         async_task("core.tasks.run_monthly_batch", batch.id)
         recovered.append(batch.id)
     return recovered
+
+
+def run_restore(saved_path: str, actor_id: str | None = None) -> dict:
+    """Load a dumpdata export into this (fresh) installation.
+
+    Queued by POST /api/admin/restore. The file is removed on success and
+    kept on failure so it can be retried.
+    """
+    import os
+
+    from core.models import AuditLog, Claim, PaidLedger, User
+
+    call_command("loaddata", saved_path, verbosity=0)
+    counts = {
+        "users": User.objects.count(),
+        "claims": Claim.objects.count(),
+        "ledger_rows": PaidLedger.objects.count(),
+    }
+    try:
+        os.remove(saved_path)
+    except OSError:
+        pass
+    actor = User.objects.filter(pk=actor_id).first() if actor_id else None
+    AuditLog.objects.create(
+        actor=actor, action="RESTORE_DONE", entity="Export", detail_json=str(counts)[:2000]
+    )
+    return {"ok": True, **counts}

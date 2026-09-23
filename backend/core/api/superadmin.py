@@ -23,6 +23,7 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, PaidLedger, Role, User
+from core.services import rbac
 
 # ---------- super-admin powers ----------
 
@@ -165,8 +166,8 @@ def admin_reassign_claim(request: HttpRequest, claim_id: str, payload: ReassignI
     new_owner = User.objects.filter(email__iexact=payload.owner_email.strip()).first()
     if not new_owner:
         raise HttpError(404, "No account with that email")
-    if new_owner.role != Role.FACULTY:
-        raise HttpError(400, "Claims belong to faculty accounts")
+    if new_owner.role not in rbac.CLAIMANT_ROLES:
+        raise HttpError(400, "Claims belong to faculty accounts (a head of department is one)")
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)

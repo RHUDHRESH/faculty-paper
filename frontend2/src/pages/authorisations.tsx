@@ -295,7 +295,11 @@ export function Authorisations() {
                   })
                 }
                 onAuthorise={() => setActing({ claim, mode: "authorise" })}
-                onSendBack={() => setActing({ claim, mode: "send-back" })}
+                // The Director only moves a claim forward (the college's rule);
+                // sending one back is left to a super admin standing in.
+                onSendBack={
+                  me?.role === "SUPER_ADMIN" ? () => setActing({ claim, mode: "send-back" }) : undefined
+                }
               />
             ))}
           </ul>
@@ -376,7 +380,7 @@ function ClaimRow({
   checked: boolean
   onToggle: (on: boolean) => void
   onAuthorise: () => void
-  onSendBack: () => void
+  onSendBack?: () => void
 }) {
   return (
     <li className="flex gap-3 py-4">
@@ -448,9 +452,11 @@ function ClaimRow({
           <Button kind="primary" size="sm" onClick={onAuthorise} disabled={!!claim.calc_error}>
             Authorise
           </Button>
-          <Button kind="quiet" size="sm" onClick={onSendBack}>
-            Send back to the Principal
-          </Button>
+          {onSendBack && (
+            <Button kind="quiet" size="sm" onClick={onSendBack}>
+              Send back to the Principal
+            </Button>
+          )}
         </div>
       </div>
     </li>

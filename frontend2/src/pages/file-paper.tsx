@@ -2251,7 +2251,12 @@ export function FilePaper() {
       />
 
       <div className="space-y-6">
-        <FlowProgress phase={question.phase} />
+        {/* Pinned under the top edge while the question scrolls, so where you
+            are in the five steps is never more than a glance away. The mobile
+            header is 48px; the desktop has none. */}
+        <div className="sticky top-12 z-20 -mx-2 bg-bg/90 px-2 py-2 backdrop-blur md:top-0">
+          <FlowProgress phase={question.phase} />
+        </div>
 
         {/* Keyed on the question so React swaps the subtree outright rather
             than reusing an input from the previous screen — a value left in a

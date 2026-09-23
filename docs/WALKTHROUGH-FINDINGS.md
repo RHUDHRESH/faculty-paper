@@ -49,7 +49,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 11. [ ] Warning two minutes before the session expires — *not built on purpose: sessions are a fixed 12 h, the filing form autosaves, and an expired session is already announced once*
 12. [x] Leaving a half-filled form asks first *(already existed — verified)*
 13. [x] Each page sets the browser tab title
-14. [ ] Breadcrumbs on every detail page
+14. [x] Breadcrumbs on every detail page *(already existed as a back link on every detail page — verified)*
 15. [x] Print stylesheet for a ticket
 16. [ ] Empty states carry the one action that fills them
 17. [x] Every input has a real label (screen readers, autofill)
@@ -64,7 +64,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 24. [ ] Lookup says "not configured" vs "down" honestly
 25. [x] Filing rules text folds away for repeat filers ("Read the conditions again"); the three per-article confirmations are still asked every time — remembering them would let a second article be filed unattested
 26. [x] Wizard shows every step's name and "Step n of 5"
-27. [ ] Wizard step rail stays pinned while scrolling
+27. [x] Wizard step rail stays pinned while scrolling
 28. [x] Ctrl Enter continues to the next step
 29. [x] Download a paid paper's payment advice
 30. [x] "Received this academic year" total on home

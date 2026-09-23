@@ -1,4 +1,5 @@
-import { screen } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -40,11 +41,41 @@ function claim(over: Partial<Record<string, unknown>> = {}) {
   }
 }
 
-function mount(claims: ReturnType<typeof claim>[]) {
+function assignment(over: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "a1",
+    department: "Mechanical Engineering",
+    kind: "PAIRING",
+    kind_label: "Co-author pairing",
+    title: "A joint paper on lattice fatigue",
+    notes: "Start from the 2024 survey.",
+    status: "OPEN",
+    status_label: "Open",
+    assignee_id: "u-faculty",
+    assignee_name: "Dr Asha Menon",
+    partner_id: "u-2",
+    partner_name: "Dr Ravi Kumar",
+    due_date: "2026-12-01",
+    set_by: "Dr Meera Pillai",
+    created_at: "2026-09-01T00:00:00Z",
+    updated_at: "2026-09-01T00:00:00Z",
+    my_part: "ASSIGNEE",
+    with_name: "Dr Ravi Kumar",
+    ...over,
+  }
+}
+
+function mount(
+  claims: ReturnType<typeof claim>[],
+  assignments: ReturnType<typeof assignment>[] = [],
+  extra: Record<string, () => unknown> = {}
+) {
   vi.mocked(api).mockImplementation(
     fakeApi({
       "/api/auth/me": () => FACULTY,
       "/api/claims": () => ({ results: claims, total: claims.length }),
+      "/api/me/assignments": () => assignments,
+      ...extra,
     })
   )
   renderWithProviders(<FacultyHome />)
@@ -71,6 +102,7 @@ describe("FacultyHome", () => {
       fakeApi({
         "/api/auth/me": () => FACULTY,
         "/api/claims": failing(500),
+        "/api/me/assignments": () => [],
       })
     )
     renderWithProviders(<FacultyHome />)
@@ -136,9 +168,55 @@ describe("FacultyHome", () => {
       fakeApi({
         "/api/auth/me": () => FACULTY,
         "/api/claims": failing(503),
+        "/api/me/assignments": () => [],
       })
     )
     renderWithProviders(<FacultyHome />)
     expect(await screen.findByRole("button", { name: /try again/i })).toBeInTheDocument()
+  })
+})
+
+describe("work assigned to a faculty member", () => {
+  it("lists it with what kind it is, who it is with and when it is due", async () => {
+    mount([claim()], [assignment()])
+
+    const section = await screen.findByRole("region", { name: "Assigned to you" })
+    expect(within(section).getByText("A joint paper on lattice fatigue")).toBeInTheDocument()
+    expect(within(section).getByText("Co-author pairing")).toBeInTheDocument()
+    expect(within(section).getByText(/with Dr Ravi Kumar/)).toBeInTheDocument()
+    expect(within(section).getByText(/by 1 Dec 2026/)).toBeInTheDocument()
+    // Neither money nor a desk: this is the claimant's own home screen.
+    expect(section.textContent).not.toContain("₹")
+    for (const desk of [/principal/i, /director/i, /finance/i, /research cell/i]) {
+      expect(within(section).queryByText(desk)).toBeNull()
+    }
+  })
+
+  it("is not drawn when nothing is assigned", async () => {
+    mount([claim()], [])
+    await screen.findByText("1 paper on record")
+    expect(screen.queryByRole("region", { name: "Assigned to you" })).toBeNull()
+  })
+
+  it("moves the status from where it is read", async () => {
+    const user = userEvent.setup()
+    mount([claim()], [assignment()], {
+      "/api/hod/assignments/a1": () => assignment({ status: "IN_PROGRESS" }),
+    })
+
+    await user.selectOptions(
+      await screen.findByLabelText("Status of A joint paper on lattice fatigue"),
+      "IN_PROGRESS"
+    )
+
+    const patches = () =>
+      vi
+        .mocked(api)
+        .mock.calls.filter(
+          ([p, o]) =>
+            p === "/api/hod/assignments/a1" && (o as { method?: string })?.method === "PATCH"
+        )
+    await waitFor(() => expect(patches()).toHaveLength(1))
+    expect(patches()[0][1]).toMatchObject({ json: { status: "IN_PROGRESS" } })
   })
 })

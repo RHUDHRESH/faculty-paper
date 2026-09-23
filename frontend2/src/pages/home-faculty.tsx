@@ -2,14 +2,22 @@ import { Link } from "react-router-dom"
 import { ArrowRight, FilePlus2, FileSearch, Plus, Upload, Wallet } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
-import { useApi } from "@/lib/query"
+import { useApi, useApiMutation } from "@/lib/query"
+import {
+  KindBadge,
+  STATUSES,
+  StatusSelect,
+  type AssignmentStatus,
+  type MyAssignment,
+} from "@/pages/assignment-parts"
 import { Button } from "@/ui/button"
 import { ErrorState, Skeleton } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
 import { Journey, facultyStage } from "@/ui/journey"
 import { cn } from "@/lib/cn"
-import { When } from "@/ui/when"
+import { toast } from "@/ui/toast"
+import { Due, When } from "@/ui/when"
 
 /**
  * What a claimant opens the app to find out: is my money coming, and is
@@ -76,6 +84,9 @@ export function FacultyHome() {
     ["my-claims"],
     "/api/claims?limit=200"
   )
+  // Secondary to the money, so a failure here draws nothing rather than a
+  // second error box on the page every claimant lands on.
+  const assigned = useApi<MyAssignment[]>(["my-assignments"], "/api/me/assignments")
 
   const claims = data?.results || []
   const paid = claims.filter((c) => c.status === "PAID")
@@ -222,6 +233,8 @@ export function FacultyHome() {
         </section>
       )}
 
+      {assigned.data && assigned.data.length > 0 && <AssignedToYou items={assigned.data} />}
+
       {moving.length > 0 && (
         <section className="space-y-3">
           <div className="flex items-baseline justify-between gap-3">
@@ -287,6 +300,76 @@ export function FacultyHome() {
         </section>
       )}
     </div>
+  )
+}
+
+/**
+ * Work somebody has been asked to take on: a task, a colleague to write
+ * with, or a research area.
+ *
+ * Only drawn when there is some. It sits with the claimant's own homework
+ * rather than among the papers, and the status is moved here, where it is
+ * read -- work nobody could mark as started or finished would be work the
+ * head had to chase in person to hear about. It names the other person on a
+ * pairing and nothing else: no desk, and no money.
+ */
+function AssignedToYou({ items }: { items: MyAssignment[] }) {
+  return (
+    <section className="space-y-3" aria-label="Assigned to you">
+      <div>
+        <SectionTitle>Assigned to you</SectionTitle>
+        <Meta className="block">Work you have been asked to take on. Move it along as you go.</Meta>
+      </div>
+      <ul className="divide-y divide-line rounded-lg ring-1 ring-line">
+        {items.map((a) => (
+          <AssignedRow key={a.id} assignment={a} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function AssignedRow({ assignment: a }: { assignment: MyAssignment }) {
+  const move = useApiMutation<{ status: AssignmentStatus }, MyAssignment>(
+    `/api/hod/assignments/${a.id}`,
+    { method: "PATCH", invalidates: [["my-assignments"]] }
+  )
+
+  async function changeStatus(status: AssignmentStatus) {
+    try {
+      await move.mutateAsync({ status })
+      const label = STATUSES.find((s) => s.value === status)?.label ?? status
+      toast.ok(`“${a.title}” marked ${label.toLowerCase()}`)
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  const done = a.status === "DONE"
+
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="flex min-w-0 items-center gap-2">
+          <KindBadge label={a.kind_label} />
+          <span className={cn("truncate font-medium", done && "text-fg-muted")}>{a.title}</span>
+        </p>
+        {(a.with_name || a.due_date) && (
+          <p className="mt-0.5 text-sm text-fg-muted">
+            {a.with_name && `with ${a.with_name}`}
+            {a.with_name && a.due_date && " · "}
+            {a.due_date && <Due day={a.due_date} done={done} />}
+          </p>
+        )}
+        {a.notes && <p className="mt-0.5 text-sm text-fg-muted">{a.notes}</p>}
+      </div>
+      <StatusSelect
+        value={a.status}
+        title={a.title}
+        disabled={move.isPending}
+        onChange={(status) => void changeStatus(status)}
+      />
+    </li>
   )
 }
 

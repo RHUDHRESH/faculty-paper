@@ -26,7 +26,7 @@ code reviews. `[x]` = done and verified in the running app or by tests; `[~]` = 
 | [x] D14 | Prod | `/gallery` dev page reachable signed-out | review |
 | [x] D15 | Bundle | No route splitting; 1.34 MB main chunk | build |
 | [ ] D16 | Seed | Only 4 accounts; README promises HOD + research logins | walkthrough |
-| [ ] D17 | Copy | "1 departments", "1st of 1" | HOD screenshot |
+| [x] D17 | Copy | "1 departments", "1st of 1" | HOD screenshot |
 | [x] D18 | Filing | Heading flips to "Edit your draft" after first autosave; no "step n of 5" | walkthrough |
 | [x] D19 | Look | Sign-in half empty; homes are bare numbers on grey; serif titles read as a blog | screenshots |
 | [x] D20 | Faculty screens | `stageOf().who` told claimants "Waiting for the Principal / Director / with Finance" on home, My papers and the ticket page | code |

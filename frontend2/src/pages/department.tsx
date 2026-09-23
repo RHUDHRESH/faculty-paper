@@ -280,8 +280,8 @@ function StandingSection({ data }: { data: Standing }) {
         />
         <Stat
           label="Position"
-          value={data.position ? `${ordinal(data.position)} of ${data.of}` : "—"}
-          hint="By number of publications"
+          value={data.position && data.of > 1 ? `${ordinal(data.position)} of ${data.of}` : "—"}
+          hint={data.of > 1 ? "By number of publications" : "The only department on record, so there is nothing to rank against"}
         />
         <Compare
           label="Q1 rate"
@@ -310,7 +310,7 @@ function StandingSection({ data }: { data: Standing }) {
 
       <Meta className="block">
         {data.mine.faculty} faculty in the department, of {data.college.faculty} in the college
-        across {data.college.departments} departments. No other department is named here.
+        across {data.college.departments} department{data.college.departments === 1 ? "" : "s"}. No other department is named here.
       </Meta>
     </section>
   )

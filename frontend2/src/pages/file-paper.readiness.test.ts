@@ -19,6 +19,7 @@ import {
   NO_CARRIED_EVIDENCE,
   RULE_FALLBACK,
   emptyForm,
+  isConferencePaper,
   readiness,
   type CarriedEvidence,
   type FormState,
@@ -125,5 +126,57 @@ describe("the wording no longer promises a filing that will be refused", () => {
     expect(p).toBeDefined()
     expect(p!.detail ?? "").toMatch(/refused/i)
     expect(p!.detail ?? "").not.toMatch(/the publication is recorded and the remuneration is/i)
+  })
+})
+
+/**
+ * The final-year project scheme is not the faculty scheme: a fixed amount per
+ * team per conference paper. The server refuses anything but a conference
+ * paper, needs the team, and asks for no SEC-affiliated references -- so the
+ * wizard has to block the first two and must not block on the third.
+ */
+describe("a student project claim is held to its own scheme's rules", () => {
+  function studentProject(publicationType: string, teamCode = "PR26CH0001") {
+    const form = formWith([], "STUDENT_PROJECT")
+    form.publicationType = publicationType
+    form.teamCode = teamCode
+    return form
+  }
+
+  it("blocks a journal article, because the scheme is for conference papers", () => {
+    const p = find(problems(studentProject("Journal")), "fyp-conference")
+    expect(p?.kind).toBe("missing")
+    expect(`${p!.label} ${p!.detail ?? ""}`).toMatch(/conference/i)
+  })
+
+  it("lets a conference proceeding through", () => {
+    expect(blocking(problems(studentProject("Conference Proceeding")))).not.toContain(
+      "fyp-conference"
+    )
+  })
+
+  it("blocks a student project with no team chosen", () => {
+    expect(blocking(problems(studentProject("Conference Proceeding", "")))).toContain("team")
+  })
+
+  it("does not ask for SEC-affiliated references, which the scheme does not need", () => {
+    const ps = problems(studentProject("Conference Proceeding"))
+    for (const key of ["refs-none", "ref-numbers", "refs-url-only", "ref-numbers-zero", "refs-few"]) {
+      expect(find(ps, key)).toBeUndefined()
+    }
+  })
+
+  it("does not apply the faculty scheme's author ceiling", () => {
+    const form = studentProject("Conference Proceeding")
+    form.totalAuthors = 12
+    form.authorPosition = 12
+    expect(find(problems(form), "author-cap")).toBeUndefined()
+  })
+
+  it("says a conference paper is a conference paper however it is labelled", () => {
+    expect(isConferencePaper("Conference Proceeding")).toBe(true)
+    expect(isConferencePaper("Proceedings")).toBe(true)
+    expect(isConferencePaper("Journal")).toBe(false)
+    expect(isConferencePaper("Book Series")).toBe(false)
   })
 })

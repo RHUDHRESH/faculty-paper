@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
+import type { UseQueryResult } from "@tanstack/react-query"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -295,9 +296,11 @@ type DraftRow = {
 type FilingRules = {
   max_authors: number
   min_sec_references: number
+  /** The final-year project scheme's fixed amount per team per conference paper. */
+  student_project_amount: number
   attachment_limits: { PUBLISHED_PAPER: number; SEC_REFERENCE: number }
   max_upload_bytes: number
-  why: { max_authors: string; min_sec_references: string }
+  why: { max_authors: string; min_sec_references: string; student_project: string }
   policy_version: number | null
 }
 
@@ -306,14 +309,26 @@ type FilingRules = {
 export const RULE_FALLBACK: FilingRules = {
   max_authors: 9,
   min_sec_references: 2,
+  student_project_amount: 15000,
   attachment_limits: { PUBLISHED_PAPER: 10, SEC_REFERENCE: 50 },
   max_upload_bytes: 10 * 1024 * 1024,
   why: {
     max_authors: "A paper with more than 9 authors carries no remuneration.",
     min_sec_references:
       "The policy requires 2 cited references that carry the college's affiliation.",
+    student_project:
+      "The final-year project scheme pays a fixed ₹15,000 per team for a conference paper, to the team's mentor, once per team. It is for conference papers only.",
   },
   policy_version: null,
+}
+
+/**
+ * Whether a publication type is a conference paper, the only kind the
+ * final-year project scheme pays on. The same test the server makes
+ * (`is_conference_paper`): a label mentioning a conference or proceedings.
+ */
+export function isConferencePaper(publicationType: string): boolean {
+  return /conference|proceeding/i.test(publicationType)
 }
 
 /* ------------------------------------------------------------------------ */
@@ -816,6 +831,10 @@ const QUESTIONS: QuestionDef[] = [
     phase: 3,
     ask: "Attach the cited references with SEC affiliation",
     hint: "Each one needs the number it carries in your reference list.",
+    // The two-reference minimum is the faculty scheme's rule. The final-year
+    // project scheme pays its fixed amount without it, and the server does
+    // not ask, so neither does this.
+    applies: (f) => f.claimReason !== "STUDENT_PROJECT",
   },
   {
     id: "verify",
@@ -840,6 +859,7 @@ const QUESTIONS: QuestionDef[] = [
 const PROBLEM_QUESTION: Record<string, QuestionId> = {
   title: "paper",
   type: "paper",
+  "fyp-conference": "paper",
   date: "paper",
   // The DOI box is on the finding screen, not repeated on the next one.
   doi: "find",
@@ -1797,6 +1817,8 @@ export function FilePaper() {
           author_position: form.authorPosition,
           publication_type: form.publicationType || undefined,
           is_student_publication: form.claimReason === "COUNT_ONLY",
+          // A student project is priced by its own scheme, not the formula.
+          claim_reason: form.claimReason,
           indexing_level: form.indexing.join(", ") || undefined,
           sec_reference_count: secReferenceCount,
         },
@@ -2275,6 +2297,7 @@ export function FilePaper() {
         priceable={priceable}
         onRetryCalc={() => setCalcNonce((n) => n + 1)}
         countOnly={form.claimReason === "COUNT_ONLY"}
+        studentProject={form.claimReason === "STUDENT_PROJECT"}
         visited={new Set(trail)}
         onGoToProblem={goToProblem}
         onFileAsCount={fileForTheRecord}
@@ -2321,7 +2344,7 @@ export function FilePaper() {
             />
           )}
           {currentId === "reason" && (
-            <ReasonQuestion form={form} patchForm={patchForm} problems={problems} />
+            <ReasonQuestion form={form} patchForm={patchForm} problems={problems} rules={rules} />
           )}
           {currentId === "paper" && <PaperQuestion form={form} patchForm={patchForm} />}
           {currentId === "journal" && <JournalQuestion form={form} patchForm={patchForm} />}
@@ -2821,16 +2844,31 @@ function Tag({
 /* What are you filing this for?                                             */
 /* ------------------------------------------------------------------------ */
 
-function ReasonQuestion({
+/** Why the student-project option is closed, in the words the server uses. */
+const MENTORS_NO_TEAM =
+  "You are not the mentor of any final-year project team on the roster, so this is not open to you. If you do mentor one, ask the research office to check the roster names you by your staff id."
+
+export function ReasonQuestion({
   form,
   patchForm,
   problems,
+  rules,
 }: {
   form: FormState
   patchForm: (updater: Partial<FormState> | ((prev: FormState) => Partial<FormState>)) => void
   problems: Problem[]
+  rules: FilingRules
 }) {
   const teamMissing = problems.some((p) => p.key === "team")
+  const studentProject = form.claimReason === "STUDENT_PROJECT"
+  // Only the mentor may claim for a team, so the teams offered are this
+  // person's own, off the roster. Fetched here, not only once the option is
+  // picked, because whether there are any decides whether it can be picked.
+  const teams = useApi<{ results: MyTeam[] }>(["teams", "mine"], "/api/teams?mine=true")
+  // Known to mentor nothing only once the list has come back empty. While it
+  // loads, or if it failed, the option stays open and the server decides.
+  const mentorsNone = teams.isSuccess && (teams.data?.results.length ?? 0) === 0
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -2843,10 +2881,17 @@ function ReasonQuestion({
         />
         <Radio
           name="claim-reason"
-          checked={form.claimReason === "STUDENT_PROJECT"}
+          checked={studentProject}
+          // A draft already filed this way stays selectable, so it can be
+          // moved to another reason rather than stuck on a closed one.
+          disabled={mentorsNone && !studentProject}
           onChange={() => patchForm({ claimReason: "STUDENT_PROJECT" })}
           label="Student project conference incentive"
-          hint="A conference paper from a student project you mentored. Paid — and it has to name the team."
+          hint={
+            mentorsNone
+              ? MENTORS_NO_TEAM
+              : `A conference paper from a final-year project team you mentor — a fixed ${money(rules.student_project_amount)} per team, once.`
+          }
         />
         <Radio
           name="claim-reason"
@@ -2857,14 +2902,16 @@ function ReasonQuestion({
         />
       </div>
 
-      {form.claimReason === "STUDENT_PROJECT" && (
+      {studentProject && (
         <TeamPicker
+          teams={teams}
           code={form.teamCode}
           onCode={(teamCode) => patchForm({ teamCode })}
           // The server refuses a student-project claim that names no team, and
-          // it refuses it at the very end. Said here instead, where the code
-          // is typed.
+          // it refuses it at the very end. Said here instead, where it is
+          // chosen.
           required={teamMissing}
+          rules={rules}
         />
       )}
     </div>
@@ -3964,6 +4011,7 @@ function ReviewQuestion({
 }) {
   const contestable = submitError?.includes("Could not auto-confirm") ?? false
   const countOnly = form.claimReason === "COUNT_ONLY"
+  const studentProject = form.claimReason === "STUDENT_PROJECT"
   const missing = problems.filter((p) => p.kind === "missing")
 
   return (
@@ -4072,7 +4120,7 @@ function ReviewQuestion({
       </Button>
 
       <section className="space-y-3">
-        <SectionTitle>Estimated remuneration</SectionTitle>
+        <SectionTitle>{studentProject ? "Final-year project amount" : "Estimated remuneration"}</SectionTitle>
 
         {countOnly ? (
           <p className="text-base">
@@ -4097,7 +4145,9 @@ function ReviewQuestion({
           <div className="space-y-2">
             <p className="text-3xl font-semibold tabular">
               {money(calc.remuneration)}{" "}
-              <span className="align-middle text-base font-normal text-fg-muted">estimated</span>
+              <span className="align-middle text-base font-normal text-fg-muted">
+                {studentProject ? "fixed" : "estimated"}
+              </span>
             </p>
             {calc.remuneration === 0 && (
               <Callout tone="critical" title="This estimate is ₹0 — filing it pays nothing">
@@ -4105,12 +4155,17 @@ function ReviewQuestion({
               </Callout>
             )}
             <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
-              <SummaryRow label="Base amount" value={money(calc.base)} />
-              <SummaryRow label="QF amount" value={money(calc.qf)} />
-              <SummaryRow
-                label="Author point"
-                value={calc.point != null ? calc.point.toFixed(3) : "—"}
-              />
+              {/* The scheme has no base, quartile incentive or author share to
+                  show: one amount per team. Rows of dashes would suggest a
+                  formula that was not run. */}
+              {!studentProject && <SummaryRow label="Base amount" value={money(calc.base)} />}
+              {!studentProject && <SummaryRow label="QF amount" value={money(calc.qf)} />}
+              {!studentProject && (
+                <SummaryRow
+                  label="Author point"
+                  value={calc.point != null ? calc.point.toFixed(3) : "—"}
+                />
+              )}
               {calc.category_label && <SummaryRow label="Category" value={calc.category_label} />}
             </dl>
             {calc.note && calc.remuneration !== 0 && (
@@ -4125,12 +4180,17 @@ function ReviewQuestion({
           </p>
         )}
 
-        {!countOnly && (
+        {studentProject ? (
+          <Callout tone="info" title="A fixed amount under the final-year project scheme">
+            {rules.why.student_project} The research cell still checks the paper and the team
+            before it is paid.
+          </Callout>
+        ) : !countOnly ? (
           <Callout tone="caution" title="This is an estimate, not the amount you will be paid">
             It is worked out from the SNIP and quartile you declared, not a verified value. The
             research cell checks both separately once this is filed, and the figure may change.
           </Callout>
-        )}
+        ) : null}
       </section>
 
       {submitError && (
@@ -4309,12 +4369,25 @@ export function readiness(
   // same lie as the old ₹0, told the other way round. A count-only filing is
   // exempt on the server, so it stays a note there.
   const refusedKind: ProblemKind = paid ? "missing" : "check"
+  // The final-year project scheme is its own scheme: a fixed amount per team
+  // per conference paper. The faculty scheme's author ceiling and its
+  // SEC-reference minimum are not its rules, and the server does not apply
+  // them to it; the conference-only rule is, and the server refuses on it.
+  const studentProject = form.claimReason === "STUDENT_PROJECT"
 
   /* ---- step 0: the paper ---- */
   if (!form.paperTitle.trim())
     add({ key: "title", kind: "missing", label: "The paper needs a title", step: 0 })
   if (!form.publicationType)
     add({ key: "type", kind: "missing", label: "Choose what kind of publication this is", step: 0 })
+  else if (studentProject && !isConferencePaper(form.publicationType))
+    add({
+      key: "fyp-conference",
+      kind: "missing",
+      label: "The final-year project scheme is for conference papers only",
+      detail: `${rules.why.student_project} File a journal article or a book chapter as a faculty publication incentive instead.`,
+      step: 0,
+    })
   if (!form.publicationDate)
     add({ key: "date", kind: "missing", label: "Enter the date it was published", step: 0 })
 
@@ -4401,7 +4474,7 @@ export function readiness(
       label: `Your position must be between 1 and ${form.totalAuthors}`,
       step: 2,
     })
-  else if (form.totalAuthors > rules.max_authors)
+  else if (!studentProject && form.totalAuthors > rules.max_authors)
     add({
       key: "author-cap",
       kind: "unpaid",
@@ -4416,15 +4489,15 @@ export function readiness(
       label: "Confirm the article is affiliated to the college",
       step: 2,
     })
-  // The server refuses a student-project claim that names no team, and the
-  // team has to already exist. Nothing said so until the moment of filing.
-  if (form.claimReason === "STUDENT_PROJECT" && !form.teamCode.trim())
+  // The server refuses a student-project claim that names no team, and only
+  // the team's mentor may name it. Nothing said so until the moment of filing.
+  if (studentProject && !form.teamCode.trim())
     add({
       key: "team",
       kind: "missing",
       label: "A student project claim has to name the team",
       detail:
-        "Enter the code from the project sheet and check the students it brings back. The team has to exist already — this claim cannot create one.",
+        "Choose it from the teams you mentor, listed on the “what are you filing this for” step. The teams come from the roster the research office imports.",
       step: 2,
     })
 
@@ -4475,7 +4548,10 @@ export function readiness(
   const passesEvidenceGate = refs.length > 0 || Boolean(opts.carried.secProofUrl)
   const passesNumberGate = numbered > 0 || Boolean(opts.carried.secRefs)
 
-  if (!passesEvidenceGate) {
+  if (studentProject) {
+    // Nothing to ask: the final-year project scheme's fixed amount is not
+    // gated on SEC-affiliated references, and the server does not ask either.
+  } else if (!passesEvidenceGate) {
     add({
       key: "refs-none",
       kind: "missing",
@@ -4524,7 +4600,7 @@ export function readiness(
     })
   }
 
-  if (numbered > 0 && numbered < rules.min_sec_references)
+  if (!studentProject && numbered > 0 && numbered < rules.min_sec_references)
     add({
       key: "refs-few",
       kind: refusedKind,
@@ -4656,6 +4732,7 @@ function Readiness({
   priceable,
   onRetryCalc,
   countOnly,
+  studentProject = false,
   visited,
   onGoToProblem,
   onFileAsCount,
@@ -4667,6 +4744,8 @@ function Readiness({
   priceable: boolean
   onRetryCalc: () => void
   countOnly: boolean
+  /** Priced by the final-year project scheme: a fixed amount, not an estimate. */
+  studentProject?: boolean
   /** The screens the reader has actually reached. */
   visited: Set<QuestionId>
   onGoToProblem: (p: Problem) => void
@@ -4691,7 +4770,11 @@ function Readiness({
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-2">
         <div className="min-w-0">
           <ColumnLabel className="block">
-            {countOnly ? "Filing for the count only" : "Estimated remuneration"}
+            {countOnly
+              ? "Filing for the count only"
+              : studentProject
+                ? "Final-year project amount"
+                : "Estimated remuneration"}
           </ColumnLabel>
           {countOnly ? (
             <p className="mt-0.5 text-lg font-medium">No payment requested</p>
@@ -4714,7 +4797,7 @@ function Readiness({
                 // ERP showed a number with no such word anywhere near it and
                 // people budgeted against it.
                 <span className="ml-1.5 align-middle text-sm font-normal text-fg-muted">
-                  estimated
+                  {studentProject ? "fixed" : "estimated"}
                 </span>
               )}
             </p>
@@ -4736,8 +4819,12 @@ function Readiness({
             : amount == null
               ? priceable
                 ? "No figure yet. It appears as soon as the journal details are enough to price."
-                : "An estimate appears once the quartile, the SNIP or the indexing level is entered."
-              : "An estimate from your own declared SNIP and quartile. The research cell verifies both, and the figure can change."}
+                : studentProject
+                  ? "The amount appears once you say what type of publication this is."
+                  : "An estimate appears once the quartile, the SNIP or the indexing level is entered."
+              : studentProject
+                ? "The final-year project scheme's fixed amount per team for a conference paper — not worked out from the SNIP or the quartile, and not split by author position."
+                : "An estimate from your own declared SNIP and quartile. The research cell verifies both, and the figure can change."}
         </p>
       )}
 
@@ -4972,7 +5059,9 @@ function PreFlight({
 /* Team picker — student project claims                                     */
 /* ------------------------------------------------------------------------ */
 
-type TeamLookup = {
+/** A team off the roster, as `/api/teams?mine=true` returns it. */
+type MyTeam = {
+  id: string
   code: string
   title: string | null
   department: string | null
@@ -4982,113 +5071,110 @@ type TeamLookup = {
     id: string
     name: string
     register_number: string | null
-    programme: string | null
-    year_of_study: string | null
-    mentor_name: string | null
   }[]
+  /** The filed claim holding this team, if one does. The scheme pays once per team. */
+  claimed_by: { claim_id: string; ticket_number: string | null; status: string } | null
 }
 
 /**
- * Find the team by the code on the project sheet, then agree with what comes
- * back.
+ * The mentor's own teams, to choose the one this paper came from.
  *
- * By code rather than by picking from a list: the code is what is printed on
- * the sheet in front of the claimant, and a list of every student project in
- * the college is neither what they came for nor theirs to browse. A code that
- * matches nothing is an ordinary answer here, not an error — the first time a
- * project is entered anywhere, no team exists yet — so it says so and points
- * at where teams are made, instead of rendering a failure.
- *
- * Nothing is confirmed silently. The students are shown by name and register
- * number because that is what the claimant is being asked to vouch for, and a
- * code echoed back as "found" would let a mistyped digit attach somebody
- * else's project to a payment.
+ * From a list rather than a typed code: under the final-year project scheme
+ * only a team's mentor may claim for it, so the list is exactly the teams the
+ * roster says this person mentors and nothing else is claimable. The students
+ * are shown by name and register number because that is what the mentor is
+ * vouching for. A team already claimed stays on the list with the ticket that
+ * holds it, rather than being offered and then refused by the server.
  */
 function TeamPicker({
+  teams,
   code,
   onCode,
   required,
+  rules,
 }: {
+  teams: UseQueryResult<{ results: MyTeam[] }, ApiError>
   code: string
   onCode: (code: string) => void
   /** The claim names no team yet and the server will refuse it. */
   required?: boolean
+  rules: FilingRules
 }) {
-  const trimmed = code.trim()
-  const { data, isLoading, error } = useApi<TeamLookup>(
-    ["team", trimmed],
-    `/api/teams/${encodeURIComponent(trimmed)}`,
-    { enabled: trimmed.length >= 2 }
-  )
-
-  // A 404 means "no team with that code yet", which is a normal state of the
-  // world rather than something going wrong.
-  const notFound = !!error && (error as { status?: number }).status === 404
+  const mine = teams.data?.results ?? []
+  const chosen = code.trim().toUpperCase()
+  // A draft saved before the roster was imported, or naming a team since
+  // re-assigned, can carry a code that is not one of theirs any more.
+  const notMine =
+    teams.isSuccess && chosen !== "" && !mine.some((t) => t.code.toUpperCase() === chosen)
 
   return (
-    <div className="space-y-3 rounded-md border border-line p-4">
-      <Field
-        label="Team code"
-        hint="The code on the project sheet — for example CSE-24-011."
-        error={required ? "A student project claim cannot be filed without one." : undefined}
+    <fieldset className="space-y-3 rounded-md border border-line p-4">
+      <legend className="sr-only">Your final-year project teams</legend>
+
+      <Callout
+        tone="info"
+        title={`A fixed ${money(rules.student_project_amount)} per team, for a conference paper`}
       >
-        <Input
-          value={code}
-          onChange={(e) => onCode(e.target.value)}
-          placeholder="CSE-24-011"
+        Paid to the team's mentor, once per team. Conference papers only — a journal article or a
+        book chapter is filed as a faculty publication incentive instead. It is not worked out from
+        the SNIP or the quartile, is not split by author position, and needs no SEC-affiliated
+        references.
+      </Callout>
+
+      {teams.isLoading ? (
+        <SkeletonText lines={3} />
+      ) : teams.error ? (
+        <InlineError
+          message="Could not load your teams. Nothing you have entered is lost."
+          onRetry={() => void teams.refetch()}
         />
-      </Field>
-
-      {trimmed.length < 2 ? null : isLoading ? (
-        <SkeletonText lines={2} />
-      ) : notFound ? (
-        <Callout tone="caution" title={`No team with the code ${trimmed}`}>
-          Teams are created once, with the students on them, and then claimed
-          against by code. If this project has not been entered yet, create the
-          team first — this claim cannot be filed until it names one.
+      ) : mine.length === 0 ? (
+        <Callout tone="caution" title="You mentor no team on the roster">
+          {MENTORS_NO_TEAM}
         </Callout>
-      ) : error ? (
-        <Callout tone="critical" title="Could not look that code up">
-          The server did not answer. Nothing you have typed has been lost.
-        </Callout>
-      ) : data ? (
-        <div className="space-y-2">
-          <div>
-            <p className="text-sm font-medium">{data.title || "Untitled project"}</p>
-            <Meta>
-              {[data.code, data.department, data.academic_year]
-                .filter(Boolean)
-                .join(" · ")}
-            </Meta>
-            {data.mentor_name ? <Meta>Mentor: {data.mentor_name}</Meta> : null}
-          </div>
-
-          {data.members.length === 0 ? (
-            <Callout tone="caution" title="This team has no students on it">
-              The team exists but nobody is listed on it, so the claim would
-              name a project with no one behind it.
-            </Callout>
-          ) : (
-            <ul className="divide-y divide-line border-y border-line">
-              {data.members.map((m) => (
-                <li key={m.id} className="px-1 py-2">
-                  <p className="text-sm">{m.name}</p>
-                  <Meta>
-                    {[m.register_number, m.programme, m.year_of_study]
-                      .filter(Boolean)
-                      .join(" · ") || "No register number recorded"}
+      ) : (
+        <ul className="divide-y divide-line border-y border-line">
+          {mine.map((t) => {
+            const isChosen = chosen === t.code.toUpperCase()
+            return (
+              <li key={t.id} className="px-1 py-3">
+                <Radio
+                  name="fyp-team"
+                  checked={isChosen}
+                  // The one this draft already holds stays selectable.
+                  disabled={!!t.claimed_by && !isChosen}
+                  onChange={() => onCode(t.code)}
+                  label={`${t.code} · ${t.title || "Untitled project"}`}
+                  hint={
+                    t.members.length
+                      ? t.members
+                          .map((m) => (m.register_number ? `${m.name} (${m.register_number})` : m.name))
+                          .join(" · ")
+                      : "No students listed on the roster"
+                  }
+                />
+                {t.claimed_by ? (
+                  <Meta className="mt-1 block pl-6">
+                    Already claimed on ticket {t.claimed_by.ticket_number || "(not yet numbered)"} —
+                    the scheme pays once per team.
                   </Meta>
-                </li>
-              ))}
-            </ul>
-          )}
+                ) : null}
+              </li>
+            )
+          })}
+        </ul>
+      )}
 
-          <p className="text-xs text-fg-subtle">
-            Check the names and register numbers before filing. This is what
-            the claim says the project was, and who it was by.
-          </p>
-        </div>
+      {notMine ? (
+        <Callout tone="caution" title={`${code.trim()} is not one of your teams`}>
+          Only a team's mentor may claim for it. Choose one of the teams above.
+        </Callout>
       ) : null}
-    </div>
+      {required ? (
+        <p className="text-sm text-critical">
+          Choose the team — a student project claim cannot be filed without one.
+        </p>
+      ) : null}
+    </fieldset>
   )
 }

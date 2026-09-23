@@ -312,6 +312,51 @@ describe("a reminder", () => {
   })
 })
 
+describe("the department on Scopus", () => {
+  const withScopus = {
+    ...OVERVIEW,
+    scopus: {
+      people_with_profile: 1,
+      publications: 26,
+      citations: 166,
+      highest_h_index: 8,
+      last_imported_at: "2026-09-23T08:00:00Z",
+    },
+    people: [
+      { ...person("u1", "Asha Physicist", 2), scopus_publications: 26, scopus_citations: 166,
+        scopus_h_index: 8 },
+      { ...person("u2", "Ravi Physicist", 1), scopus_publications: null, scopus_citations: null,
+        scopus_h_index: null },
+    ],
+  }
+
+  it("shows the department's citations and Scopus publications, and each person's", async () => {
+    mount({ "/api/hod/overview": () => withScopus })
+    const region = await screen.findByRole("region", { name: /the department/i })
+    expect(await within(region).findByText(/166 citations/)).toBeInTheDocument()
+    expect(within(region).getByText(/26 Scopus publications/)).toBeInTheDocument()
+    const asha = within(region).getByRole("row", { name: /Asha Physicist/ })
+    expect(within(asha).getByText("166")).toBeInTheDocument()
+    // No profile is not zero citations.
+    const ravi = within(region).getByRole("row", { name: /Ravi Physicist/ })
+    expect(within(ravi).queryByText("0")).toBeNull()
+  })
+
+  it("says so when no profile is loaded for anybody in the department", async () => {
+    mount({
+      "/api/hod/overview": () => ({
+        ...OVERVIEW,
+        scopus: {
+          people_with_profile: 0, publications: 0, citations: 0,
+          highest_h_index: null, last_imported_at: null,
+        },
+      }),
+    })
+    const region = await screen.findByRole("region", { name: /the department/i })
+    expect(await within(region).findByText(/no scopus profiles/i)).toBeInTheDocument()
+  })
+})
+
 describe("money-blindness", () => {
   it("shows no rupee figure anywhere on the page", async () => {
     mount({

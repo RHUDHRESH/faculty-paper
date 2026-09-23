@@ -640,16 +640,18 @@ def _reverify_or_recalc(claim: Claim, user, *, skip_external: bool) -> None:
         exclude_claim_id=claim.id,
     )
     if not result.get("ok"):
-        if claim.manual_verified_at:
-            # The manual lane exists for papers Scopus cannot confirm, and its
-            # values are authoritative (apply_verify_to_claim never overwrites
-            # MANUAL). Requiring Scopus to answer before such a claim can move
-            # would close the lane it was built for.
+        if claim.manual_verified_at or claim.snip_source or claim.quartile_source:
+            # The claim already carries values the server verified (Scopus,
+            # the SNIP dump, Scimago, or an admin by hand -- faculty-declared
+            # figures live in self_reported_* and never set a source). An
+            # outage, or a college with no Scopus key, should not stop the
+            # office: recompute from those stored values, audited. A claim
+            # with nothing verified still stops here.
             previous = claim.remuneration
             _apply_calc(claim)
             AuditLog.objects.create(
                 actor=user,
-                action="CLAIM_RECALC_MANUAL_VALUES",
+                action="CLAIM_RECALC_STORED_VALUES",
                 entity="Claim",
                 entity_id=claim.id,
                 detail_json=json.dumps({"previous": previous, "recomputed": claim.remuneration}),

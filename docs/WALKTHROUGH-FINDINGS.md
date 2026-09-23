@@ -1,0 +1,149 @@
+# Walkthrough findings and the 100 improvements
+
+Local run 2026-09-23: Django (SQLite, seed + HOD/Director/Research accounts)
+on :8000, frontend2 on :5174. Evidence: a hand walkthrough in the browser
+pane, `scripts/sweep.mjs` (7 roles × every sidebar page, desktop + 390px,
+console + failed API calls), the repo's Playwright suite (49 specs), and two
+code reviews. `[x]` = fixed and verified.
+
+## Defects found
+
+| # | Where | What | Evidence |
+|---|---|---|---|
+| [x] D1 | Backend tests | 67 tests patched names the api split had moved; suite 69 red | test run |
+| [x] D2 | Admin edit | Could set `status=PAID` with no Director and no ledger row | superadmin.py |
+| [x] D3 | Clearing | No Scopus key / Scopus outage → **nobody can clear anything**; Clear stays disabled | e2e money-chain fail, screenshot |
+| [x] D4 | Nav | "Institution" was a copy of Policy's entry: offered to Principal/Director/Finance, server 403s | sweep, 3 e2e fails |
+| [ ] D5 | Nav | Director and Finance get "Duplicates" — contested flags must be hidden from both | sweep |
+| [ ] D6 | Ticket API | `get_claim` returns `actor_name` for every step to faculty — names who holds the paper | journals.py:186 |
+| [ ] D7 | Sign-in | Tells faculty "every paper shows which desk it is sitting on" | screenshot |
+| [ ] D8 | Filing | No Scopus → "Scopus is down right now" (it is unconfigured); no Crossref/OpenAlex fallback | walkthrough |
+| [ ] D9 | Approvals | "Waiting days" label drawn over its own placeholder | screenshot |
+| [ ] D10 | Shell | Two "Search" entries in every sidebar | screenshot |
+| [ ] D11 | Shell | Sidebar background stops at 900px on long pages | HOD screenshot |
+| [ ] D12 | Money | `money()` decides paise from an unrounded float | review |
+| [ ] D13 | Cache | Director authorise doesn't refresh Finance's queue; void doesn't refresh clearing/principal | review |
+| [ ] D14 | Prod | `/gallery` dev page reachable signed-out | review |
+| [ ] D15 | Bundle | No route splitting; 1.34 MB main chunk | build |
+| [ ] D16 | Seed | Only 4 accounts; README promises HOD + research logins | walkthrough |
+| [ ] D17 | Copy | "1 departments", "1st of 1" | HOD screenshot |
+| [ ] D18 | Filing | Heading flips to "Edit your draft" after first autosave; no "step n of 5" | walkthrough |
+| [ ] D19 | Look | Sign-in half empty; homes are bare numbers on grey; serif titles read as a blog | screenshots |
+
+## The 100 improvements
+
+### Everybody
+1. [ ] Light / dark / follow-system theme in the account menu
+2. [ ] One Search entry in the sidebar, with the Ctrl K hint on it
+3. [ ] `?` opens a keyboard-shortcut sheet
+4. [ ] Dates show relative ("3 days ago") with the exact date on hover
+5. [ ] Copy button beside every ticket number
+6. [ ] Type a ticket number in Ctrl K and jump straight to it
+7. [ ] Notifications: "Mark all read"
+8. [ ] Notifications grouped Today / Earlier
+9. [ ] Sign-in remembers the email on this device
+10. [ ] Sign-in: "Forgot password?" says who to ask, from the Institution settings
+11. [ ] Warning two minutes before the session expires, with "Stay signed in"
+12. [ ] Leaving a half-filled form asks first
+13. [ ] Each page sets the browser tab title
+14. [ ] Breadcrumbs on every detail page
+15. [ ] Print stylesheet for a ticket
+16. [ ] Empty states carry the one action that fills them
+17. [ ] Every input has a real label (screen readers, autofill)
+18. [ ] Money always ₹ with Indian grouping and correct paise
+19. [ ] Saveetha branding: name, logo slot, one brand colour token
+20. [ ] Faster first load: pages load on demand
+
+### Faculty
+21. [ ] Home leads with a journey tracker per paper: stage + days waiting, never the desk
+22. [ ] Home "Needs you" lists each sent-back paper with its reason and a Fix button
+23. [ ] DOI lookup falls back to Crossref / OpenAlex when Scopus is unavailable
+24. [ ] Lookup says "not configured" vs "down" honestly
+25. [ ] Filing conditions remembered once read ("Read them again" link)
+26. [ ] Wizard shows every step's name and "Step n of 5"
+27. [ ] Wizard step rail stays pinned while scrolling
+28. [ ] Ctrl Enter continues to the next step
+29. [ ] Download a paid paper's payment advice
+30. [ ] "Received this academic year" total on home
+31. [ ] Export my papers to Excel
+32. [ ] Drafts list with "last edited" and Resume
+33. [ ] Discard a draft
+34. [ ] Start a new claim from a previous one (same journal, co-authors)
+35. [ ] Pick your author position from the author list
+36. [ ] Upload checks type and size before sending, with a clear message
+37. [ ] Drag and drop files onto the upload area
+38. [ ] Typical time to payment, from the college's own history
+39. [ ] Profile completeness: Scopus ID, staff id, department
+40. [ ] Scopus author profile link on the profile
+41. [ ] "Request a correction" pre-fills the field and current value
+42. [ ] Calendar shows payout-run dates automatically
+43. [ ] Faculty ticket view shows vague stages, no names (server strips them)
+44. [ ] Paper detail: "Why this amount" collapsed by default with one-line summary
+45. [ ] Duplicate warning names the matching paper and lets you contest in one step
+
+### Research supervisor (the office desk)
+46. [ ] Clearing queue running total of what is selected
+47. [ ] Filters: department, verification passed/failed, contested
+48. [ ] "Failed" verification explains why on hover
+49. [ ] Put on hold, with a reason; resume later
+50. [ ] Return one step / return to faculty, with the reason required
+51. [ ] Saved reasons for sending back (pick, edit, send)
+52. [ ] After acting, the next ticket opens automatically
+53. [ ] Declared vs verified values side by side
+54. [ ] Duplicate match links to the other ticket
+55. [ ] Contested badge in the queue
+56. [ ] Waiting time coloured: 7+ days amber, 14+ red
+57. [ ] Claim a ticket so two officers don't work the same one
+58. [ ] Export the queue to Excel
+59. [ ] Count per department above the queue
+60. [x] Scopus outage no longer stops clearing (stored verified values, audited)
+61. [ ] "Open in Scopus" link on each ticket
+62. [ ] Office-only notes on a ticket
+
+### Principal
+63. [ ] Ledger-style list: claimant, department, journal, quartile, amount, waiting
+64. [ ] Claim drawer: the faculty member's past claims
+65. [ ] Claim drawer: this journal's history at the college
+66. [ ] Claim drawer: department trend
+67. [ ] Claim drawer: red-flag summary
+68. [ ] Hold / return one step / return to faculty / reject
+69. [ ] Approve selected, with the total shown before confirming
+70. [ ] Filter by amount range
+71. [ ] Fix the overlapping "Waiting days" filter
+72. [ ] Export the approvals list
+
+### Director
+73. [ ] Summary: budget impact of what is waiting
+74. [ ] Summary: research output this period
+75. [ ] Summary: accreditation effect
+76. [ ] Summary: highest-value items (no contested flags shown)
+77. [ ] Authorise the whole batch with one confirmed total
+78. [ ] Open any claim read-only from the summary
+79. [ ] Forward only: no send-back
+80. [ ] No Duplicates page
+
+### Finance
+81. [ ] Pay-only screen: selected total, vouchers
+82. [ ] Voucher numbers generated on request
+83. [ ] Bank payment file export (CSV)
+84. [ ] Void moves to super admin only
+85. [ ] No Duplicates page
+86. [ ] Monthly paid summary
+87. [ ] Printable payment register
+88. [ ] Payment date defaults to today, changeable
+
+### Head of department
+89. [ ] Assign tasks to staff, with status
+90. [ ] Paper targets with deadlines per person
+91. [ ] Co-author pairing from suggestions
+92. [ ] Department research areas / vision statement
+93. [ ] Department ticket tracker (no money)
+94. [ ] Nudge staff who have filed nothing (in-app notification)
+95. [ ] Export the department report
+
+### Super admin
+96. [ ] Full ticket timeline: every step, every actor
+97. [ ] "View as" another account, with a banner
+98. [ ] SCImago online sync button
+99. [ ] Export one faculty member's record
+100. [ ] Demo seed with every role and a ticket at every stage, for training

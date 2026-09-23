@@ -1854,8 +1854,9 @@ class PaymentLifecycleTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.DIRECTOR_APPROVED)
 
-    def test_clear_scopus_down_leaves_status_untouched(self):
+    def test_clear_scopus_down_leaves_an_unverified_claim_untouched(self):
         claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-502")
+        Claim.objects.filter(pk=claim.pk).update(snip_source=None, quartile_source=None)
         self.client.force_login(self.admin)
         with patch_api("verify_publication", return_value={"ok": False}):
             r = self.client.post(
@@ -1867,6 +1868,25 @@ class PaymentLifecycleTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
         self.assertEqual(claim.remuneration, 85000.0)
+
+    def test_clear_scopus_down_uses_stored_verified_values(self):
+        """An outage (or no Scopus key) must not stop the office when the
+        claim already carries server-verified values; it is recomputed from
+        them, still guarded by the confirmed amount, and audited."""
+        claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-503")
+        Claim.objects.filter(pk=claim.pk).update(snip_source="SCOPUS", quartile_source="SCIMAGO")
+        claim.refresh_from_db()
+        self.client.force_login(self.admin)
+        with patch_api("verify_publication", return_value={"ok": False}):
+            r = self.client.post(
+                f"/api/claims/{claim.id}/clear",
+                data=json.dumps({"expected_amount": float(claim.remuneration)}),
+                content_type="application/json",
+            )
+        claim.refresh_from_db()
+        self.assertIn(r.status_code, (200, 409), r.content)
+        self.assertTrue(AuditLog.objects.filter(
+            action="CLAIM_RECALC_STORED_VALUES", entity_id=claim.id).exists())
 
     def test_mark_paid_does_not_depend_on_scopus(self):
         """Payment recomputes from stored verified values, so an outage cannot

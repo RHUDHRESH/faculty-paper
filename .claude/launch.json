@@ -3,49 +3,21 @@
   "configurations": [
     {
       "name": "backend",
-      "runtimeExecutable": "C:\\Users\\SEC\\publication software\\.venv\\Scripts\\python.exe",
-      "runtimeArgs": [
-        "backend\\manage.py",
-        "runserver",
-        "127.0.0.1:8000",
-        "--noreload"
-      ],
-      "port": 8000
+      "runtimeExecutable": ".venv\Scripts\python.exe",
+      "runtimeArgs": ["backend\manage.py", "runserver", "127.0.0.1:8000", "--noreload"],
+      "port": 8000,
+      "env": { "DJANGO_USE_SQLITE": "true", "DJANGO_DEBUG": "true" }
     },
     {
       "name": "frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--prefix",
-        "frontend"
-      ],
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
       "port": 5173
-    },
-    {
-      "name": "frontend-against-prod",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--prefix",
-        "frontend"
-      ],
-      "port": 5173,
-      "env": {
-        "VITE_PROXY_TARGET": "https://faculty-paper-api-635082195334.asia-south1.run.app"
-      }
     },
     {
       "name": "frontend2",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--prefix",
-        "frontend2"
-      ],
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend2"],
       "port": 5174
     }
   ]

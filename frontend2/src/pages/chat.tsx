@@ -23,7 +23,7 @@ import { Avatar, PersonLink, type PersonBrief } from "@/ui/person"
 import { ErrorState, InlineError, SkeletonRows } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
-import { Tooltip } from "@/ui/tooltip"
+import { Tooltip, TooltipProvider } from "@/ui/tooltip"
 import { Ago } from "@/ui/when"
 
 /**
@@ -90,7 +90,13 @@ export type InboxRow = {
   is_group: boolean
   title: string
   people: PersonBrief[]
-  last: { body: string; author_id: string | null; mine: boolean; kind: string; at: string } | null
+  last: {
+    body: string
+    author_id: string | null
+    mine: boolean
+    kind: string
+    at: string
+  } | null
   unread: number
   updated_at: string
 }
@@ -124,10 +130,11 @@ export function OpenChat({ to, refPost }: { to: string; refPost?: string | null 
     started.current = true
     api<Conversation>(`/api/dm/with/${to}`, { method: "POST" })
       .then((c) => {
-        const draft = refPost
-          ? `About your post: ${window.location.origin}/discussions/p/${refPost}\n\n`
-          : undefined
-        navigate(`/messages/c/${c.id}`, { replace: true, state: draft ? { draft } : undefined })
+        const draft = refPost ? `About your post: ${window.location.origin}/discussions/p/${refPost}\n\n` : undefined
+        navigate(`/messages/c/${c.id}`, {
+          replace: true,
+          state: draft ? { draft } : undefined,
+        })
       })
       .catch((err: ApiError) => setFailed(err.message))
   }, [to, refPost, navigate])
@@ -154,7 +161,11 @@ export function NewChat({ onClose, initial = [] }: { onClose: () => void; initia
     mutationFn: () =>
       api<Conversation>("/api/dm", {
         method: "POST",
-        json: { participant_ids: people.map((p) => p.id), title: title.trim() || null, body: body.trim() || null },
+        json: {
+          participant_ids: people.map((p) => p.id),
+          title: title.trim() || null,
+          body: body.trim() || null,
+        },
       }),
     onSuccess: (c) => {
       onClose()
@@ -177,11 +188,22 @@ export function NewChat({ onClose, initial = [] }: { onClose: () => void; initia
           </Field>
           {group && (
             <Field label="Group name (optional)">
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Seminar planning" maxLength={120} />
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Seminar planning"
+                maxLength={120}
+              />
             </Field>
           )}
           <Field label="Message">
-            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} maxRows={8} placeholder="Write your message" />
+            <Textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={3}
+              maxRows={8}
+              placeholder="Write your message"
+            />
           </Field>
           {start.error && <InlineError message={start.error.message} />}
         </DialogBody>
@@ -246,13 +268,24 @@ export function ChatPage() {
   }, [])
 
   const send = useMutation<Message, ApiError, { body: string; temp: Message }>({
-    mutationFn: ({ body }) => api<Message>(`/api/dm/${id}/messages`, { method: "POST", json: { body } }),
+    mutationFn: ({ body }) =>
+      api<Message>(`/api/dm/${id}/messages`, {
+        method: "POST",
+        json: { body },
+      }),
     onMutate: ({ temp }) => {
-      qc.setQueryData<Conversation>(["dm", "conversation", id], (c) => (c ? { ...c, messages: [...c.messages, temp] } : c))
+      qc.setQueryData<Conversation>(["dm", "conversation", id], (c) =>
+        c ? { ...c, messages: [...c.messages, temp] } : c
+      )
     },
     onSuccess: (real, { temp }) => {
       qc.setQueryData<Conversation>(["dm", "conversation", id], (c) =>
-        c ? { ...c, messages: c.messages.map((m) => (m.id === temp.id ? real : m)) } : c
+        c
+          ? {
+              ...c,
+              messages: c.messages.map((m) => (m.id === temp.id ? real : m)),
+            }
+          : c
       )
     },
     onError: (_err, { temp }) => {
@@ -283,7 +316,12 @@ export function ChatPage() {
       body,
       temp: {
         id: `temp-${Date.now()}`,
-        author: { id: me.id, name: me.name, initials: "", photo_url: me.photo_url ?? null },
+        author: {
+          id: me.id,
+          name: me.name,
+          initials: "",
+          photo_url: me.photo_url ?? null,
+        },
         kind: "HUMAN",
         body,
         deleted: false,
@@ -400,20 +438,22 @@ export function ChatPage() {
             submit()
           }}
         >
-          <Tooltip content="Mention a person, paper or journal — or @agent to ask the assistant.">
-            <Button
-              kind="quiet"
-              size="md"
-              type="button"
-              aria-label="Mention a person, paper or journal — or @agent to ask the assistant."
-              onClick={() => {
-                setText((t) => (t && !t.endsWith(" ") ? `${t} @` : `${t}@`))
-                box.current?.focus()
-              }}
-            >
-              <AtSign />
-            </Button>
-          </Tooltip>
+          <TooltipProvider>
+            <Tooltip content="Mention a person, paper or journal — or @agent to ask the assistant.">
+              <Button
+                kind="quiet"
+                size="md"
+                type="button"
+                aria-label="Mention a person, paper or journal — or @agent to ask the assistant."
+                onClick={() => {
+                  setText((t) => (t && !t.endsWith(" ") ? `${t} @` : `${t}@`))
+                  box.current?.focus()
+                }}
+              >
+                <AtSign />
+              </Button>
+            </Tooltip>
+          </TooltipProvider>
           <Textarea
             ref={box}
             value={text}
@@ -479,14 +519,14 @@ function MessageRow({
     <li className={cn("flex gap-2", m.mine ? "justify-end" : "justify-start", m.pending && "opacity-70")}>
       {!m.mine && <Avatar person={m.author} size="sm" className="mt-auto" />}
       <div className={cn("flex max-w-[85%] flex-col gap-1 sm:max-w-[75%]", m.mine && "items-end")}>
-        {group && !m.mine && m.author && (
-          <Meta className="block px-1 text-xs">{m.author.name}</Meta>
-        )}
+        {group && !m.mine && m.author && <Meta className="block px-1 text-xs">{m.author.name}</Meta>}
         {m.body && (
           <div
             className={cn(
               "whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed",
-              m.mine ? "rounded-br-md bg-accent text-accent-fg [&_a]:text-accent-fg" : "rounded-bl-md bg-sunken text-fg",
+              m.mine
+                ? "rounded-br-md bg-accent text-accent-fg [&_a]:text-accent-fg"
+                : "rounded-bl-md bg-sunken text-fg",
               m.failed && "bg-sunken text-fg ring-1 ring-inset ring-critical"
             )}
           >
@@ -524,7 +564,13 @@ function linkify(text: string) {
       )
     }
     return (
-      <a key={i} href={part} target="_blank" rel="noopener noreferrer nofollow" className="text-accent underline underline-offset-4">
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+        className="text-accent underline underline-offset-4"
+      >
         {part}
       </a>
     )
@@ -548,9 +594,14 @@ function CollabCard({ collab, conversationId }: { collab: Collab; conversationId
   const [note, setNote] = useState("")
   const answer = useMutation<Collab, ApiError, { action: "accept" | "decline" | "call"; note?: string }>({
     mutationFn: (body) =>
-      api<Collab>(`/api/collaborations/requests/${collab.id}/respond`, { method: "POST", json: body }),
+      api<Collab>(`/api/collaborations/requests/${collab.id}/respond`, {
+        method: "POST",
+        json: body,
+      }),
     onSuccess: (_c, { action }) => {
-      void qc.invalidateQueries({ queryKey: ["dm", "conversation", conversationId] })
+      void qc.invalidateQueries({
+        queryKey: ["dm", "conversation", conversationId],
+      })
       void qc.invalidateQueries({ queryKey: ["person"] })
       toast.ok(
         action === "accept"
@@ -596,7 +647,12 @@ function CollabCard({ collab, conversationId }: { collab: Collab; conversationId
               aria-label="When could you talk"
               className="min-w-0 flex-1"
             />
-            <Button kind="primary" size="sm" onClick={() => answer.mutate({ action: "call", note })} disabled={answer.isPending}>
+            <Button
+              kind="primary"
+              size="sm"
+              onClick={() => answer.mutate({ action: "call", note })}
+              disabled={answer.isPending}
+            >
               Suggest
             </Button>
             <Button kind="quiet" size="sm" onClick={() => setCalling(false)}>
@@ -605,7 +661,12 @@ function CollabCard({ collab, conversationId }: { collab: Collab; conversationId
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
-            <Button kind="primary" size="sm" onClick={() => answer.mutate({ action: "accept" })} disabled={answer.isPending}>
+            <Button
+              kind="primary"
+              size="sm"
+              onClick={() => answer.mutate({ action: "accept" })}
+              disabled={answer.isPending}
+            >
               <Check />
               Accept
             </Button>
@@ -613,7 +674,12 @@ function CollabCard({ collab, conversationId }: { collab: Collab; conversationId
               <Phone />
               Suggest a call
             </Button>
-            <Button kind="quiet" size="sm" onClick={() => answer.mutate({ action: "decline" })} disabled={answer.isPending}>
+            <Button
+              kind="quiet"
+              size="sm"
+              onClick={() => answer.mutate({ action: "decline" })}
+              disabled={answer.isPending}
+            >
               <X />
               Decline
             </Button>
@@ -634,7 +700,12 @@ export function CollabDialog({ person, onClose }: { person: PersonBrief; onClose
     mutationFn: () =>
       api("/api/collaborations/requests", {
         method: "POST",
-        json: { to_id: person.id, topic: topic.trim(), journal: journal.trim(), message: message.trim() },
+        json: {
+          to_id: person.id,
+          topic: topic.trim(),
+          journal: journal.trim(),
+          message: message.trim(),
+        },
       }),
     onSuccess: (r) => {
       onClose()
@@ -654,10 +725,20 @@ export function CollabDialog({ person, onClose }: { person: PersonBrief; onClose
         </DialogHeader>
         <DialogBody className="space-y-4">
           <Field label="What you would work on">
-            <Input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Thin-film solar cells" maxLength={200} autoFocus />
+            <Input
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="Thin-film solar cells"
+              maxLength={200}
+              autoFocus
+            />
           </Field>
           <Field label="Proposed journal (optional)">
-            <Input value={journal} onChange={(e) => setJournal(e.target.value)} placeholder="Solar Energy Materials and Solar Cells" />
+            <Input
+              value={journal}
+              onChange={(e) => setJournal(e.target.value)}
+              placeholder="Solar Energy Materials and Solar Cells"
+            />
           </Field>
           <Field label="Message">
             <Textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} maxRows={8} />

@@ -109,7 +109,9 @@ export function MessagesPage({ pane }: { pane: Pane }) {
 function InboxPane({ onNew }: { onNew: () => void }) {
   const [q, setQ] = useState("")
   const needle = q.trim().toLowerCase()
-  const inbox = useApi<{ results: InboxRow[] }>(["dm", "inbox"], "/api/dm", { refetchInterval: INBOX_POLL_MS })
+  const inbox = useApi<{ results: InboxRow[] }>(["dm", "inbox"], "/api/dm", {
+    refetchInterval: INBOX_POLL_MS,
+  })
 
   // Searched here rather than on the server: it is your own fifty most recent
   // conversations, already on screen.
@@ -131,7 +133,10 @@ function InboxPane({ onNew }: { onNew: () => void }) {
         </Button>
       </header>
       <div className="relative mx-4 mb-3">
-        <Search className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-fg-subtle"
+          aria-hidden
+        />
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -169,7 +174,12 @@ function InboxPane({ onNew }: { onNew: () => void }) {
                   <Faces people={r.people} />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
-                      <span className={cn("min-w-0 flex-1 truncate text-sm", r.unread > 0 ? "font-semibold" : "font-medium")}>
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 truncate text-sm",
+                          r.unread > 0 ? "font-semibold" : "font-medium"
+                        )}
+                      >
                         {r.is_group ? "Group: " : ""}
                         {r.title}
                       </span>
@@ -199,9 +209,7 @@ function InboxPane({ onNew }: { onNew: () => void }) {
 }
 
 function GroupHead({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-[0.04em] text-fg-subtle">{children}</p>
-  )
+  return <p className="px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-[0.04em] text-fg-subtle">{children}</p>
 }
 
 function InboxLink({ to, children }: { to: string; children: React.ReactNode }) {
@@ -211,9 +219,7 @@ function InboxLink({ to, children }: { to: string; children: React.ReactNode }) 
       className={({ isActive }) =>
         cn(
           "flex items-center gap-3 px-4 py-2.5 transition-colors duration-[var(--dur-1)] ease-out",
-          isActive
-            ? "bg-[var(--area-people-wash)] shadow-[inset_3px_0_0_var(--area-people)]"
-            : "hover:bg-hover"
+          isActive ? "bg-[var(--area-people-wash)] shadow-[inset_3px_0_0_var(--area-people)]" : "hover:bg-hover"
         )
       }
     >
@@ -235,7 +241,11 @@ function Unread({ n }: { n: number }) {
 function OfficeAvatar({ size = "md" }: { size?: "md" | "lg" }) {
   return (
     <span
-      className={cn("grid shrink-0 place-items-center rounded-full", OFFICE_NAVY, size === "lg" ? "size-12" : "size-10")}
+      className={cn(
+        "grid shrink-0 place-items-center rounded-full",
+        OFFICE_NAVY,
+        size === "lg" ? "size-12" : "size-10"
+      )}
       aria-hidden
     >
       <Building2 className={size === "lg" ? "size-6" : "size-5"} />
@@ -283,7 +293,13 @@ function OfficeRow() {
 /* ------------------------------------------------------------------------ */
 
 type Collaborators = {
-  worked_with: { id: string; name: string; department: string; designation: string; together: number }[]
+  worked_with: {
+    id: string
+    name: string
+    department: string
+    designation: string
+    together: number
+  }[]
 }
 
 function StartPane({ onNew }: { onNew: () => void }) {
@@ -304,7 +320,9 @@ function StartPane({ onNew }: { onNew: () => void }) {
       </Button>
       {worked.length > 0 && (
         <div className="w-full max-w-md text-left">
-          <p className="mb-2 text-xs font-medium uppercase tracking-[0.04em] text-fg-subtle">People you've written with</p>
+          <p className="mb-2 text-xs font-medium uppercase tracking-[0.04em] text-fg-subtle">
+            People you've written with
+          </p>
           <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
             {worked.map((p) => (
               <li key={p.id} className="flex items-center gap-3 px-3 py-2.5">

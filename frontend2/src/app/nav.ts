@@ -223,6 +223,13 @@ export const NAV: NavItem[] = [
     keywords: ["people", "profiles", "faculty", "directory", "follow", "find someone"],
   },
   {
+    to: "/network",
+    label: "College network",
+    icon: Share2,
+    group: "Research",
+    keywords: ["graph", "co-authors", "collaborations", "who works with whom", "network"],
+  },
+  {
     to: "/calendar",
     label: "Calendar",
     icon: Calendar,

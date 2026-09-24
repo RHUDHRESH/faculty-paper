@@ -12,6 +12,7 @@ import { Button } from "@/ui/button"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { useTheme, type ThemeChoice } from "@/app/theme"
 import { NotificationBell } from "@/app/notifications"
+import { useUnreadMessages } from "@/app/unread"
 import { cn } from "@/lib/cn"
 import { api, forgetCsrf } from "@/lib/api"
 import { toast } from "@/ui/toast"
@@ -180,7 +181,12 @@ export function Shell({
     HOME_DATA.stageCounts.path,
     { enabled: !!me, refetchInterval: 60_000 }
   )
-  const badges = navBadges(me?.role, stageCounts.data?.counts)
+  // Conversations with a message not yet read sit on Messages, for everybody.
+  const unread = useUnreadMessages()
+  const badges: Record<string, number> = {
+    ...navBadges(me?.role, stageCounts.data?.counts),
+    ...(unread.data?.conversations ? { "/messages": unread.data.conversations } : {}),
+  }
 
   return (
     <RadixDialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -249,7 +255,8 @@ export function Shell({
                   >
                     <Icon className="size-4 shrink-0" />
                     {!collapsed && <span className="truncate">{item.label}</span>}
-                    <NavBadge n={badges[item.to]} compact={collapsed} />
+                    <NavBadge n={badges[item.to]} compact={collapsed} label={badgeLabel(item.to, badges[item.to])} />
+
                   </NavLink>
                 </Fragment>
               )
@@ -354,7 +361,7 @@ export function Shell({
                   >
                     <Icon className="size-4" />
                     {item.label}
-                    <NavBadge n={badges[item.to]} />
+                    <NavBadge n={badges[item.to]} label={badgeLabel(item.to, badges[item.to])} />
                   </NavLink>
                 )
               })}
@@ -369,11 +376,18 @@ export function Shell({
   )
 }
 
-/** How many are waiting at this entry's desk. A dot when the sidebar is
- *  collapsed; nothing at all for an empty queue. */
-function NavBadge({ n, compact = false }: { n: number | undefined; compact?: boolean }) {
+/** What a badge says aloud: work waiting at a desk, or conversations with news. */
+function badgeLabel(to: string, n: number | undefined): string | undefined {
+  if (!n || to !== "/messages") return undefined
+  return `${n} conversation${n === 1 ? "" : "s"} with new messages`
+}
+
+/** How many are waiting at this entry's desk (or, on Messages, how many
+ *  conversations have news). A dot when the sidebar is collapsed; nothing at
+ *  all for an empty queue. */
+function NavBadge({ n, compact = false, label: said }: { n: number | undefined; compact?: boolean; label?: string }) {
   if (!n) return null
-  const label = `${n} waiting`
+  const label = said ?? `${n} waiting`
   if (compact) {
     return (
       <span

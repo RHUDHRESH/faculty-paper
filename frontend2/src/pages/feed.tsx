@@ -7,12 +7,15 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query"
+import { patchPost, prependPost } from "@/pages/feed-cache"
+import { ForYouList } from "@/pages/for-you"
+import { FollowedFilters, FollowTopicButton } from "@/pages/follow-topics"
+import { ReactionBar, type ReactionKind } from "@/pages/reactions"
 import {
   ArrowLeft,
   EyeOff,
   FileText,
   Flag,
-  Heart,
   ImagePlus,
   Link2,
   Mail,
@@ -99,12 +102,18 @@ export type FeedPost = {
     publication_year: number | null
     quartile: string | null
     doi: string | null
+    /** Colleagues here who filed the same paper, linked from the card. */
+    coauthors?: { id: string; name: string }[]
   } | null
   attachment: { url: string; kind: "image" | "file"; name: string | null; size: number | null } | null
   created_at: string
   edited_at: string | null
   like_count: number
   liked: boolean
+  /** Count of each kind (`ui/reactions.tsx`). Absent from a post drawn
+   *  before the server answered; the bar falls back to `like_count`. */
+  reactions?: Record<ReactionKind, number>
+  my_reactions?: ReactionKind[]
   comment_count: number
   comments_preview: FeedComment[]
   comments?: FeedComment[]
@@ -136,7 +145,10 @@ type PaperOption = {
   quartile: string | null
 }
 
-type Tab = "everyone" | "following" | "department" | "reported"
+type Tab = "everyone" | "for-you" | "following" | "department" | "reported"
+
+/** A filter to one subject area or journal (`?topic=` / `?journal=`). */
+export type About = { topic?: string | null; journal?: string | null }
 
 /** What `@` offers in the feed: the feed notifies people and names
  *  departments and journals. It does not resolve ticket numbers or answer
@@ -152,21 +164,26 @@ const POLL_MS = 60_000
 const MAX_BYTES = 10 * 1024 * 1024
 
 function readTab(value: string | null): Tab {
-  return value === "following" || value === "department" || value === "reported" ? value : "everyone"
+  return value === "following" || value === "department" || value === "reported" || value === "for-you"
+    ? value
+    : "everyone"
 }
 
-function feedPath(tab: string, cursor: string | null, author?: string): string {
+function feedPath(tab: string, cursor: string | null, author?: string, about?: About): string {
   const query = new URLSearchParams({ tab, limit: "20" })
   if (cursor) query.set("cursor", cursor)
   if (author) query.set("author", author)
+  if (about?.topic) query.set("topic", about.topic)
+  if (about?.journal) query.set("journal", about.journal)
   return `/api/feed?${query.toString()}`
 }
 
-/** The feed, or one author's posts. `author` is how a profile lists more. */
-export function useFeed(tab: Exclude<Tab, "reported">, author?: string) {
+/** The feed, or one author's posts. `author` is how a profile lists more;
+ *  `about` narrows it to one followed subject area or journal. */
+export function useFeed(tab: Exclude<Tab, "reported" | "for-you">, author?: string, about?: About) {
   return useInfiniteQuery<FeedPage, ApiError, InfiniteData<FeedPage>, readonly unknown[], string | null>({
-    queryKey: ["feed", tab, author ?? null],
-    queryFn: ({ pageParam }) => api<FeedPage>(feedPath(tab, pageParam, author)),
+    queryKey: ["feed", tab, author ?? null, about?.topic ?? null, about?.journal ?? null],
+    queryFn: ({ pageParam }) => api<FeedPage>(feedPath(tab, pageParam, author, about)),
     initialPageParam: null,
     getNextPageParam: (last) => last.next,
     refetchInterval: POLL_MS,
@@ -177,37 +194,10 @@ export function useFeed(tab: Exclude<Tab, "reported">, author?: string) {
 /* One change, everywhere the post is on screen                              */
 /* ------------------------------------------------------------------------ */
 
-/**
- * Apply `fn` to a post in every cache that holds it: each feed tab, the
- * post's own page, and the profile it appears on. Return null to remove it.
- *
- * Without this a like made on the Everyone tab is gone again on the post's
- * own page until it refetches, which reads as the like not having worked.
- */
-function patchPost(qc: QueryClient, id: string, fn: (p: FeedPost) => FeedPost | null) {
-  const apply = (list: FeedPost[]) => list.flatMap((p) => (p.id === id ? (fn(p) ?? []) : [p]))
-  qc.setQueriesData<InfiniteData<FeedPage>>({ queryKey: ["feed"] }, (data) =>
-    data && Array.isArray(data.pages)
-      ? { ...data, pages: data.pages.map((page) => ({ ...page, results: apply(page.results) })) }
-      : data
-  )
-  qc.setQueriesData<FeedPost>({ queryKey: ["feed-post", id] }, (p) => (p ? (fn(p) ?? p) : p))
-  qc.setQueriesData<{ posts?: FeedPost[] }>({ queryKey: ["person"] }, (d) =>
-    d && Array.isArray(d.posts) ? { ...d, posts: apply(d.posts) } : d
-  )
-}
+// `patchPost` and `prependPost` live in `feed-cache.ts`, so the reaction bar
+// and "For you" can patch the same caches without importing this page.
 
-function prependPost(qc: QueryClient, post: FeedPost, keys: readonly (readonly unknown[])[]) {
-  for (const key of keys) {
-    qc.setQueryData<InfiniteData<FeedPage>>(key, (data) => {
-      if (!data || data.pages.length === 0) return data
-      const [first, ...rest] = data.pages
-      return { ...data, pages: [{ ...first, results: [post, ...first.results] }, ...rest] }
-    })
-  }
-}
-
-function meAsAuthor(me: Me | null): PersonBrief | null {
+export function meAsAuthor(me: Me | null): PersonBrief | null {
   if (!me) return null
   return {
     id: me.id,
@@ -244,8 +234,12 @@ export function Feed() {
     refetchInterval: POLL_MS,
   })
 
+  const about: About = { topic: params.get("topic"), journal: params.get("journal") }
+  const share = params.get("share")
+
   const tabs: { key: Tab; label: string }[] = [
     { key: "everyone", label: "Everyone" },
+    { key: "for-you", label: "For you" },
     { key: "following", label: "Following" },
     ...(me?.department ? [{ key: "department" as Tab, label: "My department" }] : []),
     ...(moderator
@@ -289,7 +283,20 @@ export function Feed() {
         </div>
       </header>
 
-      {tab !== "reported" && <PostComposer tab={tab} textareaRef={composerRef} />}
+      {tab !== "reported" && (
+        <PostComposer
+          tab={tab === "for-you" ? "everyone" : tab}
+          textareaRef={composerRef}
+          shareId={share}
+          onShared={() =>
+            setParams((prev) => {
+              const next = new URLSearchParams(prev)
+              next.delete("share")
+              return next
+            })
+          }
+        />
+      )}
 
       <div
         role="tablist"
@@ -321,10 +328,14 @@ export function Feed() {
         ))}
       </div>
 
+      {tab !== "reported" && tab !== "for-you" && <FollowedFilters about={about} />}
+
       {tab === "reported" ? (
         <ReportsQueue query={reports} />
+      ) : tab === "for-you" ? (
+        <ForYouList />
       ) : (
-        <FeedList tab={tab} onWrite={focusComposer} department={me?.department ?? null} />
+        <FeedList tab={tab} onWrite={focusComposer} department={me?.department ?? null} about={about} />
       )}
     </div>
   )
@@ -334,13 +345,16 @@ function FeedList({
   tab,
   onWrite,
   department,
+  about,
 }: {
-  tab: Exclude<Tab, "reported">
+  tab: Exclude<Tab, "reported" | "for-you">
   onWrite: () => void
   department: string | null
+  about: About
 }) {
-  const feed = useFeed(tab)
+  const feed = useFeed(tab, undefined, about)
   const posts = feed.data?.pages.flatMap((p) => p.results) ?? []
+  const filtered = about.topic || about.journal
 
   if (feed.isPending) return <SkeletonRows rows={4} rowHeight={120} />
   if (feed.isError) {
@@ -354,12 +368,22 @@ function FeedList({
   }
 
   if (posts.length === 0) {
+    if (filtered) {
+      return (
+        <EmptyState
+          icon={MessageCircle}
+          title={`Nothing about ${about.topic || about.journal} yet`}
+          message="Posts about papers in it, or that name it, gather here. Follow it and they reach your Following tab too."
+          action={<FollowTopicButton topic={about.topic} journal={about.journal} />}
+        />
+      )
+    }
     if (tab === "following") {
       return (
         <EmptyState
           icon={Users}
-          title="Nobody you follow has posted yet"
-          message="Follow colleagues and departments from their profiles, and what they post gathers here."
+          title="Nothing from what you follow yet"
+          message="Follow colleagues and departments from their profiles, and subject areas and journals from here, and what they post gathers in this tab."
           action={
             <Button kind="primary" size="sm" asChild>
               <Link to="/u">Find people to follow</Link>
@@ -421,12 +445,24 @@ function FeedList({
  * out of the feed and the words go back into the box — a failed post must
  * never cost somebody what they typed.
  */
+/** What `/api/feed/share/{id}` answers: a paper of yours, ready to post about. */
+type ShareDraft = {
+  paper: NonNullable<FeedPost["paper"]>
+  body: string
+  mention_ids: string[]
+}
+
 function PostComposer({
   tab,
   textareaRef,
+  shareId,
+  onShared,
 }: {
-  tab: Exclude<Tab, "reported">
+  tab: Exclude<Tab, "reported" | "for-you">
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
+  /** `?share=<paper id>`: "Share to the feed" from a paper or a notification. */
+  shareId?: string | null
+  onShared?: () => void
 }) {
   const { me } = useAuth()
   const qc = useQueryClient()
@@ -437,13 +473,41 @@ function PostComposer({
   const [preview, setPreview] = useState<string | null>(null)
   const [linkOpen, setLinkOpen] = useState(false)
   const [link, setLink] = useState("")
-  const [paper, setPaper] = useState<PaperOption | null>(null)
+  const [paper, setPaper] = useState<(PaperOption & { coauthors?: { id: string; name: string }[] }) | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
   const papers = useApi<{ results: PaperOption[] }>(["feed-my-papers"], "/api/feed/my-papers", {
     staleTime: 5 * 60_000,
   })
+
+  // One tap from a paper: the card attached, the words written, the co-authors
+  // named -- and all of it still editable before anything is posted.
+  const draft = useApi<ShareDraft>(["feed-share", shareId], `/api/feed/share/${shareId}`, {
+    enabled: !!shareId,
+    staleTime: Infinity,
+  })
+  const drafted = useRef<string | null>(null)
+  useEffect(() => {
+    if (!shareId || !draft.data || drafted.current === shareId) return
+    drafted.current = shareId
+    const d = draft.data
+    setText(d.body)
+    setPaper(d.paper)
+    setPicked(
+      d.paper.coauthors
+        ?.filter((c) => d.mention_ids.includes(c.id))
+        .map((c) => ({ kind: "USER", id: c.id, label: c.name, hint: null })) ?? []
+    )
+    textareaRef.current?.focus()
+    textareaRef.current?.scrollIntoView({ block: "center" })
+  }, [shareId, draft.data, textareaRef])
+  useEffect(() => {
+    if (shareId && draft.isError) {
+      toast.fail(new Error("That paper cannot be shared from here — only your own filed papers can."))
+      onShared?.()
+    }
+  }, [shareId, draft.isError, onShared])
 
   useEffect(() => {
     if (!file || !file.type.startsWith("image/")) {
@@ -464,7 +528,7 @@ function PostComposer({
     onMutate: ({ temp }) => {
       // Everyone, and the tab being looked at -- once, when they are the same.
       const tabs = tab === "everyone" ? ["everyone"] : ["everyone", tab]
-      prependPost(qc, temp, tabs.map((t) => ["feed", t, null]))
+      prependPost(qc, temp, tabs.map((t) => ["feed", t, null, null, null]))
       const draft = { text, picked, visibility, file, link, linkOpen, paper }
       return {
         restore: () => {
@@ -529,6 +593,7 @@ function PostComposer({
       pending: true,
     }
     create.mutate({ form, temp })
+    if (shareId) onShared?.()
     setText("")
     setPicked([])
     setFile(null)
@@ -749,18 +814,7 @@ export function PostCard({ post, open = false }: { post: FeedPost; open?: boolea
   const [reporting, setReporting] = useState(false)
   const [hiding, setHiding] = useState(false)
 
-  const like = useMutation<{ liked: boolean; like_count: number }, ApiError, boolean>({
-    mutationFn: (next) => api(`/api/feed/posts/${post.id}/like`, { method: next ? "POST" : "DELETE" }),
-    onMutate: (next) => {
-      patchPost(qc, post.id, (p) => ({ ...p, liked: next, like_count: Math.max(0, p.like_count + (next ? 1 : -1)) }))
-    },
-    onSuccess: (r) => patchPost(qc, post.id, (p) => ({ ...p, liked: r.liked, like_count: r.like_count })),
-    onError: (err, next) => {
-      patchPost(qc, post.id, (p) => ({ ...p, liked: !next, like_count: Math.max(0, p.like_count + (next ? -1 : 1)) }))
-      toast.fail(err)
-    },
-  })
-
+  const { me } = useAuth()
   const remove = useMutation<unknown, ApiError, void>({
     mutationFn: () => api(`/api/feed/posts/${post.id}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -847,25 +901,12 @@ export function PostCard({ post, open = false }: { post: FeedPost; open?: boolea
       {post.paper && <PaperCard paper={post.paper} />}
       {post.attachment && <Attachment attachment={post.attachment} />}
 
-      <div className="flex items-center gap-1 border-t border-line pt-2">
-        <Button
-          kind="quiet"
-          size="sm"
-          aria-pressed={post.liked}
-          disabled={pending}
-          onClick={() => like.mutate(!post.liked)}
-          className={cn(post.liked && "text-accent hover:text-accent")}
-        >
-          <Heart className={cn(post.liked && "fill-current")} />
-          Like
-          {post.like_count > 0 && <span className="tabular">{post.like_count}</span>}
-        </Button>
-        <Button kind="quiet" size="sm" disabled={pending} onClick={() => setCommenting(true)}>
-          <MessageCircle />
-          Comment
-          {post.comment_count > 0 && <span className="tabular">{post.comment_count}</span>}
-        </Button>
-      </div>
+      <ReactionBar
+        post={post}
+        isMine={!!me && post.author?.id === me.id}
+        disabled={pending}
+        onComment={() => setCommenting(true)}
+      />
 
       {!pending && (
         <Comments post={post} showAll={showAll} onShowAll={() => setShowAll(true)} composing={commenting} />
@@ -999,8 +1040,10 @@ function LinkCard({ url }: { url: string }) {
   )
 }
 
-/** A paper the author filed, by what it is — never by what it paid. */
-function PaperCard({ paper }: { paper: NonNullable<FeedPost["paper"]> }) {
+/** A paper the author filed, by what it is — never by what it paid — with the
+ *  colleagues here who wrote it with them, each one a link. */
+export function PaperCard({ paper }: { paper: NonNullable<FeedPost["paper"]> }) {
+  const coauthors = paper.coauthors ?? []
   return (
     <div className="flex items-start gap-3 rounded-md bg-sunken px-3 py-2.5">
       <FileText className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden />
@@ -1009,6 +1052,17 @@ function PaperCard({ paper }: { paper: NonNullable<FeedPost["paper"]> }) {
         <Meta className="block text-xs">
           {[paper.journal_title, paper.publication_year, paper.quartile].filter(Boolean).join(" · ")}
         </Meta>
+        {coauthors.length > 0 && (
+          <Meta className="block text-xs">
+            With{" "}
+            {coauthors.map((c, i) => (
+              <span key={c.id}>
+                {i > 0 ? (i === coauthors.length - 1 ? " and " : ", ") : ""}
+                <PersonLink id={c.id} name={c.name} className="font-normal text-fg-muted" />
+              </span>
+            ))}
+          </Meta>
+        )}
         {paper.doi && (
           <a
             href={`https://doi.org/${paper.doi}`}

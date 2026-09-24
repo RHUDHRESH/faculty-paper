@@ -312,6 +312,8 @@ def get_thread(request: HttpRequest, thread_id: str):
     if subscription:
         subscription.last_read_at = timezone.now()
         subscription.save(update_fields=["last_read_at"])
+    # A direct thread read here is read in Messages too (`api/dm.py`).
+    ThreadParticipant.objects.filter(thread=thread, user=user).update(last_read_at=timezone.now())
 
     return {
         **_thread_dict(thread, user),

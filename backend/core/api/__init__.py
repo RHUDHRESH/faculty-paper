@@ -50,3 +50,6 @@ from core.api.paper_lookup import *  # noqa: F401,F403
 from core.api.leaderboard import *  # noqa: F401,F403
 from core.api.suggestions import *  # noqa: F401,F403
 from core.api.rewards import *  # noqa: F401,F403
+from core.api.social_plus import *  # noqa: F401,F403
+from core.api.dm import *  # noqa: F401,F403
+from core.api.for_you import *  # noqa: F401,F403

@@ -370,6 +370,14 @@ export function PaperDetail() {
               <Link to={`/papers/new?copy=${claim.id}`}>File another in this journal</Link>
             </Button>
           )}
+          {isOwner && claim.status !== "DRAFT" && claim.status !== "REJECTED" && (
+            // One tap to tell colleagues: the post opens with the paper card,
+            // the words and the co-authors already in, all still editable.
+            // The card says what the paper is -- never what it paid.
+            <Button kind="default" className="shrink-0 print:hidden" asChild>
+              <Link to={`/discussions?share=${claim.id}`}>Share to the feed</Link>
+            </Button>
+          )}
           {isOwner && claim.status === "PAID" && (
             // The ticket page is the payment advice: amount, how it was worked
             // out, voucher and date. Printing it prints just the page.

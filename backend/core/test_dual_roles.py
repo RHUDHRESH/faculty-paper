@@ -597,6 +597,35 @@ class SecondSignaturesAndRescuesTests(DualRoleBase):
                        {"note": "Paid against the wrong voucher"})
         self.assertEqual(r.status_code, 200, r.content)
 
+    def test_the_super_admin_stands_in_at_no_desk_on_their_own_paper(self):
+        # The super admin stands in at every desk -- but a paper of their own
+        # (one they owned before the role was theirs) is decided by the desk
+        # itself, never by the account that can reach every desk.
+        cases = [
+            (ClaimStatus.SUBMITTED, "clear", {}),
+            (ClaimStatus.SUBMITTED, "reject", {"note": REASON}),
+            (ClaimStatus.SUBMITTED, "hold", {"reason": REASON}),
+            (ClaimStatus.CLEARED, "principal-approve", {}),
+            (ClaimStatus.CLEARED, "principal-reject", {"note": REASON}),
+            (ClaimStatus.PRINCIPAL_APPROVED, "director-approve", {}),
+            (ClaimStatus.PRINCIPAL_APPROVED, "director-reject", {"note": REASON}),
+            (ClaimStatus.DIRECTOR_APPROVED, "mark-paid", {}),
+        ]
+        for n, (status, verb, body) in enumerate(cases):
+            paper = self._own(self.admin, status, ticket=f"DR-SA-{n}")
+            payload = {"expected_amount": paper.remuneration, **body}
+            self.assertRefusedAsOwn(
+                self._post(self.admin, f"/api/claims/{paper.id}/{verb}", payload), verb
+            )
+            self.assertUnmoved(paper, status)
+        self.assertRefusedAsOwn(
+            self._post(
+                self.admin, f"/api/admin/claims/{paper.id}/override-status",
+                {"to_status": ClaimStatus.CLEARED, "note": "Pushing my own paper through"},
+            ),
+            "override-status",
+        )
+
     def test_nobody_flags_their_own_paper_or_answers_a_flag_on_it(self):
         paper = self._own(self.cell, ClaimStatus.SUBMITTED, ticket="DR-FL")
         flag = ClaimFlag.objects.create(

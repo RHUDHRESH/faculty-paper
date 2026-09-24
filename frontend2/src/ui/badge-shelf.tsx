@@ -116,7 +116,7 @@ export function BadgeShelf({
           a first paper, a first Q1, a paper led as first author, and more.
         </p>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {badges.map((b) => (
             <BadgeTile key={b.id} badge={b} />
           ))}

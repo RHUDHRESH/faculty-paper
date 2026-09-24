@@ -144,7 +144,7 @@ export function WallOfFame() {
       {query.isError ? (
         <InlineError message="Could not load the wall." onRetry={() => void query.refetch()} />
       ) : query.isLoading || !data ? (
-        <div className="grid gap-4 md:grid-cols-2" aria-busy="true">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2" aria-busy="true">
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-36 rounded-lg" />
           ))}
@@ -211,9 +211,12 @@ function Board({ data, canPin }: { data: WallPayload; canPin: boolean }) {
       <p className="text-sm text-fg-muted">
         {data.cards.length} paper{data.cards.length === 1 ? "" : "s"} in {monthName(data.month)}
       </p>
-      <ul className="grid gap-4 md:grid-cols-2">
+      {/* grid-cols-1 rather than the implicit column: an implicit track sizes
+          to max-content, and a long journal name on one line then pushes the
+          whole list off a phone screen. */}
+      <ul className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {rest.map((card) => (
-          <li key={card.key} className="panel flex flex-col p-4 sm:p-5">
+          <li key={card.key} className="panel flex min-w-0 flex-col p-4 sm:p-5">
             <CardBody card={card} />
             {canPin && (
               <Button
@@ -249,8 +252,10 @@ function CardBody({ card, lead = false }: { card: WallCard; lead?: boolean }) {
             {card.quartile}
           </span>
         )}
-        <span className="min-w-0 truncate">{card.journal || "Journal not recorded"}</span>
-        {card.year && <span className="tabular">· {card.year}</span>}
+        {/* The year before the journal: a long journal name truncates, and
+            anything after it would wrap onto a line of its own. */}
+        {card.year && <span className="tabular">{card.year} ·</span>}
+        <span className="min-w-0 flex-1 truncate">{card.journal || "Journal not recorded"}</span>
       </p>
       <Meta className="mt-2 block">
         {card.authors.map((a, i) => (

@@ -283,6 +283,39 @@ class BadgeRuleTests(TestCase):
         self.award()
         self.assertFalse(any(k.startswith("QUOTA_MET") for k in _kinds(regular)))
 
+    def test_a_quota_is_judged_only_for_the_year_it_is_known_for(self):
+        """Only today's quota is on record, so an earlier year is not judged
+        against it -- the quota that year may have been different."""
+        self.asha.faculty_type = "RESEARCH"
+        self.asha.research_quota = 1
+        self.asha.save()
+        _claim(self.asha, "Last year's paper", year=TODAY.year - 1)
+        self.award()
+        self.assertFalse(any(k.startswith("QUOTA_MET") for k in _kinds(self.asha)))
+
+    def test_raising_the_quota_later_does_not_take_a_met_quota_away(self):
+        self.asha.faculty_type = "RESEARCH"
+        self.asha.research_quota = 1
+        self.asha.save()
+        _claim(self.asha, "This year's paper", year=TODAY.year)
+        self.award()
+        self.assertIn(f"QUOTA_MET:{TODAY.year}", _kinds(self.asha))
+
+        self.asha.research_quota = 4
+        self.asha.save()
+        self.award()
+        self.assertIn(f"QUOTA_MET:{TODAY.year}", _kinds(self.asha), "it was met; it stays met")
+
+    def test_a_streak_badge_is_dated_by_the_first_streak_not_the_latest(self):
+        for month in (date(2023, 2, 1), date(2023, 8, 1), date(2024, 2, 1)):
+            _ledger(self.asha, f"Early {month}", month=month)
+        # A gap semester (H2 2024), then a second run of three.
+        for month in (date(2025, 2, 1), date(2025, 8, 1), date(2026, 2, 1)):
+            _ledger(self.asha, f"Late {month}", month=month)
+        self.award()
+        badge = Badge.objects.get(user=self.asha, key="STREAK_3")
+        self.assertEqual(badge.earned_on, date(2024, 2, 1))
+
     def _department(self, name, n, prefix):
         return [
             _person(f"{prefix}{i}@t.edu", f"{prefix} {i}", name, staff_id=f"{prefix}{i}")
@@ -639,6 +672,13 @@ class GoalApiTests(_Api):
         self.assertEqual(goals["Q1"]["done"], 1)
         self.assertTrue(goals["Q1"]["met"])
 
+    def test_goals_come_back_in_the_metrics_own_order_not_alphabetically(self):
+        self.put_goals(self.asha, [{"metric": "FIRST_AUTHOR", "target": 1},
+                                   {"metric": "Q1", "target": 1},
+                                   {"metric": "PAPERS", "target": 4}])
+        goals = self.as_(self.asha).get("/api/me/goals").json()["goals"]
+        self.assertEqual([g["metric"] for g in goals], ["PAPERS", "Q1", "FIRST_AUTHOR"])
+
     def test_a_zero_target_removes_the_goal(self):
         self.put_goals(self.asha, [{"metric": "PAPERS", "target": 4}])
         self.put_goals(self.asha, [{"metric": "PAPERS", "target": 0}])
@@ -740,6 +780,40 @@ class ImpactCardTests(_Api):
         self.assertEqual(self.share(True).json()["token"], token)
         self.assertEqual(Client().get(f"/api/share/impact/{token}").status_code, 200)
 
+    def test_a_shared_link_does_not_recompute_the_card_on_every_hit(self):
+        from core.api import rewards
+        from core.services import impact_card
+
+        token = self.share(True).json()["token"]
+        calls = []
+        original = impact_card.summary
+
+        def counting(user):
+            calls.append(user.id)
+            return original(user)
+
+        impact_card.summary = counting
+        try:
+            for _ in range(3):
+                self.assertEqual(Client().get(f"/api/share/impact/{token}").status_code, 200)
+                self.assertEqual(Client().get(f"/api/share/impact/{token}/card.png").status_code, 200)
+        finally:
+            impact_card.summary = original
+            rewards._forget_shared_summary(self.asha)
+        self.assertEqual(len(calls), 1)
+
+    def test_a_shared_link_is_rate_limited(self):
+        from core.api import rewards
+
+        token = self.share(True).json()["token"]
+        original = rewards.SHARE_HITS_PER_HOUR
+        rewards.SHARE_HITS_PER_HOUR = 2
+        try:
+            codes = [Client().get(f"/api/share/impact/{token}").status_code for _ in range(3)]
+        finally:
+            rewards.SHARE_HITS_PER_HOUR = original
+        self.assertEqual(codes, [200, 200, 429])
+
     def test_the_private_card_needs_a_session(self):
         self.assertEqual(Client().get("/api/me/impact/card.png").status_code, 401)
 
@@ -800,6 +874,18 @@ class WallTests(_Api):
 
     def test_a_paper_not_on_that_wall_cannot_be_pinned(self):
         self.assertEqual(self.pin(self.head, "CSE", "ece paper").status_code, 400)
+
+    def test_a_pin_needs_a_month(self):
+        key = self.wall(self.head, "department=CSE&month=2026-08").json()["cards"][0]["key"]
+        self.assertEqual(self.pin(self.head, "CSE", key, month="").status_code, 400)
+
+    def test_one_pin_per_department_month_whatever_the_case(self):
+        self.head.department = "Cse"
+        self.head.save()
+        key = self.wall(self.head, "department=CSE&month=2026-08").json()["cards"][0]["key"]
+        self.assertEqual(self.pin(self.head, "Cse", key).status_code, 200)
+        self.assertEqual(self.pin(self.admin, "CSE", key).status_code, 200)
+        self.assertEqual(WallPin.objects.count(), 1)
 
     def test_the_principal_pins_the_college_wall(self):
         key = self.wall(self.principal, "month=2026-08").json()["cards"][0]["key"]

@@ -53,7 +53,9 @@ export function GoalRing({ goal, size = 88 }: { goal: Goal; size?: number }) {
           r={r}
           fill="none"
           strokeWidth={stroke}
-          className="stroke-sunken"
+          // The hairline token, not the sunken ground: sunken sits a step
+          // from the page in dark mode, which left an empty ring invisible.
+          className="stroke-line"
         />
         {goal.available && fraction > 0 && (
           <circle

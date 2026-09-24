@@ -78,8 +78,9 @@ TOP_N = 10
 #: Department target thresholds, in per cent.
 THRESHOLDS = (50, 75, 100)
 
-#: Kinds that stay once earned even if the records later say otherwise.
-STICKY_KINDS = frozenset({"TOP10_DEPARTMENT"})
+#: Kinds that stay once earned even if the records later say otherwise: a
+#: ranking reached, and a quota met under the quota of the day.
+STICKY_KINDS = frozenset({"TOP10_DEPARTMENT", "QUOTA_MET"})
 
 #: What each kind is called and what it means, in plain sentence case.
 CATALOGUE: dict[str, tuple[str, str]] = {
@@ -167,7 +168,7 @@ def _semester(d: date) -> int:
     return d.year * 2 + (0 if d.month <= 6 else 1)
 
 
-def _candidates(user: User, recs: list[PaperRecord], ctx: _Context) -> list[Candidate]:
+def _candidates(user: User, recs: list[PaperRecord], ctx: _Context, today: date) -> list[Candidate]:
     if not recs:
         return []
     out: list[Candidate] = [Candidate("FIRST_PAPER", "FIRST_PAPER", recs[0])]
@@ -196,16 +197,16 @@ def _candidates(user: User, recs: list[PaperRecord], ctx: _Context) -> list[Cand
                 break
 
     if user.faculty_type == "RESEARCH" and (user.research_quota or 0) > 0:
-        by_year: dict[int, list[PaperRecord]] = defaultdict(list)
-        for r in recs:
-            if r.year:
-                by_year[r.year].append(r)
-        for year, papers in sorted(by_year.items()):
-            if len(papers) >= user.research_quota:
-                out.append(Candidate(
-                    "QUOTA_MET", f"QUOTA_MET:{year}", papers[user.research_quota - 1],
-                    detail=f"{user.research_quota} papers in {year}",
-                ))
+        # Only the current year: the account holds today's quota and no
+        # history of it, so an earlier year judged against today's number
+        # could be judged against a quota that year never had. Once met, the
+        # badge is sticky -- a quota raised later does not un-meet it.
+        this_year = [r for r in recs if r.year == today.year]
+        if len(this_year) >= user.research_quota:
+            out.append(Candidate(
+                "QUOTA_MET", f"QUOTA_MET:{today.year}", this_year[user.research_quota - 1],
+                detail=f"{user.research_quota} papers in {today.year}",
+            ))
 
     if mine:
         out.extend(_top_ten(user, recs, ctx))
@@ -252,12 +253,16 @@ def _streaks(recs: list[PaperRecord]) -> list[Candidate]:
     for r in sorted(recs, key=lambda r: (r.filed_on, r.title)):
         first_in.setdefault(_semester(r.filed_on), r)
     out: list[Candidate] = []
+    reached: set[int] = set()
     run, previous = 0, None
     for sem in sorted(first_in):
         run = run + 1 if previous is not None and sem == previous + 1 else 1
         previous = sem
         for n in STREAKS:
-            if run == n:
+            # The first time only: a second run of three later on is not a
+            # new badge, and must not re-date the one already earned.
+            if run == n and n not in reached:
+                reached.add(n)
                 out.append(Candidate(f"STREAK_{n}", f"STREAK_{n}", first_in[sem]))
     return out
 
@@ -289,16 +294,21 @@ def award_badges(
     *,
     today: Optional[date] = None,
     news_claim_ids: Iterable[str] = (),
+    context: Optional[Iterable[User]] = None,
+    withdraw: bool = True,
 ) -> AwardResult:
     """Write every badge `users` (everybody when None) have earned and lack.
 
-    The records of the whole college are read either way: whether a paper
-    crossed departments, or where somebody stands in their department, is a
-    question about other people's papers too.
+    Whether a paper crossed departments, or where somebody stands in their
+    department, is a question about other people's papers too, so by default
+    the whole college's records are read. `context` narrows that to the people
+    who can matter -- the quick path after a paper moves -- and a narrowed run
+    must pass `withdraw=False`: a badge whose evidence lies outside the
+    narrowed view would otherwise look unsupported and be taken away.
     """
     today = today or timezone.localdate()
     news = set(news_claim_ids)
-    everybody = list(User.objects.all())
+    everybody = list(User.objects.all()) if context is None else list(context)
     records = paper_records(everybody)
     ctx = _Context.build(records, everybody)
 
@@ -311,16 +321,17 @@ def award_badges(
 
     result = AwardResult()
     for user in targets:
-        _award_one(user, _candidates(user, records.get(user.id, []), ctx), today, news, result)
+        candidates = _candidates(user, records.get(user.id, []), ctx, today)
+        _award_one(user, candidates, today, news, result, withdraw=withdraw)
     return result
 
 
-def _award_one(user, candidates, today, news, result: AwardResult) -> None:
+def _award_one(user, candidates, today, news, result: AwardResult, *, withdraw: bool) -> None:
     wanted = {c.key: c for c in candidates}
     existing = {b.key: b for b in Badge.objects.filter(user=user)}
 
     for key, badge in existing.items():
-        if key not in wanted and badge.kind not in STICKY_KINDS:
+        if withdraw and key not in wanted and badge.kind not in STICKY_KINDS:
             badge.delete()
             result.removed += 1
 
@@ -526,6 +537,15 @@ def on_claim_moved(claim: Claim, from_status: str, to_status: str) -> None:
 
 
 def _after_move(claim_id, owner_id, department, key, recognised) -> None:
+    """The quick path: only the people this paper can have changed anything for.
+
+    The owner, their department (a top-ten place is a department-wide
+    ranking) and the paper's co-authors (a cross-department badge). Their
+    records are the whole context, which keeps a bulk authorisation of fifty
+    papers from reading the college's entire history fifty times -- and is
+    why nothing is withdrawn here: the hourly job, which sees everything,
+    does that.
+    """
     try:
         if recognised:
             people = User.objects.filter(pk=owner_id)
@@ -534,7 +554,8 @@ def _after_move(claim_id, owner_id, department, key, recognised) -> None:
             if key:
                 sharing = Claim.objects.filter(normalized_title=key).values("owner_id")
                 people = people | User.objects.filter(pk__in=sharing)
-            award_badges(people.distinct(), news_claim_ids=[claim_id])
+            people = list(people.distinct())
+            award_badges(people, news_claim_ids=[claim_id], context=people, withdraw=False)
         if department:
             check_milestones([department])
     except Exception:  # a courtesy must never break the chain

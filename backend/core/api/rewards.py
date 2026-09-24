@@ -34,7 +34,7 @@ from ninja import Schema
 from ninja.errors import HttpError
 
 from core import hod
-from core.api.common import api, rate_limit, require_user, session_auth
+from core.api.common import api, rate_limit, rate_limit_for, require_user, session_auth
 from core.api.hod_planning import _acting_department
 from core.models import (
     AuditLog,
@@ -195,7 +195,9 @@ def my_goals(request: HttpRequest, year: Optional[int] = None):
             ResearchGoal.Metric.PAPERS, user.research_quota, len(recs),
             built_in=True, label="Research quota",
         ))
-    for g in ResearchGoal.objects.filter(user=user, year=year):
+    order = list(_METRICS)
+    goals = sorted(ResearchGoal.objects.filter(user=user, year=year), key=lambda g: order.index(g.metric))
+    for g in goals:
         rows.append(_goal_row(g.metric, g.target, _progress(recs, all_recs, g.metric)))
 
     years = set(ResearchGoal.objects.filter(user=user).values_list("year", flat=True))
@@ -275,6 +277,14 @@ def hod_goals(request: HttpRequest, year: Optional[int] = None, department: Opti
 _SHARE_PATH = "/api/share/impact/{token}"
 #: The rendered PNG is kept this long, keyed on what is drawn on it.
 _CARD_CACHE_SECONDS = 600
+#: What a shared card says is kept this long for the public link. Working it
+#: out reads the whole department's papers, and the link needs no sign-in, so
+#: without this every hit on a posted link was a department-wide read.
+_SHARED_SUMMARY_SECONDS = 300
+#: Hits a single shared link may take in an hour. A link preview is fetched a
+#: handful of times per post; this is room for a lot of posts, and a ceiling
+#: on anybody hammering one link.
+SHARE_HITS_PER_HOUR = 600
 
 
 class ShareIn(Schema):
@@ -294,8 +304,24 @@ def _size(size: Optional[str]) -> str:
     return size if size in impact_card.SIZES else "wide"
 
 
-def _png(user: User, size: str) -> HttpResponse:
-    facts = impact_card.summary(user)
+def _shared_summary_key(user: User) -> str:
+    return f"impact-summary:{user.id}"
+
+
+def _shared_summary(user: User) -> dict[str, Any]:
+    facts = cache.get(_shared_summary_key(user))
+    if facts is None:
+        facts = impact_card.summary(user)
+        cache.set(_shared_summary_key(user), facts, _SHARED_SUMMARY_SECONDS)
+    return facts
+
+
+def _forget_shared_summary(user: User) -> None:
+    cache.delete(_shared_summary_key(user))
+
+
+def _png(user: User, size: str, facts: Optional[dict[str, Any]] = None) -> HttpResponse:
+    facts = facts if facts is not None else impact_card.summary(user)
     drawn = hashlib.sha1(json.dumps(facts, sort_keys=True).encode()).hexdigest()
     key = f"impact-card:{user.id}:{size}:{drawn}"
     body = cache.get(key)
@@ -352,6 +378,7 @@ def set_my_impact_share(request: HttpRequest, payload: ShareIn):
 
 
 def _shared(token: str) -> User:
+    rate_limit_for(None, f"share-{token}", SHARE_HITS_PER_HOUR, "hour", what="views of one card")
     share = (
         ImpactShare.objects.filter(token=token, enabled=True, user__active=True)
         .select_related("user")
@@ -367,7 +394,8 @@ def _shared(token: str) -> User:
 @api.get("/share/impact/{token}/card.png")
 def shared_impact_card(request: HttpRequest, token: str, size: Optional[str] = None):
     """The card image, for a crawler or anybody holding the link."""
-    return _png(_shared(token), _size(size))
+    user = _shared(token)
+    return _png(user, _size(size), _shared_summary(user))
 
 
 @api.get("/share/impact/{token}")
@@ -378,7 +406,7 @@ def shared_impact_page(request: HttpRequest, token: str):
     this is HTML from the server rather than a route in the single-page app.
     """
     user = _shared(token)
-    facts = impact_card.summary(user)
+    facts = _shared_summary(user)
     image = request.build_absolute_uri(f"{_SHARE_PATH.format(token=token)}/card.png?size=wide")
     page = request.build_absolute_uri(_SHARE_PATH.format(token=token))
     name = escape(facts["name"])
@@ -539,14 +567,20 @@ def pin_paper(request: HttpRequest, payload: PinIn):
     if not _may_pin(user, payload.department):
         raise HttpError(403, "Only the department's head chooses its paper of the month.")
     month = _month(payload.month)
+    if month is None:
+        raise HttpError(400, "Say which month the paper is for: YYYY-MM.")
     board = _wall(payload.department, month)
     card = next((c for c in board["cards"] if c["key"] == payload.key), None)
     if card is None:
         raise HttpError(400, "That paper is not on this wall for that month.")
-    pin, _ = WallPin.objects.update_or_create(
-        department=payload.department.strip(), month=month,
-        defaults={"paper_key": card["key"], "title": card["title"], "pinned_by": user},
-    )
+    # One pin per department and month however the department is spelt:
+    # the wall reads pins case-insensitively, so it must write them that way.
+    department = payload.department.strip()
+    pin = WallPin.objects.filter(department__iexact=department, month=month).first()
+    if pin is None:
+        pin = WallPin(department=department, month=month)
+    pin.paper_key, pin.title, pin.pinned_by = card["key"], card["title"], user
+    pin.save()
     AuditLog.objects.create(
         actor=user, action="WALL_PIN", entity="WallPin", entity_id=pin.id,
         detail_json=json.dumps({"department": pin.department, "month": payload.month, "title": card["title"]}),

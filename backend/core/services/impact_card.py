@@ -228,31 +228,26 @@ def render(facts: dict, size: str = "wide") -> bytes:
         y = top + ph
 
     stats = _stats(facts)
-    if size == "wide":
-        y = max(y + 40, 300)
-        col = inner // len(stats)
-        for i, (figure, caption) in enumerate(stats):
-            x = m + i * col
-            draw.text((x, y), figure, font=_font(84, True), fill=WHITE)
-            draw.text((x, y + 96), caption, font=_font(24), fill=SOFT)
-        y += 150
-    else:
-        y = max(y + 60, 430)
-        col = inner // len(stats)
-        for i, (figure, caption) in enumerate(stats):
-            x = m + i * col
-            draw.text((x, y), figure, font=_font(110, True), fill=WHITE)
-            draw.text((x, y + 126), caption, font=_font(28), fill=SOFT)
-        y += 220
+    col = inner // len(stats)
+    wide = size == "wide"
+    figure_size, caption_size = (76, 24) if wide else (120, 30)
+    y = max(y + (28 if wide else 70), 320 if wide else 470)
+    for i, (figure, caption) in enumerate(stats):
+        x = m + i * col
+        draw.text((x, y), figure, font=_font(figure_size, True), fill=WHITE)
+        draw.text((x, y + figure_size + 10), caption, font=_font(caption_size), fill=SOFT)
 
+    # The footer sits on the bottom margin; the journal sits on the footer, so
+    # the square card's extra height opens up above it rather than below.
+    ffont = _font(20 if wide else 24)
+    footer_y = h - m + 12 - ffont.size
     if facts.get("top_journal"):
-        draw.text((m, y), "Best published in", font=_font(22 if size == "wide" else 26), fill=FAINT)
-        journal, jfont = _fit(draw, facts["top_journal"], inner, 32 if size == "wide" else 40, bold=True, smallest=18)
-        draw.text((m, y + 32 if size == "wide" else y + 38), journal, font=jfont, fill=WHITE)
-
-    footer = _printable(_as_of(facts))
-    ffont = _font(20 if size == "wide" else 24)
-    draw.text((m, h - m + 12 - ffont.size), footer, font=ffont, fill=FAINT)
+        label_size, journal_size = (22, 30) if wide else (26, 40)
+        top = footer_y - 22 - journal_size - 8 - label_size - (0 if wide else 20)
+        draw.text((m, top), "Best published in", font=_font(label_size), fill=FAINT)
+        journal, jfont = _fit(draw, facts["top_journal"], inner, journal_size, bold=True, smallest=18)
+        draw.text((m, top + label_size + 8), journal, font=jfont, fill=WHITE)
+    draw.text((m, footer_y), _printable(_as_of(facts)), font=ffont, fill=FAINT)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)

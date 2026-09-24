@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Link } from "react-router-dom"
 import { PartyPopper, X } from "lucide-react"
 
@@ -38,19 +39,31 @@ export function Celebrations({ className }: { className?: string }) {
   const query = useApi<{ celebrations: Celebration[] }>(["celebrations"], "/api/me/celebrations", {
     staleTime: Infinity,
   })
+  const client = useQueryClient()
   const [open, setOpen] = useState(true)
+  // What this visit shows, fixed when it first arrives: the cached list is
+  // emptied as soon as the server has it as seen (below), and the panel on
+  // screen must not vanish mid-read because of that.
+  const [shown, setShown] = useState<Celebration[] | null>(null)
   const marked = useRef(false)
-  const items = query.data?.celebrations ?? []
+  const fetched = query.data?.celebrations
+  const items = shown ?? fetched ?? []
+
+  useEffect(() => {
+    if (shown === null && fetched && fetched.length > 0) setShown(fetched)
+  }, [fetched, shown])
 
   useEffect(() => {
     if (viewing || marked.current || items.length === 0) return
     marked.current = true
-    // Fire and forget: failing to record "seen" only means the news is
-    // shown again next time, which is the harmless direction to fail in.
-    api("/api/me/celebrations/seen", { method: "POST", json: { ids: items.map((c) => c.id) } }).catch(
-      () => {}
-    )
-  }, [items, viewing])
+    // Seen is recorded on the server, and the cached copy is emptied with it:
+    // the query never goes stale on its own, so leaving the page and coming
+    // back would otherwise draw the same news a second time. A failure only
+    // means it is shown again next visit -- the harmless direction.
+    api("/api/me/celebrations/seen", { method: "POST", json: { ids: items.map((c) => c.id) } })
+      .then(() => client.setQueryData(["celebrations"], { celebrations: [] }))
+      .catch(() => {})
+  }, [items, viewing, client])
 
   if (query.isError || items.length === 0) return null
 

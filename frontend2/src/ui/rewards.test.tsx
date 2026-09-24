@@ -1,4 +1,8 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { useState } from "react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { render, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { MemoryRouter } from "react-router-dom"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -6,6 +10,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return { ...actual, api: vi.fn() }
 })
 
+import { AuthProvider } from "@/app/auth"
 import { api } from "@/lib/api"
 import { BadgeShelf, type Badge } from "@/ui/badge-shelf"
 import { Celebrations } from "@/ui/celebrations"
@@ -122,6 +127,51 @@ describe("Celebrations", () => {
         json: { ids: ["cel1"] },
       })
     )
+  })
+
+  it("does not come back when the reader leaves the page and returns", async () => {
+    function Page() {
+      const [on, setOn] = useState(true)
+      return (
+        <>
+          <button onClick={() => setOn((v) => !v)}>toggle</button>
+          {on && <Celebrations />}
+        </>
+      )
+    }
+    // A server that remembers, and a query client configured as the app's
+    // is: the harness's gcTime of 0 refetches on every mount, which would hide
+    // a stale cache -- the very thing this test is about.
+    let seen = false
+    vi.mocked(api).mockReset()
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => FACULTY,
+        "/api/me/celebrations/seen": () => {
+          seen = true
+          return { ok: true, marked: 1 }
+        },
+        "/api/me/celebrations": () => ({ celebrations: seen ? [] : [ITEM] }),
+      })
+    )
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <AuthProvider>
+            <Page />
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+    expect(await screen.findByText("New badge: First Q1 paper")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(vi.mocked(api)).toHaveBeenCalledWith("/api/me/celebrations/seen", expect.anything())
+    )
+    await userEvent.click(screen.getByRole("button", { name: "toggle" }))
+    await userEvent.click(screen.getByRole("button", { name: "toggle" }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.queryByText("New badge: First Q1 paper")).toBeNull()
   })
 
   it("does not use it up while a super admin is viewing as the person", async () => {

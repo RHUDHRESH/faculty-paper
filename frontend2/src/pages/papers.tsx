@@ -154,6 +154,12 @@ function download(name: string, text: string, type: string) {
   URL.revokeObjectURL(url)
 }
 
+/** The whole record as a spreadsheet, for the search palette's "Download my papers". */
+export async function downloadMine(): Promise<void> {
+  const data = await api<Payload>("/api/me/publications?sort=year")
+  download("my-papers.csv", toCsv(data.publications), "text/csv")
+}
+
 const selectClass =
   "h-9 rounded-md bg-surface px-2 text-sm text-fg ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent outline-none"
 

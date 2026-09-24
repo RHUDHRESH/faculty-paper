@@ -297,6 +297,42 @@ class ApiTests(_Base):
         self.assertEqual(hit["key"], "A7")
         self.assertEqual([c["name"] for c in hit["college_coauthors"]], ["Mr. S. Joyal Isac"])
 
+    def test_external_person(self):
+        body = self.get("/api/external-person?key=A7")
+        self.assertEqual(body["name"], "K. Outsider")
+        self.assertEqual(body["institutions"], ["IIT Madras"])
+        self.assertEqual(body["openalex_id"], "A7")
+        self.assertEqual([c["name"] for c in body["college_coauthors"]], ["Mr. S. Joyal Isac"])
+        self.assertEqual(body["papers"][0]["college_authors"][0]["name"], "Mr. S. Joyal Isac")
+        self.assertEqual(self.client.get("/api/external-person?key=nobody").status_code, 404)
+
+    def test_ego(self):
+        P.upsert_work(W3)
+        body = self.get("/api/people/me/ego")
+        hops = {n["name"]: n["hop"] for n in body["nodes"]}
+        self.assertEqual(hops["Dr. R. Subhashini"], 0)
+        self.assertEqual(hops["Mr. S. Joyal Isac"], 1)
+        self.assertEqual(hops["K. Outsider"], 2)
+        self.assertNotIn("M. Other", hops)  # three hops away
+        self.assertEqual(body["coauthors"], 1)
+        self.assertLessEqual(len(self.get(f"/api/people/{self.joyal.id}/ego?limit=500")["nodes"]), 60)
+        keys = {n["key"] for n in body["nodes"]}
+        for link in body["links"]:
+            self.assertIn(link["source"], keys)
+            self.assertIn(link["target"], keys)
+
+    def test_why(self):
+        body = self.get(f"/api/people/me/why?of={self.joyal.id}")
+        kinds = [r["kind"] for r in body["reasons"]]
+        self.assertEqual(kinds[0], "together")
+        self.assertIn("shared_venue", kinds)
+        self.assertIn("topic", kinds)
+        self.assertIn("complement", kinds)  # EEE vs ECE, same venue
+        outsider = self.get("/api/people/me/why?of=A7")
+        self.assertIn("shared_venue", [r["kind"] for r in outsider["reasons"]])
+        self.assertIn("common_coauthors", [r["kind"] for r in outsider["reasons"]])
+        self.assertEqual(self.client.get("/api/people/me/why?of=nobody").status_code, 404)
+
     def test_scopus_pull(self):
         claim = Claim.objects.create(owner=self.joyal, status=ClaimStatus.SUBMITTED, paper_title="x", doi="10.1/w2")
         self.client.force_login(self.joyal)

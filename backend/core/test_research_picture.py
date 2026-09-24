@@ -50,7 +50,7 @@ class ResearchPictureTests(TestCase):
         on(b, self.co, 1)
         c = pub("Late last year", 2025, ["Solar energy"], month=11)
         on(c, self.me, 1)
-        d = pub("This year", 2026, ["Solar energy"], month=5)
+        d = pub("This year", 2026, ["Solar energy", "Scientific and Engineering Research Topics"], month=5)
         on(d, self.me, 3)
         # Colleagues' work next to mine: a rising neighbour topic and a Q1 venue I have not used.
         for i in range(3):
@@ -75,6 +75,7 @@ class ResearchPictureTests(TestCase):
         kinds = {e["kind"] for e in data["timeline"]}
         self.assertTrue({"first_paper", "first_q1", "most_cited", "external_coauthor"} <= kinds)
         self.assertEqual(data["topics"][0]["label"], "Solar energy")
+        self.assertNotIn("Scientific and Engineering Research Topics", [t["label"] for t in data["topics"]])
         self.assertIn("Solar energy", data["headline"])
         ty = data["this_year"]
         self.assertEqual((ty["papers"], ty["same_date_last_year"], ty["last_year_total"], ty["target"]),
@@ -109,7 +110,7 @@ class ResearchPictureTests(TestCase):
         mine = {t["label"]: t["mine"] for t in data["topics"]}
         self.assertTrue(mine["Solar energy"])
         self.assertFalse(mine["Battery storage"])
-        self.assertIn("Battery storage", [t["label"] for t in data["rising"]] + ["Battery storage"])
+        self.assertIn("Battery storage", [t["label"] for t in data["rising"]])
         self.assertEqual({d["name"] for d in data["departments"]}, {"EEE", "ECE"})
         self.assertEqual(data["near_me"][0]["name"], "Co Author")
 

@@ -25,12 +25,21 @@ from core.services import coauthors as graph
 NOW_YEARS = 3
 
 
+def _generic(topic: str) -> bool:
+    """OpenAlex's catch-all buckets ("Scientific and Engineering Research
+    Topics") name no topic; suggesting one says nothing."""
+    k = _fold(topic)
+    return "research topics" in k or "miscellaneous" in k or k in ("multidisciplinary", "general")
+
+
 def _topics(raw: str) -> list[str]:
     try:
         value = json.loads(raw or "[]")
     except ValueError:
         return []
-    return [str(t).strip() for t in value if str(t).strip()] if isinstance(value, list) else []
+    if not isinstance(value, list):
+        return []
+    return [str(t).strip() for t in value if str(t).strip() and not _generic(str(t))]
 
 
 def _fold(text: str) -> str:

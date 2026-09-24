@@ -168,6 +168,28 @@ def check_citations() -> dict:
     return run()
 
 
+def harvest_publications(since: int | None = None, limit: int | None = None, expand: bool = True) -> dict:
+    """Queued by POST /api/admin/publications/harvest: the OpenAlex harvest,
+    record linking, author matching and metrics (core.services.publications)."""
+    from core.models import AuditLog
+    from core.services.publications import run_harvest
+
+    import json
+
+    summary = run_harvest(since=since, limit=limit, expand=expand)
+    AuditLog.objects.create(action="PUBLICATION_HARVEST_DONE", entity="Publication",
+                            detail_json=json.dumps(summary, default=str))
+    return summary
+
+
+def refresh_publication_citations() -> dict:
+    """Weekly (schedule "publication-citations", migration 0052): citation
+    counts for every harvested paper, then everybody's h-index again."""
+    from core.services.publications import refresh_citations
+
+    return refresh_citations()
+
+
 def send_weekly_digest() -> dict:
     """Monday 8am IST (schedule "weekly-digest"): the weekly summary."""
     from core.services.digest import send_weekly_digest as run

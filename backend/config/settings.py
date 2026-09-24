@@ -328,6 +328,10 @@ CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_NAME = "csrftoken"
 
 SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY") or os.getenv("ELSEVIER_API_KEY") or ""
+# Optional. The filing form's paper lookup reads one work by DOI from OpenAlex,
+# which is free without a key; a key only raises the daily budget the title
+# search falls back on when Crossref is down (core/services/paper_lookup.py).
+OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY", "")
 
 # Gemini, for the two discovery features. Absent is a supported state: the
 # endpoints report that the feature is off rather than failing, which is the

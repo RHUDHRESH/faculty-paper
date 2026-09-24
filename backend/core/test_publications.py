@@ -307,6 +307,23 @@ class ApiTests(_Base):
         self.assertFalse(by_doi["10.1/w5"]["already_claimed"])
         self.assertEqual(body["unclaimed"], body["count"] - 1)
 
+    def test_my_publications_merge_claims(self):
+        claim = Claim.objects.create(owner=self.joyal, status=ClaimStatus.SUBMITTED, paper_title="x", doi="10.1/w2")
+        self.client.force_login(self.joyal)
+        body = self.get("/api/me/publications")
+        by_doi = {p["doi"]: p for p in body["publications"]}
+        self.assertEqual(by_doi["10.1/w2"]["claim"]["id"], claim.id)
+        self.assertEqual(by_doi["10.1/w2"]["claim"]["stage"], ClaimStatus.SUBMITTED)
+        self.assertIsNone(by_doi["10.1/w5"]["claim"])
+        self.assertTrue(by_doi["10.1/w5"]["eligible"])
+        self.assertEqual(body["unclaimed"], body["count"] - 1)
+        # Home's unclaimed reads the same rule.
+        self.assertEqual(self.client.get("/api/me/summary").json()["unclaimed"], body["unclaimed"])
+        # Own money appears once paid, and only on my own claim.
+        Claim.objects.filter(id=claim.id).update(status=ClaimStatus.PAID, remuneration=5000)
+        paid = {p["doi"]: p for p in self.client.get("/api/me/publications").json()["publications"]}["10.1/w2"]
+        self.assertEqual(paid["claim"]["amount"], 5000)
+
     def test_admin_harvest_is_super_admin_only(self):
         r = self.client.post("/api/admin/publications/harvest", data="{}", content_type="application/json")
         self.assertEqual(r.status_code, 403)

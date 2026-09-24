@@ -39,6 +39,7 @@ from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReaso
 from core.services import achievements, rbac
 from core.services.normalize import normalize_issn
 from core.services.notify_email import send_optional_email
+from core.services.record_dates import claim_record
 from core.services.tickets import assign_ticket_number
 from core import hod, visibility
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
@@ -191,6 +192,9 @@ def get_claim(request: HttpRequest, claim_id: str):
     ]
     data = claim_to_dict(claim)
     data["actions"] = actions
+    # What the history can truthfully say: an imported ticket carries the
+    # import's moment as its filing and payment time (services/record_dates).
+    data["record"] = claim_record(claim, has_actions=bool(actions))
     return data
 
 

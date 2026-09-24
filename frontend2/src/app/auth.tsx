@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 
-import { api, forgetCsrf } from "@/lib/api"
+import { api, bootAnswer, forgetCsrf } from "@/lib/api"
 
 export type Role =
   | "FACULTY"
@@ -47,7 +47,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      setMe(await api<Me>("/api/auth/me"))
+      // The first ask is usually already in flight from index.html.
+      setMe(await (bootAnswer<Me>("/api/auth/me") ?? api<Me>("/api/auth/me")))
     } catch {
       setMe(null)
     } finally {

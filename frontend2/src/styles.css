@@ -474,6 +474,56 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * The frame's own movement, in CSS rather than `motion/react`.
+ *
+ * The sidebar, the phone drawer and the sign-in card are on screen before any
+ * page is, so whatever animates them is on the path to the first paint. Done
+ * with the animation library, that path carried ~120 KB of JavaScript for three
+ * entrances. Radix keeps the drawer mounted for its closing animation when it
+ * is a real `@keyframes` (it waits for `animationend`), so these are keyframes,
+ * timed from the same tokens as everything else. The global reduced-motion
+ * rule above squashes all of them.
+ * ------------------------------------------------------------------------ */
+@keyframes frame-drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes frame-drawer-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+@keyframes frame-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes frame-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes frame-rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@layer utilities {
+  .frame-drawer {
+    animation: frame-drawer-in var(--dur-3) var(--ease-out);
+  }
+  .frame-drawer[data-state="closed"] {
+    animation: frame-drawer-out var(--dur-2) var(--ease-out);
+  }
+  .frame-overlay {
+    animation: frame-fade-in var(--dur-2) var(--ease-out);
+  }
+  .frame-overlay[data-state="closed"] {
+    animation: frame-fade-out var(--dur-1) var(--ease-out);
+  }
+  .frame-rise {
+    animation: frame-rise-in 280ms var(--ease-out) both;
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * Dark theme. The same token names, redefined, so no page carries a colour of
  * its own and every screen follows. Chosen in the account menu (light, dark
  * or the system's setting) and applied before first paint by index.html.

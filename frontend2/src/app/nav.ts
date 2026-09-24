@@ -461,6 +461,32 @@ export const NAV: NavItem[] = [
   },
 ]
 
+/**
+ * The count beside a sidebar entry: what is waiting at the reader's own desk
+ * (from `/api/claims/counts`, grouped as the server groups stages), and for a
+ * claimant how many of their papers have come back to them. Nobody is shown a
+ * count for somebody else's desk.
+ */
+const BADGE: Partial<Record<Role, [to: string, stage: string]>> = {
+  SUPER_ADMIN: ["/clearing", "filed"],
+  RESEARCH_CELL: ["/clearing", "filed"],
+  RESEARCH_COORDINATOR: ["/clearing", "filed"],
+  PRINCIPAL: ["/approvals", "checked"],
+  DIRECTOR: ["/authorisations", "approved"],
+  FINANCE: ["/payments", "authorised"],
+  FACULTY: ["/papers", "sent_back"],
+  HOD: ["/papers", "sent_back"],
+}
+
+export function navBadges(
+  role: Role | undefined,
+  counts: Record<string, number> | undefined
+): Record<string, number> {
+  const entry = role ? BADGE[role] : undefined
+  const n = entry && counts ? counts[entry[1]] ?? 0 : 0
+  return entry && n > 0 ? { [entry[0]]: n } : {}
+}
+
 export function navFor(role: Role | undefined): NavItem[] {
   if (!role) return []
   return NAV.filter((item) => !item.roles || item.roles.includes(role))

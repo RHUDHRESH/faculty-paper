@@ -20,7 +20,7 @@ from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AuditLog, Budget, ClaimStatus, Role, User
+from core.models import AuditLog, Budget, ClaimStatus, PaidLedger, Role, User
 from core.services import rbac
 
 # ---------- budget ----------
@@ -71,10 +71,25 @@ def _budget_status(fy: str, user: User) -> dict[str, Any]:
     def by_dept(qs) -> dict[str, float]:
         out: dict[str, float] = {}
         for row in qs.values("owner__department").annotate(s=Sum("remuneration")):
-            out[(row["owner__department"] or "").strip()] = round(row["s"] or 0, 2)
+            key = (row["owner__department"] or "").strip()
+            out[key] = round(out.get(key, 0) + (row["s"] or 0), 2)
         return out
 
-    spent_by = by_dept(paid)
+    # Paid out is what the ledger paid in the year. The ledger holds every
+    # payment the college made before this system too -- rows with no claim
+    # behind them -- and summing claims alone showed a year of payouts as a
+    # few lakh. A paid claim that somehow has no ledger row is still counted,
+    # from the claim, so nothing is lost and nothing is counted twice.
+    spent_by: dict[str, float] = {}
+    for row in (
+        PaidLedger.objects.filter(payout_month__gte=start, payout_month__lte=end)
+        .values("department")
+        .annotate(s=Sum("amount"))
+    ):
+        key = (row["department"] or "").strip()
+        spent_by[key] = round(spent_by.get(key, 0) + (row["s"] or 0), 2)
+    for key, amount in by_dept(paid.filter(ledger_rows__isnull=True)).items():
+        spent_by[key] = round(spent_by.get(key, 0) + amount, 2)
     committed_by = by_dept(committed)
     budgets = {
         (b.department or ""): b

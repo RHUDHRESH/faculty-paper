@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 import { ArrowRight, FilePlus2, FileSearch, Plus, Upload, Wallet } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { HOME_DATA } from "@/app/home-data"
 import { useApi, useApiMutation } from "@/lib/query"
 import {
   KindBadge,
@@ -119,10 +120,10 @@ function daysOf(c: Claim): number | null {
  * before it leaves (`hod.for_head`).
  */
 export function useOwnPapers() {
-  const query = useApi<Payload>(["my-claims"], "/api/claims?limit=200")
+  const query = useApi<Payload>(HOME_DATA.ownClaims.key, HOME_DATA.ownClaims.path)
   // Money comes from the ledger, which also holds everything paid before this
   // app existed. Claims alone told people with years of payments "₹0".
-  const ledger = useApi<MyPayments>(["my-payments"], "/api/me/payments")
+  const ledger = useApi<MyPayments>(HOME_DATA.myPayments.key, HOME_DATA.myPayments.path)
 
   const claims = query.data?.results || []
   const paid = claims.filter((c) => c.status === "PAID")
@@ -172,7 +173,7 @@ export function FacultyHome() {
   const { claims, moving, sentBack, drafts, isLoading, isError, refetch } = own
   // Secondary to the money, so a failure here draws nothing rather than a
   // second error box on the page every claimant lands on.
-  const assigned = useApi<MyAssignment[]>(["my-assignments"], "/api/me/assignments")
+  const assigned = useApi<MyAssignment[]>(HOME_DATA.myAssignments.key, HOME_DATA.myAssignments.path)
 
   const first = firstName(me?.name)
 

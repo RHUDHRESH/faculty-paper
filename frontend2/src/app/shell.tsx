@@ -1,11 +1,12 @@
 import { Fragment, Suspense, useEffect, useState } from "react"
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import * as RadixDialog from "@radix-ui/react-dialog"
-import { AnimatePresence, motion } from "motion/react"
 import { Check, ChevronsUpDown, Command, Monitor, Moon, PanelLeft, PanelLeftClose, Search, Sun } from "lucide-react"
 
 import { useAuth, type Role } from "@/app/auth"
-import { NAV, navFor } from "@/app/nav"
+import { HOME_DATA } from "@/app/home-data"
+import { NAV, navBadges, navFor } from "@/app/nav"
+import { useApi } from "@/lib/query"
 import { Mark } from "@/ui/art"
 import { Button } from "@/ui/button"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
@@ -104,10 +105,14 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
  * same page existed in three files and drifted apart; here the list is data
  * and the frame renders whatever this account is allowed to reach.
  *
- * The active item is marked with a shared `layoutId`, so moving between pages
- * slides one indicator rather than extinguishing one box and lighting
- * another. It is the cheapest possible signal that this is one place rather
- * than a set of screens.
+ * The frame animates with CSS, not `motion/react`: it is on screen before any
+ * page, so whatever moves it is on the path to the first paint, and the
+ * animation library was ~120 KB of that path for a sidebar width, a highlight
+ * and a drawer. Pages that animate load the library with their own code.
+ *
+ * Pointing at or focusing a link starts loading that page's code
+ * (`onPreload`), so by the time the click lands the page is usually already
+ * here and only its data is left to fetch.
  *
  * The mobile drawer is a Radix dialog. It was a bare `motion.aside` behind a
  * click-to-dismiss overlay, which meant no focus trap, no Escape, nothing
@@ -119,7 +124,14 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
  * the wrong edge; the dialog primitive underneath it is used directly here
  * and the behaviour is the same.
  */
-export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
+export function Shell({
+  onOpenPalette,
+  onPreload,
+}: {
+  onOpenPalette: () => void
+  /** Start fetching the code behind a destination the reader is about to open. */
+  onPreload?: (to: string) => void
+}) {
   const collegeName = useCollegeName()
   const { me } = useAuth()
   const { pathname } = useLocation()
@@ -160,17 +172,24 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
 
   const items = navFor(me?.role)
   const seen = new Set<string>()
+  const preload = (to: string) => () => onPreload?.(to)
+  // What is waiting at this desk, beside its entry: the same counts the home
+  // screens read, so the two can never disagree. Refreshed every minute.
+  const stageCounts = useApi<{ counts: Record<string, number> }>(
+    HOME_DATA.stageCounts.key,
+    HOME_DATA.stageCounts.path,
+    { enabled: !!me, refetchInterval: 60_000 }
+  )
+  const badges = navBadges(me?.role, stageCounts.data?.counts)
 
   return (
     <RadixDialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
       <div className="flex min-h-svh bg-bg">
-        <motion.aside
-          initial={false}
-          animate={{ width: collapsed ? 56 : 240 }}
-          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        <aside
+          style={{ width: collapsed ? 56 : 240 }}
           className={cn(
             "sticky top-0 hidden h-svh shrink-0 flex-col border-r border-line",
-            "bg-sunken md:flex print:hidden"
+            "bg-sunken transition-[width] duration-[var(--dur-3)] ease-[var(--ease-out)] md:flex print:hidden"
           )}
         >
           <div className="flex h-12 items-center gap-2 px-3">
@@ -216,29 +235,21 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
                     to={item.to}
                     end={item.end}
                     title={collapsed ? item.label : undefined}
+                    onPointerEnter={preload(item.to)}
+                    onFocus={preload(item.to)}
                     className={({ isActive }) =>
                       cn(
                         "relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sm",
                         "transition-colors duration-[var(--dur-1)]",
                         isActive
-                          ? "font-medium text-fg"
+                          ? "bg-active font-medium text-fg"
                           : "text-fg-muted hover:bg-hover hover:text-fg"
                       )
                     }
                   >
-                    {({ isActive }) => (
-                      <>
-                        {isActive && (
-                          <motion.span
-                            layoutId="nav-active"
-                            className="absolute inset-0 -z-10 rounded-md bg-active"
-                            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                          />
-                        )}
-                        <Icon className="size-4 shrink-0" />
-                        {!collapsed && <span className="truncate">{item.label}</span>}
-                      </>
-                    )}
+                    <Icon className="size-4 shrink-0" />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    <NavBadge n={badges[item.to]} compact={collapsed} />
                   </NavLink>
                 </Fragment>
               )
@@ -272,7 +283,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
               <AccountMenu collapsed={collapsed} />
             </div>
           </div>
-        </motion.aside>
+        </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/85 px-3 backdrop-blur md:hidden print:hidden">
@@ -306,67 +317,79 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
       </div>
 
       {/* Portalled, so it is last in the document however early it is written
-          here, and `AnimatePresence` rather than Radix decides when it leaves
-          the tree, the same arrangement as `ui/dialog.tsx`. */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <RadixDialog.Portal forceMount>
-            <RadixDialog.Overlay asChild forceMount>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-40 bg-black/25 md:hidden"
-              />
-            </RadixDialog.Overlay>
-            <RadixDialog.Content asChild forceMount aria-describedby={undefined}>
-              <motion.aside
-                initial={{ x: -260 }}
-                animate={{ x: 0 }}
-                exit={{ x: -260 }}
-                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                className={cn(
-                  "fixed inset-y-0 left-0 z-50 flex w-64 flex-col overflow-hidden",
-                  "border-r border-line bg-sunken p-2 md:hidden"
-                )}
-              >
-                <RadixDialog.Title className="sr-only">Menu</RadixDialog.Title>
-                {/* The drawer covers the header it was opened from, so
-                    without this it is a list of links belonging to nothing. */}
-                <div className="mb-2 flex h-9 shrink-0 items-center gap-2 px-2">
-                  <Mark className="size-5 text-accent" />
-                  <span className="text-sm font-semibold">Publications</span>
-                </div>
-                <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Main">
-                  {items.map((item) => {
-                    const Icon = item.icon
-                    return (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        end={item.end}
-                        className={({ isActive }) =>
-                          cn(
-                            "flex h-9 items-center gap-2.5 rounded-md px-2 text-sm",
-                            isActive ? "bg-active font-medium" : "text-fg-muted"
-                          )
-                        }
-                      >
-                        <Icon className="size-4" />
-                        {item.label}
-                      </NavLink>
-                    )
-                  })}
-                </nav>
-                <div className="mt-2 shrink-0 border-t border-line pt-2">
-                  <AccountMenu />
-                </div>
-              </motion.aside>
-            </RadixDialog.Content>
-          </RadixDialog.Portal>
-        )}
-      </AnimatePresence>
+          here. Radix keeps it mounted until the closing keyframes end (see
+          `frame-drawer` in styles.css). */}
+      <RadixDialog.Portal>
+        <RadixDialog.Overlay className="frame-overlay fixed inset-0 z-40 bg-black/25 md:hidden" />
+        <RadixDialog.Content asChild aria-describedby={undefined}>
+          <aside
+            className={cn(
+              "frame-drawer fixed inset-y-0 left-0 z-50 flex w-64 flex-col overflow-hidden",
+              "border-r border-line bg-sunken p-2 md:hidden"
+            )}
+          >
+            <RadixDialog.Title className="sr-only">Menu</RadixDialog.Title>
+            {/* The drawer covers the header it was opened from, so
+                without this it is a list of links belonging to nothing. */}
+            <div className="mb-2 flex h-9 shrink-0 items-center gap-2 px-2">
+              <Mark className="size-5 text-accent" />
+              <span className="text-sm font-semibold">Publications</span>
+            </div>
+            <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Main">
+              {items.map((item) => {
+                const Icon = item.icon
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    onTouchStart={preload(item.to)}
+                    onFocus={preload(item.to)}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex h-9 items-center gap-2.5 rounded-md px-2 text-sm",
+                        isActive ? "bg-active font-medium" : "text-fg-muted"
+                      )
+                    }
+                  >
+                    <Icon className="size-4" />
+                    {item.label}
+                    <NavBadge n={badges[item.to]} />
+                  </NavLink>
+                )
+              })}
+            </nav>
+            <div className="mt-2 shrink-0 border-t border-line pt-2">
+              <AccountMenu />
+            </div>
+          </aside>
+        </RadixDialog.Content>
+      </RadixDialog.Portal>
     </RadixDialog.Root>
+  )
+}
+
+/** How many are waiting at this entry's desk. A dot when the sidebar is
+ *  collapsed; nothing at all for an empty queue. */
+function NavBadge({ n, compact = false }: { n: number | undefined; compact?: boolean }) {
+  if (!n) return null
+  const label = `${n} waiting`
+  if (compact) {
+    return (
+      <span
+        className="absolute right-1 top-1 size-2 rounded-full bg-accent"
+        aria-label={label}
+        role="status"
+      />
+    )
+  }
+  return (
+    <span
+      className="ml-auto min-w-5 rounded-full bg-accent-wash px-1.5 text-center text-[11px] font-semibold leading-5 text-accent tabular"
+      aria-label={label}
+    >
+      {n > 99 ? "99+" : n}
+    </span>
   )
 }
 

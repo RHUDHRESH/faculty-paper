@@ -46,9 +46,23 @@ INSTALLED_APPS = [
 # Background jobs: django-q2 on the ORM broker — no Redis, and the qcluster
 # process shares the container with gunicorn (scripts/start.sh) rather than
 # running as a second paid service. Q_SYNC=true runs tasks inline (tests/dev).
+#
+# Tuned for the free plan: 512 MB and a tenth of a CPU shared with gunicorn.
+#   recycle / max_rss  the worker is replaced after 20 jobs, or after any job
+#                      that left it above ~180 MB -- an ERP import or a
+#                      restore reads a whole workbook into memory, and a
+#                      worker that keeps that heap competes with gunicorn for
+#                      the same 512 MB until the container is killed.
+#   guard_cycle        the sentinel checks on its processes every 5 s rather
+#                      than twice a second (the default): on a tenth of a CPU,
+#                      idle wake-ups are time taken from requests.
+#   poll               the ORM broker looks for queued jobs every 15 s.
 Q_CLUSTER = {
     "name": "faculty_paper",
     "workers": 1,  # shares one small container with gunicorn
+    "recycle": int(os.getenv("Q_RECYCLE", "20")),
+    "max_rss": int(os.getenv("Q_MAX_RSS_KB", "180000")),
+    "guard_cycle": int(os.getenv("Q_GUARD_CYCLE", "5")),
     "timeout": 3300,
     "retry": 3600,
     "max_attempts": 2,
@@ -69,7 +83,15 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Last, so it runs after the view: a write request makes the shared
+    # college-wide figures stale (core/services/aggregate_cache.py).
+    "core.services.aggregate_cache.BumpOnWriteMiddleware",
 ]
+
+# How long a college-wide figure (the fault checks, the publication report) is
+# shared between readers when nothing has been written. Writes in this process
+# end it at once; this bounds only what the job worker changes. 0 turns it off.
+AGGREGATE_CACHE_SECONDS = int(os.getenv("AGGREGATE_CACHE_SECONDS", "30"))
 
 ROOT_URLCONF = "config.urls"
 

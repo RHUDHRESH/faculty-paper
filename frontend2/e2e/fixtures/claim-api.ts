@@ -171,6 +171,14 @@ export const FILEABLE_FIELDS = {
   indexing_level: "Scopus",
   yukthi_id: "NA",
   scopus_author_url: "https://www.scopus.com/authid/detail.uri?authorId=57200000000",
+  // The three eligibility conditions, ticked: the server refuses a filing
+  // without them (backend/core/services/filing_conditions.py). Ignored on a
+  // save that does not file.
+  confirmations: ["indexed", "no-duplicate", "documents"].map((id) => ({
+    id,
+    text_version: "2026-09",
+    ticked_at: "2026-09-24T14:02:11+05:30",
+  })),
 } as const
 
 /** Send the attachment set back as the form would, optionally rewriting each

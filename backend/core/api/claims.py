@@ -237,11 +237,16 @@ def claim_counts(request: HttpRequest, q: Optional[str] = None, mine: bool = Fal
     client instead of approximating it.
 
     `mine` counts only the viewer's own papers, as `/claims` lists them.
+    Without it, somebody who sees the college's is counting their desk, which
+    never carries their own paper (`rbac.is_own_claim`): the badge must match
+    the queue, and must not tell a claimant which desk holds theirs.
     """
     user = require_user(request)
     scope = _claims_queryset(user)
     if mine:
         scope = scope.filter(owner=user)
+    elif rbac.can_view_college_wide(user.role):
+        scope = scope.exclude(owner=user)
     if q:
         scope = scope.filter(
             Q(paper_title__icontains=q) | Q(ticket_number__icontains=q)

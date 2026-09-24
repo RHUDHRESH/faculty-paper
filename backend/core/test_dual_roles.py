@@ -428,6 +428,20 @@ class ThePrincipalsDeskTests(DualRoleBase):
         admin_queue = self._get(self.admin, "/api/principal/queue").json()
         self.assertIn(self.paper.id, [c["id"] for c in admin_queue["results"]])
 
+    def test_the_desk_s_counts_leave_it_out_and_my_papers_count_it(self):
+        # The sidebar badge and the office home count the desk from
+        # `/claims/counts`. Counting the Principal's own paper there would say
+        # "1 waiting" over an empty queue -- and tell a claimant which desk
+        # holds their paper, which no claimant is told.
+        self._claim(ClaimStatus.CLEARED, ticket="DR-PR-CNT")
+        desk = self._get(self.principal, "/api/claims/counts").json()["counts"]
+        self.assertEqual(desk["checked"], 1)
+        mine = self._get(self.principal, "/api/claims/counts?mine=1").json()["counts"]
+        self.assertEqual(mine["checked"], 1)
+        self.assertEqual(mine["all"], 1)
+        # Another holder of the desk counts it as theirs to decide.
+        self.assertEqual(self._get(self.admin, "/api/claims/counts").json()["counts"]["checked"], 2)
+
     def test_with_no_other_principal_the_super_admin_decides_it_and_is_told(self):
         Notification.objects.all().delete()
         fresh = self._own(self.principal, ClaimStatus.SUBMITTED, ticket="DR-PR-2")

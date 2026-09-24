@@ -943,3 +943,44 @@ export function Distribution({
     </Figure>
   )
 }
+
+/**
+ * A 48×16 line for a stat tile (docs/ux/00 §8). Decorative next to its
+ * figure, so hidden from assistive tech unless given a `label`. Coloured
+ * with the current area (`--area`), never a rainbow.
+ */
+export function Sparkline({
+  values,
+  width = 48,
+  height = 16,
+  label,
+  className,
+}: {
+  values: number[]
+  width?: number
+  height?: number
+  label?: string
+  className?: string
+}) {
+  if (values.length < 2) return null
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const span = max - min || 1
+  const step = width / (values.length - 1)
+  const d = values
+    .map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - 1 - ((v - min) / span) * (height - 2)).toFixed(1)}`)
+    .join(" ")
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role={label ? "img" : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
+      className={cn("shrink-0 overflow-visible text-(--area)", className)}
+    >
+      <path d={d} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}

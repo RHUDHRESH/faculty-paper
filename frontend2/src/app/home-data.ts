@@ -19,6 +19,8 @@ export type HomeQuery = { key: readonly unknown[]; path: string }
 export const HOME_DATA = {
   ownClaims: { key: ["my-claims"], path: "/api/claims?mine=1&limit=200" },
   myPayments: { key: ["my-payments"], path: "/api/me/payments" },
+  /** The faculty Home hero in one call (docs/ux/01). */
+  mySummary: { key: ["me", "summary"], path: "/api/me/summary" },
   myAssignments: { key: ["my-assignments"], path: "/api/me/assignments" },
   stageCounts: { key: ["claims", "counts", "home"], path: "/api/claims/counts" },
   faults: { key: ["admin", "faults"], path: "/api/admin/faults" },
@@ -49,7 +51,7 @@ const OFFICE = [D.stageCounts, D.faults, D.pendingRequests, D.openDuplicates, D.
 const OWN = [D.ownClaims, D.myPayments]
 
 const BY_ROLE: Record<Role, readonly HomeQuery[]> = {
-  FACULTY: [D.ownClaims, D.myPayments, D.myAssignments],
+  FACULTY: [D.mySummary, D.ownClaims, D.myPayments, D.myAssignments],
   HOD: [D.hodOverview, D.hodStanding, D.hodTargets, ...OWN],
   PRINCIPAL: [D.principalQueue, D.collegeTotals, ...OWN],
   DIRECTOR: [D.directorQueue, D.areas, D.collegeTotals, D.budget, ...OWN],

@@ -1,16 +1,17 @@
 import {
+  BadgeCheck,
+  CalendarDays,
+  FilePlusCorner,
+  Lightbulb,
+  MessageCircle,
+  UsersRound,
   Library,
-  Binoculars,
   CalendarClock,
-  Contact,
-  Mail,
   BarChart3,
   BookOpen,
   Building2,
-  Calendar,
   ClipboardCheck,
   Coins,
-  Compass,
   Database,
   FileCheck,
   FileText,
@@ -23,11 +24,9 @@ import {
   Receipt,
   Search,
   Settings2,
-  Share2,
   ShieldCheck,
   Sparkles,
   Stamp,
-  Target,
   Trophy,
   Users,
   Wallet,
@@ -35,6 +34,7 @@ import {
 } from "lucide-react"
 
 import type { Role } from "@/app/auth"
+import type { Area } from "@/ui/chip"
 
 /**
  * Every place in the app, in one list.
@@ -67,6 +67,22 @@ export type NavItem = {
   end?: boolean
   /** Shown in the palette even when the sidebar hides it. */
   keywords?: string[]
+  /** The Convocation area colour (docs/ux/00 §1): heading dot, active wash. */
+  area?: Area
+  /** Drawn at the foot of the sidebar, above the account block (Calendar). */
+  pinned?: boolean
+}
+
+/**
+ * Destinations folded into others by the redesign (docs/ux/00 §9). Each old
+ * path redirects, so bookmarks and deep links still land somewhere sensible.
+ * Wall of fame stays a real page (`/wall`, TV display) but leaves the nav.
+ */
+export const REDIRECTS: Record<string, string> = {
+  "/u": "/search?scope=people",
+  "/network": "/collaborate?view=map",
+  "/goals": "/research?tab=me#this-year",
+  "/programme": "/research?tab=me",
 }
 
 const ALL_STAFF: Role[] = [
@@ -100,7 +116,6 @@ export function reviewsFlags(role: Role | undefined): boolean {
 
 export const NAV: NavItem[] = [
   // ---- the daily work, unlabelled -------------------------------------
-  { to: "/", label: "Home", icon: Home, end: true },
   // Everybody signed in, and second only to Home: it is the one destination
   // that answers a question asked before anything has been filed — does this
   // paper exist, is that journal real, has somebody here claimed it already.
@@ -119,8 +134,14 @@ export const NAV: NavItem[] = [
       "scopus",
       "journal",
       "everything",
+      "colleagues",
+      "people",
+      "profiles",
+      "directory",
+      "find someone",
     ],
   },
+  { to: "/", label: "Home", icon: Home, end: true },
   {
     to: "/clearing",
     label: "Clearing queue",
@@ -156,122 +177,112 @@ export const NAV: NavItem[] = [
     roles: ["HOD"],
     keywords: ["standing", "targets", "quota", "staff", "contribution", "college"],
   },
-  // `rbac.CLAIMANT_ROLES`. A head of department is a faculty member who also
-  // heads the department, and keeps filing their own papers; an officer who
-  // publishes files theirs here too, under "My research", beside the desk.
+  // ---- Convocation (docs/ux/00 §9): four areas, each with its colour ----
+  // RECORD. `rbac.CLAIMANT_ROLES`. A head of department is a faculty member
+  // who also heads the department, and keeps filing their own papers; an
+  // officer who publishes files theirs here too, under "My research", beside
+  // the desk.
   {
     to: "/papers",
     label: "My papers",
     icon: FileText,
     roles: CLAIMANTS,
+    group: "Record",
+    area: "record",
     groupFor: MY_RESEARCH,
     keywords: ["publications", "tickets", "claims", "my research", "mine"],
   },
   {
     to: "/papers/new",
     label: "File a paper",
-    icon: FileText,
+    icon: FilePlusCorner,
     roles: CLAIMANTS,
+    group: "Record",
+    area: "record",
     groupFor: MY_RESEARCH,
     keywords: ["submit", "claim", "new", "my research"],
   },
 
-  // ---- what faculty come back for -------------------------------------
+  // RESEARCH. My research absorbs "The college's research" as a tab
+  // (`/research?tab=college`) and "My goals" as a "This year" card.
   {
-    to: "/programme",
+    to: "/research",
     label: "My research",
     icon: Sparkles,
     group: "Research",
-    keywords: ["areas", "field", "trends", "breakthroughs", "who to work with", "programme"],
-  },
-  {
-    to: "/research",
-    label: "The college's research",
-    icon: Binoculars,
-    group: "Research",
-    keywords: ["college", "areas", "trends", "growing", "fading", "departments", "who works nearby"],
+    area: "research",
+    keywords: [
+      "areas", "field", "trends", "breakthroughs", "programme", "college", "college's research",
+      "growing", "fading", "departments", "goals", "targets", "this year", "progress",
+    ],
   },
   {
     to: "/discover",
     label: "Discover",
-    icon: Sparkles,
+    icon: Lightbulb,
     group: "Research",
+    area: "research",
     keywords: ["ideas", "topics", "what is new", "ai"],
   },
-  // Everybody: paper counts per person and per department, with no money on
-  // it at any role, so there is nobody it needs hiding from.
-  {
-    to: "/leaderboard",
-    label: "Leaderboard",
-    icon: Trophy,
-    group: "Research",
-    keywords: ["ranking", "rank", "top", "standings", "department", "q1", "score", "position"],
-  },
+
+  // PEOPLE. Who to work with absorbs Colleagues (now Search, people scope)
+  // and College network (now its Map view).
   {
     to: "/collaborate",
     label: "Who to work with",
-    icon: Compass,
-    group: "Research",
-    keywords: ["collaborators", "co-authors", "graph", "network"],
+    icon: UsersRound,
+    group: "People",
+    area: "people",
+    keywords: ["collaborators", "co-authors", "graph", "network", "map", "college network", "colleagues"],
+  },
+  {
+    to: "/messages",
+    label: "Messages",
+    icon: MessageCircle,
+    group: "People",
+    area: "people",
+    keywords: ["direct", "private", "dm", "office", "ask the office", "conversation"],
   },
   {
     to: "/discussions",
     label: "Discussions",
     icon: MessagesSquare,
-    group: "Research",
+    group: "People",
+    area: "people",
     keywords: ["forum", "ask", "posts", "talk", "feed", "social", "share"],
   },
+
+  // HONOURS. Everybody: paper counts per person and per department, with no
+  // money on it at any role. Wall of fame is its tab (`?view=wall`).
   {
-    to: "/messages",
-    label: "Messages",
-    icon: Mail,
-    group: "Research",
-    keywords: ["direct", "private", "dm", "office", "ask the office", "conversation"],
-  },
-  {
-    // Everybody's profiles. Not `/people`, which is the office's account
-    // screen and refuses everybody else.
-    to: "/u",
-    label: "Colleagues",
-    icon: Contact,
-    group: "Research",
-    keywords: ["people", "profiles", "faculty", "directory", "follow", "find someone"],
-  },
-  {
-    to: "/network",
-    label: "College network",
-    icon: Share2,
-    group: "Research",
-    keywords: ["graph", "co-authors", "collaborations", "who works with whom", "network"],
-  },
-  {
-    to: "/calendar",
-    label: "Calendar",
-    icon: Calendar,
-    group: "Research",
-    keywords: ["deadlines", "dates", "payout run"],
-  },
-  {
-    to: "/wall",
-    label: "Wall of fame",
+    to: "/leaderboard",
+    label: "Leaderboard",
     icon: Trophy,
-    group: "Research",
-    keywords: ["celebrate", "new papers", "paper of the month", "publications this month"],
-  },
-  {
-    to: "/goals",
-    label: "My goals",
-    icon: Target,
-    group: "Research",
-    keywords: ["targets", "this year", "progress", "rings"],
+    group: "Honours",
+    area: "honours",
+    keywords: [
+      "ranking", "rank", "top", "standings", "department", "q1", "score", "position",
+      "wall of fame", "celebrate", "paper of the month",
+    ],
   },
   {
     to: "/impact",
     label: "Impact card",
-    icon: Share2,
+    icon: BadgeCheck,
     roles: CLAIMANTS,
-    group: "Research",
+    group: "Honours",
+    area: "honours",
     keywords: ["share", "linkedin", "whatsapp", "badges", "card"],
+  },
+
+  // TIME. Pinned above the account block rather than in the list.
+  {
+    to: "/calendar",
+    label: "Calendar",
+    icon: CalendarDays,
+    area: "time",
+    pinned: true,
+    keywords: ["deadlines", "dates", "payout run"],
   },
 
   // ---- looking at the college -----------------------------------------

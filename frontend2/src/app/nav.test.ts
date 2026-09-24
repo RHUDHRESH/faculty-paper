@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { can } from "@/app/auth"
-import { navBadges, navFor, reviewsFlags } from "@/app/nav"
+import { NAV, navBadges, navFor, REDIRECTS, reviewsFlags } from "@/app/nav"
 
 /**
  * A head of department is a faculty member who also heads the department
@@ -16,11 +16,12 @@ describe("a head of department files papers", () => {
     expect(paths("HOD")).toEqual(expect.arrayContaining(["/papers", "/papers/new", "/department"]))
   })
 
-  it("still offers them to faculty, unlabelled, as the daily work", () => {
+  it("still offers them to faculty, under Record, as the daily work", () => {
     expect(paths("FACULTY")).toEqual(expect.arrayContaining(["/papers", "/papers/new"]))
     for (const role of ["FACULTY", "HOD"] as const) {
       for (const item of navFor(role).filter((i) => i.to.startsWith("/papers"))) {
-        expect(item.group, `${role} ${item.to}`).toBeUndefined()
+        expect(item.group, `${role} ${item.to}`).toBe("Record")
+        expect(item.area, `${role} ${item.to}`).toBe("record")
       }
     }
   })
@@ -118,5 +119,50 @@ describe("nav badges", () => {
   it("draws nothing for an empty queue or before the counts arrive", () => {
     expect(navBadges("PRINCIPAL", { ...counts, checked: 0 })).toEqual({})
     expect(navBadges("PRINCIPAL", undefined)).toEqual({})
+  })
+})
+
+/**
+ * Convocation (docs/ux/00 §9): a faculty sidebar of four coloured groups,
+ * Search and Home above them and Calendar pinned below. Folded destinations
+ * redirect rather than 404.
+ */
+describe("the Convocation sidebar", () => {
+  it("gives faculty Search, Home, four groups and a pinned Calendar", () => {
+    const items = navFor("FACULTY")
+    expect(items.map((i) => i.label)).toEqual([
+      "Search", "Home",
+      "My papers", "File a paper",
+      "My research", "Discover",
+      "Who to work with", "Messages", "Discussions",
+      "Leaderboard", "Impact card",
+      "Calendar",
+    ])
+    expect([...new Set(items.map((i) => i.group).filter(Boolean))]).toEqual(["Record", "Research", "People", "Honours"])
+    expect(items.find((i) => i.to === "/calendar")?.pinned).toBe(true)
+  })
+
+  it("colours every grouped item with its group's area", () => {
+    const area = { Record: "record", Research: "research", People: "people", Honours: "honours" } as const
+    for (const i of navFor("FACULTY")) if (i.group) expect(i.area, i.label).toBe(area[i.group as keyof typeof area])
+  })
+
+  it("drops the folded destinations from the sidebar and redirects them", () => {
+    const to = NAV.map((i) => i.to)
+    for (const gone of ["/u", "/network", "/goals", "/programme", "/wall"]) expect(to).not.toContain(gone)
+    expect(REDIRECTS).toEqual({
+      "/u": "/search?scope=people",
+      "/network": "/collaborate?view=map",
+      "/goals": "/research?tab=me#this-year",
+      "/programme": "/research?tab=me",
+    })
+  })
+
+  it("keeps the old words findable in the palette", () => {
+    const kw = (to: string) => NAV.find((i) => i.to === to)?.keywords ?? []
+    expect(kw("/search")).toContain("colleagues")
+    expect(kw("/research")).toContain("goals")
+    expect(kw("/collaborate")).toContain("college network")
+    expect(kw("/leaderboard")).toContain("wall of fame")
   })
 })

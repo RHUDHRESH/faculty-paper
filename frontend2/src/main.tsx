@@ -10,10 +10,11 @@ import {
 } from "react"
 import { MotionConfig } from "motion/react"
 import { createRoot, type Root } from "react-dom/client"
-import { BrowserRouter, matchPath, Route, Routes } from "react-router-dom"
+import { BrowserRouter, matchPath, Navigate, Route, Routes, useSearchParams } from "react-router-dom"
 import { QueryClientProvider } from "@tanstack/react-query"
 
 import { AuthProvider, useAuth, type Role } from "@/app/auth"
+import { REDIRECTS } from "@/app/nav"
 import { prefetchHome } from "@/app/home-data"
 import { usePalette } from "@/app/palette-hook"
 import { Shell } from "@/app/shell"
@@ -82,10 +83,8 @@ const MessagesOffice = page(() => import("@/pages/messages"), "MessagesOffice")
 const MessagesOfficeThread = page(() => import("@/pages/messages"), "MessagesOfficeThread")
 const Thread = page(() => import("@/pages/discussions"), "Thread")
 const ChatPage = page(() => import("@/pages/messages"), "MessagesChat")
-const CollegeNetwork = page(() => import("@/pages/network"), "CollegeNetwork")
 const MyStats = page(() => import("@/pages/stats"), "MyStats")
 const PublicProfile = page(() => import("@/pages/person"), "PublicProfile")
-const PeopleDirectory = page(() => import("@/pages/person"), "PeopleDirectory")
 const CollegeResearch = page(() => import("@/pages/programme"), "CollegeResearch")
 const Duplicates = page(() => import("@/pages/duplicates"), "Duplicates")
 const Flags = page(() => import("@/pages/flags"), "Flags")
@@ -119,7 +118,6 @@ const Setup = page(() => import("@/pages/setup"), "Setup")
 const InstitutionSettings = page(() => import("@/pages/institution-settings"), "InstitutionSettings")
 const WallOfFame = page(() => import("@/pages/wall"), "WallOfFame")
 const ImpactCardPage = page(() => import("@/pages/impact"), "ImpactCardPage")
-const GoalsPage = page(() => import("@/pages/goals"), "GoalsPage")
 const NotificationsPage = page(() => import("@/pages/notifications"), "NotificationsPage")
 const NotificationSettings = page(() => import("@/pages/notification-settings"), "NotificationSettings")
 
@@ -136,6 +134,16 @@ const HOMES: Record<Role, Page> = {
 
 /** Path to page, for fetching a page's code before it is rendered. More
  *  specific patterns first; the routes themselves are declared below. */
+/**
+ * My research and the college's research are one destination with two tabs
+ * (docs/ux/05): `/research?tab=me` (default) and `?tab=college`. Until the
+ * My research page draws its own tab bar, this picks the page.
+ */
+function ResearchTabs() {
+  const [params] = useSearchParams()
+  return params.get("tab") === "college" ? <CollegeResearch /> : <Programme />
+}
+
 const PRELOADS: [string, Page][] = [
   ["/papers/new", FilePaper],
   ["/papers/:id/edit", FilePaper],
@@ -147,7 +155,6 @@ const PRELOADS: [string, Page][] = [
   ["/authorisations", Authorisations],
   ["/payments/done", PaymentsDone],
   ["/payments", Payments],
-  ["/programme", Programme],
   ["/discover", Discover],
   ["/collaborate", Collaborate],
   ["/discussions/p/:id", FeedPostPage],
@@ -157,16 +164,13 @@ const PRELOADS: [string, Page][] = [
   ["/messages/office", MessagesOffice],
   ["/messages/o/:id", MessagesOfficeThread],
   ["/messages/:id", Thread],
-  ["/network", CollegeNetwork],
   ["/u/me/stats", MyStats],
   ["/messages", Messages],
   ["/u/:id", PublicProfile],
-  ["/u", PeopleDirectory],
-  ["/research", CollegeResearch],
+  ["/research", Programme],
   ["/leaderboard", Leaderboard],
   ["/wall", WallOfFame],
   ["/impact", ImpactCardPage],
-  ["/goals", GoalsPage],
   ["/calendar", Calendar],
   ["/department", Department],
   ["/publications", Publications],
@@ -332,8 +336,10 @@ function App() {
           <Route path="/authorisations" element={<Authorisations />} />
           <Route path="/payments" element={<Payments />} />
           <Route path="/payments/done" element={<PaymentsDone />} />
-          <Route path="/programme" element={<Programme />} />
-          <Route path="/research" element={<CollegeResearch />} />
+          <Route path="/research" element={<ResearchTabs />} />
+          {Object.entries(REDIRECTS).map(([from, to]) => (
+            <Route key={from} path={from} element={<Navigate to={to} replace />} />
+          ))}
           <Route path="/discover" element={<Discover />} />
           <Route path="/collaborate" element={<Collaborate />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
@@ -347,8 +353,6 @@ function App() {
           <Route path="/messages/office" element={<MessagesOffice />} />
           <Route path="/messages/o/:id" element={<MessagesOfficeThread />} />
           <Route path="/messages/:id" element={<Thread />} />
-          <Route path="/network" element={<CollegeNetwork />} />
-          <Route path="/u" element={<PeopleDirectory />} />
           <Route path="/u/me/stats" element={<MyStats />} />
           <Route path="/u/:id" element={<PublicProfile />} />
           <Route path="/calendar" element={<Calendar />} />
@@ -381,7 +385,6 @@ function App() {
           <Route path="/me" element={<Profile />} />
           <Route path="/wall" element={<WallOfFame />} />
           <Route path="/impact" element={<ImpactCardPage />} />
-          <Route path="/goals" element={<GoalsPage />} />
           <Route path="/privacy" element={<Privacy />} />
           {import.meta.env.DEV && <Route path="/gallery" element={<Gallery />} />}
           {/* Never a silent redirect home: see the note in not-found.tsx. */}

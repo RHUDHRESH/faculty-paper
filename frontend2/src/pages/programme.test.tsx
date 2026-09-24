@@ -59,7 +59,7 @@ describe("Programme", () => {
     expect(screen.queryByText(/Who to work with/)).not.toBeInTheDocument()
     expect(calls().some((p) => p.startsWith("/api/trends/me"))).toBe(false)
     expect(calls().some((p) => p.startsWith("/api/programme/around"))).toBe(false)
-    expect(screen.getByRole("link", { name: /The college's research/ })).toHaveAttribute("href", "/research")
+    expect(screen.getByRole("link", { name: /The college's research/ })).toHaveAttribute("href", "/research?tab=college")
   })
 })
 

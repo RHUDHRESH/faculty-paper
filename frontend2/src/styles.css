@@ -5,6 +5,7 @@
 @import "tailwindcss" source("../src");
 @source not "../src/**/*.md";
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/fraunces";
 
 /* dark: follows the app's own theme choice (account menu), not only the OS. */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
@@ -207,6 +208,51 @@
   --dur-1: 80ms;
   --dur-2: 140ms;
   --dur-3: 220ms;
+
+
+  /* ---- Convocation (docs/ux/00-design-language.md) --------------------
+     One colour per area of the app, so a reader always knows where they
+     stand. Text tokens hold 4.5:1 on white. Utilities: text-area-research,
+     bg-area-research-wash, border-area-research-line, and so on. Components
+     that take an `area` prop set `data-area`, which maps the generic
+     `--area`, `--area-wash`, `--area-line` (below the dark block) to that
+     area — use them as text-(--area), bg-(--area-wash). */
+  --color-area-record: #2b398f;
+  --color-area-record-wash: #eef2fd;
+  --color-area-record-line: #c8d3f7;
+  --color-area-research: #0b6e67;
+  --color-area-research-wash: #e8f6f4;
+  --color-area-research-line: #b5e2dc;
+  --color-area-people: #b04a2f;
+  --color-area-people-wash: #fcefe9;
+  --color-area-people-line: #f3cbbd;
+  --color-area-honours: #8a6410;
+  --color-area-honours-fill: #e0a82e;
+  --color-area-honours-wash: #fdf6e3;
+  --color-area-honours-line: #f1dca3;
+  --color-area-time: #1b6fa3;
+  --color-area-time-wash: #e8f3fb;
+  --color-area-time-line: #b9dbf1;
+  /* Certificate surfaces only: impact plate, Wall of fame, "you were cited". */
+  --color-paper: #fbf8f1;
+  --color-gold: #e0a82e;
+
+  /* Honour face. Fraunces, and only on honour moments (display-honour). */
+  --font-honour: "Fraunces Variable", ui-serif, Georgia, serif;
+
+  /* Convocation type scale: text-honour (44/48, with .honour for the face),
+     text-display (32/38), text-figure-xl (56/56), text-figure (28/32). */
+  --text-honour: 2.75rem;
+  --text-honour--line-height: 3rem;
+  --text-display: 2rem;
+  --text-display--line-height: 2.375rem;
+  --text-figure-xl: 3.5rem;
+  --text-figure-xl--line-height: 3.5rem;
+  --text-figure: 1.75rem;
+  --text-figure--line-height: 2rem;
+
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
 
   /* ---- layout ---------------------------------------------------------- */
   --sidebar-w: 15rem;
@@ -567,6 +613,23 @@
   --color-caution-wash: #29230d;
   --color-critical: #f87171;
   --color-critical-wash: #2c1515;
+  --color-area-record: #8fa5ff;
+  --color-area-record-wash: #1a2341;
+  --color-area-record-line: #2e3f78;
+  --color-area-research: #4fd1c1;
+  --color-area-research-wash: #0e2826;
+  --color-area-research-line: #1d4d48;
+  --color-area-people: #ff9a7a;
+  --color-area-people-wash: #2e1911;
+  --color-area-people-line: #5a3022;
+  --color-area-honours: #f5c451;
+  --color-area-honours-fill: #e0a82e;
+  --color-area-honours-wash: #2a220c;
+  --color-area-honours-line: #57461a;
+  --color-area-time: #6cc0f5;
+  --color-area-time-wash: #0f2230;
+  --color-area-time-line: #1f4560;
+  --color-paper: #1b1a16;
   --shadow-well: inset 0 1px 2px rgb(0 0 0 / 0.35);
   --shadow-raise: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 16px -6px rgb(0 0 0 / 0.5);
@@ -575,6 +638,70 @@
   --shadow-modal: 0 24px 48px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.08);
   --area-people: #ff9a7a;
   --area-people-wash: #2e1911;
+}
+
+/* The current area. `data-area` on any component root (HeroBand, StatTile,
+   Chip...) points the generic --area tokens at that area's colours, so a
+   component colours itself without knowing where it is. Default: record. */
+:root {
+  --area: var(--color-area-record);
+  --area-fill: var(--color-area-record);
+  --area-wash: var(--color-area-record-wash);
+  --area-line: var(--color-area-record-line);
+}
+[data-area="record"] {
+  --area: var(--color-area-record);
+  --area-fill: var(--color-area-record);
+  --area-wash: var(--color-area-record-wash);
+  --area-line: var(--color-area-record-line);
+}
+[data-area="research"] {
+  --area: var(--color-area-research);
+  --area-fill: var(--color-area-research);
+  --area-wash: var(--color-area-research-wash);
+  --area-line: var(--color-area-research-line);
+}
+[data-area="people"] {
+  --area: var(--color-area-people);
+  --area-fill: var(--color-area-people);
+  --area-wash: var(--color-area-people-wash);
+  --area-line: var(--color-area-people-line);
+}
+[data-area="honours"] {
+  --area: var(--color-area-honours);
+  --area-fill: var(--color-area-honours-fill);
+  --area-wash: var(--color-area-honours-wash);
+  --area-line: var(--color-area-honours-line);
+}
+[data-area="time"] {
+  --area: var(--color-area-time);
+  --area-fill: var(--color-area-time);
+  --area-wash: var(--color-area-time-wash);
+  --area-line: var(--color-area-time-line);
+}
+
+@layer utilities {
+  /* Hero gradient per area. The record hero on Home/Landing is solid navy. */
+  .hero-wash {
+    background-image: linear-gradient(135deg, var(--area-wash) 0%, var(--color-bg) 70%);
+  }
+  /* Gold ribbon: a 3px top border on honour surfaces and nowhere else. */
+  .ribbon {
+    background-image: linear-gradient(90deg, #e0a82e, #f5d27a 50%, #e0a82e);
+  }
+  /* display-honour: pair with text-honour. Honour moments only. */
+  .honour {
+    font-family: var(--font-honour);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  /* 12px column-head caps. */
+  .caps {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
 }
 
 /* Printing a ticket, the paid register or a report prints the page, not the

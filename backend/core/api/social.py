@@ -33,7 +33,7 @@ from django.utils import timezone
 from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
 
-from core import social
+from core import social, social_notify, social_rank
 from core.api.auth import may_set_field
 from core.api.common import api, rate_limit_for, require_user, session_auth
 from core.models import (
@@ -45,8 +45,10 @@ from core.models import (
     Follow,
     Notification,
     PostReport,
+    PostView,
     ResearchInterest,
     Role,
+    Skill,
     User,
 )
 from core.services import rbac
@@ -97,7 +99,15 @@ def _forget(name: Optional[str]) -> None:
             pass
 
 
-def _notify(user_id: str, title: str, body: str | None, href: str) -> None:
+def _notify(user_id: str, kind: str, title: str, body: str | None, href: str) -> None:
+    """Through the one door, so the person's switch for this kind is always honoured."""
+    social_notify.notify(user_id, kind, title, body, href)
+
+
+def _tell(user_id: str, title: str, body: str | None, href: str) -> None:
+    """Moderation, which is not a social notification and cannot be switched off:
+    an author is always told their post was hidden, and the super admin always
+    hears of a report."""
     Notification.objects.create(user_id=user_id, title=title[:255], body=(body or "")[:300], href=href)
 
 
@@ -113,25 +123,58 @@ def _post_href(post_id: str) -> str:
 # --------------------------------------------------------------- serialising --
 
 
+REACTION_KINDS = tuple(FeedReaction.Kind.values)
+
+
 def _annotated(qs, viewer: User):
-    likes = (
-        FeedReaction.objects.filter(post=OuterRef("pk")).order_by()
-        .values("post").annotate(n=Count("id")).values("n")
-    )
     comments = (
         FeedComment.objects.filter(post=OuterRef("pk")).order_by()
         .values("post").annotate(n=Count("id")).values("n")
     )
+    counts = {}
+    mine = {}
+    for kind in REACTION_KINDS:
+        counts[f"r_{kind.lower()}"] = Coalesce(
+            Subquery(
+                FeedReaction.objects.filter(post=OuterRef("pk"), kind=kind).order_by()
+                .values("post").annotate(n=Count("id")).values("n")
+            ),
+            0,
+        )
+        mine[f"m_{kind.lower()}"] = Exists(
+            FeedReaction.objects.filter(post=OuterRef("pk"), user=viewer, kind=kind)
+        )
     return qs.select_related("author", "paper").annotate(
-        like_count=Coalesce(Subquery(likes), 0),
         comment_count=Coalesce(Subquery(comments), 0),
-        liked=Exists(FeedReaction.objects.filter(post=OuterRef("pk"), user=viewer)),
         reported_by_me=Exists(
             PostReport.objects.filter(
                 post=OuterRef("pk"), reporter=viewer, status=PostReport.Status.OPEN
             )
         ),
+        **counts,
+        **mine,
     )
+
+
+def _reactions(p: FeedPost) -> dict[str, int]:
+    return {kind: int(getattr(p, f"r_{kind.lower()}", 0) or 0) for kind in REACTION_KINDS}
+
+
+def _my_reactions(p: FeedPost) -> list[str]:
+    return [kind for kind in REACTION_KINDS if getattr(p, f"m_{kind.lower()}", False)]
+
+
+def paper_card(c, coauthors: list[User] | None) -> dict[str, Any]:
+    """A paper as a post shows it: what it is and who here wrote it -- never what it paid."""
+    return {
+        "id": c.id,
+        "title": c.paper_title or "Untitled",
+        "journal_title": c.journal_title,
+        "publication_year": c.publication_year,
+        "quartile": c.quartile,
+        "doi": c.doi,
+        "coauthors": [{"id": u.id, "name": u.name} for u in (coauthors or [])],
+    }
 
 
 def _paper_brief(post: FeedPost) -> dict[str, Any] | None:
@@ -140,14 +183,29 @@ def _paper_brief(post: FeedPost) -> dict[str, Any] | None:
     # standing in the feed as work the college never accepted.
     if c is None or c.status in social.NOT_PUBLISHED:
         return None
-    return {
-        "id": c.id,
-        "title": c.paper_title or "Untitled",
-        "journal_title": c.journal_title,
-        "publication_year": c.publication_year,
-        "quartile": c.quartile,
-        "doi": c.doi,
-    }
+    coauthors = getattr(post, "_coauthors", None)
+    if coauthors is None:
+        coauthors = social_rank.coauthors_by_claim([c]).get(c.id, [])
+    return paper_card(c, coauthors)
+
+
+def _with_coauthors(posts: list[FeedPost]) -> None:
+    """Work out every paper card's co-authors for a page of posts at once."""
+    papers = [p.paper for p in posts if p.paper_id and p.paper and p.paper.status not in social.NOT_PUBLISHED]
+    found = social_rank.coauthors_by_claim(papers)
+    for p in posts:
+        if p.paper_id:
+            p._coauthors = found.get(p.paper_id, [])
+
+
+def record_views(posts: list[FeedPost], viewer: User) -> None:
+    """Reach: each post that reached somebody other than its author, once per person."""
+    others = [p for p in posts if p.author_id != viewer.id and not str(p.id).startswith("temp")]
+    if not others or not social_notify.counts_visits(viewer):
+        return
+    PostView.objects.bulk_create(
+        [PostView(post_id=p.id, viewer=viewer) for p in others], ignore_conflicts=True
+    )
 
 
 def _attachment(post: FeedPost) -> dict[str, Any] | None:
@@ -195,8 +253,10 @@ def _post_dict(p: FeedPost, viewer: User, *, comments=None, preview=None) -> dic
         "attachment": _attachment(p),
         "created_at": p.created_at.isoformat(),
         "edited_at": p.edited_at.isoformat() if p.edited_at else None,
-        "like_count": getattr(p, "like_count", 0),
-        "liked": bool(getattr(p, "liked", False)),
+        "like_count": _reactions(p)["LIKE"],
+        "liked": bool(getattr(p, "m_like", False)),
+        "reactions": _reactions(p),
+        "my_reactions": _my_reactions(p),
         "comment_count": getattr(p, "comment_count", 0),
         "comments_preview": preview or [],
         "hidden": hidden,
@@ -272,6 +332,8 @@ def _page(qs, viewer: User, *, limit: int, cursor: Optional[str]) -> dict[str, A
     more = len(rows) > limit
     rows = rows[:limit]
     previews = _previews(rows, viewer)
+    _with_coauthors(rows)
+    record_views(rows, viewer)
     return {
         "results": [_post_dict(p, viewer, preview=previews.get(p.id)) for p in rows],
         "next": _cursor_for(rows[-1]) if more and rows else None,
@@ -361,6 +423,7 @@ def _people_qs(viewer: User):
     return User.objects.filter(active=True).annotate(
         paper_count=Coalesce(Subquery(published), 0),
         followed=Exists(Follow.objects.filter(follower=viewer, person=OuterRef("pk"))),
+        completeness=social_rank.completeness_score_expr(),
     )
 
 
@@ -369,6 +432,7 @@ def _card(u: User) -> dict[str, Any]:
     return {
         **social.person_brief(u),
         "interests": interests,
+        "skills": [s.name for s in u.skills.all()][:3],
         "papers": getattr(u, "paper_count", 0),
         "following": bool(getattr(u, "followed", False)),
     }
@@ -380,10 +444,15 @@ def search_people(
     q: str = "",
     department: str = "",
     interest: str = "",
+    skill: str = "",
     limit: int = 24,
     offset: int = 0,
 ):
-    """Colleagues by name, department, designation or research interest."""
+    """Colleagues by name, department, designation, research interest or skill.
+
+    A fuller profile comes first: it is the one a colleague can actually
+    decide from, and the order says so without hiding anybody.
+    """
     viewer = require_user(request)
     qs = _people_qs(viewer)
     text = q.strip()
@@ -393,17 +462,20 @@ def search_people(
             | Q(department__icontains=text)
             | Q(designation__icontains=text)
             | Q(research_interests__domain__icontains=text)
+            | Q(skills__name__icontains=text)
         )
     if department.strip():
         qs = qs.filter(department__iexact=department.strip())
     if interest.strip():
         qs = qs.filter(research_interests__domain__iexact=interest.strip())
-    qs = qs.distinct().order_by("name")
+    if skill.strip():
+        qs = qs.filter(skills__name__iexact=skill.strip())
+    qs = qs.distinct().order_by("-completeness", "name")
 
     limit = max(1, min(int(limit), 60))
     offset = max(0, int(offset))
     total = qs.count()
-    rows = list(qs.prefetch_related("research_interests")[offset : offset + limit])
+    rows = list(qs.prefetch_related("research_interests", "skills")[offset : offset + limit])
     return {"total": total, "limit": limit, "offset": offset, "results": [_card(u) for u in rows]}
 
 
@@ -420,6 +492,11 @@ def person_profile(request: HttpRequest, user_id: str):
     )[:5]
     posts = list(posts)
     previews = _previews(posts, viewer)
+    _with_coauthors(posts)
+
+    from core.social_profile import profile_extras, record_visit
+
+    record_visit(person, viewer)
 
     may_open_record = rbac.can_view_reports(viewer.role) or (
         viewer.role == Role.HOD
@@ -438,6 +515,9 @@ def person_profile(request: HttpRequest, user_id: str):
         "posts": [_post_dict(p, viewer, preview=previews.get(p.id)) for p in posts],
         "research_post": _research_post(person, viewer),
         "may_open_record": bool(may_open_record) and person.id != viewer.id,
+        # Skills, pinned papers, collaborations -- and, for the owner alone,
+        # the completeness meter and their statistics.
+        **profile_extras(person, viewer),
     }
 
 
@@ -491,6 +571,8 @@ def my_follows(request: HttpRequest):
     return {
         "people": [social.person_brief(f.person) for f in rows if f.person_id and f.person.active],
         "departments": [f.department for f in rows if f.department],
+        "topics": [f.topic for f in rows if f.topic],
+        "journals": [f.journal for f in rows if f.journal],
     }
 
 
@@ -504,7 +586,7 @@ def follow_person(request: HttpRequest, user_id: str):
         raise HttpError(400, "You already see everything you post.")
     _, created = Follow.objects.get_or_create(follower=viewer, person=person)
     if created:
-        _notify(person.id, f"{viewer.name} started following you", None, f"/u/{viewer.id}")
+        _notify(person.id, "follow", f"{viewer.name} started following you", None, f"/u/{viewer.id}")
     return {"following": True, "followers": _follow_counts(person)}
 
 
@@ -604,7 +686,7 @@ def _notify_mentions(post: FeedPost, mentions_json: str, actor: User, *, where: 
         # them a notification that leads to a 404 -- or tell them it exists.
         if not social.may_read_post(person, post):
             continue
-        _notify(person.id, f"{actor.name} mentioned you in {where}", _excerpt(text), _post_href(post.id))
+        _notify(person.id, "mention", f"{actor.name} mentioned you in {where}", _excerpt(text), _post_href(post.id))
         told.add(person.id)
     return told
 
@@ -616,15 +698,28 @@ def feed(
     author: Optional[str] = None,
     cursor: Optional[str] = None,
     limit: int = FEED_PAGE,
+    topic: Optional[str] = None,
+    journal: Optional[str] = None,
 ):
-    """The feed: everybody, the people and departments you follow, or your department."""
+    """The feed: everybody, what you follow, or your department -- optionally about one topic or journal.
+
+    Following covers people, departments, subject areas and journals. Whatever
+    the filter, it narrows `visible_posts` and never widens it: a followed
+    topic cannot surface another department's private post.
+    """
     viewer = require_user(request)
     qs = social.visible_posts(viewer)
     if tab == "following":
-        follows = Follow.objects.filter(follower=viewer)
+        follows = list(Follow.objects.filter(follower=viewer))
         people = [f.person_id for f in follows if f.person_id]
         departments = [f.department for f in follows if f.department]
-        qs = qs.filter(Q(author_id__in=people) | social.any_of_departments("department", departments))
+        condition = Q(author_id__in=people) | social.any_of_departments("department", departments)
+        for f in follows:
+            if f.topic:
+                condition |= about_topic(f.topic)
+            if f.journal:
+                condition |= about_journal(f.journal)
+        qs = qs.filter(condition)
     elif tab == "department":
         mine = (viewer.department or "").strip()
         qs = qs.filter(department__iexact=mine) if mine else qs.none()
@@ -632,7 +727,21 @@ def feed(
         raise HttpError(400, "That is not one of the feed's tabs.")
     if author:
         qs = qs.filter(author_id=author)
+    if (topic or "").strip():
+        qs = qs.filter(about_topic(topic.strip()))
+    if (journal or "").strip():
+        qs = qs.filter(about_journal(journal.strip()))
     return {"tab": tab, **_page(qs, viewer, limit=limit, cursor=cursor)}
+
+
+def about_topic(topic: str) -> Q:
+    """A post is about a subject area when its paper is filed under it, or its words name it."""
+    return Q(paper__subjects_json__icontains=topic) | Q(body__icontains=topic)
+
+
+def about_journal(journal: str) -> Q:
+    """A post is about a journal when its paper appeared there, or it @-names it."""
+    return Q(paper__journal_title__iexact=journal) | Q(mentions_json__icontains=journal)
 
 
 @api.get("/feed/my-papers", auth=session_auth)
@@ -722,6 +831,7 @@ def get_post(request: HttpRequest, post_id: str):
         _comment_dict(c, viewer, post.author_id)
         for c in post.comments.select_related("author").order_by("created_at", "id")
     ]
+    record_views([post], viewer)
     return _post_dict(post, viewer, comments=comments)
 
 
@@ -780,16 +890,16 @@ def delete_post(request: HttpRequest, post_id: str):
 def like_post(request: HttpRequest, post_id: str):
     viewer = require_user(request)
     post = _readable(viewer, post_id)
-    FeedReaction.objects.get_or_create(post=post, user=viewer)
-    return {"liked": True, "like_count": post.reactions.count()}
+    FeedReaction.objects.get_or_create(post=post, user=viewer, kind=FeedReaction.Kind.LIKE)
+    return {"liked": True, "like_count": post.reactions.filter(kind=FeedReaction.Kind.LIKE).count()}
 
 
 @api.delete("/feed/posts/{post_id}/like", auth=session_auth)
 def unlike_post(request: HttpRequest, post_id: str):
     viewer = require_user(request)
     post = _readable(viewer, post_id)
-    FeedReaction.objects.filter(post=post, user=viewer).delete()
-    return {"liked": False, "like_count": post.reactions.count()}
+    FeedReaction.objects.filter(post=post, user=viewer, kind=FeedReaction.Kind.LIKE).delete()
+    return {"liked": False, "like_count": post.reactions.filter(kind=FeedReaction.Kind.LIKE).count()}
 
 
 @api.get("/feed/posts/{post_id}/comments", auth=session_auth)
@@ -821,7 +931,7 @@ def add_comment(request: HttpRequest, post_id: str, payload: CommentIn):
 
     told = _notify_mentions(post, mentions, viewer, where="a comment", text=body)
     if post.author_id != viewer.id and post.author_id not in told and post.author.active:
-        _notify(post.author_id, f"{viewer.name} commented on your post", _excerpt(body), _post_href(post.id))
+        _notify(post.author_id, "comment", f"{viewer.name} commented on your post", _excerpt(body), _post_href(post.id))
     comment.author = viewer
     return _comment_dict(comment, viewer, post.author_id)
 
@@ -882,7 +992,7 @@ def report_post(request: HttpRequest, post_id: str, payload: ReasonIn):
     )
     if created:
         for admin_id in User.objects.filter(role=Role.SUPER_ADMIN, active=True).values_list("id", flat=True):
-            _notify(admin_id, "A post was reported", _excerpt(reason), "/discussions?tab=reported")
+            _tell(admin_id, "A post was reported", _excerpt(reason), "/discussions?tab=reported")
     return {"ok": True, "reported": True}
 
 
@@ -931,7 +1041,7 @@ def hide_post(request: HttpRequest, post_id: str, payload: ReasonIn):
             detail_json=json.dumps({"reason": reason}),
         )
     if post.author_id != viewer.id:
-        _notify(post.author_id, "Your post was hidden by the administrator", reason, _post_href(post.id))
+        _tell(post.author_id, "Your post was hidden by the administrator", reason, _post_href(post.id))
     return _fresh(viewer, post.id)
 
 

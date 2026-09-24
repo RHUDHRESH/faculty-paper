@@ -1418,6 +1418,9 @@ class ThreadParticipant(models.Model):
         "User", on_delete=models.CASCADE, related_name="direct_threads"
     )
     added_at = models.DateTimeField(auto_now_add=True)
+    #: When they last had the conversation open and in front of them. What
+    #: "unread" is counted from, and what the others see as "seen".
+    last_read_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         constraints = [
@@ -1905,25 +1908,42 @@ class FeedComment(models.Model):
 
 
 class FeedReaction(models.Model):
-    """A like. One per person per post; liking twice is still liking once."""
+    """A reaction to a post: a like, or one of the three a college has use for.
+
+    One of each kind per person per post -- congratulating twice is still
+    congratulating once -- but a person may both like a post and say they
+    would like to work on it, because those are different things to say.
+    """
+
+    class Kind(models.TextChoices):
+        LIKE = "LIKE", "Like"
+        CONGRATS = "CONGRATS", "Congrats"
+        INTERESTED = "INTERESTED", "Interested"
+        #: "I would like to work on this with you." Opens a message to the
+        #: author, which is the point of saying it.
+        COLLABORATE = "COLLABORATE", "Want to collaborate"
 
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
     post = models.ForeignKey(FeedPost, on_delete=models.CASCADE, related_name="reactions")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="feed_reactions")
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.LIKE)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["post", "user"], name="one_like_per_person_per_post")
+            models.UniqueConstraint(
+                fields=["post", "user", "kind"], name="one_reaction_kind_per_person_per_post"
+            )
         ]
 
 
 class Follow(models.Model):
-    """Somebody following a colleague, or a whole department.
+    """Somebody following a colleague, a department, a subject area or a journal.
 
-    Exactly one of `person` and `department` is set. A department is kept as
-    the name people are filed under, because that is the only department
-    record the system has.
+    Exactly one of `person`, `department`, `topic` and `journal` is set. A
+    department is kept as the name people are filed under, because that is
+    the only department record the system has; a topic is a subject area as
+    the papers and interests spell it; a journal is its title.
     """
 
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
@@ -1932,6 +1952,8 @@ class Follow(models.Model):
         User, null=True, blank=True, on_delete=models.CASCADE, related_name="followers"
     )
     department = models.CharField(max_length=255, blank=True, null=True)
+    topic = models.CharField(max_length=160, blank=True, null=True)
+    journal = models.CharField(max_length=512, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -1944,10 +1966,24 @@ class Follow(models.Model):
                 fields=["follower", "department"], name="follow_a_department_once",
                 condition=models.Q(department__isnull=False),
             ),
+            models.UniqueConstraint(
+                fields=["follower", "topic"], name="follow_a_topic_once",
+                condition=models.Q(topic__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["follower", "journal"], name="follow_a_journal_once",
+                condition=models.Q(journal__isnull=False),
+            ),
             models.CheckConstraint(
                 condition=(
-                    models.Q(person__isnull=False, department__isnull=True)
-                    | models.Q(person__isnull=True, department__isnull=False)
+                    models.Q(person__isnull=False, department__isnull=True,
+                             topic__isnull=True, journal__isnull=True)
+                    | models.Q(person__isnull=True, department__isnull=False,
+                               topic__isnull=True, journal__isnull=True)
+                    | models.Q(person__isnull=True, department__isnull=True,
+                               topic__isnull=False, journal__isnull=True)
+                    | models.Q(person__isnull=True, department__isnull=True,
+                               topic__isnull=True, journal__isnull=False)
                 ),
                 name="follow_one_thing",
             ),
@@ -1983,3 +2019,172 @@ class PostReport(models.Model):
                 condition=models.Q(status="OPEN"),
             )
         ]
+
+
+# ---------------------------------------------------------------------------
+# The social layer's second storey: collaboration, profiles that say what
+# somebody is good at, and the numbers a person sees about their own reach.
+# ---------------------------------------------------------------------------
+
+
+class CollaborationRequest(models.Model):
+    """"Shall we write this together?" -- sent as a card in a direct message.
+
+    It lives in the conversation between the two people, as a message with a
+    structured part, so the answer and whatever they say around it stay in
+    one place. Suggesting a call keeps it open; accepting makes a
+    `Collaboration` both of them can see on their profiles.
+    """
+
+    class State(models.TextChoices):
+        PENDING = "PENDING", "Waiting for an answer"
+        CALL = "CALL", "A call was suggested"
+        ACCEPTED = "ACCEPTED", "Accepted"
+        DECLINED = "DECLINED", "Declined"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    thread = models.ForeignKey(Thread, on_delete=models.CASCADE, related_name="collab_requests")
+    #: The message that carries the card.
+    post = models.OneToOneField(Post, on_delete=models.CASCADE, related_name="collab_request")
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name="collab_requests_sent")
+    recipient = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="collab_requests_received"
+    )
+    topic = models.CharField(max_length=200)
+    journal = models.CharField(max_length=512, blank=True, default="")
+    message = models.TextField(blank=True, default="")
+    state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
+    response_note = models.CharField(max_length=500, blank=True, default="")
+    responded_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class Collaboration(models.Model):
+    """Two (or more) colleagues who agreed to work on something together.
+
+    Shown on every member's profile and drawn in the collaboration graph
+    beside the co-authorships the claims imply. Ended rather than deleted, so
+    the graph can one day say "worked together on" as well as "working on".
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    request = models.OneToOneField(
+        CollaborationRequest, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="collaboration",
+    )
+    topic = models.CharField(max_length=200)
+    journal = models.CharField(max_length=512, blank=True, default="")
+    members = models.ManyToManyField(User, related_name="collaborations")
+    created_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class PinnedPaper(models.Model):
+    """One of the (at most three) papers somebody chose to show first."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="pinned_papers")
+    claim = models.ForeignKey("Claim", on_delete=models.CASCADE, related_name="pins")
+    position = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["position", "created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "claim"], name="pin_a_paper_once")
+        ]
+
+
+class Skill(models.Model):
+    """Something a person says they can do, for colleagues to vouch for."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="skills")
+    name = models.CharField(max_length=80)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            # "Python" and "python" are one skill; listing it twice would split
+            # its endorsements in two.
+            models.UniqueConstraint(
+                models.functions.Lower("name"), "user", name="one_skill_per_name_per_person"
+            )
+        ]
+        indexes = [models.Index(fields=["name"], name="skill_by_name")]
+
+
+class Endorsement(models.Model):
+    """A colleague vouching for somebody's skill. Once each."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name="endorsements")
+    endorser = models.ForeignKey(User, on_delete=models.CASCADE, related_name="endorsements_given")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["skill", "endorser"], name="endorse_a_skill_once")
+        ]
+
+
+class ProfileVisit(models.Model):
+    """Somebody opened somebody else's profile, counted once per day.
+
+    Only ever shown back as numbers, and only to the person visited. Who
+    visited is kept so the count can be of people rather than page loads; it
+    is never shown to anybody. A person can choose not to be counted
+    (`SocialSettings.count_my_visits`).
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    profile = models.ForeignKey(User, on_delete=models.CASCADE, related_name="profile_visits")
+    viewer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="profiles_visited")
+    day = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["profile", "viewer", "day"], name="one_visit_per_viewer_per_day"
+            )
+        ]
+        indexes = [models.Index(fields=["profile", "day"], name="visit_by_profile_day")]
+
+
+class PostView(models.Model):
+    """A post reached somebody's screen. Once per person: this is reach, not load count."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    post = models.ForeignKey(FeedPost, on_delete=models.CASCADE, related_name="views")
+    viewer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="posts_seen")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["post", "viewer"], name="one_view_per_person_per_post")
+        ]
+
+
+class SocialSettings(models.Model):
+    """A person's switches for the social layer.
+
+    `muted_json` lists the kinds of social notification they have turned off
+    (`core.social_notify.KINDS`). `count_my_visits` off means their visits to
+    other people's profiles and posts are not recorded for anybody's
+    statistics. A person with no row has everything on.
+    """
+
+    user = models.OneToOneField(
+        User, primary_key=True, on_delete=models.CASCADE, related_name="social_settings"
+    )
+    muted_json = models.TextField(default="[]")
+    count_my_visits = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)

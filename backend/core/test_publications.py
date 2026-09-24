@@ -131,6 +131,9 @@ class NameTests(TestCase):
         self.assertEqual(name_score("R. Subhashini", "K. Subhashini"), 0)
         self.assertEqual(name_score("Subhashini Ramesh", "Subhashini Kumar"), 0)
         self.assertEqual(name_score("Joyal Isac", "Priya Devi"), 0)
+        # Only the surname shared, each given name "explained" by the other's
+        # initial: below the bar the name matcher acts on.
+        self.assertLess(name_score("R. Monish Kumar", "Rakesh Kumar M"), 0.85)
 
     def test_departments_from_affiliation(self):
         self.assertEqual(departments_in(SEC), {"EEE"})

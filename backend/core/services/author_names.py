@@ -75,6 +75,7 @@ def name_score(a: str | None, b: str | None) -> float:
     ia_left = list(ia)
     ib_left = list(ib)
     expanded = False
+    expanded_b = False
     left_a: list[str] = []
     for token in rest_a:
         if token[0] in ib_left:
@@ -86,7 +87,7 @@ def name_score(a: str | None, b: str | None) -> float:
     for token in rest_b:
         if token[0] in ia_left:
             ia_left.remove(token[0])
-            expanded = True
+            expanded_b = True
         else:
             left_b.append(token)
     # Initials that match each other.
@@ -106,7 +107,11 @@ def name_score(a: str | None, b: str | None) -> float:
         # the name matcher acts on by itself.
         whole = sum(1 for x in extra_a + extra_b if len(x) > 1)
         return max(0.85 - 0.05 * (extra - 1) - (0.05 if whole else 0), 0.7)
-    return 0.92 if expanded else 1.0
+    if expanded and expanded_b:
+        # Each side's name explained only by the other's initial: "R. Monish
+        # Kumar" / "Rakesh Kumar M" share nothing but "Kumar". Too weak alone.
+        return 0.8
+    return 0.92 if (expanded or expanded_b) else 1.0
 
 
 #: Department codes on the roster, and words a raw affiliation uses for them.

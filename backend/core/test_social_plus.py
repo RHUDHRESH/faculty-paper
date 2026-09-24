@@ -28,6 +28,7 @@ from core.models import (
     ClaimStatus,
     Collaboration,
     FeedPost,
+    FeedReaction,
     Notification,
     PostView,
     ProfileVisit,
@@ -151,7 +152,12 @@ class ReactionTests(Base):
         post = self._post(self.asha, visibility="DEPARTMENT")
         self._json("post", self.meera, f"/api/feed/posts/{post['id']}/reactions/congrats", status=404)
         self._json("get", self.meera, f"/api/feed/posts/{post['id']}/reactions", status=404)
+        # Refused before anything is written, not after: a 404 that still
+        # leaves a reaction behind (and tells the author) is the leak itself.
+        self.assertFalse(FeedReaction.objects.filter(user=self.meera).exists())
+        self.assertFalse(Notification.objects.filter(user=self.asha).exists())
         self._json("post", self.ravi, f"/api/feed/posts/{post['id']}/reactions/congrats")
+        self.assertTrue(FeedReaction.objects.filter(user=self.ravi).exists())
 
     def test_congrats_tells_the_author_once_and_a_like_does_not(self):
         post = self._post(self.asha)

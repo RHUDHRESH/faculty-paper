@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-labelledby="t">
+  <title id="t">You, a colleague and a new person joined by an arch</title>
+  <!-- Convocation house set. CC0. Accent: people/terracotta #b04a2f. -->
+  <rect x="40" y="176" width="240" height="1.5" fill="#f3cbbd"/>
+  <path d="M72 150 Q116 70 160 120 Q204 70 248 150" fill="none" stroke="#f3cbbd" stroke-width="4" stroke-linecap="round"/>
+  <path d="M72 150 Q116 70 160 120" fill="none" stroke="#2b398f" stroke-width="4" stroke-linecap="round"/>
+  <path d="M160 120 Q204 70 248 150" fill="none" stroke="#b04a2f" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 7"/>
+  <circle cx="72" cy="150" r="20" fill="#2b398f"/>
+  <circle cx="72" cy="144" r="7" fill="#ffffff"/><path d="M60 162 a12 10 0 0 1 24 0z" fill="#ffffff"/>
+  <circle cx="160" cy="120" r="18" fill="#ffffff" stroke="#2b398f" stroke-width="3"/>
+  <circle cx="160" cy="115" r="6" fill="#2b398f"/><path d="M150 131 a10 9 0 0 1 20 0z" fill="#2b398f"/>
+  <circle cx="248" cy="150" r="20" fill="#fcefe9" stroke="#b04a2f" stroke-width="3"/>
+  <circle cx="248" cy="144" r="7" fill="#b04a2f"/><path d="M236 162 a12 10 0 0 1 24 0z" fill="#b04a2f"/>
+  <circle cx="204" cy="94" r="7" fill="#e0a82e"/>
+  <path d="M200.5 94 l2.5 2.5 4.5-5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -477,6 +477,10 @@ class UserCreateIn(Schema):
     scopus_author_url: Optional[str] = None
     scopus_author_id: Optional[str] = None
     must_change_password: bool = True
+    #: Creating a head for a department that already has one: demote the one
+    #: in post to faculty in the same write. Without it the request is refused
+    #: (409) and names them.
+    replace_hod: bool = False
 
 
 class UserUpdateIn(Schema):
@@ -496,6 +500,9 @@ class UserUpdateIn(Schema):
     faculty_type: Optional[str] = None
     research_quota: Optional[int] = None
     research_quota_note: Optional[str] = None
+    #: Not a field of the account: the office's explicit "yes, replace the
+    #: head in post" when this edit makes a second head of a department.
+    replace_hod: Optional[bool] = None
 
 
 class ResetPasswordIn(Schema):
@@ -543,6 +550,9 @@ class FormulaIn(Schema):
     fixed_web_of_science: float = 5000
     max_authors: int = 9
     min_sec_references: int = 2
+    #: Day of the month filing closes for that month's run, 1-28, or null for
+    #: none. Left out of a request, the previous version's value is kept.
+    filing_cutoff_day: Optional[int] = None
 
 
 class MonthlyCreateIn(Schema):

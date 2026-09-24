@@ -3,7 +3,7 @@ import { LoaderCircle } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
-import { useApiMutation } from "@/lib/query"
+import { queryClient, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import {
   Dialog,
@@ -44,7 +44,8 @@ import { toast } from "@/ui/toast"
  */
 export function ForcePasswordChange() {
   const { me, refresh } = useAuth()
-  if (!me?.must_change_password) return null
+  // Viewing as somebody is read-only; their password is theirs to change.
+  if (!me?.must_change_password || me.impersonated_by) return null
   return (
     <PasswordDialog
       forced
@@ -53,7 +54,13 @@ export function ForcePasswordChange() {
       // open regardless, and once the change succeeds `refresh()` clears the
       // flag, which unmounts this component entirely.
       onManualOpenChange={() => {}}
-      onSuccess={refresh}
+      // Every request the page made while the change was owed was refused, and
+      // those refusals are cached: without the reset the first thing somebody
+      // sees after choosing a password is "Could not load your record".
+      onSuccess={async () => {
+        await refresh()
+        await queryClient.resetQueries()
+      }}
     />
   )
 }

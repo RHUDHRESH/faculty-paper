@@ -309,6 +309,8 @@ function confirmations(minReferences: number): Confirmation[] {
  * leaves a claimant who genuinely cannot tick one of these at a dead end;
  * pressing it names what is outstanding and what to do about each one.
  */
+const RULES_READ_KEY = "claim-rules-read"
+
 export function ClaimEligibilityGate({
   minReferences = 2,
   onAcknowledge,
@@ -323,6 +325,16 @@ export function ClaimEligibilityGate({
   const items = confirmations(minReferences)
   const [ticked, setTicked] = useState<Record<string, boolean>>({})
   const [showStuck, setShowStuck] = useState(false)
+  // The confirmations are per article and are asked every time. The long
+  // rules text above them is not: once somebody has read it and filed, it
+  // folds away behind one line on later filings, still one press from open.
+  const [rulesRead] = useState(() => {
+    try {
+      return localStorage.getItem(RULES_READ_KEY) === "1"
+    } catch {
+      return false
+    }
+  })
   const alertRef = useRef<HTMLDivElement>(null)
   const alertId = useId()
 
@@ -331,6 +343,11 @@ export function ClaimEligibilityGate({
 
   function start() {
     if (allTicked) {
+      try {
+        localStorage.setItem(RULES_READ_KEY, "1")
+      } catch {
+        /* the rules simply show in full again next time */
+      }
       onAcknowledge()
       return
     }
@@ -342,7 +359,16 @@ export function ClaimEligibilityGate({
 
   return (
     <div className="space-y-5">
-      <ClaimRulesPanel minReferences={minReferences} />
+      {rulesRead ? (
+        <details className="panel p-4 [&[open]>summary]:mb-3">
+          <summary className="cursor-pointer text-sm font-medium text-accent">
+            Read the conditions for filing again
+          </summary>
+          <ClaimRulesPanel minReferences={minReferences} />
+        </details>
+      ) : (
+        <ClaimRulesPanel minReferences={minReferences} />
+      )}
 
       <section className="panel-lead p-4 sm:p-5">
         <SectionTitle>Confirm before you start</SectionTitle>

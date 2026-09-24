@@ -115,6 +115,19 @@ def run_bulk_verify(claim_ids: list[str], actor_id: str | None = None) -> dict:
     return {"verified": done, "failed": failed}
 
 
+def run_claim_file_check(claim_id: str, force: bool = True) -> dict:
+    """Read a claim's PDFs and compare them with the claim.
+
+    Queued when a paper is filed and when a reviewer asks for it: a 10 MB
+    publisher PDF takes seconds to parse, which a filing request should not
+    wait on. See core.services.content_check.
+    """
+    from core.services.content_check import check_claim_files
+
+    checks, raised = check_claim_files(claim_id, force=force)
+    return {"claim": claim_id, "checked": len(checks), "flags_raised": raised}
+
+
 def recover_stale_batches() -> list[str]:
     """Re-enqueue RUNNING batches whose heartbeat went stale.
 
@@ -136,3 +149,61 @@ def recover_stale_batches() -> list[str]:
         async_task("core.tasks.run_monthly_batch", batch.id)
         recovered.append(batch.id)
     return recovered
+
+
+def award_badges_and_milestones() -> dict:
+    """Hourly (migration 0047): every badge earned and not yet written, and
+    every department target that has crossed 50, 75 or 100 per cent. Safe to
+    run any number of times -- see core.services.achievements."""
+    from core.services.achievements import run_all
+
+    return run_all()
+
+
+def check_citations() -> dict:
+    """Daily (schedule "citation-check", migration 0051): citation counts for
+    claimed DOIs from OpenAlex, and alerts to owners whose count rose."""
+    from core.services.citations import check_citations as run
+
+    return run()
+
+
+def send_weekly_digest() -> dict:
+    """Monday 8am IST (schedule "weekly-digest"): the weekly summary."""
+    from core.services.digest import send_weekly_digest as run
+
+    return run()
+
+
+def send_nudges() -> dict:
+    """Daily (schedule "daily-nudges"): filing-deadline and quota nudges."""
+    from core.services.nudges import send_nudges as run
+
+    return run()
+
+
+def run_restore(saved_path: str, actor_id: str | None = None) -> dict:
+    """Load a dumpdata export into this (fresh) installation.
+
+    Queued by POST /api/admin/restore. The file is removed on success and
+    kept on failure so it can be retried.
+    """
+    import os
+
+    from core.models import AuditLog, Claim, PaidLedger, User
+
+    call_command("loaddata", saved_path, verbosity=0)
+    counts = {
+        "users": User.objects.count(),
+        "claims": Claim.objects.count(),
+        "ledger_rows": PaidLedger.objects.count(),
+    }
+    try:
+        os.remove(saved_path)
+    except OSError:
+        pass
+    actor = User.objects.filter(pk=actor_id).first() if actor_id else None
+    AuditLog.objects.create(
+        actor=actor, action="RESTORE_DONE", entity="Export", detail_json=str(counts)[:2000]
+    )
+    return {"ok": True, **counts}

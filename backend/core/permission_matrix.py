@@ -81,8 +81,9 @@ CAPABILITIES: list[Capability] = [
         "Only finance moves money.",
         {"expected_amount": 1}, "Money"),
     cap("Void a payment", "POST", "/api/claims/{claim}/void-payment",
-        {FINANCE, SUPER_ADMIN},
-        "Reversing a payment is the same power as making one.",
+        {SUPER_ADMIN},
+        "Finance pays and does nothing else; reversing a payment sends the "
+        "paper backwards, which is the super admin's rescue.",
         {"note": "reversing an incorrect disbursement"}, "Money"),
     cap("Second-approve a high-value ticket", "POST",
         "/api/claims/{claim}/second-approve",
@@ -100,6 +101,39 @@ CAPABILITIES: list[Capability] = [
     cap("Approve a batch as principal", "POST", "/api/principal/bulk-approve",
         {PRINCIPAL, SUPER_ADMIN}, "The approval step, at scale.",
         {"claim_ids": ["{claim}"]}, "Money"),
+
+    # ---- the review desks ------------------------------------------------
+    # The probe claim is SUBMITTED, so it sits at the research supervisor's
+    # desk. Payloads are deliberately too short to succeed: an allowed role
+    # reaches the handler and is refused with a 400, and the probe claim never
+    # moves -- a claim rejected by the first role would change what every
+    # later door is asked about.
+    cap("Hold a paper at its desk", "POST", "/api/claims/{claim}/hold",
+        ADMINS,
+        "Only whoever sits at the desk the paper is at. A submitted paper is at "
+        "the research supervisor's desk, so not the Principal's.",
+        {"reason": "short"}, "Desks"),
+    cap("Resume a held paper", "POST", "/api/claims/{claim}/resume",
+        ADMINS, "The desk that may hold it may resume it.", {}, "Desks"),
+    cap("Return a paper to the faculty", "POST",
+        "/api/claims/{claim}/return-to-faculty",
+        ADMINS,
+        "From the desk the paper is at. The Director and Finance only move a "
+        "paper forward.",
+        {"note": "x"}, "Desks"),
+    cap("Reject a paper outright", "POST", "/api/claims/{claim}/reject-outright",
+        ADMINS, "The same desks, the same rule, and final.", {"note": "x"}, "Desks"),
+    cap("Return a paper one step", "POST", "/api/claims/{claim}/return-one-step",
+        {PRINCIPAL, SUPER_ADMIN},
+        "The Principal's desk returns a cleared paper to the research "
+        "supervisor's.",
+        {"note": "x"}, "Desks"),
+    cap("Send an approved paper back from the Director's desk", "POST",
+        "/api/claims/{claim}/director-reject",
+        {SUPER_ADMIN},
+        "The Director authorises and does not send back; a super admin keeps "
+        "this as the rescue.",
+        {"note": "x"}, "Desks"),
 
     # ---- the rules money is computed by ---------------------------------
     cap("Rewrite the payout formula", "PUT", "/api/admin/formula",
@@ -182,7 +216,10 @@ CAPABILITIES: list[Capability] = [
         "each movement.",
         None, "Reading"),
     cap("Read duplicate findings", "GET", "/api/admin/duplicate-findings",
-        OVERSIGHT, "Possible double payments, for anyone who oversees spend.",
+        ADMINS | {PRINCIPAL},
+        "Possible double payments are weighed by the review desks. The "
+        "Director and Finance act on what those desks decided and are not "
+        "shown payment-history matches at all.",
         None, "Reading"),
     cap("Read the faults screen", "GET", "/api/admin/faults",
         ADMINS | {PRINCIPAL},
@@ -213,21 +250,50 @@ CAPABILITIES: list[Capability] = [
         "A head works from a spreadsheet in a review meeting. The file carries "
         "no money column, like the screen it comes from.",
         None, "Department"),
-    cap("Read the claim list", "GET", "/api/claims",
-        {FACULTY, PRINCIPAL, FINANCE} | ADMINS,
-        "The claim payload carries the remuneration. A head has their own "
-        "screens, which do not, so they are refused this one outright rather "
-        "than being handed an empty list that would fill up later.",
-        None, "Reading"),
+    cap("Read the department's plan", "GET", "/api/hod/plan",
+        {FACULTY, HOD, SUPER_ADMIN},
+        "A direction nobody in the department can see is not a direction, so "
+        "its own faculty read it. Every other desk has college-wide screens.",
+        None, "Department"),
+    cap("Write the department's plan", "PUT", "/api/hod/plan",
+        {HOD, SUPER_ADMIN},
+        "The head's own words about their own department; a super admin may "
+        "stand in for any department.",
+        {"vision": "Matrix probe", "research_areas": []}, "Department"),
+    cap("List work handed out in the department", "GET", "/api/hod/assignments",
+        {HOD, SUPER_ADMIN},
+        "Who has been asked to do what is the head's to manage. The people it "
+        "is for see their own at /api/me/assignments.",
+        None, "Department"),
+    cap("Hand out work in the department", "POST", "/api/hod/assignments",
+        {HOD, SUPER_ADMIN},
+        "A head is not an approver, but directing the department's work is "
+        "the job. Only to people inside it.",
+        {"kind": "TASK", "title": "Matrix probe", "assignee_id": "{user}"}, "Department"),
+    cap("Remind people in the department", "POST", "/api/hod/nudge",
+        {HOD, SUPER_ADMIN},
+        "One reminder per person per day, and only inside the department.",
+        {"user_ids": ["{user}"], "message": "A matrix probe reminder."}, "Department"),
+    # "Read the claim list" (GET /api/claims) was a line here, closed to a
+    # head. Since the college's decision of 2026-09-23 a head files their own
+    # papers and reads them there like any claimant, which opens the door to
+    # every role -- and a door open to everybody is not a line this grid can
+    # draw. What each role *sees* through it is the rule now: its scope is
+    # `_claims_queryset`, and a head's rows are shaped by
+    # `visibility.for_viewer` (their own keep their amounts, nobody else's
+    # do). `test_head_of_department` pins that, endpoint by endpoint.
 
     # ---- filing ----------------------------------------------------------
-    cap("File a claim", "POST", "/api/claims",
-        {FACULTY} | ADMINS,
-        "A claimant files their own; the research cell files on their behalf.",
-        {"paper_title": "Matrix probe", "journal_title": "J"}, "Filing"),
-    cap("Upload evidence", "POST", "/api/claims/upload",
-        {FACULTY} | ADMINS,
-        "Whoever may file may attach the proof.", None, "Filing", upload=True),
+    # "File a claim" (POST /api/claims) and "Upload evidence" (POST
+    # /api/claims/upload) were lines here, closed to the Principal and
+    # Finance. Since the owner's rule that an officer who publishes "must be
+    # able to do both" -- their own research and the office's -- every staff
+    # role but the super admin files its own papers, and the super admin
+    # files on a claimant's behalf: both doors are open to every role, which
+    # is not a line this grid can draw. What is drawn instead is what nobody
+    # may do with their *own* paper once it is filed -- decide it, at any desk
+    # -- and `test_dual_roles` pins that, desk by desk.
+
     cap("Import prior payments", "POST", "/api/admin/prior/import",
         ADMINS | {PRINCIPAL},
         "Loading historical payment data.", None, "Filing", upload=True),

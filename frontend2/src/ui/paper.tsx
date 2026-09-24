@@ -206,8 +206,11 @@ export function StageTrack({ stage, className }: { stage: StageInfo; className?:
  */
 export function money(value: number | null | undefined): string {
   if (value == null) return "—"
-  const hasPaise = Math.round(value * 100) % 100 !== 0
-  return `₹${value.toLocaleString("en-IN", {
+  // Round to paise once and decide from that integer: deciding from the raw
+  // float let 19.1 * 100 = 1909.99… disagree with what toLocaleString printed.
+  const paise = Math.round(value * 100)
+  const hasPaise = paise % 100 !== 0
+  return `₹${(paise / 100).toLocaleString("en-IN", {
     minimumFractionDigits: hasPaise ? 2 : 0,
     maximumFractionDigits: 2,
   })}`

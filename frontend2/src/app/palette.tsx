@@ -319,18 +319,6 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
   )
 }
 
-/** Ctrl-K / Cmd-K from anywhere, and Escape to leave. */
-export function usePalette() {
-  const [open, setOpen] = useState(false)
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault()
-        setOpen((v) => !v)
-      }
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [])
-  return { open, setOpen }
-}
+// The hook lives apart so the first screen can listen for Ctrl K without
+// fetching the palette itself.
+export { usePalette } from "@/app/palette-hook"

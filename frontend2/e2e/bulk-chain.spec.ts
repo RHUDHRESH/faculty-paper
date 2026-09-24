@@ -324,7 +324,7 @@ test.describe("Moving a batch of claims through every desk", () => {
       await faculty.goto(`/papers/${s.claim!.id}`)
       await waitForSettled(faculty)
       await expect(faculty.getByText(`Ticket ${s.claim!.ticket_number}`)).toBeVisible()
-      await expect(faculty.getByLabel("Step 5 of 5: Paid")).toBeVisible()
+      await expect(faculty.getByLabel("Stage: Paid")).toBeVisible()
     }
     await done(faculty)
   })

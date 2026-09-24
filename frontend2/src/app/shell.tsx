@@ -8,6 +8,7 @@ import { HOME_DATA } from "@/app/home-data"
 import { NAV, navBadges, navFor } from "@/app/nav"
 import { useApi } from "@/lib/query"
 import { Mark } from "@/ui/art"
+import { AREA_DOT, AREA_TEXT, type Area } from "@/ui/chip"
 import { Button } from "@/ui/button"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { useTheme, type ThemeChoice } from "@/app/theme"
@@ -172,6 +173,8 @@ export function Shell({
   }, [pathname])
 
   const items = navFor(me?.role)
+  const listed = items.filter((i) => !i.pinned)
+  const pinned = items.filter((i) => i.pinned)
   const seen = new Set<string>()
   const preload = (to: string) => () => onPreload?.(to)
   // What is waiting at this desk, beside its entry: the same counts the home
@@ -223,14 +226,18 @@ export function Shell({
           </div>
 
           <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="Main">
-            {items.map((item) => {
+            {listed.map((item) => {
               const heading = item.group && !seen.has(item.group) ? item.group : null
               if (item.group) seen.add(item.group)
               const Icon = item.icon
               return (
                 <Fragment key={item.to}>
                   {heading && !collapsed ? (
-                    <p className="px-2 pb-1 pt-4 text-xs font-medium text-fg-subtle">
+                    <p
+                      data-area={item.area}
+                      className="caps flex items-center gap-1.5 px-2 pb-1 pt-4 font-medium text-fg-subtle"
+                    >
+                      {item.area && <span aria-hidden className={cn("size-1.5 rounded-full", AREA_DOT[item.area])} />}
                       {heading}
                     </p>
                   ) : null}
@@ -240,18 +247,11 @@ export function Shell({
                   <NavLink
                     to={item.to}
                     end={item.end}
+                    data-area={item.area}
                     title={collapsed ? item.label : undefined}
                     onPointerEnter={preload(item.to)}
                     onFocus={preload(item.to)}
-                    className={({ isActive }) =>
-                      cn(
-                        "relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sm",
-                        "transition-colors duration-[var(--dur-1)]",
-                        isActive
-                          ? "bg-active font-medium text-fg"
-                          : "text-fg-muted hover:bg-hover hover:text-fg"
-                      )
-                    }
+                    className={({ isActive }) => navClass(isActive, item.area)}
                   >
                     <Icon className="size-4 shrink-0" />
                     {!collapsed && <span className="truncate">{item.label}</span>}
@@ -262,6 +262,28 @@ export function Shell({
               )
             })}
           </nav>
+
+          {pinned.length > 0 && (
+            <div className="px-2 pb-2">
+              {pinned.map((item) => {
+                const Icon = item.icon
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    data-area={item.area}
+                    title={collapsed ? item.label : undefined}
+                    onPointerEnter={preload(item.to)}
+                    onFocus={preload(item.to)}
+                    className={({ isActive }) => navClass(isActive, item.area)}
+                  >
+                    <Icon className={cn("size-4 shrink-0", item.area && AREA_TEXT[item.area])} />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </NavLink>
+                )
+              })}
+            </div>
+          )}
 
           <div className="border-t border-line p-2">
             <button
@@ -343,21 +365,17 @@ export function Shell({
               <span className="text-sm font-semibold">Publications</span>
             </div>
             <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Main">
-              {items.map((item) => {
+              {[...listed, ...pinned].map((item) => {
                 const Icon = item.icon
                 return (
                   <NavLink
                     key={item.to}
                     to={item.to}
                     end={item.end}
+                    data-area={item.area}
                     onTouchStart={preload(item.to)}
                     onFocus={preload(item.to)}
-                    className={({ isActive }) =>
-                      cn(
-                        "flex h-9 items-center gap-2.5 rounded-md px-2 text-sm",
-                        isActive ? "bg-active font-medium" : "text-fg-muted"
-                      )
-                    }
+                    className={({ isActive }) => cn(navClass(isActive, item.area), "h-9")}
                   >
                     <Icon className="size-4" />
                     {item.label}
@@ -377,6 +395,19 @@ export function Shell({
 }
 
 /** What a badge says aloud: work waiting at a desk, or conversations with news. */
+/** A sidebar link. Active takes its area's wash (docs/ux/00 §9), not `selected`. */
+function navClass(isActive: boolean, area: Area | undefined): string {
+  return cn(
+    "relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sm",
+    "transition-colors duration-[var(--dur-1)]",
+    isActive
+      ? area
+        ? "bg-(--area-wash) font-medium text-(--area)"
+        : "bg-active font-medium text-fg"
+      : "text-fg-muted hover:bg-hover hover:text-fg"
+  )
+}
+
 function badgeLabel(to: string, n: number | undefined): string | undefined {
   if (!n || to !== "/messages") return undefined
   return `${n} conversation${n === 1 ? "" : "s"} with new messages`

@@ -261,7 +261,7 @@ export function Programme() {
             </Button>
           )}
           <Button kind="quiet" size="md" asChild>
-            <Link to="/research">
+            <Link to="/research?tab=college">
               <Binoculars />
               The college's research
             </Link>
@@ -363,7 +363,7 @@ export function CollegeResearch() {
         <Sub className="mt-1">
           What this college is working on, who works near your areas, and what to try next. Your
           own work is on{" "}
-          <Link to="/programme" className="text-accent underline-offset-4 hover:underline">
+          <Link to="/research?tab=me" className="text-accent underline-offset-4 hover:underline">
             your research
           </Link>
           .

@@ -14,7 +14,6 @@ place in the chain.
 """
 from __future__ import annotations
 
-import math
 import random
 from datetime import timedelta
 from typing import Any
@@ -133,6 +132,9 @@ def for_you(request: HttpRequest, seed: str = ""):
         Claim.objects.exclude(status__in=social.NOT_PUBLISHED)
         .exclude(owner=me).exclude(pk__in=shown_papers)
         .filter(owner__active=True, created_at__gte=now - timedelta(days=PAPER_DAYS))
+        # Filed lately *and* published lately: past claims imported in bulk
+        # were all filed last month, and a 2019 paper is not news.
+        .filter(Q(publication_year__isnull=True) | Q(publication_year__gte=now.year - 1))
         .select_related("owner").order_by("-created_at")[:150]
     )
     scored_papers: list[tuple[float, tuple[Claim, str]]] = []
@@ -146,16 +148,23 @@ def for_you(request: HttpRequest, seed: str = ""):
         )
         ov = social_rank.overlap(mine, theirs)
         score = ov.score
-        why = f"New paper in {areas[0]}" if ov.score and areas else ""
+        # Said about the paper, and about what it actually shares with you.
+        shared_areas = [a for a in areas if a.lower() in mine.areas]
+        if shared_areas:
+            why = f"New paper in {shared_areas[0]}"
+        elif c.journal_title and c.journal_title.strip().lower() in mine.journals:
+            why = f"In {c.journal_title.strip()}, where you publish too"
+        else:
+            why = ""
         if c.owner_id in near:
             score += 3
             why = "New from somebody you have written with"
         elif c.owner_id in followed_people:
             score += 3
             why = why or "New from somebody you follow"
-        if score <= 0:
+        if score <= 0 or not why:
             continue
-        scored_papers.append((score * _decay(c.created_at, now), (c, why or ov.why)))
+        scored_papers.append((score * _decay(c.created_at, now), (c, why)))
     chosen_papers = _jitter(rng, scored_papers)[: TAKE["paper"]]
     paper_coauthors = social_rank.coauthors_by_claim([c for c, _ in chosen_papers])
 
@@ -185,7 +194,9 @@ def for_you(request: HttpRequest, seed: str = ""):
             newcomers.append((ov.score + bonus, (u, f"New to the college. {ov.why}.")))
         elif uid not in near:
             cross = (u.department or "").strip().lower() != (me.department or "").strip().lower()
-            why = f"Could be a collaborator. {ov.why}" + (f", in {u.department}" if cross and u.department else "") + "."
+            reason = ov.why[:1].lower() + ov.why[1:]
+            where = f" in {u.department}" if cross and u.department else ""
+            why = f"Could be a collaborator{where}: {reason}."
             suggestions.append((ov.score + bonus + (0.5 if cross else 0.0), (u, why)))
     chosen_new = _jitter(rng, newcomers)[: TAKE["person"]]
     chosen_suggestions = _jitter(rng, sorted(suggestions, key=lambda s: -s[0])[:12])[: TAKE["suggestion"]]

@@ -672,6 +672,28 @@ class ForYouTests(Base):
             if item["kind"] == "paper":
                 self.assertNotEqual(item["owner"]["id"], self.meera.id)
 
+    def test_a_paper_says_why_in_words_about_the_paper(self):
+        # Shares only the journal with Meera's work, not the subject area.
+        journal_only = self._paper(self.asha, "FW1", subjects="Organic Chemistry (Q2)",
+                                   journal="Journal of Tests")
+        in_field = self._paper(self.ravi, "FW2", subjects="Condensed Matter Physics (Q1)",
+                               journal="Elsewhere Letters")
+        body = self._json("get", self.meera, "/api/feed/for-you?seed=x")
+        why = {i["paper"]["id"]: i["why"] for i in body["items"] if i["kind"] == "paper"}
+        self.assertEqual(why[journal_only.id], "In Journal of Tests, where you publish too")
+        self.assertEqual(why[in_field.id], "New paper in Condensed Matter Physics")
+
+    def test_an_old_paper_filed_lately_is_not_news(self):
+        old = self._paper(self.asha, "FW9", subjects="Condensed Matter Physics (Q1)", year=2019)
+        body = self._json("get", self.meera, "/api/feed/for-you?seed=x")
+        self.assertNotIn(old.id, {i["paper"]["id"] for i in body["items"] if i["kind"] == "paper"})
+
+    def test_a_suggestion_reads_as_one_sentence(self):
+        self._paper(self.asha, "FW3", subjects="Organic Chemistry (Q2)", journal="Journal of Tests")
+        body = self._json("get", self.meera, "/api/feed/for-you?seed=x")
+        asha = next(i for i in body["items"] if i["kind"] == "person" and i["person"]["id"] == self.asha.id)
+        self.assertEqual(asha["why"], "Could be a collaborator in Physics: publishes in a journal you publish in.")
+
     def test_a_new_colleague_with_matching_interests_is_introduced(self):
         newbie = self._user("new@x.edu", "Nila Newcomer", department="Physics")
         ResearchInterest.objects.create(user=newbie, domain="Condensed Matter Physics")

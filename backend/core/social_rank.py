@@ -129,9 +129,11 @@ def overlap(mine: Field, theirs: Field) -> Overlap:
         named = sorted(theirs.labels.get(a, a) for a in areas)
         why = f"Works in {named[0]}" + (f" and {len(named) - 1} more of your areas" if len(named) > 1 else "")
     elif journals:
-        why = f"Publishes in {len(journals)} journal{'s' if len(journals) > 1 else ''} you publish in"
+        why = "Publishes in a journal you publish in" if len(journals) == 1 else (
+            f"Publishes in {len(journals)} journals you publish in"
+        )
     elif skills:
-        why = f"Shares {len(skills)} of your skills"
+        why = "Shares one of your skills" if len(skills) == 1 else f"Shares {len(skills)} of your skills"
     else:
         why = ""
     return Overlap(score, why)

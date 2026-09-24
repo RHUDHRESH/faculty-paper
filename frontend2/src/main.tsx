@@ -77,9 +77,11 @@ const Collaborate = page(() => import("@/pages/collaborate"), "Collaborate")
 const Discover = page(() => import("@/pages/discover"), "Discover")
 const Feed = page(() => import("@/pages/feed"), "Feed")
 const FeedPostPage = page(() => import("@/pages/feed"), "PostPage")
-const Messages = page(() => import("@/pages/discussions"), "Messages")
+const Messages = page(() => import("@/pages/messages"), "MessagesStart")
+const MessagesOffice = page(() => import("@/pages/messages"), "MessagesOffice")
+const MessagesOfficeThread = page(() => import("@/pages/messages"), "MessagesOfficeThread")
 const Thread = page(() => import("@/pages/discussions"), "Thread")
-const ChatPage = page(() => import("@/pages/chat"), "ChatPage")
+const ChatPage = page(() => import("@/pages/messages"), "MessagesChat")
 const CollegeNetwork = page(() => import("@/pages/network"), "CollegeNetwork")
 const MyStats = page(() => import("@/pages/stats"), "MyStats")
 const PublicProfile = page(() => import("@/pages/person"), "PublicProfile")
@@ -152,6 +154,8 @@ const PRELOADS: [string, Page][] = [
   ["/discussions/:id", Thread],
   ["/discussions", Feed],
   ["/messages/c/:id", ChatPage],
+  ["/messages/office", MessagesOffice],
+  ["/messages/o/:id", MessagesOfficeThread],
   ["/messages/:id", Thread],
   ["/network", CollegeNetwork],
   ["/u/me/stats", MyStats],
@@ -340,6 +344,8 @@ function App() {
           <Route path="/discussions/:id" element={<Thread />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/messages/c/:id" element={<ChatPage />} />
+          <Route path="/messages/office" element={<MessagesOffice />} />
+          <Route path="/messages/o/:id" element={<MessagesOfficeThread />} />
           <Route path="/messages/:id" element={<Thread />} />
           <Route path="/network" element={<CollegeNetwork />} />
           <Route path="/u" element={<PeopleDirectory />} />

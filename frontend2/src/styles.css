@@ -206,6 +206,11 @@
   /* ---- layout ---------------------------------------------------------- */
   --sidebar-w: 15rem;
   --page-max: 76rem;
+
+  /* ---- area: people (docs/ux/00 section 1) ---------------------------- */
+  --area-people: #b04a2f;
+  --area-people-wash: #fcefe9;
+  --area-people-line: #f3cbbd;
 }
 
 @layer base {
@@ -561,6 +566,8 @@
   --shadow-under: 0 4px 8px -6px rgb(0 0 0 / 0.7);
   --shadow-pop: 0 8px 24px -6px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
   --shadow-modal: 0 24px 48px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.08);
+  --area-people: #ff9a7a;
+  --area-people-wash: #2e1911;
 }
 
 /* Printing a ticket, the paid register or a report prints the page, not the

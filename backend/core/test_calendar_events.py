@@ -1,5 +1,7 @@
 """Personal events, who may add what, and the ICS subscription feed."""
 from __future__ import annotations
+from django.conf import settings
+from urllib.parse import urlparse
 
 import json
 import re
@@ -134,7 +136,8 @@ class FeedTests(TestCase):
             raw_json=json.dumps({"Month": f"{today.replace(day=1).isoformat()} 00:00:00"}),
         )
         url = self.link()["url"]
-        path = url.split("testserver", 1)[1]
+        path = urlparse(url).path
+        self.assertTrue(url.startswith(settings.APP_BASE_URL))
         anon = Client()
         r = anon.get(path)
         self.assertEqual(r.status_code, 200)
@@ -161,9 +164,9 @@ class FeedTests(TestCase):
         self.assertEqual(uids(body), uids(anon.get(path).content.decode()))
 
     def test_reset_revokes_the_old_link(self):
-        old = self.link()["url"].split("testserver", 1)[1]
+        old = urlparse(self.link()["url"]).path
         self.assertEqual(Client().get(old).status_code, 200)
-        new = self.c.post("/api/calendar/feed-link/reset").json()["url"].split("testserver", 1)[1]
+        new = urlparse(self.c.post("/api/calendar/feed-link/reset").json()["url"]).path
         self.assertNotEqual(old, new)
         self.assertEqual(Client().get(old).status_code, 404)
         self.assertEqual(Client().get(new).status_code, 200)

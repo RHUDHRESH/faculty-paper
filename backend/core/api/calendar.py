@@ -19,6 +19,7 @@ from django.db.models import Exists, OuterRef, Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.conf import settings
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import (
@@ -360,7 +361,11 @@ def _feed_for(user: User, *, rotate: bool = False) -> CalendarFeed:
 
 
 def _feed_links(request: HttpRequest, feed: CalendarFeed) -> dict[str, str]:
-    url = request.build_absolute_uri(f"/api/calendar/feed/{feed.token}.ics")
+    path = f"/api/calendar/feed/{feed.token}.ics"
+    # Behind the static site's rewrite the request arrives on the API's own
+    # host; the address people subscribe to is the site's.
+    base = (getattr(settings, "APP_BASE_URL", "") or "").rstrip("/")
+    url = f"{base}{path}" if base else request.build_absolute_uri(path)
     webcal = "webcal://" + url.split("://", 1)[1]
     return {
         "url": url,

@@ -10,7 +10,7 @@ from __future__ import annotations
 from core.api.common import api, session_auth
 from core.api.schemas import ChangePasswordIn
 from core.api.common import require_user
-from core.api.auth import REQUESTABLE, SUPER_ADMIN_DECIDES
+from core.api.auth import REQUESTABLE, SUPER_ADMIN_DECIDES, may_set_field
 
 import json
 from typing import Any, Optional
@@ -165,7 +165,7 @@ def decide_profile_request(
     # Identity is super-admin only, here as much as everywhere else it is
     # written. The research cell processes the claims these fields decide the
     # outcome of, so it cannot also set them.
-    if req.field in SUPER_ADMIN_DECIDES and actor.role != Role.SUPER_ADMIN:
+    if req.field in SUPER_ADMIN_DECIDES and not may_set_field(actor.role, req.field):
         raise HttpError(
             403,
             f"Only a super admin can change {REQUESTABLE[req.field].lower()}. "

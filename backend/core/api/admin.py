@@ -11,7 +11,7 @@ from core.api.common import api, session_auth
 from core.api.schemas import FormulaIn, ResetPasswordByEmailIn, ResetPasswordIn, UserCreateIn, UserUpdateIn
 from core.api.deps import _user_dict, claim_to_dict
 from core.api.common import require_user
-from core.api.auth import FIELD_LABELS, IDENTITY_FIELDS, clear_login_lockout
+from core.api.auth import FIELD_LABELS, IDENTITY_FIELDS, clear_login_lockout, may_set_field
 from core.api.claims import _CLAIM_SORTS
 from core.api.common import _invalidate_threshold_cache
 
@@ -278,7 +278,7 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
     # the same mistake one desk over: the research cell processes the claims
     # these fields decide the outcome of, so it cannot also set them.
     if actor.role != Role.SUPER_ADMIN:
-        blocked = sorted(set(data) & IDENTITY_FIELDS)
+        blocked = sorted(f for f in set(data) & IDENTITY_FIELDS if not may_set_field(actor.role, f))
         if blocked:
             raise HttpError(
                 403,

@@ -585,6 +585,19 @@ REQUESTABLE = {**CORRECTABLE, **ACCOUNT_REQUESTABLE}
 #: that is the super admin's call.
 SUPER_ADMIN_DECIDES = IDENTITY_FIELDS | {"role"}
 
+#: The research-post fields. The research coordinator runs the research
+#: programme and sets these too -- whether somebody is research faculty and
+#: how many papers a year their post already expects. The research cell does
+#: not: it clears the claims the quota decides the outcome of.
+RESEARCH_POST_FIELDS = frozenset({"faculty_type", "research_quota", "research_quota_note"})
+
+
+def may_set_field(role: str, field: str) -> bool:
+    """Whether this role may write a super-admin-tier profile field."""
+    if role == Role.SUPER_ADMIN:
+        return True
+    return role == Role.RESEARCH_COORDINATOR and field in RESEARCH_POST_FIELDS
+
 
 def _requested_value(field: str, raw: str) -> str:
     """`raw` in the form the field is stored in, or a 400 saying what is wanted.
@@ -701,6 +714,8 @@ __all__ = [
     'ProfileUpdateIn',
     'REQUESTABLE',
     'SUPER_ADMIN_DECIDES',
+    'RESEARCH_POST_FIELDS',
+    'may_set_field',
     'SelfDetailsIn',
     '_GOOGLE_TAKEN',
     '_GOOGLE_UNVERIFIED',

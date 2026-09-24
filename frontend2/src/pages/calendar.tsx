@@ -20,6 +20,7 @@ import {
 import { DateInput, Field, Input, Textarea } from "@/ui/field"
 import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { money } from "@/ui/paper"
 import { toast } from "@/ui/toast"
 
 /**
@@ -55,12 +56,36 @@ type EventRow = {
   created_by_id: string | null
 }
 
+/**
+ * A date the record already holds: a month's payments, a paper published, a
+ * paper filed. Worked out by the server, never typed, never editable -- and
+ * never a date an import stamped on a row because the workbook had none.
+ */
+type RecordRow = {
+  id: string
+  kind: "PAID" | "PUBLISHED" | "FILED"
+  kind_label: string
+  title: string
+  starts_on: string
+  count: number
+  /** The college's total for the office roles; your own for a claimant. */
+  amount: number | null
+  claim_id: string | null
+  titles: string[]
+  /** A month's payments, or a month gathered for the college: a month, not its first day. */
+  whole_month: boolean
+}
+
 type CalendarPayload = {
   start: string
   end: string
   results: EventRow[]
   kinds: { key: string; label: string }[]
+  record?: RecordRow[]
+  record_kinds?: { key: string; label: string }[]
 }
+
+type Item = { type: "event"; row: EventRow } | { type: "record"; row: RecordRow }
 
 const KIND_TONE: Record<string, string> = {
   PAYOUT_RUN: "bg-positive",
@@ -68,11 +93,18 @@ const KIND_TONE: Record<string, string> = {
   DEADLINE: "bg-critical",
   MEETING: "bg-caution",
   OTHER: "bg-fg-subtle",
+  PAID: "bg-positive",
+  PUBLISHED: "bg-accent",
+  FILED: "bg-fg-subtle",
 }
 
-/** Months either side of today, so the window is a season not an archive. */
-const BACK_DAYS = 30
+/** The last four months and the next five: the quarter just paid is what
+ *  most people open this to check, and the window steps either way. */
+const BACK_DAYS = 120
 const FORWARD_DAYS = 150
+
+/** Who may open the ledger a payments entry points at (nav.ts, Ledger). */
+const LEDGER_ROLES = new Set(["FINANCE", "DIRECTOR", "SUPER_ADMIN"])
 
 export function Calendar() {
   const { me } = useAuth()
@@ -87,8 +119,9 @@ export function Calendar() {
   const start = addDays(today, offset * FORWARD_DAYS - BACK_DAYS)
   const end = addDays(today, offset * FORWARD_DAYS + FORWARD_DAYS)
 
+  const recordKind = kind === "PAID" || kind === "PUBLISHED" || kind === "FILED"
   const query = new URLSearchParams({ start: iso(start), end: iso(end) })
-  if (kind) query.set("kind", kind)
+  if (kind && !recordKind) query.set("kind", kind)
 
   const { data, isLoading, isError, refetch } = useApi<CalendarPayload>(
     ["calendar", iso(start), iso(end), kind],
@@ -104,16 +137,22 @@ export function Calendar() {
     })
   }
 
-  const events = data?.results ?? []
-  const byMonth = groupByMonth(events)
+  const record = (data?.record ?? []).filter((r) => !kind || r.kind === kind)
+  const items: Item[] = [
+    ...(recordKind ? [] : (data?.results ?? []).map((row) => ({ type: "event" as const, row }))),
+    ...record.map((row) => ({ type: "record" as const, row })),
+  ]
+  const events = items
+  const byMonth = groupByMonth(items)
 
+  const allKinds = [...(data?.record_kinds ?? []), ...(data?.kinds ?? [])]
   const kindOptions: ComboboxOption[] = [
     { value: "", label: "Everything" },
-    ...(data?.kinds ?? []).map((k) => ({ value: k.key, label: k.label })),
+    ...allKinds.map((k) => ({ value: k.key, label: k.label })),
   ]
   // The server's own word for the filter, so an empty result names the thing
   // that is absent rather than the code it is stored under.
-  const kindLabel = kind ? data?.kinds.find((k) => k.key === kind)?.label ?? null : null
+  const kindLabel = kind ? allKinds.find((k) => k.key === kind)?.label ?? null : null
 
   return (
     <div className="page space-y-6">
@@ -121,7 +160,8 @@ export function Calendar() {
         <div>
           <PageTitle>Calendar</PageTitle>
           <Sub className="mt-1">
-            Payout runs, submission windows and deadlines — with what each one is for.
+            Payments made, papers published and filed, and any dates the college adds —
+            submission windows, deadlines, payout runs.
           </Sub>
         </div>
         <Button kind="primary" size="md" onClick={() => setAdding(true)}>
@@ -169,7 +209,7 @@ export function Calendar() {
         <Meta>
           {formatDay(iso(start))} to {formatDay(iso(end))}
         </Meta>
-        {data?.kinds && <CalendarLegend kinds={data.kinds} />}
+        {data?.kinds && <CalendarLegend kinds={allKinds} />}
       </div>
 
       {isLoading ? (
@@ -195,8 +235,8 @@ export function Calendar() {
           title={kindLabel ? `No ${kindLabel.toLowerCase()} in this window` : "Nothing in this window"}
           message={
             kindLabel
-              ? "Something else may fall in these months. Show everything, or step the window forward."
-              : "Add a payout run, a submission window or a deadline, and it appears here for whoever it concerns."
+              ? "Something else may fall in these months. Show everything, or step the window."
+              : "No payment, publication or filing on record falls in these months, and no date has been added. Step the window earlier to see what has been paid, or add a submission window or a deadline."
           }
           action={
             kind ? (
@@ -204,9 +244,15 @@ export function Calendar() {
                 Show everything
               </Button>
             ) : (
-              <Button kind="primary" size="sm" onClick={() => setAdding(true)}>
-                Add a date
-              </Button>
+              <span className="flex flex-wrap justify-center gap-2">
+                <Button kind="default" size="sm" onClick={() => setParam("offset", String(offset - 1))}>
+                  <ChevronLeft />
+                  Earlier
+                </Button>
+                <Button kind="primary" size="sm" onClick={() => setAdding(true)}>
+                  Add a date
+                </Button>
+              </span>
             )
           }
         />
@@ -215,46 +261,18 @@ export function Calendar() {
           <section key={month} className="space-y-2">
             <SectionTitle>{month}</SectionTitle>
             <ul className="divide-y divide-line border-y border-line">
-              {rows.map((e) => (
-                <li key={e.id} className="row flex items-start gap-3 py-3">
-                  <span
-                    className={cn(
-                      "mt-1.5 size-2 shrink-0 rounded-full",
-                      KIND_TONE[e.kind] ?? KIND_TONE.OTHER
-                    )}
-                    aria-hidden
+              {rows.map((item) =>
+                item.type === "record" ? (
+                  <RecordEntry key={item.row.id} r={item.row} ledger={LEDGER_ROLES.has(me?.role ?? "")} />
+                ) : (
+                  <EventEntry
+                    key={item.row.id}
+                    e={item.row}
+                    canChange={item.row.created_by_id === me?.id || canModerate(me?.role)}
+                    onChange={() => setEditing(item.row)}
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-base">{e.title}</span>
-                    <Meta className="block">
-                      {spanLabel(e)} · {e.kind_label}
-                      {e.department ? ` · ${e.department}` : ""}
-                      {e.created_by ? ` · ${e.created_by}` : ""}
-                    </Meta>
-                    {e.description && (
-                      <span className="mt-0.5 block text-sm text-fg-muted">{e.description}</span>
-                    )}
-                    {e.thread_id && (
-                      <Link
-                        to={`/discussions/${e.thread_id}`}
-                        className="mt-0.5 inline-block text-sm text-accent underline-offset-2 hover:underline"
-                      >
-                        From a discussion
-                      </Link>
-                    )}
-                  </span>
-                  {(e.created_by_id === me?.id || canModerate(me?.role)) && (
-                    <Button
-                      kind="quiet"
-                      size="sm"
-                      className="reveal shrink-0"
-                      onClick={() => setEditing(e)}
-                    >
-                      Change
-                    </Button>
-                  )}
-                </li>
-              ))}
+                )
+              )}
             </ul>
           </section>
         ))
@@ -271,6 +289,90 @@ export function Calendar() {
         />
       )}
     </div>
+  )
+}
+
+function EventEntry({
+  e,
+  canChange,
+  onChange,
+}: {
+  e: EventRow
+  canChange: boolean
+  onChange: () => void
+}) {
+  return (
+    <li className="row flex items-start gap-3 py-3">
+      <span
+        className={cn("mt-1.5 size-2 shrink-0 rounded-full", KIND_TONE[e.kind] ?? KIND_TONE.OTHER)}
+        aria-hidden
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block text-base">{e.title}</span>
+        <Meta className="block">
+          {spanLabel(e)} · {e.kind_label}
+          {e.department ? ` · ${e.department}` : ""}
+          {e.created_by ? ` · ${e.created_by}` : ""}
+        </Meta>
+        {e.description && <span className="mt-0.5 block text-sm text-fg-muted">{e.description}</span>}
+        {e.thread_id && (
+          <Link
+            to={`/discussions/${e.thread_id}`}
+            className="mt-0.5 inline-block text-sm text-accent underline-offset-2 hover:underline"
+          >
+            From a discussion
+          </Link>
+        )}
+      </span>
+      {canChange && (
+        <Button kind="quiet" size="sm" className="reveal shrink-0" onClick={onChange}>
+          Change
+        </Button>
+      )}
+    </li>
+  )
+}
+
+/**
+ * One date from the record. No "Change": nobody typed it, so nobody edits it
+ * here -- it moves when the payment or the paper it comes from does.
+ */
+function RecordEntry({ r, ledger }: { r: RecordRow; ledger: boolean }) {
+  const month = r.starts_on.slice(0, 7)
+  const to =
+    r.claim_id != null
+      ? `/papers/${r.claim_id}`
+      : r.kind === "PAID" && ledger
+        ? `/ledger?month=${month}`
+        : null
+  const when = r.whole_month
+    ? new Date(`${r.starts_on}T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" })
+    : formatDay(r.starts_on)
+  return (
+    <li className="row flex items-start gap-3 py-3">
+      <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", KIND_TONE[r.kind])} aria-hidden />
+      <span className="min-w-0 flex-1">
+        {to ? (
+          <Link to={to} className="block text-base underline-offset-2 hover:underline">
+            {r.title}
+          </Link>
+        ) : (
+          <span className="block text-base">{r.title}</span>
+        )}
+        <Meta className="block">
+          {when} · {r.kind_label} · from the record
+        </Meta>
+        {r.titles.length > 1 && (
+          <span className="mt-0.5 block truncate text-sm text-fg-muted">
+            {r.titles.join(" · ")}
+            {r.count > r.titles.length ? ` and ${r.count - r.titles.length} more` : ""}
+          </span>
+        )}
+      </span>
+      {r.amount != null && r.amount > 0 && (
+        <span className="shrink-0 text-base tabular">{money(r.amount)}</span>
+      )}
+    </li>
   )
 }
 
@@ -482,10 +584,11 @@ function spanLabel(e: EventRow): string {
   return `${formatDay(e.starts_on)} → ${formatDay(e.ends_on)}`
 }
 
-function groupByMonth(events: EventRow[]): [string, EventRow[]][] {
-  const out = new Map<string, EventRow[]>()
-  for (const e of events) {
-    const d = new Date(`${e.starts_on}T00:00:00`)
+function groupByMonth(items: Item[]): [string, Item[]][] {
+  const out = new Map<string, Item[]>()
+  const sorted = [...items].sort((a, b) => a.row.starts_on.localeCompare(b.row.starts_on))
+  for (const e of sorted) {
+    const d = new Date(`${e.row.starts_on}T00:00:00`)
     const key = Number.isNaN(d.getTime())
       ? "Undated"
       : d.toLocaleDateString("en-IN", { month: "long", year: "numeric" })

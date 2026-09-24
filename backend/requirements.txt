@@ -18,6 +18,11 @@ django-storages[google,s3]>=1.14
 reportlab>=4.2
 python-docx>=1.1
 
+# Draws the shareable research impact card (core/services/impact_card.py).
+# Already installed as a reportlab dependency; declared because this code
+# imports it directly, and a dependency that arrives by luck leaves by luck.
+Pillow>=10.1
+
 # Reads the text of every PDF attached to a claim so it can be compared with
 # what the claim says (core/services/content_check.py). Pure Python.
 pypdf>=6.0
@@ -32,6 +37,12 @@ pypdf>=6.0
 google-auth>=2.35
 PyJWT[crypto]>=2.9
 requests>=2.32
+
+# Re-encodes profile photos and pictures shared in the feed, which drops the
+# camera metadata (and any GPS position) before colleagues see them. It was
+# already installed through reportlab; declared because the feed now depends
+# on it directly.
+Pillow>=10.0
 
 # Property-based testing for the money logic (core/test_logic.py). Test-only;
 # the runtime never imports it. Example budgets there are bounded and

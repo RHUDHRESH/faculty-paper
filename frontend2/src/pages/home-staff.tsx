@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
+import { HOME_DATA } from "@/app/home-data"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import {
@@ -26,6 +27,8 @@ import {
   useOwnPapers,
 } from "@/pages/home-faculty"
 import { Button } from "@/ui/button"
+import { Celebrations } from "@/ui/celebrations"
+import { ComingUp } from "@/ui/coming-up"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Callout, ErrorState, InlineError, Skeleton } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
@@ -260,17 +263,12 @@ export function collegeSince(ym: string | null | undefined): string | undefined 
 export function OfficeHome() {
   const { me } = useAuth()
 
-  const counts = useApi<StageCounts>(["claims", "counts", "home"], "/api/claims/counts")
-  const faults = useApi<FaultsSummary>(["admin", "faults"], "/api/admin/faults")
-  const requests = useApi<RequestsSummary>(
-    ["admin", "profile-requests", "home"],
-    "/api/admin/profile-requests?status=PENDING&limit=1"
-  )
-  const duplicates = useApi<DuplicatesSummary>(
-    ["duplicates", "home"],
-    "/api/admin/duplicate-findings?kind=SAME_PERSON&status=OPEN&limit=1"
-  )
-  const dashboard = useApi<Dashboard>(["dashboard"], "/api/dashboard")
+  const D = HOME_DATA
+  const counts = useApi<StageCounts>(D.stageCounts.key, D.stageCounts.path)
+  const faults = useApi<FaultsSummary>(D.faults.key, D.faults.path)
+  const requests = useApi<RequestsSummary>(D.pendingRequests.key, D.pendingRequests.path)
+  const duplicates = useApi<DuplicatesSummary>(D.openDuplicates.key, D.openDuplicates.path)
+  const dashboard = useApi<Dashboard>(D.dashboard.key, D.dashboard.path)
 
   const waiting = counts.data?.counts.filed ?? null
   const sentBack = counts.data?.counts.sent_back ?? null
@@ -419,8 +417,9 @@ type PrincipalQueue = {
  */
 export function PrincipalHome() {
   const { me } = useAuth()
-  const queue = useApi<PrincipalQueue>(["principal", "queue", "home"], "/api/principal/queue?limit=8")
-  const dashboard = useApi<Dashboard>(["dashboard"], "/api/dashboard")
+  const queue = useApi<PrincipalQueue>(HOME_DATA.principalQueue.key, HOME_DATA.principalQueue.path)
+  // Totals only: this home prints no list of recent tickets.
+  const dashboard = useApi<Dashboard>(HOME_DATA.collegeTotals.key, HOME_DATA.collegeTotals.path)
 
   const totals = queue.data?.totals
   const longest = totals?.longest_wait_days ?? null
@@ -463,10 +462,13 @@ export function PrincipalHome() {
           onRetry={() => queue.refetch()}
         />
       ) : (queue.data?.total ?? 0) === 0 && !queue.isLoading ? (
-        <Callout tone="positive" title="Nothing is waiting on you">
-          Every checked paper has been approved. The research cell sends the next batch up as
-          soon as it clears them.
-        </Callout>
+        <div className="space-y-4">
+          <Callout tone="positive" title="Nothing is waiting on you">
+            Every checked paper has been approved. The research cell sends the next batch up as
+            soon as it clears them.
+          </Callout>
+          <ComingUp desk="principal" align="start" />
+        </div>
       ) : (
         <Waiting>
           <div className="flex items-baseline justify-between gap-3">
@@ -539,7 +541,7 @@ export function FinanceHome() {
     ["payouts", "payable", "home"],
     `/api/admin/payouts?status=DIRECTOR_APPROVED&limit=${PAYABLE_PAGE}`
   )
-  const budget = useApi<BudgetSummary>(["budgets", ""], "/api/budgets")
+  const budget = useApi<BudgetSummary>(HOME_DATA.budget.key, HOME_DATA.budget.path)
   // What went out this month and last, straight off the ledger (reversals
   // included, so a voided payment is not counted twice).
   const now = new Date()
@@ -649,10 +651,13 @@ export function FinanceHome() {
               ))}
             </ul>
           ) : ready.length === 0 ? (
-            <p className="border-y border-line py-10 text-center text-sm text-fg-muted">
-              Nothing is payable. A paper appears here the moment the Director authorises
-              it.
-            </p>
+            <div className="space-y-4 border-y border-line py-8">
+              <p className="text-center text-sm text-fg-muted">
+                Nothing is payable. A paper appears here the moment the Director authorises
+                it.
+              </p>
+              <ComingUp desk="finance" />
+            </div>
           ) : (
             <ul className="divide-y divide-line border-y border-line">
               {ready.slice(0, 8).map((c) => <ClaimRow key={c.id} claim={c} />)}
@@ -845,9 +850,9 @@ export function YourPapers({
  */
 export function HodHome() {
   const { me } = useAuth()
-  const overview = useApi<HodOverview>(["hod", "overview"], "/api/hod/overview")
-  const standing = useApi<HodStanding>(["hod", "standing", ""], "/api/hod/standing")
-  const targets = useApi<HodTargets>(["hod", "targets", ""], "/api/hod/targets")
+  const overview = useApi<HodOverview>(HOME_DATA.hodOverview.key, HOME_DATA.hodOverview.path)
+  const standing = useApi<HodStanding>(HOME_DATA.hodStanding.key, HOME_DATA.hodStanding.path)
+  const targets = useApi<HodTargets>(HOME_DATA.hodTargets.key, HOME_DATA.hodTargets.path)
 
   const totals = overview.data?.totals
   const people = overview.data?.people ?? []
@@ -866,6 +871,8 @@ export function HodHome() {
             : "What the department has published, and by whom."}
         </Sub>
       </header>
+
+      <Celebrations />
 
       <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         <Figure

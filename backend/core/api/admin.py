@@ -612,6 +612,85 @@ def admin_audit(
     }
 
 
+@api.get("/admin/audit/origins", auth=session_auth)
+def admin_audit_origins(request: HttpRequest):
+    """Where the record came from: the imports and restores that built it.
+
+    The college's history arrived by import, and the ERP import wrote no
+    audit rows, so the log's first screen was a column of identical automatic
+    entries and nothing about the claims and payments behind them. These are
+    worked out from the rows themselves -- the payment-history batches, the
+    ERP tickets by sheet and day, accounts created in bulk -- plus any restore
+    or upload the log did record. Newest first. A reader who is not shown
+    flags (the Director, Finance) is not shown the check that raised them.
+    """
+    from django.db.models import Count, Min
+    from django.db.models.functions import TruncDate
+
+    user = require_user(request)
+    if not rbac.can_view_audit(user.role):
+        raise HttpError(403, "Forbidden")
+    events: list[dict] = []
+
+    def add(at, title, detail, by=None):
+        events.append({
+            "at": at.isoformat() if at else None,
+            "title": title,
+            "detail": detail,
+            "by": by,
+        })
+
+    for log in AuditLog.objects.select_related("actor").filter(
+        Q(action__icontains="RESTORE") | Q(action__icontains="IMPORT")
+    ).order_by("-created_at")[:20]:
+        add(log.created_at, log.action.replace("_", " ").capitalize(), "",
+            log.actor.name if log.actor else None)
+
+    for batch in PriorImport.objects.select_related("imported_by").order_by("-created_at")[:20]:
+        add(batch.created_at, "Payment history loaded",
+            f"{batch.row_count:,} payments from {batch.filename}",
+            batch.imported_by.name if batch.imported_by_id else None)
+
+    sheets: dict = {}
+    for row in (
+        Claim.objects.filter(ticket_number__startswith="ERP-")
+        .annotate(day=TruncDate("created_at"))
+        .values("day", "ticket_number")
+    ):
+        tag = row["ticket_number"].split("-")[1] if row["ticket_number"].count("-") >= 2 else ""
+        per_day = sheets.setdefault(row["day"], {})
+        per_day[tag] = per_day.get(tag, 0) + 1
+    firsts = dict(
+        Claim.objects.filter(ticket_number__startswith="ERP-")
+        .annotate(day=TruncDate("created_at")).values("day")
+        .annotate(first=Min("created_at")).values_list("day", "first")
+    )
+    names = {"PROCESSED": "the Processed sheet", "RAW": "Raw_Data (the Google Form's sheet)"}
+    for day, tags in sheets.items():
+        parts = [f"{n} from {names.get(t, t.title() + ' sheet')}" for t, n in sorted(tags.items())]
+        add(firsts.get(day), "Claims brought across from the ERP workbook", ", ".join(parts))
+
+    for row in (
+        User.objects.annotate(day=TruncDate("created_at")).values("day")
+        .annotate(n=Count("id"), faculty=Count("id", filter=Q(role=Role.FACULTY)), first=Min("created_at"))
+        .filter(n__gte=25)
+    ):
+        add(row["first"], "Accounts created from the roster",
+            f"{row['n']:,} accounts, {row['faculty']:,} of them faculty")
+
+    if not visibility.is_contest_blind(user.role):
+        for row in (
+            AuditLog.objects.filter(action="CLAIM_FLAG_RAISE", actor__isnull=True)
+            .annotate(day=TruncDate("created_at")).values("day")
+            .annotate(n=Count("id"), first=Min("created_at"))
+        ):
+            add(row["first"], "The import check raised flags",
+                f"{row['n']:,} flags on imported claims — listed below, and on the Flags page")
+
+    events.sort(key=lambda e: e["at"] or "", reverse=True)
+    return {"events": events}
+
+
 @api.get("/admin/payouts", auth=session_auth)
 def admin_payouts(
     request: HttpRequest,

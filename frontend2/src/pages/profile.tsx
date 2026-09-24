@@ -26,7 +26,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/dialog"
+import { BadgeShelf } from "@/ui/badge-shelf"
 import { Field, Input, Textarea } from "@/ui/field"
+import { GoalRings } from "@/ui/goal-rings"
 import { money } from "@/ui/paper"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import {
@@ -297,6 +299,9 @@ export function Profile() {
         </Sub>
         {summary && <Meta className="mt-1 block">{summary}</Meta>}
       </header>
+
+      <BadgeShelf userId={me.id} own />
+      <GoalRings />
 
       {filesOwnPapers && missing.length > 0 && (
         <Callout tone="caution" title="Your profile is missing what a claim needs">
@@ -1051,7 +1056,7 @@ function sameSet(a: string[], b: string[]): boolean {
  * domain outside that list can never be matched against a colleague or a
  * venue later, so a free-typed one is silently worth nothing.
  */
-function Interests() {
+export function Interests() {
   const interests = useApi<{ domains: string[] }>(["me", "interests"], "/api/me/interests")
   const domains = useApi<{ domains: string[] }>(
     ["research-domains"],

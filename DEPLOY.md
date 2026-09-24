@@ -103,6 +103,54 @@ which is what the rewrites handle.
 5. Faculty sees the payment-processed message; Finance ledger has the row
 6. Upload a PDF, redeploy, reopen it — it must still be there (bucket, not disk)
 
+## E. AI suggestions on Render (free, hosted model)
+
+Render's free instance (512 MB, 0.1 CPU) cannot run a model, so the AI features
+use a hosted one over the OpenAI-compatible API. With none configured the site
+still works: every AI panel shows its counted version (people to work with,
+journals, topics, leaderboards) and one line saying AI suggestions are not set up.
+
+In the Render dashboard open **faculty-paper-api → Environment**, add these
+three variables, then **Save, rebuild and deploy**. (`render.yaml` declares them
+with `sync: false`, but Render only prompts for those when a Blueprint is first
+created, so on an existing service add them by hand.)
+
+**Groq — recommended.** Free key at <https://console.groq.com/keys>, no card.
+Groq does not keep request data by default.
+
+```
+AI_BASE_URL = https://api.groq.com/openai/v1
+AI_API_KEY  = gsk_...your key...
+AI_MODEL    = llama-3.3-70b-versatile
+```
+
+**Google Gemini.** Free key at <https://aistudio.google.com/apikey>. On the free
+tier Google may use what is sent **to improve its products**, which here means
+draft titles and abstracts. Use it only if that is acceptable, or on a paid key.
+
+```
+AI_BASE_URL = https://generativelanguage.googleapis.com/v1beta/openai
+AI_API_KEY  = AIza...your key...
+AI_MODEL    = gemini-3.5-flash
+```
+
+Model names checked against the providers' model lists on 2026-09-24. If a
+provider retires one, the Discover page names the model it cannot find, and
+the fix is a new `AI_MODEL`. Optional: `AI_FAST_MODEL` (e.g.
+`llama-3.1-8b-instant`) for the discussion-thread assistant, and
+`AI_TIMEOUT_SECONDS` (default 60).
+
+How the provider is chosen: `AI_API_KEY` set → the hosted provider. Otherwise
+`AI_PROVIDER` if set (`ollama`, `harness`, `none`), else Ollama when
+`DJANGO_DEBUG=true` and nothing at all in production. Check it at
+`GET /api/discover/status`: `"code": "ready"` with `"host": "api.groq.com"`.
+The key never appears in that answer or in any error.
+
+What leaves the college: with a hosted provider, a faculty member's paper
+titles, abstract (venue search) and subject areas are sent to that service.
+The Discover page says which service. Ollama and the harness keep them in
+house.
+
 ## ERP Excel → SQL
 
 ```bash

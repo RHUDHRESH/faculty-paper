@@ -18,11 +18,28 @@ from django.utils import timezone
 from ninja.errors import HttpError
 from core.models import Claim, ClaimStatus, Role, User
 from core.services import rbac
+from core.services.aggregate_cache import cached
 
 # ---------- operations: what is wrong right now ----------
 
 
-def _fault(key, title, detail, count, *, severity="warning", to=None, sample=None):
+def _probe(qs, field: str, n: int = 4) -> tuple[int, list]:
+    """How many rows a check finds, and the first few of them.
+
+    The sample is read first: when it comes back short -- nearly every check,
+    on nearly every visit -- its length is the count, and the separate COUNT
+    query is never sent. Half the round trips of asking both every time.
+    """
+    sample = [
+        v if v or field != "ticket_number" else "(draft)"
+        for v in qs.values_list(field, flat=True)[:n]
+    ]
+    return (len(sample) if len(sample) < n else qs.count()), sample
+
+
+def _fault(key, title, detail, count=0, *, found=None, severity="warning", to=None, sample=None):
+    if found is not None:
+        count, sample = found
     return {
         "key": key,
         "title": title,
@@ -49,16 +66,15 @@ def admin_faults(request: HttpRequest):
     # work from them was an inconsistency rather than a boundary.
     if not (rbac.can_manage_users(user.role) or user.role == Role.PRINCIPAL):
         raise HttpError(403, "Forbidden")
+    # The same checks for every reader allowed them, so the answer is shared
+    # until something is written (core/services/aggregate_cache.py).
+    return cached("faults", {}, _faults_now)
 
+
+def _faults_now() -> dict[str, Any]:
     now = timezone.now()
     claims = Claim.objects.all()
     groups: list[dict[str, Any]] = []
-
-    def names(qs, field="email", n=4):
-        return list(qs.values_list(field, flat=True)[:n])
-
-    def tickets(qs, n=4):
-        return [t or "(draft)" for t in qs.values_list("ticket_number", flat=True)[:n]]
 
     # ---- data gaps that stop somebody working ----
     faculty = User.objects.filter(role=Role.FACULTY, active=True)
@@ -73,17 +89,16 @@ def admin_faults(request: HttpRequest):
         "faults": [
             _fault("no_scopus", "No Scopus author ID",
                    "Their profile link cannot be derived, so the claim form cannot pre-fill it.",
-                   no_scopus.count(), to="/admin/users", sample=names(no_scopus)),
+                   found=_probe(no_scopus, "email"), to="/admin/users"),
             _fault("no_biometric", "No biometric ID",
                    "Decides which account is paid. A claim cannot be submitted without it.",
-                   no_bio.count(), severity="critical", to="/admin/users", sample=names(no_bio)),
+                   found=_probe(no_bio, "email"), severity="critical", to="/admin/users"),
             _fault("no_department", "No department",
                    "Routes the approval and every departmental figure.",
-                   no_dept.count(), to="/admin/users", sample=names(no_dept)),
+                   found=_probe(no_dept, "email"), to="/admin/users"),
             _fault("former_staff", "Payments held by former staff",
                    "Imported rows whose faculty is not on the current roster. Reassign to the right person.",
-                   former.count(), severity="info", to="/admin/users",
-                   sample=names(former, "name")),
+                   found=_probe(former, "name"), severity="info", to="/admin/users"),
         ],
     })
 
@@ -111,18 +126,18 @@ def admin_faults(request: HttpRequest):
         "faults": [
             _fault("stale_submitted", f"Waiting to clear over {stale_days} days",
                    "Submitted and untouched since. The claimant is waiting.",
-                   stale_submitted.count(), severity="critical",
-                   to="/admin/clearing", sample=tickets(stale_submitted)),
+                   found=_probe(stale_submitted, "ticket_number"), severity="critical",
+                   to="/admin/clearing"),
             _fault("stale_cleared", f"Waiting to pay over {stale_days} days",
                    "Cleared but not paid. The money is approved and sitting.",
-                   stale_cleared.count(), severity="critical",
-                   to="/finance", sample=tickets(stale_cleared)),
+                   found=_probe(stale_cleared, "ticket_number"), severity="critical",
+                   to="/finance"),
             _fault("legacy_status", "Stranded on a retired status",
                    "Imported at a stage the current workflow has no button for. A super admin can override the status.",
-                   legacy.count(), to="/admin/clearing", sample=tickets(legacy)),
+                   found=_probe(legacy, "ticket_number"), to="/admin/clearing"),
             _fault("old_drafts", "Drafts abandoned over 30 days",
                    "Started and never submitted.",
-                   old_drafts.count(), severity="info", sample=tickets(old_drafts)),
+                   found=_probe(old_drafts, "ticket_number"), severity="info"),
         ],
     })
 
@@ -142,19 +157,19 @@ def admin_faults(request: HttpRequest):
         "faults": [
             _fault("unverified", "Verification did not pass",
                    "Sent forward with issues outstanding.",
-                   unverified.count(), to="/admin/clearing", sample=tickets(unverified)),
+                   found=_probe(unverified, "ticket_number"), to="/admin/clearing"),
             _fault("no_quartile", "In review with no quartile",
                    # Rupees are written the same way everywhere else in the app.
                    "The quartile is worth up to ₹50,000 of the payout and has to be "
                    "set before clearing.",
-                   no_quartile.count(), severity="critical",
-                   to="/admin/clearing", sample=tickets(no_quartile)),
+                   found=_probe(no_quartile, "ticket_number"), severity="critical",
+                   to="/admin/clearing"),
             _fault("no_snip", "In review with no SNIP",
                    "Without a verified SNIP the claim prices at the fixed category rate.",
-                   no_snip.count(), to="/admin/clearing", sample=tickets(no_snip)),
+                   found=_probe(no_snip, "ticket_number"), to="/admin/clearing"),
             _fault("duplicate_override", "Duplicate warning overridden",
                    "Paid or cleared despite matching an earlier payment.",
-                   dup_override.count(), severity="critical", sample=tickets(dup_override)),
+                   found=_probe(dup_override, "ticket_number"), severity="critical"),
         ],
     })
 
@@ -176,16 +191,16 @@ def admin_faults(request: HttpRequest):
         "faults": [
             _fault("paid_zero", "Paid, but for nothing",
                    "Marked paid with no amount. Either the figure was lost or it should not have been paid.",
-                   paid_zero.count(), sample=tickets(paid_zero)),
+                   found=_probe(paid_zero, "ticket_number")),
             _fault("self_cleared", "Cleared by the claimant",
                    "The person who approved it is the person being paid.",
-                   self_cleared.count(), severity="critical", sample=tickets(self_cleared)),
+                   found=_probe(self_cleared, "ticket_number"), severity="critical"),
             _fault("no_ledger", "Paid with no ledger row",
                    "The claim says paid but nothing was written to the ledger.",
-                   no_ledger.count(), severity="critical", sample=tickets(no_ledger)),
+                   found=_probe(no_ledger, "ticket_number"), severity="critical"),
             _fault("voided", "Payments voided",
                    "A reversing row was written. Expected after a correction; unexpected otherwise.",
-                   voided.count(), severity="info", sample=tickets(voided)),
+                   found=_probe(voided, "ticket_number"), severity="info"),
         ],
     })
 

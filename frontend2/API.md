@@ -112,6 +112,10 @@ POST  /api/claims/upload            -> attachment     (multipart)
 ### Journal and paper lookup, for the filing wizard
 
 ```
+POST /api/lookup/paper      { query, owner_id?, claim_id? } -> the paper from a DOI, link or title
+GET  /api/lookup/sources                             -> { scopus: bool } is Scopus connected here
+POST /api/lookup/file-check { url, kind, title?, doi?, journal?, issn?, ref_title? }
+                                                     -> what an attached PDF shows
 POST /api/lookup/scopus     { doi?, title?, eid? }   -> the paper, from Scopus
 POST /api/lookup/candidates { title }                -> possible matches to choose from
 POST /api/lookup/scimago    { issn?, title?, year }  -> quartile and SJR
@@ -122,6 +126,26 @@ POST /api/calculate         { ... }                  -> what it would pay, witho
 
 `POST /api/calculate` is how the wizard shows an amount before anything is
 filed. Anything it returns is an **estimate** and must be labelled as one.
+
+`POST /api/lookup/paper` is the wizard's "Paste the DOI or link" box, and it
+needs no Scopus key: OpenAlex answers a DOI (free and keyless), Crossref is the
+fallback and the title search, and Scopus is asked only when `SCOPUS_API_KEY`
+is set. It never answers 5xx — `ok: false` with a `code` (`not_found`,
+`choose`, `bad_input`, `scopus_link`, `unreachable`, `error`) and a sentence in
+`message`. On success it carries `paper` (title, journal, `issns`, date and its
+precision, type, authors in order with printed affiliations, citations,
+open-access link), `claimant` (their position and how sure: `exact`, `likely`,
+`ambiguous`, `none`), `affiliation` (is the college printed, and beside the
+claimant), `metrics` (quartile, SNIP, subject areas and Engineering class from
+our own SCImago and SNIP tables), `field_sources` (which source each value came
+from), `sources[]` (every source, answered or not), `to_check[]` (sentences for
+what the claimant still has to look at) and `already_filed`. Nothing in it is
+money.
+
+`POST /api/lookup/file-check` reads one file just uploaded to the form and says
+whether it shows the paper's title, DOI and the college. It is the claimant
+checking their own upload before filing; the desks' own checks after filing
+(`file_checks`, flags) are separate and stay theirs.
 
 ### The person
 
@@ -352,10 +376,43 @@ stage — `filed` covers `SUBMITTED` *and* `HOD_APPROVED`, `checked` covers
 `status` there takes a single value. `q` narrows the counts the same way it
 narrows the list, so the chips never promise rows the list will not show.
 
+### Leaderboard — every role, no money
+
+```
+GET /api/leaderboard?board=people|departments
+                    &period=academic|last_academic|calendar|all
+                    &sort=score|papers|q1|first_author
+                    &department=     (people board: rank within one department)
+                    &per_head=true   (department board: rank per person)
+    -> { board, period{key,label,from,to,compared_with}, periods[], sort,
+         rows[{ rank, joint, papers, q1, score, first_author, movement, me, ... }],
+         me{ rank, of, joint, movement, ... } | null, totals, method }
+```
+
+Score is Q1 = 4, Q2 = 3, Q3 = 2, Q4 = 1, other indexed = 1 (`method.weights`).
+Counts filed claims and the ledger's claim-less historic rows, once per paper.
+`movement` is places gained against the period before (null when there is no
+earlier period, or nothing this period). 400 for an unknown board, period or sort.
+
+### New things to work on — counted, no model
+
+```
+GET /api/discover/next     -> { people[{ id, name, department, reasons[], ... }],
+                                journals[{ title, quartile, colleagues, areas, reason }],
+                                topics[{ area, alongside, people, reason }],
+                                grounded_on, why_empty }
+GET /api/discover/partners -> { partners[{ name, kind, why, first_step }],
+                                unverified: true, model, grounded_on }   (needs AI; 503 without)
+```
+
+`/next` never needs a model and never excludes itself for want of one. People
+never include anybody already credited with a paper you share.
+
 ### Discovery — the two AI features
 
 ```
-GET  /api/discover/status        -> { available: boolean, model: string }
+GET  /api/discover/status        -> { available, model, provider, code, detail,
+                                      hosted: boolean, host: string }
 GET  /api/meta/research-domains?q=&limit=
                                  -> { domains: string[] }
 GET  /api/me/interests           -> { domains: string[] }
@@ -365,8 +422,11 @@ POST /api/discover/venues        { title, abstract?, keywords?,
                                    author_position?, total_authors? }
 ```
 
-**Ask `/discover/status` before offering any of it.** With no API key
-configured, `/venues` and `/directions` return **503** with a readable message.
+**Ask `/discover/status` before offering any of it.** With no model
+configured `code` is `not_configured` — say so in one line and offer nothing
+that needs a model — and `/venues`, `/directions` and `/partners` return
+**503** with a readable message. `hosted: true` means what is typed is sent to
+`host`; do not tell the reader it stays on this server.
 That is a supported state, not an error to apologise for — the screen should
 say the feature is switched off, not show a button that always fails.
 

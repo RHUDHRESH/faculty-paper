@@ -9,6 +9,7 @@ import { useApi, useApiMutation } from "@/lib/query"
 import { api, forgetCsrf } from "@/lib/api"
 import { KindBadge } from "@/pages/assignment-parts"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
 import {
   Dialog,
   DialogBody,
@@ -20,7 +21,7 @@ import {
 } from "@/ui/dialog"
 import { RankedBars, MixBar, Trend, type Point } from "@/ui/chart"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
-import { Checkbox, Field, Input, PasswordInput, Radio } from "@/ui/field"
+import { Checkbox, Field, Input, PasswordInput } from "@/ui/field"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
@@ -107,6 +108,7 @@ type PersonRow = {
   designation: string | null
   active: boolean
   faculty_type?: "REGULAR" | "RESEARCH"
+  research_quota?: number | null
 }
 
 type PeoplePayload = {
@@ -260,7 +262,14 @@ export function People() {
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="text-sm">{p.role === "HOD" ? ROLE_LABEL.FACULTY : roleLabel(p.role)}</span>
           {p.role === "HOD" && <KindBadge label="HOD" />}
-          {p.faculty_type === "RESEARCH" && <KindBadge label="Research" />}
+          {p.faculty_type === "RESEARCH" && (
+            <>
+              <KindBadge label="Research" />
+              <Meta>
+                {p.research_quota == null ? "No quota set" : `Quota ${p.research_quota} a year`}
+              </Meta>
+            </>
+          )}
         </span>
       ),
     },
@@ -301,7 +310,7 @@ export function People() {
 
       {creating && <NewAccount onClose={() => setCreating(false)} />}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className={filterBar}>
         <div className="relative w-full max-w-xs">
           <Search
             className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
@@ -1138,6 +1147,10 @@ type AccountDetail = AccountFields & {
 function AccountEditor({ userId, onClose }: { userId: string; onClose: () => void }) {
   const { me } = useAuth()
   const isSuperAdmin = can(me?.role).admin
+  // Mirrors `may_set_field` in core/api/auth.py: the research coordinator
+  // runs the research programme, so whether somebody holds a research post
+  // and its quota are theirs to set as well as a super admin's.
+  const mayEditPost = isSuperAdmin || me?.role === "RESEARCH_COORDINATOR"
   const editingSelf = me?.id === userId
 
   const { data, isLoading, error } = useApi<AccountDetail>(
@@ -1390,41 +1403,24 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
               <fieldset className="space-y-4 border-t border-line pt-4">
                 <legend className="text-sm font-medium">What the post expects</legend>
 
-                <fieldset className="space-y-1.5">
-                  <legend className="text-sm font-medium">Research faculty</legend>
-                  <div className="flex gap-x-5">
-                    <Radio
-                      name={`research-${userId}`}
-                      value="REGULAR"
-                      checked={form.faculty_type !== "RESEARCH"}
-                      onChange={() => set("faculty_type", "REGULAR")}
-                      disabled={!isSuperAdmin}
-                      label="No"
-                    />
-                    <Radio
-                      name={`research-${userId}`}
-                      value="RESEARCH"
-                      checked={form.faculty_type === "RESEARCH"}
-                      onChange={() => set("faculty_type", "RESEARCH")}
-                      disabled={!isSuperAdmin}
-                      label="Yes"
-                    />
-                  </div>
-                  <p className="text-xs text-fg-muted">
-                    A research post is already paid to do research, so the scheme rewards only
-                    what exceeds the quota.
+                {!mayEditPost && (
+                  <p className="text-sm text-fg-muted">
+                    Set by the research coordinator or a super admin. The research cell clears
+                    the claims the quota decides, so it cannot also set it.
                   </p>
-                </fieldset>
+                )}
+
+                <Checkbox
+                  checked={form.faculty_type === "RESEARCH"}
+                  onCheckedChange={(v) => set("faculty_type", v === true ? "RESEARCH" : "REGULAR")}
+                  disabled={!mayEditPost}
+                  label="Research faculty"
+                  hint="A research post is already paid to do research, so the scheme rewards only what exceeds the quota."
+                />
 
                 {form.faculty_type === "RESEARCH" && (
                   <>
-                    <Callout tone="caution" title="Papers up to the quota are paid nothing">
-                      With a quota of four, their first four papers each year carry no
-                      remuneration and only the fifth onwards is reimbursed. Leave it empty
-                      and nothing is zeroed.
-                    </Callout>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-4 sm:grid-cols-[10rem_minmax(0,1fr)]">
                       <Field label="Papers a year before any incentive">
                         <Input
                           value={form.research_quota == null ? "" : String(form.research_quota)}
@@ -1434,7 +1430,7 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
                           }}
                           inputMode="numeric"
                           placeholder="No quota"
-                          disabled={!isSuperAdmin}
+                          disabled={!mayEditPost}
                         />
                       </Field>
                       <Field label="Where the number came from">
@@ -1442,10 +1438,15 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
                           value={form.research_quota_note}
                           onChange={(e) => set("research_quota_note", e.target.value)}
                           placeholder="Agreed in the appointment letter"
-                          disabled={!isSuperAdmin}
+                          disabled={!mayEditPost}
                         />
                       </Field>
                     </div>
+                    <Callout tone="caution" title="Papers up to the quota are paid nothing">
+                      With a quota of four, their first four papers each year carry no
+                      remuneration and only the fifth onwards is reimbursed. Leave it empty
+                      and nothing is zeroed.
+                    </Callout>
                   </>
                 )}
               </fieldset>

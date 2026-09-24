@@ -121,6 +121,18 @@ describe("SignIn — Google", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/then link Google from your profile/)
   })
 
+  it("asks the server once whether each provider is on", async () => {
+    // Every request here is a round trip to a server half a second away, on
+    // the page five hundred people open on a Monday morning.
+    stubConfigs({ enabled: true, client_id: "client-id.apps.googleusercontent.com" })
+    fakeGoogle()
+    mount(() => ({}))
+    await screen.findByRole("button", { name: "Continue with Google" }, GOOGLE_BUTTON_WAIT)
+    const urls = vi.mocked(fetch).mock.calls.map(([url]) => String(url))
+    expect(urls.filter((u) => u.includes("/api/auth/google/config"))).toHaveLength(1)
+    expect(urls.filter((u) => u.includes("/api/auth/clerk/config"))).toHaveLength(1)
+  })
+
   it("never loads Google's script when the server has it switched off", async () => {
     stubConfigs({ enabled: false, client_id: null })
     mount(() => ({}))

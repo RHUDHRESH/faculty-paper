@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
   AlertTriangle,
@@ -14,10 +14,13 @@ import {
 } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { openShortcuts } from "@/app/shortcuts"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
+import { ComingUp } from "@/ui/coming-up"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
   ConfirmDialog,
@@ -36,6 +39,7 @@ import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText }
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
+import { useSlashToSearch } from "@/ui/queue-keys"
 import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
 
@@ -195,6 +199,8 @@ export function Approvals() {
   }, [minDraft])
 
   const [searchDraft, setSearchDraft] = useState(q)
+  const searchRef = useRef<HTMLInputElement>(null)
+  useSlashToSearch(searchRef)
   useEffect(() => setSearchDraft(q), [q])
   const [waitingDraft, setWaitingDraft] = useState(waitingOverParam)
   useEffect(() => setWaitingDraft(waitingOverParam), [waitingOverParam])
@@ -436,7 +442,11 @@ export function Approvals() {
         <kbd className="rounded border border-edge px-1 text-[10px]">j</kbd>/
         <kbd className="rounded border border-edge px-1 text-[10px]">k</kbd> or arrows to move ·{" "}
         <kbd className="rounded border border-edge px-1 text-[10px]">x</kbd> to select ·{" "}
-        <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open
+        <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open ·{" "}
+        <kbd className="rounded border border-edge px-1 text-[10px]">/</kbd> to search ·{" "}
+        <button type="button" onClick={openShortcuts} className="underline underline-offset-2">
+          all shortcuts
+        </button>
         {data && (
           <>
             {" · "}
@@ -447,13 +457,14 @@ export function Approvals() {
         )}
       </Meta>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className={filterBar}>
         <div className="relative w-full max-w-xs">
           <Search
             className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
             aria-hidden
           />
           <Input
+            ref={searchRef}
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
             placeholder="Search title, ticket or claimant"
@@ -530,7 +541,7 @@ export function Approvals() {
       </div>
 
       {anySelected && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
+        <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
           <p className="text-sm">
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>
@@ -580,8 +591,9 @@ export function Approvals() {
           message={
             filtered
               ? "Try widening the search, department or wait-time filter."
-              : "Every cleared ticket has been approved or sent back. That is good news — come back when the next one lands."
+              : "Every checked ticket has been approved or sent back."
           }
+          action={filtered ? undefined : <ComingUp desk="principal" />}
         />
       ) : (
         <>

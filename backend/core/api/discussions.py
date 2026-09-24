@@ -20,7 +20,7 @@ from django.utils import timezone
 from ninja import Schema
 from django.conf import settings
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, Mention, Notification, Post, Thread, ThreadParticipant, ThreadSubscription, User
+from core.models import AuditLog, Claim, FeedPost, Mention, Notification, Post, Thread, ThreadParticipant, ThreadSubscription, User
 from core.services import rbac
 from core.services import thread_agent
 from core import discussions
@@ -312,12 +312,19 @@ def get_thread(request: HttpRequest, thread_id: str):
     if subscription:
         subscription.last_read_at = timezone.now()
         subscription.save(update_fields=["last_read_at"])
+    # A direct thread read here is read in Messages too (`api/dm.py`).
+    ThreadParticipant.objects.filter(thread=thread, user=user).update(last_read_at=timezone.now())
 
     return {
         **_thread_dict(thread, user),
         "posts": [_post_dict(p) for p in posts],
         "following": bool(subscription and not subscription.muted),
         "followers": thread.subscriptions.count(),
+        # An open thread from before the feed now lives in it as a post. Old
+        # links and notifications still arrive here, and are sent on.
+        "feed_post_id": FeedPost.objects.filter(legacy_thread=thread)
+        .values_list("id", flat=True)
+        .first(),
     }
 
 

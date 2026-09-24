@@ -173,7 +173,7 @@ function WorkedWithList({ people }: { people: Collaborator[] }) {
     <ul className="divide-y divide-line border-y border-line">
       {people.map((p) => (
         <li key={p.id} className="row">
-          <Link to={`/people/${p.id}`} className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
+          <Link to={`/u/${p.id}`} className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
             <span className="min-w-0 flex-1">
               <span className="block truncate text-base">{p.name}</span>
               <Meta className="block truncate">
@@ -214,7 +214,7 @@ function SuggestionsList({ people }: { people: Suggestion[] }) {
     <ul className="divide-y divide-line border-y border-line">
       {people.map((p) => (
         <li key={p.id} className="row">
-          <Link to={`/people/${p.id}`} className="flex items-start gap-4 px-1 py-3 sm:px-2">
+          <Link to={`/u/${p.id}`} className="flex items-start gap-4 px-1 py-3 sm:px-2">
             <span className="min-w-0 flex-1">
               <span className="flex flex-wrap items-center gap-2">
                 <span className="truncate text-base">{p.name}</span>
@@ -381,7 +381,7 @@ function NetworkGraph({ graph, meId }: { graph: Graph; meId?: string }) {
   )
 
   function go(id: string) {
-    navigate(`/people/${id}`)
+    navigate(`/u/${id}`)
   }
 
   function onNodeKeyDown(e: React.KeyboardEvent, id: string) {

@@ -70,7 +70,7 @@ export async function getClaim(page: Page, claimId: string): Promise<ClaimDetail
  * byte-identical uploads come back flagged as the same document, which is a
  * true statement about them and noise in a test that wanted two files.
  */
-function pdfBytes(nonce: string): Buffer {
+export function pdfBytes(nonce: string): Buffer {
   const body = `%PDF-1.4
 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
 2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
@@ -80,6 +80,34 @@ trailer << /Root 1 0 R >>
 %%EOF
 `
   return Buffer.from(body, "utf8")
+}
+
+/**
+ * A PDF with a real text layer and a correct cross-reference table, so the
+ * file check (`/api/lookup/file-check`, pypdf) can read what it says.
+ * `pdfBytes` above is deliberately minimal and pypdf cannot open it.
+ */
+export function textPdf(lines: string[]): Buffer {
+  const escape = (s: string) => s.replace(/[\\()]/g, (c) => `\\${c}`)
+  const content = `BT /F1 11 Tf 40 760 Td ${lines.map((l, i) => `${i ? "0 -16 Td " : ""}(${escape(l)}) Tj`).join(" ")} ET`
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    `<< /Length ${Buffer.byteLength(content, "latin1")} >>\nstream\n${content}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ]
+  let out = "%PDF-1.4\n"
+  const offsets: number[] = []
+  objects.forEach((body, i) => {
+    offsets.push(Buffer.byteLength(out, "latin1"))
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`
+  })
+  const xref = Buffer.byteLength(out, "latin1")
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+  out += offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(out, "latin1")
 }
 
 export type Uploaded = {

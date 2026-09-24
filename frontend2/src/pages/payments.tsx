@@ -14,6 +14,7 @@ import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { ComingUp } from "@/ui/coming-up"
 import {
   Dialog,
   DialogBody,
@@ -275,7 +276,7 @@ export function Payments() {
       </header>
 
       {anySelected && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
+        <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
           <p className="text-sm">
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>
@@ -311,6 +312,7 @@ export function Payments() {
           icon={Banknote}
           title="Nothing waiting on Finance"
           message="Every ticket the Director has authorised has already been paid."
+          action={<ComingUp desk="finance" />}
         />
       ) : (
         <>

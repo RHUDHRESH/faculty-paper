@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { can } from "@/app/auth"
-import { navFor, reviewsFlags } from "@/app/nav"
+import { navBadges, navFor, reviewsFlags } from "@/app/nav"
 
 /**
  * A head of department is a faculty member who also heads the department
@@ -92,5 +92,31 @@ describe("an officer files their own papers too", () => {
     expect(can(undefined).fileOwnPapers).toBe(false)
     expect(navFor("SUPER_ADMIN").map((i) => i.to)).not.toContain("/papers/new")
     expect(navFor("SUPER_ADMIN").map((i) => i.to)).not.toContain("/papers")
+  })
+})
+
+/**
+ * The sidebar says how much is waiting at the reader's own desk, so the queue
+ * is one glance away from any page -- and says nothing about anybody else's.
+ */
+describe("nav badges", () => {
+  const counts = { draft: 2, filed: 13, checked: 3, approved: 4, authorised: 5, paid: 81, sent_back: 1 }
+
+  it("counts each desk's own queue", () => {
+    expect(navBadges("RESEARCH_CELL", counts)).toEqual({ "/clearing": 13 })
+    expect(navBadges("SUPER_ADMIN", counts)).toEqual({ "/clearing": 13 })
+    expect(navBadges("PRINCIPAL", counts)).toEqual({ "/approvals": 3 })
+    expect(navBadges("DIRECTOR", counts)).toEqual({ "/authorisations": 4 })
+    expect(navBadges("FINANCE", counts)).toEqual({ "/payments": 5 })
+  })
+
+  it("tells a claimant only what has come back to them", () => {
+    expect(navBadges("FACULTY", counts)).toEqual({ "/papers": 1 })
+    expect(navBadges("HOD", counts)).toEqual({ "/papers": 1 })
+  })
+
+  it("draws nothing for an empty queue or before the counts arrive", () => {
+    expect(navBadges("PRINCIPAL", { ...counts, checked: 0 })).toEqual({})
+    expect(navBadges("PRINCIPAL", undefined)).toEqual({})
   })
 })

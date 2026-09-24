@@ -65,6 +65,23 @@ type ClaimAction = {
   created_at: string
 }
 
+/**
+ * A ticket brought across from the college's ERP workbook carries the
+ * import's moment as its filing and payment time. These are the dates it
+ * really has: the Google Form's own timestamp for a Raw_Data row, a payout
+ * month somebody recorded, and the day it was brought across.
+ */
+type ClaimRecord = {
+  imported: boolean
+  /** The workbook sheet: "Raw_Data" (the Google Form's) or "Processed". */
+  source: string | null
+  imported_at: string | null
+  filed_at: string | null
+  /** "2025-03" */
+  paid_month: string | null
+  erp_status: string | null
+}
+
 type Claim = {
   faculty_stage?: string | null
   days_waiting?: number | null
@@ -125,6 +142,8 @@ type Claim = {
   director_approved_by_name: string | null
   paid_at: string | null
   actions?: ClaimAction[]
+  /** What the history can truthfully say (server: services/record_dates.py). */
+  record?: ClaimRecord | null
   team: Team | null
 }
 
@@ -352,6 +371,14 @@ export function PaperDetail() {
           {isOwner && claim.journal_title && claim.status !== "DRAFT" && (
             <Button kind="quiet" className="shrink-0 print:hidden" asChild>
               <Link to={`/papers/new?copy=${claim.id}`}>File another in this journal</Link>
+            </Button>
+          )}
+          {isOwner && claim.status !== "DRAFT" && claim.status !== "REJECTED" && (
+            // One tap to tell colleagues: the post opens with the paper card,
+            // the words and the co-authors already in, all still editable.
+            // The card says what the paper is -- never what it paid.
+            <Button kind="default" className="shrink-0 print:hidden" asChild>
+              <Link to={`/discussions?share=${claim.id}`}>Share to the feed</Link>
             </Button>
           )}
           {isOwner && claim.status === "PAID" && (
@@ -639,18 +666,25 @@ export function PaperDetail() {
           // not have.
           <>
             <p className="text-sm text-fg-muted">
-              No step-by-step record was kept for this ticket — it did not travel
-              through this system one desk at a time. These are the dates the
-              ticket itself carries, and they are all that is known about it.
+              {claim.record?.imported
+                ? "No step-by-step record was kept for this ticket — it was brought across from the college's ERP workbook, which records what was decided but not when each desk acted. These are the dates it does carry."
+                : "No step-by-step record was kept for this ticket — it did not travel through this system one desk at a time. These are the dates the ticket itself carries, and they are all that is known about it."}
             </p>
             <ul className="space-y-3 border-l border-line pl-4">
               {dates.map((d) => (
                 <li key={d.label} className="text-sm">
                   <p>{d.label}</p>
-                  <Meta>{[d.who, formatDateTime(d.at)].filter(Boolean).join(" · ")}</Meta>
+                  {!d.month && (
+                    <Meta>{[d.who, formatDateTime(d.at)].filter(Boolean).join(" · ")}</Meta>
+                  )}
                 </li>
               ))}
             </ul>
+            {claim.record?.erp_status && (
+              <p className="text-sm text-fg-muted">
+                The workbook's own note: “{claim.record.erp_status}”
+              </p>
+            )}
           </>
         ) : (
           <p className="text-sm text-fg-muted">
@@ -719,7 +753,7 @@ function parseJsonArray<T>(raw: string | null | undefined): T[] {
  * than by anybody in the chain.
  */
 function amountCaption(c: Claim, settled: boolean): string {
-  if (settled) return c.paid_at ? `Paid on ${formatDate(c.paid_at)}` : "Paid"
+  if (settled) return paidCaption(c)
   if (c.status === "DRAFT") return "Estimated — this has not been filed yet"
   if (c.status === "REJECTED") return "Worked out before it came back to you"
   if (c.status === "DIRECTOR_APPROVED" || c.status === "FINANCE_APPROVED") {
@@ -835,13 +869,40 @@ function capitalise(s: string): string {
  */
 function waitingLine(c: Claim): string | null {
   if (c.status === "DRAFT") return null
-  if (c.status === "PAID") return c.paid_at ? `Paid on ${formatDate(c.paid_at)}` : null
-  if (!c.submitted_at) return null
-  const days = daysSince(c.submitted_at)
-  if (days == null) return `Filed on ${formatDate(c.submitted_at)}`
+  if (c.status === "PAID") return c.paid_at || c.record?.imported ? paidCaption(c) : null
+  // An imported ticket's `submitted_at` is the import's moment unless the
+  // server vouches for it as a filing time.
+  const filed = c.record?.imported ? c.record.filed_at : c.submitted_at
+  if (!filed) return null
+  const days = daysSince(filed)
+  if (days == null) return `Filed on ${formatDate(filed)}`
   const ago =
     days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`
-  return `Filed on ${formatDate(c.submitted_at)} — ${ago}`
+  return `Filed on ${formatDate(filed)} — ${ago}`
+}
+
+/**
+ * When it was paid, as far as anybody knows. A ticket brought across from the
+ * ERP was paid before this system existed, and `paid_at` on it is only the
+ * moment of the import -- printing that as "Paid on 23 Sept 2026" told people
+ * they had been paid on a day nothing happened.
+ */
+function paidCaption(c: Claim): string {
+  const r = c.record
+  if (r?.imported) {
+    return r.paid_month
+      ? `Paid in ${monthName(r.paid_month)}`
+      : "Paid before this system — the college's records do not say when"
+  }
+  return c.paid_at ? `Paid on ${formatDate(c.paid_at)}` : "Paid"
+}
+
+/** "2025-03" -> "March 2025" */
+function monthName(ym: string): string {
+  const d = new Date(`${ym}-01T00:00:00`)
+  return Number.isNaN(d.getTime())
+    ? ym
+    : d.toLocaleDateString("en-IN", { month: "long", year: "numeric" })
 }
 
 function daysSince(iso: string): number | null {
@@ -850,7 +911,28 @@ function daysSince(iso: string): number | null {
   return Math.max(0, Math.floor((Date.now() - then) / 86_400_000))
 }
 
-type TicketDate = { label: string; who: string | null; at: string }
+type TicketDate = { label: string; who: string | null; at: string; month?: boolean }
+
+/**
+ * The dates an imported ticket really carries, and none of the import's
+ * stamps: the day it was brought across, the Google Form's own filing time,
+ * and a payout month if one was recorded.
+ */
+function importedDates(r: ClaimRecord): TicketDate[] {
+  const out: TicketDate[] = []
+  if (r.filed_at) out.push({ label: "Filed on the college's Google Form", who: null, at: r.filed_at })
+  if (r.paid_month) {
+    out.push({ label: `Paid in ${monthName(r.paid_month)}`, who: null, at: `${r.paid_month}-01`, month: true })
+  }
+  if (r.imported_at) {
+    out.push({
+      label: `Brought across from the ERP workbook${r.source ? ` (${r.source} sheet)` : ""}`,
+      who: null,
+      at: r.imported_at,
+    })
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at))
+}
 
 /**
  * The account a ticket can give of itself when nothing was recorded about it.
@@ -864,6 +946,7 @@ type TicketDate = { label: string; who: string | null; at: string }
  * several columns rather than several things happening at once.
  */
 function ticketDates(c: Claim): TicketDate[] {
+  if (c.record?.imported) return importedDates(c.record)
   const all: TicketDate[] = [
     { label: "Filed", who: null, at: c.submitted_at || "" },
     { label: "Checked by the research cell", who: c.cleared_by_name, at: c.cleared_at || "" },
@@ -1212,6 +1295,7 @@ const CLAIMANT_EVENTS: Record<string, string> = {
 const REASON_STEPS = new Set(["REJECT", "RETURN_TO_FACULTY", "SENT_BACK", "NOT_ACCEPTED"])
 
 function ClaimantHistory({ claim }: { claim: Claim }) {
+  if (claim.record?.imported) return <ImportedHistory claim={claim} record={claim.record} />
   const events = (claim.actions || [])
     .filter((a) => CLAIMANT_EVENTS[a.action])
     .map((a) => ({
@@ -1234,15 +1318,56 @@ function ClaimantHistory({ claim }: { claim: Claim }) {
   }
   events.sort((a, b) => (b.at || "").localeCompare(a.at || ""))
   if (!events.length) return <p className="text-sm text-fg-muted">Nothing has happened to it yet.</p>
+  return <HistoryList events={events} />
+}
+
+/**
+ * A claimant's paper that was brought across from the college's records.
+ * It was filed and paid under the old process, so "You filed it yesterday"
+ * -- the import's moment -- was the one thing this page must not say.
+ */
+function ImportedHistory({ claim, record }: { claim: Claim; record: ClaimRecord }) {
+  const events: { id: string; text: string; note: string | null; at: string | null }[] = []
+  if (claim.status === "PAID") {
+    events.push({
+      id: "paid",
+      text: record.paid_month
+        ? `Paid in ${monthName(record.paid_month)}`
+        : "Paid under the old process — the college's records do not say when",
+      note: null,
+      at: null,
+    })
+  }
+  if (record.imported_at) {
+    events.push({
+      id: "imported",
+      text: "Brought across from the college's records when this system replaced them",
+      note: null,
+      at: record.imported_at,
+    })
+  }
+  if (record.filed_at) {
+    events.push({ id: "filed", text: "You filed it on the college's Google Form", note: null, at: record.filed_at })
+  }
+  return <HistoryList events={events} />
+}
+
+function HistoryList({
+  events,
+}: {
+  events: { id: string; text: string; note: string | null; at: string | null }[]
+}) {
   return (
     <ul className="space-y-3 border-l border-line pl-4">
       {events.map((e) => (
         <li key={e.id} className="text-sm">
           <p>{e.text}</p>
           {e.note && <p className="text-fg-muted">{e.note}</p>}
-          <Meta>
-            <When iso={e.at} />
-          </Meta>
+          {e.at && (
+            <Meta>
+              <When iso={e.at} />
+            </Meta>
+          )}
         </li>
       ))}
     </ul>

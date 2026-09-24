@@ -45,6 +45,8 @@ type Notification = {
   href: string | null
   read: boolean
   created_at: string
+  /** Set on "Approved for payment" and "Paid" for your own paper: offer to share it. */
+  share_paper_id?: string | null
 }
 
 /** How often the unread count is refetched while the app is open. */
@@ -327,6 +329,23 @@ export function NotificationBell({ className }: { className?: string }) {
                         </span>
                       )}
                     </button>
+                    {item.share_paper_id && (
+                      // Outside the row's button: a control inside a control is
+                      // two targets a screen reader announces as one.
+                      <div className="px-3 pb-2">
+                        <Button
+                          kind="default"
+                          size="sm"
+                          onClick={() => {
+                            if (!item.read) void markRead(item.id)
+                            close(false)
+                            navigate(`/discussions?share=${item.share_paper_id}`)
+                          }}
+                        >
+                          Share to the feed
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

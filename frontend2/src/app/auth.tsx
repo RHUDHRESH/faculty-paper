@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 
-import { api, forgetCsrf } from "@/lib/api"
+import { api, bootAnswer, forgetCsrf } from "@/lib/api"
 
 export type Role =
   | "FACULTY"
@@ -20,6 +20,8 @@ export type Me = {
   department?: string | null
   designation?: string | null
   staff_id?: string | null
+  /** Their own profile photo, set from their public profile. */
+  photo_url?: string | null
   must_change_password?: boolean
   /** Set while a super admin is viewing as this account. */
   impersonated_by?: { id: string; name: string; email: string } | null
@@ -45,7 +47,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      setMe(await api<Me>("/api/auth/me"))
+      // The first ask is usually already in flight from index.html.
+      setMe(await (bootAnswer<Me>("/api/auth/me") ?? api<Me>("/api/auth/me")))
     } catch {
       setMe(null)
     } finally {

@@ -1,6 +1,9 @@
 import {
   Library,
+  Binoculars,
   CalendarClock,
+  Contact,
+  Mail,
   BarChart3,
   BookOpen,
   Building2,
@@ -20,9 +23,12 @@ import {
   Receipt,
   Search,
   Settings2,
+  Share2,
   ShieldCheck,
   Sparkles,
   Stamp,
+  Target,
+  Trophy,
   Users,
   Wallet,
   TriangleAlert,
@@ -179,11 +185,27 @@ export const NAV: NavItem[] = [
     keywords: ["areas", "field", "trends", "breakthroughs", "who to work with", "programme"],
   },
   {
+    to: "/research",
+    label: "The college's research",
+    icon: Binoculars,
+    group: "Research",
+    keywords: ["college", "areas", "trends", "growing", "fading", "departments", "who works nearby"],
+  },
+  {
     to: "/discover",
     label: "Discover",
     icon: Sparkles,
     group: "Research",
     keywords: ["ideas", "topics", "what is new", "ai"],
+  },
+  // Everybody: paper counts per person and per department, with no money on
+  // it at any role, so there is nobody it needs hiding from.
+  {
+    to: "/leaderboard",
+    label: "Leaderboard",
+    icon: Trophy,
+    group: "Research",
+    keywords: ["ranking", "rank", "top", "standings", "department", "q1", "score", "position"],
   },
   {
     to: "/collaborate",
@@ -197,7 +219,30 @@ export const NAV: NavItem[] = [
     label: "Discussions",
     icon: MessagesSquare,
     group: "Research",
-    keywords: ["forum", "ask", "posts", "talk"],
+    keywords: ["forum", "ask", "posts", "talk", "feed", "social", "share"],
+  },
+  {
+    to: "/messages",
+    label: "Messages",
+    icon: Mail,
+    group: "Research",
+    keywords: ["direct", "private", "dm", "office", "ask the office", "conversation"],
+  },
+  {
+    // Everybody's profiles. Not `/people`, which is the office's account
+    // screen and refuses everybody else.
+    to: "/u",
+    label: "Colleagues",
+    icon: Contact,
+    group: "Research",
+    keywords: ["people", "profiles", "faculty", "directory", "follow", "find someone"],
+  },
+  {
+    to: "/network",
+    label: "College network",
+    icon: Share2,
+    group: "Research",
+    keywords: ["graph", "co-authors", "collaborations", "who works with whom", "network"],
   },
   {
     to: "/calendar",
@@ -205,6 +250,28 @@ export const NAV: NavItem[] = [
     icon: Calendar,
     group: "Research",
     keywords: ["deadlines", "dates", "payout run"],
+  },
+  {
+    to: "/wall",
+    label: "Wall of fame",
+    icon: Trophy,
+    group: "Research",
+    keywords: ["celebrate", "new papers", "paper of the month", "publications this month"],
+  },
+  {
+    to: "/goals",
+    label: "My goals",
+    icon: Target,
+    group: "Research",
+    keywords: ["targets", "this year", "progress", "rings"],
+  },
+  {
+    to: "/impact",
+    label: "Impact card",
+    icon: Share2,
+    roles: CLAIMANTS,
+    group: "Research",
+    keywords: ["share", "linkedin", "whatsapp", "badges", "card"],
   },
 
   // ---- looking at the college -----------------------------------------
@@ -415,6 +482,32 @@ export const NAV: NavItem[] = [
     keywords: ["tables", "explorer", "delete", "import"],
   },
 ]
+
+/**
+ * The count beside a sidebar entry: what is waiting at the reader's own desk
+ * (from `/api/claims/counts`, grouped as the server groups stages), and for a
+ * claimant how many of their papers have come back to them. Nobody is shown a
+ * count for somebody else's desk.
+ */
+const BADGE: Partial<Record<Role, [to: string, stage: string]>> = {
+  SUPER_ADMIN: ["/clearing", "filed"],
+  RESEARCH_CELL: ["/clearing", "filed"],
+  RESEARCH_COORDINATOR: ["/clearing", "filed"],
+  PRINCIPAL: ["/approvals", "checked"],
+  DIRECTOR: ["/authorisations", "approved"],
+  FINANCE: ["/payments", "authorised"],
+  FACULTY: ["/papers", "sent_back"],
+  HOD: ["/papers", "sent_back"],
+}
+
+export function navBadges(
+  role: Role | undefined,
+  counts: Record<string, number> | undefined
+): Record<string, number> {
+  const entry = role ? BADGE[role] : undefined
+  const n = entry && counts ? counts[entry[1]] ?? 0 : 0
+  return entry && n > 0 ? { [entry[0]]: n } : {}
+}
 
 export function navFor(role: Role | undefined): NavItem[] {
   if (!role) return []

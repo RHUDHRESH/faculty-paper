@@ -59,6 +59,26 @@ services:
         sync: false
       - key: AI_MODEL
         sync: false
+      # Alert email (DEPLOY.md, section F). Leave EMAIL_HOST empty and every
+      # alert stays in the app. The free plan blocks ports 25/465/587, so use
+      # Brevo on 2525 here; Gmail needs a paid instance.
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: EMAIL_USE_TLS
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      # WhatsApp for payment news (section F). Off unless both are set.
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
 
   - type: web
     name: faculty-paper

@@ -43,9 +43,10 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, Notification, PAYABLE_STATUSES, PaidLedger, Role, User
+from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, PAYABLE_STATUSES, PaidLedger, Role, User
 from core import visibility
 from core.services import flags as flag_service
+from core.services import notify as notify_service
 from core.services import rbac
 from core.services.verify import apply_verify_to_claim, verify_publication
 
@@ -298,11 +299,12 @@ def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
     for u in User.objects.filter(
         role__in=(Role.PRINCIPAL, Role.SUPER_ADMIN), active=True
     ):
-        Notification.objects.create(
-            user=u,
-            title=f"Returned to the Principal's desk \u00b7 {claim.ticket_number}",
-            body=note[:300],
-            href=f"/approvals?claim={claim.id}",
+        notify_service.notify(
+            u,
+            "desk",
+            f"Returned to the Principal's desk \u00b7 {claim.ticket_number}",
+            note[:300],
+            f"/approvals?claim={claim.id}",
             claim_id=claim.id,
         )
     return claim_to_dict(claim)

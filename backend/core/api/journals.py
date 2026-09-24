@@ -35,7 +35,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Notification, Role, ScimagoJournal, SnipSource, User
+from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Role, ScimagoJournal, SnipSource, User
 from core.services import achievements, rbac
 from core.services.normalize import normalize_issn
 from core.services.record_dates import claim_record

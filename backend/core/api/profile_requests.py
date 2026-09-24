@@ -10,6 +10,7 @@ from __future__ import annotations
 from core.api.common import api, session_auth
 from core.api.schemas import ChangePasswordIn
 from core.api.common import require_user
+from core.services import notify as notify_service
 from core.api.auth import REQUESTABLE, SUPER_ADMIN_DECIDES, may_set_field
 
 import json
@@ -21,7 +22,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AuditLog, Notification, ProfileChangeRequest, Role, User
+from core.models import AuditLog, ProfileChangeRequest, Role, User
 from core.services import rbac
 
 # ---------- the queue those requests land in ----------
@@ -209,17 +210,16 @@ def decide_profile_request(
     # The person who asked finds out. Not being told was half of why the old
     # flow felt like shouting into a cupboard.
     label = REQUESTABLE.get(req.field, req.field)
-    Notification.objects.create(
-        user=req.user,
-        title=(
-            f"{label} updated" if payload.approve else f"{label} change declined"
-        ),
-        body=(
+    notify_service.notify(
+        req.user,
+        "general",
+        f"{label} updated" if payload.approve else f"{label} change declined",
+        (
             f"Your {label.lower()} now reads “{req.proposed_value}”."
             if payload.approve
             else f"{note}"
         ),
-        href="/faculty/profile",
+        "/faculty/profile",
     )
     return {"ok": True, "request": _request_dict(req)}
 

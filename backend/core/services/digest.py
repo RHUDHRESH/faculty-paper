@@ -186,7 +186,7 @@ def _collaborator_part(user: User, ctx) -> dict[str, Any] | None:
         "name": person.name or person.email,
         "department": person.department or "",
         "why": why + ".",
-        "href": f"/people/{pid}",
+        "href": f"/u/{pid}",
     }
 
 

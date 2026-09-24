@@ -20,10 +20,10 @@ from django.utils import timezone
 from ninja import Schema
 from django.conf import settings
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, FeedPost, Mention, Notification, Post, Thread, ThreadParticipant, ThreadSubscription, User
+from core.models import AuditLog, Claim, FeedPost, Mention, Post, Thread, ThreadParticipant, ThreadSubscription, User
 from core.services import rbac
 from core.services import thread_agent
-from core import discussions
+from core import discussions, social_notify
 
 # ---------- notifications ----------
 
@@ -132,9 +132,11 @@ def _notify_thread(thread: Thread, post: Post, actor: User) -> None:
     two -- and neither ever reaches the person who caused it.
     """
     recipients: set[str] = set()
+    mentioned: set[str] = set()
     for m in post.mentions.filter(kind=Mention.Kind.USER).select_related("user"):
         if m.user_id and discussions.may_read(m.user, thread):
             recipients.add(m.user_id)
+            mentioned.add(m.user_id)
     for sub in thread.subscriptions.select_related("user").filter(muted=False):
         if discussions.may_read(sub.user, thread):
             recipients.add(sub.user_id)
@@ -144,11 +146,12 @@ def _notify_thread(thread: Thread, post: Post, actor: User) -> None:
 
     excerpt = (post.body or "")[:200]
     for uid in recipients:
-        Notification.objects.create(
-            user_id=uid,
-            title=f"{actor.name} in “{thread.title[:80]}”",
-            body=excerpt,
-            href=f"/discussions/{thread.id}",
+        # Named in it, a mention; otherwise a reply in a thread they follow,
+        # a comment -- so their switch for that kind holds here too.
+        social_notify.notify(
+            uid, "mention" if uid in mentioned else "comment",
+            f"{actor.name} in “{thread.title[:80]}”", excerpt,
+            f"/discussions/{thread.id}",
         )
 
 

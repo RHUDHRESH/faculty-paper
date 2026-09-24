@@ -15,12 +15,10 @@ three promises are kept:
 from __future__ import annotations
 
 import json
-from datetime import timedelta
 from unittest.mock import patch
 
 from django.core import mail
 from django.test import Client, TestCase, override_settings
-from django.utils import timezone
 
 from core.models import (
     Notification,
@@ -368,3 +366,35 @@ class OnePreferenceStoreTests(TestCase):
         notify_service.set_preferences(self.me, {"general": "off"})
         rows = self.c.get("/api/notifications").json()
         self.assertEqual([r["title"] for r in rows], ["Your post was hidden"])
+
+
+class ThreadAlertKindTests(TestCase):
+    """Replies and mentions in discussion threads are social kinds too."""
+
+    def setUp(self):
+        self.a = _person("ta@test.edu", "Post Author", department="CSE")
+        self.b = _person("tb@test.edu", "Post Reader", department="CSE")
+        self.c = Client()
+        self.c.force_login(self.a)
+        self.thread_id = self.c.post(
+            "/api/threads",
+            data=json.dumps({"title": "A thread", "body": "opening post"}),
+            content_type="application/json",
+        ).json()["id"]
+        Notification.objects.all().delete()
+
+    def _post(self, body):
+        r = self.c.post(
+            f"/api/threads/{self.thread_id}/posts", data=json.dumps({"body": body}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+    def test_being_named_is_a_mention(self):
+        self._post("what do you think @tb?")
+        self.assertEqual(Notification.objects.get(user=self.b).kind, "mention")
+
+    def test_mentions_switched_off_are_not_sent(self):
+        notify_service.set_preferences(self.b, {"mention": "off"})
+        self._post("what do you think @tb?")
+        self.assertFalse(Notification.objects.filter(user=self.b).exists())

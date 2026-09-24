@@ -122,7 +122,30 @@ export function layout(nodes: GraphNode[], links: GraphLink[], centerId?: string
     }
     t -= cool
   }
-  return pos
+  return fit(pos, centerId)
+}
+
+/** How far from the edge the fitted drawing stays, in layout units — room for a label. */
+const MARGIN = 60
+
+/**
+ * Stretch the settled layout to use the drawing. The forces decide the shape;
+ * this decides the size, so three people are not a dot in the middle of an
+ * empty box on a phone. The person a profile is about stays in the centre.
+ */
+function fit(pos: Map<string, Point>, centerId?: string): Map<string, Point> {
+  const pts = [...pos.values()]
+  if (pts.length < 2) return pos
+  const xs = pts.map((p) => p.x)
+  const ys = pts.map((p) => p.y)
+  const cx = centerId && pos.has(centerId) ? W / 2 : (Math.min(...xs) + Math.max(...xs)) / 2
+  const cy = centerId && pos.has(centerId) ? H / 2 : (Math.min(...ys) + Math.max(...ys)) / 2
+  const dx = Math.max(1, ...xs.map((x) => Math.abs(x - cx)))
+  const dy = Math.max(1, ...ys.map((y) => Math.abs(y - cy)))
+  const s = Math.min((W / 2 - MARGIN) / dx, (H / 2 - MARGIN) / dy)
+  const out = new Map<string, Point>()
+  for (const [id, p] of pos) out.set(id, { x: W / 2 + (p.x - cx) * s, y: H / 2 + (p.y - cy) * s })
+  return out
 }
 
 function useWidth<T extends HTMLElement>() {
@@ -193,6 +216,12 @@ export function ForceGraph({
   const vbH = H / view.s
   const vbX = W / 2 - vbW / 2 + view.x
   const vbY = H / 2 - vbH / 2 + view.y
+
+  // Screen pixels per layout unit at no zoom (the viewBox is fitted, "meet").
+  // Dots, lines and names are sized in pixels through this, so a phone gets
+  // the same legible 12px name as a desktop, and zooming in grows them gently.
+  const perUnit = width > 0 ? Math.min(width / W, height / H) : 1
+  const px = (n: number) => n / (perUnit * Math.sqrt(view.s))
 
   function zoom(by: number) {
     setView((v) => ({ ...v, s: Math.min(6, Math.max(0.6, v.s * by)) }))
@@ -271,7 +300,7 @@ export function ForceGraph({
                     x2={b.x}
                     y2={b.y}
                     stroke={collab || touches ? "var(--color-accent)" : "var(--color-fg-subtle)"}
-                    strokeWidth={(collab ? 2 : Math.min(4, 1 + l.papers * 0.6)) / Math.sqrt(view.s)}
+                    strokeWidth={px(collab ? 2 : Math.min(4, 1 + l.papers * 0.6))}
                     strokeDasharray={collab ? "6 4" : undefined}
                     opacity={dim ? 0.1 : touches ? 0.95 : 0.45}
                   >
@@ -287,7 +316,7 @@ export function ForceGraph({
                 const isFocus = n.id === focus
                 const lit = isFocus || n.id === centerId
                 const dim = !!focus && !isFocus && !neighbours.has(n.id)
-                const r = nodeRadius(n) / Math.sqrt(view.s)
+                const r = px(nodeRadius(n))
                 const showLabel = labelled.has(n.id) || isFocus || neighbours.has(n.id)
                 return (
                   <g
@@ -310,24 +339,24 @@ export function ForceGraph({
                     className="cursor-pointer outline-none"
                     opacity={dim ? 0.25 : 1}
                   >
-                    <circle cx={p.x} cy={p.y} r={r + 8 / Math.sqrt(view.s)} fill="transparent" />
+                    <circle cx={p.x} cy={p.y} r={r + px(8)} fill="transparent" />
                     <circle
                       cx={p.x}
                       cy={p.y}
                       r={r}
                       fill={lit ? "var(--color-accent)" : "var(--color-fg-muted)"}
                       stroke={isFocus ? "var(--color-accent-line)" : "var(--color-bg)"}
-                      strokeWidth={(isFocus ? 4 : 1.5) / Math.sqrt(view.s)}
+                      strokeWidth={px(isFocus ? 4 : 1.5)}
                     />
                     {showLabel && (
                       <text
                         x={p.x}
-                        y={p.y - r - 5 / Math.sqrt(view.s)}
+                        y={p.y - r - px(5)}
                         textAnchor="middle"
-                        fontSize={13 / Math.sqrt(view.s)}
+                        fontSize={px(12)}
                         className={cn("fill-fg", isFocus && "font-semibold")}
                         stroke="var(--color-bg)"
-                        strokeWidth={3 / Math.sqrt(view.s)}
+                        strokeWidth={px(3)}
                         paintOrder="stroke"
                       >
                         {n.name.length > 24 ? `${n.name.slice(0, 23)}…` : n.name}

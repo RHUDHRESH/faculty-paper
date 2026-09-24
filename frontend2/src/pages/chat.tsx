@@ -399,8 +399,10 @@ export function ChatPage() {
       <BackToMessages />
       <header className="flex flex-wrap items-center gap-3">
         <Faces people={c.people} />
-        <div className="min-w-0 flex-1">
-          <PageTitle className="truncate text-2xl">
+        {/* A basis wide enough for a name, so on a phone the button wraps
+            beneath it instead of squeezing the name to three letters. */}
+        <div className="min-w-0 flex-1 basis-52">
+          <PageTitle className="truncate text-xl sm:text-2xl">
             {other ? <PersonLink id={other.id} name={other.name} className="font-[inherit]" /> : c.title}
           </PageTitle>
           <Meta className="block truncate text-xs">
@@ -415,7 +417,7 @@ export function ChatPage() {
           </Meta>
         </div>
         {other && (
-          <Button kind="default" size="sm" onClick={() => setProposing(true)}>
+          <Button kind="default" size="sm" onClick={() => setProposing(true)} className="w-full sm:w-auto">
             <Handshake />
             Propose a collaboration
           </Button>

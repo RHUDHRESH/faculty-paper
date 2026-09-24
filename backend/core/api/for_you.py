@@ -35,6 +35,7 @@ from core.api.social import (
     record_views,
 )
 from core.models import Claim, Follow, User
+from core.services.normalize import normalize_doi, normalize_title
 from core.social_profile import coauthor_ids
 
 #: How far back each kind of item is looked for.
@@ -56,6 +57,18 @@ def _jitter(rng: random.Random, items: list[tuple[float, Any]]) -> list[Any]:
     shaken = [(score * rng.uniform(0.7, 1.3), i, item) for i, (score, item) in enumerate(items)]
     shaken.sort(key=lambda row: (-row[0], row[1]))
     return [item for _, _, item in shaken]
+
+
+def _paper_names(c: Claim) -> set[str]:
+    """Every name a paper goes by: its DOI and its normalised title."""
+    names = set()
+    doi = normalize_doi(c.doi) if c.doi else None
+    if doi:
+        names.add(f"doi:{doi}")
+    title = normalize_title(c.paper_title or "")
+    if title:
+        names.add(f"title:{title}")
+    return names
 
 
 def _person_card(u: User, fields: social_rank.Field, papers: int) -> dict[str, Any]:
@@ -138,7 +151,17 @@ def for_you(request: HttpRequest, seed: str = ""):
         .select_related("owner").order_by("-created_at")[:150]
     )
     scored_papers: list[tuple[float, tuple[Claim, str]]] = []
+    # One card per paper. Two colleagues who filed the same paper, one with
+    # the DOI and one without, are one paper whichever key matches.
+    seen: set[str] = set()
+    for p in shown_posts:
+        if p.paper_id and p.paper:
+            seen |= _paper_names(p.paper)
     for c in recent:
+        names = _paper_names(c)
+        if names & seen:
+            continue
+        seen |= names
         areas = social_rank.split_subjects(c.subjects_json)
         theirs = social_rank.Field(
             {a.lower() for a in areas},

@@ -249,8 +249,8 @@ function conversation(over: Record<string, unknown> = {}) {
       { id: FACULTY.id, name: FACULTY.name, initials: "AM", photo_url: null, me: true, last_read_at: sentAt },
     ],
     messages: [
-      { id: "m1", author: RAVI, kind: "HUMAN", body: "Shall we write together?", deleted: false, created_at: sentAt, mine: false, collab: null },
-      { id: "m2", author: { id: FACULTY.id, name: FACULTY.name, initials: "AM", photo_url: null }, kind: "HUMAN", body: "Yes!", deleted: false, created_at: sentAt, mine: true, collab: null },
+      { id: "m1", author: RAVI, kind: "HUMAN", body: "Shall we write together?", deleted: false, created_at: sentAt, mine: false, collab: null as Record<string, unknown> | null },
+      { id: "m2", author: { id: FACULTY.id, name: FACULTY.name, initials: "AM", photo_url: null }, kind: "HUMAN", body: "Yes!", deleted: false, created_at: sentAt, mine: true, collab: null as Record<string, unknown> | null },
     ],
     may_post: true,
     ...over,
@@ -509,6 +509,14 @@ describe("the network layout", () => {
 
   it("keeps the person a profile is about in the middle", () => {
     expect(layout(nodes, links, "a").get("a")).toEqual({ x: 500, y: 350 })
+  })
+
+  it("spreads a small network across the drawing rather than huddling in the middle", () => {
+    const placed = [...layout(nodes, links).values()]
+    const xs = placed.map((p) => p.x)
+    const ys = placed.map((p) => p.y)
+    const spread = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
+    expect(spread).toBeGreaterThan(400)
   })
 
   it("keeps everybody inside the drawing", () => {

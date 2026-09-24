@@ -683,6 +683,17 @@ class ForYouTests(Base):
         self.assertEqual(why[journal_only.id], "In Journal of Tests, where you publish too")
         self.assertEqual(why[in_field.id], "New paper in Condensed Matter Physics")
 
+    def test_one_paper_filed_by_two_colleagues_is_shown_once(self):
+        # One of them left the DOI off, so the co-author rule does not pair
+        # the two claims -- but it is plainly one paper, and one card.
+        self._paper(self.asha, "FD1", title="Dual-Function Health Monitoring", doi="10.3/dual",
+                    subjects="Condensed Matter Physics (Q1)")
+        self._paper(self.ravi, "FD2", title="Dual-function health monitoring",
+                    subjects="Condensed Matter Physics (Q1)")
+        body = self._json("get", self.meera, "/api/feed/for-you?seed=x")
+        titles = [i["paper"]["title"].lower() for i in body["items"] if i["kind"] == "paper"]
+        self.assertEqual(titles.count("dual-function health monitoring"), 1, titles)
+
     def test_an_old_paper_filed_lately_is_not_news(self):
         old = self._paper(self.asha, "FW9", subjects="Condensed Matter Physics (Q1)", year=2019)
         body = self._json("get", self.meera, "/api/feed/for-you?seed=x")

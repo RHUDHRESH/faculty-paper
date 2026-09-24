@@ -171,6 +171,9 @@ type AiState = {
   detail: string | null
   model: string
   provider: string | null
+  /** True when the question is sent to a hosted service; `host` names it. */
+  hosted?: boolean
+  host?: string
 }
 
 type Overview = { college: Landscape; people: NearbyPeople; ai: AiState }
@@ -1065,12 +1068,18 @@ function Openings({ ai, loading }: { ai: AiState | undefined; loading: boolean }
 
       <p className="max-w-2xl text-base text-fg-muted">
         Everything above this line is counted from papers people filed. This part is written
-        by a model running on this server — it can be wrong, so every area and every person it
-        names is checked against our own records before it is shown here.
+        by {ai?.hosted ? "a hosted model" : "a model running on this server"} — it can be wrong,
+        so every area and every person it names is checked against our own records before it is
+        shown here.
       </p>
 
       {loading ? (
         <SkeletonText lines={1} className="max-w-sm" />
+      ) : ai && !ai.available && ai.code === "not_configured" ? (
+        <Meta className="block">
+          AI suggestions are not set up on this server. Everything above is counted from our own
+          records and never needed a model.
+        </Meta>
       ) : ai && !ai.available ? (
         <ModelOff ai={ai} />
       ) : !asked ? (
@@ -1080,8 +1089,9 @@ function Openings({ ai, loading }: { ai: AiState | undefined; loading: boolean }
             Suggest some directions
           </Button>
           <Meta className="block">
-            Takes a minute or two{ai?.model ? ` — ${ai.model} runs on this server's CPU` : ""},
-            and nothing you have written leaves this machine.
+            {ai?.hosted
+              ? `Takes a few seconds. ${ai.model} at ${ai.host} is sent your paper titles and areas to answer.`
+              : `Takes a minute or two${ai?.model ? ` — ${ai.model} runs on this server's CPU` : ""}, and nothing you have written leaves this machine.`}
           </Meta>
         </div>
       ) : q.isError ? (
@@ -1108,9 +1118,9 @@ function Openings({ ai, loading }: { ai: AiState | undefined; loading: boolean }
               minute and a half and indistinguishable from nothing happening. */}
           <p role="status" aria-live="polite">
             <Meta className="block">
-              Thinking. {elapsed}s so far, of a minute or two — the model runs on this
-              server's CPU rather than in a data centre. The figures above are already
-              final.
+              {ai?.hosted
+                ? `Thinking. ${elapsed}s so far. The figures above are already final.`
+                : `Thinking. ${elapsed}s so far, of a minute or two — the model runs on this server's CPU rather than in a data centre. The figures above are already final.`}
             </Meta>
           </p>
         </div>

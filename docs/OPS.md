@@ -34,7 +34,9 @@ and there is no CORS to maintain.
 | `DJANGO_ALLOWED_HOSTS` | `.run.app` (and custom domain if any) |
 | `CSRF_TRUSTED_ORIGINS` | The Vercel origin (the proxy forwards its `Origin` header) |
 | `SCOPUS_API_KEY` | Optional; enrich/verify degrade gracefully |
-| `AI_PROVIDER` | `ollama` (a developer laptop) or `harness` (the college's own inference service). An unknown value stops the feature rather than silently redirecting where text is sent |
+| `AI_PROVIDER` | `ollama` (a developer laptop), `harness` (the college's own inference service), `openai` (a hosted model, below) or `none`. Unset: `openai` when `AI_API_KEY` is set, otherwise Ollama with `DJANGO_DEBUG=true` and `none` in production. An unknown value stops the feature rather than silently redirecting where text is sent |
+| `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | The hosted provider: any OpenAI-compatible chat-completions API (Groq, Gemini's compatibility endpoint, OpenRouter, a remote Ollama). Values for the free tiers are in `DEPLOY.md` section E. Sends titles and abstracts to that service |
+| `AI_FAST_MODEL` / `AI_TIMEOUT_SECONDS` | Optional. A quicker model for the thread assistant (defaults to `AI_MODEL`), and the per-request ceiling (default 60) |
 | `HARNESS_BASE_URL` | Default `http://127.0.0.1:8300`. The harness service URL; with `AI_PROVIDER=harness` this is the production inference path |
 | `HARNESS_TOKEN` | Shared secret sent as `X-Harness-Token`. Unset when the harness is behind Cloud Run ingress=internal, which is the intended arrangement |
 | `HARNESS_MODEL` / `HARNESS_FAST_MODEL` | The two slots, considered and interactive. Defaults `gemma-3-12b-it-q4_k_m` / `gemma-3-4b-it-q4_k_m` |

@@ -58,6 +58,7 @@ const Gallery = page(() => import("@/pages/gallery"), "Gallery")
 const Privacy = page(() => import("@/pages/privacy"), "Privacy")
 const PaperDetail = page(() => import("@/pages/paper-detail"), "PaperDetail")
 const Journals = page(() => import("@/pages/journals"), "Journals")
+const Leaderboard = page(() => import("@/pages/leaderboard"), "Leaderboard")
 const JournalRecord = page(() => import("@/pages/journals"), "JournalRecord")
 const Batch = page(() => import("@/pages/batches"), "Batch")
 const Batches = page(() => import("@/pages/batches"), "Batches")
@@ -169,6 +170,7 @@ function App() {
           <Route path="/research" element={<CollegeResearch />} />
           <Route path="/discover" element={<Discover />} />
           <Route path="/collaborate" element={<Collaborate />} />
+          <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/discussions" element={<Feed />} />
           <Route path="/discussions/p/:id" element={<FeedPostPage />} />
           {/* Old thread links (and notifications carrying them) still land:

@@ -342,11 +342,36 @@ OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY", "")
 # a key. Nothing here needs an account, a key or a quota, and nothing leaves
 # the loopback interface.
 #
-# There are two providers -- "ollama" for a developer laptop, "harness" for
-# the college's own inference service on Google Cloud -- and an unknown value
-# is refused rather than quietly resolved -- a typo in a deployment variable
-# should stop the feature, not silently change where the text goes.
-AI_PROVIDER = (os.getenv("AI_PROVIDER") or "ollama").strip().lower()
+# There are three providers -- "ollama" for a developer laptop, "harness" for
+# the college's own inference service on Google Cloud, "openai" for a hosted
+# model over the OpenAI-compatible API (see below) -- plus "none". An unknown
+# value is refused rather than quietly resolved -- a typo in a deployment
+# variable should stop the feature, not silently change where the text goes.
+#
+# Left empty, the provider is chosen from what is configured (core/services/
+# ai.py `provider_name`): AI_API_KEY set means "openai"; otherwise
+# AI_DEFAULT_PROVIDER. That default is "ollama" on a developer machine and
+# "none" in production, so a live site with no key reports "not set up"
+# rather than a daemon on 127.0.0.1 that was never going to be there. A
+# production deployment that really does run Ollama beside the API says
+# AI_PROVIDER=ollama explicitly.
+AI_PROVIDER = (os.getenv("AI_PROVIDER") or "").strip().lower()
+AI_DEFAULT_PROVIDER = "ollama" if DEBUG else "none"
+
+# The hosted provider. Any service speaking OpenAI's chat-completions API:
+# Groq (https://api.groq.com/openai/v1), Gemini's compatibility endpoint
+# (https://generativelanguage.googleapis.com/v1beta/openai), OpenRouter, or an
+# Ollama elsewhere (http://host:11434/v1). Unlike the two providers below,
+# this sends a faculty member's draft title and abstract to that service --
+# the price of AI on a free 512 MB instance, and said on screen. DEPLOY.md
+# has the values to paste for the free tiers.
+AI_API_KEY = (os.getenv("AI_API_KEY") or "").strip()
+AI_BASE_URL = (os.getenv("AI_BASE_URL") or "").strip()
+AI_MODEL = (os.getenv("AI_MODEL") or "").strip()
+# Optional quicker model for the one interactive caller (the thread
+# assistant). Unset, AI_MODEL serves both tiers.
+AI_FAST_MODEL = (os.getenv("AI_FAST_MODEL") or "").strip()
+AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", "60"))
 OLLAMA_BASE_URL = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").strip()
 #
 # Two models, not one, and the reason is measured rather than stylistic.

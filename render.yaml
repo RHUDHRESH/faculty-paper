@@ -51,6 +51,14 @@ services:
         value: saveetha.ac.in
       - key: GOOGLE_OAUTH_CLIENT_ID
         value: 635082195334-p8h4j4o75r9jqk24hsfq6bbom0s8fjei.apps.googleusercontent.com
+      # AI suggestions from a hosted model (DEPLOY.md, section E). Leave all
+      # three empty and every AI panel shows its counted version instead.
+      - key: AI_BASE_URL
+        sync: false
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_MODEL
+        sync: false
 
   - type: web
     name: faculty-paper

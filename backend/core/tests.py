@@ -12264,7 +12264,7 @@ class LocalInferenceTests(TestCase):
     def test_the_provider_is_local_by_default(self):
         self.assertEqual(ai.provider_name(), "ollama")
 
-    @override_settings(AI_PROVIDER="openai")
+    @override_settings(AI_PROVIDER="olama")
     def test_an_unknown_provider_is_refused_rather_than_resolved(self):
         """A typo in a deployment variable must stop the feature, not quietly
         change where a faculty member's unpublished abstract is sent."""

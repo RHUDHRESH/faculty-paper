@@ -850,6 +850,8 @@ def status() -> dict[str, Any]:
             "detail": "The model service could not be checked. The figures above are unaffected.",
             "model": "",
             "provider": "",
+            "hosted": False,
+            "host": "",
         }
     return {
         "available": bool(state.get("ready")),
@@ -857,4 +859,8 @@ def status() -> dict[str, Any]:
         "detail": state.get("detail"),
         "model": state.get("model") or "",
         "provider": state.get("provider"),
+        # Whether a question leaves the college, and for where, so the page
+        # does not promise "nothing leaves this machine" when it does.
+        "hosted": bool(state.get("hosted")),
+        "host": state.get("host") or "",
     }

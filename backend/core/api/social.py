@@ -108,7 +108,9 @@ def _tell(user_id: str, title: str, body: str | None, href: str) -> None:
     """Moderation, which is not a social notification and cannot be switched off:
     an author is always told their post was hidden, and the super admin always
     hears of a report."""
-    Notification.objects.create(user_id=user_id, title=title[:255], body=(body or "")[:300], href=href)
+    Notification.objects.create(
+        user_id=user_id, kind="moderation", title=title[:255], body=(body or "")[:300], href=href
+    )
 
 
 def _excerpt(text: str) -> str:

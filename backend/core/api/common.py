@@ -92,7 +92,7 @@ from core.services.remuneration import (
     formula_from_model,
     snapshot_formula,
 )
-from core.services.notify_email import send_optional_email
+from core.services.notify import notify
 from core.services.scimago import lookup_scimago
 from core.services.scimago_sync import (
     SCIMAGO_RANK_URL,
@@ -376,10 +376,7 @@ def _notify_admin_users(
     """An admin notification, about one ticket when `claim_id` says which."""
     roles = (Role.SUPER_ADMIN,) if super_admin_only else rbac.ADMIN_ROLES
     for u in User.objects.filter(role__in=roles, active=True):
-        Notification.objects.create(
-            user=u, title=title, body=body, href=href, claim_id=claim_id
-        )
-        send_optional_email(u.email, title, body)
+        notify(u, "desk", title, body, href, claim_id=claim_id)
 
 
 def _notify_admins(claim: Claim, title: str, body: str) -> None:
@@ -387,16 +384,9 @@ def _notify_admins(claim: Claim, title: str, body: str) -> None:
     for u in User.objects.filter(
         role__in=rbac.ADMIN_ROLES, active=True
     ):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            # /admin is the overview, which ignores ?claim — the clearing queue
-            # is the page that actually opens the ticket.
-            href=f"/admin/clearing?claim={claim.id}",
-            claim_id=claim.id,
-        )
-        send_optional_email(u.email, title, body)
+        # /admin is the overview, which ignores ?claim — the clearing queue
+        # is the page that actually opens the ticket.
+        notify(u, "desk", title, body, f"/admin/clearing?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_principal(claim: Claim, title: str, body: str) -> None:
@@ -408,37 +398,18 @@ def _notify_principal(claim: Claim, title: str, body: str) -> None:
     had to act was not told at all.
     """
     for u in User.objects.filter(role=Role.PRINCIPAL, active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/principal?claim={claim.id}",
-            claim_id=claim.id,
-        )
-        send_optional_email(u.email, title, body)
+        notify(u, "desk", title, body, f"/principal?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_director(claim: Claim, title: str, body: str) -> None:
     """Everyone who can authorise: the Director, and a super admin standing in."""
     for u in User.objects.filter(role__in=(Role.DIRECTOR, Role.SUPER_ADMIN), active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/authorisations?claim={claim.id}",
-            claim_id=claim.id,
-        )
+        notify(u, "desk", title, body, f"/authorisations?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_finance(claim: Claim, title: str, body: str) -> None:
     for u in User.objects.filter(role=Role.FINANCE, active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/finance?claim={claim.id}",
-            claim_id=claim.id,
-        )
+        notify(u, "desk", title, body, f"/finance?claim={claim.id}", claim_id=claim.id)
 
 
 

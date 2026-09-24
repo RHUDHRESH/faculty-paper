@@ -118,6 +118,8 @@ const InstitutionSettings = page(() => import("@/pages/institution-settings"), "
 const WallOfFame = page(() => import("@/pages/wall"), "WallOfFame")
 const ImpactCardPage = page(() => import("@/pages/impact"), "ImpactCardPage")
 const GoalsPage = page(() => import("@/pages/goals"), "GoalsPage")
+const NotificationsPage = page(() => import("@/pages/notifications"), "NotificationsPage")
+const NotificationSettings = page(() => import("@/pages/notification-settings"), "NotificationSettings")
 
 const HOMES: Record<Role, Page> = {
   FACULTY: FacultyHome,
@@ -363,6 +365,8 @@ function App() {
           <Route path="/budget" element={<Budget />} />
           <Route path="/policy" element={<Policy />} />
           <Route path="/settings" element={<InstitutionSettings />} />
+          <Route path="/settings/notifications" element={<NotificationSettings />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/reference" element={<Reference />} />
           <Route path="/imports" element={<Imports />} />
           <Route path="/batches" element={<Batches />} />

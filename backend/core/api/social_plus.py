@@ -10,7 +10,6 @@ has no form that takes somebody else's id.
 """
 from __future__ import annotations
 
-import json
 import re
 from collections import defaultdict
 from typing import Any, Optional
@@ -329,15 +328,16 @@ def my_social_settings(request: HttpRequest):
 def set_my_social_settings(request: HttpRequest, payload: SocialSettingsIn):
     """Switch a kind of social notification off or on, and choose whether your visits are counted."""
     viewer = require_user(request)
-    row, _ = SocialSettings.objects.get_or_create(user=viewer)
     if payload.muted is not None:
         unknown = set(payload.muted) - set(social_notify.KINDS)
         if unknown:
             raise HttpError(400, f"Not a kind of notification: {', '.join(sorted(unknown))}.")
-        row.muted_json = json.dumps(sorted(set(payload.muted)))
+        # The same preferences the notification settings page shows.
+        social_notify.set_muted(viewer, set(payload.muted))
     if payload.count_my_visits is not None:
+        row, _ = SocialSettings.objects.get_or_create(user=viewer)
         row.count_my_visits = payload.count_my_visits
-    row.save()
+        row.save()
     return _settings_dict(viewer)
 
 

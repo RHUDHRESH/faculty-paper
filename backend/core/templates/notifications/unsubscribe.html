@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if done %}Emails stopped{% else %}Stop these emails{% endif %} - {{ college }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f5f9;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1d2130;">
+<div style="max-width:480px;margin:48px auto;background:#ffffff;border:1px solid #e1e4ee;border-radius:8px;">
+<div style="background:#2b398f;color:#ffffff;padding:16px 24px;border-radius:8px 8px 0 0;font-size:15px;font-weight:600;">{{ college }}</div>
+<div style="padding:24px;">
+{% if error %}
+<h1 style="margin:0 0 12px 0;font-size:20px;">This link does not work</h1>
+<p style="font-size:15px;line-height:1.55;">It may have been copied incompletely. Sign in and open your notification settings to change what you get.</p>
+{% elif done %}
+<h1 style="margin:0 0 12px 0;font-size:20px;">Emails stopped</h1>
+<p style="font-size:15px;line-height:1.55;">You will no longer get emails about &ldquo;{{ kind_label }}&rdquo;. They still appear under the bell in the app.</p>
+{% else %}
+<h1 style="margin:0 0 12px 0;font-size:20px;">Stop these emails?</h1>
+<p style="font-size:15px;line-height:1.55;">You will no longer get emails about &ldquo;{{ kind_label }}&rdquo;. They will still appear under the bell in the app.</p>
+<form method="post" style="margin:20px 0 0 0;">
+<button type="submit" style="background:#2b398f;color:#ffffff;border:0;font-size:14px;font-weight:600;padding:10px 18px;border-radius:6px;cursor:pointer;">Stop these emails</button>
+</form>
+{% endif %}
+<p style="margin:24px 0 0 0;font-size:13px;"><a href="{{ settings_url }}" style="color:#2b398f;">All notification settings</a></p>
+</div>
+</div>
+</body>
+</html>

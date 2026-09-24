@@ -1,0 +1,43 @@
+{% extends "notifications/email.html" %}
+{% block content %}
+<p style="margin:0 0 16px 0;font-size:13px;color:#6b7080;">Week of {{ digest.week_of }}</p>
+
+{% if digest.standing %}
+<h2 style="margin:20px 0 6px 0;font-size:15px;font-weight:600;color:#2b398f;">Where you stand</h2>
+<p style="margin:0 0 4px 0;font-size:15px;line-height:1.55;">{{ digest.standing.line }}</p>
+<p style="margin:0 0 12px 0;font-size:12px;color:#6b7080;">{{ digest.scoring }}</p>
+{% endif %}
+
+{% if digest.department %}
+<h2 style="margin:20px 0 6px 0;font-size:15px;font-weight:600;color:#2b398f;">New in {{ digest.department.name }}</h2>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+{% for p in digest.department.papers %}
+<tr><td style="padding:6px 0;border-bottom:1px solid #eef0f5;font-size:14px;line-height:1.45;">
+<a href="{{ app_base }}{{ p.href }}" style="color:#1d2130;text-decoration:none;font-weight:600;">{{ p.title }}</a><br>
+<span style="color:#6b7080;font-size:13px;">{{ p.person }}{% if p.journal %} &middot; {{ p.journal }}{% endif %}</span>
+</td></tr>
+{% endfor %}
+</table>
+{% if digest.department.count > digest.department.papers|length %}
+<p style="margin:6px 0 0 0;font-size:13px;color:#6b7080;">and {{ digest.department.count|add:"-5" }} more.</p>
+{% endif %}
+{% endif %}
+
+{% if digest.collaborator %}
+<h2 style="margin:20px 0 6px 0;font-size:15px;font-weight:600;color:#2b398f;">Somebody to write with</h2>
+<p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;"><strong>{{ digest.collaborator.name }}</strong>{% if digest.collaborator.department %}, {{ digest.collaborator.department }}{% endif %}. {{ digest.collaborator.why }}</p>
+{% endif %}
+
+{% if digest.open_items %}
+<h2 style="margin:20px 0 6px 0;font-size:15px;font-weight:600;color:#2b398f;">Waiting on you</h2>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+{% for i in digest.open_items %}
+<tr><td style="padding:6px 0;border-bottom:1px solid #eef0f5;font-size:14px;line-height:1.45;">
+<a href="{{ app_base }}{{ i.href }}" style="color:#1d2130;text-decoration:none;font-weight:600;">{{ i.title }}</a><br>
+<span style="color:#6b7080;font-size:13px;">{{ i.state }}{% if i.reason %}: {{ i.reason }}{% endif %}</span>
+</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+<p style="margin:16px 0 0 0;"></p>
+{% endblock %}

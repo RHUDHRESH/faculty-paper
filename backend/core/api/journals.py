@@ -35,10 +35,9 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Notification, Role, ScimagoJournal, SnipSource, User
+from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Role, ScimagoJournal, SnipSource, User
 from core.services import achievements, rbac
 from core.services.normalize import normalize_issn
-from core.services.notify_email import send_optional_email
 from core.services.record_dates import claim_record
 from core.services.tickets import assign_ticket_number
 from core import hod, visibility
@@ -513,8 +512,14 @@ def _faculty_status_copy(
     outright: bool = False,
     from_status: str | None = None,
     ticket_number: str | None = None,
+    amount: float | None = None,
 ) -> tuple[str, str]:
     """What the claimant is told when their paper reaches `to_status`.
+
+    "Paid" names the amount: it is the claimant's own money, and "has been
+    paid" without a figure sends them to the app to find out how much. A paper
+    paid at nothing (count-only, or inside a research quota) says so rather
+    than announcing a payment of nought.
 
     Written in terms of the claimant's stage (core.visibility.faculty_stage),
     never the desk: it used to say "with the Principal", "the Director has
@@ -538,7 +543,9 @@ def _faculty_status_copy(
             "Your paper has been approved for payment. You will be told when it is paid.",
         )
     if stage == "Paid":
-        return ("Paid", "The incentive for your paper has been paid.")
+        if amount and amount > 0:
+            return ("Paid", f"₹{amount:,.0f} for your paper has been paid.")
+        return ("Paid", "Your paper is marked as paid. No amount was due on it.")
     if stage == "Withdrawn":
         return (
             "Withdrawn",
@@ -555,17 +562,31 @@ def _faculty_status_copy(
     return ("Under review", "Your paper is under review.")
 
 
-def _notify_claimant(claim: Claim, title: str, body: str) -> None:
-    """Tell the person who filed the paper, in the app and by mail."""
-    full_title = f"{claim.ticket_number or 'Ticket'} · {title}"
-    Notification.objects.create(
-        user=claim.owner,
-        title=full_title,
-        body=body,
-        href=f"/faculty?claim={claim.id}",
+#: The claimant's stage, as core.visibility.faculty_stage names it, to the
+#: kind of alert it is (core.services.notify.KINDS). Anything else is an
+#: "other change": held, resumed, withdrawn, back to draft, reversed.
+_STAGE_KINDS = {
+    "Approved for payment": "claim_approved",
+    "Paid": "claim_paid",
+    "Sent back to you": "claim_sent_back",
+    "Not accepted": "claim_not_accepted",
+}
+
+
+def _notify_claimant(claim: Claim, title: str, body: str, kind: str = "claim_status") -> None:
+    """Tell the person who filed the paper -- in the app, and by email or
+    WhatsApp when they asked for this kind that way."""
+    from core.services.notify import notify
+
+    notify(
+        claim.owner,
+        kind,
+        f"{claim.ticket_number or 'Ticket'} · {title}",
+        body,
+        f"/papers/{claim.id}",
         claim_id=claim.id,
+        email_context={"paper_title": claim.paper_title or "", "action_label": "Open your paper"},
     )
-    send_optional_email(claim.owner.email, full_title, body)
 
 
 def _refuse_if_held(claim: Claim) -> None:
@@ -687,8 +708,9 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
         title, body = _faculty_status_copy(
             to_status, note, outright=claim.rejected_outright,
             from_status=from_status, ticket_number=claim.ticket_number,
+            amount=claim.remuneration,
         )
-        _notify_claimant(claim, title, body)
+        _notify_claimant(claim, title, body, _STAGE_KINDS.get(stage_after, "claim_status"))
     # Badges and department milestones, after commit; never blocks this move.
     achievements.on_claim_moved(claim, from_status, to_status)
 

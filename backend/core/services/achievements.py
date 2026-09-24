@@ -56,7 +56,6 @@ from core.models import (
     ClaimStatus,
     DepartmentMilestone,
     DepartmentTarget,
-    Notification,
     Role,
     User,
 )
@@ -110,13 +109,13 @@ CATALOGUE: dict[str, tuple[str, str]] = {
 BADGE_HREF = "/me"
 
 
-def notify(user: User, title: str, body: str, href: str) -> None:
-    """The one place this module tells somebody something.
+def notify(user: User, title: str, body: str, href: str, kind: str = "badge") -> None:
+    """The one place this module tells somebody something: through the
+    college-wide service (core.services.notify), as a badge unless it says
+    otherwise, so the person's setting for that kind is honoured."""
+    from core.services import notify as notify_service
 
-    A generic notification service is being built; when it lands, this body is
-    the only line to change.
-    """
-    Notification.objects.create(user=user, title=title[:255], body=body, href=href)
+    notify_service.notify(user, kind, title, body, href)
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +500,7 @@ def _celebrate_milestone(t: DepartmentTarget, m: DepartmentMilestone, done: int)
             defaults={"kind": Celebration.Kind.TARGET, "title": title, "body": body},
         )
     for principal in User.objects.filter(role=Role.PRINCIPAL, active=True):
-        notify(principal, title, body, "/")
+        notify(principal, title, body, "/", kind="target")
 
 
 # ---------------------------------------------------------------------------

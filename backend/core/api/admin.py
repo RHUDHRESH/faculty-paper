@@ -398,6 +398,7 @@ def get_formula(request: HttpRequest):
             "fixed_web_of_science": 5000,
             "max_authors": MAX_ELIGIBLE_AUTHORS,
             "min_sec_references": MIN_SEC_REFERENCES,
+            "filing_cutoff_day": None,
         }
     return {
         "id": cfg.id,
@@ -424,6 +425,7 @@ def get_formula(request: HttpRequest):
         "fixed_web_of_science": cfg.fixed_web_of_science,
         "max_authors": cfg.max_authors,
         "min_sec_references": cfg.min_sec_references,
+        "filing_cutoff_day": cfg.filing_cutoff_day,
         "notes": cfg.notes,
     }
 
@@ -506,10 +508,18 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
     ):
         if amount < 0:
             raise HttpError(400, f"{label} cannot be negative")
+    cutoff_given = "filing_cutoff_day" in payload.model_fields_set
+    if payload.filing_cutoff_day is not None and not 1 <= payload.filing_cutoff_day <= 28:
+        raise HttpError(
+            400, "The filing cutoff is a day of the month from 1 to 28, so every month has it"
+        )
 
     with transaction.atomic():
         prev = FormulaConfig.objects.filter(active=True).order_by("-version").first()
         next_version = (prev.version + 1) if prev else 1
+        # A client that does not know about the cutoff (an older screen, a
+        # script) must not clear it by saving the rest of the policy.
+        cutoff = payload.filing_cutoff_day if cutoff_given else (prev.filing_cutoff_day if prev else None)
         FormulaConfig.objects.filter(active=True).update(active=False)
         cfg = FormulaConfig.objects.create(
             name=payload.name or f"Policy v{next_version}",
@@ -535,6 +545,7 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
             fixed_web_of_science=payload.fixed_web_of_science,
             max_authors=payload.max_authors,
             min_sec_references=payload.min_sec_references,
+            filing_cutoff_day=cutoff,
             notes=payload.notes,
             updated_by=user,
             active=True,

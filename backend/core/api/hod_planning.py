@@ -31,11 +31,11 @@ from ninja.errors import HttpError
 
 from core import hod
 from core.api.common import api, require_user, session_auth
+from core.services import notify as notify_service
 from core.models import (
     AuditLog,
     DepartmentAssignment,
     DepartmentPlan,
-    Notification,
     Role,
     User,
 )
@@ -317,9 +317,7 @@ def _notify_assigned(a: DepartmentAssignment, people: list[User], actor: User) -
             title = f"A research area for you: {a.title}"
         else:
             title = f"Assigned to you: {a.title}"
-        Notification.objects.create(
-            user=person, title=title[:255], body=body, href=FACULTY_HOME
-        )
+        notify_service.notify(person, "general", title[:255], body, FACULTY_HOME)
 
 
 def _audit(user: User, action: str, a: DepartmentAssignment, **detail: Any) -> None:
@@ -530,11 +528,8 @@ def hod_nudge(request: HttpRequest, payload: NudgeIn, department: Optional[str] 
                     "last_nudged_at": recent[person.id].isoformat(),
                 })
                 continue
-            Notification.objects.create(
-                user=person,
-                title="A reminder from your head of department",
-                body=message,
-                href=FACULTY_HOME,
+            notify_service.notify(
+                person, "general", "A reminder from your head of department", message, FACULTY_HOME
             )
             AuditLog.objects.create(
                 actor=user, action="HOD_NUDGE", entity="User", entity_id=person.id,

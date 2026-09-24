@@ -99,6 +99,8 @@ type Formula = {
   fixed_web_of_science: number
   max_authors: number
   min_sec_references: number
+  /** Day of the month filing closes for that month's run, 1-28; null for none. */
+  filing_cutoff_day?: number | null
   notes?: string | null
 }
 
@@ -265,6 +267,15 @@ export function Policy() {
               label="Minimum SEC authors"
               value={String(data.min_sec_references)}
               hint="How many authors must be from this college"
+            />
+            <Row
+              label="Filing cutoff"
+              value={data.filing_cutoff_day ? `Day ${data.filing_cutoff_day}` : "None"}
+              hint={
+                data.filing_cutoff_day
+                  ? "People with drafts are reminded three days before"
+                  : "No cutoff set; nobody is reminded"
+              }
             />
             <Row
               label="Students paid"
@@ -1097,6 +1108,7 @@ type FormState = {
   fixed_web_of_science: string
   max_authors: string
   min_sec_references: string
+  filing_cutoff_day: string
   student_remuneration_zero: boolean
   qf_only_for_no_snip: boolean
   notes: string
@@ -1239,6 +1251,7 @@ function EditDialog({
         fixed_web_of_science: num(form.fixed_web_of_science),
         max_authors: Math.round(num(form.max_authors)),
         min_sec_references: Math.round(num(form.min_sec_references)),
+        filing_cutoff_day: form.filing_cutoff_day.trim() ? Math.round(num(form.filing_cutoff_day)) : null,
         notes: form.notes.trim() || undefined,
       })
       toast.ok(`Published — ${result.name} v${result.version} now prices every claim`)
@@ -1354,6 +1367,18 @@ function EditDialog({
                   value={form.min_sec_references}
                   onChange={(e) => set("min_sec_references", e.target.value)}
                   min={0}
+                  step="1"
+                />
+              </Field>
+              <Field
+                label="Filing cutoff day"
+                hint="Day of the month filing closes for that month's run, 1 to 28. Empty for none: then nobody is reminded of a deadline"
+              >
+                <NumberInput
+                  value={form.filing_cutoff_day}
+                  onChange={(e) => set("filing_cutoff_day", e.target.value)}
+                  min={1}
+                  max={28}
                   step="1"
                 />
               </Field>
@@ -2039,6 +2064,7 @@ function stateFrom(f: Formula): FormState {
     fixed_web_of_science: String(f.fixed_web_of_science),
     max_authors: String(f.max_authors),
     min_sec_references: String(f.min_sec_references),
+    filing_cutoff_day: f.filing_cutoff_day ? String(f.filing_cutoff_day) : "",
     student_remuneration_zero: f.student_remuneration_zero,
     qf_only_for_no_snip: f.qf_only_for_no_snip,
     notes: f.notes || "",

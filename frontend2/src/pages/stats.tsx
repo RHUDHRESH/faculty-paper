@@ -276,7 +276,10 @@ export function SocialSettingsPanel() {
     <section className="space-y-4" aria-labelledby="social-switches">
       <div>
         <SectionTitle id="social-switches">Notifications and privacy</SectionTitle>
-        <Meta className="block">Each switch takes effect at once. Notifications about your papers are not here — they always reach you.</Meta>
+        <Meta className="block">
+          Each switch takes effect at once. Alerts about your papers, and email for any kind, are in{" "}
+          <Link to="/settings/notifications" className="underline underline-offset-2">notification settings</Link>.
+        </Meta>
       </div>
       {query.isPending ? (
         <SkeletonRows rows={4} rowHeight={36} />

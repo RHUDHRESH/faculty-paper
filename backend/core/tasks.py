@@ -160,6 +160,28 @@ def award_badges_and_milestones() -> dict:
     return run_all()
 
 
+def check_citations() -> dict:
+    """Daily (schedule "citation-check", migration 0051): citation counts for
+    claimed DOIs from OpenAlex, and alerts to owners whose count rose."""
+    from core.services.citations import check_citations as run
+
+    return run()
+
+
+def send_weekly_digest() -> dict:
+    """Monday 8am IST (schedule "weekly-digest"): the weekly summary."""
+    from core.services.digest import send_weekly_digest as run
+
+    return run()
+
+
+def send_nudges() -> dict:
+    """Daily (schedule "daily-nudges"): filing-deadline and quota nudges."""
+    from core.services.nudges import send_nudges as run
+
+    return run()
+
+
 def run_restore(saved_path: str, actor_id: str | None = None) -> dict:
     """Load a dumpdata export into this (fresh) installation.
 

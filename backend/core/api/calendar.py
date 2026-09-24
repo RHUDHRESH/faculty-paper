@@ -351,28 +351,46 @@ def delete_event(request: HttpRequest, event_id: str):
 
 
 @api.get("/notifications", auth=session_auth)
-def notifications(request: HttpRequest):
+def notifications(
+    request: HttpRequest,
+    section: Optional[str] = None,
+    unread: bool = False,
+    limit: int = 50,
+):
+    """The bell's rows, newest first, less every kind the person switched off.
+
+    `section` is the bell's tab (papers, people, work, updates); `unread`
+    keeps only what has not been read.
+    """
+    from core.services import notify as notify_service
+
     user = require_user(request)
-    items = list(Notification.objects.filter(user=user).order_by("-created_at")[:50])
+    qs = notify_service.visible_to(user)
+    if section in notify_service.SECTIONS:
+        qs = notify_service.in_section(qs, section)
+    if unread:
+        qs = qs.filter(read=False)
+    items = list(qs.order_by("-created_at")[: max(1, min(limit, 200))])
     # "Approved for payment" and "Paid" are the moments a claimant has a paper
     # worth telling colleagues about, so those two offer "Share to the feed" --
-    # for their own filed paper only (`social.published_papers`).
+    # for their own filed paper only (`social.published_papers`). Rows from
+    # before alerts had kinds are recognised by their title.
     from core.social import published_papers
 
     shareable_titles = (" · Approved for payment", " · Paid")
-    candidates = {n.claim_id for n in items if n.claim_id and n.title.endswith(shareable_titles)}
+    shareable_kinds = ("claim_approved", "claim_paid")
+
+    def offers_share(n) -> bool:
+        return bool(n.claim_id) and (n.kind in shareable_kinds or n.title.endswith(shareable_titles))
+
+    candidates = {n.claim_id for n in items if offers_share(n)}
     shareable = set(
         published_papers(user).filter(pk__in=candidates).values_list("id", flat=True)
     ) if candidates else set()
     return [
         {
-            "id": n.id,
-            "title": n.title,
-            "body": n.body,
-            "href": n.href,
-            "read": n.read,
-            "created_at": n.created_at.isoformat(),
-            "share_paper_id": n.claim_id if n.claim_id in shareable and n.title.endswith(shareable_titles) else None,
+            **notify_service.serialize(n),
+            "share_paper_id": n.claim_id if offers_share(n) and n.claim_id in shareable else None,
         }
         for n in items
     ]
@@ -382,8 +400,10 @@ def notifications(request: HttpRequest):
 def notifications_unread_count(request: HttpRequest):
     """The 45-second poll only needs this number — the full list loads when
     the bell is actually opened."""
+    from core.services import notify as notify_service
+
     user = require_user(request)
-    return {"unread": Notification.objects.filter(user=user, read=False).count()}
+    return {"unread": notify_service.visible_to(user).filter(read=False).count()}
 
 
 @api.post("/notifications/{note_id}/read", auth=session_auth)

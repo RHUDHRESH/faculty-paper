@@ -550,6 +550,9 @@ class FormulaIn(Schema):
     fixed_web_of_science: float = 5000
     max_authors: int = 9
     min_sec_references: int = 2
+    #: Day of the month filing closes for that month's run, 1-28, or null for
+    #: none. Left out of a request, the previous version's value is kept.
+    filing_cutoff_day: Optional[int] = None
 
 
 class MonthlyCreateIn(Schema):

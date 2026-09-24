@@ -916,3 +916,22 @@ GET  /api/admin/publications/status
     -> { publications, authorships, college_authorships, college_matched,
          users_with_publications, unmatched_college_names[], last_run }
 ```
+
+### My research, the college picture, Discover's feed — counted, no model
+
+```
+GET /api/me/research      -> { headline, metrics{papers,citations,h_index,i10_index,q1,first_author,first_year},
+                               papers_by_year[], citations_by_year[], strip[{month,papers}], timeline[{year,kind,text,ref}],
+                               top_papers[], topics[{id,label,papers,recent}], venues[{id,name,quartile,papers,colleagues}],
+                               mix{kind:n}, coauthors{inside_count,outside_count,inside[],outside[]},
+                               this_year{year,papers,same_date_last_year,last_year_total,target,quota,under_review,drafts},
+                               ideas[{kind:topic|venue|person,id,title,reason,source:"counted",to}] }
+GET /api/college/research -> { totals, papers_by_year[], topics[{id,label,papers,now,before,growth,mine}], rising[],
+                               departments[], dept_topic[{dept,topic,papers}], near_me[], my_topics[] }
+GET /api/discover/for-you -> { items[{kind:direction|venue|person|paper,id,title,why,source,payload}],
+                               counts, tuned_to[], my_topics[], grounded_on }
+```
+
+From the publication record. `citations_by_year` is citations earned by the
+papers *published* in each year (OpenAlex gives current counts, not a history).
+`metrics.citations` is null, never 0, when the person has no papers.

@@ -211,7 +211,7 @@ function TopicList({ topics }: { topics: Topic[] }) {
  * model naming a plausible company is exactly how somebody writes to one
  * that does not exist.
  */
-function IndustryPartners({ status }: { status: AiStatus | undefined }) {
+export function IndustryPartners({ status }: { status: AiStatus | undefined }) {
   const [asked, setAsked] = useState(false)
   const q = useApi<Partners>(["discover", "partners"], "/api/discover/partners", {
     enabled: asked && !!status?.available,

@@ -1,16 +1,33 @@
 import { useEffect, useRef, useState } from "react"
-import { AlertTriangle, Compass, LoaderCircle, Search, Sparkles, X } from "lucide-react"
+import { useSearchParams } from "react-router-dom"
+import {
+  AlertTriangle,
+  BookOpen,
+  Compass,
+  FileText,
+  LoaderCircle,
+  Plus,
+  Search,
+  Sparkles,
+  UsersRound,
+  X,
+} from "lucide-react"
 
 import { ApiError, api } from "@/lib/api"
+import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { Chip } from "@/ui/chip"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Field, Input, NumberInput, Textarea } from "@/ui/field"
+import { HeroBand } from "@/ui/hero"
 import { money } from "@/ui/paper"
+import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Meta, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
-import { NextThings } from "@/pages/discover-next"
+import { IndustryPartners } from "@/pages/discover-next"
+import { FeedCard, ModelCard, useHidden, type FeedItem, type ForYou } from "@/pages/discover-feed"
 
 /**
  * The one screen that is useful before a paper exists — everything else in
@@ -25,62 +42,232 @@ import { NextThings } from "@/pages/discover-next"
  * months over it. That split is not a nicety here — it is the whole safety
  * argument of the feature.
  */
+const TABS = [
+  { key: "for-you", label: "For you", icon: Compass },
+  { key: "directions", label: "Directions", icon: Sparkles },
+  { key: "venues", label: "Venues", icon: BookOpen },
+  { key: "people", label: "People", icon: UsersRound },
+  { key: "papers", label: "Fresh papers", icon: FileText },
+] as const
+type Tab = (typeof TABS)[number]["key"]
+
+/**
+ * Discover (docs/ux/06): what is *out there* for me — directions, venues,
+ * people and fresh papers — as a magazine page for one reader. The counted
+ * feed (`/api/discover/for-you`) needs no model, so the page is whole on a
+ * server without one; the model's parts (a written idea, the venue finder,
+ * industry partners) appear only when the institution has one switched on,
+ * and whether it is on is never a message in the main flow.
+ */
 export function Discover() {
-  const status = useApi<DiscoverStatus>(["discover", "status"], "/api/discover/status")
-  const hosted = !!status.data?.hosted
+  const [params, setParams] = useSearchParams()
+  const tab = (TABS.find((t) => t.key === params.get("tab"))?.key ?? "for-you") as Tab
+  const [tuning, setTuning] = useState(false)
+  const status = useApi<DiscoverStatus>(["discover", "status"], "/api/discover/status", { retry: false })
+  const feed = useApi<ForYou>(["discover", "for-you"], "/api/discover/for-you")
+  const { hidden, hide } = useHidden()
+  useEffect(() => {
+    // Diagnostics belong in the console, not in the reader's way.
+    if (status.isError) console.warn("discover/status:", status.error.message)
+  }, [status.isError, status.error])
+
+  const ai = status.data?.available ? status.data : null
+  const items = (feed.data?.items ?? []).filter((i) => !hidden.has(i.id))
+  const c = feed.data?.counts
+  const tuned = feed.data?.tuned_to ?? []
+  const nothingKnown = feed.data && feed.data.grounded_on.papers === 0 && tuned.length === 0
+
+  const sentence = c
+    ? `This week: ${c.directions} ${c.directions === 1 ? "direction" : "directions"}, ${c.papers} fresh ${c.papers === 1 ? "paper" : "papers"}, ${c.people} ${c.people === 1 ? "person" : "people"} near your work.`
+    : feed.isError
+      ? "New directions, venues, people and papers worth your attention."
+      : "Looking through the record…"
 
   return (
-    <div className="page space-y-10">
-      <header>
-        <PageTitle>Discover</PageTitle>
-        <Sub className="mt-1">
-          People, journals and topics to work on next, and where a paper could go.
-        </Sub>
-      </header>
+    <div className="page space-y-6" data-area="research">
+      <HeroBand
+        area="research"
+        eyebrow="Research"
+        title="Discover"
+        sentence={sentence}
+        actions={
+          <Button size="lg" onClick={() => setTuning(true)}>
+            <Plus aria-hidden />
+            Topic
+          </Button>
+        }
+      >
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+          <span>Tuned to:</span>
+          {tuned.length ? (
+            tuned.slice(0, 6).map((t) => (
+              <Chip key={t} tone="area">
+                {t}
+              </Chip>
+            ))
+          ) : feed.data?.my_topics.length ? (
+            feed.data.my_topics.slice(0, 3).map((t) => (
+              <Chip key={t} tone="area" title="From your papers">
+                {t}
+              </Chip>
+            ))
+          ) : (
+            <span>nothing yet</span>
+          )}
+          <button type="button" onClick={() => setTuning(true)} className="text-accent hover:underline">
+            Change
+          </button>
+        </div>
+      </HeroBand>
 
-      <NextThings status={status.data} />
+      <div role="tablist" aria-label="Discover" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setParams(key === "for-you" ? {} : { tab: key }, { replace: true })}
+            className={cn(
+              "inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-medium transition-colors duration-[var(--dur-1)]",
+              tab === key
+                ? "bg-(--area) text-white"
+                : "bg-surface text-fg-muted shadow-[inset_0_0_0_1px_var(--color-edge)] hover:text-fg"
+            )}
+          >
+            <Icon aria-hidden className="size-5" strokeWidth={1.75} />
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {status.isLoading ? (
-        <SkeletonText lines={2} className="max-w-md" />
-      ) : status.isError ? (
+      {feed.isError && tab !== "venues" ? (
         <ErrorState
-          title="Could not tell whether suggestions are switched on"
-          message={status.error.message}
-          onRetry={() => status.refetch()}
+          title={`Couldn't load ${TABS.find((t) => t.key === tab)?.label.toLowerCase()}`}
+          message="The rest of the page still works."
+          onRetry={() => void feed.refetch()}
         />
-      ) : status.data && !status.data.available ? (
-        status.data.code === "not_configured" ? (
-          <AiNotSetUp />
-        ) : (
-          <ModelUnavailable status={status.data} onRetry={() => void status.refetch()} />
-        )
-      ) : status.data ? (
-        <>
-          <ModelBadge status={status.data} />
-          <VenueFinder hosted={hosted} />
-          <Directions hosted={hosted} />
-        </>
-      ) : null}
+      ) : feed.isLoading && tab !== "venues" ? (
+        <SkeletonRows rows={5} rowHeight={120} />
+      ) : nothingKnown && tab === "for-you" ? (
+        <TellUs onChoose={() => setTuning(true)} />
+      ) : tab === "for-you" ? (
+        <ForYouGrid items={items} hide={hide} ai={!!ai} />
+      ) : tab === "directions" ? (
+        <div className="space-y-8">
+          <KindList items={items} kind="direction" hide={hide} empty="Directions appear once we know your topics." />
+          {ai && <Directions hosted={!!ai.hosted} />}
+        </div>
+      ) : tab === "venues" ? (
+        <div className="space-y-8">
+          {ai ? (
+            <>
+              <ModelBadge status={ai} />
+              <VenueFinder hosted={!!ai.hosted} />
+            </>
+          ) : status.data && status.data.code !== "not_configured" ? (
+            <ModelUnavailable status={status.data} onRetry={() => void status.refetch()} />
+          ) : (
+            <Meta className="block">
+              The venue finder needs AI, which is not set up on this server. These venues are counted from
+              where colleagues publish on your topics.
+            </Meta>
+          )}
+          <KindList items={items} kind="venue" hide={hide} empty="Venues appear once we know your topics." />
+        </div>
+      ) : tab === "people" ? (
+        <div className="space-y-8">
+          <KindList items={items} kind="person" hide={hide} empty="People appear once we know your topics." />
+          {status.data && <IndustryPartners status={status.data} />}
+        </div>
+      ) : (
+        <KindList
+          items={items}
+          kind="paper"
+          hide={hide}
+          empty="New papers at the college in your topics appear here as they are published."
+        />
+      )}
 
-      <Interests />
+      <Sheet open={tuning} onOpenChange={setTuning}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Tune Discover</SheetTitle>
+            <SheetDescription>
+              The topics you follow shape directions, venues and people here, and collaborator matching.
+            </SheetDescription>
+          </SheetHeader>
+          <SheetBody className="overflow-y-auto">
+            <Interests />
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
 
-/**
- * The AI tools, when nobody has configured a model: one line.
- *
- * Not a caution box and not a remedy. The reader cannot configure a server,
- * and on the free deployment "no model" is the normal state rather than a
- * fault — so the page says what is off and gets out of the way of the
- * counted suggestions above it, which never needed a model.
- */
-function AiNotSetUp() {
+function TellUs({ onChoose }: { onChoose: () => void }) {
   return (
-    <Meta className="block border-t border-line pt-6">
-      AI suggestions are not set up on this server, so the venue search and writing ideas are
-      off. Everything above is counted from the college's own record.
-    </Meta>
+    <section className="flex flex-col items-center gap-3 rounded-3xl bg-(--area-wash) px-6 py-10 text-center">
+      <img src="/illustrations/ideas.svg" alt="" className="w-48 max-w-full" />
+      <h2 className="text-lg font-semibold text-fg">Tell us what you work on</h2>
+      <p className="max-w-md text-base text-fg-muted">
+        Pick two or three topics and Discover fills up. You can change them any time.
+      </p>
+      <Button kind="primary" size="lg" onClick={onChoose}>
+        Choose topics
+      </Button>
+    </section>
+  )
+}
+
+/** The magazine: feature first (2/3 width) beside a venue, then a row of three. */
+function ForYouGrid({ items, hide, ai }: { items: FeedItem[]; hide: (id: string) => void; ai: boolean }) {
+  if (!items.length && !ai)
+    return (
+      <EmptyState
+        icon={Compass}
+        title="You have seen everything for now"
+        message="New directions, people and papers appear as colleagues publish."
+      />
+    )
+  const [first, ...rest] = items
+  const feature = first?.kind === "direction" ? first : null
+  const body = feature ? rest : items
+  return (
+    <div className="grid gap-4 md:grid-cols-3">
+      {feature && (
+        <div className="md:col-span-2">
+          <FeedCard item={feature} feature onHide={() => hide(feature.id)} />
+        </div>
+      )}
+      {body.map((item) => (
+        <FeedCard key={item.id} item={item} feature={false} onHide={() => hide(item.id)} />
+      ))}
+      {ai && <ModelCard />}
+    </div>
+  )
+}
+
+function KindList({
+  items,
+  kind,
+  hide,
+  empty,
+}: {
+  items: FeedItem[]
+  kind: FeedItem["kind"]
+  hide: (id: string) => void
+  empty: string
+}) {
+  const list = items.filter((i) => i.kind === kind)
+  if (!list.length) return <Meta className="block">{empty}</Meta>
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {list.map((item) => (
+        <FeedCard key={item.id} item={item} onHide={() => hide(item.id)} />
+      ))}
+    </div>
   )
 }
 

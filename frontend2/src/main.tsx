@@ -10,7 +10,7 @@ import {
 } from "react"
 import { MotionConfig } from "motion/react"
 import { createRoot, type Root } from "react-dom/client"
-import { BrowserRouter, matchPath, Navigate, Route, Routes, useSearchParams } from "react-router-dom"
+import { BrowserRouter, matchPath, Navigate, Route, Routes } from "react-router-dom"
 import { QueryClientProvider } from "@tanstack/react-query"
 
 import { AuthProvider, useAuth, type Role } from "@/app/auth"
@@ -85,7 +85,6 @@ const Thread = page(() => import("@/pages/discussions"), "Thread")
 const ChatPage = page(() => import("@/pages/messages"), "MessagesChat")
 const MyStats = page(() => import("@/pages/stats"), "MyStats")
 const PublicProfile = page(() => import("@/pages/person"), "PublicProfile")
-const CollegeResearch = page(() => import("@/pages/programme"), "CollegeResearch")
 const Duplicates = page(() => import("@/pages/duplicates"), "Duplicates")
 const Flags = page(() => import("@/pages/flags"), "Flags")
 const PastClaims = page(() => import("@/pages/archive"), "PastClaims")
@@ -114,7 +113,7 @@ const People = page(() => import("@/pages/people"), "People")
 const Person = page(() => import("@/pages/people"), "Person")
 const Policy = page(() => import("@/pages/policy"), "Policy")
 const Profile = page(() => import("@/pages/profile"), "Profile")
-const Programme = page(() => import("@/pages/programme"), "Programme")
+const Research = page(() => import("@/pages/research"), "Research")
 const Setup = page(() => import("@/pages/setup"), "Setup")
 const InstitutionSettings = page(() => import("@/pages/institution-settings"), "InstitutionSettings")
 const WallOfFame = page(() => import("@/pages/wall"), "WallOfFame")
@@ -135,15 +134,6 @@ const HOMES: Record<Role, Page> = {
 
 /** Path to page, for fetching a page's code before it is rendered. More
  *  specific patterns first; the routes themselves are declared below. */
-/**
- * My research and the college's research are one destination with two tabs
- * (docs/ux/05): `/research?tab=me` (default) and `?tab=college`. Until the
- * My research page draws its own tab bar, this picks the page.
- */
-function ResearchTabs() {
-  const [params] = useSearchParams()
-  return params.get("tab") === "college" ? <CollegeResearch /> : <Programme />
-}
 
 const PRELOADS: [string, Page][] = [
   ["/papers/claims", ClaimsList],
@@ -169,7 +159,7 @@ const PRELOADS: [string, Page][] = [
   ["/u/me/stats", MyStats],
   ["/messages", Messages],
   ["/u/:id", PublicProfile],
-  ["/research", Programme],
+  ["/research", Research],
   ["/leaderboard", Leaderboard],
   ["/wall", WallOfFame],
   ["/impact", ImpactCardPage],
@@ -339,7 +329,7 @@ function App() {
           <Route path="/authorisations" element={<Authorisations />} />
           <Route path="/payments" element={<Payments />} />
           <Route path="/payments/done" element={<PaymentsDone />} />
-          <Route path="/research" element={<ResearchTabs />} />
+          <Route path="/research" element={<Research />} />
           {Object.entries(REDIRECTS).map(([from, to]) => (
             <Route key={from} path={from} element={<Navigate to={to} replace />} />
           ))}

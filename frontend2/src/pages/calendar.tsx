@@ -195,19 +195,20 @@ export function Calendar() {
             </Button>
           </div>
         </div>
-        <p className="mt-3 flex items-center gap-1.5 text-sm">
+        <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">
           {isLoading ? (
             <span className="text-fg-muted">—</span>
           ) : next ? (
             <>
               <span className="font-medium">Next:</span>
               <NextIcon kind={next.kind} />
-              <button type="button" className="truncate hover:underline" onClick={() => setOpen(next)}>
+              <button type="button" className="min-w-0 truncate font-medium hover:underline" onClick={() => setOpen(next)}>
                 {next.title}
               </button>
-              <span className="shrink-0 text-fg-muted">
-                {dayLabel(next.start < today ? today : next.start, true)} ({relative(next.start < today ? next.end : next.start, today)}
-                {next.start < today ? " it ends" : ""})
+              <span className="text-fg-muted">
+                {next.start <= today && next.end > today
+                  ? `closes ${dayLabel(next.end, true)} (${relative(next.end, today)})`
+                  : `${dayLabel(next.start, true)} (${relative(next.start, today)})`}
               </span>
             </>
           ) : (

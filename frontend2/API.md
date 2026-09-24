@@ -818,3 +818,101 @@ for the author position asked about.
 `sources[]` names which upstreams returned that work; two sources agreeing is
 worth showing. **`failed[]` names upstreams that did not answer** — say so, or
 a thin result set reads as a thin field rather than as arXiv timing out.
+
+### Publication record — every paper, every co-author
+
+Built by `harvest_publications` (OpenAlex) and `match_authors`; no money
+anywhere (every payload leaves through `hod.without_money`). Open to anyone
+signed in except the two `/admin/` routes (super admin only).
+
+**Where the data comes from.** OpenAlex has no institution record for
+Saveetha Engineering College — its papers are filed under *Saveetha
+University* (`I85461943`, which is SIMATS). So the harvest takes works whose
+raw affiliation text says "Saveetha Engineering College" and marks each
+author inside or outside by *their own* affiliation string. Also harvested:
+every DOI in claims and ledger rows, members' ORCIDs, and every other work of
+a matched OpenAlex author (their papers from before they joined). A paper no
+source knows is still listed, from the claim/ledger row (`source: "record"`)
+or the Scopus workbook (`source: "scopus_sheet"`).
+
+```
+GET /api/me/publications?year=&year_from=&year_to=&type=&quartile=&q=&sort=
+GET /api/people/{user_id}/publications?(same filters)
+    sort: year (default, newest first) | oldest | citations | title
+    -> { user{id,name,department,scopus_author_id,orcid},
+         metrics{total_publications,total_citations,h_index,i10_index,first_year,last_year,computed_at},
+         count, publications[] }
+```
+
+Each publication: `{ id, title, year, date, venue, issn, type, quartile, doi,
+eid, openalex_id, citations, citations_refreshed_at, oa_url, topics[], source,
+author_position, total_authors, match_confidence, claim_ids[], authors[] }`.
+Each author: `{ name, position, user_id, key, is_college, institution,
+country, orcid }` — `user_id` set means a college member (link their
+profile); `key` is what `/connection?to=` takes. `match_confidence` (0–1) is
+how sure the matcher is that this person is on the paper: 1.0 ORCID, 0.95
+their own claim/ledger row or Scopus sheet, 0.9 same OpenAlex author id,
+≤0.8 name only. Show a "not me?" affordance below 0.9. `quartile` comes from
+the college's own records and is empty for papers nobody filed. `type` is
+OpenAlex's (`article`, `book-chapter`, `conference-paper`…) or the record's
+own document type.
+
+```
+GET /api/people/{user_id}/publication-metrics
+    -> { user_id, total_publications, total_citations, h_index, i10_index, first_year, last_year, computed_at }
+```
+
+Citations refresh weekly (Sunday 04:00 IST); metrics are recomputed with them.
+
+```
+GET /api/people/{user_id}/coauthors
+    -> { user_id, publications, inside_count, outside_count, inside[], outside[] }
+```
+
+Each co-author: `{ key, user_id, name, department, papers_together,
+first_year_together, last_year_together, institutions[], countries[],
+is_college_member }`, most papers first. *Inside* = a matched member, or an
+author whose affiliation names the college (possibly former staff, `user_id`
+null).
+
+```
+GET /api/people/{user_id}/connection?to=<user id | external key>
+    -> { from, to, hops, paths[{ people[{ key, user_id, name, department,
+         is_college_member, institution, via[{id,title,year,doi}] }] }] }
+```
+
+Shortest co-author paths, up to 3 papers long, at most 5 of them. `via` on
+each person lists the paper(s) linking them to the previous person — render
+"you → X (Saveetha) → Y". `hops: null` means no path within 3 (`paths: []`);
+404 means `to` is nobody in the record.
+
+```
+GET /api/search/people-external?q=&limit=20
+    -> { q, results[{ key, name, institutions[], countries[], papers,
+         college_affiliated, college_coauthors[{user_id,name,department,papers_together}] }] }
+```
+
+Authors not matched to a member, by name (2+ characters), with who in the
+college wrote with them. `college_affiliated: true` is someone whose
+affiliation names the college but who is not on the roster (usually former
+staff).
+
+```
+GET /api/me/scopus-pull
+    -> { count, unclaimed, papers[{ publication_id, title, venue, issn, year, date,
+         type, doi, eid, citations, author_position, total_authors, authors[],
+         already_claimed, claim_id, claim_status }] }
+```
+
+"Pull from Scopus", step 1 of filing: my papers with the fields a claim form
+needs. `already_claimed` is true when one of my non-rejected claims links the
+paper or shares its DOI, EID or normalised title — grey those out and link
+`claim_id`.
+
+```
+POST /api/admin/publications/harvest   { since?: year, limit?: n, expand?: true }
+    -> { ok, queued, job_id }                         (super admin; runs as a job)
+GET  /api/admin/publications/status
+    -> { publications, authorships, college_authorships, college_matched,
+         users_with_publications, unmatched_college_names[], last_run }
+```

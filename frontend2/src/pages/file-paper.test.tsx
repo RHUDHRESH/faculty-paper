@@ -343,6 +343,13 @@ describe("choosing the paper and confirming the conditions", { timeout: 20_000 }
     screen.getAllByRole("checkbox").forEach((b) => expect(b).not.toBeChecked())
   })
 
+  it("opens straight on the conditions for ?publication=, as if picked", async () => {
+    mount({ pull: PULL, route: "/papers/new?publication=p1" })
+    await screen.findByRole("heading", { level: 1, name: "Confirm three things about this paper" })
+    expect(screen.getAllByText("A Sharded Ledger for Cloud Storage").length).toBeGreaterThan(0)
+    screen.getAllByRole("checkbox").forEach((b) => expect(b).not.toBeChecked())
+  })
+
   it("never remembers the rules as read", async () => {
     localStorage.setItem("claim-rules-read", "1")
     const { user } = mount({ pull: PULL })

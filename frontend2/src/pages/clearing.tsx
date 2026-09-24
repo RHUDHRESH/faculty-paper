@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -10,10 +10,12 @@ import {
 } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
+import { openShortcuts } from "@/app/shortcuts"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
 import { Combobox } from "@/ui/combobox"
 import {
   ConfirmDialog,
@@ -33,6 +35,7 @@ import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText }
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
+import { useSlashToSearch } from "@/ui/queue-keys"
 import { toast } from "@/ui/toast"
 
 /**
@@ -185,6 +188,8 @@ export function Clearing() {
   // and is never re-sorted here. Keyboard moves and "select all shown" work
   // on what is on screen.
   const [q, setQ] = useState("")
+  const searchRef = useRef<HTMLInputElement>(null)
+  useSlashToSearch(searchRef)
   const [dept, setDept] = useState("")
   const [check, setCheck] = useState<"" | "passed" | "failed" | "flagged">("")
   const needle = q.trim().toLowerCase()
@@ -381,8 +386,9 @@ export function Clearing() {
               ))}
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={filterBar}>
             <Input
+              ref={searchRef}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Filter by title, ticket, claimant or journal"
@@ -416,11 +422,15 @@ export function Clearing() {
         <kbd className="rounded border border-edge px-1 text-[10px]">j</kbd>/
         <kbd className="rounded border border-edge px-1 text-[10px]">k</kbd> or arrows to move ·{" "}
         <kbd className="rounded border border-edge px-1 text-[10px]">x</kbd> to select ·{" "}
-        <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open
+        <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open ·{" "}
+        <kbd className="rounded border border-edge px-1 text-[10px]">/</kbd> to search ·{" "}
+        <button type="button" onClick={openShortcuts} className="underline underline-offset-2">
+          all shortcuts
+        </button>
       </Meta>
 
       {anySelected && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
+        <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
           <p className="text-sm">
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>

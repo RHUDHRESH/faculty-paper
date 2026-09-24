@@ -30,7 +30,7 @@ from core.models import (
     Role,
     User,
 )
-from core.services import digest, nudges, standing
+from core.services import digest, nudges, paper_facts, standing
 from core.services.remuneration import DEFAULT_AUTHOR_POINTS
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -45,53 +45,80 @@ def _person(email, name, role=Role.FACULTY, dept="Mechanical", **extra):
 
 
 def _paper(owner, title, *, days_ago=30, quartile=None, status=ClaimStatus.SUBMITTED,
-           journal="Journal of Heat", doi=None, **extra):
+           journal="Journal of Heat", doi=None, published_days_ago=None, **extra):
+    published = MONDAY - timedelta(days=days_ago if published_days_ago is None else published_days_ago)
     return Claim.objects.create(
         owner=owner, paper_title=title, journal_title=journal, quartile=quartile,
         status=status, doi=doi, submitted_at=MONDAY - timedelta(days=days_ago),
-        publication_year=2026, **extra,
+        publication_year=published.year, publication_date=published.date().isoformat(),
+        indexing_level="Scopus", **extra,
     )
 
 
 class StandingTests(TestCase):
-    def test_a_q1_paper_counts_three_and_a_q2_two(self):
-        a = _person("a@t.edu", "Asha")
-        _paper(a, "One", quartile="Q1")
-        _paper(a, "Two", quartile="Q2")
-        _paper(a, "Three", quartile="Q4")
-        self.assertEqual(standing.scores(MONDAY)[a.id], 6)
+    """The summary's rank is the leaderboard's rank (core.services.leaderboard):
+    the same weighting and the same academic year, so the two never disagree.
+    Movement is against the ranks the last summary went out with."""
 
-    def test_drafts_returned_papers_and_last_years_papers_do_not_count(self):
+    def setUp(self):
+        paper_facts.forget()
+        self.addCleanup(paper_facts.forget)
+
+    def test_the_rank_is_the_leaderboards(self):
+        a, b = _person("a@t.edu", "Asha"), _person("b@t.edu", "Bala")
+        _paper(a, "One", quartile="Q1")  # 4 on the leaderboard
+        _paper(b, "Two", quartile="Q2")  # 3
+        _paper(b, "Three", quartile="Q4")  # 1
+        place = standing.movement(MONDAY)
+        self.assertEqual(place[b.id]["rank"], 1)
+        self.assertEqual(place[b.id]["score"], 4)
+        self.assertEqual(place[a.id]["rank"], 1)  # joint
+        self.assertEqual(place[a.id]["of"], 2)
+
+    def test_nobody_with_nothing_this_year_is_ranked(self):
         a = _person("a@t.edu", "Asha")
         _paper(a, "Draft", status=ClaimStatus.DRAFT)
         _paper(a, "Back", status=ClaimStatus.REJECTED)
-        _paper(a, "Old", days_ago=200)  # before 1 June
-        self.assertNotIn(a.id, standing.scores(MONDAY))
+        _paper(a, "Old", published_days_ago=200)  # before 1 June
+        self.assertNotIn(a.id, standing.movement(MONDAY))
 
-    def test_rank_movement_against_a_week_ago(self):
+    def test_movement_is_against_last_weeks_summary(self):
         a, b, c = (_person(f"{n}@t.edu", n) for n in ("a", "b", "c"))
-        _paper(a, "A1", quartile="Q1", days_ago=40)
-        _paper(b, "B1", quartile="Q2", days_ago=40)
-        _paper(c, "C1", days_ago=40)
+        _paper(a, "A1", quartile="Q1")
+        _paper(b, "B1", quartile="Q2")
+        _paper(c, "C1", quartile="Q4")
+        last_monday = MONDAY - timedelta(days=7)
+        standing.remember(last_monday, standing.movement(last_monday))
         # This week c files two Q1 papers and goes from third to first.
-        _paper(c, "C2", quartile="Q1", days_ago=2)
-        _paper(c, "C3", quartile="Q1", days_ago=3)
+        _paper(c, "C2", quartile="Q1")
+        _paper(c, "C3", quartile="Q1")
+        paper_facts.forget()
         move = standing.movement(MONDAY)
-        self.assertEqual(move[c.id], {"rank": 1, "was": 3, "of": 3, "score": 7})
-        self.assertEqual(move[a.id]["rank"], 2)
-        self.assertEqual(move[a.id]["was"], 1)
+        self.assertEqual(move[c.id], {"rank": 1, "was": 3, "of": 3, "score": 9})
+        self.assertEqual((move[a.id]["rank"], move[a.id]["was"]), (2, 1))
 
-    def test_ties_share_a_rank(self):
-        a, b = _person("a@t.edu", "A"), _person("b@t.edu", "B")
-        _paper(a, "A1")
-        _paper(b, "B1")
-        ranks = standing.ranks(standing.scores(MONDAY))
-        self.assertEqual(ranks[a.id], 1)
-        self.assertEqual(ranks[b.id], 1)
+    def test_a_second_run_in_the_same_week_still_compares_with_last_week(self):
+        a = _person("a@t.edu", "Asha")
+        _paper(a, "A1", quartile="Q1")
+        standing.remember(MONDAY - timedelta(days=7), {a.id: {"rank": 4}})
+        standing.remember(MONDAY, standing.movement(MONDAY))
+        self.assertEqual(standing.movement(MONDAY)[a.id]["was"], 4)
+
+    def test_the_sentence(self):
+        self.assertEqual(
+            standing.sentence({"rank": 3, "was": 5, "of": 40}),
+            "You are 3rd of 40 this academic year, up 2 places since last week.",
+        )
+        self.assertEqual(
+            standing.sentence({"rank": 3, "was": None, "of": 40}),
+            "You are 3rd of 40 this academic year.",
+        )
 
 
 class DigestBase(TestCase):
     def setUp(self):
+        paper_facts.forget()
+        self.addCleanup(paper_facts.forget)
         FormulaConfig.objects.create(author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True)
         self.me = _person("me@t.edu", "Asha Menon")
         self.colleague = _person("col@t.edu", "Ravi Kumar")

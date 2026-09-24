@@ -2,8 +2,8 @@
 
 For each faculty member and head of department, four short parts:
 
-1. **Where they stand** -- rank this academic year and the movement since
-   last week (core.services.standing).
+1. **Where they stand** -- their leaderboard rank this academic year and the
+   movement since last week's summary (core.services.standing).
 2. **What their department published** -- papers filed by colleagues in the
    last seven days. Titles, names and journals; never an amount.
 3. **Somebody to write with** -- one person who publishes in the same
@@ -340,5 +340,7 @@ def send_weekly_digest(now=None) -> dict[str, int]:
                 connection.close()
             except Exception:
                 pass
+    # What next week's movement is measured against.
+    standing.remember(now, ctx["movement"])
     logger.info("weekly digest %s", summary)
     return summary

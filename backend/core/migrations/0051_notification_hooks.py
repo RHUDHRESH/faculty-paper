@@ -1,5 +1,10 @@
-"""Alerts people can switch off, citation counts, profile views, and the three
-scheduled jobs behind them.
+"""Alerts people can switch off, citation counts, and the three scheduled jobs
+behind them.
+
+One preference store: the social layer's mute list (SocialSettings.muted_json,
+migration 0045) is moved into NotificationPreference as "off" rows, and the
+column dropped. Profile visits stay in ProfileVisit (0050); WhatsApp consent
+joins count_my_visits on SocialSettings.
 
 The schedules are registered here, as 0014 did for batch recovery, so every
 environment gets them with migrate. Times are India time:
@@ -12,6 +17,7 @@ django-q2 advances a daily or weekly schedule by whole days from next_run,
 and Q_CLUSTER has catch_up off, so a run missed while the server slept
 happens once when it wakes and the clock time is kept.
 """
+import json
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -57,6 +63,40 @@ def add_schedules(apps, schema_editor):
             )
 
 
+#: The social layer's notification kinds, which keep their names as kinds of
+#: alert (core.services.notify.KINDS).
+SOCIAL_KINDS = ("follow", "comment", "mention", "reaction", "message", "collab", "endorsement")
+
+
+def move_mutes(apps, schema_editor):
+    SocialSettings = apps.get_model("core", "SocialSettings")
+    NotificationPreference = apps.get_model("core", "NotificationPreference")
+    for row in SocialSettings.objects.exclude(muted_json__in=("", "[]")):
+        try:
+            muted = json.loads(row.muted_json or "[]")
+        except ValueError:
+            continue
+        for kind in muted:
+            if kind in SOCIAL_KINDS:
+                NotificationPreference.objects.update_or_create(
+                    user_id=row.user_id, kind=kind, defaults={"level": "off"}
+                )
+
+
+def restore_mutes(apps, schema_editor):
+    SocialSettings = apps.get_model("core", "SocialSettings")
+    NotificationPreference = apps.get_model("core", "NotificationPreference")
+    muted: dict = {}
+    for user_id, kind in NotificationPreference.objects.filter(
+        kind__in=SOCIAL_KINDS, level="off"
+    ).values_list("user_id", "kind"):
+        muted.setdefault(user_id, []).append(kind)
+    for user_id, kinds in muted.items():
+        row, _ = SocialSettings.objects.get_or_create(user_id=user_id)
+        row.muted_json = json.dumps(sorted(kinds))
+        row.save()
+
+
 def remove_schedules(apps, schema_editor):
     try:
         Schedule = apps.get_model("django_q", "Schedule")
@@ -68,7 +108,7 @@ def remove_schedules(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0044_close_zero_both_ways_flags'),
+        ('core', '0050_social_plus'),
         ("django_q", "0019_alter_task_options_alter_ormq_key_alter_ormq_lock_and_more"),
     ]
 
@@ -82,15 +122,6 @@ class Migration(migrations.Migration):
                 ('openalex_id', models.CharField(blank=True, max_length=64, null=True)),
                 ('checked_at', models.DateTimeField(blank=True, db_index=True, null=True)),
                 ('changed_at', models.DateTimeField(blank=True, null=True)),
-            ],
-        ),
-        migrations.CreateModel(
-            name='NotificationSettings',
-            fields=[
-                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='notification_settings', serialize=False, to=settings.AUTH_USER_MODEL)),
-                ('share_profile_views', models.BooleanField(default=True)),
-                ('whatsapp_opt_in', models.BooleanField(default=False)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
             ],
         ),
         migrations.AddField(
@@ -148,17 +179,14 @@ class Migration(migrations.Migration):
                 'constraints': [models.UniqueConstraint(fields=('user', 'kind'), name='one_preference_per_kind')],
             },
         ),
-        migrations.CreateModel(
-            name='ProfileView',
-            fields=[
-                ('id', models.CharField(default=core.models.cuid, editable=False, max_length=32, primary_key=True, serialize=False)),
-                ('at', models.DateTimeField(db_index=True, default=django.utils.timezone.now)),
-                ('viewed', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='profile_views_received', to=settings.AUTH_USER_MODEL)),
-                ('viewer', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='profile_views_made', to=settings.AUTH_USER_MODEL)),
-            ],
-            options={
-                'ordering': ['-at'],
-                'indexes': [models.Index(fields=['viewed', 'at'], name='core_profil_viewed__83845b_idx')],
-            },
+        migrations.AddField(
+            model_name='socialsettings',
+            name='whatsapp_opt_in',
+            field=models.BooleanField(default=False),
+        ),
+        migrations.RunPython(move_mutes, restore_mutes),
+        migrations.RemoveField(
+            model_name='socialsettings',
+            name='muted_json',
         ),
     ]

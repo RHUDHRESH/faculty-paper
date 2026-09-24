@@ -19,14 +19,12 @@ Call `notify(user, kind, title, body, href)` and the rest is decided here:
 - **WhatsApp**, for the money kinds only, when the college has configured the
   channel and the person has opted in (core.services.whatsapp).
 
-For the social features -- likes, replies, mentions, follows, profile views --
-the kinds are already registered:
-
-    notify(post.author, "social_like", verb="liked your post", actor=liker,
-           href=f"/discussions/{thread.id}", group_key=f"like:{post.id}")
-    notify(user, "social_mention", f"{who.name} mentioned you", excerpt, href)
-    notify(user, "social_follow", verb="followed you", actor=follower,
-           group_key=f"follow:{user.id}")
+The social layer (core.social_notify) and the rewards (core.services.
+achievements) each keep a thin helper of their own, and both delegate here, so
+a switch on the settings page is honoured whichever part of the app raised the
+alert. The social kinds keep the names that layer gave them -- follow, comment,
+mention, reaction, message, collab, endorsement -- so its own switches on the
+statistics page read and write the same preferences as the settings page.
 
 A kind this module does not know is filed as ``general`` and logged, rather
 than failing the request that raised it. Register a new kind in `KINDS`.
@@ -48,7 +46,7 @@ from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils import timezone
 
-from core.models import Notification, NotificationPreference, NotificationSettings, User
+from core.models import Notification, NotificationPreference, SocialSettings, User
 
 logger = logging.getLogger("core.notifications")
 
@@ -82,6 +80,9 @@ class Kind:
     #: Also sent on WhatsApp when the channel is configured and the person
     #: opted in. Money and status only: it is the one thing worth a ping.
     whatsapp: bool = False
+    #: False for what a person must always be told (moderation of their own
+    #: post): it can go by email or not, but it cannot be switched off.
+    can_turn_off: bool = True
 
 
 _PAPERS = "Your papers"
@@ -122,21 +123,38 @@ KINDS: dict[str, Kind] = {
         Kind("desk", "Papers waiting on your desk",
              "When a paper reaches a queue you work from.",
              "Your desk", "work", IN_APP, "staff"),
-        Kind("social_mention", "Mentions",
-             "When somebody mentions you in a discussion.",
+        Kind("follow", "New followers",
+             "When somebody starts following you.",
              _PEOPLE, "people", IN_APP),
-        Kind("social_reply", "Replies",
-             "When somebody replies to something you posted.",
+        Kind("comment", "Comments",
+             "When somebody comments on your post.",
              _PEOPLE, "people", IN_APP),
-        Kind("social_like", "Likes",
-             "When people like something you posted. One line per post.",
+        Kind("mention", "Mentions",
+             "When somebody names you in a post or a comment.",
              _PEOPLE, "people", IN_APP),
-        Kind("social_follow", "New followers",
-             "When somebody starts following your work.",
+        Kind("reaction", "Reactions",
+             "When somebody congratulates you, is interested, or wants to "
+             "collaborate on a post.",
              _PEOPLE, "people", IN_APP),
-        Kind("profile_view", "Profile views",
-             "When somebody looks at your profile. One line a week.",
+        Kind("message", "Direct messages",
+             "When somebody sends you a direct message. One line until you read it.",
              _PEOPLE, "people", IN_APP),
+        Kind("collab", "Collaboration requests",
+             "A collaboration request, or an answer to yours.",
+             _PEOPLE, "people", IN_APP),
+        Kind("endorsement", "Endorsements",
+             "When somebody endorses one of your skills.",
+             _PEOPLE, "people", IN_APP),
+        Kind("badge", "Badges",
+             "When a paper of yours earns a badge.",
+             _PAPERS, "papers", IN_APP, "claimant"),
+        Kind("target", "Department targets",
+             "When a department crosses half, three quarters or all of its target.",
+             _REMINDERS, "updates", IN_APP, "principal"),
+        Kind("moderation", "Your posts and reports",
+             "When a post of yours is hidden, or a report reaches you. "
+             "This one cannot be switched off.",
+             _PEOPLE, "people", IN_APP, can_turn_off=False),
         Kind(GENERAL, "Other updates",
              "Everything else: work your department hands you, answers to your "
              "account requests.",
@@ -162,6 +180,8 @@ def applies_to(kind: Kind, user: User) -> bool:
         return claimant and user.faculty_type == "RESEARCH"
     if kind.audience == "staff":
         return not claimant
+    if kind.audience == "principal":
+        return user.role == rbac.Role.PRINCIPAL
     return True
 
 
@@ -191,9 +211,10 @@ def off_kinds(user: User) -> set[str]:
     return {key for key, level in levels_for(user).items() if level == OFF}
 
 
-def settings_for(user: User) -> NotificationSettings:
-    found = NotificationSettings.objects.filter(user=user).first()
-    return found or NotificationSettings(user=user)
+def settings_for(user: User) -> SocialSettings:
+    """The person-level switches (visits counted, WhatsApp consent)."""
+    found = SocialSettings.objects.filter(user=user).first()
+    return found or SocialSettings(user=user)
 
 
 def preferences_payload(user: User) -> dict[str, Any]:
@@ -206,7 +227,7 @@ def preferences_payload(user: User) -> dict[str, Any]:
         "whatsapp_available": whatsapp.enabled(),
         "email": user.email,
         "has_phone": bool(whatsapp.normalise_phone(user.phone)),
-        "share_profile_views": personal.share_profile_views,
+        "count_my_visits": personal.count_my_visits,
         "whatsapp_opt_in": personal.whatsapp_opt_in,
         "levels": [{"value": v, "label": LEVEL_LABELS[v]} for v in LEVELS],
         "kinds": [
@@ -218,6 +239,7 @@ def preferences_payload(user: User) -> dict[str, Any]:
                 "level": levels[k.key],
                 "default": k.default,
                 "whatsapp": k.whatsapp,
+                "can_turn_off": k.can_turn_off,
             }
             for k in KINDS.values()
             if applies_to(k, user)
@@ -229,7 +251,7 @@ def set_preferences(
     user: User,
     levels: dict[str, str] | None = None,
     *,
-    share_profile_views: bool | None = None,
+    count_my_visits: bool | None = None,
     whatsapp_opt_in: bool | None = None,
 ) -> None:
     """Save a person's choices. Raises ValueError, naming the bad entry."""
@@ -239,15 +261,17 @@ def set_preferences(
             raise ValueError(f"There is no kind of alert called {kind!r}.")
         if level not in LEVELS:
             raise ValueError(f"{level!r} is not a setting; use email, in_app or off.")
+        if level == OFF and not KINDS[kind].can_turn_off:
+            raise ValueError(f"{KINDS[kind].label} cannot be switched off.")
     with transaction.atomic():
         for kind, level in levels.items():
             NotificationPreference.objects.update_or_create(
                 user=user, kind=kind, defaults={"level": level}
             )
-        if share_profile_views is not None or whatsapp_opt_in is not None:
-            personal, _ = NotificationSettings.objects.get_or_create(user=user)
-            if share_profile_views is not None:
-                personal.share_profile_views = bool(share_profile_views)
+        if count_my_visits is not None or whatsapp_opt_in is not None:
+            personal, _ = SocialSettings.objects.get_or_create(user=user)
+            if count_my_visits is not None:
+                personal.count_my_visits = bool(count_my_visits)
             if whatsapp_opt_in is not None:
                 personal.whatsapp_opt_in = bool(whatsapp_opt_in)
             personal.save()

@@ -1,68 +1,79 @@
 """Where a person stands this academic year, for the weekly summary.
 
-A deliberately small ranking, separate from any leaderboard screen: the
-summary only needs "you are 12th of 140, up 3 since last week".
+The rank is the leaderboard's (core.services.leaderboard, the "This academic
+year" people board): the same weighting, the same dates, the same ties. A
+summary saying "3rd" while the leaderboard says "5th" would make one of them a
+liar, so there is no second ranking here.
 
-Score: every paper filed since 1 June (the academic year, as the faculty
-home counts it) counts one, a Q1 paper three and a Q2 paper two. Drafts and
-papers sent back or not accepted do not count. Equal scores share a rank.
-No money is involved: a count-only paper counts like any other.
+Movement is "since last week", and the leaderboard cannot say where somebody
+stood a week ago -- it ranks by publication date, and a paper filed this week
+may have been published in July. So each Monday's run remembers the ranks it
+sent (`remember`), and the next compares with them. Before the first run, and
+for somebody new to the board, there is no movement to report.
+
+Only people with something on the board this year are ranked: everybody with
+nothing shares the bottom place, and "You are 140th of 140" tells nobody
+anything.
 """
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import datetime, time, timedelta
+from datetime import datetime
 
 from django.utils import timezone
 
-from core.api.my_payments import academic_year_start
-from core.models import Claim, ClaimStatus
+from core.models import SystemSetting
 
-WEIGHTS = {"Q1": 3, "Q2": 2}
-_NOT_COUNTED = (ClaimStatus.DRAFT, ClaimStatus.REJECTED)
+SNAPSHOT_KEY = "digest_ranks"
+#: Weeks of snapshots kept: this week's (a re-run) and the one before.
+WEEKS_KEPT = 2
 SCORING = (
-    "Papers filed since 1 June. A Q1 paper counts three, a Q2 paper two, "
-    "any other paper one."
+    "The leaderboard's score for this academic year: a Q1 paper counts four, "
+    "Q2 three, Q3 two, Q4 or any other indexed paper one."
 )
 
 
-def _year_start(now) -> datetime:
-    start = academic_year_start(timezone.localtime(now).date())
-    return timezone.make_aware(datetime.combine(start, time.min))
+def week_label(now: datetime) -> str:
+    year, week, _ = timezone.localtime(now).isocalendar()
+    return f"{year}-W{week:02d}"
 
 
-def scores(now, *, as_of=None) -> dict[str, int]:
-    """Each person's score for the academic year `now` falls in, counting
-    papers filed before `as_of` (default `now`)."""
-    as_of = as_of or now
-    out: dict[str, int] = defaultdict(int)
-    for owner_id, quartile in (
-        Claim.objects.exclude(status__in=_NOT_COUNTED)
-        .filter(owner__active=True, submitted_at__gte=_year_start(now), submitted_at__lt=as_of)
-        .values_list("owner_id", "quartile")
-    ):
-        out[owner_id] += WEIGHTS.get((quartile or "").strip().upper(), 1)
-    return dict(out)
+def placement(now: datetime) -> dict[str, dict]:
+    """Each ranked person's place on the leaderboard as it stands."""
+    from core.services import leaderboard, paper_facts
 
-
-def ranks(score_by_person: dict[str, int]) -> dict[str, int]:
-    """Competition ranking: two people on the same score share a place, and
-    the next place after them is skipped (1, 1, 3)."""
-    ordered = sorted(score_by_person.values(), reverse=True)
-    first_at: dict[int, int] = {}
-    for i, value in enumerate(ordered, start=1):
-        first_at.setdefault(value, i)
-    return {pid: first_at[s] for pid, s in score_by_person.items()}
-
-
-def movement(now) -> dict[str, dict]:
-    """Rank now and a week ago, for everybody ranked now."""
-    current = scores(now)
-    before = ranks(scores(now, as_of=now - timedelta(days=7)))
-    now_ranks = ranks(current)
+    board = leaderboard.people_board(
+        paper_facts.load(), period="academic", on=timezone.localtime(now).date()
+    )
+    of = len(board["rows"])
     return {
-        pid: {"rank": rank, "was": before.get(pid), "of": len(current), "score": current[pid]}
-        for pid, rank in now_ranks.items()
+        r["id"]: {"rank": r["rank"], "of": of, "score": r["score"]}
+        for r in board["rows"]
+        if r["score"]
+    }
+
+
+def _snapshots() -> dict[str, dict[str, int]]:
+    row = SystemSetting.objects.filter(key=SNAPSHOT_KEY).first()
+    value = row.value if row and isinstance(row.value, dict) else {}
+    return {k: v for k, v in value.items() if isinstance(v, dict)}
+
+
+def remember(now: datetime, places: dict[str, dict]) -> None:
+    """Keep the ranks a run sent, for next week's movement."""
+    snapshots = _snapshots()
+    snapshots[week_label(now)] = {pid: p["rank"] for pid, p in places.items()}
+    kept = dict(sorted(snapshots.items())[-WEEKS_KEPT:])
+    SystemSetting.objects.update_or_create(key=SNAPSHOT_KEY, defaults={"value": kept})
+
+
+def movement(now: datetime) -> dict[str, dict]:
+    """Rank now, and the rank the last summary before this week went out with."""
+    this_week = week_label(now)
+    earlier = [w for w in _snapshots() if w < this_week]
+    before = _snapshots()[max(earlier)] if earlier else {}
+    return {
+        pid: {**place, "was": before.get(pid)}
+        for pid, place in placement(now).items()
     }
 
 
@@ -81,7 +92,7 @@ def sentence(place: dict | None) -> str | None:
     head = f"You are {ordinal(place['rank'])} of {place['of']} this academic year"
     was = place.get("was")
     if was is None:
-        return f"{head}, new to the ranking this week."
+        return f"{head}."
     moved = was - place["rank"]
     if moved == 0:
         return f"{head}, the same as last week."

@@ -37,6 +37,7 @@
 import { expect, test, type Browser, type Page } from "@playwright/test"
 
 import { seedClaim, storageStatePath, type SessionInfo } from "./fixtures/backend"
+import { textPdf } from "./fixtures/claim-api"
 import { waitForSettled } from "./fixtures/page-health"
 
 /** `ui/paper.tsx` writes amounts as `₹1,05,000` — en-IN grouping, paise only
@@ -324,101 +325,68 @@ test.describe("The money chain", () => {
  *
  * The chain above deliberately starts from a seeded ticket, so this covers
  * what that skips: that a claimant can open the wizard, that it saves what
- * they type without being asked, and that the draft is theirs afterwards.
- * It stops short of filing, because filing needs a Scopus-indexed title, a
- * Scimago hit and three uploaded PDFs, and a test that depends on all three
- * fails for reasons that have nothing to do with this application.
+ * they type without being asked, that each step says what it is missing
+ * beside the field, and -- the second test -- that a paper goes all the way
+ * from a pasted DOI to a ticket.
+ *
+ * The one thing answered from a fixture is `/api/lookup/paper`, which asks
+ * OpenAlex and Crossref: a test that depends on them being up fails for
+ * reasons that have nothing to do with this application. Everything after it
+ * -- the estimate, the uploads, the file check, the save, the filing, and the
+ * server's own refusal and the note that answers it -- is the real backend.
  */
 test.describe("Filing a paper", () => {
   test.use({ storageState: storageStatePath("FACULTY") })
+
+  /** Past the three confirmations, which stand in front of the form. */
+  async function openTheForm(page: Page) {
+    await page.goto("/papers/new")
+    await waitForSettled(page)
+    await expect(page.getByRole("heading", { name: "File a paper", level: 1 })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Confirm before you start" })).toBeVisible()
+    const gate = page.getByRole("checkbox")
+    await expect(gate, "the eligibility gate should ask three things").toHaveCount(3)
+    // `check()` asserts the end state; a click-loop would untick a box the
+    // gate remembered.
+    for (const box of await gate.all()) await box.check()
+    await page.getByRole("button", { name: "Start the claim" }).click()
+  }
 
   test("the wizard opens, saves a draft by itself, and the draft is listed", async ({ page }) => {
     const title = `E2E draft ${Date.now()}`
 
     await page.goto("/papers/new")
     await waitForSettled(page)
-    await expect(page.getByRole("heading", { name: "File a paper", level: 1 })).toBeVisible()
-
-    // The eligibility gate now stands in front of the wizard: three
-    // confirmations, each of which is a real reason a filed ticket is sent
-    // back, so the form does not exist until all three are ticked. Asserted
-    // here rather than clicked past, because "the wizard opens" is what this
-    // test is named after and opening it now takes this step.
-    await expect(page.getByRole("heading", { name: "Confirm before you start" })).toBeVisible()
-    // Pressing on with none of them ticked says which are outstanding and
-    // what to do about each — the button is deliberately not disabled, so a
-    // claimant who cannot tick one is told where to go instead of being left
-    // at an inert control.
+    // Pressing on with none of the confirmations ticked says which are
+    // outstanding, rather than leaving the claimant at an inert button.
     await page.getByRole("button", { name: "Start the claim" }).click()
     await expect(page.getByText(/are not confirmed yet, so the form has not opened/)).toBeVisible()
     await expect(page.getByLabel("Paper title")).toHaveCount(0)
 
-    // `check()` rather than `click()`: clicking a box that is already ticked
-    // unticks it, so a click-loop is only correct while every box happens to
-    // start clear — and silently unticks one the moment the gate remembers a
-    // previous answer or gains a box that defaults to on. `check()` asserts
-    // the end state instead of assuming the starting one.
-    const gate = page.getByRole("checkbox")
-    await expect(gate, "the eligibility gate should ask three things").toHaveCount(3)
-    for (const box of await gate.all()) await box.check()
+    await openTheForm(page)
 
-    await page.getByRole("button", { name: "Start the claim" }).click()
-
-    /**
-     * The form is open, asserted by the form being there.
-     *
-     * Not by its step heading, and not by the label on its next-step button.
-     * Both were asserted here and both broke inside an afternoon — the step
-     * was "The paper" and became "Which paper is this?", the button was
-     * "Next" and became "Continue" — while the thing this test is named
-     * after, the wizard opening, never stopped working. The field a claimant
-     * types their title into is what "the wizard opened" means; the wording
-     * around it is a design decision that is allowed to change without a
-     * test failing.
-     */
-    await expect(page.getByLabel("Paper title")).toBeVisible()
-
+    // The form is open, asserted by the form being there: the box a DOI goes
+    // in, and the field a title is typed into.
+    await expect(page.getByLabel("Paste the DOI or link")).toBeVisible()
     await page.getByLabel("Paper title").fill(title)
 
-    // Autosave runs 2.5s after the last keystroke; the status region says so
-    // out loud, which is what a claimant relies on and so is what is asserted.
-    await expect(page.getByRole("status").filter({ hasText: /^Saved/ })).toBeVisible({
-      timeout: 30_000,
-    })
+    // Autosave runs 2.5s after the last keystroke, and says so out loud.
+    await expect(page.getByRole("status").filter({ hasText: /^Saved/ })).toBeVisible({ timeout: 30_000 })
 
-    /**
-     * It refuses to move on with two named things missing, and says which.
-     *
-     * This assertion is older than the flow it runs against: it used to fire
-     * on step one of a five-step wizard, where the type and the date sat
-     * alongside the title. They now have a screen of their own, two questions
-     * further along, because the form asks one thing at a time — so the
-     * refusal is asserted where the question is rather than where it used to
-     * be. What is being tested has not changed: a form that silently does
-     * nothing when you press the button is the commonest way one gets
-     * reported "broken", and it must name what it wants instead.
-     */
+    // It refuses to move on, and says what is missing beside each field.
     const carryOn = page.getByRole("button", { name: "Continue", exact: true })
-
-    // Nothing blocks "which paper is this?" — a claimant without a DOI is
-    // meant to walk straight past it and answer by hand.
     await carryOn.click()
-    await expect(
-      page.getByRole("radio", { name: /Faculty publication incentive/ })
-    ).toBeVisible()
-    await carryOn.click()
-    await expect(page.getByLabel("Type of publication")).toBeVisible()
-
-    await carryOn.click()
-    await expect(page.getByText("Choose what kind of publication this is.")).toBeVisible()
-    await expect(page.getByText("Enter the date it was published.")).toBeVisible()
+    await expect(page.getByText("Choose what kind of publication this is", { exact: true })).toBeVisible()
+    await expect(page.getByText("Enter the date it was published", { exact: true })).toBeVisible()
+    await expect(page.getByLabel("Date published")).toHaveAttribute("aria-invalid", "true")
     // And it stayed where it was.
-    await expect(page.getByLabel("Type of publication")).toBeVisible()
+    await expect(page.getByLabel("Paste the DOI or link")).toBeVisible()
 
     // Answer the two it named and it carries on.
     await page.getByLabel("Type of publication").click()
     await page.getByRole("option", { name: "Journal article" }).click()
     await page.getByLabel("Date published").fill("2026-01-15")
+    await expect(page.getByText("Enter the date it was published", { exact: true })).toHaveCount(0)
     await carryOn.click()
     await expect(page.getByLabel("Journal title")).toBeVisible()
 
@@ -430,4 +398,170 @@ test.describe("Filing a paper", () => {
     await expect(row).toHaveCount(1)
     await expect(row).toContainText("Draft")
   })
+
+  test("a paper is filed from its DOI, from the paste box to a ticket", async ({ page }) => {
+    const stamp = Date.now()
+    const doi = `10.5555/e2e.${stamp}`
+    const title = `E2E filed paper ${stamp}`
+    await page.route("**/api/lookup/paper", (route) =>
+      route.fulfill({ json: lookupFixture({ doi, title }) })
+    )
+
+    await openTheForm(page)
+
+    // Step 1: one box. Pasting the link fills the paper and names where each
+    // part came from, and what is still the claimant's to check.
+    await page.getByLabel("Paste the DOI or link").fill(`https://doi.org/${doi}`)
+    await page.getByRole("button", { name: "Find it" }).click()
+    const found = page.getByRole("region", { name: "Found it" })
+    await expect(found).toBeVisible()
+    await expect(found.getByText("OpenAlex").first()).toBeVisible()
+    await expect(found.getByText("Our journal data").first()).toBeVisible()
+    await expect(page.getByLabel("Paper title")).toHaveValue(title)
+    await expect(page.getByLabel("DOI", { exact: true })).toHaveValue(doi)
+
+    // The estimate is on screen from here on, and it is a figure.
+    // One on a phone, one under the step rail; whichever this width shows.
+    const estimate = page.getByRole("region", { name: "Payout estimate" }).filter({ visible: true })
+    await expect(estimate.first()).toContainText(AMOUNT)
+
+    const carryOn = page.getByRole("button", { name: "Continue", exact: true })
+    await carryOn.click()
+
+    // Step 2: the journal came from the lookup; only the Yukthi ID is left.
+    await expect(page.getByLabel("Journal title")).toHaveValue("Journal of E2E Studies")
+    await carryOn.click()
+    await expect(page.getByText("Enter the Yukthi ID, or NA", { exact: true })).toBeVisible()
+    await page.getByLabel("Yukthi ID").fill("NA")
+    await carryOn.click()
+
+    // Step 3: the claimant among the authors, already chosen, and movable.
+    const me = page.getByRole("radio", { name: /2\. E2E Faculty/ })
+    await expect(me).toBeChecked()
+    await page.getByRole("radio", { name: /1\. A\. Coauthor/ }).check()
+    await me.check()
+    await carryOn.click()
+    await expect(page.getByText("Confirm the article is affiliated to the college", { exact: true })).toBeVisible()
+    await page.getByRole("checkbox", { name: /the article names/ }).check()
+    const profile = page.getByLabel("Your Scopus author profile")
+    if (!(await profile.inputValue())) await profile.fill("https://www.scopus.com/authid/detail.uri?authorId=5700000001")
+    await carryOn.click()
+
+    // Step 4: the files. The published paper, then two cited references in
+    // one go, each with its number.
+    await page.locator('[data-field="paper-file"] input[type=file]').setInputFiles({
+      name: "published-paper.pdf",
+      mimeType: "application/pdf",
+      buffer: textPdf([title, "E2E Faculty, Saveetha Engineering College, Chennai", `https://doi.org/${doi}`]),
+    })
+    await expect(page.getByText("published-paper.pdf")).toBeVisible()
+    // The file is read before filing and compared with the form.
+    await expect(page.getByText(/This file shows the title, the DOI/)).toBeVisible()
+    const cited = (n: string) =>
+      textPdf([`A cited study ${n} ${stamp}`, "R. Author, Saveetha Engineering College, Chennai"])
+    await page.locator('[data-field="refs"] input[type=file]').setInputFiles([
+      { name: "reference-a.pdf", mimeType: "application/pdf", buffer: cited("a") },
+      { name: "reference-b.pdf", mimeType: "application/pdf", buffer: cited("b") },
+    ])
+    await expect(page.getByLabel("Reference number for reference-b.pdf")).toBeVisible({ timeout: 30_000 })
+    await page.getByLabel("Reference number for reference-a.pdf").fill("3")
+    await page.getByLabel("Reference number for reference-b.pdf").fill("7")
+    await carryOn.click()
+
+    // Step 5: the receipt, then filing.
+    const receipt = page.getByRole("region", { name: "Your claim" })
+    await expect(receipt).toContainText(title)
+    await expect(receipt).toContainText("2 of 3 — E2E Faculty")
+    await expect(receipt).toContainText("No. 3, No. 7")
+
+    // With no Scopus connection the server confirms nothing on its own and
+    // asks for a note; the form asks for it first. With one, it may not ask.
+    const note = page.getByLabel("A note for the research cell")
+    const noteText = "E2E filing: the DOI resolves and the paper names the college."
+    if (await note.isVisible()) await note.fill(noteText)
+
+    const filed = page.waitForURL(/\/papers\/[a-z0-9]+$/, { timeout: 90_000 })
+    await page.getByRole("button", { name: "File this paper" }).click()
+    await page.getByRole("button", { name: "File it" }).click()
+    const outcome = await Promise.race([
+      filed.then(() => "filed" as const),
+      page.getByText("It needs a note to go through").waitFor({ timeout: 90_000 }).then(() => "note" as const),
+    ])
+    if (outcome === "note") {
+      await note.fill(noteText)
+      await page.getByRole("button", { name: "Send it with this note" }).click()
+      await filed
+    }
+    await expect(page.getByText(/Filed — ticket/)).toBeVisible()
+  })
 })
+
+/** What `/api/lookup/paper` answers for a DOI OpenAlex knows, in its real
+ *  shape (core/services/paper_lookup.py), for a paper made up for this run. */
+function lookupFixture({ doi, title }: { doi: string; title: string }) {
+  return {
+    ok: true,
+    code: "ok",
+    message: null,
+    input: { kind: "doi", doi },
+    paper: {
+      title,
+      doi,
+      journal: "Journal of E2E Studies",
+      issns: ["2045-2322"],
+      issn: "2045-2322",
+      publication_date: "2026-05-20",
+      publication_date_precision: "day",
+      publication_year: 2026,
+      document_type: "Journal article",
+      publication_type: "Journal",
+      citations: 0,
+      open_access_url: null,
+      is_retracted: false,
+      total_authors: 3,
+      authors: [
+        { position: 1, name: "A. Coauthor", affiliations: ["Anna University"], college: "no", is_claimant: false },
+        { position: 2, name: "E2E Faculty", affiliations: ["Saveetha Engineering College"], college: "yes", is_claimant: true },
+        { position: 3, name: "B. Coauthor", affiliations: [], college: null, is_claimant: false },
+      ],
+    },
+    claimant: { position: 2, name_on_paper: "E2E Faculty", confidence: "exact", matched_on: "name", candidates: [2] },
+    affiliation: { status: "yes", claimant_status: "yes", positions: [2], text: null },
+    metrics: {
+      found: true,
+      journal: "Journal of E2E Studies",
+      issn: "2045-2322",
+      matched_by: "issn",
+      quartile: "Q1",
+      category: "Computer Science (miscellaneous)",
+      categories: [],
+      sjr: 0.9,
+      dataset_year: 2025,
+      snip: 1.339,
+      snip_year: 2025,
+      engineering_class: "Engineering",
+    },
+    field_sources: {
+      title: "OpenAlex",
+      journal: "OpenAlex",
+      publication_date: "OpenAlex",
+      publication_type: "OpenAlex",
+      authors: "OpenAlex",
+      issn: "OpenAlex",
+      quartile: "Our journal data",
+      snip: "Our journal data",
+      engineering_class: "Our journal data",
+    },
+    sources: [
+      { id: "openalex", label: "OpenAlex", ok: true, count: 1, detail: null, code: null },
+      { id: "crossref", label: "Crossref", ok: true, count: 1, detail: null, code: null },
+      { id: "scopus", label: "Scopus", ok: false, count: null, detail: "Scopus is not connected on this server.", code: "not_configured" },
+      { id: "journals", label: "Our journal data", ok: true, count: 1, detail: null, code: null },
+    ],
+    scopus_status: "not_configured",
+    warnings: [],
+    to_check: [],
+    already_filed: null,
+    candidates: [],
+  }
+}

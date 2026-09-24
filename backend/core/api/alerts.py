@@ -1,23 +1,23 @@
-"""Notification settings, the weekly summary, unsubscribe links and profile views.
+"""Notification settings, the weekly summary, and unsubscribe links.
 
 The bell's own list, count and mark-read endpoints stay where they were
 (core/api/calendar.py); they read through core.services.notify so a kind
 switched off here disappears from them too.
 
     GET  /api/notifications/preferences         every kind, its level, the switches
-    PUT  /api/notifications/preferences         {levels: {kind: level}, share_profile_views, whatsapp_opt_in}
+    PUT  /api/notifications/preferences         {levels: {kind: level}, count_my_visits, whatsapp_opt_in}
     GET  /api/notifications/digest              this week's summary for me, as it stands now
     GET  /api/notifications/unsubscribe/{t}     from an email: asks before changing anything
     POST /api/notifications/unsubscribe/{t}     stops that kind's email, keeps it in the app
-    POST /api/profile-views                     {viewed_id}: I opened this person's profile
-    GET  /api/profile-views/me                  who looked at mine in the last 30 days
+
+Profile visits are recorded by the profile page itself (core.social_profile)
+and shown back to the person visited only as a count; they raise no alert.
 """
 from __future__ import annotations
 
 from typing import Optional
 
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from ninja import Schema
 from ninja.errors import HttpError
@@ -25,17 +25,12 @@ from ninja.errors import HttpError
 from core.api.common import api, require_user, session_auth
 from core.models import User
 from core.services import notify as notify_service
-from core.services import profile_views
 
 
 class PreferencesIn(Schema):
     levels: Optional[dict[str, str]] = None
-    share_profile_views: Optional[bool] = None
+    count_my_visits: Optional[bool] = None
     whatsapp_opt_in: Optional[bool] = None
-
-
-class ProfileViewIn(Schema):
-    viewed_id: str
 
 
 @api.get("/notifications/preferences", auth=session_auth)
@@ -50,7 +45,7 @@ def put_notification_preferences(request: HttpRequest, payload: PreferencesIn):
         notify_service.set_preferences(
             user,
             payload.levels,
-            share_profile_views=payload.share_profile_views,
+            count_my_visits=payload.count_my_visits,
             whatsapp_opt_in=payload.whatsapp_opt_in,
         )
     except ValueError as exc:
@@ -107,27 +102,11 @@ def unsubscribe_confirm(request: HttpRequest, token: str):
     return _unsubscribe_page(token, apply=True)
 
 
-@api.post("/profile-views", auth=session_auth)
-def record_profile_view(request: HttpRequest, payload: ProfileViewIn):
-    viewer = require_user(request)
-    viewed = get_object_or_404(User, pk=payload.viewed_id, active=True)
-    view = profile_views.record_profile_view(viewer, viewed)
-    return {"recorded": view is not None}
-
-
-@api.get("/profile-views/me", auth=session_auth)
-def my_profile_viewers(request: HttpRequest):
-    return profile_views.recent_viewers(require_user(request))
-
-
 __all__ = [
     "PreferencesIn",
-    "ProfileViewIn",
     "my_digest",
-    "my_profile_viewers",
     "notification_preferences",
     "put_notification_preferences",
-    "record_profile_view",
     "unsubscribe_confirm",
     "unsubscribe_page",
 ]

@@ -46,9 +46,23 @@ INSTALLED_APPS = [
 # Background jobs: django-q2 on the ORM broker — no Redis, and the qcluster
 # process shares the container with gunicorn (scripts/start.sh) rather than
 # running as a second paid service. Q_SYNC=true runs tasks inline (tests/dev).
+#
+# Tuned for the free plan: 512 MB and a tenth of a CPU shared with gunicorn.
+#   recycle / max_rss  the worker is replaced after 20 jobs, or after any job
+#                      that left it above ~180 MB -- an ERP import or a
+#                      restore reads a whole workbook into memory, and a
+#                      worker that keeps that heap competes with gunicorn for
+#                      the same 512 MB until the container is killed.
+#   guard_cycle        the sentinel checks on its processes every 5 s rather
+#                      than twice a second (the default): on a tenth of a CPU,
+#                      idle wake-ups are time taken from requests.
+#   poll               the ORM broker looks for queued jobs every 15 s.
 Q_CLUSTER = {
     "name": "faculty_paper",
     "workers": 1,  # shares one small container with gunicorn
+    "recycle": int(os.getenv("Q_RECYCLE", "20")),
+    "max_rss": int(os.getenv("Q_MAX_RSS_KB", "180000")),
+    "guard_cycle": int(os.getenv("Q_GUARD_CYCLE", "5")),
     "timeout": 3300,
     "retry": 3600,
     "max_attempts": 2,
@@ -69,7 +83,15 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Last, so it runs after the view: a write request makes the shared
+    # college-wide figures stale (core/services/aggregate_cache.py).
+    "core.services.aggregate_cache.BumpOnWriteMiddleware",
 ]
+
+# How long a college-wide figure (the fault checks, the publication report) is
+# shared between readers when nothing has been written. Writes in this process
+# end it at once; this bounds only what the job worker changes. 0 turns it off.
+AGGREGATE_CACHE_SECONDS = int(os.getenv("AGGREGATE_CACHE_SECONDS", "30"))
 
 ROOT_URLCONF = "config.urls"
 
@@ -328,6 +350,10 @@ CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_NAME = "csrftoken"
 
 SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY") or os.getenv("ELSEVIER_API_KEY") or ""
+# Optional. The filing form's paper lookup reads one work by DOI from OpenAlex,
+# which is free without a key; a key only raises the daily budget the title
+# search falls back on when Crossref is down (core/services/paper_lookup.py).
+OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY", "")
 
 # Gemini, for the two discovery features. Absent is a supported state: the
 # endpoints report that the feature is off rather than failing, which is the
@@ -338,11 +364,36 @@ SCOPUS_API_KEY = os.getenv("SCOPUS_API_KEY") or os.getenv("ELSEVIER_API_KEY") or
 # a key. Nothing here needs an account, a key or a quota, and nothing leaves
 # the loopback interface.
 #
-# There are two providers -- "ollama" for a developer laptop, "harness" for
-# the college's own inference service on Google Cloud -- and an unknown value
-# is refused rather than quietly resolved -- a typo in a deployment variable
-# should stop the feature, not silently change where the text goes.
-AI_PROVIDER = (os.getenv("AI_PROVIDER") or "ollama").strip().lower()
+# There are three providers -- "ollama" for a developer laptop, "harness" for
+# the college's own inference service on Google Cloud, "openai" for a hosted
+# model over the OpenAI-compatible API (see below) -- plus "none". An unknown
+# value is refused rather than quietly resolved -- a typo in a deployment
+# variable should stop the feature, not silently change where the text goes.
+#
+# Left empty, the provider is chosen from what is configured (core/services/
+# ai.py `provider_name`): AI_API_KEY set means "openai"; otherwise
+# AI_DEFAULT_PROVIDER. That default is "ollama" on a developer machine and
+# "none" in production, so a live site with no key reports "not set up"
+# rather than a daemon on 127.0.0.1 that was never going to be there. A
+# production deployment that really does run Ollama beside the API says
+# AI_PROVIDER=ollama explicitly.
+AI_PROVIDER = (os.getenv("AI_PROVIDER") or "").strip().lower()
+AI_DEFAULT_PROVIDER = "ollama" if DEBUG else "none"
+
+# The hosted provider. Any service speaking OpenAI's chat-completions API:
+# Groq (https://api.groq.com/openai/v1), Gemini's compatibility endpoint
+# (https://generativelanguage.googleapis.com/v1beta/openai), OpenRouter, or an
+# Ollama elsewhere (http://host:11434/v1). Unlike the two providers below,
+# this sends a faculty member's draft title and abstract to that service --
+# the price of AI on a free 512 MB instance, and said on screen. DEPLOY.md
+# has the values to paste for the free tiers.
+AI_API_KEY = (os.getenv("AI_API_KEY") or "").strip()
+AI_BASE_URL = (os.getenv("AI_BASE_URL") or "").strip()
+AI_MODEL = (os.getenv("AI_MODEL") or "").strip()
+# Optional quicker model for the one interactive caller (the thread
+# assistant). Unset, AI_MODEL serves both tiers.
+AI_FAST_MODEL = (os.getenv("AI_FAST_MODEL") or "").strip()
+AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", "60"))
 OLLAMA_BASE_URL = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").strip()
 #
 # Two models, not one, and the reason is measured rather than stylistic.

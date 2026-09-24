@@ -68,6 +68,50 @@ export function Due({
   )
 }
 
+/**
+ * When something was said, to the minute, the way people say it: "just now",
+ * "5 minutes ago", "yesterday", "2 Aug".
+ *
+ * `relativeDay` is right for a deadline and wrong for a conversation: a
+ * reply written a minute ago and one written at breakfast both read "today",
+ * which is the one thing a reader of a feed wants told apart.
+ */
+export function relativeTime(d: Date, now = new Date()): string {
+  const seconds = Math.round((now.getTime() - d.getTime()) / 1000)
+  if (seconds < 60) return "just now"
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`
+  const days = Math.floor(hours / 24)
+  if (days === 1) return "yesterday"
+  if (days < 7) return `${days} days ago`
+  return d.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: d.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  })
+}
+
+/** `relativeTime` in a `<time>`, with the exact moment one hover away. */
+export function Ago({ iso, className }: { iso: string | null | undefined; className?: string }) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const exact = d.toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+  return (
+    <time dateTime={d.toISOString()} title={exact} className={className}>
+      {relativeTime(d)}
+    </time>
+  )
+}
+
 export function relativeDay(d: Date, now = new Date()): string {
   const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
   const days = Math.round((start(now) - start(d)) / 86_400_000)

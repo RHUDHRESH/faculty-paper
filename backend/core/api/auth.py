@@ -445,12 +445,54 @@ class SelfDetailsIn(Schema):
     model_config = {"extra": "forbid"}
 
     phone: Optional[str] = None
+    #: A few lines on the public profile.
+    bio: Optional[str] = None
+    #: Attributes no claim to anybody -- unlike the Scopus link, which does,
+    #: and so stays with the super admin.
+    orcid_id: Optional[str] = None
 
 
 #: What a phone number may look like: digits, with the spaces, dashes,
 #: brackets and leading plus people actually type. Loose on purpose -- it is a
 #: number somebody rings, not a key anything is matched on.
 _PHONE_SHAPE = re.compile(r"^\+?[0-9 ()\-.]+$")
+
+#: Long enough for a sentence about what somebody works on and why; a profile
+#: is not a CV.
+BIO_MAX_CHARS = 600
+
+_ORCID_SHAPE = re.compile(r"^(\d{4})-?(\d{4})-?(\d{4})-?(\d{3}[\dX])$")
+
+
+def _clean_bio(raw: Optional[str]) -> Optional[str]:
+    text = (raw or "").strip()
+    if len(text) > BIO_MAX_CHARS:
+        raise HttpError(400, f"Keep it under {BIO_MAX_CHARS} characters — this one is {len(text)}.")
+    return text or None
+
+
+def _clean_orcid(raw: Optional[str]) -> Optional[str]:
+    """An ORCID iD in its canonical form, or None; a 400 when the checksum is wrong.
+
+    Accepts the bare iD or the orcid.org link people copy from their browser.
+    The last character is an ISO 7064 check digit, so a typo in any of the
+    other fifteen is caught here rather than printed as somebody's link.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+    text = re.sub(r"^https?://(www\.)?orcid\.org/", "", text, flags=re.IGNORECASE).upper()
+    match = _ORCID_SHAPE.match(text.replace(" ", ""))
+    if not match:
+        raise HttpError(400, "An ORCID iD is sixteen characters, like 0000-0002-1825-0097.")
+    digits = "".join(match.groups())
+    total = 0
+    for ch in digits[:-1]:
+        total = (total + int(ch)) * 2
+    check = (12 - total % 11) % 11
+    if digits[-1] != ("X" if check == 10 else str(check)):
+        raise HttpError(400, "That ORCID iD does not add up — check it against orcid.org.")
+    return "-".join(match.groups())
 
 
 def _clean_phone(raw: Optional[str]) -> Optional[str]:
@@ -479,6 +521,10 @@ def update_own_details(request: HttpRequest, payload: SelfDetailsIn):
     data = payload.dict(exclude_unset=True)
     if "phone" in data:
         data["phone"] = _clean_phone(data["phone"])
+    if "bio" in data:
+        data["bio"] = _clean_bio(data["bio"])
+    if "orcid_id" in data:
+        data["orcid_id"] = _clean_orcid(data["orcid_id"])
     changed = sorted(k for k, v in data.items() if getattr(u, k) != v)
     if changed:
         for k in changed:
@@ -716,6 +762,9 @@ __all__ = [
     'SUPER_ADMIN_DECIDES',
     'RESEARCH_POST_FIELDS',
     'may_set_field',
+    'BIO_MAX_CHARS',
+    '_clean_bio',
+    '_clean_orcid',
     'SelfDetailsIn',
     '_GOOGLE_TAKEN',
     '_GOOGLE_UNVERIFIED',

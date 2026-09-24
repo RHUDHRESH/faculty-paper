@@ -151,8 +151,17 @@ def recover_stale_batches() -> list[str]:
     return recovered
 
 
+def award_badges_and_milestones() -> dict:
+    """Hourly (migration 0047): every badge earned and not yet written, and
+    every department target that has crossed 50, 75 or 100 per cent. Safe to
+    run any number of times -- see core.services.achievements."""
+    from core.services.achievements import run_all
+
+    return run_all()
+
+
 def check_citations() -> dict:
-    """Daily (schedule "citation-check", migration 0046): citation counts for
+    """Daily (schedule "citation-check", migration 0051): citation counts for
     claimed DOIs from OpenAlex, and alerts to owners whose count rose."""
     from core.services.citations import check_citations as run
 

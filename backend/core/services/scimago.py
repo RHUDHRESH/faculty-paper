@@ -24,7 +24,15 @@ def normalize_category(s: str) -> str:
 
 
 def issn_variants(issn: str | None) -> list[str]:
-    """Return hyphenated + bare forms for matching Scopus bare ISSNs like 00280836."""
+    """Every spelling of one ISSN the reference tables hold.
+
+    Hyphenated and bare (Scopus writes 00280836), and the two a spreadsheet
+    produces by reading an ISSN as a number: "20452322.0", and for 0390-6663
+    the zero-stripped "3906663.0". The repairs in migrations 0027/0034 were
+    undone by a later import -- 29,217 of 32,087 SNIP rows and 9,993 SCImago
+    rows hold the float form -- and an ISSN that is in the table but not
+    matched is a journal priced without its SNIP or quartile.
+    """
     if not issn:
         return []
     cleaned = normalize_issn(issn) or issn.strip()
@@ -35,6 +43,8 @@ def issn_variants(issn: str | None) -> list[str]:
     if len(bare) == 8:
         hyph = f"{bare[:4]}-{bare[4:]}"
         out.extend([bare, hyph, bare.lower(), hyph.lower()])
+        if bare.isdigit():
+            out.extend([f"{bare}.0", f"{int(bare)}.0", str(int(bare))])
     # unique preserve order
     seen = set()
     uniq = []

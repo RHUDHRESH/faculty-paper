@@ -14,7 +14,7 @@ from django.core import mail
 from django.test import override_settings
 from django.utils import timezone
 
-from core.models import ClaimStatus, Notification, NotificationPreference, NotificationSettings
+from core.models import ClaimStatus, Notification, NotificationPreference, SocialSettings
 from core.test_chain_rules import ChainBase
 
 EMAIL_ON = {"EMAIL_HOST": "smtp.test", "APP_BASE_URL": "https://app.test"}
@@ -154,7 +154,7 @@ class WhatsAppTests(MoneyBase):
         self.sent.assert_not_called()
 
     def test_an_opted_in_claimant_gets_the_money_alert_as_a_template(self):
-        NotificationSettings.objects.create(user=self.faculty, whatsapp_opt_in=True)
+        SocialSettings.objects.create(user=self.faculty, whatsapp_opt_in=True)
         self._pay("WA-2")
         self.assertEqual(self.sent.call_count, 1)
         url = self.sent.call_args.args[0]
@@ -166,13 +166,13 @@ class WhatsAppTests(MoneyBase):
         self.assertIn("Paid", params[0]["text"])
 
     def test_other_kinds_never_go_to_whatsapp(self):
-        NotificationSettings.objects.create(user=self.faculty, whatsapp_opt_in=True)
+        SocialSettings.objects.create(user=self.faculty, whatsapp_opt_in=True)
         claim = self._claim(ClaimStatus.SUBMITTED, ticket="WA-3")
         self._post(self.cell, f"/api/claims/{claim.id}/hold", {"reason": "Waiting on the publisher erratum"})
         self.sent.assert_not_called()
 
     @override_settings(WHATSAPP_TOKEN="", WHATSAPP_PHONE_ID="")
     def test_unconfigured_means_off(self):
-        NotificationSettings.objects.create(user=self.faculty, whatsapp_opt_in=True)
+        SocialSettings.objects.create(user=self.faculty, whatsapp_opt_in=True)
         self._pay("WA-4")
         self.sent.assert_not_called()

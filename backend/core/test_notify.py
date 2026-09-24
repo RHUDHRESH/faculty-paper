@@ -25,9 +25,8 @@ from django.utils import timezone
 from core.models import (
     Notification,
     NotificationPreference,
-    NotificationSettings,
-    ProfileView,
     Role,
+    SocialSettings,
     User,
 )
 from core.services import notify as notify_service
@@ -111,7 +110,7 @@ class NotifyServiceTests(TestCase):
     def test_likes_on_one_post_group_into_one_line(self):
         a, b, c = (_person(f"{n}@test.edu", n) for n in ("Asha", "Ravi", "Meera"))
         for who in (a, b, c):
-            notify(self.me, "social_like", verb="liked your post", actor=who,
+            notify(self.me, "reaction", verb="liked your post", actor=who,
                    href="/discussions/t1", group_key="like:post1")
         rows = list(Notification.objects.filter(user=self.me))
         self.assertEqual(len(rows), 1)
@@ -122,30 +121,30 @@ class NotifyServiceTests(TestCase):
     def test_the_same_person_twice_is_not_two_people(self):
         a = _person("a@test.edu", "Asha")
         for _ in range(2):
-            notify(self.me, "social_like", verb="liked your post", actor=a, group_key="like:p")
+            notify(self.me, "reaction", verb="liked your post", actor=a, group_key="like:p")
         row = Notification.objects.get(user=self.me)
         self.assertEqual(row.group_count, 1)
         self.assertEqual(row.title, "Asha liked your post")
 
     def test_two_people_are_named_both(self):
         a, b = _person("a@test.edu", "Asha"), _person("b@test.edu", "Ravi")
-        notify(self.me, "social_like", verb="liked your post", actor=a, group_key="like:p")
-        notify(self.me, "social_like", verb="liked your post", actor=b, group_key="like:p")
+        notify(self.me, "reaction", verb="liked your post", actor=a, group_key="like:p")
+        notify(self.me, "reaction", verb="liked your post", actor=b, group_key="like:p")
         self.assertEqual(Notification.objects.get().title, "Ravi and Asha liked your post")
 
     def test_a_read_group_is_closed_and_the_next_like_starts_a_new_line(self):
         a, b = _person("a@test.edu", "Asha"), _person("b@test.edu", "Ravi")
-        notify(self.me, "social_like", verb="liked your post", actor=a, group_key="like:p")
+        notify(self.me, "reaction", verb="liked your post", actor=a, group_key="like:p")
         Notification.objects.update(read=True)
-        notify(self.me, "social_like", verb="liked your post", actor=b, group_key="like:p")
+        notify(self.me, "reaction", verb="liked your post", actor=b, group_key="like:p")
         self.assertEqual(Notification.objects.filter(user=self.me).count(), 2)
 
     @override_settings(**EMAIL_ON)
     def test_joining_a_group_does_not_send_another_email(self):
-        NotificationPreference.objects.create(user=self.me, kind="social_like", level="email")
+        NotificationPreference.objects.create(user=self.me, kind="reaction", level="email")
         a, b = _person("a@test.edu", "Asha"), _person("b@test.edu", "Ravi")
-        notify(self.me, "social_like", verb="liked your post", actor=a, group_key="like:p")
-        notify(self.me, "social_like", verb="liked your post", actor=b, group_key="like:p")
+        notify(self.me, "reaction", verb="liked your post", actor=a, group_key="like:p")
+        notify(self.me, "reaction", verb="liked your post", actor=b, group_key="like:p")
         self.assertEqual(len(mail.outbox), 1)
 
 
@@ -201,12 +200,17 @@ class PreferencesApiTests(TestCase):
         self.assertEqual(self._put({"levels": {"citation": "loud"}}).status_code, 400)
         self.assertEqual(self._put({"levels": {"nonsense": "off"}}).status_code, 400)
 
-    def test_profile_view_sharing_and_whatsapp_consent_are_saved(self):
-        r = self._put({"share_profile_views": False, "whatsapp_opt_in": True})
+    def test_visit_counting_and_whatsapp_consent_are_saved(self):
+        r = self._put({"count_my_visits": False, "whatsapp_opt_in": True})
         self.assertEqual(r.status_code, 200, r.content)
-        s = NotificationSettings.objects.get(user=self.me)
-        self.assertFalse(s.share_profile_views)
+        s = SocialSettings.objects.get(user=self.me)
+        self.assertFalse(s.count_my_visits)
         self.assertTrue(s.whatsapp_opt_in)
+        self.assertFalse(self._get()["count_my_visits"])
+
+    def test_moderation_cannot_be_switched_off(self):
+        self.assertEqual(self._put({"levels": {"moderation": "off"}}).status_code, 400)
+        self.assertEqual(self._put({"levels": {"moderation": "email"}}).status_code, 200)
 
     @override_settings(EMAIL_HOST="")
     def test_says_when_email_is_not_set_up(self):
@@ -225,18 +229,18 @@ class BellListTests(TestCase):
 
     def test_rows_carry_kind_section_and_group(self):
         a = _person("a@test.edu", "Asha")
-        notify(self.me, "social_like", verb="liked your post", actor=a, group_key="like:p")
+        notify(self.me, "reaction", verb="liked your post", actor=a, group_key="like:p")
         notify(self.me, "claim_paid", "Paid", "Paid.")
         rows = self.c.get("/api/notifications").json()
         by_kind = {r["kind"]: r for r in rows}
-        self.assertEqual(by_kind["social_like"]["section"], "people")
-        self.assertEqual(by_kind["social_like"]["count"], 1)
-        self.assertEqual(by_kind["social_like"]["actors"], ["Asha"])
+        self.assertEqual(by_kind["reaction"]["section"], "people")
+        self.assertEqual(by_kind["reaction"]["count"], 1)
+        self.assertEqual(by_kind["reaction"]["actors"], ["Asha"])
         self.assertEqual(by_kind["claim_paid"]["section"], "papers")
 
     def test_filters_by_section_and_unread(self):
         notify(self.me, "claim_paid", "Paid", "Paid.")
-        n2 = notify(self.me, "social_follow", "Ravi followed you")
+        n2 = notify(self.me, "follow", "Ravi followed you")
         notify(self.me, "citation", "Cited", "Cited.")
         Notification.objects.filter(pk=n2.pk).update(read=True)
         papers = self.c.get("/api/notifications?section=papers").json()
@@ -285,58 +289,82 @@ class UnsubscribeTests(TestCase):
         self.assertFalse(NotificationPreference.objects.exists())
 
 
-class ProfileViewTests(TestCase):
+class OnePreferenceStoreTests(TestCase):
+    """The social layer's switches and the settings page are one store: a kind
+    switched off on either is off on both, and every helper honours it."""
+
     def setUp(self):
         self.me = _person("me@test.edu", "Me")
-        self.viewer = _person("v@test.edu", "Asha")
+        self.other = _person("o@test.edu", "Asha")
         self.c = Client()
-        self.c.force_login(self.viewer)
+        self.c.force_login(self.me)
 
-    def _view(self, who):
-        return self.c.post(
-            "/api/profile-views", data=json.dumps({"viewed_id": who.id}),
+    def _social_put(self, body):
+        return self.c.put(
+            "/api/people/me/social-settings", data=json.dumps(body),
             content_type="application/json",
         )
 
-    def test_a_view_is_recorded_and_the_person_told(self):
-        self.assertEqual(self._view(self.me).status_code, 200)
-        self.assertEqual(ProfileView.objects.filter(viewer=self.viewer, viewed=self.me).count(), 1)
-        note = Notification.objects.get(user=self.me)
-        self.assertEqual(note.kind, "profile_view")
-        self.assertEqual(note.title, "Asha viewed your profile")
+    def _levels(self):
+        body = self.c.get("/api/notifications/preferences").json()
+        return {k["key"]: k["level"] for k in body["kinds"]}
 
-    def test_looking_at_yourself_is_not_a_view(self):
-        self.c.force_login(self.me)
-        self._view(self.me)
-        self.assertFalse(ProfileView.objects.exists())
-        self.assertFalse(Notification.objects.exists())
+    def test_muting_on_the_social_panel_is_off_on_the_settings_page(self):
+        self.assertEqual(self._social_put({"muted": ["mention"]}).status_code, 200)
+        self.assertEqual(self._levels()["mention"], "off")
+        self.assertEqual(self._levels()["follow"], "in_app")
 
-    def test_a_viewer_who_opted_out_is_not_recorded(self):
-        NotificationSettings.objects.create(user=self.viewer, share_profile_views=False)
-        self._view(self.me)
-        self.assertFalse(ProfileView.objects.exists())
-        self.assertFalse(Notification.objects.exists())
-
-    def test_one_viewer_counts_once_a_day(self):
-        self._view(self.me)
-        self._view(self.me)
-        self.assertEqual(ProfileView.objects.count(), 1)
-
-    def test_views_group_into_one_line(self):
-        self._view(self.me)
-        other = _person("o@test.edu", "Ravi")
-        self.c.force_login(other)
-        self._view(self.me)
-        note = Notification.objects.get(user=self.me)
-        self.assertEqual(note.title, "Ravi and Asha viewed your profile")
-
-    def test_you_can_see_who_looked_this_month(self):
-        self._view(self.me)
-        ProfileView.objects.create(
-            viewer=_person("old@test.edu", "Old"), viewed=self.me,
-            at=timezone.now() - timedelta(days=45),
+    def test_off_on_the_settings_page_is_muted_on_the_social_panel(self):
+        self.c.put(
+            "/api/notifications/preferences", data=json.dumps({"levels": {"follow": "off"}}),
+            content_type="application/json",
         )
-        self.c.force_login(self.me)
-        body = self.c.get("/api/profile-views/me").json()
-        self.assertEqual(body["count"], 1)
-        self.assertEqual([v["name"] for v in body["viewers"]], ["Asha"])
+        panel = self.c.get("/api/people/me/social-settings").json()
+        on = {n["kind"]: n["on"] for n in panel["notifications"]}
+        self.assertFalse(on["follow"])
+        self.assertTrue(on["mention"])
+
+    def test_unmuting_keeps_an_email_choice_that_was_never_muted(self):
+        notify_service.set_preferences(self.me, {"mention": "email", "follow": "off"})
+        self._social_put({"muted": []})
+        levels = self._levels()
+        self.assertEqual(levels["mention"], "email")
+        self.assertEqual(levels["follow"], "in_app")
+
+    def test_the_social_helper_honours_the_one_store(self):
+        from core import social_notify
+
+        notify_service.set_preferences(self.me, {"comment": "off"})
+        self.assertFalse(social_notify.notify(self.me.id, "comment", "Asha commented", "x", "/p/1"))
+        self.assertTrue(social_notify.notify(self.me.id, "mention", "Asha named you", "x", "/p/1"))
+        note = Notification.objects.get(user=self.me)
+        self.assertEqual(note.kind, "mention")
+
+    @override_settings(**EMAIL_ON)
+    def test_a_social_kind_can_be_had_by_email(self):
+        from core import social_notify
+
+        notify_service.set_preferences(self.me, {"message": "email"})
+        social_notify.notify(self.me.id, "message", "Asha sent you a message", "Hello", "/messages/1")
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_social_coalescing_still_holds_back_a_second_unread_message(self):
+        from core import social_notify
+
+        self.assertTrue(social_notify.notify(self.me.id, "message", "One", "", "/m/1", coalesce=True))
+        self.assertFalse(social_notify.notify(self.me.id, "message", "Two", "", "/m/1", coalesce=True))
+
+    def test_badges_go_through_the_one_store(self):
+        from core.services import achievements
+
+        achievements.notify(self.me, "New badge", "First paper", "/me")
+        self.assertEqual(Notification.objects.get(user=self.me).kind, "badge")
+        notify_service.set_preferences(self.me, {"badge": "off"})
+        achievements.notify(self.me, "New badge", "Second", "/me")
+        self.assertEqual(Notification.objects.filter(user=self.me).count(), 1)
+
+    def test_moderation_rows_show_even_with_other_updates_off(self):
+        Notification.objects.create(user=self.me, kind="moderation", title="Your post was hidden")
+        notify_service.set_preferences(self.me, {"general": "off"})
+        rows = self.c.get("/api/notifications").json()
+        self.assertEqual([r["title"] for r in rows], ["Your post was hidden"])

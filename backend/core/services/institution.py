@@ -46,9 +46,23 @@ def get(key: str) -> str:
     return value if isinstance(value, str) and value else DEFAULTS[key]
 
 
+PUBLIC_KEYS = ("college_name", "sign_in_note", "support_email")
+
+
 def public() -> dict[str, str]:
-    """Everything an unauthenticated page may show (the sign-in screen)."""
-    return {key: get(key) for key in ("college_name", "sign_in_note", "support_email")}
+    """Everything an unauthenticated page may show (the sign-in screen).
+
+    One query for the three, not one each: every visit asks for this, signed
+    in or not, before anything else is on the screen.
+    """
+    stored = {
+        row.pk: row.value.get("v")
+        for row in SystemSetting.objects.filter(pk__in=PUBLIC_KEYS)
+    }
+    return {
+        key: stored[key] if isinstance(stored.get(key), str) and stored[key] else DEFAULTS[key]
+        for key in PUBLIC_KEYS
+    }
 
 
 def validate(mapping: dict[str, Any]) -> dict[str, str]:

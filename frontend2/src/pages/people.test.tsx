@@ -29,6 +29,12 @@ const SUPER_ADMIN: Me = {
 }
 
 const CELL: Me = { ...SUPER_ADMIN, id: "u-cell", role: "RESEARCH_CELL", name: "Research Cell" }
+const COORDINATOR: Me = {
+  ...SUPER_ADMIN,
+  id: "u-coord",
+  role: "RESEARCH_COORDINATOR",
+  name: "Research Coordinator",
+}
 
 function account(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -210,27 +216,46 @@ describe("AccountEditor — switching a head off", () => {
 })
 
 describe("AccountEditor — research faculty", () => {
-  it("is a yes/no, with the quota asked only when yes", async () => {
+  it("is one tick box, with the quota and where it came from asked only when ticked", async () => {
     mountPerson(SUPER_ADMIN)
     const { user, dialog } = await openEditor()
-    const group = within(dialog).getByRole("group", { name: "Research faculty" })
-    expect(within(group).getByRole("radio", { name: "No" })).toBeChecked()
+    const tick = within(dialog).getByRole("checkbox", { name: /Research faculty/ })
+    expect(tick).not.toBeChecked()
     expect(within(dialog).queryByLabelText(/Papers a year before any incentive/)).toBeNull()
 
-    await user.click(within(group).getByRole("radio", { name: "Yes" }))
-    const quota = within(dialog).getByLabelText(/Papers a year before any incentive/)
-    await user.type(quota, "4")
+    await user.click(tick)
+    await user.type(within(dialog).getByLabelText(/Papers a year before any incentive/), "4")
+    await user.type(within(dialog).getByLabelText(/Where the number came from/), "Appointment letter")
     await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
 
     await waitFor(() => expect(patches()).toHaveLength(1))
-    expect(patches()[0]).toMatchObject({ faculty_type: "RESEARCH", research_quota: 4 })
+    expect(patches()[0]).toEqual({
+      faculty_type: "RESEARCH",
+      research_quota: 4,
+      research_quota_note: "Appointment letter",
+    })
   })
 
-  it("keeps the existing rule: only a super admin sets it", async () => {
-    mountPerson(CELL)
+  it("is the research coordinator's to set, without opening the rest of who they are", async () => {
+    mountPerson(COORDINATOR)
+    const { user, dialog } = await openEditor()
+    const tick = within(dialog).getByRole("checkbox", { name: /Research faculty/ })
+    expect(tick).toBeEnabled()
+    expect(within(dialog).getByLabelText("Full name")).toBeDisabled()
+
+    await user.click(tick)
+    await user.type(within(dialog).getByLabelText(/Papers a year before any incentive/), "3")
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
+
+    await waitFor(() => expect(patches()).toHaveLength(1))
+    expect(patches()[0]).toEqual({ faculty_type: "RESEARCH", research_quota: 3 })
+  })
+
+  it("stays closed to the research cell, which clears the claims the quota decides", async () => {
+    mountPerson(CELL, account({ faculty_type: "RESEARCH", research_quota: 4 }))
     const { dialog } = await openEditor()
-    const group = within(dialog).getByRole("group", { name: "Research faculty" })
-    expect(within(group).getByRole("radio", { name: "Yes" })).toBeDisabled()
+    expect(within(dialog).getByRole("checkbox", { name: /Research faculty/ })).toBeDisabled()
+    expect(within(dialog).getByLabelText(/Papers a year before any incentive/)).toBeDisabled()
   })
 })
 
@@ -317,6 +342,21 @@ describe("People — the list", () => {
     const plainRow = screen.getByText("Dr Plain Faculty").closest("tr")!
     expect(within(plainRow).queryByText("HOD")).toBeNull()
     expect(within(plainRow).queryByText("Research")).toBeNull()
+  })
+
+  it("shows each research faculty member's quota beside the badge", async () => {
+    mountList([
+      { ...account(), id: "u-4", name: "Dr Quota Four", faculty_type: "RESEARCH", research_quota: 4 },
+      { ...account(), id: "u-5", name: "Dr No Quota", faculty_type: "RESEARCH", research_quota: null },
+      { ...account(), id: "u-6", name: "Dr Regular", faculty_type: "REGULAR", research_quota: 2 },
+    ])
+    const four = (await screen.findByText("Dr Quota Four")).closest("tr")!
+    expect(within(four).getByText("Quota 4 a year")).toBeInTheDocument()
+    const none = screen.getByText("Dr No Quota").closest("tr")!
+    expect(within(none).getByText("No quota set")).toBeInTheDocument()
+    // A quota left behind on a regular post decides nothing, so it is not shown.
+    const regular = screen.getByText("Dr Regular").closest("tr")!
+    expect(within(regular).queryByText(/Quota/)).toBeNull()
   })
 
   it("filters to research faculty on the server", async () => {

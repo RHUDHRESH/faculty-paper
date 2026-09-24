@@ -11,16 +11,29 @@ from core.api.common import api, session_auth
 from core.api.common import require_user
 from core.api.discussions import _write_post
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Optional
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import CalendarEvent, Claim, Notification, Post, Thread, User
+from core.models import (
+    CalendarEvent,
+    Claim,
+    ClaimAction,
+    ClaimStatus,
+    Notification,
+    PaidLedger,
+    Post,
+    Role,
+    Thread,
+    User,
+)
 from core import discussions
+from core.services import rbac
+from core.services.record_dates import filing_recorded, ledger_month_recorded
 
 # ---------- the calendar ----------
 
@@ -111,7 +124,147 @@ def list_events(
         "end": last.isoformat(),
         "results": [_event_dict(e) for e in qs],
         "kinds": [{"key": k.value, "label": k.label} for k in CalendarEvent.Kind],
+        "record": _record(user, first, last),
+        "record_kinds": [{"key": k, "label": v} for k, v in RECORD_KINDS.items()],
     }
+
+
+RECORD_KINDS = {"PAID": "Payments made", "PUBLISHED": "Published", "FILED": "Filed"}
+
+
+def _record_entry(kind: str, key: str, starts_on: date, title: str, **extra) -> dict[str, Any]:
+    return {
+        "id": f"record-{kind.lower()}-{key}",
+        "kind": kind,
+        "kind_label": RECORD_KINDS[kind],
+        "title": title,
+        "starts_on": starts_on.isoformat(),
+        "count": extra.get("count", 1),
+        "amount": extra.get("amount"),
+        "claim_id": extra.get("claim_id"),
+        "titles": extra.get("titles", []),
+        # A month's payments, or a month gathered for the college, is a month
+        # and not its first day.
+        "whole_month": extra.get("whole_month", kind == "PAID"),
+    }
+
+
+def _record(user: User, first: date, last: date) -> list[dict[str, Any]]:
+    """The dates the record already holds, as calendar entries nobody has to type.
+
+    Payments made, papers published and papers filed. The office, the
+    Principal, the Director and Finance see the college's, a month or a day at
+    a time. A claimant -- faculty, and a head of department, who sees no money
+    but their own -- sees their own papers and their own payments, one by one.
+    A date the ERP import stamped on a row because the workbook had none is not
+    a date anything happened, and is left out (core/services/record_dates.py).
+    """
+    # Here, not at the top: importing the module registers its routes, and
+    # route order is fixed by core/api/__init__.py.
+    from core.api.my_payments import ledger_for
+
+    college = rbac.can_view_reports(user.role)
+    own = Q(owner=user)
+    out: list[dict[str, Any]] = []
+
+    # ---- payments made ----
+    ledger = PaidLedger.objects.filter(payout_month__gte=first.replace(day=1), payout_month__lte=last)
+    if college:
+        months: dict[date, list[float]] = {}
+        for month, raw, amount in ledger.values_list("payout_month", "raw_json", "amount"):
+            if ledger_month_recorded(raw):
+                slot = months.setdefault(month, [0, 0.0])
+                slot[0] += 1
+                slot[1] += amount or 0
+        for month, (n, total) in sorted(months.items()):
+            out.append(_record_entry(
+                "PAID", month.strftime("%Y-%m"), month,
+                f"{n} {'paper' if n == 1 else 'papers'} paid for",
+                count=n, amount=round(total, 2),
+            ))
+    else:
+        mine = ledger_for(user).filter(
+            payout_month__gte=first.replace(day=1), payout_month__lte=last, amount__gt=0
+        )
+        for row in mine:
+            if ledger_month_recorded(row.raw_json):
+                out.append(_record_entry(
+                    "PAID", row.id, row.payout_month,
+                    f"Paid for {row.paper_title or 'a paper'}",
+                    amount=round(row.amount or 0, 2), claim_id=row.claim_id,
+                ))
+
+    # ---- papers published ----
+    papers = Claim.objects.exclude(status=ClaimStatus.DRAFT) | Claim.objects.filter(own)
+    # A head of department sees their department's filed papers, as the
+    # department page does -- titles and dates, never an amount -- gathered
+    # by month like the college's, and never linked: a colleague's ticket is
+    # not theirs to open.
+    department = (getattr(user, "department", "") or "").strip()
+    head = user.role == Role.HOD and bool(department)
+    if head:
+        papers = Claim.objects.filter(
+            own | (Q(owner__department__iexact=department) & ~Q(status=ClaimStatus.DRAFT))
+        )
+    elif not college:
+        papers = Claim.objects.filter(own)
+    published: dict[date, list[tuple[str, str]]] = {}
+    for claim_id, title, raw_day in papers.filter(
+        publication_date__gte=first.isoformat(), publication_date__lte=last.isoformat() + "~"
+    ).values_list("id", "paper_title", "publication_date"):
+        try:
+            day = date.fromisoformat((raw_day or "")[:10])
+        except ValueError:
+            continue
+        if first <= day <= last:
+            published.setdefault(day, []).append((claim_id, title or "Untitled paper"))
+    _gathered(out, "PUBLISHED", published, college or head, "published", link=not head)
+
+    # ---- papers filed ----
+    lo = timezone.make_aware(datetime.combine(first, time.min))
+    hi = timezone.make_aware(datetime.combine(last, time.max))
+    filed: dict[date, list[tuple[str, str]]] = {}
+    rows = (
+        papers.exclude(status=ClaimStatus.DRAFT)
+        .filter(submitted_at__gte=lo, submitted_at__lte=hi)
+        .annotate(acted=Exists(ClaimAction.objects.filter(claim=OuterRef("pk"))))
+        .values_list("id", "paper_title", "submitted_at", "created_at", "acted")
+    )
+    for claim_id, title, submitted, created, acted in rows:
+        if filing_recorded(submitted, created, has_actions=acted):
+            day = timezone.localtime(submitted).date()
+            filed.setdefault(day, []).append((claim_id, title or "Untitled paper"))
+    _gathered(out, "FILED", filed, college or head, "filed", link=not head)
+
+    out.sort(key=lambda e: (e["starts_on"], e["kind"]))
+    return out
+
+
+def _gathered(
+    out, kind: str, by_day: dict[date, list[tuple[str, str]]], college: bool, verb: str,
+    *, link: bool = True,
+):
+    """One entry per paper for a claimant; for the college, one per month,
+    naming the first few papers. A day at a time was a column of "1 paper
+    filed" rows that hid the month's shape."""
+    if not college:
+        for day, papers in sorted(by_day.items()):
+            for claim_id, title in papers:
+                prefix = "You filed" if kind == "FILED" else "Published:"
+                out.append(_record_entry(kind, claim_id, day, f"{prefix} {title}", claim_id=claim_id))
+        return
+    buckets: dict[date, list[tuple[str, str]]] = {}
+    for day, papers in by_day.items():
+        buckets.setdefault(day.replace(day=1), []).extend(papers)
+    for day, papers in sorted(buckets.items()):
+        n = len(papers)
+        out.append(_record_entry(
+            kind, day.isoformat(), day,
+            f"{n} {'paper' if n == 1 else 'papers'} {verb}",
+            count=n, titles=[t for _, t in papers[:3]],
+            claim_id=papers[0][0] if n == 1 and link else None,
+            whole_month=True,
+        ))
 
 
 @api.post("/calendar", auth=session_auth)
@@ -217,8 +370,30 @@ def notifications(
         qs = notify_service.in_section(qs, section)
     if unread:
         qs = qs.filter(read=False)
-    items = qs.order_by("-created_at")[: max(1, min(limit, 200))]
-    return [notify_service.serialize(n) for n in items]
+    items = list(qs.order_by("-created_at")[: max(1, min(limit, 200))])
+    # "Approved for payment" and "Paid" are the moments a claimant has a paper
+    # worth telling colleagues about, so those two offer "Share to the feed" --
+    # for their own filed paper only (`social.published_papers`). Rows from
+    # before alerts had kinds are recognised by their title.
+    from core.social import published_papers
+
+    shareable_titles = (" · Approved for payment", " · Paid")
+    shareable_kinds = ("claim_approved", "claim_paid")
+
+    def offers_share(n) -> bool:
+        return bool(n.claim_id) and (n.kind in shareable_kinds or n.title.endswith(shareable_titles))
+
+    candidates = {n.claim_id for n in items if offers_share(n)}
+    shareable = set(
+        published_papers(user).filter(pk__in=candidates).values_list("id", flat=True)
+    ) if candidates else set()
+    return [
+        {
+            **notify_service.serialize(n),
+            "share_paper_id": n.claim_id if offers_share(n) and n.claim_id in shareable else None,
+        }
+        for n in items
+    ]
 
 
 @api.get("/notifications/unread-count", auth=session_auth)

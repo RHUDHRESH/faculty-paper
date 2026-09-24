@@ -54,9 +54,9 @@ def send_alert(user, headline: str, detail: str) -> bool:
     """Send one alert to `user` on WhatsApp, if everything allows it. Never raises."""
     if not enabled():
         return False
-    from core.models import NotificationSettings
+    from core.models import SocialSettings
 
-    if not NotificationSettings.objects.filter(user=user, whatsapp_opt_in=True).exists():
+    if not SocialSettings.objects.filter(user=user, whatsapp_opt_in=True).exists():
         return False
     phone = normalise_phone(getattr(user, "phone", None))
     if not phone:

@@ -86,9 +86,12 @@ export function Wizard({
   onCurrentChange,
   onFinish,
   finishLabel = "Submit",
+  nextLabel = "Next",
   busy = false,
   validate,
   furthest,
+  aside,
+  footerNote,
   children,
   className,
 }: {
@@ -97,7 +100,17 @@ export function Wizard({
   onCurrentChange: (index: number) => void;
   onFinish: () => void;
   finishLabel?: string;
+  nextLabel?: string;
   busy?: boolean;
+  /**
+   * Stands under the step rail, from `md` up, and stays in view with it --
+   * for the one fact a reader should never have to scroll back to find (the
+   * filing form's payout estimate). Below `md` the rail is gone, so the
+   * caller decides where the same fact goes on a phone.
+   */
+  aside?: ReactNode;
+  /** One line beside the Back and Next buttons. */
+  footerNote?: ReactNode;
   /** Return a message to block leaving this step, or null to allow it. */
   validate?: (index: number) => string | null;
   /** Steps the user has completed, so a revisited step can be jumped back to. */
@@ -191,7 +204,8 @@ export function Wizard({
       </div>
 
       <div className="flex flex-col gap-8 md:flex-row md:items-start">
-        <nav aria-label="Steps" className="hidden shrink-0 md:block md:w-52">
+        <div className="hidden shrink-0 md:sticky md:top-6 md:block md:w-52">
+        <nav aria-label="Steps">
           <ol className="space-y-0.5">
             {steps.map((step, index) => {
               const state = railStateOf(index, current);
@@ -272,6 +286,8 @@ export function Wizard({
             })}
           </ol>
         </nav>
+        {aside && <div className="mt-6">{aside}</div>}
+        </div>
 
         <div className="min-w-0 flex-1">
           {/* Keyed on the step and animated in, with no exit and no
@@ -317,7 +333,7 @@ export function Wizard({
             </p>
           )}
 
-          <div className="mt-8 flex items-center justify-between border-t border-line pt-5">
+          <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
             <Button
               kind="default"
               size="lg"
@@ -327,6 +343,11 @@ export function Wizard({
             >
               Back
             </Button>
+            {footerNote && (
+              <div className="order-last w-full text-sm text-fg-muted sm:order-none sm:w-auto sm:flex-1 sm:text-center">
+                {footerNote}
+              </div>
+            )}
             <Button
               kind="primary"
               size="lg"
@@ -335,7 +356,7 @@ export function Wizard({
               disabled={busy}
             >
               {busy && <LoaderCircle className="animate-spin" />}
-              {isLast ? finishLabel : "Next"}
+              {isLast ? finishLabel : nextLabel}
             </Button>
           </div>
         </div>

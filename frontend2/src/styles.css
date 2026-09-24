@@ -148,6 +148,11 @@
   --color-critical: #b91c1c;
   --color-critical-wash: #fef2f2;
 
+  /* Area: time (sky) -- the Calendar. docs/ux/00-design-language.md §1. */
+  --area-time: #1b6fa3;
+  --area-time-wash: #e8f3fb;
+  --area-time-line: #b9dbf1;
+
   /* ---- shape ----------------------------------------------------------
      Small. A 12px radius turns a panel into a lozenge; 6px reads as paper. */
   --radius-sm: 0.25rem;
@@ -530,6 +535,8 @@
  * ------------------------------------------------------------------------ */
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --area-time: #6cc0f5;
+  --area-time-wash: #0f2230;
   --color-fg: #e7e9ee;
   --color-fg-muted: #a0a7b4;
   --color-fg-subtle: #6f7686;

@@ -243,6 +243,24 @@ def search_people_external(request: HttpRequest, q: str = "", limit: int = 20):
     return {"q": q, "results": graph.search_external(q, limit=max(1, min(limit, 50)))}
 
 
+class DisputeIn(Schema):
+    reason: str
+    duplicate_of: Optional[str] = None
+
+
+@api.post("/me/publications/{pub_id}/dispute", auth=session_auth)
+def dispute_my_publication(request: HttpRequest, pub_id: str, payload: DisputeIn):
+    """Report a paper on my record as not mine, or a duplicate. Recorded for the
+    research cell to review; the record itself is not changed here."""
+    user = require_user(request)
+    if payload.reason not in ("not_mine", "duplicate"):
+        raise HttpError(400, "Reason is not_mine or duplicate.")
+    pub = get_object_or_404(Publication, id=pub_id, authorships__user=user)
+    AuditLog.objects.create(actor=user, action="PUBLICATION_DISPUTED", entity="Publication", entity_id=pub.id,
+                            detail_json=json.dumps(payload.dict()))
+    return {"ok": True}
+
+
 @api.get("/me/scopus-pull", auth=session_auth)
 def my_scopus_pull(request: HttpRequest):
     """My papers as the record holds them, each marked with whether I have

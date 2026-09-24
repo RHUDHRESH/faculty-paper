@@ -324,6 +324,20 @@ class ApiTests(_Base):
         paid = {p["doi"]: p for p in self.client.get("/api/me/publications").json()["publications"]}["10.1/w2"]
         self.assertEqual(paid["claim"]["amount"], 5000)
 
+    def test_dispute_only_own_paper(self):
+        self.client.force_login(self.joyal)
+        pid = self.get("/api/me/publications")["publications"][0]["id"]
+        url = f"/api/me/publications/{pid}/dispute"
+        r = self.client.post(url, data=json.dumps({"reason": "not_mine"}), content_type="application/json")
+        self.assertEqual(r.status_code, 200, r.content)
+        bad = self.client.post(url, data=json.dumps({"reason": "x"}), content_type="application/json")
+        self.assertEqual(bad.status_code, 400)
+        other = Publication.objects.exclude(authorships__user=self.joyal).first()
+        if other:
+            r = self.client.post(f"/api/me/publications/{other.id}/dispute", data=json.dumps({"reason": "not_mine"}),
+                                 content_type="application/json")
+            self.assertEqual(r.status_code, 404)
+
     def test_admin_harvest_is_super_admin_only(self):
         r = self.client.post("/api/admin/publications/harvest", data="{}", content_type="application/json")
         self.assertEqual(r.status_code, 403)

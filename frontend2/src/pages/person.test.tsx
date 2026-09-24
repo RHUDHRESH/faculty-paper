@@ -86,6 +86,7 @@ function mount(data: ReturnType<typeof profile>, extra: ApiTable = {}, me: Me = 
       "/api/auth/me": () => me,
       "/api/people/u-ravi": () => data,
       "/api/people/me": () => data,
+      "/api/people/u-ravi/graph": () => ({ center: "u-ravi", nodes: [], links: [] }),
       "/api/feed": () => ({ tab: "everyone", results: [], next: null }),
       ...extra,
     })

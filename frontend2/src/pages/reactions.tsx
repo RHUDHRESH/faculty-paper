@@ -108,9 +108,9 @@ export function ReactionBar({
           type="button"
           onClick={() => setWho(true)}
           className="flex flex-wrap items-center gap-x-2 text-xs text-fg-muted hover:text-fg hover:underline"
-          aria-label={`See who reacted: ${REACTIONS.filter((r) => counts[r.kind])
-            .map((r) => `${counts[r.kind]} ${r.label.toLowerCase()}`)
-            .join(", ")}`}
+          // By total, not by kind: "2 like" read aloud beside a Like button
+          // is two controls with one name.
+          aria-label={`${total} reaction${total === 1 ? "" : "s"}. See who reacted`}
         >
           {REACTIONS.filter((r) => counts[r.kind] > 0).map((r) => (
             <span key={r.kind} className="inline-flex items-center gap-0.5 tabular">

@@ -109,8 +109,10 @@ describe("Feed", () => {
   })
 
   it("counts a like at once", async () => {
+    // A like is one of the reactions now (`pages/reactions.tsx`), sent to the
+    // same endpoint as the other three.
     const user = mount([post()], {
-      "/api/feed/posts/p1/like": () => new Promise(() => {}),
+      "/api/feed/posts/p1/reactions/like": () => new Promise(() => {}),
     })
     const card = (await screen.findByText("Seminar on thin films, Friday at 3")).closest("article")!
     const like = within(card as HTMLElement).getByRole("button", { name: /like/i })
@@ -119,7 +121,7 @@ describe("Feed", () => {
     await user.click(like)
     expect(like).toHaveAttribute("aria-pressed", "true")
     expect(within(card as HTMLElement).getByText("3")).toBeInTheDocument()
-    expect(sent("/api/feed/posts/p1/like")[0][1]).toMatchObject({ method: "POST" })
+    expect(sent("/api/feed/posts/p1/reactions/like")[0][1]).toMatchObject({ method: "POST" })
   })
 
   it("links the author to their profile", async () => {

@@ -11,6 +11,7 @@ import { Button } from "@/ui/button"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { useTheme, type ThemeChoice } from "@/app/theme"
 import { NotificationBell } from "@/app/notifications"
+import { UnreadBadge } from "@/app/unread"
 import { cn } from "@/lib/cn"
 import { api, forgetCsrf } from "@/lib/api"
 import { toast } from "@/ui/toast"
@@ -236,7 +237,10 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
                           />
                         )}
                         <Icon className="size-4 shrink-0" />
-                        {!collapsed && <span className="truncate">{item.label}</span>}
+                        {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+                        {item.to === "/messages" && (
+                          <UnreadBadge className={collapsed ? "absolute right-0.5 top-0.5" : undefined} />
+                        )}
                       </>
                     )}
                   </NavLink>
@@ -353,7 +357,8 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
                         }
                       >
                         <Icon className="size-4" />
-                        {item.label}
+                        <span className="flex-1">{item.label}</span>
+                        {item.to === "/messages" && <UnreadBadge />}
                       </NavLink>
                     )
                   })}

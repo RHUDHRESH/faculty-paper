@@ -95,37 +95,8 @@ type InboxRow = {
 
 /** An open conversation re-asks this often while it is on screen. */
 const CHAT_POLL_MS = 12_000
-/** The inbox and the badge in the sidebar. */
+/** The inbox list (the sidebar badge is `app/unread.tsx`). */
 const INBOX_POLL_MS = 30_000
-
-/* ------------------------------------------------------------------------ */
-/* The badge                                                                 */
-/* ------------------------------------------------------------------------ */
-
-export function useUnreadMessages() {
-  return useApi<{ unread: number; conversations: number }>(["dm", "unread"], "/api/dm/unread", {
-    refetchInterval: INBOX_POLL_MS,
-    staleTime: INBOX_POLL_MS,
-  })
-}
-
-/** How many conversations have something new. Nothing at all when none do. */
-export function UnreadBadge({ className }: { className?: string }) {
-  const unread = useUnreadMessages()
-  const n = unread.data?.conversations ?? 0
-  if (!n) return null
-  return (
-    <span
-      aria-label={`${n} conversation${n === 1 ? "" : "s"} with new messages`}
-      className={cn(
-        "grid min-w-[1.1rem] place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-4 text-accent-fg",
-        className
-      )}
-    >
-      {n > 99 ? "99+" : n}
-    </span>
-  )
-}
 
 /* ------------------------------------------------------------------------ */
 /* The inbox                                                                 */

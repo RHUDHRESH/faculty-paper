@@ -23,6 +23,7 @@ import {
   Receipt,
   Search,
   Settings2,
+  Share2,
   ShieldCheck,
   Sparkles,
   Stamp,
@@ -209,6 +210,13 @@ export const NAV: NavItem[] = [
     icon: Contact,
     group: "Research",
     keywords: ["people", "profiles", "faculty", "directory", "follow", "find someone"],
+  },
+  {
+    to: "/network",
+    label: "College network",
+    icon: Share2,
+    group: "Research",
+    keywords: ["graph", "co-authors", "collaborations", "who works with whom", "network"],
   },
   {
     to: "/calendar",

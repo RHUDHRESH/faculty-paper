@@ -46,6 +46,9 @@ const Feed = page(() => import("@/pages/feed"), "Feed")
 const FeedPostPage = page(() => import("@/pages/feed"), "PostPage")
 const Messages = page(() => import("@/pages/discussions"), "Messages")
 const Thread = page(() => import("@/pages/discussions"), "Thread")
+const ChatPage = page(() => import("@/pages/chat"), "ChatPage")
+const CollegeNetwork = page(() => import("@/pages/network"), "CollegeNetwork")
+const MyStats = page(() => import("@/pages/stats"), "MyStats")
 const PublicProfile = page(() => import("@/pages/person"), "PublicProfile")
 const PeopleDirectory = page(() => import("@/pages/person"), "PeopleDirectory")
 const CollegeResearch = page(() => import("@/pages/programme"), "CollegeResearch")
@@ -175,8 +178,11 @@ function App() {
               a private one opens, an open one is sent on to its post. */}
           <Route path="/discussions/:id" element={<Thread />} />
           <Route path="/messages" element={<Messages />} />
+          <Route path="/messages/c/:id" element={<ChatPage />} />
           <Route path="/messages/:id" element={<Thread />} />
+          <Route path="/network" element={<CollegeNetwork />} />
           <Route path="/u" element={<PeopleDirectory />} />
+          <Route path="/u/me/stats" element={<MyStats />} />
           <Route path="/u/:id" element={<PublicProfile />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/department" element={<Department />} />

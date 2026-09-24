@@ -1,17 +1,32 @@
-import { useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Camera,
   ExternalLink,
   FileText,
+  Handshake,
   Mail,
   Pencil,
   Search,
+  Share2,
   UserCheck,
   UserPlus,
   Users,
 } from "lucide-react"
+
+import { CollabDialog } from "@/pages/chat"
+import {
+  Collaborations,
+  CompletenessMeter,
+  PinDialog,
+  PinnedPapers,
+  Skills,
+  type Collaboration,
+  type Completeness,
+  type Skill,
+} from "@/pages/person-social"
+import { StatsCard, type StatsSummary } from "@/pages/stats"
 
 import { useAuth } from "@/app/auth"
 import { api, ApiError } from "@/lib/api"
@@ -100,14 +115,23 @@ export type Profile = {
   posts: FeedPost[]
   research_post: ResearchPost | null
   may_open_record: boolean
+  skills: Skill[]
+  pinned: NonNullable<FeedPost["paper"]>[]
+  collaborations: Collaboration[]
+  /** Your own profile only; null on anybody else's. */
+  completeness: Completeness | null
+  stats: StatsSummary | null
 }
 
-type PersonCard = PersonBrief & { interests: string[]; papers: number; following: boolean }
+type PersonCard = PersonBrief & { interests: string[]; skills?: string[]; papers: number; following: boolean }
 
 type Directory = { total: number; limit: number; offset: number; results: PersonCard[] }
 
 /** How many papers show before "Show all". */
 const PAPERS_SHOWN = 8
+
+/** The network drawing loads only when a profile is opened, not with the page. */
+const PersonGraph = lazy(() => import("@/pages/network").then((m) => ({ default: m.PersonGraph })))
 
 /* ------------------------------------------------------------------------ */
 /* The profile                                                               */
@@ -158,6 +182,18 @@ export function PublicProfile() {
 function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
   const { person } = data
   const [editing, setEditing] = useState(false)
+  const [pinning, setPinning] = useState(false)
+  const [addingSkill, setAddingSkill] = useState(false)
+  const [proposing, setProposing] = useState(false)
+
+  function act(action: string) {
+    if (action === "edit") setEditing(true)
+    else if (action === "pins") setPinning(true)
+    else if (action === "skills") {
+      setAddingSkill(true)
+      document.getElementById("skills")?.scrollIntoView({ block: "center", behavior: "smooth" })
+    }
+  }
 
   return (
     <div className="page max-w-3xl space-y-10">
@@ -213,15 +249,42 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
               ))}
             </div>
           )}
-          <FollowBar data={data} routeId={routeId} onEdit={() => setEditing(true)} />
+          <FollowBar
+            data={data}
+            routeId={routeId}
+            onEdit={() => setEditing(true)}
+            onPropose={() => setProposing(true)}
+          />
         </div>
       </header>
+
+      {data.completeness && <CompletenessMeter completeness={data.completeness} onAction={act} />}
+      {data.stats && <StatsCard stats={data.stats} />}
 
       {data.research_post && (
         <ResearchPostPanel personId={person.id} routeId={routeId} post={data.research_post} isMe={data.is_me} />
       )}
 
       <Counts counts={data.counts} />
+
+      <PinnedPapers pinned={data.pinned ?? []} isMe={data.is_me} onChoose={() => setPinning(true)} />
+
+      <div id="skills">
+        <Skills
+          skills={data.skills ?? []}
+          isMe={data.is_me}
+          name={person.name}
+          routeId={routeId}
+          adding={addingSkill}
+          onAdding={setAddingSkill}
+        />
+      </div>
+
+      <Collaborations
+        collaborations={data.collaborations ?? []}
+        routeId={routeId}
+        onPropose={data.is_me ? undefined : () => setProposing(true)}
+      />
 
       <Papers papers={data.papers} isMe={data.is_me} name={person.name} />
 
@@ -246,9 +309,23 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
         </section>
       )}
 
+      <section className="space-y-3">
+        <SectionTitle>
+          <Share2 className="mr-1 inline size-4 align-[-2px] text-accent" aria-hidden />
+          {data.is_me ? "Your network in the college" : "Their network in the college"}
+        </SectionTitle>
+        <Suspense fallback={<Skeleton className="h-80 w-full" />}>
+          <PersonGraph personId={person.id} name={person.name} />
+        </Suspense>
+      </section>
+
       <Posts data={data} />
 
       {editing && <EditProfile data={data} routeId={routeId} onClose={() => setEditing(false)} />}
+      {pinning && (
+        <PinDialog papers={data.papers} pinned={data.pinned ?? []} routeId={routeId} onClose={() => setPinning(false)} />
+      )}
+      {proposing && <CollabDialog person={person} onClose={() => setProposing(false)} />}
     </div>
   )
 }
@@ -257,10 +334,12 @@ function FollowBar({
   data,
   routeId,
   onEdit,
+  onPropose,
 }: {
   data: Profile
   routeId: string
   onEdit: () => void
+  onPropose: () => void
 }) {
   const qc = useQueryClient()
   const key = ["person", routeId]
@@ -336,6 +415,10 @@ function FollowBar({
                 <Mail />
                 Message
               </Link>
+            </Button>
+            <Button kind="default" size="md" onClick={onPropose}>
+              <Handshake />
+              Collaborate
             </Button>
             {data.may_open_record && (
               <Button kind="quiet" size="md" asChild>
@@ -867,6 +950,9 @@ export function PeopleDirectory() {
                       {p.interests.length > 0 ? ` · ${p.interests.join(", ")}` : ""}
                       {p.following ? " · following" : ""}
                     </Meta>
+                    {p.skills && p.skills.length > 0 && (
+                      <Meta className="block truncate text-xs">Skills: {p.skills.join(", ")}</Meta>
+                    )}
                   </span>
                 </Link>
               </li>

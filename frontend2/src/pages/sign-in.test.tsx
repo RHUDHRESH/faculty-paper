@@ -142,3 +142,36 @@ describe("SignIn — Google", () => {
     expect(screen.queryByText(/then link Google from your profile/)).toBeNull()
   })
 })
+
+describe("SignIn — Convocation landing", () => {
+  function stubStats(stats: unknown) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () => (url.includes("/public/stats") ? stats : { enabled: false }),
+      }))
+    )
+  }
+
+  it("says what this is for, in the honour face", async () => {
+    stubStats(null)
+    mount(() => ({}))
+    expect(await screen.findByText("Your research, on the record.")).toHaveClass("honour")
+  })
+
+  it("draws the live stats line from the public endpoint", async () => {
+    stubStats({ papers: 1240, faculty: 410, departments: 23 })
+    mount(() => ({}))
+    const lines = await screen.findAllByText(/departments — and counting/)
+    expect(lines[0]).toHaveTextContent("1,240 papers · 410 faculty · 23 departments — and counting")
+  })
+
+  it("hides the line rather than printing 0 when the stats are missing", async () => {
+    stubStats({ detail: "Not found" })
+    mount(() => ({}))
+    await screen.findByRole("button", { name: "Sign in" })
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled())
+    expect(screen.queryByText(/and counting/)).toBeNull()
+  })
+})

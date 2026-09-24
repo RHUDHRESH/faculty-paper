@@ -5,7 +5,6 @@ import { useAuth } from "@/app/auth"
 import { loadGoogleIdentity, type GoogleConfig } from "@/app/google"
 import { useInstitution } from "@/app/institution"
 import { Mark } from "@/ui/art"
-import { JOURNEY } from "@/ui/journey"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
 
@@ -44,6 +43,7 @@ export function SignIn() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [forgot, setForgot] = useState(false)
+  const stats = usePublicStats()
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -69,8 +69,8 @@ export function SignIn() {
   )
 
   return (
-    <div className="grid min-h-svh bg-bg lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-      <BrandPanel collegeName={collegeName} />
+    <div className="grid min-h-svh bg-bg lg:grid-cols-[minmax(0,6fr)_minmax(0,5fr)]">
+      <BrandPanel collegeName={collegeName} stats={stats} />
 
       <main className="grid place-items-center px-5 py-12">
         {/* CSS rather than the animation library: this is the first page most
@@ -201,6 +201,8 @@ export function SignIn() {
 
           <OtherWaysIn onError={setError} />
 
+          {stats && <StatsLine stats={stats} className="mt-8 text-fg-muted lg:hidden" />}
+
           {institution.sign_in_note && (
             <p className="mt-8 border-t border-line pt-4 text-sm text-fg-muted">
               {institution.sign_in_note}
@@ -212,15 +214,54 @@ export function SignIn() {
   )
 }
 
+export type PublicStats = { papers: number; faculty: number; departments: number }
+
 /**
- * The half of the page that is not the form: whose system this is, and what
- * happens to a paper filed in it. Drawn in the brand colour so the page has a
- * front, and hidden below `lg`, where the form is the whole job.
+ * Whole-college counts for the stats line (`/api/public/stats`, anonymous,
+ * cached an hour). Anything but three numbers -- a failed request, an old
+ * server -- hides the line rather than printing "0 papers".
  */
-function BrandPanel({ collegeName }: { collegeName: string }) {
+function usePublicStats(): PublicStats | null {
+  const [stats, setStats] = useState<PublicStats | null>(null)
+  useEffect(() => {
+    let live = true
+    void fetch("/api/public/stats")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => {
+        const ok =
+          b && [b.papers, b.faculty, b.departments].every((n) => typeof n === "number") && b.papers > 0
+        if (live && ok) setStats({ papers: b.papers, faculty: b.faculty, departments: b.departments })
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+  return stats
+}
+
+function StatsLine({ stats, className }: { stats: PublicStats; className?: string }) {
+  const n = (x: number) => x.toLocaleString("en-IN")
   return (
-    <aside className="relative hidden overflow-hidden bg-brand text-brand-fg lg:flex lg:flex-col lg:justify-between lg:p-12">
-      <Mark className="pointer-events-none absolute -bottom-24 -right-20 size-[26rem] opacity-[0.07] grayscale" />
+    <p className={cn("text-sm tabular", className)}>
+      <span className="font-semibold">{n(stats.papers)}</span> papers ·{" "}
+      <span className="font-semibold">{n(stats.faculty)}</span> faculty ·{" "}
+      <span className="font-semibold">{n(stats.departments)}</span> departments — and counting
+    </p>
+  )
+}
+
+/**
+ * The half of the page that is not the form (docs/ux/01): whose system this
+ * is and what it is for you, in the honour face, over the house illustration
+ * and the live stats line. Solid navy with the gold ribbon. On a phone it
+ * shrinks to a 280px band above the form.
+ */
+function BrandPanel({ collegeName, stats }: { collegeName: string; stats: PublicStats | null }) {
+  return (
+    <aside className="relative flex flex-col overflow-hidden bg-brand px-5 pt-8 pb-6 text-brand-fg lg:justify-between lg:p-12">
+      <div aria-hidden className="ribbon absolute inset-x-0 top-0 h-[3px]" />
+      <Mark className="pointer-events-none absolute -right-20 -bottom-24 size-[26rem] opacity-5 grayscale" />
 
       <div className="relative flex items-center gap-3">
         <Mark className="size-9" />
@@ -230,30 +271,26 @@ function BrandPanel({ collegeName }: { collegeName: string }) {
         </div>
       </div>
 
-      <div className="frame-rise relative max-w-md [animation-delay:50ms]">
-        <p className="text-[2.5rem] font-semibold leading-[1.1] tracking-[-0.03em] [text-wrap:balance]">
-          File the paper once. See where it is. Get paid.
+      <div className="frame-rise relative mt-6 max-w-xl [animation-delay:50ms] lg:mt-0">
+        <p className="honour text-[2rem] leading-[1.1] [text-wrap:balance] lg:text-honour">
+          Your research, on the record.
         </p>
-        <p className="mt-4 text-base opacity-80">
-          Paste a DOI and most of the claim fills itself in. After that it
-          moves through four stages, and you can always see which one.
+        <p className="mt-3 hidden max-w-md text-base opacity-85 sm:block">
+          Every paper you have published, where each claim stands, and who you could write with next.
         </p>
-
-        <ol className="mt-10 grid grid-cols-4 gap-2">
-          {JOURNEY.map((stage, i) => (
-            <li key={stage}>
-              <span
-                aria-hidden
-                className="block h-1.5 rounded-full bg-brand-fg"
-                style={{ opacity: 0.35 + i * 0.2 }}
-              />
-              <span className="mt-2 block text-sm font-medium">{stage}</span>
-            </li>
-          ))}
-        </ol>
+        <img
+          src="/illustrations/hero-landing.svg"
+          alt=""
+          aria-hidden
+          width={320}
+          height={200}
+          draggable={false}
+          className="-mb-2 mt-4 h-auto w-full max-w-[200px] select-none lg:mt-10 lg:max-w-[480px]"
+        />
+        {stats && <StatsLine stats={stats} className="mt-6 hidden text-area-honours-fill lg:block" />}
       </div>
 
-      <p className="relative text-sm opacity-70">
+      <p className="relative mt-6 hidden text-sm opacity-70 lg:block">
         Signing in never creates an account. Every account here was made by the
         research cell.{" "}
         <a href="/privacy" className="underline underline-offset-2">

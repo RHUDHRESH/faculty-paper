@@ -20,6 +20,8 @@ export type Me = {
   department?: string | null
   designation?: string | null
   staff_id?: string | null
+  /** Their own profile photo, set from their public profile. */
+  photo_url?: string | null
   must_change_password?: boolean
   /** Set while a super admin is viewing as this account. */
   impersonated_by?: { id: string; name: string; email: string } | null

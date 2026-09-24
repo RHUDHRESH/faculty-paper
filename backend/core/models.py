@@ -1,3 +1,4 @@
+import threading
 import uuid
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
@@ -6,6 +7,33 @@ from django.db import models
 
 def cuid():
     return uuid.uuid4().hex
+
+
+_clock_lock = threading.Lock()
+_clock_last = None
+
+
+def monotonic_now():
+    """Now, but never at or before the last value this process handed out.
+
+    The system clock on some hosts ticks once a millisecond, so two rows
+    written in the same loop share a timestamp exactly -- and with a random
+    id as the tie-break, "newest first" then orders them by coin toss. The
+    feed is ordered by when things were written, so its rows take their time
+    from here: one microsecond past the previous one when the clock has not
+    moved.
+    """
+    global _clock_last
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    with _clock_lock:
+        now = timezone.now()
+        if _clock_last is not None and now <= _clock_last:
+            now = _clock_last + timedelta(microseconds=1)
+        _clock_last = now
+        return now
 
 
 class Role(models.TextChoices):
@@ -164,6 +192,16 @@ class User(AbstractBaseUser, PermissionsMixin):
     #: (PATCH /auth/profile/self). Nothing is paid or checked against it, so
     #: routing it through a super admin would only guarantee it goes stale.
     phone = models.CharField(max_length=32, blank=True, null=True)
+
+    #: A few lines about themselves, shown on the public profile. Self-service
+    #: for the same reason as the phone: nothing is paid on it.
+    bio = models.TextField(blank=True, null=True)
+    #: The person's ORCID iD, checksum-verified before it is kept. Unlike the
+    #: Scopus link it attributes no claim to anybody, so it is theirs to set.
+    orcid_id = models.CharField(max_length=19, blank=True, null=True)
+    #: The storage name of their profile photo (`avatars/<uuid>.<ext>`),
+    #: re-encoded small on upload so it carries no camera metadata.
+    photo = models.CharField(max_length=255, blank=True, null=True)
 
     #: A Google account the person linked from their profile, identified by
     #: Google's stable subject id rather than by email: a personal Gmail
@@ -1751,3 +1789,197 @@ class AttachmentCheck(models.Model):
 
     def __str__(self) -> str:
         return f"{self.outcome} {self.url}"
+
+
+# ---------------------------------------------------------------- the feed --
+
+
+class FeedPost(models.Model):
+    """One post in the college's feed.
+
+    The feed replaced the open threads: a colleague sharing a paper, asking
+    who has used a machine, or announcing a seminar wants to be *seen*, and a
+    list of thread titles hid all of that behind a click. Private conversations
+    (a named few, or the research office) stay as threads -- they are messages,
+    not posts.
+
+    Visibility is two-valued and read in one place (`core.social.visible_posts`):
+
+    - EVERYONE    everybody signed in
+    - DEPARTMENT  the author's department, snapshotted into `department` when
+                  the post is written. A department-only post must not follow
+                  its author into their next department.
+
+    No money is ever stored or rendered here. A paper reference points at the
+    author's own filed paper and is shown by title, journal, year and quartile.
+    """
+
+    class Visibility(models.TextChoices):
+        EVERYONE = "EVERYONE", "Everybody"
+        DEPARTMENT = "DEPARTMENT", "My department"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="feed_posts")
+    body = models.TextField(blank=True, default="")
+    visibility = models.CharField(
+        max_length=16, choices=Visibility.choices, default=Visibility.EVERYONE, db_index=True
+    )
+    #: The author's department when they wrote it. Always set when they had
+    #: one: it is what a DEPARTMENT post is visible to, and what "follow a
+    #: department" and the department tab match on.
+    department = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+
+    link_url = models.CharField(max_length=500, blank=True, null=True)
+    paper = models.ForeignKey(
+        "Claim", null=True, blank=True, on_delete=models.SET_NULL, related_name="feed_posts"
+    )
+    #: Resolved @mentions, as written. Resolved once, when the post is saved,
+    #: for the reason `Mention` gives: a name must not quietly re-point later.
+    mentions_json = models.TextField(default="[]")
+
+    #: An image or a PDF, stored under `feed/` and served only through the
+    #: authenticated view that checks the reader may see this post.
+    attachment_name = models.CharField(max_length=255, blank=True, null=True)
+    attachment_kind = models.CharField(max_length=8, blank=True, null=True)
+    attachment_label = models.CharField(max_length=255, blank=True, null=True)
+    attachment_size = models.PositiveIntegerField(blank=True, null=True)
+
+    #: Ordered on, so it comes from `monotonic_now`: two posts must never tie.
+    created_at = models.DateTimeField(default=monotonic_now, db_index=True)
+    edited_at = models.DateTimeField(blank=True, null=True)
+
+    #: Hidden by the super admin. Still there for its author, who is told why.
+    hidden_at = models.DateTimeField(blank=True, null=True)
+    hidden_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="feed_posts_hidden"
+    )
+    hidden_reason = models.CharField(max_length=300, blank=True, null=True)
+
+    #: The open thread this post was carried over from, when it was one.
+    legacy_thread = models.OneToOneField(
+        "Thread", null=True, blank=True, on_delete=models.SET_NULL, related_name="feed_post"
+    )
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["-created_at", "-id"], name="feedpost_newest_first"),
+            models.Index(fields=["author", "-created_at"], name="feedpost_by_author"),
+            models.Index(fields=["department", "-created_at"], name="feedpost_by_department"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.author_id}: {self.body[:40]}"
+
+
+class FeedComment(models.Model):
+    """A reply under a post.
+
+    `kind` exists only for comments carried over from an old thread, where
+    the assistant or the system had written some of the replies.
+    """
+
+    class Kind(models.TextChoices):
+        HUMAN = "HUMAN", "Written by a person"
+        AGENT = "AGENT", "Answered by the assistant"
+        SYSTEM = "SYSTEM", "Recorded by the system"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    post = models.ForeignKey(FeedPost, on_delete=models.CASCADE, related_name="comments")
+    #: Null for a carried-over assistant or system reply -- nobody wrote it.
+    author = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.CASCADE, related_name="feed_comments"
+    )
+    kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.HUMAN)
+    body = models.TextField()
+    mentions_json = models.TextField(default="[]")
+    created_at = models.DateTimeField(default=monotonic_now)
+    edited_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [models.Index(fields=["post", "created_at"], name="feedcomment_by_post")]
+
+    def __str__(self) -> str:
+        return f"{self.post_id}: {self.body[:40]}"
+
+
+class FeedReaction(models.Model):
+    """A like. One per person per post; liking twice is still liking once."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    post = models.ForeignKey(FeedPost, on_delete=models.CASCADE, related_name="reactions")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="feed_reactions")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["post", "user"], name="one_like_per_person_per_post")
+        ]
+
+
+class Follow(models.Model):
+    """Somebody following a colleague, or a whole department.
+
+    Exactly one of `person` and `department` is set. A department is kept as
+    the name people are filed under, because that is the only department
+    record the system has.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    follower = models.ForeignKey(User, on_delete=models.CASCADE, related_name="follows")
+    person = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.CASCADE, related_name="followers"
+    )
+    department = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["follower", "person"], name="follow_a_person_once",
+                condition=models.Q(person__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["follower", "department"], name="follow_a_department_once",
+                condition=models.Q(department__isnull=False),
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(person__isnull=False, department__isnull=True)
+                    | models.Q(person__isnull=True, department__isnull=False)
+                ),
+                name="follow_one_thing",
+            ),
+        ]
+
+
+class PostReport(models.Model):
+    """Somebody telling the super admin a post should not be there."""
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Waiting for the super admin"
+        HIDDEN = "HIDDEN", "The post was hidden"
+        DISMISSED = "DISMISSED", "Looked at, left up"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    post = models.ForeignKey(FeedPost, on_delete=models.CASCADE, related_name="reports")
+    reporter = models.ForeignKey(User, on_delete=models.CASCADE, related_name="post_reports")
+    reason = models.CharField(max_length=500)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(blank=True, null=True)
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="post_reports_resolved"
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["post", "reporter"], name="one_open_report_per_person_per_post",
+                condition=models.Q(status="OPEN"),
+            )
+        ]

@@ -21,6 +21,7 @@ from core.api.common import (
 
 from datetime import date, datetime
 from typing import Any
+from django.conf import settings
 from django.http import HttpRequest
 from ninja.errors import HttpError
 from core.models import Claim, ClaimStatus, User
@@ -61,6 +62,9 @@ def _user_dict(u: User) -> dict[str, Any]:
         "research_quota": u.research_quota,
         "research_quota_note": u.research_quota_note,
         "phone": u.phone,
+        "bio": u.bio,
+        "orcid_id": u.orcid_id,
+        "photo_url": f"{settings.MEDIA_URL}{u.photo}" if u.photo else None,
         "portal": rbac.portal_for_role(u.role),
     }
 

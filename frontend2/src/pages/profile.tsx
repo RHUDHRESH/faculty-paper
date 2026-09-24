@@ -1053,7 +1053,7 @@ function sameSet(a: string[], b: string[]): boolean {
  * domain outside that list can never be matched against a colleague or a
  * venue later, so a free-typed one is silently worth nothing.
  */
-function Interests() {
+export function Interests() {
   const interests = useApi<{ domains: string[] }>(["me", "interests"], "/api/me/interests")
   const domains = useApi<{ domains: string[] }>(
     ["research-domains"],

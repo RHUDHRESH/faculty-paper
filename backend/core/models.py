@@ -1601,11 +1601,18 @@ class CalendarEvent(models.Model):
             (v, label)
             for v, label in Thread.Visibility.choices
             if v != Thread.Visibility.DIRECT
-        ],
+        ]
+        #: A personal reminder: its creator's and nobody else's, the office
+        #: included. Threads have no such thing; a diary does.
+        + [("PRIVATE", "Only me")],
         default=Thread.Visibility.PUBLIC,
         db_index=True,
     )
     department = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+
+    #: Null on both for an all-day entry. A time is local college time.
+    starts_at = models.TimeField(blank=True, null=True)
+    ends_at = models.TimeField(blank=True, null=True)
 
     #: Where it came from, when it came from somewhere.
     thread = models.ForeignKey(
@@ -1627,6 +1634,22 @@ class CalendarEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.starts_on} {self.title[:40]}"
+
+
+class CalendarFeed(models.Model):
+    """The secret in somebody's calendar subscription URL.
+
+    A bearer token: whoever holds the link reads the feed, which is why the
+    feed carries titles and dates only, and why a reset replaces the token --
+    the old link stops working at once.
+    """
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="calendar_feed")
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"feed {self.user_id}"
 
 
 class ResearchInterest(models.Model):

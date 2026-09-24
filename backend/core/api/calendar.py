@@ -11,16 +11,19 @@ from core.api.common import api, session_auth
 from core.api.common import require_user
 from core.api.discussions import _write_post
 
+import secrets
 from datetime import date, datetime, time, timedelta
 from typing import Any, Optional
+from urllib.parse import quote
 from django.db.models import Exists, OuterRef, Q
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import (
     CalendarEvent,
+    CalendarFeed,
     Claim,
     ClaimAction,
     ClaimStatus,
@@ -32,7 +35,7 @@ from core.models import (
     User,
 )
 from core import discussions
-from core.services import rbac
+from core.services import ics, rbac
 from core.services.record_dates import filing_recorded, ledger_month_recorded
 
 # ---------- the calendar ----------
@@ -44,14 +47,59 @@ class EventIn(Schema):
     starts_on: str
     ends_on: Optional[str] = None
     description: Optional[str] = None
-    visibility: str = "PUBLIC"
+    visibility: str = "PRIVATE"
     department: Optional[str] = None
     thread_id: Optional[str] = None
     claim_id: Optional[str] = None
+    #: "10:00". Both empty (or all_day) for an all-day entry.
+    starts_at: Optional[str] = None
+    ends_at: Optional[str] = None
+    all_day: bool = True
+
+
+PRIVATE = "PRIVATE"
+
+
+def allowed_visibilities(user: User) -> list[str]:
+    """Who may put a date in front of whom.
+
+    Faculty keep a diary: "Only me". A head of department may also tell their
+    department. The office may tell anyone.
+    """
+    if discussions.is_office(user.role):
+        return [PRIVATE, "DEPARTMENT", "PUBLIC", "OFFICE"]
+    if user.role == Role.HOD and (getattr(user, "department", "") or "").strip():
+        return [PRIVATE, "DEPARTMENT"]
+    return [PRIVATE]
+
+
+def _times(payload: EventIn) -> tuple[Optional[time], Optional[time]]:
+    if payload.all_day or not payload.starts_at:
+        return None, None
+    try:
+        starts = time.fromisoformat(payload.starts_at)
+        ends = time.fromisoformat(payload.ends_at) if payload.ends_at else None
+    except ValueError:
+        raise HttpError(400, "Times must look like 10:00")
+    return starts, ends
+
+
+def _own_claim(user: User, claim_id: Optional[str]):
+    """A reminder may point at one of *my* papers, never at a colleague's."""
+    if not claim_id:
+        return None
+    claim = Claim.objects.filter(pk=claim_id).first()
+    if claim is None or (claim.owner_id != user.id and not discussions.is_office(user.role)):
+        raise HttpError(404, "No such paper of yours")
+    return claim
 
 
 def _event_dict(e: CalendarEvent) -> dict[str, Any]:
     return {
+        "starts_at": e.starts_at.strftime("%H:%M") if e.starts_at else None,
+        "ends_at": e.ends_at.strftime("%H:%M") if e.ends_at else None,
+        "all_day": e.starts_at is None,
+        "claim_title": e.claim.paper_title if e.claim_id and e.claim else None,
         "id": e.id,
         "title": e.title,
         "kind": e.kind,
@@ -70,7 +118,7 @@ def _event_dict(e: CalendarEvent) -> dict[str, Any]:
 
 def _visible_events(user: User):
     """Same three-way rule as a thread, applied to a date."""
-    condition = Q(visibility=Thread.Visibility.PUBLIC)
+    condition = Q(visibility=Thread.Visibility.PUBLIC) | Q(visibility=PRIVATE, created_by=user)
     department = (getattr(user, "department", "") or "").strip()
     if department:
         condition |= Q(
@@ -100,7 +148,7 @@ def list_events(
     that opens on four years of history is a calendar nobody scrolls.
     """
     user = require_user(request)
-    qs = _visible_events(user).select_related("created_by")
+    qs = _visible_events(user).select_related("created_by", "claim")
 
     today = timezone.now().date()
     try:
@@ -126,10 +174,40 @@ def list_events(
         "kinds": [{"key": k.value, "label": k.label} for k in CalendarEvent.Kind],
         "record": _record(user, first, last),
         "record_kinds": [{"key": k, "label": v} for k, v in RECORD_KINDS.items()],
+        "visibilities": allowed_visibilities(user),
     }
 
 
-RECORD_KINDS = {"PAID": "Payments made", "PUBLISHED": "Published", "FILED": "Filed"}
+RECORD_KINDS = {
+    "PAID": "Payments made",
+    "PUBLISHED": "Published",
+    "FILED": "Filed",
+    "CUTOFF": "Filing cutoff",
+}
+
+
+def _cutoffs(first: date, last: date) -> list[dict[str, Any]]:
+    """The payout policy's filing cutoff, once a month -- only when it is set.
+    A deadline nobody decided is fake urgency (core/services/nudges.py)."""
+    from core.services.nudges import cutoff_day
+
+    day = cutoff_day()
+    if not day:
+        return []
+    out = []
+    month = first.replace(day=1)
+    while month <= last:
+        try:
+            when = month.replace(day=day)
+        except ValueError:  # 31 in a 30-day month: the month's last day
+            when = (month.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        if first <= when <= last:
+            out.append(_record_entry(
+                "CUTOFF", when.strftime("%Y-%m"), when,
+                "Filing cutoff for this month's payout", whole_month=False,
+            ))
+        month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return out
 
 
 def _record_entry(kind: str, key: str, starts_on: date, title: str, **extra) -> dict[str, Any]:
@@ -236,6 +314,7 @@ def _record(user: User, first: date, last: date) -> list[dict[str, Any]]:
             filed.setdefault(day, []).append((claim_id, title or "Untitled paper"))
     _gathered(out, "FILED", filed, college or head, "filed", link=not head)
 
+    out.extend(_cutoffs(first, last))
     out.sort(key=lambda e: (e["starts_on"], e["kind"]))
     return out
 
@@ -267,6 +346,94 @@ def _gathered(
         ))
 
 
+# ---------- the subscription feed ----------
+
+
+def _feed_for(user: User, *, rotate: bool = False) -> CalendarFeed:
+    feed = CalendarFeed.objects.filter(user=user).first()
+    if feed is None:
+        return CalendarFeed.objects.create(user=user, token=secrets.token_urlsafe(32))
+    if rotate:
+        feed.token = secrets.token_urlsafe(32)
+        feed.save()
+    return feed
+
+
+def _feed_links(request: HttpRequest, feed: CalendarFeed) -> dict[str, str]:
+    url = request.build_absolute_uri(f"/api/calendar/feed/{feed.token}.ics")
+    webcal = "webcal://" + url.split("://", 1)[1]
+    return {
+        "url": url,
+        "webcal": webcal,
+        "google_subscribe_url": "https://calendar.google.com/calendar/r?cid=" + quote(webcal, safe=""),
+    }
+
+
+@api.get("/calendar/feed-link", auth=session_auth)
+def feed_link(request: HttpRequest):
+    user = require_user(request)
+    return _feed_links(request, _feed_for(user))
+
+
+@api.post("/calendar/feed-link/reset", auth=session_auth)
+def feed_link_reset(request: HttpRequest):
+    user = require_user(request)
+    return _feed_links(request, _feed_for(user, rotate=True))
+
+
+@api.get("/calendar/feed/{token}.ics", auth=None)
+def feed(request: HttpRequest, token: str):
+    """Everything on my calendar, for Google, Outlook or Apple to poll.
+
+    Authorised by the token alone. Titles and dates only: no amount and no
+    staff id ever leaves in it, whatever the record entry carries.
+    """
+    row = CalendarFeed.objects.filter(token=token).select_related("user").first()
+    if row is None or not row.user.is_active:
+        return HttpResponse("No such calendar.", status=404, content_type="text/plain")
+    user = row.user
+    today = timezone.localdate()
+    first, last = today - timedelta(days=365), today + timedelta(days=365)
+    events = (
+        _visible_events(user)
+        .filter(starts_on__lte=last)
+        .filter(Q(ends_on__isnull=True, starts_on__gte=first) | Q(ends_on__gte=first))
+    )
+    body = ics.calendar(
+        [ics.from_event(e) for e in events] + [ics.from_record(r) for r in _record(user, first, last)],
+        name="Publications calendar",
+    )
+    response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
+    response["Cache-Control"] = "max-age=900"
+    response["Content-Disposition"] = 'inline; filename="calendar.ics"'
+    return response
+
+
+def _check_visibility(user: User, visibility: str, department: Optional[str]) -> None:
+    if visibility not in allowed_visibilities(user):
+        if visibility not in [v for v, _ in CalendarEvent._meta.get_field("visibility").choices]:
+            raise HttpError(400, "Choose who sees it: only you, your department or the college.")
+        raise HttpError(403, "You can only add events for yourself.")
+    if visibility == PRIVATE:
+        return
+    refusal = discussions.check_visibility(user, visibility, department)
+    if refusal:
+        raise HttpError(403 if "only" in refusal.lower() else 400, refusal)
+
+
+def _dates(payload: EventIn) -> tuple[date, Optional[date]]:
+    try:
+        starts = date.fromisoformat(payload.starts_on)
+        ends = date.fromisoformat(payload.ends_on) if payload.ends_on else None
+    except (TypeError, ValueError):
+        raise HttpError(400, "Dates must look like 2026-03-01")
+    if ends and ends < starts:
+        raise HttpError(400, "It cannot end before it starts.")
+    if ends == starts:
+        ends = None
+    return starts, ends
+
+
 @api.post("/calendar", auth=session_auth)
 def create_event(request: HttpRequest, payload: EventIn):
     user = require_user(request)
@@ -276,16 +443,13 @@ def create_event(request: HttpRequest, payload: EventIn):
     if payload.kind not in CalendarEvent.Kind.values:
         raise HttpError(400, f"Kind must be one of: {', '.join(CalendarEvent.Kind.values)}.")
 
-    refusal = discussions.check_visibility(user, payload.visibility, payload.department)
-    if refusal:
-        raise HttpError(403 if "only" in refusal.lower() else 400, refusal)
-
-    try:
-        starts = date.fromisoformat(payload.starts_on)
-        ends = date.fromisoformat(payload.ends_on) if payload.ends_on else None
-    except (TypeError, ValueError):
-        raise HttpError(400, "Dates must look like 2026-03-01")
-    if ends and ends < starts:
+    department = (payload.department or "").strip() or None
+    if payload.visibility == "DEPARTMENT" and not department:
+        department = (getattr(user, "department", "") or "").strip() or None
+    _check_visibility(user, payload.visibility, department)
+    starts, ends = _dates(payload)
+    starts_at, ends_at = _times(payload)
+    if starts_at and ends_at and not ends and ends_at < starts_at:
         raise HttpError(400, "It cannot end before it starts.")
 
     thread = Thread.objects.filter(pk=payload.thread_id).first() if payload.thread_id else None
@@ -297,19 +461,20 @@ def create_event(request: HttpRequest, payload: EventIn):
         kind=payload.kind,
         starts_on=starts,
         ends_on=ends,
+        starts_at=starts_at,
+        ends_at=ends_at,
         description=(payload.description or "").strip() or None,
         visibility=payload.visibility,
-        department=(payload.department or "").strip() or None
-        if payload.visibility == Thread.Visibility.DEPARTMENT
-        else None,
+        department=department if payload.visibility == "DEPARTMENT" else None,
         thread=thread,
-        claim=Claim.objects.filter(pk=payload.claim_id).first() if payload.claim_id else None,
+        claim=_own_claim(user, payload.claim_id),
         created_by=user,
     )
 
     # An event that came out of a thread is recorded in it, so the decision
-    # and the date do not live in two places that can disagree.
-    if thread:
+    # and the date do not live in two places that can disagree. A private
+    # reminder is nobody's business but its owner's, so it says nothing.
+    if thread and payload.visibility != PRIVATE:
         _write_post(
             thread, None,
             f"📅 **{title}** — {starts.isoformat()}"
@@ -320,22 +485,33 @@ def create_event(request: HttpRequest, payload: EventIn):
     return _event_dict(event)
 
 
+def _editable(user: User, event_id: str) -> CalendarEvent:
+    event = CalendarEvent.objects.filter(pk=event_id).first()
+    # Somebody else's private reminder does not exist, as far as anyone else
+    # can tell -- the office included.
+    if event is None or (event.visibility == PRIVATE and event.created_by_id != user.id):
+        raise HttpError(404, "No such event")
+    if event.created_by_id != user.id and not discussions.is_office(user.role):
+        raise HttpError(403, "Only the office, or whoever added it, can change an event.")
+    return event
+
+
 @api.patch("/calendar/{event_id}", auth=session_auth)
 def update_event(request: HttpRequest, event_id: str, payload: EventIn):
     user = require_user(request)
-    event = get_object_or_404(CalendarEvent, pk=event_id)
-    if event.created_by_id != user.id and not discussions.is_office(user.role):
-        raise HttpError(403, "Only the office, or whoever added it, can change an event.")
-    try:
-        event.starts_on = date.fromisoformat(payload.starts_on)
-        event.ends_on = date.fromisoformat(payload.ends_on) if payload.ends_on else None
-    except (TypeError, ValueError):
-        raise HttpError(400, "Dates must look like 2026-03-01")
-    if event.ends_on and event.ends_on < event.starts_on:
-        raise HttpError(400, "It cannot end before it starts.")
-    event.title = (payload.title or event.title).strip()
+    event = _editable(user, event_id)
+    event.starts_on, event.ends_on = _dates(payload)
+    event.starts_at, event.ends_at = _times(payload)
+    if payload.kind not in CalendarEvent.Kind.values:
+        raise HttpError(400, f"Kind must be one of: {', '.join(CalendarEvent.Kind.values)}.")
+    title = (payload.title or event.title).strip()
+    if len(title) < 3:
+        raise HttpError(400, "Give the event a title.")
+    event.title = title
     event.kind = payload.kind
     event.description = (payload.description or "").strip() or None
+    if event.created_by_id == user.id:
+        event.claim = _own_claim(user, payload.claim_id)
     event.save()
     return _event_dict(event)
 
@@ -343,9 +519,12 @@ def update_event(request: HttpRequest, event_id: str, payload: EventIn):
 @api.delete("/calendar/{event_id}", auth=session_auth)
 def delete_event(request: HttpRequest, event_id: str):
     user = require_user(request)
-    event = get_object_or_404(CalendarEvent, pk=event_id)
-    if event.created_by_id != user.id and not discussions.is_office(user.role):
-        raise HttpError(403, "Only the office, or whoever added it, can remove an event.")
+    try:
+        event = _editable(user, event_id)
+    except HttpError as e:
+        if e.status_code == 403:
+            raise HttpError(403, "Only the office, or whoever added it, can remove an event.")
+        raise
     event.delete()
     return {"ok": True}
 

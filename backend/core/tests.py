@@ -10606,8 +10606,14 @@ class CalendarTests(TestCase):
         self.assertEqual(r.status_code, 400, r.content)
 
     def test_an_event_follows_the_same_visibility_rule_as_a_thread(self):
-        self._add(self.faculty, title="A CSE-only date", visibility="DEPARTMENT",
-                  department="CSE")
+        # Faculty add only private reminders now; a head tells the department.
+        head = User.objects.create_user(
+            email="cal-head@test.edu", password="pass", name="Cal Head",
+            role=Role.HOD, department="CSE",
+        )
+        r = self._add(head, title="A CSE-only date", visibility="DEPARTMENT",
+                      department="CSE")
+        self.assertEqual(r.status_code, 200, r.content)
         other = User.objects.create_user(
             email="cal-other@test.edu", password="pass", name="Other Dept",
             role=Role.FACULTY, department="MECH",

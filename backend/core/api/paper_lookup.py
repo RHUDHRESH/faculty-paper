@@ -30,6 +30,7 @@ from ninja.errors import HttpError
 from core.api.common import api, logger, require_user, session_auth
 from core.models import AttachmentKind, ClaimAttachment, User
 from core.services import content_check, institution, paper_lookup, rbac
+from core.services.search import papers as search_papers
 
 
 class PaperLookupIn(Schema):
@@ -58,6 +59,13 @@ def _claimant(user: User, owner_id: str | None) -> User:
     if owner_id and rbac.can_clear_claims(user.role):
         return User.objects.filter(pk=owner_id).first() or user
     return user
+
+
+@api.get("/lookup/sources", auth=session_auth)
+def lookup_sources(request: HttpRequest):
+    """Whether Scopus is connected here, so the form offers only what can work."""
+    require_user(request)
+    return {"scopus": search_papers.scopus_configured()}
 
 
 @api.post("/lookup/paper", auth=session_auth)
@@ -172,4 +180,5 @@ __all__ = [
     "PaperLookupIn",
     "check_attached_file",
     "lookup_paper",
+    "lookup_sources",
 ]

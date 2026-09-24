@@ -385,6 +385,62 @@ class JournalMetricsTests(LookupBase):
         self.assertIsNone(m["snip"])
 
 
+class VerifyWithoutScopusTests(LookupBase):
+    """Filing, on a server with no Scopus key -- which is production today.
+
+    The verification run at filing used to stop at the first Scopus call, so
+    it never reached our own SNIP and SCImago tables either: the claim was
+    filed with its SNIP and quartile wiped, priced as "a Scopus journal with
+    no SNIP on record", and paid a flat rate a fraction of what the form had
+    estimated. Whether the article is indexed needs Scopus; what the journal
+    is ranked does not.
+    """
+
+    def test_every_stored_spelling_of_an_issn_is_matched(self):
+        from core.services.scimago import issn_variants
+
+        self.assertIn("20452322.0", issn_variants("2045-2322"))
+        self.assertIn("3906663.0", issn_variants("0390-6663"))
+
+    def test_the_journal_is_still_ranked_from_our_tables(self):
+        from core.services.verify import verify_publication
+
+        out = verify_publication(title="A Sharded Ledger for Cloud Storage", issn="2045-2322")
+        self.assertFalse(out["ok"], "the article itself could not be confirmed")
+        self.assertFalse(out["scopus"]["indexed"])
+        self.assertEqual((out["snip"], out["snip_source"]), (1.339, "SNIP_DUMP"))
+        self.assertTrue(out["scimago"]["found"])
+        self.assertEqual(out["scimago"]["quartile"], "Q1")
+        self.assertEqual(out["engineering_class"], "Engineering")
+        self.assertIn("paid", out)
+
+    def test_the_filed_claim_keeps_them(self):
+        from core.services.verify import apply_verify_to_claim, verify_publication
+
+        claim = Claim(owner=self.faculty, paper_title="A Sharded Ledger for Cloud Storage", issn="2045-2322",
+                      aggregation_type="Journal")
+        apply_verify_to_claim(claim, verify_publication(title=claim.paper_title, issn=claim.issn))
+        self.assertEqual((claim.snip, claim.snip_source), (1.339, "SNIP_DUMP"))
+        self.assertEqual((claim.quartile, claim.quartile_source), ("Q1", "SCIMAGO"))
+        self.assertEqual(claim.indexing_status, "Not yet indexed")
+
+    def test_the_subject_areas_decide_the_classification(self):
+        """With no Scopus record there is no aggregation type, and an unknown
+        type used to classify every journal as Engineering -- which pays the
+        quartile incentive the policy withholds from everyone else."""
+        from core.services.verify import verify_publication
+
+        out = verify_publication(title="Something clinical", issn="0390-6663", publication_type="Journal")
+        self.assertEqual(out["engineering_class"], "Non-Engineering")
+
+    def test_without_an_issn_nothing_is_guessed(self):
+        from core.services.verify import verify_publication
+
+        out = verify_publication(title="A Sharded Ledger for Cloud Storage")
+        self.assertIsNone(out["snip"])
+        self.assertFalse(out["scimago"]["found"])
+
+
 # --------------------------------------------------------------------------- #
 # The lookup, end to end, with every upstream stubbed                          #
 # --------------------------------------------------------------------------- #
@@ -648,6 +704,13 @@ class EndpointTests(LookupBase):
     def post(self, body, user=None):
         self.client.force_login(user or self.faculty)
         return self.client.post("/api/lookup/paper", data=json.dumps(body), content_type="application/json")
+
+    def test_the_form_can_ask_whether_scopus_is_connected(self):
+        """So "pick it from your Scopus profile" is only offered where it can work."""
+        self.client.force_login(self.faculty)
+        self.assertEqual(self.client.get("/api/lookup/sources").json(), {"scopus": False})
+        with override_settings(SCOPUS_API_KEY="real-key"):
+            self.assertEqual(self.client.get("/api/lookup/sources").json(), {"scopus": True})
 
     def test_signed_out_is_refused(self):
         r = self.client.post("/api/lookup/paper", data=json.dumps({"query": DOI}),

@@ -365,6 +365,9 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
         # it was still a recognised journal then.
         publication_year=claim.publication_year,
         publication_date=claim.publication_date,
+        # What the source is, for when Scopus cannot say: an unknown type
+        # classifies every journal as Engineering.
+        publication_type=claim.publication_type,
     )
     apply_verify_to_claim(claim, result)
     _apply_calc(claim)

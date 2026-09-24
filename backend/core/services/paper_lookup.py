@@ -18,7 +18,7 @@ The journal's standing -- quartile, SNIP, subject areas, and so the
 Engineering classification -- comes from our own SCImago and SNIP tables, by
 ISSN, never from the source that named the journal (see search/resolve.py for
 why). Those tables hold ISSNs in whatever shape a spreadsheet left them:
-`20452322.0`, `3906663.0`, `2347470X`. `stored_issn_shapes` asks for every
+`20452322.0`, `3906663.0`, `2347470X`. `scimago.issn_variants` asks for every
 one of them, because an ISSN that exists in the table and is not found there
 is a journal priced without its SNIP.
 
@@ -44,7 +44,12 @@ from django.db.models import Q
 from core.models import Claim, ClaimStatus, ScimagoJournal, SnipSource
 from core.services.discover import categories_of, find_journal
 from core.services.normalize import normalize_doi, normalize_issn, normalize_title
-from core.services.scimago import engineering_class, match_subject_quartile, scimago_official_search_url
+from core.services.scimago import (
+    engineering_class,
+    issn_variants,
+    match_subject_quartile,
+    scimago_official_search_url,
+)
 from core.services.search import papers as search_papers
 from core.services.search import resolve, sources, upstream
 
@@ -702,29 +707,11 @@ def college_affiliation(
 # --------------------------------------------------------------------------- #
 
 
-def stored_issn_shapes(issn: str | None) -> list[str]:
-    """Every spelling of one ISSN our reference tables actually hold.
-
-    `2045-2322`, `20452322`, and the two a spreadsheet produced by reading it
-    as a number: `20452322.0`, and for `0390-6663` the zero-stripped
-    `3906663.0`. Migrations 0027 and 0034 repaired these once; a later import
-    wrote them back, and 29,217 of 32,087 SNIP rows carry the float form.
-    """
-    cleaned = normalize_issn(issn) if issn else None
-    if not cleaned or len(cleaned) != 9:
-        return []
-    bare = cleaned.replace("-", "")
-    shapes = [cleaned, bare, cleaned.lower(), bare.lower()]
-    if bare.isdigit():
-        stripped = bare.lstrip("0") or "0"
-        shapes += [f"{bare}.0", f"{stripped}.0", stripped]
-    return list(dict.fromkeys(shapes))
-
-
 def _shapes(issns: list[str | None]) -> list[str]:
+    """Every stored spelling of every ISSN given (`scimago.issn_variants`)."""
     out: list[str] = []
     for issn in issns:
-        out.extend(s for s in stored_issn_shapes(issn) if s not in out)
+        out.extend(s for s in issn_variants(issn) if s not in out)
     return out
 
 

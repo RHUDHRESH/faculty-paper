@@ -200,7 +200,17 @@ def delete_event(request: HttpRequest, event_id: str):
 @api.get("/notifications", auth=session_auth)
 def notifications(request: HttpRequest):
     user = require_user(request)
-    items = Notification.objects.filter(user=user).order_by("-created_at")[:50]
+    items = list(Notification.objects.filter(user=user).order_by("-created_at")[:50])
+    # "Approved for payment" and "Paid" are the moments a claimant has a paper
+    # worth telling colleagues about, so those two offer "Share to the feed" --
+    # for their own filed paper only (`social.published_papers`).
+    from core.social import published_papers
+
+    shareable_titles = (" · Approved for payment", " · Paid")
+    candidates = {n.claim_id for n in items if n.claim_id and n.title.endswith(shareable_titles)}
+    shareable = set(
+        published_papers(user).filter(pk__in=candidates).values_list("id", flat=True)
+    ) if candidates else set()
     return [
         {
             "id": n.id,
@@ -209,6 +219,7 @@ def notifications(request: HttpRequest):
             "href": n.href,
             "read": n.read,
             "created_at": n.created_at.isoformat(),
+            "share_paper_id": n.claim_id if n.claim_id in shareable and n.title.endswith(shareable_titles) else None,
         }
         for n in items
     ]

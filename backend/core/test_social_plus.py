@@ -184,7 +184,8 @@ class ShareTests(Base):
         self.assertEqual(body["paper"]["quartile"], "Q1")
         self.assertEqual([c["name"] for c in body["paper"]["coauthors"]], ["Ravi Kumar"])
         self.assertIn("Shared Result", body["body"])
-        self.assertIn("@Ravi Kumar", body["body"])
+        # The composer's own form, so the name renders as a link in the post.
+        self.assertIn('@user:"Ravi Kumar"', body["body"])
         self.assertEqual(body["mention_ids"], [self.ravi.id])
         self.assertNoMoney(body, r.content.decode())
 
@@ -197,6 +198,28 @@ class ShareTests(Base):
         refused = self._paper(self.asha, "SH5", status=ClaimStatus.REJECTED)
         for p in (draft, refused):
             self.assertEqual(self._as(self.asha).get(f"/api/feed/share/{p.id}").status_code, 404)
+
+    def test_an_approved_or_paid_notification_offers_to_share_the_paper(self):
+        paper = self._paper(self.asha, "NS1")
+        theirs = self._paper(self.ravi, "NS2")
+        for title, claim in (("NS1 · Paid", paper), ("NS1 · Approved for payment", paper),
+                             ("NS1 · Under review", paper), ("NS2 · Paid", theirs)):
+            Notification.objects.create(user=self.asha, title=title, href="/faculty", claim_id=claim.id)
+        rows = {r["title"]: r for r in self._json("get", self.asha, "/api/notifications")}
+        self.assertEqual(rows["NS1 · Paid"]["share_paper_id"], paper.id)
+        self.assertEqual(rows["NS1 · Approved for payment"]["share_paper_id"], paper.id)
+        self.assertIsNone(rows["NS1 · Under review"]["share_paper_id"])
+        # Somebody else's paper is never offered, whatever the title says.
+        self.assertIsNone(rows["NS2 · Paid"]["share_paper_id"])
+
+    def test_posting_the_draft_mentions_and_tells_the_coauthors(self):
+        paper = self._paper(self.asha, "SH8", doi="10.9/told", title="Told Paper")
+        self._paper(self.ravi, "SH9", doi="10.9/told", title="Told Paper")
+        draft = self._json("get", self.asha, f"/api/feed/share/{paper.id}")
+        post = self._post(self.asha, body=draft["body"], paper_id=paper.id,
+                          mention_ids=draft["mention_ids"])
+        self.assertEqual([m["user_id"] for m in post["mentions"]], [self.ravi.id])
+        self.assertTrue(Notification.objects.filter(user=self.ravi).exists())
 
     def test_a_shared_post_shows_the_rich_card_with_linked_coauthors(self):
         paper = self._paper(self.asha, "SH6", doi="10.9/card", title="Card Paper")

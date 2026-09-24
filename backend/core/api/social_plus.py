@@ -120,7 +120,8 @@ def _share_body(claim: Claim, coauthors: list[User]) -> str:
         line += f" ({claim.quartile})"
     line += "."
     if coauthors:
-        names = [f"@{u.name}" for u in coauthors]
+        # The composer's own mention form, so each name renders as a link.
+        names = [f'@user:"{u.name}"' for u in coauthors]
         joined = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
         line += f"\nWritten with {joined}."
     return line

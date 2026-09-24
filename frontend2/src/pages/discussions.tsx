@@ -41,6 +41,7 @@ import {
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { relativeTime } from "@/ui/when"
+import { Inbox, NewChat, OpenChat } from "@/pages/chat"
 
 /**
  * Messages — direct conversations, and conversations with the research office.
@@ -188,6 +189,13 @@ function readLane(value: string | null): Lane {
   return value === "office" ? "office" : "direct"
 }
 
+/** A direct thread opens in the chat (`pages/chat.tsx`). A plain function
+ *  rather than an inline comparison, so the thread page below keeps its
+ *  direct-thread rendering typed for any link that still lands there. */
+function opensAsChat(visibility: Visibility): boolean {
+  return visibility === "DIRECT"
+}
+
 /* ------------------------------------------------------------------------ */
 /* The list                                                                  */
 /* ------------------------------------------------------------------------ */
@@ -201,15 +209,10 @@ export function Messages() {
   const q = searchParams.get("q") ?? ""
   const topic = searchParams.get("topic") ?? ""
   const mine = searchParams.get("mine") === "1"
-  // `?to=<id>` is the Message button on somebody's profile: the new message
-  // opens already addressed to them.
+  // `?to=<id>` is the Message button on somebody's profile (and 🤝 on a
+  // post, with `&ref=<post>`): straight into the chat with them.
   const to = searchParams.get("to")
-  const [composing, setComposing] = useState<Lane | null>(to ? "direct" : null)
-  const addressee = useApi<{ person: { id: string; name: string; department: string | null } }>(
-    ["person", to],
-    `/api/people/${to}`,
-    { enabled: !!to }
-  )
+  const [composing, setComposing] = useState<Lane | null>(null)
 
   const [draft, setDraft] = useState(q)
   useEffect(() => setDraft(q), [q])
@@ -235,6 +238,8 @@ export function Messages() {
   }, [draft, q, setParam])
 
   const filtered = !!(q || topic || (lane !== "direct" && mine))
+
+  if (to) return <OpenChat to={to} refPost={searchParams.get("ref")} />
 
   return (
     <div className="page space-y-6">
@@ -324,13 +329,7 @@ export function Messages() {
       </div>
 
       {lane === "direct" ? (
-        <DirectLane
-          q={q}
-          topic={topic}
-          filtered={filtered}
-          meId={me?.id}
-          onStart={() => setComposing("direct")}
-        />
+        <Inbox q={q} onStart={() => setComposing("direct")} />
       ) : (
         <OfficeLane
           q={q}
@@ -343,28 +342,11 @@ export function Messages() {
         />
       )}
 
-      {/* Held back until the addressee has loaded, so the dialog opens with
-          them already in "To" rather than filling it in a beat later. */}
-      {composing && !(to && addressee.isLoading) && (
-        <NewConversation
-          initialLane={composing}
-          initialPeople={
-            to && addressee.data
-              ? [
-                  {
-                    kind: "USER",
-                    id: addressee.data.person.id,
-                    label: addressee.data.person.name,
-                    hint: addressee.data.person.department,
-                  },
-                ]
-              : []
-          }
-          onClose={() => {
-            setComposing(null)
-            if (to) setParam({ to: "" })
-          }}
-        />
+      {/* A direct message is a chat (`pages/chat.tsx`); the office lane keeps
+          its titled conversation. */}
+      {composing === "direct" && <NewChat onClose={() => setComposing(null)} />}
+      {composing === "office" && (
+        <NewConversation initialLane="office" initialPeople={[]} onClose={() => setComposing(null)} />
       )}
     </div>
   )
@@ -377,89 +359,6 @@ function listPath(params: Record<string, string | boolean | number | undefined>)
     query.set(key, String(value))
   }
   return `/api/threads?${query.toString()}`
-}
-
-/**
- * The private lane: `DIRECT` threads, readable by the named people in them
- * and by nobody else — the office included.
- *
- * Split out from the open lane rather than filtered out of one list, because
- * "who else is reading this" is the single most important thing about a
- * message, and burying a private one between two public ones is how somebody
- * writes something personal into a thread the whole college can read.
- */
-function DirectLane({
-  q,
-  topic,
-  filtered,
-  meId,
-  onStart,
-}: {
-  q: string
-  topic: string
-  filtered: boolean
-  meId?: string
-  onStart: () => void
-}) {
-  const [pages, setPages] = useState(1)
-  useEffect(() => setPages(1), [q, topic])
-  const limit = PAGE * pages
-
-  const { data, isLoading, isError, refetch } = useApi<ThreadList>(
-    ["threads", "direct", q, topic, limit],
-    listPath({ visibility: "DIRECT", q, topic, limit }),
-    { refetchInterval: LIST_POLL_MS }
-  )
-
-  const threads = data?.results ?? []
-
-  return (
-    <section className="space-y-4">
-      <Callout tone="info" title="Who can read a direct message">
-        Only the people named in it. Not your department, not the research
-        office, not an administrator — a direct conversation is the one kind of
-        thread the office cannot open, and they cannot close or moderate one
-        either.
-      </Callout>
-
-      {isLoading ? (
-        <SkeletonRows rows={4} rowHeight={64} />
-      ) : isError ? (
-        <ErrorState
-          title="Could not load your messages"
-          message="The server did not answer. Nothing has been sent, lost or deleted."
-          onRetry={() => void refetch()}
-        />
-      ) : threads.length === 0 ? (
-        <EmptyState
-          icon={Mail}
-          title={filtered ? "Nothing matches" : "No direct messages"}
-          message={
-            filtered
-              ? "Try clearing a filter. You only ever see the conversations you are in."
-              : "Write to a colleague about a paper, a venue, or anything you would rather not put in front of the department."
-          }
-          action={
-            filtered ? undefined : (
-              <Button kind="primary" size="sm" onClick={onStart}>
-                <Mail />
-                New message
-              </Button>
-            )
-          }
-        />
-      ) : (
-        <>
-          <ThreadRows threads={threads} meId={meId} />
-          <ShowMore
-            shown={threads.length}
-            total={data?.total ?? threads.length}
-            onMore={() => setPages((p) => p + 1)}
-          />
-        </>
-      )}
-    </section>
-  )
 }
 
 /**
@@ -759,6 +658,11 @@ export function Thread() {
   // notification that carried it, lands on the post rather than on a copy.
   if (data.feed_post_id) {
     return <Navigate to={`/discussions/p/${data.feed_post_id}`} replace />
+  }
+  // A direct thread is a chat now (`pages/chat.tsx`): same conversation, with
+  // unread counts, "seen" and collaboration cards.
+  if (opensAsChat(data.visibility)) {
+    return <Navigate to={`/messages/c/${data.id}`} replace />
   }
 
   const direct = data.visibility === "DIRECT"
@@ -1073,7 +977,7 @@ function MentionChip({ mention }: { mention: MentionRow }) {
  * wrong is the difference between a private conversation and one somebody was
  * merely told about and cannot open.
  */
-function PeoplePicker({
+export function PeoplePicker({
   chosen,
   onChange,
   max,

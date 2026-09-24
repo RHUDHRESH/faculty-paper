@@ -22,6 +22,7 @@ from core.api.teams import *  # noqa: F401,F403
 from core.api.claims import *  # noqa: F401,F403
 from core.api.journals import *  # noqa: F401,F403
 from core.api.director import *  # noqa: F401,F403
+from core.api.desks import *  # noqa: F401,F403
 from core.api.dashboard import *  # noqa: F401,F403
 from core.api.discussions import *  # noqa: F401,F403
 from core.api.calendar import *  # noqa: F401,F403
@@ -31,6 +32,7 @@ from core.api.data_removal import *  # noqa: F401,F403
 from core.api.collaborate import *  # noqa: F401,F403
 from core.api.discover import *  # noqa: F401,F403
 from core.api.hod import *  # noqa: F401,F403
+from core.api.hod_planning import *  # noqa: F401,F403
 from core.api.data_explorer import *  # noqa: F401,F403
 from core.api.budget import *  # noqa: F401,F403
 from core.api.duplicates import *  # noqa: F401,F403
@@ -40,3 +42,15 @@ from core.api.admin import *  # noqa: F401,F403
 from core.api.masters import *  # noqa: F401,F403
 from core.api.finance import *  # noqa: F401,F403
 from core.api.institution import *  # noqa: F401,F403
+from core.api.restore import *  # noqa: F401,F403
+from core.api.my_payments import *  # noqa: F401,F403
+from core.api.flags import *  # noqa: F401,F403
+from core.api.social import *  # noqa: F401,F403
+from core.api.paper_lookup import *  # noqa: F401,F403
+from core.api.leaderboard import *  # noqa: F401,F403
+from core.api.suggestions import *  # noqa: F401,F403
+from core.api.rewards import *  # noqa: F401,F403
+from core.api.social_plus import *  # noqa: F401,F403
+from core.api.dm import *  # noqa: F401,F403
+from core.api.for_you import *  # noqa: F401,F403
+from core.api.alerts import *  # noqa: F401,F403

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
+import { useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,10 +10,12 @@ import {
 } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
+import { openShortcuts } from "@/app/shortcuts"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
-import { useApi, useApiMutation } from "@/lib/query"
+import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
 import { Combobox } from "@/ui/combobox"
 import {
   ConfirmDialog,
@@ -25,12 +28,16 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { Checkbox, Field, Input, Textarea } from "@/ui/field"
+import { ClaimContext, PaperLinks } from "@/pages/claim-context"
+import { ReasonChips, rememberReason } from "@/ui/reasons"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
+import { useSlashToSearch } from "@/ui/queue-keys"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
 
 /**
  * The research cell's daily job: every submitted ticket, oldest first, and
@@ -118,6 +125,7 @@ type QueueClaim = {
   authors_json: string | null
   attachments: Attachment[]
   duplicate_warning: boolean
+  contest_forward?: boolean | null
   duplicate_matches_json: string | null
   override_duplicate: boolean | null
   override_reason: string | null
@@ -175,7 +183,33 @@ export function Clearing() {
     { enabled: allowed, placeholderData: (prev) => prev }
   )
 
-  const rows = claims ?? []
+  const all = claims ?? []
+
+  // Narrowing only: the server's oldest-first order is the queue's priority
+  // and is never re-sorted here. Keyboard moves and "select all shown" work
+  // on what is on screen.
+  const [q, setQ] = useState("")
+  const searchRef = useRef<HTMLInputElement>(null)
+  useSlashToSearch(searchRef)
+  const [dept, setDept] = useState("")
+  const [check, setCheck] = useState<"" | "passed" | "failed" | "flagged">("")
+  const needle = q.trim().toLowerCase()
+  const rows = all.filter(
+    (c) =>
+      (!dept || (c.owner_department || "—") === dept) &&
+      (!check ||
+        (check === "passed" && c.verification_ok === true) ||
+        (check === "failed" && c.verification_ok === false) ||
+        (check === "flagged" && (c.duplicate_warning || c.contest_forward))) &&
+      (!needle ||
+        [c.paper_title, c.ticket_number, c.owner_name, c.journal_title]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(needle)))
+  )
+  const byDept = [...all.reduce((m, c) => m.set(c.owner_department || "—", (m.get(c.owner_department || "—") || 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])
+  const queueTotal = all.reduce((s, c) => s + (c.remuneration || 0), 0)
+  const priced = all.filter((c) => c.remuneration != null).length
+  const oldest = all.reduce((m, c) => Math.max(m, c.waiting_days ?? 0), 0)
 
   // Whole rows, not just ids — the same shape `payments.tsx` uses. A row that
   // has left this fetch still has to be able to say its own title and amount,
@@ -253,7 +287,7 @@ export function Clearing() {
 
   const bulkClear = useApiMutation<{ claim_ids: string[]; note?: string }, BulkClearResult>(
     "/api/admin/bulk-clear",
-    { invalidates: [["clearing-queue"]] }
+    { invalidates: [...CHAIN] }
   )
 
   if (!allowed) {
@@ -311,6 +345,7 @@ export function Clearing() {
           <Sub className="mt-1">
             Submitted tickets, oldest first — the one that has waited longest is next.
           </Sub>
+          <OwnPapersNote className="mt-1" />
         </div>
         <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
           <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
@@ -318,15 +353,86 @@ export function Clearing() {
         </Button>
       </header>
 
+      {all.length > 0 && (
+        <section aria-label="The queue at a glance" className="space-y-3">
+          <p className="text-sm text-fg-muted">
+            <span className="font-semibold text-fg">{all.length}</span> waiting ·{" "}
+            {priced === 0 ? (
+              "amounts not worked out yet"
+            ) : (
+              <>
+                <span className="tabular font-semibold text-fg">{money(queueTotal)}</span>{" "}
+                {priced < all.length ? `across the ${priced} priced` : "in all"}
+              </>
+            )}{" "}
+            · oldest{" "}
+            <span className={cn("font-semibold", oldest > 14 ? "text-critical" : oldest > 7 ? "text-caution" : "text-fg")}>
+              {waitingLabel(oldest).toLowerCase()}
+            </span>
+          </p>
+          {byDept.length > 1 && (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by department">
+              {byDept.map(([d, n]) => (
+                <button
+                  key={d}
+                  type="button"
+                  aria-pressed={dept === d}
+                  onClick={() => setDept(dept === d ? "" : d)}
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-xs ring-1 ring-inset",
+                    dept === d ? "bg-accent text-accent-fg ring-accent" : "bg-surface text-fg-muted ring-line hover:text-fg"
+                  )}
+                >
+                  {d} <span className="tabular">{n}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className={filterBar}>
+            <Input
+              ref={searchRef}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Filter by title, ticket, claimant or journal"
+              aria-label="Filter the queue"
+              className="max-w-sm"
+            />
+            <select
+              value={check}
+              onChange={(e) => setCheck(e.target.value as typeof check)}
+              aria-label="Filter by verification"
+              className="h-9 rounded-md border-0 bg-surface px-2 text-sm shadow-well ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <option value="">Any verification</option>
+              <option value="passed">Verification passed</option>
+              <option value="failed">Verification failed</option>
+              <option value="flagged">Duplicate or contested</option>
+            </select>
+            {(q || dept || check) && (
+              <Button kind="quiet" size="sm" onClick={() => { setQ(""); setDept(""); setCheck("") }}>
+                Show all {all.length}
+              </Button>
+            )}
+            <Button kind="quiet" size="sm" className="ml-auto" onClick={() => downloadQueue(rows)}>
+              Download these {rows.length} as CSV
+            </Button>
+          </div>
+        </section>
+      )}
+
       <Meta className="block">
         <kbd className="rounded border border-edge px-1 text-[10px]">j</kbd>/
         <kbd className="rounded border border-edge px-1 text-[10px]">k</kbd> or arrows to move ·{" "}
         <kbd className="rounded border border-edge px-1 text-[10px]">x</kbd> to select ·{" "}
-        <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open
+        <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open ·{" "}
+        <kbd className="rounded border border-edge px-1 text-[10px]">/</kbd> to search ·{" "}
+        <button type="button" onClick={openShortcuts} className="underline underline-offset-2">
+          all shortcuts
+        </button>
       </Meta>
 
       {anySelected && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
+        <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
           <p className="text-sm">
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>
@@ -364,6 +470,12 @@ export function Clearing() {
           title="Could not load the queue"
           message="The server did not answer. Nothing has been lost or cleared."
           onRetry={() => refetch()}
+        />
+      ) : all.length > 0 && rows.length === 0 ? (
+        <EmptyState
+          icon={Inbox}
+          title="No ticket matches these filters"
+          message={`${all.length} are waiting in all.`}
         />
       ) : rows.length === 0 ? (
         <EmptyState
@@ -458,12 +570,21 @@ export function Clearing() {
                   <td className="px-3 py-3 align-top">
                     <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
                     <Meta className="mt-0.5 block">{c.ticket_number || "Not yet ticketed"}</Meta>
-                    {(c.duplicate_warning || c.calc_error || c.remuneration_is_estimate) && (
+                    {c.verification_ok === false && issuesOf(c)[0] && (
+                      <p className="mt-1 text-xs text-critical">
+                        {issuesOf(c)[0]}
+                        {issuesOf(c).length > 1 && ` (+${issuesOf(c).length - 1} more)`}
+                      </p>
+                    )}
+                    {(c.duplicate_warning || c.contest_forward || c.calc_error || c.remuneration_is_estimate) && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {c.duplicate_warning && (
                           <RowFlag tone="critical">
                             <AlertTriangle className="size-3" /> Possible duplicate
                           </RowFlag>
+                        )}
+                        {c.contest_forward && (
+                          <RowFlag tone="caution">Contested by the claimant</RowFlag>
                         )}
                         {c.calc_error && (
                           <RowFlag tone="critical">
@@ -484,7 +605,15 @@ export function Clearing() {
                     {c.journal_title || "—"}
                   </td>
                   <td className="px-3 py-3 align-top text-right">
-                    <span className={cn("tabular", (c.waiting_days ?? 0) > 7 && "font-medium text-caution")}>
+                    <span
+                      className={cn(
+                        "tabular",
+                        (c.waiting_days ?? 0) > 14
+                          ? "font-medium text-critical"
+                          : (c.waiting_days ?? 0) > 7 && "font-medium text-caution"
+                      )}
+                      title={(c.waiting_days ?? 0) > 7 ? "Waiting more than a week" : undefined}
+                    >
                       {waitingLabel(c.waiting_days)}
                     </span>
                   </td>
@@ -496,7 +625,7 @@ export function Clearing() {
                     )}
                   </td>
                   <td className="px-3 py-3 align-top">
-                    <VerifiedBadge ok={c.verification_ok} />
+                    <VerifiedBadge ok={c.verification_ok} issues={issuesOf(c)} />
                   </td>
                 </tr>
               ))}
@@ -509,6 +638,15 @@ export function Clearing() {
       <TicketSheet
         openId={openId}
         onClose={() => setOpenId(null)}
+        // Working a queue is one ticket after another: once this one is
+        // cleared or sent back, the next in queue order opens rather than
+        // dropping the reader back at the list to find their place.
+        onFinished={() => {
+          const at = rows.findIndex((r) => r.id === openId)
+          const next = rows[at + 1] ?? rows[at - 1]
+          setOpenId(next && next.id !== openId ? next.id : null)
+          if (next) setActive(Math.max(0, at))
+        }}
         isSuperAdmin={me?.role === "SUPER_ADMIN"}
       />
 
@@ -621,7 +759,34 @@ function RowFlag({ tone, children }: { tone: "critical" | "caution"; children: R
   )
 }
 
-function VerifiedBadge({ ok }: { ok: boolean | null }) {
+/** The plain-English reasons verification recorded, for the row itself. */
+function issuesOf(c: QueueClaim): string[] {
+  try {
+    const snap = JSON.parse(c.verification_snapshot_json || "{}") as { issues?: unknown }
+    return Array.isArray(snap.issues) ? snap.issues.filter((i): i is string => typeof i === "string") : []
+  } catch {
+    return []
+  }
+}
+
+/** The queue as it stands on screen, for the office's own spreadsheet. */
+function downloadQueue(rows: QueueClaim[]) {
+  const head = ["Ticket", "Paper", "Claimant", "Department", "Journal", "Waiting days", "Amount", "Verified"]
+  const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
+  const body = rows.map((c) =>
+    [c.ticket_number, c.paper_title, c.owner_name, c.owner_department, c.journal_title, c.waiting_days, c.remuneration, c.verification_ok === true ? "passed" : c.verification_ok === false ? "failed" : "not checked"]
+      .map(cell)
+      .join(",")
+  )
+  const blob = new Blob(["\uFEFF" + [head.map(cell).join(","), ...body].join("\r\n")], { type: "text/csv;charset=utf-8" })
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = `clearing-queue-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+function VerifiedBadge({ ok, issues = [] }: { ok: boolean | null; issues?: string[] }) {
   if (ok === true) {
     return (
       <span className="inline-flex items-center gap-1 text-sm text-positive">
@@ -631,8 +796,11 @@ function VerifiedBadge({ ok }: { ok: boolean | null }) {
   }
   if (ok === false) {
     return (
-      <span className="inline-flex items-center gap-1 text-sm text-critical">
+      <span className="inline-flex flex-wrap items-center gap-1 text-sm text-critical" title={issues.join("\n") || undefined}>
         <XCircle className="size-3.5" aria-hidden /> Failed
+        {issues.length > 0 && (
+          <span className="sr-only">: {issues.join("; ")}</span>
+        )}
       </span>
     )
   }
@@ -706,10 +874,13 @@ function BulkResultDialog({
 function TicketSheet({
   openId,
   onClose,
+  onFinished = onClose,
   isSuperAdmin,
 }: {
   openId: string | null
   onClose: () => void
+  /** After a clear or a send-back: by default, the next ticket in the queue. */
+  onFinished?: () => void
   isSuperAdmin: boolean
 }) {
   const {
@@ -758,6 +929,11 @@ function TicketSheet({
                 {claim.ticket_number || "Not yet ticketed"}
                 {claim.journal_title ? ` · ${claim.journal_title}` : ""}
               </SheetDescription>
+              <PaperLinks
+                doi={claim.doi}
+                eid={(claim as { eid?: string | null }).eid}
+                scopusUrl={(claim as { scopus_url?: string | null }).scopus_url}
+              />
             </SheetHeader>
 
             <SheetBody className="space-y-8">
@@ -782,6 +958,8 @@ function TicketSheet({
                 </Meta>
               </section>
 
+              <ClaimContext claim={claim} />
+
               <section className="space-y-2">
                 <SectionTitle>Verification</SectionTitle>
                 <VerifiedBadge ok={claim.verification_ok} />
@@ -802,7 +980,13 @@ function TicketSheet({
                     <ul className="mt-2 space-y-1.5">
                       {duplicateMatches.map((m, i) => (
                         <li key={m.id ?? i} className="text-sm">
-                          {[m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"}
+                          {m.source === "claim" && m.id ? (
+                            <Link to={`/papers/${m.id}`} className="underline underline-offset-2">
+                              {[m.reference, m.who, m.when].filter(Boolean).join(" · ") || "The other claim"}
+                            </Link>
+                          ) : (
+                            [m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"
+                          )}
                           {m.amount != null && <> — {money(m.amount)}</>}
                         </li>
                       ))}
@@ -940,9 +1124,9 @@ function TicketSheet({
               open={clearOpen}
               onOpenChange={setClearOpen}
               isSuperAdmin={isSuperAdmin}
-              onCleared={onClose}
+              onCleared={onFinished}
             />
-            <RejectDialog claim={claim} open={rejectOpen} onOpenChange={setRejectOpen} onRejected={onClose} />
+            <RejectDialog claim={claim} open={rejectOpen} onOpenChange={setRejectOpen} onRejected={onFinished} />
             <ManualVerifyDialog claim={claim} open={verifyOpen} onOpenChange={setVerifyOpen} />
             <SecondSignatureDialog
               claim={claim}
@@ -1013,11 +1197,11 @@ function ClearDialog({
     // Recalculating persists the fresh verified values even if this dialog
     // is then cancelled, so the list and the sheet underneath must not go on
     // showing the figure from before this call.
-    { invalidates: [["clearing-queue"], ["claim", claim.id]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
   const clear = useApiMutation<{ note?: string; expected_amount?: number }, ClaimDetail>(
     `/api/claims/${claim.id}/clear`,
-    { invalidates: [["clearing-queue"], ["claim", claim.id]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   async function runRecalc(skipExternal = false) {
@@ -1174,7 +1358,7 @@ function RejectDialog({
 }) {
   const [note, setNote] = useState("")
   const reject = useApiMutation<{ note: string }, ClaimDetail>(`/api/claims/${claim.id}/reject`, {
-    invalidates: [["clearing-queue"], ["claim", claim.id]],
+    invalidates: [...CHAIN, ["claim", claim.id]],
   })
 
   useEffect(() => {
@@ -1188,6 +1372,7 @@ function RejectDialog({
   async function submit() {
     try {
       await reject.mutateAsync({ note: trimmed })
+      rememberReason(trimmed)
       toast.ok(`Sent back${claim.ticket_number ? ` — ${claim.ticket_number}` : ""}`)
       onOpenChange(false)
       onRejected()
@@ -1216,6 +1401,9 @@ function RejectDialog({
               placeholder="What needs to change before this can be filed again"
             />
           </Field>
+          <div className="mt-3">
+            <ReasonChips onPick={(t) => setNote((n) => (n.trim() ? `${n.trim()} ${t}` : t))} />
+          </div>
         </DialogBody>
         <DialogFooter>
           <Button kind="quiet" onClick={() => onOpenChange(false)} disabled={reject.isPending}>
@@ -1393,7 +1581,7 @@ function ManualVerifyDialog({
     { snip?: number; quartile?: string; note: string },
     unknown
   >(`/api/admin/claims/${claim.id}/set-verified`, {
-    invalidates: [["claim", claim.id], ["clearing-queue"]],
+    invalidates: [...CHAIN, ["claim", claim.id]],
   })
 
   const trimmed = note.trim()
@@ -1500,7 +1688,7 @@ function SecondSignatureDialog({
 
   const sign = useApiMutation<{ note?: string; expected_amount?: number }, unknown>(
     `/api/claims/${claim.id}/second-approve`,
-    { invalidates: [["claim", claim.id], ["clearing-queue"], ["payouts"]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   const selfCleared = Boolean(
@@ -1593,7 +1781,7 @@ function OverrideStatusDialog({
 
   const override = useApiMutation<{ to_status: string; note: string }, unknown>(
     `/api/admin/claims/${claim.id}/override-status`,
-    { invalidates: [["claim", claim.id], ["clearing-queue"], ["admin", "faults"]] }
+    { invalidates: [...CHAIN, ["claim", claim.id], ["admin", "faults"]] }
   )
 
   const trimmed = note.trim()

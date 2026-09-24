@@ -82,13 +82,19 @@ tickets.
 ### Lists
 
 ```
-GET /api/claims?status=&q=&limit=&offset=
+GET /api/claims?status=&q=&limit=&offset=&mine=
     -> { total, limit, offset, results: Claim[] }
 ```
 
 `limit` is capped at 200 server-side. `status` takes one status string. `q`
 searches title and ticket number. A faculty account sees only its own claims;
 the server scopes it, so do not filter by owner on the client.
+
+`mine=1` is "My papers" for an officer who files their own (every role but
+the super admin): without it an oversight role gets the college's claims.
+Every screen that shows the viewer's own papers sends it; for faculty and a
+head it changes nothing. The viewer's own claims arrive shaped as a
+claimant's (`faculty_stage`, no desk names, no flags) whoever they are.
 
 ### One claim
 
@@ -106,6 +112,10 @@ POST  /api/claims/upload            -> attachment     (multipart)
 ### Journal and paper lookup, for the filing wizard
 
 ```
+POST /api/lookup/paper      { query, owner_id?, claim_id? } -> the paper from a DOI, link or title
+GET  /api/lookup/sources                             -> { scopus: bool } is Scopus connected here
+POST /api/lookup/file-check { url, kind, title?, doi?, journal?, issn?, ref_title? }
+                                                     -> what an attached PDF shows
 POST /api/lookup/scopus     { doi?, title?, eid? }   -> the paper, from Scopus
 POST /api/lookup/candidates { title }                -> possible matches to choose from
 POST /api/lookup/scimago    { issn?, title?, year }  -> quartile and SJR
@@ -117,11 +127,32 @@ POST /api/calculate         { ... }                  -> what it would pay, witho
 `POST /api/calculate` is how the wizard shows an amount before anything is
 filed. Anything it returns is an **estimate** and must be labelled as one.
 
+`POST /api/lookup/paper` is the wizard's "Paste the DOI or link" box, and it
+needs no Scopus key: OpenAlex answers a DOI (free and keyless), Crossref is the
+fallback and the title search, and Scopus is asked only when `SCOPUS_API_KEY`
+is set. It never answers 5xx — `ok: false` with a `code` (`not_found`,
+`choose`, `bad_input`, `scopus_link`, `unreachable`, `error`) and a sentence in
+`message`. On success it carries `paper` (title, journal, `issns`, date and its
+precision, type, authors in order with printed affiliations, citations,
+open-access link), `claimant` (their position and how sure: `exact`, `likely`,
+`ambiguous`, `none`), `affiliation` (is the college printed, and beside the
+claimant), `metrics` (quartile, SNIP, subject areas and Engineering class from
+our own SCImago and SNIP tables), `field_sources` (which source each value came
+from), `sources[]` (every source, answered or not), `to_check[]` (sentences for
+what the claimant still has to look at) and `already_filed`. Nothing in it is
+money.
+
+`POST /api/lookup/file-check` reads one file just uploaded to the form and says
+whether it shows the paper's title, DOI and the college. It is the claimant
+checking their own upload before filing; the desks' own checks after filing
+(`file_checks`, flags) are separate and stay theirs.
+
 ### The person
 
 ```
 GET   /api/auth/me                    -> the account (see below)
-PATCH /api/auth/profile               -> only fields a person may change themselves
+PATCH /api/auth/profile/self          { phone }   -> the account; the only self-service write
+PATCH /api/auth/profile               -> 403 for everyone but a super admin
 POST  /api/auth/change-password       { current_password, new_password }
 POST  /api/auth/profile/correction    { field, proposed, note? }
 GET   /api/auth/profile/corrections   -> { results: [...] }
@@ -129,12 +160,27 @@ GET   /api/auth/profile/corrections   -> { results: [...] }
 
 `me` carries: `id, email, name, role, department, employee_id, staff_id,
 biometric_id, designation, scopus_author_url, scopus_author_id,
-must_change_password, active, portal`.
+must_change_password, active, faculty_type, research_quota,
+research_quota_note, phone, portal, google`. `google` is `{ email, linked_at }`
+or `null` — only on `/auth/me`, never on anybody else's record.
 
-**Identity is not self-service.** A claimant cannot edit `name`, `staff_id`,
+**Self-service is an allow-list of one.** `PATCH /auth/profile/self` accepts
+`phone` and nothing else: any other key is a 422, not silently dropped. The
+number is lightly checked (digits with spaces, dashes, brackets or a leading
+`+`; 7–15 digits) and an empty string clears it. The audit row names the field,
+not the number. Research interests (`/api/me/interests`) are the other thing a
+person sets for themselves.
+
+**Everything else is a request.** A claimant cannot edit `name`, `staff_id`,
 `biometric_id`, `designation`, `scopus_author_url` or `scopus_author_id` —
 those decide who gets paid. They ask, via `/auth/profile/correction`, and an
 admin decides. `department` is correctable too but is not an identity field.
+`role`, `faculty_type` (`REGULAR`|`RESEARCH`) and `research_quota` (a whole
+number) can be asked for the same way; they are checked when asked, go to a
+super admin only, and approving one runs the account editor's checks — one
+head per department (409, nobody is replaced from the queue), no approving
+your own role, a quota only on a research post, and a regular post drops its
+quota.
 
 The correction endpoint refuses a proposal identical to the current value, and
 **re-asking for the same field updates the open request rather than queueing a
@@ -271,6 +317,24 @@ A token that fails to verify answers 401 **without saying why** — expired,
 wrong audience and bad signature are useful to an attacker and useless to the
 person at the screen.
 
+```
+POST   /api/auth/google/link   { credential }   -> { google: { email, linked_at } }
+DELETE /api/auth/google/link                    -> { google: null }
+```
+
+Linking is done from a signed-in session and **does not require the hosted
+domain**: the session was opened with the account's own password, so choosing
+a personal Gmail is the owner's decision. The Google account is stored by its
+`sub`, not its email. `email_verified` is still required. 409 when that Google
+account already opens another account here, or its address is another
+account's email — without saying whose. Both are audited (`GOOGLE_LINKED`,
+`GOOGLE_UNLINKED`).
+
+Sign-in looks up the `sub` first: a linked account signs in whatever its
+domain. Anything not linked falls back to the email match, which keeps the
+`GOOGLE_HOSTED_DOMAIN` rule. The client must therefore not pass Google's `hd`
+option — it would hide a linked personal Gmail from the account chooser.
+
 ### Reference data
 
 ```
@@ -300,7 +364,7 @@ here" are different sentences.
 ### Counting claims by stage
 
 ```
-GET /api/claims/counts?q=
+GET /api/claims/counts?q=&mine=
     -> { counts: { all, draft, filed, checked, approved, paid, sent_back },
          statuses: { RAW_STATUS: n },
          stages:   { stage: [RAW_STATUS, ...] } }
@@ -312,10 +376,43 @@ stage — `filed` covers `SUBMITTED` *and* `HOD_APPROVED`, `checked` covers
 `status` there takes a single value. `q` narrows the counts the same way it
 narrows the list, so the chips never promise rows the list will not show.
 
+### Leaderboard — every role, no money
+
+```
+GET /api/leaderboard?board=people|departments
+                    &period=academic|last_academic|calendar|all
+                    &sort=score|papers|q1|first_author
+                    &department=     (people board: rank within one department)
+                    &per_head=true   (department board: rank per person)
+    -> { board, period{key,label,from,to,compared_with}, periods[], sort,
+         rows[{ rank, joint, papers, q1, score, first_author, movement, me, ... }],
+         me{ rank, of, joint, movement, ... } | null, totals, method }
+```
+
+Score is Q1 = 4, Q2 = 3, Q3 = 2, Q4 = 1, other indexed = 1 (`method.weights`).
+Counts filed claims and the ledger's claim-less historic rows, once per paper.
+`movement` is places gained against the period before (null when there is no
+earlier period, or nothing this period). 400 for an unknown board, period or sort.
+
+### New things to work on — counted, no model
+
+```
+GET /api/discover/next     -> { people[{ id, name, department, reasons[], ... }],
+                                journals[{ title, quartile, colleagues, areas, reason }],
+                                topics[{ area, alongside, people, reason }],
+                                grounded_on, why_empty }
+GET /api/discover/partners -> { partners[{ name, kind, why, first_step }],
+                                unverified: true, model, grounded_on }   (needs AI; 503 without)
+```
+
+`/next` never needs a model and never excludes itself for want of one. People
+never include anybody already credited with a paper you share.
+
 ### Discovery — the two AI features
 
 ```
-GET  /api/discover/status        -> { available: boolean, model: string }
+GET  /api/discover/status        -> { available, model, provider, code, detail,
+                                      hosted: boolean, host: string }
 GET  /api/meta/research-domains?q=&limit=
                                  -> { domains: string[] }
 GET  /api/me/interests           -> { domains: string[] }
@@ -325,8 +422,11 @@ POST /api/discover/venues        { title, abstract?, keywords?,
                                    author_position?, total_authors? }
 ```
 
-**Ask `/discover/status` before offering any of it.** With no API key
-configured, `/venues` and `/directions` return **503** with a readable message.
+**Ask `/discover/status` before offering any of it.** With no model
+configured `code` is `not_configured` — say so in one line and offer nothing
+that needs a model — and `/venues`, `/directions` and `/partners` return
+**503** with a readable message. `hosted: true` means what is typed is sent to
+`host`; do not tell the reader it stays on this server.
 That is a supported state, not an error to apologise for — the screen should
 say the feature is switched off, not show a button that always fails.
 

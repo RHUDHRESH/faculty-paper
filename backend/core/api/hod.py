@@ -14,6 +14,7 @@ import csv
 import io
 import json
 import time
+from datetime import date
 from typing import Any, Optional
 from django.db.models import Count, Q
 from django.http import HttpRequest, HttpResponse
@@ -24,6 +25,7 @@ from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, DepartmentTarget, Role, User
 from core import hod
+from core.services import rbac
 
 # ---------- head of department ----------
 
@@ -54,9 +56,11 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
         return sorted(out.values(), key=lambda r: -r["count"])
 
     # Members of the department, whether or not they have published: a head
-    # needs to see who has nothing as much as who has most.
+    # needs to see who has nothing as much as who has most. The head is one of
+    # them -- faculty who also heads the department, filing their own papers,
+    # which the totals below already count.
     people = User.objects.filter(
-        role=Role.FACULTY, department__iexact=hod.department_of(user)
+        role__in=rbac.CLAIMANT_ROLES, department__iexact=hod.department_of(user)
     ).order_by("name")
     counts = {
         row["owner_id"]: row["n"]
@@ -143,6 +147,8 @@ class TargetIn(Schema):
     #: Omitted or null sets the target on the department as a whole.
     person_id: Optional[str] = None
     note: Optional[str] = None
+    #: When it should be reached by. Omitted or null means "within the year".
+    due_date: Optional[date] = None
 
 
 def _target_progress(qs, metric: str, person_id: str | None) -> int:
@@ -195,6 +201,7 @@ def hod_targets(request: HttpRequest, year: Optional[int] = None):
             "person_id": t.person_id,
             "person_name": t.person.name if t.person_id else None,
             "note": t.note,
+            "due_date": t.due_date.isoformat() if t.due_date else None,
             "set_by": t.set_by.name if t.set_by_id else None,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
         }
@@ -251,6 +258,7 @@ def hod_set_target(request: HttpRequest, payload: TargetIn):
         defaults={
             "target": payload.target,
             "note": (payload.note or "").strip() or None,
+            "due_date": payload.due_date,
             "set_by": user,
         },
     )
@@ -259,6 +267,7 @@ def hod_set_target(request: HttpRequest, payload: TargetIn):
         detail_json=json.dumps({
             "department": department, "year": payload.year, "metric": payload.metric,
             "target": payload.target, "person": person.id if person else None,
+            "due_date": payload.due_date.isoformat() if payload.due_date else None,
             "created": created,
         }),
     )
@@ -444,9 +453,9 @@ def hod_standing(request: HttpRequest, year: Optional[int] = None):
     college_total = sum(per_department.values())
 
     heads = User.objects.filter(
-        role=Role.FACULTY, department__iexact=department, active=True
+        role__in=rbac.CLAIMANT_ROLES, department__iexact=department, active=True
     ).count()
-    college_heads = User.objects.filter(role=Role.FACULTY, active=True).count()
+    college_heads = User.objects.filter(role__in=rbac.CLAIMANT_ROLES, active=True).count()
 
     mine_rates = rates(mine)
     college_rates = rates(college)
@@ -503,8 +512,9 @@ def hod_opportunities(request: HttpRequest, year: Optional[int] = None):
         ]
 
     members = list(
-        User.objects.filter(role=Role.FACULTY, department__iexact=department, active=True)
-        .order_by("name")
+        User.objects.filter(
+            role__in=rbac.CLAIMANT_ROLES, department__iexact=department, active=True
+        ).order_by("name")
     )
     filed = set(qs.values_list("owner_id", flat=True))
     with_q1 = set(qs.filter(quartile__iexact="Q1").values_list("owner_id", flat=True))

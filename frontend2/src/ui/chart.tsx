@@ -773,7 +773,11 @@ export function Trend({
                 />
 
                 {points.map((p, i) =>
-                  i % every === 0 || i === points.length - 1 ? (
+                  // The last label is right-aligned and always drawn, so the
+                  // step label before it gives way unless it is a step and a
+                  // half clear -- otherwise "19 Sept" and "24 Sept" overprint.
+                  (i % every === 0 && points.length - 1 - i >= Math.ceil(every * 1.5)) ||
+                  i === points.length - 1 ? (
                     <text
                       key={p.key}
                       x={x(i)}

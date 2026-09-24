@@ -1,11 +1,15 @@
+import { firstName } from "@/lib/names"
 import { useEffect, useState } from "react"
-import { Link, useParams, useSearchParams } from "react-router-dom"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeft, FilePlus, UserPlus, KeyRound, Pencil, Search, SearchX, Users } from "lucide-react"
 
 import { can, useAuth, type Role } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
+import { api, forgetCsrf } from "@/lib/api"
+import { KindBadge } from "@/pages/assignment-parts"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
 import {
   Dialog,
   DialogBody,
@@ -74,6 +78,23 @@ const ROLE_OPTIONS: ComboboxOption[] = [
   ...(Object.keys(ROLE_LABEL) as Role[]).map((r) => ({ value: r, label: ROLE_LABEL[r] })),
 ]
 
+/**
+ * The role as the office picks it. A head of department is a faculty member
+ * who also heads the department (the college's decision of 2026-09-23) and
+ * keeps filing their own papers -- said on the option, because "Head of
+ * department" alone reads like a desk that stops filing.
+ */
+const ROLE_CHOICE_LABEL: Record<Role, string> = {
+  ...ROLE_LABEL,
+  HOD: "Head of department (still files papers)",
+}
+
+const RESEARCH_OPTIONS: ComboboxOption[] = [
+  { value: "", label: "Any post" },
+  { value: "RESEARCH", label: "Research faculty" },
+  { value: "REGULAR", label: "Regular faculty" },
+]
+
 /* ------------------------------------------------------------------------ */
 /* People — the directory                                                   */
 /* ------------------------------------------------------------------------ */
@@ -86,6 +107,8 @@ type PersonRow = {
   department: string | null
   designation: string | null
   active: boolean
+  faculty_type?: "REGULAR" | "RESEARCH"
+  research_quota?: number | null
 }
 
 type PeoplePayload = {
@@ -108,6 +131,7 @@ export function People() {
   const q = searchParams.get("q") ?? ""
   const role = searchParams.get("role") ?? ""
   const department = searchParams.get("department") ?? ""
+  const research = searchParams.get("research") ?? ""
   const page = Math.max(0, Number.parseInt(searchParams.get("page") ?? "0", 10) || 0)
 
   // The box's own state so typing feels instant; the URL only catches up
@@ -155,6 +179,16 @@ export function People() {
     })
   }
 
+  function selectResearch(next: string) {
+    setSearchParams((prev) => {
+      const p = new URLSearchParams(prev)
+      if (next) p.set("research", next)
+      else p.delete("research")
+      p.delete("page")
+      return p
+    })
+  }
+
   function goToPage(next: number) {
     setSearchParams((prev) => {
       const p = new URLSearchParams(prev)
@@ -173,11 +207,12 @@ export function People() {
   if (q) listQuery.set("q", q)
   if (department) listQuery.set("department", department)
   if (role) listQuery.set("role", role)
+  if (research) listQuery.set("faculty_type", research)
   listQuery.set("limit", String(PAGE_SIZE))
   listQuery.set("offset", String(page * PAGE_SIZE))
 
   const { data, isLoading, isError, error, refetch } = useApi<PeoplePayload>(
-    ["people", q, department, role, page],
+    ["people", q, department, role, research, page],
     `/api/admin/users?${listQuery.toString()}`,
     // Keeps the previous page's rows on screen while the next page loads.
     { placeholderData: (prev) => prev }
@@ -200,7 +235,7 @@ export function People() {
 
   const people = data?.results ?? []
   const total = data?.total ?? 0
-  const filtered = Boolean(q) || Boolean(role) || Boolean(department)
+  const filtered = Boolean(q) || Boolean(role) || Boolean(department) || Boolean(research)
 
   const columns: Column<PersonRow>[] = [
     {
@@ -218,8 +253,25 @@ export function People() {
     {
       key: "role",
       header: "Role",
-      className: "w-40",
-      cell: (p) => <span className="text-sm">{roleLabel(p.role)}</span>,
+      className: "w-48",
+      // The three things the office records per person, readable at a
+      // glance: faculty or an office role, whether they head their
+      // department, and whether they hold a research post. A head is
+      // faculty first, so they read as "Faculty" with the post beside it.
+      cell: (p) => (
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="text-sm">{p.role === "HOD" ? ROLE_LABEL.FACULTY : roleLabel(p.role)}</span>
+          {p.role === "HOD" && <KindBadge label="HOD" />}
+          {p.faculty_type === "RESEARCH" && (
+            <>
+              <KindBadge label="Research" />
+              <Meta>
+                {p.research_quota == null ? "No quota set" : `Quota ${p.research_quota} a year`}
+              </Meta>
+            </>
+          )}
+        </span>
+      ),
     },
     {
       key: "email",
@@ -258,7 +310,7 @@ export function People() {
 
       {creating && <NewAccount onClose={() => setCreating(false)} />}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className={filterBar}>
         <div className="relative w-full max-w-xs">
           <Search
             className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
@@ -288,6 +340,14 @@ export function People() {
           disabled={departmentsQuery.isLoading}
           aria-label="Filter by department"
           className="w-56"
+        />
+        <Combobox
+          value={research}
+          onChange={selectResearch}
+          options={RESEARCH_OPTIONS}
+          placeholder="Any post"
+          aria-label="Filter by research faculty"
+          className="w-44"
         />
       </div>
 
@@ -414,6 +474,21 @@ export function Person() {
 function CollegePerson() {
   const { id } = useParams<{ id: string }>()
   const { me } = useAuth()
+  const { refresh } = useAuth()
+  const navigate = useNavigate()
+
+  // A super admin sees exactly what this person sees. The server records the
+  // start and the end in the audit log, and the banner says so throughout.
+  async function viewAs() {
+    try {
+      await api(`/api/admin/impersonate/${id}`, { method: "POST" })
+      forgetCsrf() // the server logged us in as them, which rotates the token
+      await refresh()
+      navigate("/")
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
   const showMoney = can(me?.role).seeMoney
   const [editing, setEditing] = useState(false)
   const [resetting, setResetting] = useState(false)
@@ -556,9 +631,11 @@ function CollegePerson() {
         </div>
         {can(me?.role).manageUsers && id && (
           <div className="flex shrink-0 gap-2">
-            {/* Faculty only. A claim belongs to the person who published the
-                paper, and the server refuses an owner who is not one. */}
-            {faculty.role === "FACULTY" && (
+            {/* Claimants only -- faculty, and a head of department, who is
+                faculty too. A claim belongs to the person who published the
+                paper, and the server refuses an owner who is not one
+                (`rbac.CLAIMANT_ROLES`). */}
+            {can(faculty.role).fileOwnPapers && (
               <Button kind="default" size="md" asChild>
                 <Link to={`/papers/new?for=${id}`}>
                   <FilePlus />
@@ -577,6 +654,26 @@ function CollegePerson() {
           </div>
         )}
       </header>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {/* One person's record as a file: what an appraisal or a promotion
+            panel asks the office for. */}
+        {id && (
+          <>
+            <Button kind="default" size="sm" asChild>
+              <a href={`/api/faculty/${id}/report/export?fmt=xlsx`}>Download record (Excel)</a>
+            </Button>
+            <Button kind="quiet" size="sm" asChild>
+              <a href={`/api/faculty/${id}/report/export?fmt=csv`}>CSV</a>
+            </Button>
+          </>
+        )}
+        {me?.role === "SUPER_ADMIN" && id && faculty.role !== "SUPER_ADMIN" && (
+          <Button kind="quiet" size="sm" className="ml-auto" onClick={() => void viewAs()}>
+            View the app as {firstName(faculty.name) || "them"}
+          </Button>
+        )}
+      </div>
 
       {editing && id && <AccountEditor userId={id} onClose={() => setEditing(false)} />}
       {resetting && id && (
@@ -928,6 +1025,74 @@ function PersonFigure({
 
 
 /* ------------------------------------------------------------------------ */
+/* One head per department                                                   */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * The college's rule: exactly one head per department, and never a head of no
+ * department. The server enforces it (409 naming the head in post, and a
+ * `replace_hod` flag to demote them in the same write); this surfaces it
+ * before the save, where the office can decide rather than read an error.
+ *
+ * `replacing` is the id of the head the office agreed to replace, not a
+ * boolean, so a tick given for one department's head does not carry over to
+ * another's when the department is changed afterwards.
+ */
+function useHeadInPost(role: string, department: string, excludeId?: string) {
+  const dept = department.trim()
+  const wantsHead = role === "HOD"
+  const query = new URLSearchParams({ role: "HOD", active: "true", department: dept, limit: "5" })
+  const heads = useApi<PeoplePayload>(
+    ["people", "heads", dept.toLowerCase()],
+    `/api/admin/users?${query.toString()}`,
+    { enabled: wantsHead && Boolean(dept) }
+  )
+  const current =
+    wantsHead && dept ? (heads.data?.results.find((u) => u.id !== excludeId) ?? null) : null
+  const [replacing, setReplacing] = useState<string | null>(null)
+  return {
+    dept,
+    current,
+    noDepartment: wantsHead && !dept,
+    replace: current !== null && replacing === current.id,
+    setReplace: (yes: boolean) => setReplacing(yes && current ? current.id : null),
+  }
+}
+
+const HEAD_NEEDS_DEPARTMENT = "A head needs a department. Choose one, or pick another role."
+
+function ReplaceHead({
+  current,
+  department,
+  newHead,
+  checked,
+  onChange,
+}: {
+  current: PersonRow
+  department: string
+  newHead: string
+  checked: boolean
+  onChange: (yes: boolean) => void
+}) {
+  const name = current.name || current.email
+  return (
+    <Callout tone="caution" title={`${name} is HOD of ${department} — replace?`}>
+      <p>
+        A department has one head. Replacing makes {newHead} head of {department}, and {name}{" "}
+        goes back to being faculty — both in the same save, and both in the audit log.
+      </p>
+      <div className="mt-2">
+        <Checkbox
+          checked={checked}
+          onCheckedChange={(v) => onChange(v === true)}
+          label={`Replace ${name}`}
+        />
+      </div>
+    </Callout>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
 /* AccountEditor — the one place a person's details are changed             */
 /* ------------------------------------------------------------------------ */
 
@@ -982,6 +1147,10 @@ type AccountDetail = AccountFields & {
 function AccountEditor({ userId, onClose }: { userId: string; onClose: () => void }) {
   const { me } = useAuth()
   const isSuperAdmin = can(me?.role).admin
+  // Mirrors `may_set_field` in core/api/auth.py: the research coordinator
+  // runs the research programme, so whether somebody holds a research post
+  // and its quota are theirs to set as well as a super admin's.
+  const mayEditPost = isSuperAdmin || me?.role === "RESEARCH_COORDINATOR"
   const editingSelf = me?.id === userId
 
   const { data, isLoading, error } = useApi<AccountDetail>(
@@ -1009,13 +1178,27 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
     })
   }, [data])
 
-  const save = useApiMutation<Partial<AccountFields>, AccountDetail>(
+  const save = useApiMutation<Partial<AccountFields> & { replace_hod?: boolean }, AccountDetail>(
     `/api/admin/users/${userId}`,
     {
       method: "PATCH",
       invalidates: [["admin", "user", userId], ["people"], ["faculty-report", userId]],
     }
   )
+
+  const head = useHeadInPost(form?.role ?? "", form?.department ?? "", userId)
+  // The server checks the post only when a save changes who holds it -- the
+  // role, the department, or whether the account is on -- and only for an
+  // account left on: one switched off holds no post. So does this.
+  const takesPost =
+    !!form &&
+    !!data &&
+    form.active &&
+    (form.role !== data.role ||
+      form.department !== (data.department || "") ||
+      form.active !== data.active)
+  const mustReplace = takesPost && head.current !== null
+  const blocked = takesPost && (head.noDepartment || (mustReplace && !head.replace))
 
   function set<K extends keyof AccountFields>(key: K, value: AccountFields[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev))
@@ -1026,10 +1209,12 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
     // Only what actually moved. Sending the whole form would put every
     // identity field in the request, and the server refuses the request for
     // a research-cell account the moment one of them is present — even
-    // unchanged.
-    const patch: Partial<AccountFields> = {}
+    // unchanged. Empty is empty whichever way it is spelt: comparing an
+    // empty quota (null) with "" sent `research_quota` on every save, and the
+    // research cell was refused every save it made.
+    const patch: Partial<AccountFields> & { replace_hod?: boolean } = {}
     for (const key of Object.keys(form) as (keyof AccountFields)[]) {
-      if (form[key] !== (data[key] ?? (typeof form[key] === "boolean" ? false : ""))) {
+      if ((form[key] ?? "") !== (data[key] ?? "")) {
         // @ts-expect-error — narrowed by the key loop, which TS cannot follow
         patch[key] = form[key]
       }
@@ -1038,6 +1223,7 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
       onClose()
       return
     }
+    if (mustReplace && head.replace) patch.replace_hod = true
     try {
       await save.mutateAsync(patch)
       toast.ok(
@@ -1051,7 +1237,7 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
 
   const roleOptions: ComboboxOption[] = ASSIGNABLE_ROLE_KEYS.map((r) => ({
     value: r,
-    label: ROLE_LABEL[r],
+    label: ROLE_CHOICE_LABEL[r],
   }))
   const departmentOptions: ComboboxOption[] = [
     { value: "", label: "No department" },
@@ -1098,6 +1284,7 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
                 <Field
                   label="Department"
                   hint="Decides which head sees them and which department their output counts towards."
+                  error={takesPost && head.noDepartment ? HEAD_NEEDS_DEPARTMENT : undefined}
                 >
                   <Combobox
                     value={form.department}
@@ -1112,7 +1299,7 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
                   hint={
                     editingSelf
                       ? "You cannot change your own role — ask another admin."
-                      : "What this account may do."
+                      : "What this account may do. A head of department is faculty who also heads the department, one per department."
                   }
                 >
                   <Combobox
@@ -1122,6 +1309,16 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
                     disabled={editingSelf}
                   />
                 </Field>
+
+                {mustReplace && head.current && (
+                  <ReplaceHead
+                    current={head.current}
+                    department={head.dept}
+                    newHead={data?.name || data?.email || "this account"}
+                    checked={head.replace}
+                    onChange={head.setReplace}
+                  />
+                )}
 
                 <Checkbox
                   checked={form.active}
@@ -1206,30 +1403,24 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
               <fieldset className="space-y-4 border-t border-line pt-4">
                 <legend className="text-sm font-medium">What the post expects</legend>
 
-                <Field
-                  label="Faculty type"
+                {!mayEditPost && (
+                  <p className="text-sm text-fg-muted">
+                    Set by the research coordinator or a super admin. The research cell clears
+                    the claims the quota decides, so it cannot also set it.
+                  </p>
+                )}
+
+                <Checkbox
+                  checked={form.faculty_type === "RESEARCH"}
+                  onCheckedChange={(v) => set("faculty_type", v === true ? "RESEARCH" : "REGULAR")}
+                  disabled={!mayEditPost}
+                  label="Research faculty"
                   hint="A research post is already paid to do research, so the scheme rewards only what exceeds the quota."
-                >
-                  <Combobox
-                    value={form.faculty_type}
-                    onChange={(v) => set("faculty_type", v as "REGULAR" | "RESEARCH")}
-                    options={[
-                      { value: "REGULAR", label: "Regular faculty" },
-                      { value: "RESEARCH", label: "Research faculty" },
-                    ]}
-                    disabled={!isSuperAdmin}
-                  />
-                </Field>
+                />
 
                 {form.faculty_type === "RESEARCH" && (
                   <>
-                    <Callout tone="caution" title="Papers up to the quota are paid nothing">
-                      With a quota of four, their first four papers each year carry no
-                      remuneration and only the fifth onwards is reimbursed. Leave it empty
-                      and nothing is zeroed.
-                    </Callout>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-4 sm:grid-cols-[10rem_minmax(0,1fr)]">
                       <Field label="Papers a year before any incentive">
                         <Input
                           value={form.research_quota == null ? "" : String(form.research_quota)}
@@ -1239,7 +1430,7 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
                           }}
                           inputMode="numeric"
                           placeholder="No quota"
-                          disabled={!isSuperAdmin}
+                          disabled={!mayEditPost}
                         />
                       </Field>
                       <Field label="Where the number came from">
@@ -1247,10 +1438,15 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
                           value={form.research_quota_note}
                           onChange={(e) => set("research_quota_note", e.target.value)}
                           placeholder="Agreed in the appointment letter"
-                          disabled={!isSuperAdmin}
+                          disabled={!mayEditPost}
                         />
                       </Field>
                     </div>
+                    <Callout tone="caution" title="Papers up to the quota are paid nothing">
+                      With a quota of four, their first four papers each year carry no
+                      remuneration and only the fifth onwards is reimbursed. Leave it empty
+                      and nothing is zeroed.
+                    </Callout>
                   </>
                 )}
               </fieldset>
@@ -1263,7 +1459,7 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
           </Button>
           <Button
             kind="primary"
-            disabled={!form || save.isPending}
+            disabled={!form || save.isPending || blocked}
             onClick={() => void submit()}
           >
             {save.isPending ? "Saving…" : "Save changes"}
@@ -1397,9 +1593,16 @@ function NewAccount({ onClose }: { onClose: () => void }) {
     { id: string; email: string; needs_password: boolean }
   >("/api/admin/users", { invalidates: [["people"]] })
 
+  const head = useHeadInPost(role, department)
+
   const looksLikeEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())
   const canSubmit =
-    looksLikeEmail && name.trim().length > 1 && !!role && !create.isPending
+    looksLikeEmail &&
+    name.trim().length > 1 &&
+    !!role &&
+    !head.noDepartment &&
+    (head.current === null || head.replace) &&
+    !create.isPending
 
   async function submit() {
     try {
@@ -1410,6 +1613,7 @@ function NewAccount({ onClose }: { onClose: () => void }) {
         department: department.trim() || null,
         staff_id: staffId.trim() || null,
         designation: designation.trim() || null,
+        ...(head.current && head.replace ? { replace_hod: true } : {}),
       })
       toast.ok(
         `${created.email} created. Set a password for them, or they can sign in with Google.`
@@ -1433,7 +1637,7 @@ function NewAccount({ onClose }: { onClose: () => void }) {
           <Callout tone="info" title="No password is set here">
             The account is created without one. Use "Set a password" on their
             record afterwards and hand the value over, or let them sign in with
-            their college Google account.
+            the Google account for their email.
           </Callout>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -1467,11 +1671,14 @@ function NewAccount({ onClose }: { onClose: () => void }) {
                 onChange={setRole}
                 options={(Object.keys(ROLE_LABEL) as Role[]).map((r) => ({
                   value: r,
-                  label: ROLE_LABEL[r],
+                  label: ROLE_CHOICE_LABEL[r],
                 }))}
               />
             </Field>
-            <Field label="Department">
+            <Field
+              label="Department"
+              error={head.noDepartment ? HEAD_NEEDS_DEPARTMENT : undefined}
+            >
               <Combobox
                 value={department}
                 onChange={setDepartment}
@@ -1482,6 +1689,16 @@ function NewAccount({ onClose }: { onClose: () => void }) {
               />
             </Field>
           </div>
+
+          {head.current && (
+            <ReplaceHead
+              current={head.current}
+              department={head.dept}
+              newHead={name.trim() || "the new account"}
+              checked={head.replace}
+              onChange={head.setReplace}
+            />
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Staff ID" hint="Optional.">

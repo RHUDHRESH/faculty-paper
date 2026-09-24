@@ -5,8 +5,10 @@ import { CircleCheck, Stamp } from "lucide-react"
 import { can, useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
-import { useApi, useApiMutation } from "@/lib/query"
+import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
+import { ComingUp } from "@/ui/coming-up"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
   Dialog,
@@ -23,6 +25,7 @@ import { Pagination } from "@/ui/pagination"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
 
 /**
  * The Director's queue: everything the Principal has approved and nobody has
@@ -47,7 +50,7 @@ const PAGE_SIZE = 50
 /* Data — read out of director_queue() in backend/core/api.py               */
 /* ------------------------------------------------------------------------ */
 
-type Claim = {
+export type Claim = {
   id: string
   ticket_number: string | null
   paper_title: string
@@ -159,6 +162,7 @@ export function Authorisations() {
           Approved by the Principal and waiting on you. Finance cannot pay any of these until
           they carry your authorisation.
         </Sub>
+        <OwnPapersNote className="mt-1" />
       </header>
 
       {/* Three states, not two. Without `loading` these read "—", "—", "—"
@@ -198,7 +202,7 @@ export function Authorisations() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className={filterBar}>
         <Combobox
           value={department}
           onChange={(next) => setParam("department", next)}
@@ -219,18 +223,22 @@ export function Authorisations() {
           aria-label="Sort"
           className="w-52"
         />
-        {selectedRows.length > 0 && (
-          <div className="ml-auto flex items-center gap-3">
-            <Meta className="tabular">
-              {selectedRows.length} selected · {money(selectedTotal)}
-            </Meta>
-            <Button kind="primary" size="md" onClick={() => setBulkOpen(true)}>
-              <Stamp />
-              Authorise {selectedRows.length}
-            </Button>
-          </div>
-        )}
       </div>
+
+      {selectedRows.length > 0 && (
+        // Its own bar, pinned under the header while the list scrolls: on a
+        // phone the tickets being ticked are a screen below where the button was.
+        <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
+          <p className="text-sm tabular">
+            <span className="font-semibold">{selectedRows.length}</span> selected ·{" "}
+            <span className="font-semibold">{money(selectedTotal)}</span>
+          </p>
+          <Button kind="primary" size="md" onClick={() => setBulkOpen(true)}>
+            <Stamp />
+            Authorise {selectedRows.length}
+          </Button>
+        </div>
+      )}
 
       {isLoading && !data ? (
         <SkeletonRows rows={8} rowHeight={72} />
@@ -265,7 +273,9 @@ export function Authorisations() {
               <Button kind="default" size="sm" onClick={() => setParam("department", "")}>
                 See every department
               </Button>
-            ) : undefined
+            ) : (
+              <ComingUp desk="director" />
+            )
           }
         />
       ) : (
@@ -295,7 +305,11 @@ export function Authorisations() {
                   })
                 }
                 onAuthorise={() => setActing({ claim, mode: "authorise" })}
-                onSendBack={() => setActing({ claim, mode: "send-back" })}
+                // The Director only moves a claim forward (the college's rule);
+                // sending one back is left to a super admin standing in.
+                onSendBack={
+                  me?.role === "SUPER_ADMIN" ? () => setActing({ claim, mode: "send-back" }) : undefined
+                }
               />
             ))}
           </ul>
@@ -376,7 +390,7 @@ function ClaimRow({
   checked: boolean
   onToggle: (on: boolean) => void
   onAuthorise: () => void
-  onSendBack: () => void
+  onSendBack?: () => void
 }) {
   return (
     <li className="flex gap-3 py-4">
@@ -448,9 +462,11 @@ function ClaimRow({
           <Button kind="primary" size="sm" onClick={onAuthorise} disabled={!!claim.calc_error}>
             Authorise
           </Button>
-          <Button kind="quiet" size="sm" onClick={onSendBack}>
-            Send back to the Principal
-          </Button>
+          {onSendBack && (
+            <Button kind="quiet" size="sm" onClick={onSendBack}>
+              Send back to the Principal
+            </Button>
+          )}
         </div>
       </div>
     </li>
@@ -478,7 +494,7 @@ function AuthoriseDialog({ claim, onClose }: { claim: Claim; onClose: () => void
 
   const authorise = useApiMutation<{ note?: string; expected_amount: number }, Claim>(
     `/api/claims/${claim.id}/director-approve`,
-    { invalidates: [["director-queue"], ["claim", claim.id], ["dashboard"]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   async function confirm() {
@@ -590,7 +606,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
 
   const reject = useApiMutation<{ note: string }, Claim>(
     `/api/claims/${claim.id}/director-reject`,
-    { invalidates: [["director-queue"], ["claim", claim.id]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   const trimmed = note.trim()
@@ -662,7 +678,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
  * Those reasons are reported individually. "Authorised 12 of 15" with no word
  * on the other three is how three claims get forgotten.
  */
-function BulkAuthoriseDialog({
+export function BulkAuthoriseDialog({
   claims,
   onClose,
   onDone,
@@ -676,7 +692,7 @@ function BulkAuthoriseDialog({
 
   const bulk = useApiMutation<{ claim_ids: string[]; note?: string }, BulkResult>(
     "/api/director/bulk-approve",
-    { invalidates: [["director-queue"], ["dashboard"]] }
+    { invalidates: [...CHAIN] }
   )
 
   const total = claims.reduce((sum, c) => sum + (c.remuneration || 0), 0)

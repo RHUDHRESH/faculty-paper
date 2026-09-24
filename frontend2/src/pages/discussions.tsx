@@ -1,24 +1,14 @@
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom"
 import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
-import { Link, useParams, useSearchParams } from "react-router-dom"
-import {
-  AtSign,
   ArrowLeft,
   Bot,
   Building2,
   CircleCheck,
   Lock,
   Mail,
-  MessagesSquare,
   Plus,
   RefreshCw,
-  Send,
   X,
 } from "lucide-react"
 
@@ -28,6 +18,7 @@ import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
+import { Composer, renderBody, useMentionSearch, type Candidate } from "@/ui/composer"
 import {
   ConfirmDialog,
   Dialog,
@@ -38,7 +29,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/dialog"
-import { Field, Input, Textarea } from "@/ui/field"
+import { Field, Input } from "@/ui/field"
+import { PersonLink } from "@/ui/person"
 import {
   Callout,
   EmptyState,
@@ -46,11 +38,20 @@ import {
   InlineError,
   SkeletonRows,
 } from "@/ui/state"
-import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { relativeTime } from "@/ui/when"
+import { Inbox, NewChat, OpenChat } from "@/pages/chat"
 
 /**
- * Discussions — direct conversations and open threads, in one place.
+ * Messages — direct conversations, and conversations with the research office.
+ *
+ * The open threads that used to share this page are the feed now
+ * (`pages/feed.tsx`): a post for the whole college wants to be seen, and a
+ * list of thread titles hid it behind a click. What stays here is private —
+ * a named few, or the office — and so it stays a conversation rather than a
+ * post. An old thread link that pointed at an open thread is sent on to the
+ * post it became (`feed_post_id`).
  *
  * Deliberately not a chat box. A post names the things it concerns and those
  * names resolve to real records: `@journal:"Ceramics International"` is a
@@ -142,6 +143,8 @@ type ThreadDetail = ThreadRow & {
   posts: PostRow[]
   following: boolean
   followers: number
+  /** Set when this was an open thread and now lives in the feed as a post. */
+  feed_post_id?: string | null
 }
 
 type ThreadList = {
@@ -151,8 +154,6 @@ type ThreadList = {
   results: ThreadRow[]
   visibilities: { key: Visibility; label: string }[]
 }
-
-type Candidate = { kind: string; id: string; label: string; hint: string | null }
 
 const VISIBILITY_LABEL: Record<Visibility, string> = {
   PUBLIC: "Everybody",
@@ -177,32 +178,40 @@ const LIST_POLL_MS = 30_000
 /** A thread is being read right now, so it refreshes faster than a list. */
 const THREAD_POLL_MS = 12_000
 
-type Lane = "direct" | "office" | "open"
+type Lane = "direct" | "office"
 
 const LANES: { key: Lane; label: string }[] = [
-  { key: "open", label: "Open threads" },
   { key: "direct", label: "Direct" },
   { key: "office", label: "The office" },
 ]
 
 function readLane(value: string | null): Lane {
-  return value === "direct" || value === "office" ? value : "open"
+  return value === "office" ? "office" : "direct"
+}
+
+/** A direct thread opens in the chat (`pages/chat.tsx`). A plain function
+ *  rather than an inline comparison, so the thread page below keeps its
+ *  direct-thread rendering typed for any link that still lands there. */
+function opensAsChat(visibility: Visibility): boolean {
+  return visibility === "DIRECT"
 }
 
 /* ------------------------------------------------------------------------ */
 /* The list                                                                  */
 /* ------------------------------------------------------------------------ */
 
-export function Discussions() {
+export function Messages() {
   const { me } = useAuth()
   const office = can(me?.role).clear
 
   const [searchParams, setSearchParams] = useSearchParams()
   const lane = readLane(searchParams.get("lane"))
   const q = searchParams.get("q") ?? ""
-  const visibility = searchParams.get("visibility") ?? ""
   const topic = searchParams.get("topic") ?? ""
   const mine = searchParams.get("mine") === "1"
+  // `?to=<id>` is the Message button on somebody's profile (and 🤝 on a
+  // post, with `&ref=<post>`): straight into the chat with them.
+  const to = searchParams.get("to")
   const [composing, setComposing] = useState<Lane | null>(null)
 
   const [draft, setDraft] = useState(q)
@@ -228,17 +237,24 @@ export function Discussions() {
     return () => clearTimeout(t)
   }, [draft, q, setParam])
 
-  const filtered = !!(q || topic || (lane !== "direct" && mine) || (lane === "open" && visibility))
+  const filtered = !!(q || topic || (lane !== "direct" && mine))
+
+  if (to) return <OpenChat to={to} refPost={searchParams.get("ref")} />
 
   return (
     <div className="page space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <PageTitle>Discussions</PageTitle>
+          <PageTitle>Messages</PageTitle>
           <Sub className="mt-1">
-            Message a colleague, ask the research office, talk to your
-            department, or pull the assistant in with{" "}
-            <code className="rounded-sm bg-sunken px-1 text-sm">@agent</code>.
+            Write to a colleague privately, or ask the research office. Pull the
+            assistant in with{" "}
+            <code className="rounded-sm bg-sunken px-1 text-sm">@agent</code>. For
+            something the whole college should see, post it in{" "}
+            <Link to="/discussions" className="text-accent underline-offset-4 hover:underline">
+              Discussions
+            </Link>
+            .
           </Sub>
         </div>
         <Button
@@ -248,11 +264,7 @@ export function Discussions() {
           onClick={() => setComposing(lane)}
         >
           <Plus />
-          {lane === "direct"
-            ? "New message"
-            : lane === "office"
-              ? "Ask the office"
-              : "Start a thread"}
+          {lane === "direct" ? "New message" : "Ask the office"}
         </Button>
       </header>
 
@@ -269,8 +281,7 @@ export function Discussions() {
             aria-selected={lane === t.key}
             onClick={() =>
               setParam({
-                lane: t.key === "open" ? "" : t.key,
-                visibility: "",
+                lane: t.key === "direct" ? "" : t.key,
                 mine: t.key === "direct" ? "" : mine ? "1" : "",
               })
             }
@@ -291,33 +302,10 @@ export function Discussions() {
         <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder={
-            lane === "direct"
-              ? "Search your messages"
-              : lane === "office"
-                ? "Search office conversations"
-                : "Search threads"
-          }
+          placeholder={lane === "direct" ? "Search your messages" : "Search office conversations"}
           aria-label="Search"
           className="w-full sm:max-w-xs"
         />
-        {lane === "open" && (
-          <Combobox
-            value={visibility}
-            onChange={(v) => setParam({ visibility: v })}
-            options={[
-              { value: "", label: "Everything open", hint: "Public and departmental" },
-              { value: "PUBLIC", label: "Everybody", hint: "Anyone signed in can read it" },
-              {
-                value: "DEPARTMENT",
-                label: "One department",
-                hint: office ? "Any department" : `${me?.department || "Yours"}, and the office`,
-              },
-            ]}
-            aria-label="Filter by who can see it"
-            className="w-full sm:w-52"
-          />
-        )}
         {/* Every direct conversation is one you are in — `list_threads`
             matches `mine` on subscription, and being a participant subscribes
             you. The filter would tick and change nothing, which teaches a
@@ -341,14 +329,8 @@ export function Discussions() {
       </div>
 
       {lane === "direct" ? (
-        <DirectLane
-          q={q}
-          topic={topic}
-          filtered={filtered}
-          meId={me?.id}
-          onStart={() => setComposing("direct")}
-        />
-      ) : lane === "office" ? (
+        <Inbox q={q} onStart={() => setComposing("direct")} />
+      ) : (
         <OfficeLane
           q={q}
           topic={topic}
@@ -358,19 +340,13 @@ export function Discussions() {
           meId={me?.id}
           onStart={() => setComposing("office")}
         />
-      ) : (
-        <OpenLane
-          q={q}
-          topic={topic}
-          mine={mine}
-          visibility={visibility}
-          filtered={filtered}
-          onStart={() => setComposing("open")}
-        />
       )}
 
-      {composing && (
-        <NewConversation initialLane={composing} onClose={() => setComposing(null)} />
+      {/* A direct message is a chat (`pages/chat.tsx`); the office lane keeps
+          its titled conversation. */}
+      {composing === "direct" && <NewChat onClose={() => setComposing(null)} />}
+      {composing === "office" && (
+        <NewConversation initialLane="office" initialPeople={[]} onClose={() => setComposing(null)} />
       )}
     </div>
   )
@@ -383,89 +359,6 @@ function listPath(params: Record<string, string | boolean | number | undefined>)
     query.set(key, String(value))
   }
   return `/api/threads?${query.toString()}`
-}
-
-/**
- * The private lane: `DIRECT` threads, readable by the named people in them
- * and by nobody else — the office included.
- *
- * Split out from the open lane rather than filtered out of one list, because
- * "who else is reading this" is the single most important thing about a
- * message, and burying a private one between two public ones is how somebody
- * writes something personal into a thread the whole college can read.
- */
-function DirectLane({
-  q,
-  topic,
-  filtered,
-  meId,
-  onStart,
-}: {
-  q: string
-  topic: string
-  filtered: boolean
-  meId?: string
-  onStart: () => void
-}) {
-  const [pages, setPages] = useState(1)
-  useEffect(() => setPages(1), [q, topic])
-  const limit = PAGE * pages
-
-  const { data, isLoading, isError, refetch } = useApi<ThreadList>(
-    ["threads", "direct", q, topic, limit],
-    listPath({ visibility: "DIRECT", q, topic, limit }),
-    { refetchInterval: LIST_POLL_MS }
-  )
-
-  const threads = data?.results ?? []
-
-  return (
-    <section className="space-y-4">
-      <Callout tone="info" title="Who can read a direct message">
-        Only the people named in it. Not your department, not the research
-        office, not an administrator — a direct conversation is the one kind of
-        thread the office cannot open, and they cannot close or moderate one
-        either.
-      </Callout>
-
-      {isLoading ? (
-        <SkeletonRows rows={4} rowHeight={64} />
-      ) : isError ? (
-        <ErrorState
-          title="Could not load your messages"
-          message="The server did not answer. Nothing has been sent, lost or deleted."
-          onRetry={() => void refetch()}
-        />
-      ) : threads.length === 0 ? (
-        <EmptyState
-          icon={Mail}
-          title={filtered ? "Nothing matches" : "No direct messages"}
-          message={
-            filtered
-              ? "Try clearing a filter. You only ever see the conversations you are in."
-              : "Write to a colleague about a paper, a venue, or anything you would rather not put in front of the department."
-          }
-          action={
-            filtered ? undefined : (
-              <Button kind="primary" size="sm" onClick={onStart}>
-                <Mail />
-                New message
-              </Button>
-            )
-          }
-        />
-      ) : (
-        <>
-          <ThreadRows threads={threads} lane="direct" meId={meId} />
-          <ShowMore
-            shown={threads.length}
-            total={data?.total ?? threads.length}
-            onMore={() => setPages((p) => p + 1)}
-          />
-        </>
-      )}
-    </section>
-  )
 }
 
 /**
@@ -542,129 +435,12 @@ function OfficeLane({
         />
       ) : (
         <>
-          <ThreadRows threads={threads} lane="office" meId={meId} />
+          <ThreadRows threads={threads} meId={meId} />
           <ShowMore
             shown={threads.length}
             total={data?.total ?? threads.length}
             onMore={() => setPages((p) => p + 1)}
           />
-        </>
-      )}
-    </section>
-  )
-}
-
-/**
- * The open lane: everything that is not private.
- *
- * Two requests rather than one, because the list endpoint takes a single
- * `visibility` and there is no "anything open" value. Merging the two sorted
- * pages and showing at most `limit` of the result keeps the order exact —
- * the first `limit` of a merge of two lists that are each already sorted and
- * each `limit` long cannot be wrong.
- */
-function OpenLane({
-  q,
-  topic,
-  mine,
-  visibility,
-  filtered,
-  onStart,
-}: {
-  q: string
-  topic: string
-  mine: boolean
-  visibility: string
-  filtered: boolean
-  onStart: () => void
-}) {
-  const [pages, setPages] = useState(1)
-  useEffect(() => setPages(1), [q, topic, mine, visibility])
-  const limit = PAGE * pages
-
-  const wantPublic = visibility === "" || visibility === "PUBLIC"
-  const wantDepartment = visibility === "" || visibility === "DEPARTMENT"
-
-  const publicThreads = useApi<ThreadList>(
-    ["threads", "PUBLIC", q, topic, mine, limit],
-    listPath({ visibility: "PUBLIC", q, topic, mine, limit }),
-    { enabled: wantPublic, refetchInterval: LIST_POLL_MS }
-  )
-  const departmentThreads = useApi<ThreadList>(
-    ["threads", "DEPARTMENT", q, topic, mine, limit],
-    listPath({ visibility: "DEPARTMENT", q, topic, mine, limit }),
-    { enabled: wantDepartment, refetchInterval: LIST_POLL_MS }
-  )
-
-  const sources = [
-    { on: wantPublic, query: publicThreads, name: "Public threads" },
-    { on: wantDepartment, query: departmentThreads, name: "Department threads" },
-  ].filter((s) => s.on)
-
-  const loading = sources.some((s) => s.query.isLoading)
-  const failed = sources.filter((s) => s.query.isError)
-
-  const publicRows = wantPublic ? publicThreads.data?.results : undefined
-  const departmentRows = wantDepartment ? departmentThreads.data?.results : undefined
-
-  const threads = useMemo(() => {
-    const rows = [...(publicRows ?? []), ...(departmentRows ?? [])]
-    rows.sort((a, b) => Date.parse(b.last_post_at) - Date.parse(a.last_post_at))
-    return rows.slice(0, limit)
-  }, [publicRows, departmentRows, limit])
-
-  const total = sources.reduce((sum, s) => sum + (s.query.data?.total ?? 0), 0)
-
-  function retryFailed() {
-    for (const s of failed) void s.query.refetch()
-  }
-
-  if (loading) return <SkeletonRows rows={6} rowHeight={64} />
-
-  // Every source failed: there is nothing honest to show but the failure.
-  if (failed.length === sources.length) {
-    return (
-      <ErrorState
-        title="Could not load the threads"
-        message="The server did not answer. Nothing has been lost."
-        onRetry={retryFailed}
-      />
-    )
-  }
-
-  return (
-    <section className="space-y-4">
-      {/* One half failed. Showing the other half silently would read as a
-          complete list that happens to be short, which is the exact lie
-          `ErrorState` exists to prevent. */}
-      {failed.length > 0 && (
-        <InlineError
-          message={`${failed[0].name} could not be loaded, so this list is incomplete.`}
-          onRetry={retryFailed}
-        />
-      )}
-
-      {threads.length === 0 ? (
-        <EmptyState
-          icon={MessagesSquare}
-          title={filtered ? "Nothing matches" : "No open threads yet"}
-          message={
-            filtered
-              ? "Try clearing a filter, or look in Direct for a conversation with the office."
-              : "Start one to talk to your department about where to publish, or to ask the whole college something."
-          }
-          action={
-            filtered ? undefined : (
-              <Button kind="primary" size="sm" onClick={onStart}>
-                Start a thread
-              </Button>
-            )
-          }
-        />
-      ) : (
-        <>
-          <ThreadRows threads={threads} lane="open" />
-          <ShowMore shown={threads.length} total={total} onMore={() => setPages((p) => p + 1)} />
         </>
       )}
     </section>
@@ -699,15 +475,7 @@ function ShowMore({
   )
 }
 
-function ThreadRows({
-  threads,
-  lane,
-  meId,
-}: {
-  threads: ThreadRow[]
-  lane: Lane
-  meId?: string
-}) {
+function ThreadRows({ threads, meId }: { threads: ThreadRow[]; meId?: string }) {
   return (
     <ul className="divide-y divide-line border-y border-line">
       {threads.map((t) => (
@@ -730,16 +498,7 @@ function ThreadRows({
                 )}
               </span>
               <Meta className="mt-0.5 block truncate text-xs">
-                {(lane === "open"
-                  ? [
-                      t.created_by,
-                      audienceLabel(t),
-                      t.topic,
-                      t.journal_title,
-                      t.ticket_number,
-                    ]
-                  : [parties(t, meId), t.topic, t.journal_title, t.ticket_number]
-                )
+                {[parties(t, meId), t.topic, t.journal_title, t.ticket_number]
                   .filter(Boolean)
                   .join(" · ")}
               </Meta>
@@ -877,9 +636,9 @@ export function Thread() {
     return (
       <div className="page py-8">
         <Button kind="quiet" size="sm" asChild className="-ml-2 mb-4">
-          <Link to="/discussions">
+          <Link to="/messages">
             <ArrowLeft />
-            Discussions
+            Messages
           </Link>
         </Button>
         <ErrorState
@@ -895,20 +654,33 @@ export function Thread() {
     )
   }
 
+  // An open thread from before the feed is a post now; its old link, and any
+  // notification that carried it, lands on the post rather than on a copy.
+  if (data.feed_post_id) {
+    return <Navigate to={`/discussions/p/${data.feed_post_id}`} replace />
+  }
+  // A direct thread is a chat now (`pages/chat.tsx`): same conversation, with
+  // unread counts, "seen" and collaboration cards.
+  if (opensAsChat(data.visibility)) {
+    return <Navigate to={`/messages/c/${data.id}`} replace />
+  }
+
   const direct = data.visibility === "DIRECT"
   const withOffice = data.visibility === "OFFICE"
   const restricted = direct || withOffice
-  const lane: Lane = direct ? "direct" : withOffice ? "office" : "open"
-  const laneLabel =
-    lane === "open" ? "Discussions" : (LANES.find((l) => l.key === lane)?.label ?? "Discussions")
+  const back = direct
+    ? { to: "/messages", label: "Messages" }
+    : withOffice
+      ? { to: "/messages?lane=office", label: "The office" }
+      : { to: "/discussions", label: "Discussions" }
 
   return (
     <div className="page space-y-6 pb-4">
       <div>
         <Button kind="quiet" size="sm" asChild className="-ml-2">
-          <Link to={lane === "open" ? "/discussions" : `/discussions?lane=${lane}`}>
+          <Link to={back.to}>
             <ArrowLeft />
-            {laneLabel}
+            {back.label}
           </Link>
         </Button>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
@@ -957,7 +729,7 @@ export function Thread() {
           {audienceLabel(data)}
         </Chip>
         {data.topic && (
-          <Chip to={`/discussions?topic=${encodeURIComponent(data.topic)}`}>{data.topic}</Chip>
+          <Chip to={`/messages?topic=${encodeURIComponent(data.topic)}`}>{data.topic}</Chip>
         )}
         {data.claim_id && (
           <Chip to={`/papers/${data.claim_id}`}>{data.ticket_number || "The paper"}</Chip>
@@ -1089,7 +861,13 @@ function Post({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="flex items-center gap-1.5 text-sm font-medium">
           {isAgent && <Bot className="size-3.5 text-accent" aria-hidden />}
-          {isAgent ? "Assistant" : isSystem ? "Recorded" : post.author_name || "Somebody"}
+          {isAgent ? (
+            "Assistant"
+          ) : isSystem ? (
+            "Recorded"
+          ) : (
+            <PersonLink id={post.author_id} name={post.author_name || "Somebody"} />
+          )}
         </span>
         <Meta className="text-xs">
           {relative(post.created_at)}
@@ -1156,7 +934,7 @@ function MentionChip({ mention }: { mention: MentionRow }) {
 
   if (mention.kind === "USER" && mention.user_id) {
     return (
-      <Link to={`/people/${mention.user_id}`} className={cn(base, "hover:bg-hover")}>
+      <Link to={`/u/${mention.user_id}`} className={cn(base, "hover:bg-hover")}>
         {mention.user_name || mention.label}
       </Link>
     )
@@ -1181,399 +959,6 @@ function MentionChip({ mention }: { mention: MentionRow }) {
   return <span className={base}>{mention.department || mention.label}</span>
 }
 
-/** `**bold**` as the assistant writes it, and every `@name` marked as one.
- *  A mention that renders as ordinary text is a feature nobody discovers by
- *  reading the thread, which is how `@` stayed a secret in the first place. */
-const INLINE_RE =
-  /(\*\*[^*]+\*\*|@(?:[A-Za-z]+:)?(?:"[^"]{1,200}"|[A-Za-z0-9._-]{1,80}))/g
-
-function renderBody(body: string) {
-  return body.split(INLINE_RE).map((chunk, i) => {
-    if (chunk.startsWith("**") && chunk.endsWith("**")) {
-      return <strong key={i}>{chunk.slice(2, -2)}</strong>
-    }
-    if (chunk.startsWith("@") && chunk.length > 1) {
-      return (
-        <span key={i} className="font-medium text-accent">
-          {chunk}
-        </span>
-      )
-    }
-    return <span key={i}>{chunk}</span>
-  })
-}
-
-/* ------------------------------------------------------------------------ */
-/* Mention search                                                            */
-/* ------------------------------------------------------------------------ */
-
-type SearchStatus = "idle" | "prompt" | "loading" | "ready" | "failed"
-
-/**
- * What `@` offers, and honestly which of the five things it is doing.
- *
- * `failed` is a separate state from `ready` with no results on purpose: a
- * search that could not run and a search that found nothing look identical
- * if both render an empty list, and the reader concludes the colleague they
- * are trying to name does not exist.
- */
-function useMentionSearch(term: string | null, kind?: string | null) {
-  const [status, setStatus] = useState<SearchStatus>("idle")
-  const [results, setResults] = useState<Candidate[]>([])
-
-  useEffect(() => {
-    if (term === null) {
-      setStatus("idle")
-      setResults([])
-      return
-    }
-    if (term.trim().length === 0) {
-      // `mention_candidates` answers nothing for an empty query, so say what
-      // to type instead of firing a request that cannot succeed.
-      setStatus("prompt")
-      setResults([])
-      return
-    }
-
-    let live = true
-    setStatus("loading")
-    const timer = setTimeout(() => {
-      const query = new URLSearchParams({ q: term })
-      if (kind) query.set("kind", kind)
-      api<{ results: Candidate[] }>(`/api/mentions/search?${query.toString()}`)
-        .then((r) => {
-          if (!live) return
-          setResults(r.results)
-          setStatus("ready")
-        })
-        .catch(() => {
-          if (!live) return
-          setResults([])
-          setStatus("failed")
-        })
-    }, 180)
-
-    return () => {
-      live = false
-      clearTimeout(timer)
-    }
-  }, [term, kind])
-
-  return { status, results }
-}
-
-const KIND_LABEL: Record<string, string> = {
-  USER: "Person",
-  JOURNAL: "Journal",
-  PAPER: "Paper",
-  DEPARTMENT: "Dept",
-  AGENT: "Agent",
-}
-
-/** `@`, optionally typed (`@journal:`), at the start of a word, up to the
- *  caret. The leading word boundary matters: without it every email address
- *  somebody pastes opens the picker. */
-const TRIGGER_RE =
-  /(?:^|\s)@(?:(user|person|journal|paper|dept|department|agent):)?([A-Za-z0-9._-]*)$/
-
-const KIND_FOR_HINT: Record<string, string> = {
-  user: "USER",
-  person: "USER",
-  journal: "JOURNAL",
-  paper: "PAPER",
-  dept: "DEPARTMENT",
-  department: "DEPARTMENT",
-  agent: "AGENT",
-}
-
-/** Written back into the text. A label with a space in it is quoted, because
- *  a mention that stops at the first space points at the wrong thing far more
- *  often than not — which is why the server's own regex accepts a quoted form. */
-function mentionText(candidate: Candidate): string {
-  const quoted = /\s/.test(candidate.label) ? `"${candidate.label}"` : candidate.label
-  switch (candidate.kind) {
-    case "AGENT":
-      return "@agent"
-    case "JOURNAL":
-      return `@journal:${quoted}`
-    case "PAPER":
-      return `@paper:${candidate.id}`
-    case "DEPARTMENT":
-      return `@dept:${quoted}`
-    default:
-      return `@user:${quoted}`
-  }
-}
-
-/* ------------------------------------------------------------------------ */
-/* The composer                                                              */
-/* ------------------------------------------------------------------------ */
-
-/**
- * Where a message is written, with `@` as a menu rather than as folklore.
- *
- * The old composer had the same autocomplete underneath it, but nothing said
- * so and nothing but the mouse could reach it: no arrow keys, no Enter, no
- * "type @ to name somebody" anywhere on the screen. A feature you have to be
- * told about in person is a feature the second cohort of staff never gets,
- * so the trigger is advertised, there is a button that types it for you, and
- * the list is a real listbox you can drive from the keyboard.
- *
- * Enter sends and Shift+Enter starts a new line — and the screen says which,
- * because guessing wrong posts half a sentence to a thread of colleagues.
- */
-function Composer({
-  value,
-  onChange,
-  onSend,
-  busy,
-  submitOnEnter = false,
-  label,
-  placeholder = "Say something. Type @ to name a person, a journal or a paper — or @agent to ask the assistant.",
-  sendLabel = "Post",
-  rows = 3,
-}: {
-  value: string
-  onChange: (v: string) => void
-  onSend?: () => void
-  busy?: boolean
-  submitOnEnter?: boolean
-  label: string
-  placeholder?: string
-  sendLabel?: string
-  rows?: number
-}) {
-  const ref = useRef<HTMLTextAreaElement>(null)
-  const [term, setTerm] = useState<string | null>(null)
-  const [hint, setHint] = useState<string | null>(null)
-  const [active, setActive] = useState(0)
-  const listId = useRef(`mentions-${Math.random().toString(36).slice(2, 9)}`).current
-
-  const { status, results } = useMentionSearch(term, hint ? KIND_FOR_HINT[hint] : null)
-  const open = term !== null
-  useEffect(() => setActive(0), [results])
-
-  // A controlled textarea loses the caret when the value is rewritten from
-  // outside, which after inserting a mention would drop it at the end of the
-  // message rather than after the name just chosen.
-  const caretAfterInsert = useRef<number | null>(null)
-  useLayoutEffect(() => {
-    const at = caretAfterInsert.current
-    if (at === null) return
-    caretAfterInsert.current = null
-    const el = ref.current
-    if (!el) return
-    el.focus()
-    el.setSelectionRange(at, at)
-  })
-
-  function readTrigger(next: string, caret: number) {
-    const match = next.slice(0, caret).match(TRIGGER_RE)
-    if (!match) {
-      setTerm(null)
-      setHint(null)
-      return
-    }
-    setHint(match[1] ? match[1].toLowerCase() : null)
-    setTerm(match[2] ?? "")
-  }
-
-  function onType(next: string) {
-    onChange(next)
-    readTrigger(next, ref.current?.selectionStart ?? next.length)
-  }
-
-  function insert(candidate: Candidate) {
-    const el = ref.current
-    const caret = el?.selectionStart ?? value.length
-    const before = value.slice(0, caret).replace(/@(?:[A-Za-z]+:)?([A-Za-z0-9._-]*)$/, "")
-    const after = value.slice(caret)
-    const text = `${mentionText(candidate)} `
-    caretAfterInsert.current = before.length + text.length
-    onChange(`${before}${text}${after}`)
-    setTerm(null)
-    setHint(null)
-  }
-
-  function startMention() {
-    const el = ref.current
-    const caret = el?.selectionStart ?? value.length
-    const before = value.slice(0, caret)
-    const spacer = before && !/\s$/.test(before) ? " " : ""
-    const next = `${before}${spacer}@${value.slice(caret)}`
-    caretAfterInsert.current = before.length + spacer.length + 1
-    onChange(next)
-    setHint(null)
-    setTerm("")
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (open) {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        setTerm(null)
-        setHint(null)
-        return
-      }
-      if (results.length > 0) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault()
-          setActive((i) => (i + 1) % results.length)
-          return
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault()
-          setActive((i) => (i - 1 + results.length) % results.length)
-          return
-        }
-        // Enter and Tab both commit the highlighted name. Enter must not fall
-        // through to "send" here or choosing a colleague posts the message.
-        if (e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault()
-          insert(results[active])
-          return
-        }
-      }
-    }
-
-    if (submitOnEnter && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault()
-      if (!busy && value.trim()) onSend?.()
-    }
-  }
-
-  return (
-    <div className="relative space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <label htmlFor={`${listId}-input`} className="text-sm font-medium">
-          {label}
-        </label>
-        <Button
-          kind="quiet"
-          size="sm"
-          type="button"
-          onClick={startMention}
-          title="Name a person, journal, paper or department"
-        >
-          <AtSign />
-          Mention
-        </Button>
-      </div>
-
-      <Textarea
-        ref={ref}
-        id={`${listId}-input`}
-        value={value}
-        onChange={(e) => onType(e.target.value)}
-        onKeyDown={onKeyDown}
-        onClick={(e) => readTrigger(value, e.currentTarget.selectionStart)}
-        onBlur={() => {
-          // A click on an option fires `mousedown` first and cancels this, so
-          // the list closing on blur never eats the choice.
-          setTerm(null)
-          setHint(null)
-        }}
-        rows={rows}
-        maxRows={10}
-        placeholder={placeholder}
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={
-          open && results.length > 0 ? `${listId}-opt-${active}` : undefined
-        }
-      />
-
-      {open && (
-        <div
-          className={cn(
-            "absolute bottom-full z-20 mb-1 w-full max-w-md overflow-hidden",
-            "rounded-lg bg-surface shadow-pop ring-1 ring-inset ring-edge"
-          )}
-        >
-          {status === "prompt" && (
-            <p className="px-3 py-2 text-sm text-fg-muted">
-              Keep typing — a colleague's name, a journal, a ticket number, or{" "}
-              <span className="font-medium text-accent">agent</span> to ask the assistant.
-            </p>
-          )}
-          {status === "loading" && (
-            <p className="px-3 py-2 text-sm text-fg-muted" role="status">
-              Looking…
-            </p>
-          )}
-          {status === "failed" && (
-            <p className="px-3 py-2 text-sm text-critical" role="alert">
-              Could not search. Your message is untouched — type the name in full and
-              post it anyway.
-            </p>
-          )}
-          {status === "ready" && results.length === 0 && (
-            <p className="px-3 py-2 text-sm text-fg-muted">
-              Nothing here answers to “{term}”.
-            </p>
-          )}
-          {results.length > 0 && (
-            <ul id={listId} role="listbox" aria-label="Mentions" className="max-h-64 overflow-y-auto">
-              {results.map((c, i) => (
-                <li key={`${c.kind}-${c.id}`} role="none">
-                  <button
-                    id={`${listId}-opt-${i}`}
-                    role="option"
-                    aria-selected={i === active}
-                    type="button"
-                    // `mousedown` rather than `click`: the textarea's blur
-                    // closes the list, and by the time `click` fires there is
-                    // nothing left to click.
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      insert(c)
-                    }}
-                    onMouseEnter={() => setActive(i)}
-                    className={cn(
-                      "flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm",
-                      i === active ? "bg-selected" : "hover:bg-hover"
-                    )}
-                  >
-                    <ColumnLabel className="w-14 shrink-0">
-                      {KIND_LABEL[c.kind] || c.kind}
-                    </ColumnLabel>
-                    <span className="min-w-0 flex-1 truncate">{c.label}</span>
-                    {c.hint && <Meta className="hidden shrink-0 truncate text-xs sm:block">{c.hint}</Meta>}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Meta className="text-xs">
-          {open
-            ? "↑↓ to choose · Enter to insert · Esc to dismiss"
-            : submitOnEnter
-              ? "Enter sends · Shift+Enter starts a new line · @ names someone"
-              : "Enter starts a new line · @ names someone"}
-        </Meta>
-        {onSend && (
-          <Button
-            kind="primary"
-            size="md"
-            type="button"
-            disabled={busy || !value.trim()}
-            onClick={onSend}
-          >
-            <Send />
-            {busy ? "Posting…" : sendLabel}
-          </Button>
-        )}
-      </div>
-    </div>
-  )
-}
-
 /* ------------------------------------------------------------------------ */
 /* Picking a person                                                          */
 /* ------------------------------------------------------------------------ */
@@ -1592,7 +977,7 @@ function Composer({
  * wrong is the difference between a private conversation and one somebody was
  * merely told about and cannot open.
  */
-function PeoplePicker({
+export function PeoplePicker({
   chosen,
   onChange,
   max,
@@ -1694,80 +1079,50 @@ type CreateBody = {
 }
 
 /**
- * One dialog for all three lanes, because the choice between them is the
- * choice being made — "is this for one colleague, for the office, or for
- * everybody" is the first question, not a dropdown three fields down that
- * somebody leaves at its default and regrets.
+ * One dialog for both lanes, because the choice between them is the choice
+ * being made — "is this for one colleague, or for the office" is the first
+ * question, not a dropdown three fields down that somebody leaves at its
+ * default and regrets. Something for everybody is a post in the feed, and the
+ * dialog says so rather than offering a third lane that leads there.
  */
 function NewConversation({
   initialLane,
+  initialPeople = [],
   onClose,
 }: {
   initialLane: Lane
+  /** Already in "To" — the Message button on a colleague's profile. */
+  initialPeople?: Candidate[]
   onClose: () => void
 }) {
-  const { me } = useAuth()
-  const office = can(me?.role).clear
-
   const [lane, setLane] = useState<Lane>(initialLane)
   const [title, setTitle] = useState("")
   const [body, setBody] = useState("")
-  const [visibility, setVisibility] = useState<Visibility>("PUBLIC")
-  const [department, setDepartment] = useState(me?.department || "")
   const [topic, setTopic] = useState("")
   /** DIRECT: the audience. OFFICE: nobody — see `submit`. */
-  const [people, setPeople] = useState<Candidate[]>([])
+  const [people, setPeople] = useState<Candidate[]>(initialPeople)
 
   const domains = useApi<{ domains: string[] }>(
     ["research-domains"],
     "/api/meta/research-domains?limit=302"
   )
-  const departments = useApi<string[]>(["meta", "departments"], "/api/meta/departments", {
-    enabled: office && lane === "open" && visibility === "DEPARTMENT",
-  })
 
   const create = useApiMutation<CreateBody, ThreadRow>("/api/threads", {
     invalidates: [["threads"]],
   })
-
-  const audienceOptions: ComboboxOption[] = [
-    { value: "PUBLIC", label: "Everybody", hint: "Anyone signed in can read it" },
-    {
-      value: "DEPARTMENT",
-      label: "One department",
-      hint: office
-        ? "That department, and the office"
-        : `${me?.department || "Your department"}, and the office`,
-    },
-  ]
 
   const topicOptions: ComboboxOption[] = [
     { value: "", label: "No topic", hint: "It will not group with anything" },
     ...(domains.data?.domains ?? []).map((d) => ({ value: d, label: d })),
   ]
 
-  const effectiveVisibility: Visibility =
-    lane === "direct" ? "DIRECT" : lane === "office" ? "OFFICE" : visibility
-  const effectiveDepartment =
-    lane === "open" && visibility === "DEPARTMENT"
-      ? office
-        ? department.trim()
-        : me?.department || ""
-      : ""
-
-  const departmentMissing =
-    lane === "open" && visibility === "DEPARTMENT" && !effectiveDepartment
   // `check_visibility` refuses a direct thread with an empty audience, because
   // one would be readable by its author alone -- a private note wearing the
   // shape of a sent message. Refused here too, before anything is typed.
   const nobodyChosen = lane === "direct" && people.length === 0
 
   const canSubmit =
-    title.trim().length >= 4 &&
-    body.trim().length > 0 &&
-    !departmentMissing &&
-    !nobodyChosen &&
-    !create.isPending
+    title.trim().length >= 4 && body.trim().length > 0 && !nobodyChosen && !create.isPending
 
   async function submit() {
     if (!canSubmit) return
@@ -1775,22 +1130,18 @@ function NewConversation({
     // For OFFICE there is no audience to set -- the visibility names the
     // research cell -- so naming somebody there is still a mention in the
     // text, which is what `parse_mentions` and `_notify_thread` act on.
-    const text = body.trim()
     try {
       const made = await create.mutateAsync({
         title: title.trim(),
-        body: text,
-        visibility: effectiveVisibility,
+        body: body.trim(),
+        visibility: lane === "direct" ? "DIRECT" : "OFFICE",
         participant_ids: lane === "direct" ? people.map((p) => p.id) : undefined,
-        department: effectiveDepartment || undefined,
         topic: topic || undefined,
       })
       toast.ok(
         lane === "direct"
           ? `Sent to ${listNames(people)} — “${made.title}”`
-          : lane === "office"
-            ? `Sent to the office — “${made.title}”`
-            : `Thread started — “${made.title}”`
+          : `Sent to the office — “${made.title}”`
       )
       onClose()
     } catch (err) {
@@ -1798,26 +1149,22 @@ function NewConversation({
     }
   }
 
-  const failure =
-    create.error instanceof ApiError ? create.error.message : null
+  const failure = create.error instanceof ApiError ? create.error.message : null
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent size="md">
         <DialogHeader>
-          <DialogTitle>
-            {lane === "direct"
-              ? "New message"
-              : lane === "office"
-                ? "Ask the research office"
-                : "Start a thread"}
-          </DialogTitle>
+          <DialogTitle>{lane === "direct" ? "New message" : "Ask the research office"}</DialogTitle>
           <DialogDescription>
             {lane === "direct"
               ? "Private to the people you name. Nobody else can open it."
-              : lane === "office"
-                ? "A quiet line to the research cell. Your colleagues cannot see it."
-                : "Name what it is about and people can find it from there."}
+              : "A quiet line to the research cell. Your colleagues cannot see it."}{" "}
+            For the whole college, post in{" "}
+            <Link to="/discussions" onClick={onClose} className="text-accent underline-offset-4 hover:underline">
+              Discussions
+            </Link>{" "}
+            instead.
           </DialogDescription>
         </DialogHeader>
 
@@ -1827,13 +1174,7 @@ function NewConversation({
             aria-label="Kind of conversation"
             className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-md bg-sunken p-0.5"
           >
-            {(
-              [
-                { key: "direct", label: "Direct" },
-                { key: "office", label: "The office" },
-                { key: "open", label: "Open thread" },
-              ] as const
-            ).map((t) => (
+            {LANES.map((t) => (
               <button
                 key={t.key}
                 type="button"
@@ -1857,13 +1198,9 @@ function NewConversation({
               hint={`The people you name here are the only ones who can ever open this — the research office included. Up to ${DIRECT_MAX_PEOPLE}.`}
               error={nobodyChosen && title.trim() ? "Choose at least one person to talk to." : undefined}
             >
-              <PeoplePicker
-                chosen={people}
-                onChange={setPeople}
-                max={DIRECT_MAX_PEOPLE}
-              />
+              <PeoplePicker chosen={people} onChange={setPeople} max={DIRECT_MAX_PEOPLE} />
             </Field>
-          ) : lane === "office" ? (
+          ) : (
             <div className="space-y-1.5">
               <SectionTitle className="text-sm">To</SectionTitle>
               <div className="flex items-center gap-2 rounded-md bg-accent-wash px-2 py-1.5 text-base">
@@ -1876,43 +1213,6 @@ function NewConversation({
                 choose Direct instead.
               </p>
             </div>
-          ) : (
-            <>
-              <Field label="Who can see it">
-                <Combobox
-                  value={visibility}
-                  onChange={(v) => setVisibility(v as Visibility)}
-                  options={audienceOptions}
-                />
-              </Field>
-
-              {visibility === "DEPARTMENT" &&
-                (office ? (
-                  <Field label="Which department" error={departmentMissing ? "Choose a department." : undefined}>
-                    <Combobox
-                      value={department}
-                      onChange={setDepartment}
-                      options={(departments.data ?? []).map((d) => ({ value: d, label: d }))}
-                      placeholder={departments.isLoading ? "Loading…" : "Select a department…"}
-                    />
-                  </Field>
-                ) : me?.department ? (
-                  <Callout tone="info" title={me.department}>
-                    Everyone in your department, and the research office, can read it.
-                  </Callout>
-                ) : (
-                  <Callout tone="caution" title="No department is set on your account">
-                    Ask the research cell to set one, or start this thread as public.
-                  </Callout>
-                ))}
-
-              {visibility === "DEPARTMENT" && office && departments.isError && (
-                <InlineError
-                  message="Could not load the department list."
-                  onRetry={() => void departments.refetch()}
-                />
-              )}
-            </>
           )}
 
           <Field
@@ -1923,11 +1223,7 @@ function NewConversation({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={
-                lane === "direct"
-                  ? "About the Ceramics submission"
-                  : lane === "office"
-                    ? "Why was ERP-001934 sent back?"
-                    : "Where should we send the floorplanning work?"
+                lane === "direct" ? "About the Ceramics submission" : "Why was ERP-001934 sent back?"
               }
               autoFocus
             />
@@ -1935,7 +1231,7 @@ function NewConversation({
 
           <Field
             label="Topic"
-            hint="One of the 302 subject categories our journal data actually uses, so threads in a field group together."
+            hint="One of the 302 subject categories our journal data actually uses, so conversations in a field group together."
           >
             <Combobox
               value={topic}
@@ -1948,7 +1244,7 @@ function NewConversation({
 
           {domains.isError && (
             <InlineError
-              message="Could not load the topic list. You can still start this without a topic."
+              message="Could not load the topic list. You can still send this without a topic."
               onRetry={() => void domains.refetch()}
             />
           )}
@@ -1956,14 +1252,12 @@ function NewConversation({
           <Composer
             value={body}
             onChange={setBody}
-            label={lane === "open" ? "First post" : "Your message"}
+            label="Your message"
             rows={4}
             placeholder={
               lane === "direct"
                 ? "What would you like to say?"
-                : lane === "office"
-                  ? "What would you like to ask the office?"
-                  : '@agent what does @journal:"Ceramics International" pay?'
+                : "What would you like to ask the office?"
             }
           />
 
@@ -1975,13 +1269,7 @@ function NewConversation({
             Cancel
           </Button>
           <Button kind="primary" disabled={!canSubmit} onClick={() => void submit()}>
-            {create.isPending
-              ? lane === "open"
-                ? "Starting…"
-                : "Sending…"
-              : lane === "open"
-                ? "Start it"
-                : "Send it"}
+            {create.isPending ? "Sending…" : "Send it"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2003,14 +1291,6 @@ function listNames(people: Candidate[]): string {
 }
 
 function relative(iso: string): string {
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return ""
-  const minutes = Math.round((Date.now() - then) / 60000)
-  if (minutes < 1) return "just now"
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.round(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? "" : relativeTime(d)
 }

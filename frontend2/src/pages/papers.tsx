@@ -3,13 +3,15 @@ import { Link, useSearchParams } from "react-router-dom"
 import { FilePlus, Plus, Search, SearchX, X } from "lucide-react"
 
 import { useApi } from "@/lib/query"
+import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { Input } from "@/ui/field"
 import { Table, type Column } from "@/ui/table"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
-import { money, Stage, stageOf } from "@/ui/paper"
+import { money, stageOf } from "@/ui/paper"
+import { Journey, facultyStage } from "@/ui/journey"
 import { Pagination } from "@/ui/pagination"
 
 /**
@@ -38,6 +40,7 @@ type Claim = {
   journal_title: string | null
   publication_year: number | null
   status: string
+  faculty_stage?: string | null
   remuneration: number | null
   remuneration_is_estimate: boolean
   calc_error: string | null
@@ -179,7 +182,9 @@ export function Papers() {
     setSearchParams(new URLSearchParams())
   }
 
-  const listQuery = new URLSearchParams()
+  // `mine`: for an officer who files their own papers `/api/claims` is the
+  // college's; this page is theirs alone. A no-op for faculty and a head.
+  const listQuery = new URLSearchParams({ mine: "1" })
   if (status) listQuery.set("status", status)
   if (q) listQuery.set("q", q)
   listQuery.set("limit", String(PAGE_SIZE))
@@ -200,7 +205,7 @@ export function Papers() {
   // grew an endpoint that groups by stage in a single query.
   const { data: countData } = useApi<{ counts: Record<string, number> }>(
     ["claims-counts", q] as const,
-    `/api/claims/counts${q ? `?q=${encodeURIComponent(q)}` : ""}`,
+    `/api/claims/counts?mine=1${q ? `&q=${encodeURIComponent(q)}` : ""}`,
     { staleTime: 30_000 }
   )
   const counts = countData?.counts
@@ -238,7 +243,7 @@ export function Papers() {
       key: "stage",
       header: "Stage",
       className: "w-36",
-      cell: (c) => <Stage stage={stageOf(c.status)} />,
+      cell: (c) => <StageWord status={c.status} stage={c.faculty_stage} />,
     },
     {
       key: "journal",
@@ -274,12 +279,17 @@ export function Papers() {
           <PageTitle>Your papers</PageTitle>
           <Sub className="mt-1">Every paper you have filed, and every draft still waiting on you.</Sub>
         </div>
-        <Button kind="primary" asChild>
-          <Link to="/papers/new">
-            <Plus />
-            File a paper
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button kind="quiet" onClick={() => void downloadMine()}>
+            Download all as CSV
+          </Button>
+          <Button kind="primary" asChild>
+            <Link to="/papers/new">
+              <Plus />
+              File a paper
+            </Link>
+          </Button>
+        </div>
       </header>
 
       <div className="flex flex-wrap items-center gap-4">
@@ -395,7 +405,7 @@ export function Papers() {
           message={
             filtered
               ? "No paper matches this stage and search. Try a different stage or clear the search."
-              : "File a paper and it goes to the research cell to be checked, then to the Principal, then to Finance."
+              : "File a paper and it is checked, approved and paid. You can follow how far it has come from here."
           }
           action={
             filtered ? (
@@ -508,6 +518,16 @@ function AmountCell({ claim }: { claim: Claim }) {
  * words ("over a week") as well as in colour, so the flag survives a reader
  * who cannot use the colour.
  */
+/** The claimant's stage: the word and a four-part bar, never a desk. */
+function StageWord({ status, stage, className }: { status: string; stage?: string | null; className?: string }) {
+  return (
+    <span className={cn("block min-w-[7rem]", className)}>
+      <span className="block text-sm">{stage || facultyStage(status)}</span>
+      <Journey size="sm" stage={stage || facultyStage(status)} className="mt-1 w-24" />
+    </span>
+  )
+}
+
 function WaitingCell({ claim, className }: { claim: Claim; className?: string }) {
   const stage = stageOf(claim.status)
   const desk = DESK[claim.status]
@@ -529,7 +549,8 @@ function WaitingCell({ claim, className }: { claim: Claim; className?: string })
   } else if (desk) {
     late = (days ?? 0) > SLOW_DAYS
     value = days == null ? "Not recorded" : dayCount(days)
-    under = `with ${desk}${late ? " · over a week" : ""}`
+    // Never the desk: a claimant is told how long, not whose office.
+    under = late ? "over a week" : null
   } else {
     // An unknown status: `stageOf` still has a word for it, and printing that
     // beats a dash nobody can interpret.
@@ -557,7 +578,6 @@ function WaitingCell({ claim, className }: { claim: Claim; className?: string })
  *  columns — the same fields, stacked, because leaving one off below `md`
  *  is how a claimant misses the one thing they opened the page to check. */
 function PaperCard({ claim }: { claim: Claim }) {
-  const stage = stageOf(claim.status)
   return (
     <li className="row">
       <Link to={`/papers/${claim.id}`} className="block px-1 py-3">
@@ -577,7 +597,7 @@ function PaperCard({ claim }: { claim: Claim }) {
           </span>
         </div>
         <div className="mt-2 flex items-end justify-between gap-3">
-          <Stage stage={stage} className="w-[8rem]" />
+          <StageWord status={claim.status} stage={claim.faculty_stage} className="w-[8rem]" />
           <WaitingCell claim={claim} className="text-sm" />
         </div>
       </Link>
@@ -585,3 +605,22 @@ function PaperCard({ claim }: { claim: Claim }) {
   )
 }
 
+
+/** Every paper on record, for the claimant's own spreadsheet or appraisal
+ *  file: what, where, which stage, how much. */
+async function downloadMine() {
+  const res = await api<{ results: (Claim & Record<string, unknown>)[] }>("/api/claims?mine=1&limit=500")
+  const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
+  const head = ["Ticket", "Paper", "Journal", "Year", "DOI", "Stage", "Amount (INR)", "Paid on"]
+  const rows = res.results.map((c) =>
+    [c.ticket_number, c.paper_title, c.journal_title, c.publication_year, c.doi, c.faculty_stage || facultyStage(c.status), c.remuneration, c.paid_at ? String(c.paid_at).slice(0, 10) : ""]
+      .map(cell)
+      .join(",")
+  )
+  const blob = new Blob(["\uFEFF" + [head.map(cell).join(","), ...rows].join("\r\n")], { type: "text/csv;charset=utf-8" })
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = `my-papers-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}

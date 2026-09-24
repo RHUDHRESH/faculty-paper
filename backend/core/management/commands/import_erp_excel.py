@@ -21,6 +21,7 @@ from core.models import (
     SnipSource,
     User,
 )
+from core.management.commands.rebuild_from_erp import ledger_amount
 from core.services.erp_import import find_existing_claim, map_excel_status, stable_ticket
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.scimago import parse_categories_field
@@ -168,6 +169,15 @@ class Command(BaseCommand):
         year = options["year"]
         limit = options["limit"] or 0
         actor = User.objects.filter(role="SUPER_ADMIN").first()
+        if actor is None:
+            # Every batch records who loaded it (PriorImport.imported_by is not
+            # nullable). On a fresh install the faculty accounts are created by
+            # this very import, so there is nobody to fall back to -- it used to
+            # crash half-way with an IntegrityError instead of saying so.
+            raise CommandError(
+                "No super admin account exists yet. Create the first administrator "
+                "(open /setup, or run manage.py createsuperuser) and run the import again."
+            )
         claims_only = options["claims_only"]
 
         if not claims_only:
@@ -243,7 +253,12 @@ class Command(BaseCommand):
             if not title:
                 continue
             doi = _s(_cell(row, "DOI"), 255)
-            amount = _f(_cell(row, "Amount", "amount"))
+            # Not the column headed "Amount": in the sheet's newest block that
+            # holds the author count, and the payout is the ERP's own working
+            # in col27. One rule for both importers (rebuild_from_erp).
+            amount = ledger_amount(row)
+            if amount is None:
+                amount = _f(_cell(row, "amount"))
             payout = _month(_cell(row, "Month"))
             norm_title = normalize_title(title)
             norm_doi = normalize_doi(doi) if doi else None

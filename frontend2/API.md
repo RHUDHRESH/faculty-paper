@@ -106,6 +106,10 @@ POST  /api/claims/upload            -> attachment     (multipart)
 ### Journal and paper lookup, for the filing wizard
 
 ```
+POST /api/lookup/paper      { query, owner_id?, claim_id? } -> the paper from a DOI, link or title
+GET  /api/lookup/sources                             -> { scopus: bool } is Scopus connected here
+POST /api/lookup/file-check { url, kind, title?, doi?, journal?, issn?, ref_title? }
+                                                     -> what an attached PDF shows
 POST /api/lookup/scopus     { doi?, title?, eid? }   -> the paper, from Scopus
 POST /api/lookup/candidates { title }                -> possible matches to choose from
 POST /api/lookup/scimago    { issn?, title?, year }  -> quartile and SJR
@@ -116,6 +120,26 @@ POST /api/calculate         { ... }                  -> what it would pay, witho
 
 `POST /api/calculate` is how the wizard shows an amount before anything is
 filed. Anything it returns is an **estimate** and must be labelled as one.
+
+`POST /api/lookup/paper` is the wizard's "Paste the DOI or link" box, and it
+needs no Scopus key: OpenAlex answers a DOI (free and keyless), Crossref is the
+fallback and the title search, and Scopus is asked only when `SCOPUS_API_KEY`
+is set. It never answers 5xx — `ok: false` with a `code` (`not_found`,
+`choose`, `bad_input`, `scopus_link`, `unreachable`, `error`) and a sentence in
+`message`. On success it carries `paper` (title, journal, `issns`, date and its
+precision, type, authors in order with printed affiliations, citations,
+open-access link), `claimant` (their position and how sure: `exact`, `likely`,
+`ambiguous`, `none`), `affiliation` (is the college printed, and beside the
+claimant), `metrics` (quartile, SNIP, subject areas and Engineering class from
+our own SCImago and SNIP tables), `field_sources` (which source each value came
+from), `sources[]` (every source, answered or not), `to_check[]` (sentences for
+what the claimant still has to look at) and `already_filed`. Nothing in it is
+money.
+
+`POST /api/lookup/file-check` reads one file just uploaded to the form and says
+whether it shows the paper's title, DOI and the college. It is the claimant
+checking their own upload before filing; the desks' own checks after filing
+(`file_checks`, flags) are separate and stay theirs.
 
 ### The person
 

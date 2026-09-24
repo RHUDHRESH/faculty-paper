@@ -608,7 +608,7 @@ function PaperCard({ claim }: { claim: Claim }) {
 
 /** Every paper on record, for the claimant's own spreadsheet or appraisal
  *  file: what, where, which stage, how much. */
-async function downloadMine() {
+export async function downloadMine() {
   const res = await api<{ results: (Claim & Record<string, unknown>)[] }>("/api/claims?mine=1&limit=500")
   const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
   const head = ["Ticket", "Paper", "Journal", "Year", "DOI", "Stage", "Amount (INR)", "Paid on"]

@@ -1,184 +1,153 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import * as RadixDialog from "@radix-ui/react-dialog"
 import { AnimatePresence, motion } from "motion/react"
-import { CornerDownLeft, FileText, Hash, Search, User2 } from "lucide-react"
+import { ArrowRight, History, Search } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
-import { navFor, type NavItem } from "@/app/nav"
-import { api } from "@/lib/api"
+import {
+  GROUP_LABEL,
+  ResultRow,
+  openRow,
+  pushRecent,
+  readRecent,
+  suggestedActions,
+  useDebounced,
+  useRows,
+  useSearchAll,
+  type Row,
+  type RowGroup,
+} from "@/app/search-engine"
 import { cn } from "@/lib/cn"
+import { SEARCH_SCOPES, type SearchScope } from "@/ui/big-search"
 
 /**
- * Ctrl-K, as the way around rather than as a search box.
+ * Ctrl-K (docs/ux/02-search.md): the same engine as /search, in a 640px
+ * modal. A combobox with virtual focus — focus never leaves the input, the
+ * highlight moves with the arrows and is announced by
+ * `aria-activedescendant`. Radix supplies the focus trap, the inert
+ * background and Escape.
  *
- * Linear's model: the palette knows every place you can go and every thing
- * you can open, it is one keystroke from anywhere, and it never requires the
- * mouse. Typing filters across all of it at once — a page, a person, a ticket
- * number off an email — because a reader holding a ticket number should not
- * first have to work out which screen accepts one.
- *
- * The rules that make it feel instant:
- *
- * - Pages are matched locally and shown immediately. They are a known list;
- *   waiting on the network to tell you where "Reports" is would be absurd.
- * - Records are fetched, debounced, and folded in underneath as they arrive,
- *   so the list never empties and re-fills while somebody is reading it.
- * - Arrow keys move a highlight; focus never leaves the input, so typing
- *   continues to work at every point. That is the combobox pattern, so the
- *   input carries `role="combobox"` and the results carry `role="option"`
- *   with `tabIndex={-1}`: an option that could be tabbed to would break the
- *   promise that typing always continues to work.
- *
- * It is a Radix dialog rather than a bare overlay. Hand-rolled, it had a
- * `role="dialog"` with no `aria-modal`, nothing inert behind it, and Escape
- * bound to the input alone — so a single Tab moved focus onto the page
- * underneath, which was still covered by the overlay and could no longer be
- * closed from the keyboard at all. Radix supplies the trap, the inert
- * background and the dismissal; every pixel below is still ours.
+ * Keys: ↑↓ move, ↵ open, Ctrl/⌘↵ secondary action, ⇧↵ full results on
+ * /search, Tab / ⇧Tab cycle the scope, Esc closes.
  */
-
-type Hit = {
-  id: string
-  kind: "page" | "ticket" | "person" | "journal"
-  title: string
-  detail?: string
-  to: string
-}
-
-const KIND_ICON = {
-  page: Hash,
-  ticket: FileText,
-  person: User2,
-  journal: FileText,
-} as const
-
-const KIND_LABEL = {
-  page: "Go to",
-  ticket: "Papers",
-  person: "People",
-  journal: "Journals",
-} as const
-
 export function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { me } = useAuth()
-  const nav = useNavigate()
+  const { me, signOut } = useAuth()
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
   const [q, setQ] = useState("")
-  const [remote, setRemote] = useState<Hit[]>([])
+  const [scope, setScope] = useState<SearchScope>("all")
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const debounced = useDebounced(q)
+  const { data, isFetching } = useSearchAll(debounced, scope, 4)
 
-  const pages = useMemo(() => navFor(me?.role), [me?.role])
+  const go = (to: string) => {
+    onClose()
+    navigate(to)
+  }
+  const ctx = { navigate: go, signOut }
+  const found = useRows({ q: debounced, scope, data, role: me?.role, perGroup: 4, ctx })
 
-  // Pages match locally and appear on the first keystroke.
-  const pageHits: Hit[] = useMemo(() => {
-    const term = q.trim().toLowerCase()
-    const score = (item: NavItem) => {
-      const label = item.label.toLowerCase()
-      if (!term) return 0
-      if (label.startsWith(term)) return 0
-      if (label.includes(term)) return 1
-      if (item.keywords?.some((k) => k.includes(term))) return 2
-      return -1
-    }
-    return pages
-      .map((item) => ({ item, s: score(item) }))
-      .filter(({ s }) => s >= 0)
-      .sort((a, b) => a.s - b.s)
-      .slice(0, term ? 6 : 8)
-      .map(({ item }) => ({
-        id: item.to,
-        kind: "page" as const,
-        title: item.label,
-        detail: item.group,
-        to: item.to,
-      }))
-  }, [pages, q])
+  // Empty query: Recent, then Suggested actions for where the reader is.
+  const idle: RowGroup[] = useMemo(() => {
+    if (q.trim()) return []
+    const recent = readRecent()
+    const out: RowGroup[] = []
+    if (recent.length)
+      out.push({
+        kind: "page",
+        total: recent.length,
+        status: "ok",
+        rows: recent.map((r) => ({ key: `recent-${r}`, kind: "page", title: r, chips: [], icon: History, run: () => setQ(r) })),
+      })
+    out.push({
+      kind: "action",
+      total: 0,
+      status: "ok",
+      rows: suggestedActions(pathname, me?.role).map((a) => ({
+        key: `suggest-${a.id}`,
+        kind: "action",
+        title: a.label,
+        chips: [],
+        icon: a.icon,
+        run: () => {
+          onClose()
+          a.run(ctx)
+        },
+      })),
+    })
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, pathname, me?.role, open])
 
-  // Every opening starts empty. Focus is not set here: the dialog moves it to
-  // the input as it opens, and a second focus call on a timer would fight
-  // whatever the reader had already started typing into.
+  const groups = q.trim() ? found : idle
+  const seeAll: Row | null =
+    q.trim().length >= 2
+      ? { key: "see-all", kind: "page", title: `Search everything for “${q.trim()}”`, chips: [], icon: ArrowRight, url: `/search?q=${encodeURIComponent(q.trim())}&scope=${scope}` }
+      : null
+  const flat = useMemo(() => [...groups.flatMap((g) => g.rows), ...(seeAll ? [seeAll] : [])], [groups, seeAll])
+
   useEffect(() => {
     if (!open) return
     setQ("")
-    setRemote([])
+    setScope("all")
     setActive(0)
   }, [open])
-
-  // Records arrive underneath, debounced. Failure is silent on purpose: the
-  // pages still work, and an error banner over a search box is noise.
+  useEffect(() => setActive(0), [debounced, scope])
   useEffect(() => {
-    const term = q.trim()
-    if (term.length < 2) {
-      setRemote([])
-      return
-    }
-    let cancelled = false
-    const t = setTimeout(async () => {
-      try {
-        const res = await api<{
-          tickets: { id: string; ticket_number: string | null; paper_title: string; owner_name: string }[]
-          faculty: { id: string; name: string; department?: string | null }[]
-        }>(`/api/lookup/ticket?q=${encodeURIComponent(term)}`)
-        if (cancelled) return
-        setRemote([
-          ...res.faculty.slice(0, 5).map((p) => ({
-            id: `p-${p.id}`,
-            kind: "person" as const,
-            title: p.name,
-            detail: p.department || undefined,
-            to: `/people/${p.id}`,
-          })),
-          ...res.tickets.slice(0, 6).map((t2) => ({
-            id: `t-${t2.id}`,
-            kind: "ticket" as const,
-            title: t2.paper_title,
-            detail: [t2.ticket_number, t2.owner_name].filter(Boolean).join(" · "),
-            to: `/papers/${t2.id}`,
-          })),
-        ])
-      } catch {
-        if (!cancelled) setRemote([])
-      }
-    }, 180)
-    return () => {
-      cancelled = true
-      clearTimeout(t)
-    }
-  }, [q])
-
-  const hits = useMemo(() => [...pageHits, ...remote], [pageHits, remote])
-
-  useEffect(() => setActive(0), [q])
-  useEffect(() => {
-    listRef.current
-      ?.querySelector(`[data-i="${active}"]`)
-      ?.scrollIntoView({ block: "nearest" })
+    listRef.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" })
   }, [active])
 
-  const grouped = useMemo(() => {
-    const out: { kind: Hit["kind"]; rows: { hit: Hit; i: number }[] }[] = []
-    hits.forEach((hit, i) => {
-      const last = out[out.length - 1]
-      if (last && last.kind === hit.kind) last.rows.push({ hit, i })
-      else out.push({ kind: hit.kind, rows: [{ hit, i }] })
-    })
-    return out
-  }, [hits])
-
-  function go(hit: Hit) {
+  function pick(row: Row) {
+    if (q.trim()) pushRecent(q)
+    if (row.key.startsWith("recent-")) return row.run?.()
+    if (row.run) {
+      // Actions close the palette themselves where they navigate.
+      onClose()
+      return row.run()
+    }
     onClose()
-    nav(hit.to)
+    openRow(row, navigate)
   }
 
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setActive((i) => Math.min(i + 1, flat.length - 1))
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setActive((i) => Math.max(i - 1, 0))
+    } else if (e.key === "Tab") {
+      e.preventDefault()
+      const ids = SEARCH_SCOPES.map((s) => s.id)
+      const i = ids.indexOf(scope)
+      setScope(ids[(i + (e.shiftKey ? -1 : 1) + ids.length) % ids.length])
+    } else if (e.key === "Enter") {
+      e.preventDefault()
+      if (e.shiftKey && q.trim()) {
+        pushRecent(q)
+        go(`/search?q=${encodeURIComponent(q.trim())}&scope=${scope}`)
+        return
+      }
+      const row = flat[active]
+      if (!row) return
+      if ((e.ctrlKey || e.metaKey) && row.secondary) {
+        pushRecent(q)
+        onClose()
+        row.secondary.run()
+        return
+      }
+      pick(row)
+    }
+  }
+
+  let i = -1
+  const loading = q.trim().length >= 2 && isFetching && found.length === 0
+
   return (
-    <RadixDialog.Root
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) onClose()
-      }}
-    >
+    <RadixDialog.Root open={open} onOpenChange={(v) => !v && onClose()}>
       <AnimatePresence>
         {open && (
           <RadixDialog.Portal forceMount>
@@ -191,124 +160,107 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
                 className="fixed inset-0 z-[100] bg-black/20"
               />
             </RadixDialog.Overlay>
-            {/* The overlay paints; this places. A pointer down anywhere in
-                here is outside the panel, and Radix closes on it. */}
-            <div className="fixed inset-0 z-[100] p-4 pt-[14vh]">
+            <div className="fixed inset-0 z-[100] p-4 pt-[12vh]">
               <RadixDialog.Content
                 asChild
                 forceMount
                 aria-describedby={undefined}
                 onOpenAutoFocus={(e) => {
-                  // Radix would focus the panel; the input is the only thing
-                  // anybody ever wants here.
                   e.preventDefault()
                   inputRef.current?.focus()
                 }}
               >
                 <motion.div
-                  initial={{ opacity: 0, y: -8, scale: 0.985 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.985 }}
-                  transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                  className="mx-auto w-full max-w-xl overflow-hidden rounded-xl bg-surface shadow-modal"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8, transition: { duration: 0.12 } }}
+                  transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
+                  className="mx-auto w-full max-w-[640px] overflow-hidden rounded-2xl bg-surface shadow-modal"
                 >
-                  <RadixDialog.Title className="sr-only">Search and go to</RadixDialog.Title>
-                  <div className="flex items-center gap-2.5 border-b border-line px-4">
-                    <Search className="size-4 shrink-0 text-fg-subtle" aria-hidden />
+                  <RadixDialog.Title className="sr-only">Find anything</RadixDialog.Title>
+                  <div className="flex items-center gap-3 border-b border-line px-4">
+                    <Search className="size-5 shrink-0 text-fg-subtle" strokeWidth={1.75} aria-hidden />
                     <input
                       ref={inputRef}
                       value={q}
                       onChange={(e) => setQ(e.target.value)}
-                      placeholder="Go to a page, or find a paper, a person, a ticket number…"
+                      placeholder="Papers, people, journals, topics, departments, pages…"
                       role="combobox"
-                      aria-label="Search and go to"
-                      aria-expanded={hits.length > 0}
+                      aria-label="Find anything"
+                      aria-expanded={flat.length > 0}
                       aria-autocomplete="list"
-                      aria-activedescendant={hits[active] ? `palette-${active}` : undefined}
+                      aria-activedescendant={flat[active] ? `palette-${active}` : undefined}
                       aria-controls="palette-list"
                       autoComplete="off"
                       spellCheck={false}
-                      className="h-12 w-full bg-transparent text-base outline-none placeholder:text-fg-subtle"
-                      onKeyDown={(e) => {
-                        if (e.key === "ArrowDown") {
-                          e.preventDefault()
-                          setActive((i) => Math.min(i + 1, hits.length - 1))
-                        } else if (e.key === "ArrowUp") {
-                          e.preventDefault()
-                          setActive((i) => Math.max(i - 1, 0))
-                        } else if (e.key === "Enter" && hits[active]) {
-                          e.preventDefault()
-                          go(hits[active])
-                        }
-                        // Escape is the dialog's, not the input's, so it
-                        // still closes wherever focus happens to be.
-                      }}
+                      className="h-14 w-full bg-transparent text-base outline-none placeholder:text-fg-subtle"
+                      onKeyDown={onKeyDown}
                     />
+                    <kbd className="shrink-0 rounded-md bg-sunken px-1.5 py-0.5 text-xs text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)]">
+                      Esc
+                    </kbd>
                   </div>
-
-                  <div
-                    ref={listRef}
-                    id="palette-list"
-                    role="listbox"
-                    aria-label="Results"
-                    className="max-h-[52vh] overflow-y-auto p-1.5"
-                  >
-                    {hits.length === 0 ? (
-                      <p className="px-3 py-8 text-center text-sm text-fg-muted">
-                        {q.trim().length < 2
-                          ? "Type to search. A page name, a surname, a ticket number."
-                          : `Nothing matched “${q.trim()}”.`}
-                      </p>
-                    ) : (
-                      grouped.map((group) => (
-                        <div key={`${group.kind}-${group.rows[0].i}`}>
-                          <p className="px-2.5 pb-1 pt-2 text-xs font-medium text-fg-subtle">
-                            {KIND_LABEL[group.kind]}
-                          </p>
-                          {group.rows.map(({ hit, i }) => {
-                            const Icon = KIND_ICON[hit.kind]
-                            const on = i === active
-                            return (
-                              <button
-                                key={hit.id}
-                                id={`palette-${i}`}
-                                data-i={i}
-                                role="option"
-                                aria-selected={on}
-                                type="button"
-                                // The highlight is moved with the arrow keys
-                                // and announced from the input, so an option
-                                // is not a tab stop of its own.
-                                tabIndex={-1}
-                                onMouseEnter={() => setActive(i)}
-                                onClick={() => go(hit)}
-                                className={cn(
-                                  "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left",
-                                  on ? "bg-hover" : ""
-                                )}
-                              >
-                                <Icon className="size-4 shrink-0 text-fg-subtle" aria-hidden />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-sm">{hit.title}</span>
-                                  {hit.detail && (
-                                    <span className="block truncate text-xs text-fg-muted">
-                                      {hit.detail}
-                                    </span>
-                                  )}
-                                </span>
-                                {on && (
-                                  <CornerDownLeft
-                                    className="size-3.5 shrink-0 text-fg-subtle"
-                                    aria-hidden
-                                  />
-                                )}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      ))
+                  <div role="tablist" aria-label="Search in" className="flex gap-1.5 overflow-x-auto border-b border-line px-3 py-2">
+                    {SEARCH_SCOPES.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        role="tab"
+                        tabIndex={-1}
+                        aria-selected={s.id === scope}
+                        onClick={() => {
+                          setScope(s.id)
+                          inputRef.current?.focus()
+                        }}
+                        className={cn(
+                          "h-7 shrink-0 rounded-full px-2.5 text-xs",
+                          s.id === scope ? "bg-accent text-accent-fg" : "text-fg-muted hover:bg-hover"
+                        )}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div ref={listRef} id="palette-list" role="listbox" aria-label="Results" className="max-h-[56vh] overflow-y-auto p-2">
+                    {loading && <p className="px-3 py-6 text-center text-sm text-fg-muted">Searching…</p>}
+                    {!loading && q.trim().length >= 2 && groups.length === 0 && !isFetching && (
+                      <p className="px-3 py-6 text-center text-sm text-fg-muted">Nothing called “{q.trim()}” here.</p>
                     )}
+                    {groups.map((g, gi) => (
+                      <div key={`${g.kind}-${gi}`} role="group" aria-label={groupLabel(g, !q.trim(), gi)}>
+                        <p className="px-3 pt-2 pb-1 text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">
+                          {groupLabel(g, !q.trim(), gi)}
+                          {g.status === "error" && " — did not answer"}
+                        </p>
+                        {g.rows.map((row) => {
+                          i += 1
+                          const n = i
+                          return (
+                            <div key={row.key} data-i={n}>
+                              <ResultRow row={row} id={`palette-${n}`} active={n === active} onHover={() => setActive(n)} onPick={() => pick(row)} />
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ))}
+                    {seeAll &&
+                      (() => {
+                        i += 1
+                        const n = i
+                        return (
+                          <div data-i={n} className="mt-1 border-t border-line pt-1">
+                            <ResultRow row={seeAll} id={`palette-${n}`} active={n === active} onHover={() => setActive(n)} onPick={() => pick(seeAll)} />
+                          </div>
+                        )
+                      })()}
                   </div>
+                  <p className="flex flex-wrap gap-x-4 border-t border-line px-4 py-2 text-xs text-fg-subtle max-sm:hidden">
+                    <span>↑↓ move</span>
+                    <span>↵ open</span>
+                    <span>Ctrl↵ secondary</span>
+                    <span>⇧↵ all results</span>
+                    <span>Tab scope</span>
+                  </p>
                 </motion.div>
               </RadixDialog.Content>
             </div>
@@ -317,6 +269,11 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
       </AnimatePresence>
     </RadixDialog.Root>
   )
+}
+
+function groupLabel(g: RowGroup, idle: boolean, index: number) {
+  if (idle) return g.kind === "action" ? "Suggested actions" : index === 0 ? "Recent" : GROUP_LABEL[g.kind]
+  return GROUP_LABEL[g.kind]
 }
 
 // The hook lives apart so the first screen can listen for Ctrl K without

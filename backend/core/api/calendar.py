@@ -198,28 +198,37 @@ def delete_event(request: HttpRequest, event_id: str):
 
 
 @api.get("/notifications", auth=session_auth)
-def notifications(request: HttpRequest):
+def notifications(
+    request: HttpRequest,
+    section: Optional[str] = None,
+    unread: bool = False,
+    limit: int = 50,
+):
+    """The bell's rows, newest first, less every kind the person switched off.
+
+    `section` is the bell's tab (papers, people, work, updates); `unread`
+    keeps only what has not been read.
+    """
+    from core.services import notify as notify_service
+
     user = require_user(request)
-    items = Notification.objects.filter(user=user).order_by("-created_at")[:50]
-    return [
-        {
-            "id": n.id,
-            "title": n.title,
-            "body": n.body,
-            "href": n.href,
-            "read": n.read,
-            "created_at": n.created_at.isoformat(),
-        }
-        for n in items
-    ]
+    qs = notify_service.visible_to(user)
+    if section in notify_service.SECTIONS:
+        qs = notify_service.in_section(qs, section)
+    if unread:
+        qs = qs.filter(read=False)
+    items = qs.order_by("-created_at")[: max(1, min(limit, 200))]
+    return [notify_service.serialize(n) for n in items]
 
 
 @api.get("/notifications/unread-count", auth=session_auth)
 def notifications_unread_count(request: HttpRequest):
     """The 45-second poll only needs this number — the full list loads when
     the bell is actually opened."""
+    from core.services import notify as notify_service
+
     user = require_user(request)
-    return {"unread": Notification.objects.filter(user=user, read=False).count()}
+    return {"unread": notify_service.visible_to(user).filter(read=False).count()}
 
 
 @api.post("/notifications/{note_id}/read", auth=session_auth)

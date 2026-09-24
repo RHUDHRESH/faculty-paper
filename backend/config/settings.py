@@ -450,6 +450,37 @@ EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("1", "true", "yes")
+#: Alert email goes out when EMAIL_HOST is set (core.services.notify); with it
+#: empty, every alert is in-app only and nothing tries to connect. A bounded
+#: timeout, because a mail server that accepts and stalls would otherwise hold
+#: the one background worker.
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "20"))
+#: Emails a day across everybody, after which alerts are in-app only until
+#: tomorrow. Brevo's free plan allows 300 a day; 0 means no cap.
+EMAIL_DAILY_CAP = int(os.getenv("EMAIL_DAILY_CAP", "280"))
+#: Where links in emails point: the site people open, which rewrites /api to
+#: this server. Falls back to the first https origin this server trusts.
+APP_BASE_URL = (
+    os.getenv("APP_BASE_URL")
+    or next((o for o in CSRF_TRUSTED_ORIGINS if o.startswith("https://")), "")
+    or "http://localhost:5174"
+).rstrip("/")
+
+# Citation alerts (core.services.citations). OpenAlex needs no key; a free
+# one raises the daily allowance tenfold. The job asks for at most this many
+# DOIs a day, oldest-checked first, 50 to a request.
+OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY", "").strip()
+CITATION_DOIS_PER_RUN = int(os.getenv("CITATION_DOIS_PER_RUN", "1000"))
+
+# WhatsApp (Meta Cloud API) for money alerts: off unless both are set, and
+# then only for people who opted in and have a phone number on file.
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "").strip()
+WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID", "").strip()
+#: An approved template with two body variables: {{1}} the headline, {{2}}
+#: the detail. Business-initiated WhatsApp messages must use a template.
+WHATSAPP_TEMPLATE = os.getenv("WHATSAPP_TEMPLATE", "paper_update").strip()
+WHATSAPP_TEMPLATE_LANG = os.getenv("WHATSAPP_TEMPLATE_LANG", "en").strip()
+WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip()
 
 LOGGING = {
     "version": 1,

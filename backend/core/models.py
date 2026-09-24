@@ -2,6 +2,7 @@ import uuid
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.utils import timezone
 
 
 def cuid():
@@ -505,6 +506,10 @@ class FormulaConfig(models.Model):
     #: Finance can pay them. Zero disables the rule — it needs two admin
     #: accounts to satisfy, so it is opt-in rather than on by default.
     high_value_threshold = models.FloatField(default=0)
+    #: The day of the month filing closes for that month's payment run, 1-28.
+    #: Empty means the college has not set one, and then nobody is reminded of
+    #: a deadline -- a reminder about a date nobody decided is fake urgency.
+    filing_cutoff_day = models.PositiveSmallIntegerField(blank=True, null=True)
     author_point_json = models.TextField()
     # e.g. {"Journal": 1, "Conference Proceeding": 0.8, "Book Series": 0.5, "Other": 0.5}
     publication_type_multipliers_json = models.TextField(
@@ -1162,6 +1167,19 @@ class Notification(models.Model):
     read = models.BooleanField(default=False)
     claim_id = models.CharField(max_length=32, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    #: Which kind of alert this is (core.services.notify.KINDS). It is what a
+    #: person switches off, and what the bell's tabs filter on. Rows written
+    #: before kinds existed, or by code that writes rows directly, are
+    #: "general" -- which can be switched off like any other.
+    kind = models.CharField(max_length=40, default="general", db_index=True)
+    #: Alerts with the same key merge while unread: three likes on one post
+    #: are one line, "Asha and 2 others liked your post".
+    group_key = models.CharField(max_length=160, blank=True, null=True, db_index=True)
+    group_count = models.PositiveIntegerField(default=1)
+    #: Who the grouped alert is about, newest first: [{"id", "name"}].
+    actors = models.JSONField(default=list, blank=True)
+    #: When this alert also went out by email. What the daily email cap counts.
+    emailed_at = models.DateTimeField(blank=True, null=True, db_index=True)
 
 
 class ProfileChangeRequest(models.Model):
@@ -1751,3 +1769,93 @@ class AttachmentCheck(models.Model):
 
     def __str__(self) -> str:
         return f"{self.outcome} {self.url}"
+
+
+class NotificationPreference(models.Model):
+    """How one person wants one kind of alert: in the app and by email, in the
+    app only, or not at all.
+
+    No row means the kind's default (core.services.notify.KINDS). A row is
+    written only when somebody changes a setting, so a kind added next year
+    reaches everybody at its default without a data migration.
+    """
+
+    class Level(models.TextChoices):
+        EMAIL = "email", "In the app and by email"
+        IN_APP = "in_app", "In the app"
+        OFF = "off", "Off"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="notification_preferences"
+    )
+    kind = models.CharField(max_length=40)
+    level = models.CharField(max_length=8, choices=Level.choices)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "kind"], name="one_preference_per_kind")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.kind}={self.level}"
+
+
+class NotificationSettings(models.Model):
+    """The two switches that are about a person rather than about one kind."""
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, primary_key=True, related_name="notification_settings"
+    )
+    #: Off means looking at somebody's profile is not recorded at all, so they
+    #: are never told. On by default, and said so on the settings page.
+    share_profile_views = models.BooleanField(default=True)
+    #: WhatsApp's business rules want an explicit opt-in, so this starts off
+    #: and only matters once the college has configured the channel.
+    whatsapp_opt_in = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class ProfileView(models.Model):
+    """One person looked at another's profile. At most one row per viewer, per
+    person viewed, per day (core.services.profile_views)."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    viewer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="profile_views_made")
+    viewed = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="profile_views_received"
+    )
+    at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["viewed", "at"])]
+        ordering = ["-at"]
+
+
+class CitationCount(models.Model):
+    """How often OpenAlex says a paper has been cited, keyed by its DOI.
+
+    Keyed by DOI rather than by claim: co-authors each file their own claim
+    for one paper, and it is checked once and told to each of them.
+    """
+
+    doi = models.CharField(primary_key=True, max_length=255)
+    #: Null until OpenAlex has been asked, or when it did not know the DOI.
+    count = models.IntegerField(blank=True, null=True)
+    openalex_id = models.CharField(max_length=64, blank=True, null=True)
+    #: Oldest first is the order the daily job works through, so a DOI list
+    #: larger than one day's share is covered over several days.
+    checked_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    changed_at = models.DateTimeField(blank=True, null=True)
+
+
+class CitationHistory(models.Model):
+    """A citation count as it was on a day it changed."""
+
+    citation = models.ForeignKey(CitationCount, on_delete=models.CASCADE, related_name="history")
+    count = models.IntegerField()
+    at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["at"]

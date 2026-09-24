@@ -1156,6 +1156,11 @@ export function FilePaper() {
   function leaveChoose() {
     if (canLeaveChoose) setPhase("confirm")
   }
+  /** Nothing to pull and nothing found: the details are typed on the form. */
+  function typeByHand() {
+    setPicked(null)
+    setPhase("confirm")
+  }
 
   const advance = useRef(() => {})
   advance.current = () => {
@@ -1368,7 +1373,15 @@ export function FilePaper() {
                 ? "Filling in the details…"
                 : `Chosen: ${picked.title}`
               : chosenMethod === "paste" && !canLeaveChoose
-                ? "Find the paper first."
+                ? (
+                    <>
+                      Find the paper first, or{" "}
+                      <button type="button" onClick={typeByHand} className="font-medium text-accent underline underline-offset-2">
+                        type the details in by hand
+                      </button>
+                      .
+                    </>
+                  )
                 : undefined
           }
         />

@@ -87,7 +87,8 @@ function mount({
   lookup = LOOKUP,
   routed = false,
   route = "/papers/new",
-}: { lookup?: PaperLookup; routed?: boolean; route?: string } = {}) {
+  pull,
+}: { lookup?: PaperLookup; routed?: boolean; route?: string; pull?: unknown } = {}) {
   const calls: Call[] = []
   vi.mocked(api).mockReset()
   vi.mocked(api).mockImplementation((async (path: string, opts?: { method?: string; json?: unknown }) => {
@@ -110,6 +111,7 @@ function mount({
       return { id: "u-asha", name: "Asha Menon", email: "asha@example.edu", department: "Mechanical" }
     }
     if (path === "/api/lookup/paper") return lookup
+    if (path === "/api/me/scopus-pull" && pull) return pull
     if (path === "/api/calculate") {
       return { base: 73645, point: 0.5, remuneration: 36823, qf: 0, error: null, note: null, category_label: "Category I" }
     }
@@ -135,8 +137,22 @@ function mount({
 }
 
 async function passTheGate(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByRole("heading", { level: 1, name: "Confirm three things about this paper" })
   for (const box of await screen.findAllByRole("checkbox")) await user.click(box)
   await user.click(screen.getByRole("button", { name: "Start the claim" }))
+}
+
+/** Step 1 (paste, or by hand), then the three conditions, then the form. */
+async function openForm(user: ReturnType<typeof userEvent.setup>, how: "doi" | "hand") {
+  await screen.findByRole("heading", { level: 1, name: "Choose the paper" })
+  if (how === "doi") {
+    await pasteDoi(user)
+    await user.click(screen.getByRole("button", { name: "Continue" }))
+  } else {
+    await user.click(await screen.findByRole("button", { name: "type the details in by hand" }))
+  }
+  await passTheGate(user)
+  await screen.findByLabelText("Paper title")
 }
 
 async function pasteDoi(user: ReturnType<typeof userEvent.setup>) {
@@ -157,14 +173,13 @@ afterEach(() => {
 describe("filing a paper", { timeout: 20_000 }, () => {
   it("opens on one box for the DOI or link", async () => {
     const { user } = mount()
-    await passTheGate(user)
+    await openForm(user, "hand")
     expect(await screen.findByLabelText("Paste the DOI or link")).toBeInTheDocument()
   })
 
   it("fills the paper from a pasted DOI and says where each part came from", async () => {
     const { user, calls } = mount()
-    await passTheGate(user)
-    await pasteDoi(user)
+    await openForm(user, "doi")
 
     const lookup = calls.find((c) => c.path === "/api/lookup/paper")
     expect(lookup?.body).toMatchObject({ query: `https://doi.org/${DOI}` })
@@ -180,7 +195,7 @@ describe("filing a paper", { timeout: 20_000 }, () => {
 
   it("says what is missing beside the field, and stays on the step", async () => {
     const { user } = mount()
-    await passTheGate(user)
+    await openForm(user, "hand")
     await user.click(await screen.findByLabelText("Paper title"))
     await user.paste("A paper typed by hand")
     await user.click(screen.getByRole("button", { name: "Continue" }))
@@ -193,8 +208,7 @@ describe("filing a paper", { timeout: 20_000 }, () => {
 
   it("keeps the estimate in view", async () => {
     const { user } = mount()
-    await passTheGate(user)
-    await pasteDoi(user)
+    await openForm(user, "doi")
     await waitFor(() => expect(screen.getAllByText("₹36,823").length).toBeGreaterThan(0))
     const estimate = screen.getAllByRole("region", { name: /estimate/i })
     expect(estimate.length).toBeGreaterThan(0)
@@ -206,8 +220,7 @@ describe("filing a paper", { timeout: 20_000 }, () => {
     // telling somebody their paper is worthless before they reach the step
     // that makes it worth something.
     const { user, calls } = mount()
-    await passTheGate(user)
-    await pasteDoi(user)
+    await openForm(user, "doi")
     await waitFor(() =>
       expect(calls.filter((c) => c.path === "/api/calculate").at(-1)?.body).toMatchObject({ sec_reference_count: 2 })
     )
@@ -219,7 +232,7 @@ describe("filing a paper", { timeout: 20_000 }, () => {
     // fetch the draft it had just written, put a skeleton where the form
     // was, and then overwrite the form with the server's copy.
     const { user, calls } = mount({ routed: true })
-    await passTheGate(user)
+    await openForm(user, "hand")
     await user.click(await screen.findByLabelText("Paper title"))
     await user.paste("A paper typed by hand")
     await waitFor(
@@ -252,8 +265,7 @@ describe("filing a paper", { timeout: 20_000 }, () => {
 
   it("shows the claimant among the authors on the author step", async () => {
     const { user } = mount()
-    await passTheGate(user)
-    await pasteDoi(user)
+    await openForm(user, "doi")
     await user.click(screen.getByRole("button", { name: "Continue" }))
     await user.click(await screen.findByLabelText("Yukthi ID"))
     await user.paste("NA")
@@ -263,5 +275,80 @@ describe("filing a paper", { timeout: 20_000 }, () => {
     expect(me).toBeChecked()
     await user.click(screen.getByRole("radio", { name: /1\. R\. N\. Kavitha/ }))
     expect(screen.getByRole("radio", { name: /1\. R\. N\. Kavitha/ })).toBeChecked()
+  })
+})
+
+const PULL = {
+  count: 2,
+  unclaimed: 1,
+  papers: [
+    {
+      publication_id: "p1", title: "A Sharded Ledger for Cloud Storage", venue: "Scientific Reports", issn: "2045-2322",
+      year: 2025, date: "2025-03-01", type: "Journal", doi: DOI, eid: "2-s2.0-85000000001", citations: 3,
+      author_position: 2, total_authors: 3, authors: ["R. N. Kavitha", "Asha Menon", "S. Rao"],
+      already_claimed: false, claim_id: null, claim_status: null,
+    },
+    {
+      publication_id: "p2", title: "An Older Paper Already Filed", venue: "IEEE Access", issn: null,
+      year: 2024, date: null, type: "Journal", doi: "10.1109/x.1", eid: null, citations: 0,
+      author_position: 1, total_authors: 1, authors: ["Asha Menon"],
+      already_claimed: true, claim_id: "c9", claim_status: "SUBMITTED",
+    },
+  ],
+}
+
+async function pickAndContinue(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("radio", { name: /A Sharded Ledger/ }))
+  await waitFor(() => expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled())
+  await user.click(screen.getByRole("button", { name: "Continue" }))
+  await screen.findByRole("heading", { level: 1, name: "Confirm three things about this paper" })
+}
+
+describe("choosing the paper and confirming the conditions", { timeout: 20_000 }, () => {
+  it("pulls from my record first, and keeps claimed papers apart", async () => {
+    mount({ pull: PULL })
+    await screen.findByRole("heading", { level: 1, name: "Choose the paper" })
+    await waitFor(() =>
+      expect(screen.getByRole("radio", { name: /Pull from my Scopus record/ })).toHaveAttribute("aria-checked", "true")
+    )
+    const picker = await screen.findByRole("radiogroup", { name: "Pick the paper to file" })
+    expect(within(picker).getByText("A Sharded Ledger for Cloud Storage")).toBeInTheDocument()
+    expect(within(picker).queryByText("An Older Paper Already Filed")).toBeNull()
+    expect(screen.getByText("Already claimed (1)")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled()
+  })
+
+  it("shows all three conditions unticked about this article, and Change clears the ticks", async () => {
+    const { user } = mount({ pull: PULL })
+    await pickAndContinue(user)
+    const boxes = screen.getAllByRole("checkbox")
+    expect(boxes).toHaveLength(3)
+    boxes.forEach((b) => expect(b).not.toBeChecked())
+    expect(screen.getAllByText("I confirm this is true for this article")).toHaveLength(3)
+    expect(screen.getByText("0 of 3 confirmed")).toBeInTheDocument()
+    expect(screen.getByText(/2-s2.0-85000000001/)).toBeInTheDocument()
+
+    await user.click(boxes[0])
+    await user.click(boxes[1])
+    expect(screen.getByText("2 of 3 confirmed")).toBeInTheDocument()
+    // Start with one outstanding names it, and the form stays shut.
+    await user.click(screen.getByRole("button", { name: "Start the claim" }))
+    expect(await screen.findByText(/One of these is not confirmed yet/)).toBeInTheDocument()
+    expect(screen.queryByLabelText("Paper title")).toBeNull()
+
+    await user.click(screen.getByRole("button", { name: "Change" }))
+    await screen.findByRole("heading", { level: 1, name: "Choose the paper" })
+    await user.click(screen.getByRole("button", { name: "Continue" }))
+    await screen.findByRole("heading", { level: 1, name: "Confirm three things about this paper" })
+    screen.getAllByRole("checkbox").forEach((b) => expect(b).not.toBeChecked())
+  })
+
+  it("never remembers the rules as read", async () => {
+    localStorage.setItem("claim-rules-read", "1")
+    const { user } = mount({ pull: PULL })
+    await pickAndContinue(user)
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3)
+    expect(screen.getByText("No incentive claim has been filed for this article before")).toBeVisible()
+    localStorage.removeItem("claim-rules-read")
   })
 })

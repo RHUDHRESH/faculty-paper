@@ -1,4 +1,4 @@
-import { BookOpen, FilePlusCorner, FileText, Gem, MessageCircle, UserRound } from "lucide-react"
+import { BookOpen, FilePlusCorner, FileText, Gem, MessageCircle, Quote, UserRound } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
@@ -10,7 +10,7 @@ import { Avatar, type PersonBrief } from "@/ui/person"
 /* PaperCard                                                                 */
 /* ------------------------------------------------------------------------ */
 
-export type PaperAuthor = { name: string; you?: boolean }
+export type PaperAuthor = { name: string; you?: boolean; /** A college member's profile. */ to?: string }
 
 export type PaperCardProps = {
   title: string
@@ -33,6 +33,14 @@ export type PaperCardProps = {
   /** Dense row for lists (44px rows, hairline separators by the parent). */
   dense?: boolean
   className?: string
+  /** Times cited, shown with a Quote icon when known. */
+  citations?: number | null
+  /** Replaces the default author line (e.g. a "With:" co-author line). */
+  authorLine?: React.ReactNode
+  /** Extra lines under the card body (claim state, notes). */
+  children?: React.ReactNode
+  /** Right-hand actions (a menu). */
+  actions?: React.ReactNode
 }
 
 function authorLine(authors: PaperAuthor[], max = 6) {
@@ -42,7 +50,15 @@ function authorLine(authors: PaperAuthor[], max = 6) {
       {shown.map((a, i) => (
         <span key={i}>
           {i > 0 && ", "}
-          {a.you ? <strong className="font-semibold text-fg">{a.name}</strong> : a.name}
+          {a.you ? (
+            <strong className="font-semibold text-fg">{a.name}</strong>
+          ) : a.to ? (
+            <Link to={a.to} className="text-fg hover:underline hover:underline-offset-4">
+              {a.name}
+            </Link>
+          ) : (
+            a.name
+          )}
         </span>
       ))}
       {authors.length > max && `, +${authors.length - max}`}
@@ -63,6 +79,10 @@ export function PaperCard({
   claim,
   dense,
   className,
+  citations,
+  authorLine: customAuthors,
+  children,
+  actions,
 }: PaperCardProps) {
   const youAt = authors ? authors.findIndex((a) => a.you) : -1
   const pos = position ?? (authors && youAt >= 0 ? { index: youAt + 1, of: authors.length } : null)
@@ -92,14 +112,23 @@ export function PaperCard({
           {sources?.map((s) => (
             <Chip key={s}>{s}</Chip>
           ))}
+          {citations != null && (
+            <span className="inline-flex items-center gap-1 tabular-nums" title={`Cited ${citations} times`}>
+              <Quote aria-hidden className="size-4" strokeWidth={1.75} />
+              <span className="sr-only">Citations:</span>
+              {citations}
+            </span>
+          )}
         </div>
-        {authors && authors.length > 0 && !dense && (
+        {customAuthors && !dense && <div className="mt-1 text-sm text-fg-muted">{customAuthors}</div>}
+        {!customAuthors && authors && authors.length > 0 && !dense && (
           <p className="mt-1 line-clamp-1 text-sm text-fg-muted">
             {authorLine(authors)}
             {pos && <span className="text-fg-subtle"> · {pos.index} of {pos.of}</span>}
           </p>
         )}
         {claim && "stage" in claim && !dense && <StageTrack stage={claim.stage} className="mt-3 max-w-sm" />}
+        {children}
       </div>
       {claim && "unclaimed" in claim && (
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -116,6 +145,7 @@ export function PaperCard({
       {claim && "stage" in claim && dense && (
         <span className="shrink-0 text-xs text-fg-muted">{claim.stage.label}</span>
       )}
+      {actions && <div className="shrink-0">{actions}</div>}
     </article>
   )
 }

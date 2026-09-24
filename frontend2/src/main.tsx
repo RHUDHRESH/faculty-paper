@@ -102,6 +102,7 @@ const Batches = page(() => import("@/pages/batches"), "Batches")
 const Reference = page(() => import("@/pages/reference"), "Reference")
 const Ledger = page(() => import("@/pages/ledger"), "Ledger")
 const Papers = page(() => import("@/pages/papers"), "Papers")
+const ClaimsList = page(() => import("@/pages/claims-list"), "ClaimsList")
 const Payments = page(() => import("@/pages/payments"), "Payments")
 const PaymentsDone = page(() => import("@/pages/payments"), "PaymentsDone")
 const Publications = page(() => import("@/pages/publications"), "Publications")
@@ -145,6 +146,7 @@ function ResearchTabs() {
 }
 
 const PRELOADS: [string, Page][] = [
+  ["/papers/claims", ClaimsList],
   ["/papers/new", FilePaper],
   ["/papers/:id/edit", FilePaper],
   ["/papers/:id", PaperDetail],
@@ -328,6 +330,7 @@ function App() {
           <Route index element={<Home />} />
           <Route path="/search" element={<Search />} />
           <Route path="/papers" element={<Papers />} />
+          <Route path="/papers/claims" element={<ClaimsList />} />
           <Route path="/papers/new" element={<FilePaper />} />
           <Route path="/papers/:id/edit" element={<FilePaper />} />
           <Route path="/papers/:id" element={<PaperDetail />} />

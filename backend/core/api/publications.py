@@ -15,6 +15,7 @@ from typing import Optional
 from django.db.models import Prefetch
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 
@@ -24,6 +25,7 @@ from core.models import AuditLog, Authorship, ClaimStatus, Publication, Publicat
 from core.services import coauthors as graph
 from core.services import publications as pubs
 from core.services.normalize import normalize_title
+from core.services.remuneration import MAX_ELIGIBLE_AUTHORS
 
 SORTS = {
     "year": ("-year", "-date", "title"),
@@ -128,13 +130,72 @@ def _record(user: User, **filters) -> dict:
     })
 
 
+_NOT_FILED = (ClaimStatus.REJECTED,)
+
+
+class _ClaimIndex:
+    """My live claims, findable by the paper's links, DOI, EID or title."""
+
+    def __init__(self, user: User):
+        self.claims = list(user.claims.exclude(status__in=_NOT_FILED))
+        self.by_id = {c.id: c for c in self.claims}
+        self.by_doi = {c.doi.lower(): c for c in self.claims if c.doi}
+        self.by_eid = {c.eid: c for c in self.claims if c.eid}
+        self.by_title = {c.normalized_title: c for c in self.claims if c.normalized_title}
+
+    def find(self, p: dict):
+        for cid in p.get("claim_ids") or []:
+            if cid in self.by_id:
+                return self.by_id[cid]
+        return ((p["doi"] and self.by_doi.get(p["doi"].lower())) or (p["eid"] and self.by_eid.get(p["eid"]))
+                or self.by_title.get(normalize_title(p["title"] or "")))
+
+
+def _waiting_since(c):
+    stamps = [c.director_approved_at, c.principal_approved_at, c.cleared_at, c.submitted_at]
+    return next((s for s in stamps if s), None) or c.updated_at
+
+
+def claim_state(p: dict, index: _ClaimIndex) -> dict:
+    """The claim fields for one of *my* papers. Money only once paid."""
+    c = index.find(p)
+    total = p.get("total_authors") or 0
+    eligible = total <= MAX_ELIGIBLE_AUTHORS
+    claim = None
+    if c is not None:
+        paid = c.status == ClaimStatus.PAID
+        since = None if paid or c.status == ClaimStatus.DRAFT else _waiting_since(c)
+        claim = {"id": c.id, "stage": c.status,
+                 "days_waiting": (timezone.now() - since).days if since else None,
+                 **({"amount": c.remuneration} if paid else {})}
+    return {"claim": claim, "eligible": eligible,
+            "ineligible_reason": None if eligible else f"More than {MAX_ELIGIBLE_AUTHORS} authors"}
+
+
+def unclaimed_count(user: User) -> int:
+    """Eligible papers on my record with no live claim -- Home's `unclaimed`
+    and the My papers "Not claimed" tab read the same rule."""
+    index = _ClaimIndex(user)
+    return sum(1 for p in _publications(user)
+               if (s := claim_state(p, index))["claim"] is None and s["eligible"])
+
+
 @api.get("/me/publications", auth=session_auth)
 def my_publications(request: HttpRequest, year: Optional[int] = None, year_from: Optional[int] = None,
                     year_to: Optional[int] = None, type: Optional[str] = None, quartile: Optional[str] = None,
                     q: Optional[str] = None, sort: str = "year"):
-    """My full publication record, newest first, with co-authors and metrics."""
+    """My full publication record, newest first, with co-authors and metrics.
+    Each paper also carries `claim` (my own claim on it: id, stage,
+    days_waiting, amount once paid -- added after the money filter, since it
+    is the caller's own) and `eligible` / `ineligible_reason`."""
     user = require_user(request)
-    return _record(user, year=year, year_from=year_from, year_to=year_to, type=type, quartile=quartile, q=q, sort=sort)
+    out = _record(user, year=year, year_from=year_from, year_to=year_to, type=type, quartile=quartile, q=q,
+                  sort=sort)
+    index = _ClaimIndex(user)
+    for p in out["publications"]:
+        p.update(claim_state(p, index))
+    out["unclaimed"] = sum(1 for p in out["publications"] if p["claim"] is None and p["eligible"])
+    return out
 
 
 @api.get("/people/{user_id}/publications", auth=session_auth)
@@ -182,7 +243,22 @@ def search_people_external(request: HttpRequest, q: str = "", limit: int = 20):
     return {"q": q, "results": graph.search_external(q, limit=max(1, min(limit, 50)))}
 
 
-_NOT_FILED = (ClaimStatus.REJECTED,)
+class DisputeIn(Schema):
+    reason: str
+    duplicate_of: Optional[str] = None
+
+
+@api.post("/me/publications/{pub_id}/dispute", auth=session_auth)
+def dispute_my_publication(request: HttpRequest, pub_id: str, payload: DisputeIn):
+    """Report a paper on my record as not mine, or a duplicate. Recorded for the
+    research cell to review; the record itself is not changed here."""
+    user = require_user(request)
+    if payload.reason not in ("not_mine", "duplicate"):
+        raise HttpError(400, "Reason is not_mine or duplicate.")
+    pub = get_object_or_404(Publication, id=pub_id, authorships__user=user)
+    AuditLog.objects.create(actor=user, action="PUBLICATION_DISPUTED", entity="Publication", entity_id=pub.id,
+                            detail_json=json.dumps(payload.dict()))
+    return {"ok": True}
 
 
 @api.get("/me/scopus-pull", auth=session_auth)

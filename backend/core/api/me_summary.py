@@ -66,6 +66,15 @@ def _record_for(user: User) -> tuple[list[PaperRecord], dict[str, list[PaperReco
     return records.get(user.id, []), records
 
 
+def _unclaimed(user: User) -> Optional[int]:
+    from core.api.publications import unclaimed_count
+    from core.models import Authorship
+
+    if not Authorship.objects.filter(user=user).exists():
+        return None
+    return unclaimed_count(user)
+
+
 def h_index(citations: list[int]) -> int:
     """The largest h with h papers cited at least h times each."""
     ranked = sorted((c for c in citations if c), reverse=True)
@@ -138,9 +147,10 @@ def my_summary(request: HttpRequest):
         "h_index": h_index(known) if known else None,
         "dept_rank": dept_rank,
         "strip": strip_of(mine, today),
-        # TODO(publication-table): authorships with no claim. Unknown until
-        # the record exists, so None (the client hides the row), never 0.
-        "unclaimed": None,
+        # Eligible papers on the record with no live claim (the same rule as
+        # the My papers "Not claimed" tab). None while the person has no
+        # authorships, so the client hides the row rather than showing 0.
+        "unclaimed": _unclaimed(user),
         "returned": by_status.get(ClaimStatus.REJECTED, 0),
         "drafts": by_status.get(ClaimStatus.DRAFT, 0),
         "on_the_way": moving.count(),

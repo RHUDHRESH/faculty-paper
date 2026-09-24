@@ -49,6 +49,7 @@ import { Checkbox, Field, Input, NumberInput, Textarea } from "@/ui/field"
 import { Pagination } from "@/ui/pagination"
 import { Avatar, PersonLink, type PersonBrief } from "@/ui/person"
 import { EmptyState, ErrorState, InlineError, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
+import { BadgeShelf } from "@/ui/badge-shelf"
 import { Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
@@ -266,6 +267,8 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
       )}
 
       <Counts counts={data.counts} />
+
+      <BadgeShelf userId={person.id} own={data.is_me} />
 
       <PinnedPapers pinned={data.pinned ?? []} isMe={data.is_me} onChoose={() => setPinning(true)} />
 

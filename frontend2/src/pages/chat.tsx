@@ -302,21 +302,26 @@ export function ChatPage() {
     queryKey: ["dm", "conversation", id],
     // Read only when it is in front of somebody: a poll from a hidden tab is
     // not a person reading, and "seen" must not say it was.
-    queryFn: () =>
-      api<Conversation>(`/api/dm/${id}${document.visibilityState === "visible" ? "?read=1" : ""}`),
+    queryFn: async () => {
+      const reading = document.visibilityState === "visible"
+      const c = await api<Conversation>(`/api/dm/${id}${reading ? "?read=1" : ""}`)
+      if (reading) {
+        // This fetch marked it read on the server, so the badge, the inbox
+        // and the bell are stale now -- whether or not anything new arrived.
+        void qc.invalidateQueries({ queryKey: ["dm", "unread"] })
+        void qc.invalidateQueries({ queryKey: ["dm", "inbox"] })
+        void qc.invalidateQueries({ queryKey: ["notifications"] })
+      }
+      return c
+    },
     refetchInterval: CHAT_POLL_MS,
     enabled: !!id,
   })
 
   const count = convo.data?.messages.length ?? 0
   useEffect(() => {
-    if (!count) return
-    bottom.current?.scrollIntoView({ block: "end" })
-    // Reading here clears the badge and the bell for this conversation.
-    void qc.invalidateQueries({ queryKey: ["dm", "unread"] })
-    void qc.invalidateQueries({ queryKey: ["dm", "inbox"] })
-    void qc.invalidateQueries({ queryKey: ["notifications"] })
-  }, [count, qc])
+    if (count) bottom.current?.scrollIntoView({ block: "end" })
+  }, [count])
 
   useEffect(() => {
     if (text) box.current?.focus()

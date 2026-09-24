@@ -34,6 +34,7 @@ from core.models import (
     ProfileVisit,
     ResearchInterest,
     Role,
+    Thread,
     User,
 )
 
@@ -284,6 +285,11 @@ class FollowTopicTests(Base):
             "get", self.meera, "/api/feed?tab=everyone&journal=Journal%20of%20Tests")["results"]]
         self.assertEqual(ids, [hit["id"]])
 
+    def test_a_short_topic_is_not_matched_inside_other_words(self):
+        self._post(self.ravi, body="I said I would mail the html file")
+        self._json("post", self.meera, "/api/follows/topics", {"topic": "AI"})
+        self.assertEqual(self._json("get", self.meera, "/api/feed?tab=following")["results"], [])
+
     def test_a_followed_topic_never_surfaces_another_departments_private_post(self):
         cm = self._paper(self.asha, "T4", subjects="Condensed Matter Physics (Q1)")
         self._post(self.asha, body="dept only", paper_id=cm.id, visibility="DEPARTMENT")
@@ -373,6 +379,36 @@ class DirectMessageTests(Base):
         chat = self._chat(self.asha, self.ravi)
         self._json("post", self.asha, f"/api/dm/{chat['id']}/messages", {"body": "quiet"})
         self.assertFalse(Notification.objects.filter(user=self.ravi).exists())
+
+    def test_a_locked_old_conversation_does_not_trap_two_people(self):
+        chat = self._chat(self.asha, self.ravi)
+        Thread.objects.filter(pk=chat["id"]).update(locked=True)
+        fresh = self._chat(self.asha, self.ravi)
+        self.assertNotEqual(fresh["id"], chat["id"])
+        self._json("post", self.asha, f"/api/dm/{fresh['id']}/messages", {"body": "Still here"})
+        sent = self._json("post", self.asha, "/api/collaborations/requests",
+                          {"to_id": self.ravi.id, "topic": "Optics"})
+        self.assertEqual(sent["conversation_id"], fresh["id"])
+
+    def test_existing_conversations_do_not_all_light_up_unread_on_deploy(self):
+        """The backfill in the migration: what was read before stays read."""
+        import importlib
+
+        from django.apps import apps as live_apps
+        from core.models import Post, ThreadParticipant, ThreadSubscription
+
+        thread = Thread.objects.create(title="Old", visibility=Thread.Visibility.DIRECT, created_by=self.asha)
+        for u in (self.asha, self.ravi):
+            ThreadParticipant.objects.create(thread=thread, user=u)
+        Post.objects.create(thread=thread, author=self.ravi, body="Before")
+        ThreadSubscription.objects.create(thread=thread, user=self.asha, last_read_at=timezone.now())
+        Post.objects.create(thread=thread, author=self.asha, body="Reply")
+
+        migration = importlib.import_module("core.migrations.0050_social_plus")
+        migration.backfill_last_read(live_apps, None)
+
+        self.assertEqual(self._json("get", self.asha, "/api/dm/unread")["unread"], 0)
+        self.assertEqual(self._json("get", self.ravi, "/api/dm/unread")["unread"], 0)
 
     def test_an_empty_message_is_refused(self):
         chat = self._chat(self.asha, self.ravi)
@@ -607,6 +643,24 @@ class StatsTests(Base):
         self.assertEqual((top["reach"], top["reactions"], top["comments"]), (2, 1, 1))
         self.assertEqual(sum(d["count"] for d in stats["views_by_day"]), 2)
         self.assertNoMoney(stats)
+
+    def test_engagement_never_exceeds_everybody_reached(self):
+        """Somebody who reacted from a profile, or who is not counted, still reacted:
+        they count as reached, so the rate cannot pass 100%."""
+        post = self._post(self.asha, body="Reacted to from a profile")
+        self._json("put", self.ravi, "/api/people/me/social-settings", {"count_my_visits": False})
+        self._json("post", self.ravi, f"/api/feed/posts/{post['id']}/reactions/congrats")
+        self._json("post", self.meera, f"/api/feed/posts/{post['id']}/reactions/like")
+        stats = self._json("get", self.asha, "/api/people/me/stats")
+        top = stats["top_posts"][0]
+        self.assertEqual(top["reach"], 2)
+        self.assertEqual(top["engagement_rate"], 1.0)
+        self.assertLessEqual(stats["posts"]["engagement_rate"], 1.0)
+
+    def test_posts_seen_on_a_profile_count_as_reach(self):
+        self._post(self.asha, body="Seen on my profile")
+        self._as(self.meera).get(f"/api/people/{self.asha.id}")
+        self.assertEqual(PostView.objects.filter(viewer=self.meera).count(), 1)
 
     def test_your_own_views_of_your_posts_are_not_reach(self):
         self._post(self.asha)

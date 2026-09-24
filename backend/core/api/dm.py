@@ -171,7 +171,10 @@ def _one_to_one(me: User, other: User) -> Thread | None:
     members = ThreadParticipant.objects.filter(thread=OuterRef("pk"))
     size = members.order_by().values("thread").annotate(n=Count("id")).values("n")
     return (
-        Thread.objects.filter(visibility=Thread.Visibility.DIRECT)
+        # A locked conversation stays readable where it is, but a new message
+        # starts a new one: finding the locked one again would leave two
+        # people unable to write to each other at all.
+        Thread.objects.filter(visibility=Thread.Visibility.DIRECT, locked=False)
         .filter(Exists(members.filter(user=me)), Exists(members.filter(user=other)))
         .annotate(size=Subquery(size))
         .filter(size=2)
@@ -432,6 +435,14 @@ def answer_collaboration(request: HttpRequest, request_id: str, payload: CollabA
     now = timezone.now()
 
     with transaction.atomic():
+        # Locked and read again: an Accept and a Decline arriving together
+        # must not both see PENDING and leave a declined request with a
+        # collaboration standing on two profiles.
+        req = CollaborationRequest.objects.select_for_update().select_related(
+            "sender", "recipient", "thread"
+        ).get(pk=req.pk)
+        if req.state in (CollaborationRequest.State.ACCEPTED, CollaborationRequest.State.DECLINED):
+            raise HttpError(400, "This request has already been answered.")
         if action == "accept":
             req.state = CollaborationRequest.State.ACCEPTED
             collaboration = Collaboration.objects.create(request=req, topic=req.topic, journal=req.journal)

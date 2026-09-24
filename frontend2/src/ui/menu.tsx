@@ -1,6 +1,6 @@
 import * as RadixMenu from "@radix-ui/react-dropdown-menu"
 
-import { menuPop, popKeyframes } from "@/ui/motion"
+import { menuPop, popKeyframes } from "@/ui/pop"
 import { cn } from "@/lib/cn"
 
 /**

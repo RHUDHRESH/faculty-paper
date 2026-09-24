@@ -3,8 +3,10 @@ import { Link } from "react-router-dom"
 import { BarChart3, FileCheck, Stamp } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { HOME_DATA } from "@/app/home-data"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { ComingUp } from "@/ui/coming-up"
 import { BulkAuthoriseDialog, type Claim as QueueClaim } from "@/pages/authorisations"
 import { money } from "@/ui/paper"
 import { Callout, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
@@ -53,24 +55,32 @@ type AreasPayload = {
   coverage: { classified: number; total: number; unclassified: number; fraction: number }
 }
 
-type ReportSummary = {
-  totals: { publications: number; paid_amount?: number }
+type CollegeTotals = {
+  by_status: Record<string, number>
+  total_paid: number
+  ledger_total?: number
+  ledger_since?: string | null
 }
 
 export function DirectorHome() {
   const { me } = useAuth()
+  const D = HOME_DATA
 
   // The whole queue, not a page of it: the summary sums it, the batch button
   // authorises it, and the list below shows the six that have waited longest.
-  const queue = useApi<DirectorQueue>(["director-queue", "home"], "/api/director/queue?limit=200")
+  const queue = useApi<DirectorQueue>(D.directorQueue.key, D.directorQueue.path)
   const [batchOpen, setBatchOpen] = useState(false)
-  const areas = useApi<AreasPayload>(["reports", "areas"], "/api/reports/areas?limit=12")
-  const report = useApi<ReportSummary>(["reports", "summary"], "/api/reports")
-  const college = useApi<{ ledger_total?: number; ledger_since?: string | null }>(
-    ["dashboard"],
-    "/api/dashboard"
-  )
-  const budget = useApi<BudgetSummary>(["budgets", ""], "/api/budgets")
+  const areas = useApi<AreasPayload>(D.areas.key, D.areas.path)
+  // The publication count is every filed paper, which the stage counts
+  // already hold. It was read off the full report -- thirty-five queries for
+  // one number, on the home screen of the person who opens it most.
+  const college = useApi<CollegeTotals>(D.collegeTotals.key, D.collegeTotals.path)
+  const budget = useApi<BudgetSummary>(D.budget.key, D.budget.path)
+  const publications = college.data
+    ? Object.entries(college.data.by_status)
+        .filter(([status]) => status !== "DRAFT")
+        .reduce((sum, [, n]) => sum + n, 0)
+    : null
 
   const totals = queue.data?.totals
   const longest = totals?.longest_wait_days ?? null
@@ -195,9 +205,12 @@ export function DirectorHome() {
           onRetry={() => queue.refetch()}
         />
       ) : (queue.data?.total ?? 0) === 0 && !queue.isLoading ? (
-        <Callout tone="positive" title="Nothing is waiting on your signature">
-          Every approved claim has been authorised and is with Finance.
-        </Callout>
+        <div className="space-y-4">
+          <Callout tone="positive" title="Nothing is waiting on your signature">
+            Every approved claim has been authorised and is with Finance.
+          </Callout>
+          <ComingUp desk="director" align="start" />
+        </div>
       ) : (
         <Waiting>
           <div className="flex items-baseline justify-between gap-3">
@@ -272,7 +285,7 @@ export function DirectorHome() {
       {/* ---- the institution's position ---- */}
       <section className="space-y-3">
         <SectionTitle>The institution</SectionTitle>
-        {report.isError || budget.isError ? (
+        {college.isError || budget.isError ? (
           // Every figure below degrades to an em dash or "Not set" on
           // failure, so a dropped request read as "nothing published, no
           // budget allocated" -- to the one person whose job is deciding
@@ -281,7 +294,7 @@ export function DirectorHome() {
             title="Could not load the institution's position"
             message="The server did not answer. These figures are unavailable, not zero."
             onRetry={() => {
-              void report.refetch()
+              void college.refetch()
               void budget.refetch()
             }}
           />
@@ -289,18 +302,14 @@ export function DirectorHome() {
         <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
           <Figure
             label="Publications"
-            value={
-              report.data?.totals.publications != null
-                ? report.data.totals.publications.toLocaleString("en-IN")
-                : "—"
-            }
-            loading={report.isLoading}
+            value={publications != null ? publications.toLocaleString("en-IN") : "—"}
+            loading={college.isLoading}
           />
           <Figure
             label="Paid to date"
-            value={money(college.data?.ledger_total ?? report.data?.totals.paid_amount)}
+            value={money(college.data?.ledger_total ?? college.data?.total_paid)}
             hint={collegeSince(college.data?.ledger_since)}
-            loading={report.isLoading || college.isLoading}
+            loading={college.isLoading}
           />
           <Figure
             label="Committed"

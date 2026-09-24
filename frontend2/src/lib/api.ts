@@ -71,6 +71,37 @@ export async function api<T = unknown>(path: string, options: Options = {}): Pro
   return body as T
 }
 
+/**
+ * A GET that `index.html` already started, if it did.
+ *
+ * The first two questions every visit asks -- who is signed in, and which
+ * college this is -- used to leave only after the whole of the app's
+ * JavaScript had arrived and run: half a second of network each, queued
+ * behind a second of download. `index.html` asks them as the page starts,
+ * and the first caller for each path here gets that answer instead of asking
+ * again. Once only: a response body can be read once, and later callers want
+ * a fresh answer anyway.
+ */
+export function bootAnswer<T>(path: string): Promise<T> | null {
+  const boot = (window as unknown as { __boot?: Record<string, Promise<Response> | undefined> })
+    .__boot
+  const started = boot?.[path]
+  if (!started) return null
+  delete boot[path]
+  return started.then(async (res) => {
+    const text = await res.text()
+    const body = text ? safeJson(text) : null
+    if (!res.ok) {
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? String((body as { detail: unknown }).detail)
+          : `Request failed (${res.status})`
+      throw new ApiError(res.status, detail, body)
+    }
+    return body as T
+  })
+}
+
 function safeJson(text: string): unknown {
   try {
     return JSON.parse(text)

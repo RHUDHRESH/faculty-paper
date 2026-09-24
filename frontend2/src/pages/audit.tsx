@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { DateInput, Input } from "@/ui/field"
 import { money } from "@/ui/paper"
@@ -310,6 +311,67 @@ function formatDateTime(iso: string): string {
   })
 }
 
+type ShownRow = AuditRow & { repeat: number }
+
+/**
+ * A run of the same automatic entry, written in the same minute, as one row
+ * with a count. The import's check raised fifty-three flags in one second,
+ * and the log's first screen was nothing else. Only entries nobody made by
+ * hand fold together; a person's actions are always listed one by one.
+ */
+export function collapseRuns(rows: AuditRow[]): ShownRow[] {
+  const out: ShownRow[] = []
+  for (const r of rows) {
+    const last = out[out.length - 1]
+    if (
+      last &&
+      r.actor == null &&
+      last.actor == null &&
+      last.action === r.action &&
+      last.entity === r.entity &&
+      last.created_at.slice(0, 16) === r.created_at.slice(0, 16)
+    ) {
+      last.repeat += 1
+      continue
+    }
+    out.push({ ...r, repeat: 1 })
+  }
+  return out
+}
+
+type Origin = { at: string | null; title: string; detail: string; by: string | null }
+
+/**
+ * Where the record came from: the imports and restores that built it, worked
+ * out by the server from the rows themselves (`/api/admin/audit/origins`). The
+ * ERP import wrote no audit entries, so without this the log says nothing
+ * about how ninety-four claims and three thousand payments got here.
+ */
+function Origins() {
+  const { data } = useApi<{ events: Origin[] }>(["audit", "origins"], "/api/admin/audit/origins")
+  if (!data || data.events.length === 0) return null
+  return (
+    <section aria-labelledby="origins" className="space-y-2">
+      <h2 id="origins" className="text-sm font-medium">
+        Where the record came from
+      </h2>
+      <ul className="divide-y divide-line border-y border-line">
+        {data.events.map((e, i) => (
+          <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-2.5">
+            <span className="min-w-0">
+              <span className="block text-sm">{e.title}</span>
+              {e.detail && <Meta className="block">{e.detail}</Meta>}
+            </span>
+            <Meta className="shrink-0">
+              {[e.by, e.at ? formatDateTime(e.at) : null].filter(Boolean).join(" · ")}
+            </Meta>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function withinRange(iso: string, from: string, to: string): boolean {
   const t = new Date(iso).getTime()
   if (from && t < new Date(`${from}T00:00:00`).getTime()) return false
@@ -420,8 +482,9 @@ export function Audit() {
   }, [data, total])
 
   const filtered = Boolean(q) || Boolean(action) || Boolean(from) || Boolean(to)
+  const shown = collapseRuns(rows)
 
-  const columns: Column<AuditRow>[] = [
+  const columns: Column<ShownRow>[] = [
     {
       key: "when",
       header: "When",
@@ -449,7 +512,10 @@ export function Audit() {
       header: "Action",
       cell: (r) => (
         <span className="block">
-          <span className="block text-sm">{actionSentence(r.action)}</span>
+          <span className="block text-sm">
+            {actionSentence(r.action)}
+            {r.repeat > 1 && <span className="text-fg-muted"> × {r.repeat}</span>}
+          </span>
           <Meta className="mt-0.5 block text-xs">{r.action}</Meta>
         </span>
       ),
@@ -494,7 +560,7 @@ export function Audit() {
         </Sub>
       </header>
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className={filterBar}>
         <div className="relative w-full max-w-xs">
           <Search
             className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
@@ -542,6 +608,8 @@ export function Audit() {
           </Button>
         )}
       </div>
+
+      {!filtered && page === 0 && <Origins />}
 
       {maybeIncomplete && (
         <p className="text-xs text-caution">
@@ -592,14 +660,14 @@ export function Audit() {
         <>
           <Table
             className="hidden md:block"
-            rows={rows}
+            rows={shown}
             getKey={(r) => r.id}
             minWidth="52rem"
             columns={columns}
           />
 
           <ul className="divide-y divide-line border-y border-line md:hidden">
-            {rows.map((r) => (
+            {shown.map((r) => (
               <AuditCard key={r.id} row={r} onOpen={() => setSelected(r)} />
             ))}
           </ul>
@@ -670,14 +738,17 @@ export function Audit() {
 
 /** The table's row, redrawn as a card below `md` — the same fields, stacked,
  *  and tapping it opens the same detail sheet the "View" button does. */
-function AuditCard({ row, onOpen }: { row: AuditRow; onOpen: () => void }) {
+function AuditCard({ row, onOpen }: { row: ShownRow; onOpen: () => void }) {
   const href = entityHref(row.entity, row.entity_id)
   return (
     <li className="row">
       <button type="button" onClick={onOpen} className="block w-full px-1 py-3 text-left">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block text-base">{actionSentence(row.action)}</span>
+            <span className="block text-base">
+              {actionSentence(row.action)}
+              {row.repeat > 1 && <span className="text-fg-muted"> × {row.repeat}</span>}
+            </span>
             <Meta className="mt-0.5 block truncate">
               {row.actor ?? "System"} · {row.entity}
             </Meta>

@@ -115,6 +115,10 @@ def discover_status(request: HttpRequest):
         "code": state.get("code"),
         "detail": state.get("detail"),
         "base_url": state.get("base_url"),
+        # Whether what somebody types here leaves the college, and to where.
+        # The screen says so rather than claiming it runs "on this server".
+        "hosted": bool(state.get("hosted")),
+        "host": state.get("host") or "",
     }
 
 
@@ -217,7 +221,10 @@ def _ai_failure_status(exc: ai.AIError) -> int:
     sends somebody looking for a network fault that is not there, when the fix
     is one `ollama pull` on the machine it runs on.
     """
-    return 503 if exc.code in ("model_missing", "unreachable", "misconfigured") else 502
+    unavailable = (
+        "model_missing", "unreachable", "misconfigured", "not_configured", "rate_limited",
+    )
+    return 503 if exc.code in unavailable else 502
 
 
 def _log_venue_search(user: User, title: str, result: dict[str, Any]) -> None:

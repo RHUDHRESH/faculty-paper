@@ -10,6 +10,7 @@ import { money } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { NextThings } from "@/pages/discover-next"
 
 /**
  * The one screen that is useful before a paper exists — everything else in
@@ -26,13 +27,18 @@ import { toast } from "@/ui/toast"
  */
 export function Discover() {
   const status = useApi<DiscoverStatus>(["discover", "status"], "/api/discover/status")
+  const hosted = !!status.data?.hosted
 
   return (
     <div className="page space-y-10">
       <header>
         <PageTitle>Discover</PageTitle>
-        <Sub className="mt-1">Where this paper could go, and what to write after it.</Sub>
+        <Sub className="mt-1">
+          People, journals and topics to work on next, and where a paper could go.
+        </Sub>
       </header>
+
+      <NextThings status={status.data} />
 
       {status.isLoading ? (
         <SkeletonText lines={2} className="max-w-md" />
@@ -43,17 +49,38 @@ export function Discover() {
           onRetry={() => status.refetch()}
         />
       ) : status.data && !status.data.available ? (
-        <ModelUnavailable status={status.data} onRetry={() => void status.refetch()} />
+        status.data.code === "not_configured" ? (
+          <AiNotSetUp />
+        ) : (
+          <ModelUnavailable status={status.data} onRetry={() => void status.refetch()} />
+        )
       ) : status.data ? (
         <>
           <ModelBadge status={status.data} />
-          <VenueFinder />
-          <Directions />
+          <VenueFinder hosted={hosted} />
+          <Directions hosted={hosted} />
         </>
       ) : null}
 
       <Interests />
     </div>
+  )
+}
+
+/**
+ * The AI tools, when nobody has configured a model: one line.
+ *
+ * Not a caution box and not a remedy. The reader cannot configure a server,
+ * and on the free deployment "no model" is the normal state rather than a
+ * fault — so the page says what is off and gets out of the way of the
+ * counted suggestions above it, which never needed a model.
+ */
+function AiNotSetUp() {
+  return (
+    <Meta className="block border-t border-line pt-6">
+      AI suggestions are not set up on this server, so the venue search and writing ideas are
+      off. Everything above is counted from the college's own record.
+    </Meta>
   )
 }
 
@@ -64,13 +91,19 @@ export function Discover() {
 type DiscoverStatus = {
   available: boolean
   model: string
-  /** "ollama" (a laptop) or "harness" (the college's own inference service). */
+  /** "ollama" (a laptop), "harness" (the college's own inference service),
+   *  "openai" (a hosted model) or "none". */
   provider?: string
-  /** ready | service_down | model_missing | misconfigured */
+  /** ready | not_configured | service_down | model_missing | misconfigured |
+   *  rejected | rate_limited */
   code?: string
   /** What to do about it, when it is not ready. */
   detail?: string | null
   base_url?: string
+  /** True when what is typed here is sent to a service outside the college. */
+  hosted?: boolean
+  /** That service's host name, for saying where. */
+  host?: string
 }
 
 type Payout = {
@@ -268,7 +301,7 @@ function byPayout(a: VerifiedJournal, b: VerifiedJournal): number {
  * the server — a client-side reimplementation of the formula is exactly the
  * drift that turns an estimate into a wrong promise.
  */
-function VenueFinder() {
+function VenueFinder({ hosted }: { hosted: boolean }) {
   const [title, setTitle] = useState("")
   const [abstract, setAbstract] = useState("")
   const [keywords, setKeywords] = useState("")
@@ -527,7 +560,7 @@ function VenueFinder() {
             </Button>
           )}
         </div>
-        {wait && <SearchProgress wait={wait} />}
+        {wait && <SearchProgress wait={wait} hosted={hosted} />}
         {stoppedAfter !== null && pending === null && (
           <Meta className="block">
             Stopped{stoppedAfter > 0 ? ` after ${Math.round(stoppedAfter)}s` : ""}. The model was
@@ -628,7 +661,7 @@ function VenueFinder() {
  * and it stops short of the end, because a bar that sits full for twenty
  * seconds is the hang all over again with extra steps.
  */
-function SearchProgress({ wait }: { wait: Wait }) {
+function SearchProgress({ wait, hosted }: { wait: Wait; hosted: boolean }) {
   const fraction =
     wait.phase === "reading"
       ? 0.97
@@ -665,9 +698,9 @@ function SearchProgress({ wait }: { wait: Wait }) {
       </Meta>
 
       <Meta className="block">
-        The model runs on this server's processor rather than in a data centre,
-        so it is slower and nothing you typed leaves the building. Stopping is
-        safe at any point.
+        {hosted
+          ? "Stopping is safe at any point."
+          : "The model runs on this server's processor rather than in a data centre, so it is slower and nothing you typed leaves the building. Stopping is safe at any point."}
       </Meta>
     </div>
   )
@@ -721,7 +754,7 @@ function JournalCard({ journal }: { journal: VerifiedJournal }) {
  * answer is usually an empty history rather than a bad model, and a reader
  * cannot tell those two apart unless the screen says which one it is.
  */
-function Directions() {
+function Directions({ hosted }: { hosted: boolean }) {
   const q = useApi<DirectionsResult>(["discover", "directions"], "/api/discover/directions")
 
   return (
@@ -733,8 +766,9 @@ function Directions() {
           <SkeletonText lines={1} className="max-w-sm" />
           <SkeletonRows rows={3} rowHeight={84} />
           <Meta className="block">
-            Thinking this through takes a minute or two — the model runs here
-            rather than in a data centre.
+            {hosted
+              ? "Thinking this through takes a few seconds."
+              : "Thinking this through takes a minute or two — the model runs here rather than in a data centre."}
           </Meta>
         </div>
       ) : q.isError ? (
@@ -832,6 +866,8 @@ function Interests() {
 
   const save = useApiMutation<{ domains: string[] }, { domains: string[] }>("/api/me/interests", {
     method: "PUT",
+    // The domains ground the suggestions at the top of the page.
+    invalidates: [["discover", "next"]],
   })
 
   function persist() {
@@ -932,6 +968,16 @@ function Interests() {
  */
 function ModelBadge({ status }: { status: DiscoverStatus }) {
   if (!status.model) return null
+  if (status.hosted) {
+    // A hosted model is a different promise, and the page makes that one:
+    // what is typed below goes to the named service to be answered.
+    return (
+      <Meta className="block">
+        Suggestions come from {status.model} at {status.host}. What you type into the tools
+        below is sent there to be answered.
+      </Meta>
+    )
+  }
   return (
     <Meta className="block">
       Suggestions come from {status.model}, running on this server. Nothing you

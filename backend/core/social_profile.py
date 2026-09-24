@@ -161,7 +161,9 @@ def stats_for(user: User) -> dict[str, Any]:
 
     posts = list(FeedPost.objects.filter(author=user).select_related("paper").order_by("-created_at"))
     ids = [p.id for p in posts]
-    reach = dict(PostView.objects.filter(post_id__in=ids).values_list("post").annotate(n=Count("id")))
+    seen_by: dict[str, set[str]] = defaultdict(set)
+    for pid, uid in PostView.objects.filter(post_id__in=ids).values_list("post", "viewer"):
+        seen_by[pid].add(uid)
     reactions = dict(
         FeedReaction.objects.filter(post_id__in=ids).exclude(user=user)
         .values_list("post").annotate(n=Count("id"))
@@ -182,6 +184,10 @@ def stats_for(user: User) -> dict[str, Any]:
         FeedReaction.objects.filter(post_id__in=ids).exclude(user=user)
         .values_list("kind").annotate(n=Count("id"))
     )
+    # Anybody who reacted or commented was reached, whether or not the view
+    # itself was counted (they may have opted out, or reacted somewhere views
+    # are not recorded). So engagement can never read above 100%.
+    reach = {pid: len(seen_by.get(pid, set()) | engagers.get(pid, set())) for pid in ids}
 
     rows = []
     for p in posts:

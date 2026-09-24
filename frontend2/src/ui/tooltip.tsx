@@ -1,6 +1,6 @@
 import * as RadixTooltip from "@radix-ui/react-tooltip"
 
-import { popKeyframes, tooltipPop } from "@/ui/motion"
+import { popKeyframes, tooltipPop } from "@/ui/pop"
 import { cn } from "@/lib/cn"
 
 /**

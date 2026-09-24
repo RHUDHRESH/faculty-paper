@@ -36,9 +36,10 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Notification, Role, ScimagoJournal, SnipSource, User
-from core.services import rbac
+from core.services import achievements, rbac
 from core.services.normalize import normalize_issn
 from core.services.notify_email import send_optional_email
+from core.services.record_dates import claim_record
 from core.services.tickets import assign_ticket_number
 from core import hod, visibility
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
@@ -191,6 +192,9 @@ def get_claim(request: HttpRequest, claim_id: str):
     ]
     data = claim_to_dict(claim)
     data["actions"] = actions
+    # What the history can truthfully say: an imported ticket carries the
+    # import's moment as its filing and payment time (services/record_dates).
+    data["record"] = claim_record(claim, has_actions=bool(actions))
     return data
 
 
@@ -365,6 +369,9 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
         # it was still a recognised journal then.
         publication_year=claim.publication_year,
         publication_date=claim.publication_date,
+        # What the source is, for when Scopus cannot say: an unknown type
+        # classifies every journal as Engineering.
+        publication_type=claim.publication_type,
     )
     apply_verify_to_claim(claim, result)
     _apply_calc(claim)
@@ -682,6 +689,8 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
             from_status=from_status, ticket_number=claim.ticket_number,
         )
         _notify_claimant(claim, title, body)
+    # Badges and department milestones, after commit; never blocks this move.
+    achievements.on_claim_moved(claim, from_status, to_status)
 
 
 #: Display-path cache for the second-approval threshold, so serializing a

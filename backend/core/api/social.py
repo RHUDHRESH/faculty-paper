@@ -493,6 +493,7 @@ def person_profile(request: HttpRequest, user_id: str):
     posts = list(posts)
     previews = _previews(posts, viewer)
     _with_coauthors(posts)
+    record_views(posts, viewer)
 
     from core.social_profile import profile_extras, record_visit
 
@@ -734,9 +735,17 @@ def feed(
     return {"tab": tab, **_page(qs, viewer, limit=limit, cursor=cursor)}
 
 
+#: Shorter than this, a topic is matched against paper subject areas only:
+#: "AI" as a substring of the words is inside "said", "mail" and "html".
+TOPIC_IN_WORDS_MIN = 5
+
+
 def about_topic(topic: str) -> Q:
     """A post is about a subject area when its paper is filed under it, or its words name it."""
-    return Q(paper__subjects_json__icontains=topic) | Q(body__icontains=topic)
+    condition = Q(paper__subjects_json__icontains=topic)
+    if len(topic.strip()) >= TOPIC_IN_WORDS_MIN:
+        condition |= Q(body__icontains=topic)
+    return condition
 
 
 def about_journal(journal: str) -> Q:

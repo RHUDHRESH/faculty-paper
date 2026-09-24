@@ -21,6 +21,7 @@ from core.models import (
     SnipSource,
     User,
 )
+from core.management.commands.rebuild_from_erp import ledger_amount
 from core.services.erp_import import find_existing_claim, map_excel_status, stable_ticket
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.scimago import parse_categories_field
@@ -252,7 +253,12 @@ class Command(BaseCommand):
             if not title:
                 continue
             doi = _s(_cell(row, "DOI"), 255)
-            amount = _f(_cell(row, "Amount", "amount"))
+            # Not the column headed "Amount": in the sheet's newest block that
+            # holds the author count, and the payout is the ERP's own working
+            # in col27. One rule for both importers (rebuild_from_erp).
+            amount = ledger_amount(row)
+            if amount is None:
+                amount = _f(_cell(row, "amount"))
             payout = _month(_cell(row, "Month"))
             norm_title = normalize_title(title)
             norm_doi = normalize_doi(doi) if doi else None

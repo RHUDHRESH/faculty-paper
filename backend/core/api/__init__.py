@@ -46,6 +46,10 @@ from core.api.restore import *  # noqa: F401,F403
 from core.api.my_payments import *  # noqa: F401,F403
 from core.api.flags import *  # noqa: F401,F403
 from core.api.social import *  # noqa: F401,F403
+from core.api.paper_lookup import *  # noqa: F401,F403
+from core.api.leaderboard import *  # noqa: F401,F403
+from core.api.suggestions import *  # noqa: F401,F403
+from core.api.rewards import *  # noqa: F401,F403
 from core.api.social_plus import *  # noqa: F401,F403
 from core.api.dm import *  # noqa: F401,F403
 from core.api.for_you import *  # noqa: F401,F403

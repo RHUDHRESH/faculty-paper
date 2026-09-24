@@ -36,7 +36,7 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Notification, Role, ScimagoJournal, SnipSource, User
-from core.services import rbac
+from core.services import achievements, rbac
 from core.services.normalize import normalize_issn
 from core.services.notify_email import send_optional_email
 from core.services.tickets import assign_ticket_number
@@ -685,6 +685,8 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
             from_status=from_status, ticket_number=claim.ticket_number,
         )
         _notify_claimant(claim, title, body)
+    # Badges and department milestones, after commit; never blocks this move.
+    achievements.on_claim_moved(claim, from_status, to_status)
 
 
 #: Display-path cache for the second-approval threshold, so serializing a

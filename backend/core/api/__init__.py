@@ -49,3 +49,4 @@ from core.api.social import *  # noqa: F401,F403
 from core.api.paper_lookup import *  # noqa: F401,F403
 from core.api.leaderboard import *  # noqa: F401,F403
 from core.api.suggestions import *  # noqa: F401,F403
+from core.api.rewards import *  # noqa: F401,F403

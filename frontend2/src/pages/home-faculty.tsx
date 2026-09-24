@@ -19,6 +19,9 @@ import { Journey, facultyStage } from "@/ui/journey"
 import { cn } from "@/lib/cn"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
+import { BadgeShelf } from "@/ui/badge-shelf"
+import { Celebrations } from "@/ui/celebrations"
+import { GoalRings } from "@/ui/goal-rings"
 
 /**
  * What a claimant opens the app to find out: is my money coming, and is
@@ -207,6 +210,8 @@ export function FacultyHome() {
         </Button>
       </header>
 
+      <Celebrations />
+
       {isLoading ? <MoneySkeleton /> : <MoneyStrip own={own} />}
 
       {!isLoading && claims.length === 0 && <FirstSteps />}
@@ -217,7 +222,11 @@ export function FacultyHome() {
 
       <OnTheWay moving={moving} />
 
+      <GoalRings />
+
       <PaidList payments={own.payments} />
+
+      {me && <BadgeShelf userId={me.id} />}
     </div>
   )
 }

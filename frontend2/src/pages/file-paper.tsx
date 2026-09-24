@@ -810,7 +810,12 @@ export function FilePaper() {
     try {
       const res = await api<PriorCheckResult>("/api/prior/check", {
         method: "POST",
-        json: { doi: form.doi.trim() || undefined, title: form.paperTitle.trim() || undefined },
+        json: {
+          doi: form.doi.trim() || undefined,
+          title: form.paperTitle.trim() || undefined,
+          // Not this claim's own draft, saved moments ago by the autosave.
+          exclude_claim_id: claimIdRef.current || undefined,
+        },
       })
       setPriorCheck(res)
     } catch {
@@ -895,7 +900,8 @@ export function FilePaper() {
   /* ------------------------- step 1: the paper --------------------------- */
 
   // "Pull from Scopus": my papers from the record, each marked if filed.
-  const pullEnabled = !isEditRoute && !filingForId
+  // Not `isEditRoute`: the first autosave moves a new filing to the edit address.
+  const pullEnabled = !editingExisting && !filingForId
   const {
     data: pull,
     isLoading: pullLoading,
@@ -944,7 +950,7 @@ export function FilePaper() {
   function changePaper() {
     setTicks(null)
     setTicksFor("")
-    setPhase(isEditRoute ? "form" : "choose")
+    setPhase(editingExisting ? "form" : "choose")
   }
 
   /* ------------------------------ estimate ------------------------------- */

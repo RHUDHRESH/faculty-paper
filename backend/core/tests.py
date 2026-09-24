@@ -136,6 +136,15 @@ from core.services.tickets import next_ticket_number
 from core.services.remuneration import DEFAULT_AUTHOR_POINTS
 import json
 
+from core.services.filing_conditions import CONDITION_IDS as _CONDITION_IDS, CONDITIONS_VERSION as _CONDITIONS_VERSION
+
+#: The three eligibility conditions, ticked -- a filing without them is refused.
+CONFIRMED = [
+    {"id": _cid, "text_version": _CONDITIONS_VERSION, "ticked_at": "2026-09-24T14:02:11+05:30"}
+    for _cid in _CONDITION_IDS
+]
+
+
 
 User = get_user_model()
 
@@ -781,6 +790,7 @@ class ClaimSubmissionRuleTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
             "contest_forward": True,
             "contest_note": "Submitting with faculty-provided journal details.",
         }
@@ -1395,6 +1405,7 @@ class TrustBoundaryTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
             "contest_forward": True,
             "contest_note": "Submitting with faculty-provided journal details.",
         }
@@ -3673,6 +3684,7 @@ class RetractionFlagTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
         }
         payload.update(overrides)
         return self.client.post(
@@ -3807,6 +3819,7 @@ class DuplicateOverrideGuardTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
         }
         payload.update(overrides)
         return self.client.post(
@@ -11356,6 +11369,7 @@ class WalkthroughTest(TestCase):
                  "ref_title": "SEC thermal imaging study"},
             ],
             "submit": True,
+            "confirmations": CONFIRMED,
             # Scopus has not indexed it yet and the reference tables in a test
             # database are empty, so auto-confirmation fails -- which is the
             # ordinary case for a recent paper. The claimant sends it anyway

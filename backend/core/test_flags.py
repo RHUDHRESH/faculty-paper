@@ -43,6 +43,15 @@ from core.models import (
 from core.test_chain_rules import ChainBase, _keys_anywhere
 from core.tests import _sec_reference_attachments
 
+from core.services.filing_conditions import CONDITION_IDS as _CONDITION_IDS, CONDITIONS_VERSION as _CONDITIONS_VERSION
+
+#: The three eligibility conditions, ticked -- a filing without them is refused.
+CONFIRMED = [
+    {"id": _cid, "text_version": _CONDITIONS_VERSION, "ticked_at": "2026-09-24T14:02:11+05:30"}
+    for _cid in _CONDITION_IDS
+]
+
+
 #: Every key a flag or a file check travels under. None may reach a seat that
 #: is not a reviewer's.
 FLAG_KEYS = {"flags", "open_flags", "file_checks"}
@@ -739,6 +748,7 @@ class ContentCheckTests(MediaMixin, FlagBase):
                 *_sec_reference_attachments("14", "15", seed="d"),
             ],
             "submit": True,
+            "confirmations": CONFIRMED,
             "contest_forward": True,
             "contest_note": "Submitting with faculty-provided journal details.",
         }

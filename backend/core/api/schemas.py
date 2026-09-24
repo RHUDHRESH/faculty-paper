@@ -55,6 +55,13 @@ class AttachmentIn(Schema):
     content_hash: Optional[str] = None
 
 
+class ConfirmationIn(Schema):
+    """One eligibility condition ticked for this article (services/filing_conditions)."""
+    id: str
+    text_version: str
+    ticked_at: str
+
+
 class ClaimIn(Schema):
     owner_id: Optional[str] = None
     doi: Optional[str] = None
@@ -108,6 +115,9 @@ class ClaimIn(Schema):
     engineering_class: Optional[str] = None
     contest_forward: bool = False
     contest_note: Optional[str] = None
+    #: Required when ``submit`` is true: the three conditions, each ticked by
+    #: the person filing, for this article. Recorded as the legal acceptance.
+    confirmations: Optional[list[ConfirmationIn]] = None
     submit: bool = False
 
 
@@ -571,6 +581,7 @@ __all__ = [
     'CandidateSearchIn',
     'ChangePasswordIn',
     'ClaimIn',
+    'ConfirmationIn',
     'FormulaIn',
     'LoginIn',
     'ManualVerifyIn',

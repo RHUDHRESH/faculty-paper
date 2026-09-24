@@ -338,32 +338,43 @@ test.describe("The money chain", () => {
 test.describe("Filing a paper", () => {
   test.use({ storageState: storageStatePath("FACULTY") })
 
-  /** Past the three confirmations, which stand in front of the form. */
-  async function openTheForm(page: Page) {
+  /** Step 1 opens on how to choose the paper; Paste is the alternative to Pull. */
+  async function openStepOne(page: Page) {
     await page.goto("/papers/new")
     await waitForSettled(page)
-    await expect(page.getByRole("heading", { name: "File a paper", level: 1 })).toBeVisible()
-    await expect(page.getByRole("heading", { name: "Confirm before you start" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Choose the paper", level: 1 })).toBeVisible()
+    await page.getByRole("radio", { name: /Paste a DOI or link/ }).click()
+  }
+
+  /** The three conditions, shown in full and unticked every time. */
+  async function passTheConditions(page: Page) {
+    await expect(page.getByRole("heading", { name: "Confirm three things about this paper", level: 1 })).toBeVisible()
     const gate = page.getByRole("checkbox")
     await expect(gate, "the eligibility gate should ask three things").toHaveCount(3)
-    // `check()` asserts the end state; a click-loop would untick a box the
-    // gate remembered.
+    for (const box of await gate.all()) await expect(box).not.toBeChecked()
     for (const box of await gate.all()) await box.check()
     await page.getByRole("button", { name: "Start the claim" }).click()
+  }
+
+  /** Past step 1 (by hand) and the three confirmations, to the form. */
+  async function openTheForm(page: Page) {
+    await openStepOne(page)
+    await page.getByRole("button", { name: "type the details in by hand" }).click()
+    await passTheConditions(page)
   }
 
   test("the wizard opens, saves a draft by itself, and the draft is listed", async ({ page }) => {
     const title = `E2E draft ${Date.now()}`
 
-    await page.goto("/papers/new")
-    await waitForSettled(page)
+    await openStepOne(page)
+    await page.getByRole("button", { name: "type the details in by hand" }).click()
     // Pressing on with none of the confirmations ticked says which are
     // outstanding, rather than leaving the claimant at an inert button.
     await page.getByRole("button", { name: "Start the claim" }).click()
     await expect(page.getByText(/are not confirmed yet, so the form has not opened/)).toBeVisible()
     await expect(page.getByLabel("Paper title")).toHaveCount(0)
 
-    await openTheForm(page)
+    await passTheConditions(page)
 
     // The form is open, asserted by the form being there: the box a DOI goes
     // in, and the field a title is typed into.
@@ -407,7 +418,7 @@ test.describe("Filing a paper", () => {
       route.fulfill({ json: lookupFixture({ doi, title }) })
     )
 
-    await openTheForm(page)
+    await openStepOne(page)
 
     // Step 1: one box. Pasting the link fills the paper and names where each
     // part came from, and what is still the claimant's to check.
@@ -417,6 +428,11 @@ test.describe("Filing a paper", () => {
     await expect(found).toBeVisible()
     await expect(found.getByText("OpenAlex").first()).toBeVisible()
     await expect(found.getByText("Our journal data").first()).toBeVisible()
+    await page.getByRole("button", { name: "Continue", exact: true }).click()
+
+    // Step 2: the three conditions, about this article by name.
+    await expect(page.getByText(title).first()).toBeVisible()
+    await passTheConditions(page)
     await expect(page.getByLabel("Paper title")).toHaveValue(title)
     await expect(page.getByLabel("DOI", { exact: true })).toHaveValue(doi)
 

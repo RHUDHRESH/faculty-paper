@@ -326,7 +326,9 @@ export function Skills({
           {skills.map((s) => (
             <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
               <span className="min-w-0 flex-1">
-                <span className="block text-base font-medium">{s.name}</span>
+                <span id={`skill-${s.id}`} className="block text-base font-medium">
+                  {s.name}
+                </span>
                 <Meta className="block text-xs">
                   {s.count === 0
                     ? "No endorsements yet"
@@ -347,10 +349,15 @@ export function Skills({
                   kind={s.endorsed_by_me ? "default" : "quiet"}
                   size="sm"
                   aria-pressed={s.endorsed_by_me}
+                  // Which skill, for a screen reader moving between several
+                  // "Endorse" buttons. (A first name is not used: "Dr." is the
+                  // first word of half the college's names.)
+                  aria-describedby={`skill-${s.id}`}
+                  title={`${s.endorsed_by_me ? "You endorsed" : "Endorse"} ${name} for ${s.name}`}
                   onClick={() => endorse.mutate({ id: s.id, on: !s.endorsed_by_me })}
                 >
                   {s.endorsed_by_me ? <Check /> : <Plus />}
-                  {s.endorsed_by_me ? "Endorsed" : `Endorse ${name.split(" ")[0]}`}
+                  {s.endorsed_by_me ? "Endorsed" : "Endorse"}
                 </Button>
               )}
               {isMe && (

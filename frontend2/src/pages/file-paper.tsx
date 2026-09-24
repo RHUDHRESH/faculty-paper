@@ -1404,7 +1404,7 @@ export function FilePaper() {
           }
         : priorCheck
           ? { tone: "positive", text: `✓ No claim found for this ${form.doi.trim() ? "DOI" : "title"} in our records.` }
-          : { tone: "neutral", text: priorCheckBusy ? "Checking our records…" : "Not checked yet." },
+          : { tone: "neutral", text: "Checking our records…" },
       documents: {
         tone: "neutral",
         text: `You attach them on the proof step: the article PDF and ${rules.min_sec_references} numbered SEC references.`,
@@ -1422,7 +1422,7 @@ export function FilePaper() {
             <div className="flex flex-col gap-3 rounded-2xl bg-paper p-4 shadow-[inset_0_0_0_1px_var(--color-line)] sm:flex-row sm:items-start">
               <IconTile icon={FileText} size="lg" className="max-sm:hidden" />
               <PaperCard
-                className="min-w-0 flex-1 bg-transparent p-0 shadow-none"
+                className="min-w-0 flex-1 !bg-transparent !p-0 !shadow-none !ring-0 !border-0"
                 title={form.paperTitle.trim() || "The article you are about to describe"}
                 journal={form.journalTitle || null}
                 year={yearOf(form.publicationDate) || null}

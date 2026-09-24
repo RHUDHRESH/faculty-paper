@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-labelledby="t">
+  <title id="t">Two speech cards, one waiting to be written</title>
+  <!-- Convocation house set. CC0. Accent: people/terracotta #b04a2f. -->
+  <rect x="40" y="176" width="240" height="1.5" fill="#f3cbbd"/>
+  <path d="M70 60 h110 a10 10 0 0 1 10 10 v44 a10 10 0 0 1 -10 10 h-78 l-18 16 v-16 h-14 a10 10 0 0 1 -10 -10 v-44 a10 10 0 0 1 10 -10z" fill="#ffffff" stroke="#c8d3f7" stroke-width="2"/>
+  <rect x="80" y="76" width="70" height="5" rx="2.5" fill="#2b398f"/>
+  <rect x="80" y="88" width="90" height="4" rx="2" fill="#c8d3f7"/>
+  <rect x="80" y="98" width="56" height="4" rx="2" fill="#c8d3f7"/>
+  <path d="M150 112 h100 a10 10 0 0 1 10 10 v30 a10 10 0 0 1 -10 10 h-12 v14 l-16 -14 h-72 a10 10 0 0 1 -10 -10 v-30 a10 10 0 0 1 10 -10z" fill="#fcefe9" stroke="#b04a2f" stroke-width="2" stroke-dasharray="6 5"/>
+  <rect x="164" y="134" width="3" height="14" rx="1.5" fill="#b04a2f"/>
+  <circle cx="246" cy="112" r="8" fill="#e0a82e"/>
+</svg>

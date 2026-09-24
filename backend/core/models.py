@@ -2242,6 +2242,25 @@ class WallPin(models.Model):
         ]
 
 
+class WallCheer(models.Model):
+    """One person congratulating the authors of one paper on the wall of fame.
+
+    Keyed by the wall's paper key (the normalised title it groups co-authors
+    under), because most wall papers are historic ledger rows with no claim
+    and no feed post to react to. Once per person per paper, by constraint.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    paper_key = models.CharField(max_length=512, db_index=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="wall_cheers")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["paper_key", "user"], name="one_cheer_per_person_paper")
+        ]
+
+
 # ---------------------------------------------------------------------------
 # The social layer's second storey: collaboration, profiles that say what
 # somebody is good at, and the numbers a person sees about their own reach.

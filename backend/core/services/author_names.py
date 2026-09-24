@@ -9,7 +9,8 @@ letters) and its *initials*, and two names are compared as follows:
 - every remaining full token on one side must be explained by an initial on
   the other ("Ramesh" by "R.");
 - what is left over after that is *extra* detail. Extra detail on one side
-  only is missing information ("S. Joyal Isac" / "Joyal Isac": 0.85). Extra
+  only is missing information ("S. Joyal Isac" / "Joyal Isac": 0.85; a whole
+  missing name, "V. Sai Muthukumar" / "V. Muthukumar", 0.8). Extra
   detail on both sides is a contradiction ("R. Subhashini" / "K. Subhashini":
   0) -- two different people.
 
@@ -100,7 +101,11 @@ def name_score(a: str | None, b: str | None) -> float:
         return 0.0
     extra = len(extra_a) + len(extra_b)
     if extra:
-        return max(0.85 - 0.05 * (extra - 1), 0.7)
+        # A missing initial is routine; a whole missing name ("V. Sai
+        # Muthukumar" / "V. Muthukumar") is weaker evidence, below the bar
+        # the name matcher acts on by itself.
+        whole = sum(1 for x in extra_a + extra_b if len(x) > 1)
+        return max(0.85 - 0.05 * (extra - 1) - (0.05 if whole else 0), 0.7)
     return 0.92 if expanded else 1.0
 
 

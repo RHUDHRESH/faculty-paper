@@ -1751,3 +1751,183 @@ class AttachmentCheck(models.Model):
 
     def __str__(self) -> str:
         return f"{self.outcome} {self.url}"
+
+
+# ---------------------------------------------------------------------------
+# Rewards for work already done: badges, celebrations, goals, the impact card
+# and the wall of fame. Everything here is computed from recognised papers
+# (`core.services.records`) and none of it carries money -- these are the
+# things other people see.
+# ---------------------------------------------------------------------------
+
+
+class Badge(models.Model):
+    """Something a person has done, recognised once, with the paper that did it.
+
+    Awarded by `core.services.achievements.award_badges`, which is safe to run
+    any number of times: `(user, key)` is unique, so a second run finds the row
+    and leaves it. `key` is the kind plus whatever makes it repeatable --
+    `FIRST_Q1` happens once, `TOP10_DEPARTMENT:2025` once a year.
+
+    `earned_on` is when the achievement happened (the evidence paper's date),
+    not when this row was written: a badge for a 2024 paper says 2024 even
+    though the engine that noticed it was built in 2026.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="badges")
+    kind = models.CharField(max_length=32, db_index=True)
+    key = models.CharField(max_length=80)
+    earned_on = models.DateField()
+    #: The paper that earned it, copied rather than linked: most history is a
+    #: ledger row with no claim, and a badge must still say which paper it was.
+    evidence_title = models.TextField(blank=True, default="")
+    evidence_journal = models.CharField(max_length=512, blank=True, default="")
+    evidence_year = models.IntegerField(blank=True, null=True)
+    evidence_claim = models.ForeignKey(
+        Claim, null=True, blank=True, on_delete=models.SET_NULL, related_name="badges"
+    )
+    #: One plain sentence, e.g. "With a colleague in ECE".
+    detail = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-earned_on", "kind"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "key"], name="one_badge_per_key_per_person")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.key}"
+
+
+class Celebration(models.Model):
+    """A one-time moment on somebody's home screen, shown once and then gone.
+
+    One row per person per occasion, so "shown once" is a fact in the database
+    rather than a flag in one browser's storage: a person who signs in on their
+    phone does not see yesterday's celebration a second time. `key` makes the
+    fan-out idempotent -- the same milestone reached twice by two job runs is
+    one celebration.
+    """
+
+    class Kind(models.TextChoices):
+        BADGE = "BADGE", "A badge"
+        TARGET = "TARGET", "A department target"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="celebrations")
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    key = models.CharField(max_length=160)
+    title = models.CharField(max_length=200)
+    body = models.TextField(blank=True, default="")
+    badge = models.ForeignKey(
+        Badge, null=True, blank=True, on_delete=models.CASCADE, related_name="celebrations"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    seen_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "key"], name="one_celebration_per_occasion")
+        ]
+
+
+class DepartmentMilestone(models.Model):
+    """A department crossed 50, 75 or 100 per cent of one of its targets.
+
+    Recorded so the crossing is celebrated once however many times the check
+    runs. The target's size is part of the key: a head who raises the number
+    has set a new target, and reaching half of it is a new milestone.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    department = models.CharField(max_length=255, db_index=True)
+    year = models.PositiveIntegerField()
+    metric = models.CharField(max_length=24)
+    target = models.PositiveIntegerField()
+    threshold = models.PositiveSmallIntegerField()
+    done = models.PositiveIntegerField()
+    reached_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-reached_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["department", "year", "metric", "target", "threshold"],
+                name="one_milestone_per_target_threshold",
+            )
+        ]
+
+
+class ResearchGoal(models.Model):
+    """What a person means to publish this year, in their own numbers.
+
+    Private to them. Their head sees only counts across the department
+    (`/api/hod/goals`) -- how many people set a goal, how many met it -- never
+    whose goal is whose. Nothing reminds anybody about a goal.
+    """
+
+    class Metric(models.TextChoices):
+        PAPERS = "PAPERS", "Papers"
+        Q1 = "Q1", "Q1 papers"
+        FIRST_AUTHOR = "FIRST_AUTHOR", "First-author papers"
+        CITATIONS = "CITATIONS", "Citations"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="research_goals")
+    year = models.PositiveIntegerField()
+    metric = models.CharField(max_length=16, choices=Metric.choices)
+    target = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["year", "metric"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "year", "metric"], name="one_goal_per_metric_per_year"
+            )
+        ]
+
+
+class ImpactShare(models.Model):
+    """Whether somebody's impact card may be seen by anyone with the link.
+
+    Off until the person turns it on, and off again the moment they say so:
+    the public page and its image both answer 404 while `enabled` is false.
+    The token is random and is the only thing in the URL -- no id, no name.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="impact_share")
+    token = models.CharField(max_length=64, unique=True)
+    enabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class WallPin(models.Model):
+    """The paper of the month a head chose for their department's wall.
+
+    `department` empty is the college-wide wall, which the Principal or a
+    super admin pins. The paper is named by its normalised title (the key the
+    wall groups co-authors under) and its title is copied so the pin still
+    reads correctly if the paper's record later changes.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    department = models.CharField(max_length=255, blank=True, default="")
+    month = models.DateField()
+    paper_key = models.CharField(max_length=512)
+    title = models.TextField()
+    pinned_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="wall_pins"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["department", "month"], name="one_pin_per_wall_month")
+        ]

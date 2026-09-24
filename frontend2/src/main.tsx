@@ -73,6 +73,9 @@ const Profile = page(() => import("@/pages/profile"), "Profile")
 const Programme = page(() => import("@/pages/programme"), "Programme")
 const Setup = page(() => import("@/pages/setup"), "Setup")
 const InstitutionSettings = page(() => import("@/pages/institution-settings"), "InstitutionSettings")
+const WallOfFame = page(() => import("@/pages/wall"), "WallOfFame")
+const ImpactCardPage = page(() => import("@/pages/impact"), "ImpactCardPage")
+const GoalsPage = page(() => import("@/pages/goals"), "GoalsPage")
 
 /**
  * One app, one router, one shell.
@@ -191,6 +194,9 @@ function App() {
           <Route path="/batches/:id" element={<Batch />} />
           <Route path="/data" element={<Data />} />
           <Route path="/me" element={<Profile />} />
+          <Route path="/wall" element={<WallOfFame />} />
+          <Route path="/impact" element={<ImpactCardPage />} />
+          <Route path="/goals" element={<GoalsPage />} />
           <Route path="/privacy" element={<Privacy />} />
           {import.meta.env.DEV && <Route path="/gallery" element={<Gallery />} />}
           {/* Never a silent redirect home: see the note in not-found.tsx. */}

@@ -26,6 +26,7 @@ import {
   useOwnPapers,
 } from "@/pages/home-faculty"
 import { Button } from "@/ui/button"
+import { Celebrations } from "@/ui/celebrations"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Callout, ErrorState, InlineError, Skeleton } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
@@ -856,6 +857,8 @@ export function HodHome() {
             : "What the department has published, and by whom."}
         </Sub>
       </header>
+
+      <Celebrations />
 
       <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         <Figure

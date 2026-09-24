@@ -9485,28 +9485,56 @@ class ProgrammeTests(TestCase):
 
         self.client.force_login(self.me)
         body = self.client.get("/api/programme/me").json()
-
         self.assertEqual(
             {a["key"] for a in body["areas"]}, {"Signal Processing", "Computer Science"}
         )
-        self.assertEqual([c["name"] for c in body["colleagues"]], ["Programme Other"])
+
+        # Who else is nearby is the college's picture, not "my research".
+        around = self.client.get("/api/programme/around").json()
+        self.assertEqual([c["name"] for c in around["colleagues"]], ["Programme Other"])
         # Matched on the shared area only -- their marine biology paper is not
         # what makes them a colleague.
-        self.assertEqual(body["colleagues"][0]["areas"], ["Computer Science"])
+        self.assertEqual(around["colleagues"][0]["areas"], ["Computer Science"])
+
+    def test_my_research_is_only_my_own_work(self):
+        """The owner's rule: "X's research" shows X's work and nobody else's."""
+        self._paper(self.me, "PG-6", "Computer Science")
+        self._paper(self.other, "PG-7", "Computer Science")
+
+        self.client.force_login(self.me)
+        body = self.client.get("/api/programme/me").json()
+        raw = json.dumps(body)
+        self.assertNotIn("Programme Other", raw)
+        self.assertNotIn("PG PG-7", raw)
+        self.assertNotIn("colleagues", body)
+        self.assertNotIn("live", body)
+        self.assertEqual([p["title"] for p in body["papers"]], ["PG PG-6"])
+        self.assertEqual(body["counts"]["papers"], 1)
+
+    def test_a_refused_paper_is_not_counted_as_their_work(self):
+        self._paper(self.me, "PG-8", "Computer Science")
+        refused = self._paper(self.me, "PG-9", "Marine Biology")
+        Claim.objects.filter(pk=refused.pk).update(status=ClaimStatus.REJECTED)
+
+        self.client.force_login(self.me)
+        body = self.client.get("/api/programme/me").json()
+        self.assertEqual(body["totals"]["my_papers"], 1)
+        self.assertEqual([a["key"] for a in body["areas"]], ["Computer Science"])
 
     def test_it_carries_no_money_at_all(self):
         """A claimant sees their own amounts and nobody else's.
 
-        This page is entirely about other people, so an amount anywhere in the
-        payload is a colleague's payout leaking through the back door.
+        The college half is entirely about other people, so an amount anywhere
+        in either payload is a colleague's payout leaking through the back door.
         """
         self._paper(self.me, "PG-4", "Computer Science")
         self._paper(self.other, "PG-5", "Computer Science")
 
         self.client.force_login(self.me)
-        raw = self.client.get("/api/programme/me").content.decode()
-        for word in ("remuneration", "payout", "amount"):
-            self.assertNotIn(word, raw, f"{word!r} must not appear in the programme payload")
+        for path in ("/api/programme/me", "/api/programme/around"):
+            raw = self.client.get(path).content.decode()
+            for word in ("remuneration", "payout", "amount", "50000"):
+                self.assertNotIn(word, raw, f"{word!r} must not appear in {path}")
 
     def test_somebody_with_no_papers_gets_an_empty_picture_not_an_error(self):
         self.client.force_login(self.me)
@@ -9514,8 +9542,10 @@ class ProgrammeTests(TestCase):
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertEqual(body["areas"], [])
-        self.assertEqual(body["colleagues"], [])
+        self.assertEqual(body["papers"], [])
         self.assertEqual(body["totals"]["my_papers"], 0)
+        around = self.client.get("/api/programme/around").json()
+        self.assertEqual(around["colleagues"], [])
 
 
 class HodTargetsTests(TestCase):

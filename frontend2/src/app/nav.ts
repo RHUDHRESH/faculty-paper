@@ -1,6 +1,9 @@
 import {
   Library,
+  Binoculars,
   CalendarClock,
+  Contact,
+  Mail,
   BarChart3,
   BookOpen,
   Building2,
@@ -164,6 +167,13 @@ export const NAV: NavItem[] = [
     keywords: ["areas", "field", "trends", "breakthroughs", "who to work with", "programme"],
   },
   {
+    to: "/research",
+    label: "The college's research",
+    icon: Binoculars,
+    group: "Research",
+    keywords: ["college", "areas", "trends", "growing", "fading", "departments", "who works nearby"],
+  },
+  {
     to: "/discover",
     label: "Discover",
     icon: Sparkles,
@@ -182,7 +192,23 @@ export const NAV: NavItem[] = [
     label: "Discussions",
     icon: MessagesSquare,
     group: "Research",
-    keywords: ["forum", "ask", "posts", "talk"],
+    keywords: ["forum", "ask", "posts", "talk", "feed", "social", "share"],
+  },
+  {
+    to: "/messages",
+    label: "Messages",
+    icon: Mail,
+    group: "Research",
+    keywords: ["direct", "private", "dm", "office", "ask the office", "conversation"],
+  },
+  {
+    // Everybody's profiles. Not `/people`, which is the office's account
+    // screen and refuses everybody else.
+    to: "/u",
+    label: "Colleagues",
+    icon: Contact,
+    group: "Research",
+    keywords: ["people", "profiles", "faculty", "directory", "follow", "find someone"],
   },
   {
     to: "/calendar",

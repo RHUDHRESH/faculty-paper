@@ -73,3 +73,53 @@ def claim_media(request: HttpRequest, filename: str) -> HttpResponse:
     response["Content-Disposition"] = f'{disposition}; filename="{filename}"'
     response["X-Content-Type-Options"] = "nosniff"
     return response
+
+
+def _stream(name: str, filename: str, content_type: str) -> HttpResponse:
+    response = FileResponse(default_storage.open(name, "rb"), content_type=content_type)
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    response["X-Content-Type-Options"] = "nosniff"
+    # The name is a fresh uuid for every upload, so a copy can be kept a
+    # while -- but only by this browser, never by a shared cache.
+    response["Cache-Control"] = "private, max-age=86400"
+    return response
+
+
+def avatar_media(request: HttpRequest, filename: str) -> HttpResponse:
+    """A profile photo. Anybody signed in may see it: it is on a profile anybody can open."""
+    if not request.user.is_authenticated or not getattr(request.user, "active", False):
+        return JsonResponse({"detail": "Unauthorized"}, status=401)
+    if not _SAFE_NAME.match(filename):
+        raise Http404
+    kind = kind_for_stored_name(filename)
+    if kind is None or not kind.content_type.startswith("image/"):
+        raise Http404
+    name = f"avatars/{filename}"
+    if not default_storage.exists(name):
+        raise Http404
+    return _stream(name, filename, kind.content_type)
+
+
+def feed_media(request: HttpRequest, filename: str) -> HttpResponse:
+    """A picture or PDF shared in a post, to whoever may read that post and nobody else.
+
+    A post the reader cannot see answers 404, as the post itself does: the
+    attachment of a department-only post is part of the post.
+    """
+    from core import social
+    from core.models import FeedPost
+
+    if not request.user.is_authenticated or not getattr(request.user, "active", False):
+        return JsonResponse({"detail": "Unauthorized"}, status=401)
+    if not _SAFE_NAME.match(filename):
+        raise Http404
+    kind = kind_for_stored_name(filename)
+    if kind is None:
+        raise Http404
+    name = f"feed/{filename}"
+    post = FeedPost.objects.filter(attachment_name=name).first()
+    if post is None or not social.may_read_post(request.user, post):
+        raise Http404
+    if not default_storage.exists(name):
+        raise Http404
+    return _stream(name, filename, kind.content_type)

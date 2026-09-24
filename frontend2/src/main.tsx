@@ -42,8 +42,13 @@ const Data = page(() => import("@/pages/data"), "Data")
 const Department = page(() => import("@/pages/department"), "Department")
 const Collaborate = page(() => import("@/pages/collaborate"), "Collaborate")
 const Discover = page(() => import("@/pages/discover"), "Discover")
-const Discussions = page(() => import("@/pages/discussions"), "Discussions")
+const Feed = page(() => import("@/pages/feed"), "Feed")
+const FeedPostPage = page(() => import("@/pages/feed"), "PostPage")
+const Messages = page(() => import("@/pages/discussions"), "Messages")
 const Thread = page(() => import("@/pages/discussions"), "Thread")
+const PublicProfile = page(() => import("@/pages/person"), "PublicProfile")
+const PeopleDirectory = page(() => import("@/pages/person"), "PeopleDirectory")
+const CollegeResearch = page(() => import("@/pages/programme"), "CollegeResearch")
 const Duplicates = page(() => import("@/pages/duplicates"), "Duplicates")
 const Flags = page(() => import("@/pages/flags"), "Flags")
 const PastClaims = page(() => import("@/pages/archive"), "PastClaims")
@@ -161,10 +166,18 @@ function App() {
           <Route path="/payments" element={<Payments />} />
           <Route path="/payments/done" element={<PaymentsDone />} />
           <Route path="/programme" element={<Programme />} />
+          <Route path="/research" element={<CollegeResearch />} />
           <Route path="/discover" element={<Discover />} />
           <Route path="/collaborate" element={<Collaborate />} />
-          <Route path="/discussions" element={<Discussions />} />
+          <Route path="/discussions" element={<Feed />} />
+          <Route path="/discussions/p/:id" element={<FeedPostPage />} />
+          {/* Old thread links (and notifications carrying them) still land:
+              a private one opens, an open one is sent on to its post. */}
           <Route path="/discussions/:id" element={<Thread />} />
+          <Route path="/messages" element={<Messages />} />
+          <Route path="/messages/:id" element={<Thread />} />
+          <Route path="/u" element={<PeopleDirectory />} />
+          <Route path="/u/:id" element={<PublicProfile />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/department" element={<Department />} />
           <Route path="/publications" element={<Publications />} />

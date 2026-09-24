@@ -16,19 +16,23 @@ import {
 import { useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
+import { Papers, type Profile } from "@/pages/person"
 import { Button } from "@/ui/button"
 import { money } from "@/ui/paper"
-import { Callout, EmptyState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
+import { Avatar, PersonLink } from "@/ui/person"
+import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
 import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 
 /**
- * A faculty member's research programme, and the college's.
+ * Two pages: a faculty member's own research (`Programme`, `/programme`), and
+ * the college's (`CollegeResearch`, `/research`).
  *
- * The page answers four questions, and they are laid out in the order
- * somebody actually asks them: what is this college working on, what do *I*
- * work on, who else here is nearby, and what should I do next.
+ * They were one page until the owner's rule: "X's research" shows X's work
+ * and only that. So the first is the person's papers, areas and co-authors,
+ * and everything about other people moved to the second — what the college
+ * is working on, who is nearby, what was filed lately, and what to try next.
  *
- * The important thing about it is which parts can be wrong. Three of the four
+ * The important thing about the college page is which parts can be wrong. Most
  * are counted from papers people have actually filed — they need no model, no
  * key and no network, and they render immediately. Only the last one is
  * generated, and it is kept behind its own request, its own button and its own
@@ -50,11 +54,19 @@ import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/te
 /* Data                                                                      */
 /* ------------------------------------------------------------------------ */
 
-type Programme = {
+/** `/api/programme/me` — the person's own work and nothing else. */
+type Programme = Pick<Profile, "papers" | "counts" | "coauthors"> & {
   areas: { key: string; count: number }[]
   interests: string[]
   /** What to ask the field about — your areas, or your stated interests. */
   search_terms: string[]
+  totals: { my_papers: number; my_areas: number }
+  classified: number
+}
+
+/** `/api/programme/around` — the college around a person's areas. */
+type Around = {
+  areas: string[]
   colleagues: {
     id: string
     name: string
@@ -75,8 +87,6 @@ type Programme = {
     owner_department: string | null
     areas: string[]
   }[]
-  totals: { my_papers: number; my_areas: number; colleagues: number }
-  classified: number
 }
 
 type TrendName = "new" | "growing" | "steady" | "fading" | "unknown"
@@ -217,27 +227,143 @@ type SearchPayload = {
 /* Page                                                                      */
 /* ------------------------------------------------------------------------ */
 
+/**
+ * "X's research": X's own work, and nothing else.
+ *
+ * The owner's rule, after this page opened on the whole college's picture
+ * under a heading with somebody's name on it. The same paper list their
+ * public profile shows (`social.research_record` behind both), so what a
+ * person sees of their own work and what a colleague sees of it cannot
+ * disagree. The college picture moved to `/research`.
+ */
 export function Programme() {
   const { me } = useAuth()
-  const programme = useApi<Programme>(["programme", "me"], "/api/programme/me?limit=12")
-  // The college-wide half. Its own request, because it is the same answer for
-  // everybody and it must appear whether or not the reader has filed anything.
+  const programme = useApi<Programme>(["programme", "me"], "/api/programme/me")
+  const first = firstName(me?.name)
+
+  return (
+    <div className="page max-w-3xl space-y-10">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <PageTitle>{first ? `${first}'s research` : "Your research"}</PageTitle>
+          <Sub className="mt-1">Your papers, the areas they fall in, and who you wrote them with.</Sub>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {me && (
+            <Button kind="default" size="md" asChild>
+              <Link to={`/u/${me.id}`}>
+                <Users />
+                Your public profile
+              </Link>
+            </Button>
+          )}
+          <Button kind="quiet" size="md" asChild>
+            <Link to="/research">
+              <Binoculars />
+              The college's research
+            </Link>
+          </Button>
+        </div>
+      </header>
+
+      {programme.isError ? (
+        <ErrorState
+          title="Could not load your research"
+          message="The server did not answer. Nothing you filed has been lost."
+          onRetry={() => void programme.refetch()}
+        />
+      ) : programme.isPending ? (
+        <SkeletonRows rows={6} rowHeight={40} />
+      ) : programme.data.totals.my_papers === 0 ? (
+        <EmptyState
+          icon={Sparkles}
+          title="Nothing of your own here yet"
+          message="Your papers, their subject areas and the colleagues you wrote them with are assembled from what you file. File your first one and it appears here."
+          action={
+            <Button kind="primary" asChild>
+              <Link to="/papers/new">File a paper</Link>
+            </Button>
+          }
+        />
+      ) : (
+        <>
+          <MyCounts counts={programme.data.counts} />
+          <Areas data={programme.data} />
+          <Papers papers={programme.data.papers} isMe name={me?.name ?? ""} />
+          {programme.data.coauthors.length > 0 && (
+            <section className="space-y-3">
+              <SectionTitle>Who you have written with, here</SectionTitle>
+              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {programme.data.coauthors.map((c) => (
+                  <li key={c.id} className="flex items-center gap-3">
+                    <Avatar person={c} size="sm" />
+                    <span className="min-w-0 flex-1">
+                      <PersonLink id={c.id} name={c.name} className="block truncate text-sm" />
+                      <Meta className="block truncate text-xs">
+                        {[c.department, `${c.together} paper${c.together === 1 ? "" : "s"} together`]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Meta>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function MyCounts({ counts }: { counts: Programme["counts"] }) {
+  return (
+    <div className="flex flex-wrap gap-x-8 gap-y-2">
+      {[
+        { label: counts.papers === 1 ? "paper" : "papers", value: counts.papers },
+        { label: "in Q1 journals", value: counts.q1 },
+        { label: "as first author", value: counts.first_author },
+        { label: counts.areas === 1 ? "subject area" : "subject areas", value: counts.areas },
+      ].map((i) => (
+        <span key={i.label} className="flex items-baseline gap-2">
+          <Figure className="text-2xl">{i.value}</Figure>
+          <Meta>{i.label}</Meta>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The college's research, and where the reader stands in it.
+ *
+ * Everything that used to sit on "X's research" and was about other people:
+ * what the college is publishing, who else works in the reader's areas, what
+ * was filed here lately, the wider field, and the suggestions. Counted, not
+ * generated, except the last part — which says so.
+ */
+export function CollegeResearch() {
+  // Its own request, because it is the same answer for everybody and it must
+  // appear whether or not the reader has filed anything.
   const overview = useApi<Overview>(["trends", "me"], "/api/trends/me", {
     staleTime: 10 * 60_000,
   })
+  const around = useApi<Around>(["programme", "around"], "/api/programme/around?limit=12")
 
   const [topic, setTopic] = useState<string | null>(null)
-  const activeTopic = topic ?? programme.data?.search_terms[0] ?? null
-
-  const first = firstName(me?.name)
+  const activeTopic = topic ?? around.data?.areas[0] ?? null
 
   return (
     <div className="page space-y-10">
       <header>
-        <PageTitle>{first ? `${first}'s research` : "Your research"}</PageTitle>
+        <PageTitle>The college's research</PageTitle>
         <Sub className="mt-1">
-          What this college is working on, what you work on, who else is nearby, and what to
-          try next.
+          What this college is working on, who works near your areas, and what to try next. Your
+          own work is on{" "}
+          <Link to="/programme" className="text-accent underline-offset-4 hover:underline">
+            your research
+          </Link>
+          .
         </Sub>
       </header>
 
@@ -250,37 +376,23 @@ export function Programme() {
         active={activeTopic}
       />
 
-      {programme.isError ? (
+      <Field topic={activeTopic} />
+
+      <Nearby
+        data={overview.data?.people}
+        loading={overview.isLoading}
+        error={overview.isError}
+        onRetry={() => void overview.refetch()}
+        fallback={around.data?.colleagues ?? []}
+      />
+
+      {around.isError ? (
         <InlineError
-          message="Could not load your own research picture. The college figures above are unaffected."
-          onRetry={() => programme.refetch()}
-        />
-      ) : programme.isLoading ? (
-        <SkeletonRows rows={6} rowHeight={40} />
-      ) : !programme.data ? null : programme.data.totals.my_papers === 0 ? (
-        <EmptyState
-          icon={Sparkles}
-          title="Nothing of your own to build on yet"
-          message="Your areas, the colleagues in them and a feed of the field are assembled from papers you have filed. File your first one and they appear here. The college picture above does not wait on it."
-          action={
-            <Button kind="primary" asChild>
-              <Link to="/papers/new">File a paper</Link>
-            </Button>
-          }
+          message="Could not load what was filed lately in your areas. Everything above is unaffected."
+          onRetry={() => void around.refetch()}
         />
       ) : (
-        <>
-          <Areas data={programme.data} active={activeTopic} onPick={setTopic} />
-          <Field topic={activeTopic} />
-          <Nearby
-            data={overview.data?.people}
-            loading={overview.isLoading}
-            error={overview.isError}
-            onRetry={() => void overview.refetch()}
-            fallback={programme.data.colleagues}
-          />
-          <LiveHere data={programme.data} />
-        </>
+        around.data && <LiveHere live={around.data.live} />
       )}
 
       <Openings ai={overview.data?.ai} loading={overview.isLoading} />
@@ -571,15 +683,7 @@ function Journals({ rows }: { rows: Landscape["journals"] }) {
  * meant to work on and what you have published are different facts, and the
  * page is more useful for keeping them apart.
  */
-function Areas({
-  data,
-  active,
-  onPick,
-}: {
-  data: Programme
-  active: string | null
-  onPick: (topic: string) => void
-}) {
+function Areas({ data }: { data: Programme }) {
   const unclassified = data.totals.my_papers - data.classified
 
   return (
@@ -593,22 +697,13 @@ function Areas({
 
       <div className="flex flex-wrap gap-1">
         {data.areas.map((a) => (
-          <button
+          <span
             key={a.key}
-            type="button"
-            onClick={() => onPick(a.key)}
-            aria-pressed={active === a.key}
-            className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-sm px-2 text-sm",
-              "transition-colors duration-[var(--dur-1)] ease-out",
-              active === a.key
-                ? "bg-selected font-medium text-fg"
-                : "text-fg-muted hover:bg-hover hover:text-fg"
-            )}
+            className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-sunken px-2 text-sm text-fg"
           >
             {a.key}
             <span className="tabular text-fg-subtle">{a.count}</span>
-          </button>
+          </span>
         ))}
       </div>
 
@@ -774,7 +869,7 @@ function Nearby({
   loading: boolean
   error: boolean
   onRetry: () => void
-  fallback: Programme["colleagues"]
+  fallback: Around["colleagues"]
 }) {
   return (
     <section className="space-y-2">
@@ -797,7 +892,7 @@ function Nearby({
               {fallback.map((p) => (
                 <li key={p.id} className="row">
                   <Link
-                    to={`/people/${p.id}`}
+                    to={`/u/${p.id}`}
                     className="flex items-center gap-4 px-1 py-2.5 sm:px-2"
                   >
                     <Users className="size-4 shrink-0 text-fg-subtle" aria-hidden />
@@ -835,7 +930,7 @@ function Nearby({
             {data.people.map((p) => (
               <li key={p.id} className="row">
                 <Link
-                  to={`/people/${p.id}`}
+                  to={`/u/${p.id}`}
                   className="flex items-start gap-3 px-1 py-3 sm:gap-4 sm:px-2"
                 >
                   <Users className="mt-1 size-4 shrink-0 text-fg-subtle" aria-hidden />
@@ -884,16 +979,19 @@ function Nearby({
  * Carries no amount. A colleague's payout is not a claimant's business, and
  * the endpoint behind this omits it rather than trusting the screen to.
  */
-function LiveHere({ data }: { data: Programme }) {
-  if (data.live.length === 0) return null
+function LiveHere({ live }: { live: Around["live"] }) {
+  if (live.length === 0) return null
 
   return (
     <section className="space-y-2">
       <SectionTitle>Filed here recently, in your areas</SectionTitle>
       <ul className="divide-y divide-line border-y border-line">
-        {data.live.map((l) => (
+        {live.map((l) => (
           <li key={l.id} className="row">
-            <Link to={`/papers/${l.id}`} className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
+            {/* To the colleague who wrote it, not to the claim: a claimant
+                cannot open somebody else's ticket, and the person is the
+                useful thing to find. */}
+            <Link to={`/u/${l.owner_id}`} className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-base">{l.paper_title || "Untitled"}</span>
                 <Meta className="block truncate">
@@ -1047,7 +1145,7 @@ function Openings({ ai, loading }: { ai: AiState | undefined; loading: boolean }
                     )}
                     {o.with_whom && (
                       <Link
-                        to={`/people/${o.with_whom.id}`}
+                        to={`/u/${o.with_whom.id}`}
                         className="inline-flex items-center gap-1 text-sm text-accent underline-offset-4 hover:underline"
                       >
                         <Users className="size-3.5" aria-hidden />

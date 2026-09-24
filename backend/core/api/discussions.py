@@ -20,7 +20,7 @@ from django.utils import timezone
 from ninja import Schema
 from django.conf import settings
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, Mention, Notification, Post, Thread, ThreadParticipant, ThreadSubscription, User
+from core.models import AuditLog, Claim, FeedPost, Mention, Notification, Post, Thread, ThreadParticipant, ThreadSubscription, User
 from core.services import rbac
 from core.services import thread_agent
 from core import discussions
@@ -318,6 +318,11 @@ def get_thread(request: HttpRequest, thread_id: str):
         "posts": [_post_dict(p) for p in posts],
         "following": bool(subscription and not subscription.muted),
         "followers": thread.subscriptions.count(),
+        # An open thread from before the feed now lives in it as a post. Old
+        # links and notifications still arrive here, and are sent on.
+        "feed_post_id": FeedPost.objects.filter(legacy_thread=thread)
+        .values_list("id", flat=True)
+        .first(),
     }
 
 

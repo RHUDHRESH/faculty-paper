@@ -45,15 +45,18 @@ export const HOME_DATA = {
 
 const D = HOME_DATA
 const OFFICE = [D.stageCounts, D.faults, D.pendingRequests, D.openDuplicates, D.dashboard]
+/** "Your papers", below the desk on the home of everybody who files but faculty. */
+const OWN = [D.ownClaims, D.myPayments]
 
 const BY_ROLE: Record<Role, readonly HomeQuery[]> = {
   FACULTY: [D.ownClaims, D.myPayments, D.myAssignments],
-  HOD: [D.hodOverview, D.hodStanding, D.hodTargets, D.ownClaims, D.myPayments],
-  PRINCIPAL: [D.principalQueue, D.collegeTotals],
-  DIRECTOR: [D.directorQueue, D.areas, D.collegeTotals, D.budget],
-  FINANCE: [D.budget],
-  RESEARCH_CELL: OFFICE,
-  RESEARCH_COORDINATOR: OFFICE,
+  HOD: [D.hodOverview, D.hodStanding, D.hodTargets, ...OWN],
+  PRINCIPAL: [D.principalQueue, D.collegeTotals, ...OWN],
+  DIRECTOR: [D.directorQueue, D.areas, D.collegeTotals, D.budget, ...OWN],
+  FINANCE: [D.budget, ...OWN],
+  RESEARCH_CELL: [...OFFICE, ...OWN],
+  RESEARCH_COORDINATOR: [...OFFICE, ...OWN],
+  // Files nothing of their own, so has no such section.
   SUPER_ADMIN: OFFICE,
 }
 

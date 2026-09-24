@@ -739,7 +739,7 @@ function CollegeTab() {
         </p>
       </Section>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <Section eyebrow="Departments" title="Who works on what">
           <HeatGrid d={d} />
         </Section>

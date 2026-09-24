@@ -300,8 +300,17 @@ def _share_state(share: Optional[ImpactShare]) -> dict[str, Any]:
     }
 
 
-def _size(size: Optional[str]) -> str:
-    return size if size in impact_card.SIZES else "wide"
+def _options(request: HttpRequest, size: Optional[str] = None) -> dict[str, Any]:
+    q = request.GET
+    return impact_card.normalise_options(
+        format=q.get("format"), size=size, theme=q.get("theme"), headline=q.get("headline"),
+        photo=q.get("photo"), strip=q.get("strip"), qr=q.get("qr"), quote=q.get("quote"),
+    )
+
+
+def _share_url(request: HttpRequest, user: User) -> Optional[str]:
+    share = ImpactShare.objects.filter(user=user, enabled=True).first()
+    return request.build_absolute_uri(_SHARE_PATH.format(token=share.token)) if share else None
 
 
 def _shared_summary_key(user: User) -> str:
@@ -320,13 +329,16 @@ def _forget_shared_summary(user: User) -> None:
     cache.delete(_shared_summary_key(user))
 
 
-def _png(user: User, size: str, facts: Optional[dict[str, Any]] = None) -> HttpResponse:
+def _png(user: User, options: dict[str, Any], facts: Optional[dict[str, Any]] = None,
+         share_url: Optional[str] = None) -> HttpResponse:
     facts = facts if facts is not None else impact_card.summary(user)
-    drawn = hashlib.sha1(json.dumps(facts, sort_keys=True).encode()).hexdigest()
-    key = f"impact-card:{user.id}:{size}:{drawn}"
+    drawn = hashlib.sha1(
+        json.dumps([facts, options, share_url], sort_keys=True, default=str).encode()
+    ).hexdigest()
+    key = f"impact-card:{user.id}:{drawn}"
     body = cache.get(key)
     if body is None:
-        body = impact_card.render(facts, size)
+        body = impact_card.render(facts, options=options, share_url=share_url)
         cache.set(key, body, _CARD_CACHE_SECONDS)
     response = HttpResponse(body, content_type="image/png")
     response["Cache-Control"] = "no-store"
@@ -338,14 +350,14 @@ def _png(user: User, size: str, facts: Optional[dict[str, Any]] = None) -> HttpR
 def my_impact(request: HttpRequest):
     user = require_user(request)
     share = ImpactShare.objects.filter(user=user).first()
-    return {**impact_card.summary(user), "share": _share_state(share)}
+    return {**impact_card.public_facts(impact_card.summary(user)), "share": _share_state(share)}
 
 
 @api.get("/me/impact/card.png", auth=session_auth)
 def my_impact_card(request: HttpRequest, size: Optional[str] = None):
     user = require_user(request)
-    rate_limit(request, "impact-card", 120, "hour", what="card images")
-    return _png(user, _size(size))
+    rate_limit(request, "impact-card", 240, "hour", what="card images")
+    return _png(user, _options(request, size), share_url=_share_url(request, user))
 
 
 @api.get("/me/impact/share", auth=session_auth)
@@ -395,7 +407,8 @@ def _shared(token: str) -> User:
 def shared_impact_card(request: HttpRequest, token: str, size: Optional[str] = None):
     """The card image, for a crawler or anybody holding the link."""
     user = _shared(token)
-    return _png(user, _size(size), _shared_summary(user))
+    url = request.build_absolute_uri(_SHARE_PATH.format(token=token))
+    return _png(user, _options(request, size), _shared_summary(user), share_url=url)
 
 
 @api.get("/share/impact/{token}")
@@ -407,7 +420,7 @@ def shared_impact_page(request: HttpRequest, token: str):
     """
     user = _shared(token)
     facts = _shared_summary(user)
-    image = request.build_absolute_uri(f"{_SHARE_PATH.format(token=token)}/card.png?size=wide")
+    image = request.build_absolute_uri(f"{_SHARE_PATH.format(token=token)}/card.png?format=linkedin")
     page = request.build_absolute_uri(_SHARE_PATH.format(token=token))
     name = escape(facts["name"])
     where = ", ".join(p for p in (facts["department"], facts["college"]) if p)
@@ -440,6 +453,7 @@ def shared_impact_page(request: HttpRequest, token: str):
   main {{ max-width: 960px; padding: 24px; }}
   img {{ width: 100%; height: auto; border-radius: 12px; }}
   p {{ color: #4a5070; line-height: 1.5; }}
+  .verified {{ color: #8a6410; font-weight: 600; }}
   @media (prefers-color-scheme: dark) {{ body {{ background: #10131f; color: #e8eaf6; }} p {{ color: #aab0cc; }} }}
 </style>
 </head>
@@ -448,6 +462,7 @@ def shared_impact_page(request: HttpRequest, token: str):
 <img src="{escape(image)}" alt="{title}: {description}" width="1200" height="627">
 <h1>{name}</h1>
 <p>{description}</p>
+<p class="verified">&#10003; Verified by {escape(facts["college"] or "the college")} &middot; {escape(facts["as_of"])}</p>
 </main>
 </body>
 </html>"""

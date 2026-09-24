@@ -8,10 +8,12 @@ order and must not be casually reordered.
 from __future__ import annotations
 
 from core.api.common import (
+    OWN_PAPER,
     _apply_calc,
     _notify_admins,
     _notify_director,
     _notify_principal,
+    _refuse_own_claim,
     _verification_issues,
     api,
     logger,
@@ -209,11 +211,14 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
         owner = get_object_or_404(
             User, pk=payload.owner_id, role__in=rbac.CLAIMANT_ROLES, active=True
         )
-        admin_proxy = True
-    elif not rbac.can_issue_claims(user.role):
+        # Naming yourself is filing your own paper, not filing on a behalf.
+        admin_proxy = owner.pk != user.pk
+    elif not rbac.can_file_own_papers(user.role):
+        # Somebody who does not publish here -- the super admin -- files only
+        # for somebody who does.
+        if rbac.can_clear_claims(user.role):
+            raise HttpError(400, "Select a faculty member to submit on their behalf")
         raise HttpError(403, "Only faculty can create tickets")
-    elif rbac.can_clear_claims(user.role) and not payload.owner_id:
-        raise HttpError(400, "Select a faculty member to submit on their behalf")
 
     # Validate before any write, so a rejected attachment set cannot leave a
     # half-created claim behind.
@@ -823,6 +828,7 @@ def recalculate_claim(request: HttpRequest, claim_id: str, payload: Optional[Rec
     if not (rbac.can_clear_claims(user.role) or rbac.can_approve_as_finance(user.role)):
         raise HttpError(403, "Forbidden")
     claim = get_object_or_404(Claim, pk=claim_id)
+    _refuse_own_claim(user, claim)
     if claim.status == ClaimStatus.PAID:
         raise HttpError(400, "Claim is already paid — re-verifying would change a settled amount")
     previous = claim.remuneration
@@ -855,6 +861,7 @@ def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         raise HttpError(403, "Forbidden")
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.SUBMITTED:
             raise HttpError(400, "Only a submitted ticket can be cleared")
         _refuse_if_held(claim)
@@ -907,6 +914,11 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
                 claim = Claim.objects.select_for_update().filter(pk=claim_id).first()
                 if claim is None:
                     skipped.append({"id": claim_id, "reason": "Not found"})
+                    continue
+                if rbac.is_own_claim(user, claim):
+                    skipped.append(
+                        {"id": claim_id, "reason": f"{claim.ticket_number or claim_id}: {OWN_PAPER}"}
+                    )
                     continue
                 if claim.status != ClaimStatus.SUBMITTED:
                     skipped.append(
@@ -1008,6 +1020,7 @@ def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.CLEARED:
             raise HttpError(
                 400,
@@ -1068,6 +1081,9 @@ def principal_queue(
 
     qs = (
         Claim.objects.filter(status=ClaimStatus.CLEARED)
+        # Never the approver's own paper: another Principal, or the super
+        # admin, decides that one (`rbac.is_own_claim`).
+        .exclude(owner=user)
         .select_related("owner", "cleared_by", "override_by", "held_by")
         .prefetch_related("attachments")
     )
@@ -1155,6 +1171,12 @@ def principal_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
             claim = Claim.objects.select_for_update().filter(pk=claim_id).first()
             if claim is None:
                 skipped.append({"id": claim_id, "reason": "Not found"})
+                continue
+            if rbac.is_own_claim(user, claim):
+                skipped.append({
+                    "id": claim_id,
+                    "reason": f"{claim.ticket_number or claim_id}: {OWN_PAPER}",
+                })
                 continue
             if claim.status != ClaimStatus.CLEARED:
                 skipped.append({

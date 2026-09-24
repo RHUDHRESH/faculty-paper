@@ -14,7 +14,7 @@ import {
   Users,
 } from "lucide-react"
 
-import { useAuth } from "@/app/auth"
+import { can, useAuth } from "@/app/auth"
 import { HOME_DATA } from "@/app/home-data"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
@@ -389,6 +389,9 @@ export function OfficeHome() {
           </ul>
         )}
       </section>
+
+      {/* The office's work first; an officer's own research after it. */}
+      {can(me?.role).fileOwnPapers && <YourPapers />}
     </div>
   )
 }
@@ -502,6 +505,8 @@ export function PrincipalHome() {
           loading={dashboard.isLoading}
         />
       </section>
+
+      <YourPapers />
     </div>
   )
 }
@@ -722,6 +727,8 @@ export function FinanceHome() {
         </div>
         )}
       </section>
+
+      <YourPapers />
     </div>
   )
 }
@@ -772,17 +779,23 @@ type HodOverview = {
 }
 
 /**
- * The head's own papers: a head of department is a faculty member who also
- * heads the department (the college's decision of 2026-09-23), and keeps
- * filing their own.
+ * The viewer's own papers, on a home whose first job is something else: a
+ * head of department's, who is faculty that also heads the department
+ * (2026-09-23), and an officer's -- the research cell, the coordinator, the
+ * Principal, the Director, Finance -- who is an academic too and "must be
+ * able to do both".
  *
  * The same pieces a faculty member's home is built from, so the two cannot
  * drift: their own money, anything sent back to them, and every paper still
- * moving drawn as the claimant's journey — never which desk holds it. The
- * amounts are theirs; `/api/claims` carries a figure on a head's own papers
- * and on nobody else's (`hod.for_head`).
+ * moving drawn as the claimant's journey — never which desk holds it, even
+ * for somebody who sits at one. `/api/claims?mine=1` is theirs alone, and the
+ * amounts on it are theirs (`hod.for_head`, `core.visibility`).
  */
-function YourPapers() {
+export function YourPapers({
+  note = "What you have filed yourself. Another officer, or the super admin, decides each one — never you.",
+}: {
+  note?: string
+}) {
   const own = useOwnPapers()
   const { claims, isLoading, isError, refetch } = own
 
@@ -791,10 +804,7 @@ function YourPapers() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <SectionTitle>Your papers</SectionTitle>
-          <Meta className="block">
-            What you have filed yourself, with your own amounts. Your department's figures
-            carry none.
-          </Meta>
+          <Meta className="block">{note}</Meta>
         </div>
         <Button kind="default" asChild>
           <Link to="/papers/new">
@@ -901,7 +911,7 @@ export function HodHome() {
         />
       )}
 
-      <YourPapers />
+      <YourPapers note="What you have filed yourself, with your own amounts. Your department's figures carry none." />
 
       {totals && (
         <section className="space-y-2">

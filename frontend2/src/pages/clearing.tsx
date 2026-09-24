@@ -37,6 +37,7 @@ import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
 import { useSlashToSearch } from "@/ui/queue-keys"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
 
 /**
  * The research cell's daily job: every submitted ticket, oldest first, and
@@ -344,6 +345,7 @@ export function Clearing() {
           <Sub className="mt-1">
             Submitted tickets, oldest first — the one that has waited longest is next.
           </Sub>
+          <OwnPapersNote className="mt-1" />
         </div>
         <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
           <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />

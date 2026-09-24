@@ -121,8 +121,6 @@ type ClaimCounts = {
   }
 }
 
-type Dashboard = { total_paid: number }
-
 type RequestableKey =
   | "name"
   | "department"
@@ -204,21 +202,21 @@ export function Profile() {
   // Two things decide whether a personal record can be shown at all, and both
   // are read before the early returns below so the hook order never changes.
   //
-  // `/claims/counts` and `/dashboard` are both scoped by `_claims_queryset`,
-  // which is "my claims" only for a faculty member or a head — for an
-  // oversight role it is the whole college, so those figures would be the
-  // college's total wearing a heading that says "yours".
+  // Everybody who files their own papers has a record here: faculty, a head,
+  // and an officer who is an academic too. `mine=1` because for an oversight
+  // role `/claims/counts` is otherwise the whole college, which would be the
+  // college's total wearing a heading that says "yours"; the money is the
+  // ledger's `/me/payments`, which is only ever the viewer's own.
   const role = meQuery.data?.role ?? sessionMe?.role ?? null
-  const filesOwnPapers = role === "FACULTY" || role === "HOD"
-  // The one rule that is not a matter of taste. `/api/dashboard` returns
-  // `total_paid` and refuses a head outright (403), so this is not merely a
-  // hidden figure — asking at all is an error for them.
+  const filesOwnPapers = can(sessionMe?.role).fileOwnPapers
+  // The one rule that is not a matter of taste: a head is shown no figure on
+  // this page, their own included, so the request is not even made.
   const seeMoney = can(sessionMe?.role).seeMoney
 
-  const countsQuery = useApi<ClaimCounts>(["profile", "counts"], "/api/claims/counts", {
+  const countsQuery = useApi<ClaimCounts>(["profile", "counts"], "/api/claims/counts?mine=1", {
     enabled: filesOwnPapers,
   })
-  const paidQuery = useApi<Dashboard>(["profile", "dashboard"], "/api/dashboard", {
+  const paidQuery = useApi<{ total: number }>(["my-payments", "profile"], "/api/me/payments", {
     enabled: filesOwnPapers && seeMoney,
   })
 
@@ -305,7 +303,7 @@ export function Profile() {
       <BadgeShelf userId={me.id} own />
       <GoalRings />
 
-      {me.role === "FACULTY" && missing.length > 0 && (
+      {filesOwnPapers && missing.length > 0 && (
         <Callout tone="caution" title="Your profile is missing what a claim needs">
           {missing.join(", ")} {missing.length === 1 ? "is" : "are"} not set. A claim is
           checked against these, so ask for {missing.length === 1 ? "it" : "them"} to be
@@ -469,7 +467,7 @@ export function Profile() {
             countsError={countsQuery.isError}
             onRetryCounts={() => countsQuery.refetch()}
             seeMoney={seeMoney}
-            totalPaid={paidQuery.data?.total_paid}
+            totalPaid={paidQuery.data?.total}
             paidLoading={paidQuery.isLoading}
             paidError={paidQuery.isError}
             onRetryPaid={() => paidQuery.refetch()}

@@ -8,11 +8,14 @@ order and must not be casually reordered.
 from __future__ import annotations
 
 from core.api.common import (
+    OWN_PAPER,
     _apply_calc,
+    _desk_people,
     _high_value_threshold,
     _needs_second_approval,
     _notify_admins,
     _notify_finance,
+    _refuse_own_claim,
     api,
     logger,
     session_auth,
@@ -74,6 +77,7 @@ def director_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.PRINCIPAL_APPROVED:
             raise HttpError(
                 400,
@@ -135,6 +139,8 @@ def director_queue(
 
     qs = (
         Claim.objects.filter(status=ClaimStatus.PRINCIPAL_APPROVED)
+        # Never the Director's own paper (`rbac.is_own_claim`).
+        .exclude(owner=user)
         .select_related("owner", "cleared_by", "principal_approved_by", "override_by")
         .prefetch_related("attachments")
     )
@@ -219,6 +225,12 @@ def director_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
             if claim is None:
                 skipped.append({"id": claim_id, "reason": "Not found"})
                 continue
+            if rbac.is_own_claim(user, claim):
+                skipped.append({
+                    "id": claim_id,
+                    "reason": f"{claim.ticket_number or claim_id}: {OWN_PAPER}",
+                })
+                continue
             if claim.status != ClaimStatus.PRINCIPAL_APPROVED:
                 skipped.append({
                     "id": claim_id,
@@ -283,6 +295,7 @@ def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.PRINCIPAL_APPROVED:
             raise HttpError(
                 400, "Only a Principal-approved ticket can be sent back from here"
@@ -296,13 +309,11 @@ def director_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim.save(update_fields=["principal_approved_by", "principal_approved_at"])
         _transition(claim, user, ClaimStatus.CLEARED, "DIRECTOR_SEND_BACK", note)
 
-    for u in User.objects.filter(
-        role__in=(Role.PRINCIPAL, Role.SUPER_ADMIN), active=True
-    ):
+    for u in _desk_people(claim, (Role.PRINCIPAL, Role.SUPER_ADMIN)):
         notify_service.notify(
             u,
             "desk",
-            f"Returned to the Principal's desk \u00b7 {claim.ticket_number}",
+            f"Returned to the Principal's desk · {claim.ticket_number}",
             note[:300],
             f"/approvals?claim={claim.id}",
             claim_id=claim.id,
@@ -327,6 +338,7 @@ def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.CLEARED:
             raise HttpError(400, "Only a cleared ticket can be sent back from here")
         claim.status_note = note
@@ -388,6 +400,9 @@ def _mark_one_paid(
     """
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        # Before every other guard, so a batch says why this row was skipped
+        # in the words that matter: nobody pays their own paper.
+        _refuse_own_claim(user, claim)
         # Payable means the Director authorised it on this system. Three
         # things are deliberately not payable:
         #
@@ -584,6 +599,7 @@ def second_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
         raise HttpError(403, "Forbidden")
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         # Either side of the principal's approval: the second signature is
         # about a large amount, not about which desk the ticket is sitting on.
         if claim.status not in (
@@ -651,6 +667,7 @@ def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
         raise HttpError(400, "Add a reason (10+ characters) — it goes to the audit trail and the ledger")
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.PAID:
             raise HttpError(400, "Only a paid ticket can be voided")
         # Not "net > 0": a claim can legitimately be paid at zero — count-only
@@ -703,6 +720,7 @@ def override_status(request: HttpRequest, claim_id: str, payload: OverrideStatus
         raise HttpError(400, "Add a reason (10+ characters) explaining the override")
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status == ClaimStatus.PAID:
             raise HttpError(400, "A paid ticket cannot be overridden — void the payment first")
         if claim.status == payload.to_status:
@@ -740,6 +758,7 @@ def _send_to_faculty(request: HttpRequest, claim_id: str, payload: ActionIn, *, 
         )
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status not in (ClaimStatus.SUBMITTED, *PAYABLE_STATUSES):
             raise HttpError(400, "Invalid status for reject")
         _require_own_desk(user, claim)
@@ -804,6 +823,7 @@ def verify_claim_endpoint(request: HttpRequest, claim_id: str):
     if not rbac.can_admin_portal(user.role):
         raise HttpError(403, "Forbidden")
     claim = get_object_or_404(Claim, pk=claim_id)
+    _refuse_own_claim(user, claim)
     if not (claim.paper_title or "").strip():
         raise HttpError(400, "Claim has no paper title")
     claim = _verify_claim(claim)
@@ -830,6 +850,7 @@ def set_verified_values(request: HttpRequest, claim_id: str, payload: ManualVeri
     if not rbac.can_clear_claims(user.role):
         raise HttpError(403, "Forbidden")
     claim = get_object_or_404(Claim, pk=claim_id)
+    _refuse_own_claim(user, claim)
     if claim.status == ClaimStatus.PAID:
         raise HttpError(400, "Claim is already paid — a settled amount cannot be changed")
     note = (payload.note or "").strip()

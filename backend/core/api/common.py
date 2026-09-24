@@ -375,15 +375,48 @@ def _notify_admin_users(
 ) -> None:
     """An admin notification, about one ticket when `claim_id` says which."""
     roles = (Role.SUPER_ADMIN,) if super_admin_only else rbac.ADMIN_ROLES
-    for u in User.objects.filter(role__in=roles, active=True):
+    people = User.objects.filter(role__in=roles, active=True)
+    if claim_id:
+        # About one paper: never its owner, who is its claimant.
+        people = people.exclude(claims__pk=claim_id)
+    for u in people:
         notify(u, "desk", title, body, href, claim_id=claim_id)
+
+
+#: What anybody is told who tries to decide their own paper. The queue pages
+#: say the same sentence, so the refusal is never a surprise.
+OWN_PAPER = "Your own paper — another officer or the super admin decides it."
+
+
+def _refuse_own_claim(user: User, claim: Claim) -> None:
+    """Nobody decides their own paper, at any desk (`rbac.is_own_claim`).
+
+    Called by every action that moves, holds, prices, flags or rescues a
+    paper, after the role check and before anything is read or written.
+    """
+    if rbac.is_own_claim(user, claim):
+        raise HttpError(403, OWN_PAPER)
+
+
+def _desk_people(claim: Claim, roles):
+    """Who is told a paper is waiting at a desk: whoever holds it but the owner.
+
+    A Principal who files a paper is its claimant, not its approver, so the
+    paper goes to another Principal -- and, when there is none, to the super
+    admin, who stands in at every desk and may decide anybody's paper but
+    their own.
+    """
+    people = User.objects.filter(role__in=roles, active=True).exclude(pk=claim.owner_id)
+    if not people.exists():
+        people = User.objects.filter(role=Role.SUPER_ADMIN, active=True).exclude(
+            pk=claim.owner_id
+        )
+    return people
 
 
 def _notify_admins(claim: Claim, title: str, body: str) -> None:
     """A submitted ticket waits on admin clearing, so admins are who hear about it."""
-    for u in User.objects.filter(
-        role__in=rbac.ADMIN_ROLES, active=True
-    ):
+    for u in _desk_people(claim, rbac.ADMIN_ROLES):
         # /admin is the overview, which ignores ?claim — the clearing queue
         # is the page that actually opens the ticket.
         notify(u, "desk", title, body, f"/admin/clearing?claim={claim.id}", claim_id=claim.id)
@@ -397,18 +430,18 @@ def _notify_principal(claim: Claim, title: str, body: str) -> None:
     being told about money it could not release, and the person who actually
     had to act was not told at all.
     """
-    for u in User.objects.filter(role=Role.PRINCIPAL, active=True):
+    for u in _desk_people(claim, (Role.PRINCIPAL,)):
         notify(u, "desk", title, body, f"/principal?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_director(claim: Claim, title: str, body: str) -> None:
     """Everyone who can authorise: the Director, and a super admin standing in."""
-    for u in User.objects.filter(role__in=(Role.DIRECTOR, Role.SUPER_ADMIN), active=True):
+    for u in _desk_people(claim, (Role.DIRECTOR, Role.SUPER_ADMIN)):
         notify(u, "desk", title, body, f"/authorisations?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_finance(claim: Claim, title: str, body: str) -> None:
-    for u in User.objects.filter(role=Role.FINANCE, active=True):
+    for u in _desk_people(claim, (Role.FINANCE,)):
         notify(u, "desk", title, body, f"/finance?claim={claim.id}", claim_id=claim.id)
 
 
@@ -625,7 +658,10 @@ __all__ = [
     '_notify_director',
     '_notify_finance',
     '_notify_principal',
+    'OWN_PAPER',
+    '_desk_people',
     '_parse_payout_month',
+    '_refuse_own_claim',
     '_require_admin_ops',
     '_require_may_see_money',
     '_verification_issues',

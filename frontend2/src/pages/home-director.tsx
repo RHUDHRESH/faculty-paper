@@ -17,6 +17,7 @@ import {
   Figure,
   QueueRow,
   Waiting,
+  YourPapers,
   greeting,
   type BudgetSummary,
   type Claim,
@@ -337,6 +338,10 @@ export function DirectorHome() {
         </div>
         )}
       </section>
+
+      {/* The Director's own research, after the authorising: another officer
+          authorises the Director's own papers, never the Director. */}
+      <YourPapers />
 
       <section className="space-y-2">
         <SectionTitle>Look further</SectionTitle>

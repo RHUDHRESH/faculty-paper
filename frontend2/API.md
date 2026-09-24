@@ -82,13 +82,19 @@ tickets.
 ### Lists
 
 ```
-GET /api/claims?status=&q=&limit=&offset=
+GET /api/claims?status=&q=&limit=&offset=&mine=
     -> { total, limit, offset, results: Claim[] }
 ```
 
 `limit` is capped at 200 server-side. `status` takes one status string. `q`
 searches title and ticket number. A faculty account sees only its own claims;
 the server scopes it, so do not filter by owner on the client.
+
+`mine=1` is "My papers" for an officer who files their own (every role but
+the super admin): without it an oversight role gets the college's claims.
+Every screen that shows the viewer's own papers sends it; for faculty and a
+head it changes nothing. The viewer's own claims arrive shaped as a
+claimant's (`faculty_stage`, no desk names, no flags) whoever they are.
 
 ### One claim
 
@@ -358,7 +364,7 @@ here" are different sentences.
 ### Counting claims by stage
 
 ```
-GET /api/claims/counts?q=
+GET /api/claims/counts?q=&mine=
     -> { counts: { all, draft, filed, checked, approved, paid, sent_back },
          statuses: { RAW_STATUS: n },
          stages:   { stage: [RAW_STATUS, ...] } }

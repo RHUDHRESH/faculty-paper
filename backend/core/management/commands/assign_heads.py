@@ -118,7 +118,9 @@ class Command(BaseCommand):
 
     def _heads(self, dry: bool, *, skip: User | None) -> None:
         faculty = (
-            User.objects.filter(active=True, role__in=rbac.CLAIMANT_ROLES)
+            # FACULTY_ROLES, not CLAIMANT_ROLES: an office account files its
+            # own papers too, and is still never a candidate for head.
+            User.objects.filter(active=True, role__in=rbac.FACULTY_ROLES)
             .exclude(department__isnull=True)
             .order_by("email")
         )

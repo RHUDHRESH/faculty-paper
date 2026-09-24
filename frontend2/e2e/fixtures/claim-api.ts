@@ -41,7 +41,7 @@ export type ClaimDetail = {
 }
 
 /** The token `lib/api.ts` fetches before every mutating request. */
-async function csrfToken(page: Page): Promise<string> {
+export async function csrfToken(page: Page): Promise<string> {
   const res = await page.request.get("/api/auth/csrf")
   expect(res.status(), "could not get a CSRF token").toBe(200)
   return ((await res.json()) as { csrfToken: string }).csrfToken

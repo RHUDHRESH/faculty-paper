@@ -6286,7 +6286,10 @@ class FourRoleModelTests(TestCase):
         )
         self.assertTrue(rbac.can_view_reports(Role.PRINCIPAL))
         self.assertFalse(rbac.can_clear_claims(Role.PRINCIPAL))
-        self.assertFalse(rbac.can_issue_claims(Role.PRINCIPAL))
+        # Files their own papers, as an academic (the owner's rule on dual
+        # roles) -- which is not acting on anybody else's, and never at a
+        # desk on their own (`test_dual_roles`).
+        self.assertTrue(rbac.can_file_own_papers(Role.PRINCIPAL))
         self.assertFalse(rbac.can_approve_as_finance(Role.PRINCIPAL))
         self.client.force_login(principal)
         self.assertEqual(self.client.get("/api/reports/search").status_code, 200)

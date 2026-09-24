@@ -17,7 +17,7 @@ import { queryClient } from "@/lib/query"
 export type HomeQuery = { key: readonly unknown[]; path: string }
 
 export const HOME_DATA = {
-  ownClaims: { key: ["my-claims"], path: "/api/claims?limit=200" },
+  ownClaims: { key: ["my-claims"], path: "/api/claims?mine=1&limit=200" },
   myPayments: { key: ["my-payments"], path: "/api/me/payments" },
   myAssignments: { key: ["my-assignments"], path: "/api/me/assignments" },
   stageCounts: { key: ["claims", "counts", "home"], path: "/api/claims/counts" },
@@ -45,15 +45,18 @@ export const HOME_DATA = {
 
 const D = HOME_DATA
 const OFFICE = [D.stageCounts, D.faults, D.pendingRequests, D.openDuplicates, D.dashboard]
+/** "Your papers", below the desk on the home of everybody who files but faculty. */
+const OWN = [D.ownClaims, D.myPayments]
 
 const BY_ROLE: Record<Role, readonly HomeQuery[]> = {
   FACULTY: [D.ownClaims, D.myPayments, D.myAssignments],
-  HOD: [D.hodOverview, D.hodStanding, D.hodTargets, D.ownClaims, D.myPayments],
-  PRINCIPAL: [D.principalQueue, D.collegeTotals],
-  DIRECTOR: [D.directorQueue, D.areas, D.collegeTotals, D.budget],
-  FINANCE: [D.budget],
-  RESEARCH_CELL: OFFICE,
-  RESEARCH_COORDINATOR: OFFICE,
+  HOD: [D.hodOverview, D.hodStanding, D.hodTargets, ...OWN],
+  PRINCIPAL: [D.principalQueue, D.collegeTotals, ...OWN],
+  DIRECTOR: [D.directorQueue, D.areas, D.collegeTotals, D.budget, ...OWN],
+  FINANCE: [D.budget, ...OWN],
+  RESEARCH_CELL: [...OFFICE, ...OWN],
+  RESEARCH_COORDINATOR: [...OFFICE, ...OWN],
+  // Files nothing of their own, so has no such section.
   SUPER_ADMIN: OFFICE,
 }
 

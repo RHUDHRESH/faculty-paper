@@ -2451,3 +2451,104 @@ class CitationHistory(models.Model):
 
     class Meta:
         ordering = ["at"]
+
+
+class Publication(models.Model):
+    """One paper, whoever in the college wrote it -- the full publication record.
+
+    Filled from OpenAlex (every work whose raw affiliation names the college,
+    plus every DOI the college's claims and ledger rows carry), from the
+    Scopus profile workbook, and -- for a paper neither source knows -- from
+    the claim or ledger row itself (`source = "record"`). Carries no money.
+
+    Identity is the OpenAlex id where there is one, else the DOI, else the
+    Scopus EID; `normalized_title` is the last resort when linking records.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    openalex_id = models.CharField(max_length=32, unique=True, blank=True, null=True)
+    doi = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    eid = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    title = models.TextField(blank=True, default="")
+    normalized_title = models.CharField(max_length=512, blank=True, default="", db_index=True)
+    year = models.IntegerField(blank=True, null=True, db_index=True)
+    date = models.DateField(blank=True, null=True)
+    venue = models.CharField(max_length=512, blank=True, default="")
+    issn = models.CharField(max_length=64, blank=True, default="")
+    #: OpenAlex work type (article, book-chapter...) or the record's own
+    #: document type when OpenAlex does not know the paper.
+    type = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    #: SJR quartile from the college's own records (claim or ledger row).
+    quartile = models.CharField(max_length=8, blank=True, default="", db_index=True)
+    citations = models.IntegerField(default=0)
+    citations_refreshed_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    oa_url = models.TextField(blank=True, default="")
+    #: A short list of topic names, JSON.
+    topics_json = models.TextField(blank=True, default="[]")
+    #: openalex | scopus_sheet | record
+    source = models.CharField(max_length=16, default="openalex")
+    claims = models.ManyToManyField("Claim", blank=True, related_name="publications")
+    ledger_rows = models.ManyToManyField("PaidLedger", blank=True, related_name="publications")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-year", "title"]
+
+    def __str__(self):
+        return f"{self.year} {self.title[:60]}"
+
+
+class Authorship(models.Model):
+    """One author on one publication, inside or outside the college.
+
+    `author_key` identifies the person across papers when nobody in the
+    college is behind the row: the OpenAlex author id (``A123``) when OpenAlex
+    gave one, else ``n:<normalised name>``. The co-author graph and the
+    external search group on it.
+    """
+
+    publication = models.ForeignKey(Publication, on_delete=models.CASCADE, related_name="authorships")
+    #: 1-based; null for an author added from a record with no author order.
+    position = models.IntegerField(blank=True, null=True)
+    display_name = models.CharField(max_length=255)
+    raw_affiliation = models.TextField(blank=True, default="")
+    openalex_author_id = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    orcid = models.CharField(max_length=19, blank=True, default="", db_index=True)
+    institution_name = models.CharField(max_length=255, blank=True, default="")
+    institution_country = models.CharField(max_length=8, blank=True, default="")
+    author_key = models.CharField(max_length=160, db_index=True)
+    #: The raw affiliation names the college, or a college record put them here.
+    is_college = models.BooleanField(default=False, db_index=True)
+    user = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL, related_name="authorships"
+    )
+    #: 0..1: how sure the matcher is that `user` wrote this.
+    match_confidence = models.FloatField(default=0)
+    #: orcid | record | author_id | name | name_dept | scopus_sheet | manual
+    match_method = models.CharField(max_length=16, blank=True, default="")
+    #: Set when a person corrects a match; the matcher leaves the row alone.
+    match_locked = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["publication_id", "position"]
+        indexes = [models.Index(fields=["user", "publication"], name="authorship_user_pub")]
+
+    def __str__(self):
+        return f"{self.display_name} on {self.publication_id}"
+
+
+class PublicationMetrics(models.Model):
+    """A college member's publication record in six numbers, kept current by
+    match_authors and the weekly citation refresh."""
+
+    user = models.OneToOneField(
+        "User", on_delete=models.CASCADE, primary_key=True, related_name="publication_metrics"
+    )
+    total_publications = models.IntegerField(default=0)
+    total_citations = models.IntegerField(default=0)
+    h_index = models.IntegerField(default=0)
+    i10_index = models.IntegerField(default=0)
+    first_year = models.IntegerField(blank=True, null=True)
+    last_year = models.IntegerField(blank=True, null=True)
+    computed_at = models.DateTimeField(default=timezone.now)

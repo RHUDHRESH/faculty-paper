@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Check, Handshake, Mail, Phone, Send, Users, X } from "lucide-react"
+import { ArrowLeft, AtSign, Check, Handshake, Lock, Phone, Send, UserRound, Users, X } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { api, ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
-import { useApi } from "@/lib/query"
 import { PeoplePicker } from "@/pages/discussions"
 import { Button } from "@/ui/button"
 import type { Candidate } from "@/ui/composer"
@@ -21,9 +20,10 @@ import {
 } from "@/ui/dialog"
 import { Field, Input, Textarea } from "@/ui/field"
 import { Avatar, PersonLink, type PersonBrief } from "@/ui/person"
-import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
-import { Meta, PageTitle } from "@/ui/text"
+import { ErrorState, InlineError, SkeletonRows } from "@/ui/state"
+import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { Tooltip, TooltipProvider } from "@/ui/tooltip"
 import { Ago } from "@/ui/when"
 
 /**
@@ -71,6 +71,8 @@ type Message = {
   mine: boolean
   collab: Collab | null
   pending?: boolean
+  /** Refused by the server; shown with Retry. Never sent by the server. */
+  failed?: boolean
 }
 
 type Conversation = {
@@ -83,12 +85,18 @@ type Conversation = {
   may_post: boolean
 }
 
-type InboxRow = {
+export type InboxRow = {
   id: string
   is_group: boolean
   title: string
   people: PersonBrief[]
-  last: { body: string; author_id: string | null; mine: boolean; kind: string; at: string } | null
+  last: {
+    body: string
+    author_id: string | null
+    mine: boolean
+    kind: string
+    at: string
+  } | null
   unread: number
   updated_at: string
 }
@@ -96,96 +104,9 @@ type InboxRow = {
 /** An open conversation re-asks this often while it is on screen. */
 const CHAT_POLL_MS = 12_000
 /** The inbox list (the sidebar badge is `app/unread.tsx`). */
-const INBOX_POLL_MS = 30_000
+export const INBOX_POLL_MS = 30_000
 
-/* ------------------------------------------------------------------------ */
-/* The inbox                                                                 */
-/* ------------------------------------------------------------------------ */
-
-export function Inbox({ q = "", onStart }: { q?: string; onStart: () => void }) {
-  const inbox = useApi<{ results: InboxRow[] }>(["dm", "inbox"], "/api/dm", { refetchInterval: INBOX_POLL_MS })
-  const needle = q.trim().toLowerCase()
-
-  if (inbox.isPending) return <SkeletonRows rows={5} rowHeight={64} />
-  if (inbox.isError) {
-    return (
-      <ErrorState
-        title="Could not load your messages"
-        message="The server did not answer. Nothing has been sent, lost or deleted."
-        onRetry={() => void inbox.refetch()}
-      />
-    )
-  }
-  // Searched here rather than on the server: it is your own fifty most recent
-  // conversations, already on screen.
-  const rows = inbox.data.results.filter(
-    (r) =>
-      !needle ||
-      r.title.toLowerCase().includes(needle) ||
-      (r.last?.body ?? "").toLowerCase().includes(needle) ||
-      r.people.some((p) => p.name.toLowerCase().includes(needle))
-  )
-  return (
-    <section className="space-y-4">
-      <Callout tone="info" title="Who can read a direct message">
-        Only the people in it. Not your department, not the research office, not an administrator.
-      </Callout>
-      {rows.length === 0 && needle ? (
-        <EmptyState icon={Mail} title="Nothing matches" message="Try part of a name, or clear the search." />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          icon={Mail}
-          title="No messages yet"
-          message="Write to a colleague about a paper, a venue or a collaboration — one person, or a small group."
-          action={
-            <Button kind="primary" size="sm" onClick={onStart}>
-              <Mail />
-              New message
-            </Button>
-          }
-        />
-      ) : (
-        <ul className="divide-y divide-line border-y border-line">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <Link
-                to={`/messages/c/${r.id}`}
-                className="flex items-center gap-3 px-1 py-3 transition-colors duration-[var(--dur-1)] ease-out hover:bg-hover"
-              >
-                <Faces people={r.people} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline gap-2">
-                    <span className={cn("min-w-0 flex-1 truncate text-base", r.unread > 0 && "font-semibold")}>
-                      {r.title}
-                    </span>
-                    {r.last && (
-                      <Meta className="shrink-0 text-xs">
-                        <Ago iso={r.last.at} />
-                      </Meta>
-                    )}
-                  </span>
-                  <span className="flex items-center gap-2">
-                    <span className={cn("min-w-0 flex-1 truncate text-sm", r.unread ? "text-fg" : "text-fg-muted")}>
-                      {r.last ? `${r.last.mine ? "You: " : ""}${r.last.body || "A message was removed"}` : "No messages yet"}
-                    </span>
-                    {r.unread > 0 && (
-                      <span className="grid min-w-[1.25rem] place-items-center rounded-full bg-accent px-1.5 text-xs font-semibold text-accent-fg tabular">
-                        <span className="sr-only">Unread: </span>
-                        {r.unread}
-                      </span>
-                    )}
-                  </span>
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  )
-}
-
-function Faces({ people }: { people: PersonBrief[] }) {
+export function Faces({ people }: { people: PersonBrief[] }) {
   if (people.length <= 1) return <Avatar person={people[0]} size="md" />
   return (
     <span className="relative inline-flex size-10 shrink-0" aria-hidden>
@@ -209,10 +130,11 @@ export function OpenChat({ to, refPost }: { to: string; refPost?: string | null 
     started.current = true
     api<Conversation>(`/api/dm/with/${to}`, { method: "POST" })
       .then((c) => {
-        const draft = refPost
-          ? `About your post: ${window.location.origin}/discussions/p/${refPost}\n\n`
-          : undefined
-        navigate(`/messages/c/${c.id}`, { replace: true, state: draft ? { draft } : undefined })
+        const draft = refPost ? `About your post: ${window.location.origin}/discussions/p/${refPost}\n\n` : undefined
+        navigate(`/messages/c/${c.id}`, {
+          replace: true,
+          state: draft ? { draft } : undefined,
+        })
       })
       .catch((err: ApiError) => setFailed(err.message))
   }, [to, refPost, navigate])
@@ -239,7 +161,11 @@ export function NewChat({ onClose, initial = [] }: { onClose: () => void; initia
     mutationFn: () =>
       api<Conversation>("/api/dm", {
         method: "POST",
-        json: { participant_ids: people.map((p) => p.id), title: title.trim() || null, body: body.trim() || null },
+        json: {
+          participant_ids: people.map((p) => p.id),
+          title: title.trim() || null,
+          body: body.trim() || null,
+        },
       }),
     onSuccess: (c) => {
       onClose()
@@ -262,11 +188,22 @@ export function NewChat({ onClose, initial = [] }: { onClose: () => void; initia
           </Field>
           {group && (
             <Field label="Group name (optional)">
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Seminar planning" maxLength={120} />
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Seminar planning"
+                maxLength={120}
+              />
             </Field>
           )}
           <Field label="Message">
-            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} maxRows={8} placeholder="Write your message" />
+            <Textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={3}
+              maxRows={8}
+              placeholder="Write your message"
+            />
           </Field>
           {start.error && <InlineError message={start.error.message} />}
         </DialogBody>
@@ -295,6 +232,7 @@ export function ChatPage() {
   const location = useLocation()
   const [text, setText] = useState<string>(() => (location.state as { draft?: string } | null)?.draft ?? "")
   const [proposing, setProposing] = useState(false)
+  const [unsent, setUnsent] = useState<Message[]>([])
   const bottom = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
 
@@ -330,32 +268,60 @@ export function ChatPage() {
   }, [])
 
   const send = useMutation<Message, ApiError, { body: string; temp: Message }>({
-    mutationFn: ({ body }) => api<Message>(`/api/dm/${id}/messages`, { method: "POST", json: { body } }),
+    mutationFn: ({ body }) =>
+      api<Message>(`/api/dm/${id}/messages`, {
+        method: "POST",
+        json: { body },
+      }),
     onMutate: ({ temp }) => {
-      qc.setQueryData<Conversation>(["dm", "conversation", id], (c) => (c ? { ...c, messages: [...c.messages, temp] } : c))
+      qc.setQueryData<Conversation>(["dm", "conversation", id], (c) =>
+        c ? { ...c, messages: [...c.messages, temp] } : c
+      )
     },
     onSuccess: (real, { temp }) => {
       qc.setQueryData<Conversation>(["dm", "conversation", id], (c) =>
-        c ? { ...c, messages: c.messages.map((m) => (m.id === temp.id ? real : m)) } : c
+        c
+          ? {
+              ...c,
+              messages: c.messages.map((m) => (m.id === temp.id ? real : m)),
+            }
+          : c
       )
     },
-    onError: (err, { temp, body }) => {
+    onError: (_err, { temp }) => {
       qc.setQueryData<Conversation>(["dm", "conversation", id], (c) =>
         c ? { ...c, messages: c.messages.filter((m) => m.id !== temp.id) } : c
       )
-      setText(body)
-      toast.fail(err)
+      // Kept on screen, marked, with Retry -- held here rather than in the
+      // query cache, which the next poll would overwrite.
+      setUnsent((u) => [...u, { ...temp, pending: false, failed: true }])
     },
   })
 
   function submit() {
     const body = text.trim()
-    if (!body || !me) return
+    if (!body) return
+    post(body)
+    setText("")
+  }
+
+  function retry(m: Message) {
+    setUnsent((u) => u.filter((x) => x.id !== m.id))
+    post(m.body)
+  }
+
+  function post(body: string) {
+    if (!me) return
     send.mutate({
       body,
       temp: {
         id: `temp-${Date.now()}`,
-        author: { id: me.id, name: me.name, initials: "", photo_url: me.photo_url ?? null },
+        author: {
+          id: me.id,
+          name: me.name,
+          initials: "",
+          photo_url: me.photo_url ?? null,
+        },
         kind: "HUMAN",
         body,
         deleted: false,
@@ -365,19 +331,18 @@ export function ChatPage() {
         pending: true,
       },
     })
-    setText("")
   }
 
   if (convo.isPending) {
     return (
-      <div className="page max-w-2xl">
+      <div className="p-4">
         <SkeletonRows rows={6} rowHeight={48} />
       </div>
     )
   }
   if (convo.isError) {
     return (
-      <div className="page max-w-2xl space-y-4">
+      <div className="space-y-4 p-4">
         <BackToMessages />
         <ErrorState
           title={convo.error.status === 404 ? "This conversation is not here" : "Could not load this conversation"}
@@ -394,70 +359,101 @@ export function ChatPage() {
 
   const c = convo.data
   const other = !c.is_group ? c.people[0] : null
-  const lastMine = [...c.messages].reverse().find((m) => m.mine && !m.pending && m.kind === "HUMAN")
+  const lastMine = [...c.messages].reverse().find((m) => m.mine && !m.pending && !m.failed && m.kind === "HUMAN")
   const seenBy = lastMine
     ? c.participants.filter((p) => !p.me && p.last_read_at && p.last_read_at >= lastMine.created_at)
     : []
+  const privacy = other
+    ? `Only you and ${other.name} can read this.`
+    : `Only the ${c.participants.length} people in this conversation can read this.`
 
   return (
-    <div className="page flex max-w-2xl flex-col gap-4">
-      <BackToMessages />
-      <header className="flex flex-wrap items-center gap-3">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="flex items-center gap-3 border-b border-line px-4 py-3">
+        <BackToMessages />
         <Faces people={c.people} />
-        {/* A basis wide enough for a name, so on a phone the button wraps
-            beneath it instead of squeezing the name to three letters. */}
-        <div className="min-w-0 flex-1 basis-52">
-          <PageTitle className="truncate text-xl sm:text-2xl">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-base font-semibold">
             {other ? <PersonLink id={other.id} name={other.name} className="font-[inherit]" /> : c.title}
-          </PageTitle>
+          </h1>
           <Meta className="block truncate text-xs">
             {c.is_group ? (
               <>
                 <Users className="mr-1 inline size-3 align-[-1px]" aria-hidden />
-                {c.participants.length} people · only they can read this
+                Group · {c.participants.length} people
               </>
             ) : (
-              [other?.designation, other?.department].filter(Boolean).join(" · ") || "Only the two of you can read this"
+              [other?.designation, other?.department].filter(Boolean).join(" · ") || "Direct message"
             )}
           </Meta>
         </div>
         {other && (
-          <Button kind="default" size="sm" onClick={() => setProposing(true)} className="w-full sm:w-auto">
-            <Handshake />
-            Propose a collaboration
-          </Button>
+          <>
+            <Button kind="default" size="sm" asChild className="hidden sm:inline-flex">
+              <Link to={`/u/${other.id}`}>
+                <UserRound />
+                Profile
+              </Link>
+            </Button>
+            <Button kind="quiet" size="sm" onClick={() => setProposing(true)} aria-label="Propose a collaboration">
+              <Handshake />
+              <span className="hidden lg:inline">Propose a collaboration</span>
+            </Button>
+          </>
         )}
       </header>
+      <p className="flex items-center gap-1.5 border-b border-line px-4 py-1.5 text-xs text-fg-muted">
+        <Lock className="size-3 shrink-0" aria-hidden />
+        {privacy}
+      </p>
 
-      <ol className="space-y-2" aria-label="Messages" aria-live="polite">
-        {c.messages.length === 0 && (
-          <li>
-            <Meta className="block py-6 text-center text-sm">No messages yet. Say hello.</Meta>
-          </li>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <ol className="space-y-2" aria-label="Messages" aria-live="polite">
+          {c.messages.length === 0 && (
+            <li>
+              <Meta className="block py-6 text-center text-sm">No messages yet. Say hello.</Meta>
+            </li>
+          )}
+          {[...c.messages, ...unsent].map((m) => (
+            <MessageRow key={m.id} m={m} group={c.is_group} conversationId={c.id} onRetry={retry} />
+          ))}
+        </ol>
+        {lastMine && (
+          <Meta className="mt-1 block text-right text-xs" aria-live="polite">
+            {seenBy.length === 0
+              ? "Sent"
+              : c.is_group
+                ? `Seen by ${seenBy.map((p) => p.name.split(" ")[0]).join(", ")}`
+                : "Seen"}
+          </Meta>
         )}
-        {c.messages.map((m) => (
-          <MessageRow key={m.id} m={m} group={c.is_group} conversationId={c.id} />
-        ))}
-      </ol>
-      {lastMine && (
-        <Meta className="-mt-2 block text-right text-xs" aria-live="polite">
-          {seenBy.length === 0
-            ? "Sent"
-            : c.is_group
-              ? `Seen by ${seenBy.map((p) => p.name.split(" ")[0]).join(", ")}`
-              : "Seen"}
-        </Meta>
-      )}
-      <div ref={bottom} />
+        <div ref={bottom} />
+      </div>
 
       {c.may_post ? (
         <form
-          className="sticky bottom-0 -mx-1 flex items-end gap-2 border-t border-line bg-bg px-1 py-2"
+          className="sticky bottom-0 flex items-end gap-2 border-t border-line bg-bg px-3 py-2"
           onSubmit={(e) => {
             e.preventDefault()
             submit()
           }}
         >
+          <TooltipProvider>
+            <Tooltip content="Mention a person, paper or journal — or @agent to ask the assistant.">
+              <Button
+                kind="quiet"
+                size="md"
+                type="button"
+                aria-label="Mention a person, paper or journal — or @agent to ask the assistant."
+                onClick={() => {
+                  setText((t) => (t && !t.endsWith(" ") ? `${t} @` : `${t}@`))
+                  box.current?.focus()
+                }}
+              >
+                <AtSign />
+              </Button>
+            </Tooltip>
+          </TooltipProvider>
           <Textarea
             ref={box}
             value={text}
@@ -471,7 +467,7 @@ export function ChatPage() {
             rows={1}
             maxRows={6}
             aria-label="Write a message"
-            placeholder="Write a message. Enter sends, Shift+Enter starts a new line."
+            placeholder="Write a message…"
             className="min-w-0 flex-1"
           />
           <Button kind="primary" size="md" type="submit" disabled={!text.trim()} aria-label="Send">
@@ -480,7 +476,7 @@ export function ChatPage() {
           </Button>
         </form>
       ) : (
-        <Meta className="block text-center">This conversation is closed to new messages.</Meta>
+        <Meta className="block py-3 text-center">This conversation is closed to new messages.</Meta>
       )}
 
       {proposing && other && <CollabDialog person={other} onClose={() => setProposing(false)} />}
@@ -488,18 +484,28 @@ export function ChatPage() {
   )
 }
 
+/** Only on a phone: the inbox and the conversation share one screen there. */
 function BackToMessages() {
   return (
-    <Button kind="quiet" size="sm" asChild className="-ml-2 self-start">
-      <Link to="/messages">
+    <Button kind="quiet" size="sm" asChild className="-ml-2 md:hidden">
+      <Link to="/messages" aria-label="Back to all messages">
         <ArrowLeft />
-        Messages
       </Link>
     </Button>
   )
 }
 
-function MessageRow({ m, group, conversationId }: { m: Message; group: boolean; conversationId: string }) {
+function MessageRow({
+  m,
+  group,
+  conversationId,
+  onRetry,
+}: {
+  m: Message
+  group: boolean
+  conversationId: string
+  onRetry: (m: Message) => void
+}) {
   if (m.kind === "SYSTEM") {
     return (
       <li className="py-1 text-center">
@@ -512,24 +518,34 @@ function MessageRow({ m, group, conversationId }: { m: Message; group: boolean; 
   return (
     <li className={cn("flex gap-2", m.mine ? "justify-end" : "justify-start", m.pending && "opacity-70")}>
       {!m.mine && <Avatar person={m.author} size="sm" className="mt-auto" />}
-      <div className={cn("max-w-[85%] space-y-1 sm:max-w-[75%]", m.mine && "items-end")}>
-        {group && !m.mine && m.author && (
-          <Meta className="block px-1 text-xs">{m.author.name}</Meta>
-        )}
+      <div className={cn("flex max-w-[85%] flex-col gap-1 sm:max-w-[75%]", m.mine && "items-end")}>
+        {group && !m.mine && m.author && <Meta className="block px-1 text-xs">{m.author.name}</Meta>}
         {m.body && (
           <div
             className={cn(
-              "whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm leading-relaxed",
-              m.mine ? "bg-accent-wash text-fg" : "bg-sunken text-fg"
+              "whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed",
+              m.mine
+                ? "rounded-br-md bg-accent text-accent-fg [&_a]:text-accent-fg"
+                : "rounded-bl-md bg-sunken text-fg",
+              m.failed && "bg-sunken text-fg ring-1 ring-inset ring-critical"
             )}
           >
-            {m.deleted ? <span className="italic text-fg-muted">This message was removed.</span> : linkify(m.body)}
+            {m.deleted ? <span className="italic opacity-75">This message was removed.</span> : linkify(m.body)}
           </div>
         )}
         {m.collab && <CollabCard collab={m.collab} conversationId={conversationId} />}
-        <Meta className={cn("block px-1 text-[11px]", m.mine && "text-right")}>
-          {m.pending ? "Sending…" : <Ago iso={m.created_at} />}
-        </Meta>
+        {m.failed ? (
+          <p className="px-1 text-xs text-critical" role="alert">
+            Not sent.{" "}
+            <button type="button" className="font-medium underline underline-offset-4" onClick={() => onRetry(m)}>
+              Retry
+            </button>
+          </p>
+        ) : (
+          <Meta className={cn("block px-1 text-[11px]", m.mine && "text-right")}>
+            {m.pending ? "Sending…" : <Ago iso={m.created_at} />}
+          </Meta>
+        )}
       </div>
     </li>
   )
@@ -548,7 +564,13 @@ function linkify(text: string) {
       )
     }
     return (
-      <a key={i} href={part} target="_blank" rel="noopener noreferrer nofollow" className="text-accent underline underline-offset-4">
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+        className="text-accent underline underline-offset-4"
+      >
         {part}
       </a>
     )
@@ -572,9 +594,14 @@ function CollabCard({ collab, conversationId }: { collab: Collab; conversationId
   const [note, setNote] = useState("")
   const answer = useMutation<Collab, ApiError, { action: "accept" | "decline" | "call"; note?: string }>({
     mutationFn: (body) =>
-      api<Collab>(`/api/collaborations/requests/${collab.id}/respond`, { method: "POST", json: body }),
+      api<Collab>(`/api/collaborations/requests/${collab.id}/respond`, {
+        method: "POST",
+        json: body,
+      }),
     onSuccess: (_c, { action }) => {
-      void qc.invalidateQueries({ queryKey: ["dm", "conversation", conversationId] })
+      void qc.invalidateQueries({
+        queryKey: ["dm", "conversation", conversationId],
+      })
       void qc.invalidateQueries({ queryKey: ["person"] })
       toast.ok(
         action === "accept"
@@ -620,7 +647,12 @@ function CollabCard({ collab, conversationId }: { collab: Collab; conversationId
               aria-label="When could you talk"
               className="min-w-0 flex-1"
             />
-            <Button kind="primary" size="sm" onClick={() => answer.mutate({ action: "call", note })} disabled={answer.isPending}>
+            <Button
+              kind="primary"
+              size="sm"
+              onClick={() => answer.mutate({ action: "call", note })}
+              disabled={answer.isPending}
+            >
               Suggest
             </Button>
             <Button kind="quiet" size="sm" onClick={() => setCalling(false)}>
@@ -629,7 +661,12 @@ function CollabCard({ collab, conversationId }: { collab: Collab; conversationId
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
-            <Button kind="primary" size="sm" onClick={() => answer.mutate({ action: "accept" })} disabled={answer.isPending}>
+            <Button
+              kind="primary"
+              size="sm"
+              onClick={() => answer.mutate({ action: "accept" })}
+              disabled={answer.isPending}
+            >
               <Check />
               Accept
             </Button>
@@ -637,7 +674,12 @@ function CollabCard({ collab, conversationId }: { collab: Collab; conversationId
               <Phone />
               Suggest a call
             </Button>
-            <Button kind="quiet" size="sm" onClick={() => answer.mutate({ action: "decline" })} disabled={answer.isPending}>
+            <Button
+              kind="quiet"
+              size="sm"
+              onClick={() => answer.mutate({ action: "decline" })}
+              disabled={answer.isPending}
+            >
               <X />
               Decline
             </Button>
@@ -658,7 +700,12 @@ export function CollabDialog({ person, onClose }: { person: PersonBrief; onClose
     mutationFn: () =>
       api("/api/collaborations/requests", {
         method: "POST",
-        json: { to_id: person.id, topic: topic.trim(), journal: journal.trim(), message: message.trim() },
+        json: {
+          to_id: person.id,
+          topic: topic.trim(),
+          journal: journal.trim(),
+          message: message.trim(),
+        },
       }),
     onSuccess: (r) => {
       onClose()
@@ -678,10 +725,20 @@ export function CollabDialog({ person, onClose }: { person: PersonBrief; onClose
         </DialogHeader>
         <DialogBody className="space-y-4">
           <Field label="What you would work on">
-            <Input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Thin-film solar cells" maxLength={200} autoFocus />
+            <Input
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="Thin-film solar cells"
+              maxLength={200}
+              autoFocus
+            />
           </Field>
           <Field label="Proposed journal (optional)">
-            <Input value={journal} onChange={(e) => setJournal(e.target.value)} placeholder="Solar Energy Materials and Solar Cells" />
+            <Input
+              value={journal}
+              onChange={(e) => setJournal(e.target.value)}
+              placeholder="Solar Energy Materials and Solar Cells"
+            />
           </Field>
           <Field label="Message">
             <Textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} maxRows={8} />

@@ -1,18 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react"
-import { Link, Navigate, useParams, useSearchParams } from "react-router-dom"
+import { useEffect, useRef, useState } from "react"
+import { Link, Navigate, useParams } from "react-router-dom"
 import {
   ArrowLeft,
   Bot,
   Building2,
-  CircleCheck,
-  Lock,
   Mail,
-  Plus,
   RefreshCw,
   X,
 } from "lucide-react"
 
-import { can, useAuth } from "@/app/auth"
+import { useAuth } from "@/app/auth"
 import { api, ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
@@ -33,7 +30,6 @@ import { Field, Input } from "@/ui/field"
 import { PersonLink } from "@/ui/person"
 import {
   Callout,
-  EmptyState,
   ErrorState,
   InlineError,
   SkeletonRows,
@@ -41,7 +37,6 @@ import {
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { relativeTime } from "@/ui/when"
-import { Inbox, NewChat, OpenChat } from "@/pages/chat"
 
 /**
  * Messages — direct conversations, and conversations with the research office.
@@ -94,7 +89,7 @@ import { Inbox, NewChat, OpenChat } from "@/pages/chat"
 
 type Visibility = "PUBLIC" | "DEPARTMENT" | "OFFICE" | "DIRECT"
 
-type ThreadRow = {
+export type ThreadRow = {
   id: string
   title: string
   visibility: Visibility
@@ -147,14 +142,6 @@ type ThreadDetail = ThreadRow & {
   feed_post_id?: string | null
 }
 
-type ThreadList = {
-  total: number
-  limit: number
-  offset: number
-  results: ThreadRow[]
-  visibilities: { key: Visibility; label: string }[]
-}
-
 const VISIBILITY_LABEL: Record<Visibility, string> = {
   PUBLIC: "Everybody",
   DEPARTMENT: "One department",
@@ -168,13 +155,6 @@ const VISIBILITY_LABEL: Record<Visibility, string> = {
  *  has been typed. */
 const DIRECT_MAX_PEOPLE = 20
 
-/** How many rows a lane shows before "Show more". */
-const PAGE = 25
-
-/** How often an open list re-asks the server. Long enough not to be chatter,
- *  short enough that a reply lands before somebody reloads out of doubt. */
-const LIST_POLL_MS = 30_000
-
 /** A thread is being read right now, so it refreshes faster than a list. */
 const THREAD_POLL_MS = 12_000
 
@@ -185,8 +165,14 @@ const LANES: { key: Lane; label: string }[] = [
   { key: "office", label: "The office" },
 ]
 
-function readLane(value: string | null): Lane {
-  return value === "office" ? "office" : "direct"
+/** Who a private conversation is with, from what the thread payload carries
+ *  (`created_by` only -- see the git history of this file for the reasoning). */
+function parties(t: ThreadRow, meId?: string): string {
+  const mine = !!meId && t.created_by_id === meId
+  if (t.visibility === "OFFICE") {
+    return mine ? "You and the research office" : `${t.created_by || "Somebody"} and the research office`
+  }
+  return mine ? "You started this" : `With ${t.created_by || "somebody"}`
 }
 
 /** A direct thread opens in the chat (`pages/chat.tsx`). A plain function
@@ -196,351 +182,6 @@ function opensAsChat(visibility: Visibility): boolean {
   return visibility === "DIRECT"
 }
 
-/* ------------------------------------------------------------------------ */
-/* The list                                                                  */
-/* ------------------------------------------------------------------------ */
-
-export function Messages() {
-  const { me } = useAuth()
-  const office = can(me?.role).clear
-
-  const [searchParams, setSearchParams] = useSearchParams()
-  const lane = readLane(searchParams.get("lane"))
-  const q = searchParams.get("q") ?? ""
-  const topic = searchParams.get("topic") ?? ""
-  const mine = searchParams.get("mine") === "1"
-  // `?to=<id>` is the Message button on somebody's profile (and 🤝 on a
-  // post, with `&ref=<post>`): straight into the chat with them.
-  const to = searchParams.get("to")
-  const [composing, setComposing] = useState<Lane | null>(null)
-
-  const [draft, setDraft] = useState(q)
-  useEffect(() => setDraft(q), [q])
-
-  const setParam = useCallback(
-    (entries: Record<string, string>) => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev)
-        for (const [key, value] of Object.entries(entries)) {
-          if (value) next.set(key, value)
-          else next.delete(key)
-        }
-        return next
-      })
-    },
-    [setSearchParams]
-  )
-
-  useEffect(() => {
-    if (draft === q) return
-    const t = setTimeout(() => setParam({ q: draft }), 250)
-    return () => clearTimeout(t)
-  }, [draft, q, setParam])
-
-  const filtered = !!(q || topic || (lane !== "direct" && mine))
-
-  if (to) return <OpenChat to={to} refPost={searchParams.get("ref")} />
-
-  return (
-    <div className="page space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <PageTitle>Messages</PageTitle>
-          <Sub className="mt-1">
-            Write to a colleague privately, or ask the research office. Pull the
-            assistant in with{" "}
-            <code className="rounded-sm bg-sunken px-1 text-sm">@agent</code>. For
-            something the whole college should see, post it in{" "}
-            <Link to="/discussions" className="text-accent underline-offset-4 hover:underline">
-              Discussions
-            </Link>
-            .
-          </Sub>
-        </div>
-        <Button
-          kind="primary"
-          size="md"
-          className="w-full sm:w-auto"
-          onClick={() => setComposing(lane)}
-        >
-          <Plus />
-          {lane === "direct" ? "New message" : "Ask the office"}
-        </Button>
-      </header>
-
-      <div
-        role="tablist"
-        aria-label="Conversations"
-        className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-md bg-sunken p-0.5"
-      >
-        {LANES.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={lane === t.key}
-            onClick={() =>
-              setParam({
-                lane: t.key === "direct" ? "" : t.key,
-                mine: t.key === "direct" ? "" : mine ? "1" : "",
-              })
-            }
-            className={cn(
-              "h-7 shrink-0 rounded-sm px-3 text-sm font-medium transition-colors",
-              "duration-[var(--dur-1)] ease-out",
-              lane === t.key
-                ? "bg-surface text-fg"
-                : "text-fg-muted hover:text-fg"
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={lane === "direct" ? "Search your messages" : "Search office conversations"}
-          aria-label="Search"
-          className="w-full sm:max-w-xs"
-        />
-        {/* Every direct conversation is one you are in — `list_threads`
-            matches `mine` on subscription, and being a participant subscribes
-            you. The filter would tick and change nothing, which teaches a
-            reader that the filters on this page do not work. */}
-        {lane !== "direct" && (
-          <Button
-            kind={mine ? "default" : "quiet"}
-            size="md"
-            aria-pressed={mine}
-            onClick={() => setParam({ mine: mine ? "" : "1" })}
-          >
-            Only mine
-          </Button>
-        )}
-        {topic && (
-          <Button kind="quiet" size="md" onClick={() => setParam({ topic: "" })}>
-            <X />
-            {topic}
-          </Button>
-        )}
-      </div>
-
-      {lane === "direct" ? (
-        <Inbox q={q} onStart={() => setComposing("direct")} />
-      ) : (
-        <OfficeLane
-          q={q}
-          topic={topic}
-          mine={mine}
-          filtered={filtered}
-          office={office}
-          meId={me?.id}
-          onStart={() => setComposing("office")}
-        />
-      )}
-
-      {/* A direct message is a chat (`pages/chat.tsx`); the office lane keeps
-          its titled conversation. */}
-      {composing === "direct" && <NewChat onClose={() => setComposing(null)} />}
-      {composing === "office" && (
-        <NewConversation initialLane="office" initialPeople={[]} onClose={() => setComposing(null)} />
-      )}
-    </div>
-  )
-}
-
-function listPath(params: Record<string, string | boolean | number | undefined>): string {
-  const query = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === "" || value === false) continue
-    query.set(key, String(value))
-  }
-  return `/api/threads?${query.toString()}`
-}
-
-/**
- * The quiet lane: `OFFICE` threads.
- *
- * Kept apart from Direct on purpose. "Ask the research office why my claim was
- * sent back" and "message a colleague" are different needs with different
- * audiences — the first reaches the whole research cell whoever is on duty,
- * the second reaches exactly the people you named. Merging them would mean
- * somebody picks the wrong one and finds out afterwards.
- */
-function OfficeLane({
-  q,
-  topic,
-  mine,
-  filtered,
-  office,
-  meId,
-  onStart,
-}: {
-  q: string
-  topic: string
-  mine: boolean
-  filtered: boolean
-  office: boolean
-  meId?: string
-  onStart: () => void
-}) {
-  const [pages, setPages] = useState(1)
-  useEffect(() => setPages(1), [q, topic, mine])
-  const limit = PAGE * pages
-
-  const { data, isLoading, isError, refetch } = useApi<ThreadList>(
-    ["threads", "office", q, topic, mine, limit],
-    listPath({ visibility: "OFFICE", q, topic, mine, limit }),
-    { refetchInterval: LIST_POLL_MS }
-  )
-
-  const threads = data?.results ?? []
-
-  return (
-    <section className="space-y-4">
-      <Callout tone="info" title="Who can read a conversation with the office">
-        {office
-          ? "Every one of these, whoever opened it — this is the research cell's own queue. Colleagues of the person who asked cannot see theirs."
-          : "You and the research office, whoever is on duty. Your colleagues cannot see it. For something only one named person should read, use Direct instead."}
-      </Callout>
-
-      {isLoading ? (
-        <SkeletonRows rows={4} rowHeight={64} />
-      ) : isError ? (
-        <ErrorState
-          title="Could not load these conversations"
-          message="The server did not answer. Nothing has been sent, lost or deleted."
-          onRetry={() => void refetch()}
-        />
-      ) : threads.length === 0 ? (
-        <EmptyState
-          icon={Building2}
-          title={filtered ? "Nothing matches" : "Nothing with the office"}
-          message={
-            filtered
-              ? "Try clearing a filter."
-              : "Ask why a claim was sent back, what evidence a payout needs, or anything else the research cell answers."
-          }
-          action={
-            filtered ? undefined : (
-              <Button kind="primary" size="sm" onClick={onStart}>
-                <Building2 />
-                Ask the office
-              </Button>
-            )
-          }
-        />
-      ) : (
-        <>
-          <ThreadRows threads={threads} meId={meId} />
-          <ShowMore
-            shown={threads.length}
-            total={data?.total ?? threads.length}
-            onMore={() => setPages((p) => p + 1)}
-          />
-        </>
-      )}
-    </section>
-  )
-}
-
-function ShowMore({
-  shown,
-  total,
-  onMore,
-}: {
-  shown: number
-  total: number
-  onMore: () => void
-}) {
-  if (shown >= total) {
-    return (
-      <Meta className="block text-center text-xs">
-        {total === 1 ? "1 conversation" : `All ${total} conversations`}
-      </Meta>
-    )
-  }
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <Button kind="default" size="md" onClick={onMore}>
-        Show more
-      </Button>
-      <Meta className="text-xs tabular">
-        {shown} of {total}
-      </Meta>
-    </div>
-  )
-}
-
-function ThreadRows({ threads, meId }: { threads: ThreadRow[]; meId?: string }) {
-  return (
-    <ul className="divide-y divide-line border-y border-line">
-      {threads.map((t) => (
-        <li key={t.id} className="row">
-          <Link
-            to={`/discussions/${t.id}`}
-            className="flex items-start gap-3 px-1 py-3 sm:px-2"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="flex flex-wrap items-center gap-2">
-                <span className="truncate text-base">{t.title}</span>
-                {t.resolved && (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-positive-wash px-1.5 py-0.5 text-xs font-medium text-positive">
-                    <CircleCheck className="size-3" aria-hidden />
-                    Answered
-                  </span>
-                )}
-                {t.locked && (
-                  <Lock className="size-3.5 shrink-0 text-fg-subtle" aria-label="Locked" />
-                )}
-              </span>
-              <Meta className="mt-0.5 block truncate text-xs">
-                {[parties(t, meId), t.topic, t.journal_title, t.ticket_number]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </Meta>
-            </span>
-            <span className="shrink-0 text-right">
-              <span className="block text-sm tabular">{t.post_count}</span>
-              <Meta className="block text-xs">{relative(t.last_post_at)}</Meta>
-            </span>
-          </Link>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-/**
- * Who a private conversation is with, from what the list actually returns.
- *
- * `_thread_dict` sends `created_by` and nothing about the other participants,
- * so a conversation somebody else opened can be named by them and one you
- * opened cannot be named at all. Saying "You started this" is the honest
- * version of that; inventing a counterpart would be worse than admitting the
- * row cannot say. See the note in the report — one field on the list payload
- * fixes it.
- */
-function parties(t: ThreadRow, meId?: string): string {
-  const mine = !!meId && t.created_by_id === meId
-  if (t.visibility === "OFFICE") {
-    return mine ? "You and the research office" : `${t.created_by || "Somebody"} and the research office`
-  }
-  return mine ? "You started this" : `With ${t.created_by || "somebody"}`
-}
-
-/**
- * Who has actually written in a direct conversation.
- *
- * Deliberately NOT described as the audience. The participant rows are what
- * `visible_threads` reads, and `_thread_dict` does not send them, so a person
- * who was added and has not typed yet is invisible here. Calling this "who is
- * in it" would therefore under-report the audience of a private conversation,
- * which is the one thing this screen must never do.
- */
 function speakers(posts: PostRow[], meId?: string): string {
   const names: string[] = []
   for (const p of posts) {
@@ -1085,7 +726,7 @@ type CreateBody = {
  * default and regrets. Something for everybody is a post in the feed, and the
  * dialog says so rather than offering a third lane that leads there.
  */
-function NewConversation({
+export function NewConversation({
   initialLane,
   initialPeople = [],
   onClose,

@@ -283,6 +283,14 @@ describe("Search", () => {
     expect(within(papers).queryByRole("link", { name: /file a claim/i })).not.toBeInTheDocument()
   })
 
+  it("opens a colleague's public profile, which every role may see", async () => {
+    // `/people/{id}` is the office's account screen and refuses a claimant,
+    // so a name found here must lead to the profile anybody can open.
+    mount(FACULTY, results())
+    const link = await screen.findByRole("link", { name: "Dr Asha Menon" })
+    expect(link).toHaveAttribute("href", "/u/u-1")
+  })
+
   it("does not ask the server anything until there is something to search for", async () => {
     render(<div />)
     mockedApi.mockImplementation(

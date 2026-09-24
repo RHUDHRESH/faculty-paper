@@ -6,6 +6,29 @@ import path from "node:path"
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
+  build: {
+    rolldownOptions: {
+      output: {
+        // One named group, and only one. React, the router and the query
+        // client are on every screen and change only when a dependency is
+        // upgraded, so they sit in a chunk of their own that a deploy of the
+        // app does not invalidate -- they were in the entry chunk, which
+        // every release renamed. Everything else is left to the bundler, on
+        // purpose: a group holding a module the first screen needs and one it
+        // does not pulls both onto the first screen. Grouping the animation
+        // library did exactly that -- `MotionConfig` in main.tsx is a few
+        // hundred bytes, and it brought all 125 KB with it.
+        codeSplitting: {
+          groups: [
+            {
+              name: "vendor",
+              test: /node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom|@tanstack|cookie|set-cookie-parser)[\\/]/,
+            },
+          ],
+        },
+      },
+    },
+  },
   server: {
     port: 5174,
     // Do not watch anything Playwright writes.

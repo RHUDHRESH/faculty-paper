@@ -21,6 +21,7 @@ from core.api.common import (
 
 from datetime import date, datetime
 from typing import Any
+from django.conf import settings
 from django.http import HttpRequest
 from ninja.errors import HttpError
 from core.models import Claim, ClaimStatus, User
@@ -60,13 +61,32 @@ def _user_dict(u: User) -> dict[str, Any]:
         "faculty_type": u.faculty_type,
         "research_quota": u.research_quota,
         "research_quota_note": u.research_quota_note,
+        "phone": u.phone,
+        "bio": u.bio,
+        "orcid_id": u.orcid_id,
+        "photo_url": f"{settings.MEDIA_URL}{u.photo}" if u.photo else None,
         "portal": rbac.portal_for_role(u.role),
+    }
+
+
+def _google_link(u: User) -> dict[str, Any] | None:
+    """Which Google account signs in to this one, or None.
+
+    Only ever on the signed-in person's own payload: the subject id stays on
+    the server, and which Gmail somebody uses is nobody else's business.
+    """
+    if not u.google_sub:
+        return None
+    return {
+        "email": u.google_email,
+        "linked_at": u.google_linked_at.isoformat() if u.google_linked_at else None,
     }
 
 
 def _me_dict(request: HttpRequest, u: User) -> dict[str, Any]:
     """The signed-in payload, plus who is really driving."""
     data = _user_dict(u)
+    data["google"] = _google_link(u)
     real = impersonator_of(request)
     if real:
         data["impersonated_by"] = {"id": real.id, "name": real.name, "email": real.email}
@@ -91,6 +111,13 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "owner_department": c.owner.department,
         "status": c.status,
         "status_note": c.status_note,
+        # Paused at its desk, not moved: `status` still says where it is.
+        "on_hold": c.on_hold,
+        "hold_reason": c.hold_reason,
+        "held_by_name": c.held_by.name if c.held_by_id else None,
+        "held_at": c.held_at.isoformat() if c.held_at else None,
+        # REJECTED either way; this says whether it can be fixed and refiled.
+        "rejected_outright": c.rejected_outright,
         "ticket_number": c.ticket_number,
         "contest_forward": c.contest_forward,
         "contest_note": c.contest_note,
@@ -262,6 +289,7 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
 
 __all__ = [
     '_format_payout_month',
+    '_google_link',
     '_me_dict',
     '_user_dict',
     'claim_to_dict',

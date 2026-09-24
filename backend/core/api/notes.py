@@ -7,7 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
-from core.api.common import rate_limit, _notify_admins, api, session_auth
+from core.api.common import rate_limit, _notify_admins, _refuse_own_claim, api, session_auth
 from core.api.deps import _user_dict, claim_to_dict
 from core.api.common import require_user
 from core.api.claims import _claims_queryset, _refuse_hod_money_screens
@@ -46,6 +46,8 @@ def list_claim_notes(request: HttpRequest, claim_id: str):
     if not _may_read_notes(user.role):
         raise HttpError(403, "Forbidden")
     claim = get_object_or_404(Claim, pk=claim_id)
+    # The desk's notes on the reader's own paper are about them, as its claimant.
+    _refuse_own_claim(user, claim)
     return {
         "results": [
             {
@@ -78,6 +80,7 @@ def add_claim_note(request: HttpRequest, claim_id: str, payload: ClaimNoteIn):
         raise HttpError(400, "Write the note first")
 
     claim = get_object_or_404(Claim, pk=claim_id)
+    _refuse_own_claim(user, claim)
     note = ClaimNote.objects.create(
         claim=claim, author=user, body=body[:5000], audience=ClaimNote.Audience.ADMIN
     )
@@ -98,7 +101,8 @@ def resolve_claim_note(request: HttpRequest, note_id: str):
     user = require_user(request)
     if user.role not in rbac.ADMIN_ROLES:
         raise HttpError(403, "Only the research cell closes a note")
-    note = get_object_or_404(ClaimNote, pk=note_id)
+    note = get_object_or_404(ClaimNote.objects.select_related("claim"), pk=note_id)
+    _refuse_own_claim(user, note.claim)
     note.resolved_at = timezone.now()
     note.resolved_by = user
     note.save(update_fields=["resolved_at", "resolved_by"])

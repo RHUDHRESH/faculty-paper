@@ -1,50 +1,59 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { motion, useReducedMotion } from "motion/react"
 import { Eye, EyeOff, LoaderCircle } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
-import { useCollegeName } from "@/app/institution"
-import { Mark, StageTrack } from "@/ui/art"
+import { loadGoogleIdentity, type GoogleConfig } from "@/app/google"
+import { useInstitution } from "@/app/institution"
+import { Mark } from "@/ui/art"
+import { JOURNEY } from "@/ui/journey"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
 
 /**
  * The way in.
  *
- * The form is still two fields and one button and it is still the first
- * thing on the page, because five hundred people sign in here on a Monday
- * morning and every one of them wants to be past it. What changed is what
- * sits beside it on a wide screen.
+ * Two fields and one button, first on the page, because five hundred people
+ * sign in here on a Monday morning and every one of them wants to be past it.
+ * On a wide screen the other half carries the college and the four stages a
+ * paper passes through -- the claimant's view of the chain, which names no
+ * desk (see ui/journey.tsx).
  *
- * That panel is not marketing. The one question the research cell's phone
- * rings about is "where has my claim got to", and the answer is a chain of
- * five desks that nobody outside the office has ever been shown. It is drawn
- * from `STAGES` in `ui/paper.tsx` — the same list every paper's progress bar
- * is built from — so it cannot describe a chain the app no longer runs. It
- * is hidden below `lg`, where the form is the whole job.
- *
- * The password can be read back. That is not a nicety: the passwords this
- * system issues look like `RzSRfIOD%V*uQYfw2_j0L#2M`, they are handed over on
- * paper, and a failed attempt cannot tell somebody whether the caps lock was
- * down or the `l` they typed was a `1`. Five failures locks the account.
+ * The password can be read back: the passwords this system issues are long
+ * random strings handed over on paper. The email is remembered on this device
+ * so the Monday-morning sign-in is one field, not two.
  */
+const REMEMBER_KEY = "sign-in-email"
+
+function rememberedEmail(): string {
+  try {
+    return localStorage.getItem(REMEMBER_KEY) || ""
+  } catch {
+    return ""
+  }
+}
+
 export function SignIn() {
   const { signIn } = useAuth()
-  const collegeName = useCollegeName()
-  const [email, setEmail] = useState("")
+  const institution = useInstitution()
+  const collegeName = institution.college_name || "the college"
+  const [email, setEmail] = useState(rememberedEmail)
+  const [remember, setRemember] = useState(() => rememberedEmail() !== "")
   const [password, setPassword] = useState("")
   const [shown, setShown] = useState(false)
   const [caps, setCaps] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // The global reduce rule in `styles.css` only reaches CSS transitions; a
-  // JS-driven entrance would sail straight through it.
-  const still = useReducedMotion()
+  const [forgot, setForgot] = useState(false)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError(null)
+    try {
+      localStorage.setItem(REMEMBER_KEY, remember ? email.trim() : "")
+    } catch {
+      /* remembering is a convenience */
+    }
     try {
       await signIn(email.trim(), password)
     } catch (err) {
@@ -53,25 +62,38 @@ export function SignIn() {
     }
   }
 
-  return (
-    <div className="grid min-h-svh lg:grid-cols-2">
-      <div className="grid place-items-center px-4 py-12">
-        <motion.div
-          initial={still ? false : { opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-          className="w-full max-w-[21rem]"
-        >
-          <div className="mb-7">
-            {/* 64px. The mark is the only thing on this page that says whose
-                system this is, so it is the size of that job and not the size
-                of a favicon. */}
-            <Mark className="mb-5 size-16 text-accent" title={collegeName} />
-            <h1 className="text-xl font-semibold">Faculty Publication App</h1>
-            <p className="mt-1 text-base text-fg-muted">{collegeName}</p>
-          </div>
+  const field = cn(
+    "h-11 w-full rounded-md bg-surface px-3 text-base",
+    "ring-1 ring-inset ring-field outline-none",
+    "focus-visible:ring-2 focus-visible:ring-accent"
+  )
 
-          <form onSubmit={submit} className="space-y-3.5">
+  return (
+    <div className="grid min-h-svh bg-bg lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      <BrandPanel collegeName={collegeName} />
+
+      <main className="grid place-items-center px-5 py-12">
+        {/* CSS rather than the animation library: this is the first page most
+            people load, and the library was a third of its JavaScript. */}
+        <div className="frame-rise w-full max-w-[24rem]">
+          {/* On a phone the brand panel is not drawn, so the page names the
+              college itself. */}
+          {/* The college's full wordmark, on the white side where its navy,
+              red and yellow read as the college prints them. */}
+          <img
+            src="/brand/wordmark.png"
+            alt={collegeName}
+            width={1024}
+            height={206}
+            className="mb-8 h-auto w-full max-w-[22rem] dark:rounded-md dark:bg-white dark:p-2"
+          />
+
+          <h1 className="display text-xl">Sign in</h1>
+          <p className="mt-1 text-base text-fg-muted">
+            Use the email and password the research cell gave you.
+          </p>
+
+          <form onSubmit={submit} className="mt-7 space-y-4">
             <div className="space-y-1.5">
               <label htmlFor="email" className="text-sm font-medium">
                 Email
@@ -81,45 +103,47 @@ export function SignIn() {
                 type="email"
                 autoComplete="username"
                 required
+                autoFocus={!email}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className={cn(
-                  "h-10 w-full rounded-md bg-surface px-3 text-base",
-                  "ring-1 ring-inset ring-field outline-none",
-                  "focus-visible:ring-2 focus-visible:ring-accent"
-                )}
+                className={field}
               />
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="password" className="text-sm font-medium">
-                Password
-              </label>
+              <div className="flex items-baseline justify-between">
+                <label htmlFor="password" className="text-sm font-medium">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setForgot((v) => !v)}
+                  aria-expanded={forgot}
+                  className="text-sm text-accent hover:underline"
+                >
+                  Forgot your password?
+                </button>
+              </div>
               <div className="relative">
                 <input
                   id="password"
                   type={shown ? "text" : "password"}
                   autoComplete="current-password"
                   required
+                  autoFocus={Boolean(email)}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyUp={(e) => setCaps(e.getModifierState?.("CapsLock") ?? false)}
                   onBlur={() => setCaps(false)}
-                  className={cn(
-                    "h-10 w-full rounded-md bg-surface pl-3 pr-10 text-base",
-                    "ring-1 ring-inset ring-field outline-none",
-                    "focus-visible:ring-2 focus-visible:ring-accent"
-                  )}
+                  className={cn(field, "pr-11")}
                 />
                 <button
                   type="button"
-                  // Out of the tab order: Tab from the password field should
-                  // reach Sign in, not a control you did not come here for.
                   tabIndex={-1}
                   onClick={() => setShown((v) => !v)}
                   aria-label={shown ? "Hide password" : "Show password"}
                   aria-pressed={shown}
-                  className="absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-sm text-fg-subtle hover:text-fg"
+                  className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-sm text-fg-subtle hover:text-fg"
                 >
                   {shown ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
@@ -129,88 +153,115 @@ export function SignIn() {
                   Caps lock is on.
                 </p>
               )}
+              {forgot && (
+                <p role="status" className="rounded-md bg-sunken px-3 py-2 text-sm text-fg-muted">
+                  Passwords are reset by the research cell, not by an email link.{" "}
+                  {institution.support_email ? (
+                    <>
+                      Write to{" "}
+                      <a
+                        className="text-accent underline"
+                        href={"mailto:" + institution.support_email}
+                      >
+                        {institution.support_email}
+                      </a>{" "}
+                      for a new one; you will change it on first sign-in.
+                    </>
+                  ) : (
+                    "Ask them for a new one; you will change it on first sign-in."
+                  )}
+                </p>
+              )}
             </div>
 
+            <label className="flex items-center gap-2 text-sm text-fg-muted">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="size-4 accent-[var(--color-accent)]"
+              />
+              Remember me on this device
+            </label>
+
             {error && (
-              <motion.p
-                initial={still ? false : { opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
+              <p
                 role="alert"
-                className="rounded-md bg-critical-wash px-3 py-2 text-sm text-critical"
+                className="frame-overlay rounded-md bg-critical-wash px-3 py-2 text-sm text-critical"
               >
                 {error}
-              </motion.p>
+              </p>
             )}
 
-            <Button kind="primary" size="lg" type="submit" disabled={busy} className="w-full">
+            <Button kind="primary" size="lg" type="submit" disabled={busy} className="h-11 w-full">
               {busy && <LoaderCircle className="animate-spin" />}
               {busy ? "Signing in…" : "Sign in"}
             </Button>
           </form>
 
           <OtherWaysIn onError={setError} />
-        </motion.div>
-      </div>
 
-      <WhatHappensNext still={Boolean(still)} />
+          {institution.sign_in_note && (
+            <p className="mt-8 border-t border-line pt-4 text-sm text-fg-muted">
+              {institution.sign_in_note}
+            </p>
+          )}
+        </div>
+      </main>
     </div>
   )
 }
 
 /**
- * The half of the sign-in page that is not the form.
- *
- * Everything on it is true of this system and checkable against the code
- * that implements it: the five desks come from `STAGES`, and the two notes
- * under them are the two facts that stop the most support calls — that an
- * account here is never created by signing in, and that the password was
- * issued on paper and can be read back before it is submitted.
- *
- * Below `lg` it is not rendered at all. A person on a phone gets the form,
- * full stop.
+ * The half of the page that is not the form: whose system this is, and what
+ * happens to a paper filed in it. Drawn in the brand colour so the page has a
+ * front, and hidden below `lg`, where the form is the whole job.
  */
-function WhatHappensNext({ still }: { still: boolean }) {
+function BrandPanel({ collegeName }: { collegeName: string }) {
   return (
-    <aside className="relative hidden overflow-hidden border-l border-line bg-sunken lg:grid lg:place-items-center">
-      {/* The mark again, large enough to be texture rather than a logo, and
-          light enough that it never competes with the words on top of it.
-          Absolutely positioned, so it cannot move anything. */}
-      <Mark className="pointer-events-none absolute -bottom-20 -right-16 size-80 text-line" />
+    <aside className="relative hidden overflow-hidden bg-brand text-brand-fg lg:flex lg:flex-col lg:justify-between lg:p-12">
+      <Mark className="pointer-events-none absolute -bottom-24 -right-20 size-[26rem] opacity-[0.07] grayscale" />
 
-      <motion.div
-        initial={still ? false : { opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.28, delay: 0.06, ease: [0.16, 1, 0.3, 1] }}
-        className="relative w-full max-w-[22rem] px-4 py-12"
-      >
-        <h2 className="text-lg font-semibold">What happens to a paper you file</h2>
-        <p className="mt-1 text-base text-fg-muted">
-          Five desks, in this order. Every paper shows which one it is
-          sitting on.
+      <div className="relative flex items-center gap-3">
+        <Mark className="size-9" />
+        <div className="leading-tight">
+          <p className="font-semibold">Faculty Publications</p>
+          <p className="text-sm opacity-80">{collegeName}</p>
+        </div>
+      </div>
+
+      <div className="frame-rise relative max-w-md [animation-delay:50ms]">
+        <p className="text-[2.5rem] font-semibold leading-[1.1] tracking-[-0.03em] [text-wrap:balance]">
+          File the paper once. See where it is. Get paid.
+        </p>
+        <p className="mt-4 text-base opacity-80">
+          Paste a DOI and most of the claim fills itself in. After that it
+          moves through four stages, and you can always see which one.
         </p>
 
-        <StageTrack className="mt-6" />
+        <ol className="mt-10 grid grid-cols-4 gap-2">
+          {JOURNEY.map((stage, i) => (
+            <li key={stage}>
+              <span
+                aria-hidden
+                className="block h-1.5 rounded-full bg-brand-fg"
+                style={{ opacity: 0.35 + i * 0.2 }}
+              />
+              <span className="mt-2 block text-sm font-medium">{stage}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
 
-        <div className="mt-2 space-y-2 border-t border-line pt-5">
-          <p className="text-sm text-fg-muted">
-            Signing in never creates an account — every account here was made
-            by the research cell.
-          </p>
-          <p className="text-sm text-fg-muted">
-            Your password was issued on paper. Read it back with the eye
-            before you sign in; five failed attempts locks the account.
-          </p>
-        </div>
-      </motion.div>
+      <p className="relative text-sm opacity-70">
+        Signing in never creates an account. Every account here was made by the
+        research cell.{" "}
+        <a href="/privacy" className="underline underline-offset-2">
+          Privacy
+        </a>
+      </p>
     </aside>
   )
-}
-
-
-type GoogleConfig = {
-  enabled: boolean
-  client_id: string | null
-  hosted_domain: string | null
 }
 
 /**
@@ -226,71 +277,58 @@ type GoogleConfig = {
  * and this college does not is refused, and the refusal says so plainly —
  * these accounts carry staff ids and decide who gets paid, so a free signup
  * form is not a thing that can be allowed to mint one.
+ *
+ * No domain hint is passed to Google. A Google account linked from the
+ * profile page may be a personal Gmail, and Google's `hd` option would hide
+ * it from the account chooser; the server enforces the college domain for
+ * anyone who has not linked one.
  */
-function GoogleButton({ onError }: { onError: (message: string | null) => void }) {
+function GoogleButton({
+  config,
+  onError,
+}: {
+  config: GoogleConfig | null
+  onError: (message: string | null) => void
+}) {
   const { signInWithGoogle } = useAuth()
-  const [config, setConfig] = useState<GoogleConfig | null>(null)
-  const [ready, setReady] = useState(false)
   const slot = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    let live = true
-    // A failure here is not shown. Not being able to tell whether Google
-    // sign-in is on is not something the person in front of the screen can
-    // act on, and the password form below works either way.
-    fetch("/api/auth/google/config")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((c: GoogleConfig | null) => live && setConfig(c))
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [])
 
   // Google's script is loaded only once we know there is a client id to give
   // it, so a college that does not use this never fetches it at all.
   useEffect(() => {
-    if (!config?.enabled) return
-    const existing = document.getElementById("gsi-script")
-    if (existing) {
-      setReady(true)
-      return
+    const clientId = config?.enabled ? config.client_id : null
+    if (!clientId) return
+    let live = true
+    loadGoogleIdentity()
+      .then((google) => {
+        if (!live || !slot.current) return
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: ({ credential }) => {
+            onError(null)
+            void signInWithGoogle(credential).catch((err: unknown) =>
+              onError(
+                err instanceof Error
+                  ? err.message
+                  : "Could not sign in with that Google account."
+              )
+            )
+          },
+        })
+        google.accounts.id.renderButton(slot.current, {
+          theme: "outline",
+          size: "large",
+          width: 336,
+          text: "continue_with",
+        })
+      })
+      // Not shown: the password form above works either way, and a script
+      // that did not load is not something the person can act on.
+      .catch(() => {})
+    return () => {
+      live = false
     }
-    const el = document.createElement("script")
-    el.id = "gsi-script"
-    el.src = "https://accounts.google.com/gsi/client"
-    el.async = true
-    el.defer = true
-    el.onload = () => setReady(true)
-    document.head.appendChild(el)
-  }, [config?.enabled])
-
-  useEffect(() => {
-    if (!ready || !config?.client_id || !slot.current) return
-    const google = (window as unknown as { google?: GoogleIdentity }).google
-    if (!google) return
-
-    google.accounts.id.initialize({
-      client_id: config.client_id,
-      hosted_domain: config.hosted_domain || undefined,
-      callback: ({ credential }) => {
-        onError(null)
-        void signInWithGoogle(credential).catch((err: unknown) =>
-          onError(
-            err instanceof Error
-              ? err.message
-              : "Could not sign in with that Google account."
-          )
-        )
-      },
-    })
-    google.accounts.id.renderButton(slot.current, {
-      theme: "outline",
-      size: "large",
-      width: 336,
-      text: "continue_with",
-    })
-  }, [ready, config, signInWithGoogle, onError])
+  }, [config, signInWithGoogle, onError])
 
   if (!config?.enabled) return null
 
@@ -300,28 +338,12 @@ function GoogleButton({ onError }: { onError: (message: string | null) => void }
           form does not jump when it arrives. */}
       <div ref={slot} className="grid min-h-10 place-items-center" />
       <p className="mt-3 text-xs text-fg-subtle">
-        Use the Google account the college gave you. This signs you in to an
-        account that already exists — it does not create one.
+        Use the Google account for the email on your account, or one you have
+        linked. Not linked yet? Sign in with your email and password below,
+        then link Google from your profile.
       </p>
     </div>
   )
-}
-
-/** The slice of Google Identity Services this page uses. */
-type GoogleIdentity = {
-  accounts: {
-    id: {
-      initialize: (options: {
-        client_id: string
-        hosted_domain?: string
-        callback: (response: { credential: string }) => void
-      }) => void
-      renderButton: (
-        parent: HTMLElement,
-        options: { theme: string; size: string; width: number; text: string }
-      ) => void
-    }
-  }
 }
 
 
@@ -335,8 +357,10 @@ type GoogleIdentity = {
  * the password form is the only way in.
  */
 function OtherWaysIn({ onError }: { onError: (message: string | null) => void }) {
-  const [google, setGoogle] = useState<{ enabled: boolean } | null>(null)
-  const [clerk, setClerk] = useState<{ enabled: boolean } | null>(null)
+  // Asked once, here, and handed to each button: every button used to ask
+  // again for itself, a second round trip on the page everybody opens first.
+  const [google, setGoogle] = useState<GoogleConfig | null>(null)
+  const [clerk, setClerk] = useState<ClerkConfig | null>(null)
 
   useEffect(() => {
     let live = true
@@ -365,8 +389,8 @@ function OtherWaysIn({ onError }: { onError: (message: string | null) => void })
         <span className="text-xs text-fg-subtle">or</span>
         <span className="h-px flex-1 bg-line" />
       </div>
-      <GoogleButton onError={onError} />
-      <ClerkButton onError={onError} />
+      <GoogleButton config={google} onError={onError} />
+      <ClerkButton config={clerk} onError={onError} />
     </div>
   )
 }
@@ -385,22 +409,16 @@ type ClerkConfig = { enabled: boolean; publishable_key: string | null }
  * downloads it. Signing in this way never creates an account — an address
  * Clerk knows and this college does not is refused, and says so.
  */
-function ClerkButton({ onError }: { onError: (message: string | null) => void }) {
+function ClerkButton({
+  config,
+  onError,
+}: {
+  config: ClerkConfig | null
+  onError: (message: string | null) => void
+}) {
   const { signInWithClerk } = useAuth()
-  const [config, setConfig] = useState<ClerkConfig | null>(null)
   const [busy, setBusy] = useState(false)
   const client = useRef<ClerkClient | null>(null)
-
-  useEffect(() => {
-    let live = true
-    void fetch("/api/auth/clerk/config")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((c: ClerkConfig | null) => live && setConfig(c))
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [])
 
   async function start() {
     if (!config?.publishable_key) return

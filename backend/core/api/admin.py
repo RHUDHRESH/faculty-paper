@@ -11,7 +11,7 @@ from core.api.common import api, session_auth
 from core.api.schemas import FormulaIn, ResetPasswordByEmailIn, ResetPasswordIn, UserCreateIn, UserUpdateIn
 from core.api.deps import _user_dict, claim_to_dict
 from core.api.common import require_user
-from core.api.auth import FIELD_LABELS, IDENTITY_FIELDS, clear_login_lockout
+from core.api.auth import FIELD_LABELS, IDENTITY_FIELDS, clear_login_lockout, may_set_field
 from core.api.claims import _CLAIM_SORTS
 from core.api.common import _invalidate_threshold_cache
 
@@ -27,8 +27,9 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
-from core.services import rbac
+from core.models import AuditLog, Claim, ClaimFlag, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
+from core import visibility
+from core.services import heads, rbac
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.remuneration import DEFAULT_AUTHOR_POINTS, DEFAULT_PUB_TYPE_MULTIPLIERS, MAX_ELIGIBLE_AUTHORS, MIN_SEC_REFERENCES
 from core.services.scimago_sync import SCIMAGO_RANK_URL, ScimagoSyncError, import_csv_text, sync_year
@@ -43,10 +44,15 @@ def admin_users(
     role: Optional[str] = None,
     department: Optional[str] = None,
     active: Optional[str] = None,
+    faculty_type: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ):
     """The staff directory, searched and paged server-side.
+
+    `faculty_type` (REGULAR or RESEARCH) sits beside `role` because the office
+    asks both questions of a person separately: are they head, and are they
+    research faculty.
 
     It used to return every account as one array — the college has hundreds of
     faculty, so the screen loaded them all and filtered in the browser.
@@ -74,6 +80,8 @@ def admin_users(
         qs = qs.filter(department__iexact=department.strip())
     if active in ("true", "false"):
         qs = qs.filter(active=(active == "true"))
+    if faculty_type in ("REGULAR", "RESEARCH"):
+        qs = qs.filter(faculty_type=faculty_type)
     # Staff accounts first, then faculty alphabetically: the people an admin
     # opens this screen to find are never the 400 imported faculty.
     qs = qs.annotate(
@@ -167,6 +175,21 @@ def _check_privileged_assignment(actor: User, role: str | None) -> None:
         )
 
 
+def _appoint_head(u: User, *, replace: bool, actor: User) -> None:
+    """One head per department (`services.heads`), answered as HTTP.
+
+    409 names the head already in post, so the office can decide rather than
+    guess; `replace_hod` is the explicit decision, and demotes them in the same
+    transaction as this write.
+    """
+    try:
+        heads.appoint(u, replace=replace, actor=actor, via="account editor")
+    except heads.NoDepartment as exc:
+        raise HttpError(400, str(exc))
+    except heads.HeadAlreadyAppointed as exc:
+        raise HttpError(409, str(exc))
+
+
 def _check_assignable_role(role: str | None) -> None:
     """Refuse a role nothing recognises, rather than writing it.
 
@@ -204,30 +227,34 @@ def admin_create_user(request: HttpRequest, payload: UserCreateIn):
             " Use a different address, or change that account's role instead.",
         )
 
-    u = User.objects.create_user(
-        email=email,
-        # `None` here is not "no password", it is "no password that works":
-        # Django stores an unusable marker that no input can ever match.
-        password=payload.password or None,
-        name=payload.name,
-        role=payload.role,
-        department=payload.department,
-        employee_id=payload.employee_id,
-        staff_id=payload.staff_id,
-        biometric_id=payload.biometric_id,
-        designation=payload.designation,
-        scopus_author_url=payload.scopus_author_url,
-        scopus_author_id=payload.scopus_author_id,
-        # An account with no usable password must be made to set one; the
-        # flag is not the caller's to turn off in that case.
-        must_change_password=payload.must_change_password or not payload.password,
-    )
-    if not payload.password:
-        u.set_unusable_password()
-        u.save(update_fields=["password"])
-    AuditLog.objects.create(
-        actor=user, action="USER_CREATE", entity="User", entity_id=u.id
-    )
+    with transaction.atomic():
+        u = User.objects.create_user(
+            email=email,
+            # `None` here is not "no password", it is "no password that works":
+            # Django stores an unusable marker that no input can ever match.
+            password=payload.password or None,
+            name=payload.name,
+            role=payload.role,
+            department=payload.department,
+            employee_id=payload.employee_id,
+            staff_id=payload.staff_id,
+            biometric_id=payload.biometric_id,
+            designation=payload.designation,
+            scopus_author_url=payload.scopus_author_url,
+            scopus_author_id=payload.scopus_author_id,
+            # An account with no usable password must be made to set one; the
+            # flag is not the caller's to turn off in that case.
+            must_change_password=payload.must_change_password or not payload.password,
+        )
+        if u.role == Role.HOD:
+            # A refusal here unwinds the account created just above.
+            _appoint_head(u, replace=bool(payload.replace_hod), actor=user)
+        if not payload.password:
+            u.set_unusable_password()
+            u.save(update_fields=["password"])
+        AuditLog.objects.create(
+            actor=user, action="USER_CREATE", entity="User", entity_id=u.id
+        )
     return {
         "id": u.id,
         "email": u.email,
@@ -242,6 +269,8 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
         raise HttpError(403, "Forbidden")
     u = get_object_or_404(User, pk=user_id)
     data = payload.dict(exclude_unset=True)
+    # An instruction about this write, not a field of the account.
+    replace_hod = bool(data.pop("replace_hod", False))
     if "role" in data:
         _check_assignable_role(data["role"])
     # Identity is super-admin only, here as much as on the profile page.
@@ -249,7 +278,7 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
     # the same mistake one desk over: the research cell processes the claims
     # these fields decide the outcome of, so it cannot also set them.
     if actor.role != Role.SUPER_ADMIN:
-        blocked = sorted(set(data) & IDENTITY_FIELDS)
+        blocked = sorted(f for f in set(data) & IDENTITY_FIELDS if not may_set_field(actor.role, f))
         if blocked:
             raise HttpError(
                 403,
@@ -279,15 +308,22 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
     if u.faculty_type != "RESEARCH":
         u.research_quota = None
         u.research_quota_note = None
-    u.save()
     changed = {k: {"from": before[k], "to": data[k]} for k in data if before[k] != data[k]}
-    AuditLog.objects.create(
-        actor=actor,
-        action="USER_UPDATE",
-        entity="User",
-        entity_id=u.id,
-        detail_json=json.dumps(changed) if changed else None,
-    )
+    with transaction.atomic():
+        # Checked only when this edit changes who holds the post -- the role,
+        # where they sit, or whether the account is on. An unrelated edit to a
+        # department that already has two heads from before the rule must not
+        # be frozen by it.
+        if u.role == Role.HOD and changed.keys() & {"role", "department", "active"}:
+            _appoint_head(u, replace=replace_hod, actor=actor)
+        u.save()
+        AuditLog.objects.create(
+            actor=actor,
+            action="USER_UPDATE",
+            entity="User",
+            entity_id=u.id,
+            detail_json=json.dumps(changed) if changed else None,
+        )
     return _user_dict(u)
 
 
@@ -362,6 +398,7 @@ def get_formula(request: HttpRequest):
             "fixed_web_of_science": 5000,
             "max_authors": MAX_ELIGIBLE_AUTHORS,
             "min_sec_references": MIN_SEC_REFERENCES,
+            "filing_cutoff_day": None,
         }
     return {
         "id": cfg.id,
@@ -388,6 +425,7 @@ def get_formula(request: HttpRequest):
         "fixed_web_of_science": cfg.fixed_web_of_science,
         "max_authors": cfg.max_authors,
         "min_sec_references": cfg.min_sec_references,
+        "filing_cutoff_day": cfg.filing_cutoff_day,
         "notes": cfg.notes,
     }
 
@@ -470,10 +508,18 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
     ):
         if amount < 0:
             raise HttpError(400, f"{label} cannot be negative")
+    cutoff_given = "filing_cutoff_day" in payload.model_fields_set
+    if payload.filing_cutoff_day is not None and not 1 <= payload.filing_cutoff_day <= 28:
+        raise HttpError(
+            400, "The filing cutoff is a day of the month from 1 to 28, so every month has it"
+        )
 
     with transaction.atomic():
         prev = FormulaConfig.objects.filter(active=True).order_by("-version").first()
         next_version = (prev.version + 1) if prev else 1
+        # A client that does not know about the cutoff (an older screen, a
+        # script) must not clear it by saving the rest of the policy.
+        cutoff = payload.filing_cutoff_day if cutoff_given else (prev.filing_cutoff_day if prev else None)
         FormulaConfig.objects.filter(active=True).update(active=False)
         cfg = FormulaConfig.objects.create(
             name=payload.name or f"Policy v{next_version}",
@@ -499,6 +545,7 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
             fixed_web_of_science=payload.fixed_web_of_science,
             max_authors=payload.max_authors,
             min_sec_references=payload.min_sec_references,
+            filing_cutoff_day=cutoff,
             notes=payload.notes,
             updated_by=user,
             active=True,
@@ -531,6 +578,20 @@ def admin_audit(
     if not rbac.can_view_audit(user.role):
         raise HttpError(403, "Forbidden")
     qs = AuditLog.objects.select_related("actor").order_by("-created_at")
+    # The trail of the reader's own papers names every desk and person that
+    # handled them; on those they are the claimant, who is told neither. A
+    # flag's rows are filed under the flag, so they are left out by the flag.
+    qs = qs.exclude(
+        entity="Claim",
+        entity_id__in=Claim.objects.filter(owner=user).values_list("id", flat=True),
+    ).exclude(
+        entity="ClaimFlag",
+        entity_id__in=ClaimFlag.objects.filter(claim__owner=user).values_list("id", flat=True),
+    )
+    if visibility.is_contest_blind(user.role):
+        # Dropped from the query rather than from the page, so the total does
+        # not count rows the reader is not shown.
+        qs = qs.exclude(action__in=visibility.CONTEST_AUDIT_ACTIONS)
     if action:
         qs = qs.filter(action__icontains=action)
     if q:
@@ -562,6 +623,85 @@ def admin_audit(
     }
 
 
+@api.get("/admin/audit/origins", auth=session_auth)
+def admin_audit_origins(request: HttpRequest):
+    """Where the record came from: the imports and restores that built it.
+
+    The college's history arrived by import, and the ERP import wrote no
+    audit rows, so the log's first screen was a column of identical automatic
+    entries and nothing about the claims and payments behind them. These are
+    worked out from the rows themselves -- the payment-history batches, the
+    ERP tickets by sheet and day, accounts created in bulk -- plus any restore
+    or upload the log did record. Newest first. A reader who is not shown
+    flags (the Director, Finance) is not shown the check that raised them.
+    """
+    from django.db.models import Count, Min
+    from django.db.models.functions import TruncDate
+
+    user = require_user(request)
+    if not rbac.can_view_audit(user.role):
+        raise HttpError(403, "Forbidden")
+    events: list[dict] = []
+
+    def add(at, title, detail, by=None):
+        events.append({
+            "at": at.isoformat() if at else None,
+            "title": title,
+            "detail": detail,
+            "by": by,
+        })
+
+    for log in AuditLog.objects.select_related("actor").filter(
+        Q(action__icontains="RESTORE") | Q(action__icontains="IMPORT")
+    ).order_by("-created_at")[:20]:
+        add(log.created_at, log.action.replace("_", " ").capitalize(), "",
+            log.actor.name if log.actor else None)
+
+    for batch in PriorImport.objects.select_related("imported_by").order_by("-created_at")[:20]:
+        add(batch.created_at, "Payment history loaded",
+            f"{batch.row_count:,} payments from {batch.filename}",
+            batch.imported_by.name if batch.imported_by_id else None)
+
+    sheets: dict = {}
+    for row in (
+        Claim.objects.filter(ticket_number__startswith="ERP-")
+        .annotate(day=TruncDate("created_at"))
+        .values("day", "ticket_number")
+    ):
+        tag = row["ticket_number"].split("-")[1] if row["ticket_number"].count("-") >= 2 else ""
+        per_day = sheets.setdefault(row["day"], {})
+        per_day[tag] = per_day.get(tag, 0) + 1
+    firsts = dict(
+        Claim.objects.filter(ticket_number__startswith="ERP-")
+        .annotate(day=TruncDate("created_at")).values("day")
+        .annotate(first=Min("created_at")).values_list("day", "first")
+    )
+    names = {"PROCESSED": "the Processed sheet", "RAW": "Raw_Data (the Google Form's sheet)"}
+    for day, tags in sheets.items():
+        parts = [f"{n} from {names.get(t, t.title() + ' sheet')}" for t, n in sorted(tags.items())]
+        add(firsts.get(day), "Claims brought across from the ERP workbook", ", ".join(parts))
+
+    for row in (
+        User.objects.annotate(day=TruncDate("created_at")).values("day")
+        .annotate(n=Count("id"), faculty=Count("id", filter=Q(role=Role.FACULTY)), first=Min("created_at"))
+        .filter(n__gte=25)
+    ):
+        add(row["first"], "Accounts created from the roster",
+            f"{row['n']:,} accounts, {row['faculty']:,} of them faculty")
+
+    if not visibility.is_contest_blind(user.role):
+        for row in (
+            AuditLog.objects.filter(action="CLAIM_FLAG_RAISE", actor__isnull=True)
+            .annotate(day=TruncDate("created_at")).values("day")
+            .annotate(n=Count("id"), first=Min("created_at"))
+        ):
+            add(row["first"], "The import check raised flags",
+                f"{row['n']:,} flags on imported claims — listed below, and on the Flags page")
+
+    events.sort(key=lambda e: e["at"] or "", reverse=True)
+    return {"events": events}
+
+
 @api.get("/admin/payouts", auth=session_auth)
 def admin_payouts(
     request: HttpRequest,
@@ -573,9 +713,15 @@ def admin_payouts(
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
-    qs = Claim.objects.select_related(
-        "owner", "cleared_by", "second_approved_by", "principal_approved_by", "override_by"
-    ).prefetch_related("attachments")
+    qs = (
+        Claim.objects.select_related(
+            "owner", "cleared_by", "second_approved_by", "principal_approved_by", "override_by"
+        )
+        .prefetch_related("attachments")
+        # Finance's desk never carries the officer's own paper
+        # (`rbac.is_own_claim`); another officer, or the super admin, pays it.
+        .exclude(owner=user)
+    )
     if status == "PAID":
         qs = qs.filter(status=ClaimStatus.PAID)
         default_order = "-paid_at"
@@ -729,7 +875,13 @@ def admin_clearing_queue(request: HttpRequest, status: Optional[str] = None):
     user = require_user(request)
     if not rbac.can_clear_claims(user.role):
         raise HttpError(403, "Forbidden")
-    qs = Claim.objects.select_related("owner").prefetch_related("attachments")
+    qs = (
+        Claim.objects.select_related("owner")
+        .prefetch_related("attachments")
+        # Never the clearer's own paper: another officer at the desk, or the
+        # super admin, clears it (`rbac.is_own_claim`).
+        .exclude(owner=user)
+    )
     if status and status != "ALL":
         qs = qs.filter(status=status)
     else:

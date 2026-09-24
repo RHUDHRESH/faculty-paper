@@ -659,7 +659,7 @@ function People({ people }: { people: FoundPerson[] }) {
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
               <div className="min-w-0 flex-1 basis-48">
                 <p className="text-base font-medium text-fg">
-                  <Link to={`/people/${p.id}`} className="underline-offset-2 hover:underline">
+                  <Link to={`/u/${p.id}`} className="underline-offset-2 hover:underline">
                     {p.name}
                   </Link>
                 </p>

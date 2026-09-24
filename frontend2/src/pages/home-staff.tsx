@@ -1,5 +1,7 @@
+import { firstName } from "@/lib/names"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
+import { useState } from "react"
 import {
   ArrowUpRight,
   BarChart3,
@@ -7,13 +9,26 @@ import {
   ClipboardCheck,
   Copy,
   FileCheck,
+  Plus,
   TriangleAlert,
   Users,
 } from "lucide-react"
 
-import { useAuth } from "@/app/auth"
+import { can, useAuth } from "@/app/auth"
+import { HOME_DATA } from "@/app/home-data"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
+import {
+  MoneySkeleton,
+  MoneyStrip,
+  NeedsYou,
+  OnTheWay,
+  PaidList,
+  useOwnPapers,
+} from "@/pages/home-faculty"
+import { Button } from "@/ui/button"
+import { Celebrations } from "@/ui/celebrations"
+import { ComingUp } from "@/ui/coming-up"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Callout, ErrorState, InlineError, Skeleton } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
@@ -43,7 +58,7 @@ import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 /* ------------------------------------------------------------------------ */
 
 export function greeting(name: string | undefined): string {
-  const first = (name || "").replace(/^(Dr|Mr|Ms|Mrs|Prof)\.?\s*/i, "").split(" ")[0]
+  const first = firstName(name)
   return first ? `Hello, ${first}` : "Home"
 }
 
@@ -222,7 +237,20 @@ type StageCounts = {
 type FaultsSummary = { total: number; urgent: number; checked_at: string }
 type RequestsSummary = { pending: number }
 type DuplicatesSummary = { summary: { open: number; at_issue: number } }
-type Dashboard = { recent: Claim[]; total_paid: number }
+type Dashboard = {
+  recent: Claim[]
+  total_paid: number
+  ledger_total?: number
+  ledger_since?: string | null
+}
+
+/** "Every payment in the ledger since Jan 2024", or nothing without a ledger. */
+export function collegeSince(ym: string | null | undefined): string | undefined {
+  if (!ym) return undefined
+  const [y, m] = ym.split("-").map(Number)
+  const d = new Date(y, (m || 1) - 1, 1)
+  return `Every payment in the ledger since ${d.toLocaleDateString("en-IN", { month: "short", year: "numeric" })}`
+}
 
 /**
  * What is stuck, what is waiting, and what moved.
@@ -235,17 +263,12 @@ type Dashboard = { recent: Claim[]; total_paid: number }
 export function OfficeHome() {
   const { me } = useAuth()
 
-  const counts = useApi<StageCounts>(["claims", "counts", "home"], "/api/claims/counts")
-  const faults = useApi<FaultsSummary>(["admin", "faults"], "/api/admin/faults")
-  const requests = useApi<RequestsSummary>(
-    ["admin", "profile-requests", "home"],
-    "/api/admin/profile-requests?status=PENDING&limit=1"
-  )
-  const duplicates = useApi<DuplicatesSummary>(
-    ["duplicates", "home"],
-    "/api/admin/duplicate-findings?kind=SAME_PERSON&status=OPEN&limit=1"
-  )
-  const dashboard = useApi<Dashboard>(["dashboard"], "/api/dashboard")
+  const D = HOME_DATA
+  const counts = useApi<StageCounts>(D.stageCounts.key, D.stageCounts.path)
+  const faults = useApi<FaultsSummary>(D.faults.key, D.faults.path)
+  const requests = useApi<RequestsSummary>(D.pendingRequests.key, D.pendingRequests.path)
+  const duplicates = useApi<DuplicatesSummary>(D.openDuplicates.key, D.openDuplicates.path)
+  const dashboard = useApi<Dashboard>(D.dashboard.key, D.dashboard.path)
 
   const waiting = counts.data?.counts.filed ?? null
   const sentBack = counts.data?.counts.sent_back ?? null
@@ -274,7 +297,8 @@ export function OfficeHome() {
         />
         <Figure
           label="Paid to date"
-          value={money(dashboard.data?.total_paid)}
+          value={money(dashboard.data?.ledger_total ?? dashboard.data?.total_paid)}
+          hint={collegeSince(dashboard.data?.ledger_since)}
           loading={dashboard.isLoading}
         />
       </section>
@@ -365,6 +389,9 @@ export function OfficeHome() {
           </ul>
         )}
       </section>
+
+      {/* The office's work first; an officer's own research after it. */}
+      {can(me?.role).fileOwnPapers && <YourPapers />}
     </div>
   )
 }
@@ -390,8 +417,9 @@ type PrincipalQueue = {
  */
 export function PrincipalHome() {
   const { me } = useAuth()
-  const queue = useApi<PrincipalQueue>(["principal", "queue", "home"], "/api/principal/queue?limit=8")
-  const dashboard = useApi<Dashboard>(["dashboard"], "/api/dashboard")
+  const queue = useApi<PrincipalQueue>(HOME_DATA.principalQueue.key, HOME_DATA.principalQueue.path)
+  // Totals only: this home prints no list of recent tickets.
+  const dashboard = useApi<Dashboard>(HOME_DATA.collegeTotals.key, HOME_DATA.collegeTotals.path)
 
   const totals = queue.data?.totals
   const longest = totals?.longest_wait_days ?? null
@@ -434,10 +462,13 @@ export function PrincipalHome() {
           onRetry={() => queue.refetch()}
         />
       ) : (queue.data?.total ?? 0) === 0 && !queue.isLoading ? (
-        <Callout tone="positive" title="Nothing is waiting on you">
-          Every checked paper has been approved. The research cell sends the next batch up as
-          soon as it clears them.
-        </Callout>
+        <div className="space-y-4">
+          <Callout tone="positive" title="Nothing is waiting on you">
+            Every checked paper has been approved. The research cell sends the next batch up as
+            soon as it clears them.
+          </Callout>
+          <ComingUp desk="principal" align="start" />
+        </div>
       ) : (
         <Waiting>
           <div className="flex items-baseline justify-between gap-3">
@@ -469,10 +500,13 @@ export function PrincipalHome() {
         </div>
         <Figure
           label="Paid to date"
-          value={money(dashboard.data?.total_paid)}
+          value={money(dashboard.data?.ledger_total ?? dashboard.data?.total_paid)}
+          hint={collegeSince(dashboard.data?.ledger_since)}
           loading={dashboard.isLoading}
         />
       </section>
+
+      <YourPapers />
     </div>
   )
 }
@@ -507,7 +541,22 @@ export function FinanceHome() {
     ["payouts", "payable", "home"],
     `/api/admin/payouts?status=DIRECTOR_APPROVED&limit=${PAYABLE_PAGE}`
   )
-  const budget = useApi<BudgetSummary>(["budgets", ""], "/api/budgets")
+  const budget = useApi<BudgetSummary>(HOME_DATA.budget.key, HOME_DATA.budget.path)
+  // What went out this month and last, straight off the ledger (reversals
+  // included, so a voided payment is not counted twice).
+  const now = new Date()
+  const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+  const thisMonth = ym(now)
+  const lastMonth = ym(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+  const paidThis = useApi<{ total: number; total_amount: number }>(
+    ["ledger", "month", thisMonth],
+    `/api/admin/ledger?month=${thisMonth}&limit=1`
+  )
+  const paidLast = useApi<{ total: number; total_amount: number }>(
+    ["ledger", "month", lastMonth],
+    `/api/admin/ledger?month=${lastMonth}&limit=1`
+  )
+  const monthName = (d: Date) => d.toLocaleDateString("en-IN", { month: "long" })
 
   const rows = payable.data?.results ?? []
   const total = payable.data?.total ?? 0
@@ -522,7 +571,7 @@ export function FinanceHome() {
       <header>
         <PageTitle>{greeting(me?.name)}</PageTitle>
         <Sub className="mt-1">
-          Everything the Principal has approved and Finance has not yet paid.
+          Everything the Director has authorised and Finance has not yet paid.
         </Sub>
       </header>
 
@@ -554,10 +603,25 @@ export function FinanceHome() {
         />
       </section>
 
+      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+        <Figure
+          label={`Paid in ${monthName(now)}`}
+          value={money(paidThis.data?.total_amount)}
+          hint={paidThis.data ? `${paidThis.data.total} ledger row${paidThis.data.total === 1 ? "" : "s"}` : undefined}
+          loading={paidThis.isLoading}
+        />
+        <Figure
+          label={`Paid in ${monthName(new Date(now.getFullYear(), now.getMonth() - 1, 1))}`}
+          value={money(paidLast.data?.total_amount)}
+          hint={paidLast.data ? `${paidLast.data.total} ledger row${paidLast.data.total === 1 ? "" : "s"}` : undefined}
+          loading={paidLast.isLoading}
+        />
+      </section>
+
       {partial && (
         <Callout tone="info" title={`Showing the first ${rows.length} of ${total}`}>
           The server returns at most {PAYABLE_PAGE} rows at a time, so the figures above cover
-          those rows rather than the whole approved queue. Payment orders pages through all of
+          those rows rather than the whole approved queue. Payments pages through all of
           them.
         </Callout>
       )}
@@ -577,7 +641,7 @@ export function FinanceHome() {
           <div className="flex items-baseline justify-between gap-3">
             <SectionTitle>Next to pay</SectionTitle>
             <Link to="/payments" className="text-sm text-accent underline-offset-4 hover:underline">
-              Payment orders{total ? ` (${total})` : ""}
+              Payments{total ? ` (${total})` : ""}
             </Link>
           </div>
           {payable.isLoading ? (
@@ -587,10 +651,13 @@ export function FinanceHome() {
               ))}
             </ul>
           ) : ready.length === 0 ? (
-            <p className="border-y border-line py-10 text-center text-sm text-fg-muted">
-              Nothing is payable. Approved papers appear here the moment the Principal signs them
-              off.
-            </p>
+            <div className="space-y-4 border-y border-line py-8">
+              <p className="text-center text-sm text-fg-muted">
+                Nothing is payable. A paper appears here the moment the Director authorises
+                it.
+              </p>
+              <ComingUp desk="finance" />
+            </div>
           ) : (
             <ul className="divide-y divide-line border-y border-line">
               {ready.slice(0, 8).map((c) => <ClaimRow key={c.id} claim={c} />)}
@@ -660,6 +727,8 @@ export function FinanceHome() {
         </div>
         )}
       </section>
+
+      <YourPapers />
     </div>
   )
 }
@@ -710,6 +779,66 @@ type HodOverview = {
 }
 
 /**
+ * The viewer's own papers, on a home whose first job is something else: a
+ * head of department's, who is faculty that also heads the department
+ * (2026-09-23), and an officer's -- the research cell, the coordinator, the
+ * Principal, the Director, Finance -- who is an academic too and "must be
+ * able to do both".
+ *
+ * The same pieces a faculty member's home is built from, so the two cannot
+ * drift: their own money, anything sent back to them, and every paper still
+ * moving drawn as the claimant's journey — never which desk holds it, even
+ * for somebody who sits at one. `/api/claims?mine=1` is theirs alone, and the
+ * amounts on it are theirs (`hod.for_head`, `core.visibility`).
+ */
+export function YourPapers({
+  note = "What you have filed yourself. Another officer, or the super admin, decides each one — never you.",
+}: {
+  note?: string
+}) {
+  const own = useOwnPapers()
+  const { claims, isLoading, isError, refetch } = own
+
+  return (
+    <section aria-label="Your papers" className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <SectionTitle>Your papers</SectionTitle>
+          <Meta className="block">{note}</Meta>
+        </div>
+        <Button kind="default" asChild>
+          <Link to="/papers/new">
+            <Plus />
+            File a paper
+          </Link>
+        </Button>
+      </div>
+
+      {isError ? (
+        // A dropped request is not an empty record: no ₹0 in its place.
+        <InlineError
+          message="Could not load your papers. Nothing has been lost."
+          onRetry={() => void refetch()}
+        />
+      ) : isLoading ? (
+        <MoneySkeleton />
+      ) : claims.length === 0 ? (
+        <p className="text-base text-fg-muted">
+          Nothing filed yet. File a paper and follow it here, as any claimant does.
+        </p>
+      ) : (
+        <>
+          <MoneyStrip own={own} />
+          <NeedsYou sentBack={own.sentBack} drafts={own.drafts} />
+          <OnTheWay moving={own.moving} />
+          <PaidList payments={own.payments} />
+        </>
+      )}
+    </section>
+  )
+}
+
+/**
  * A head's department, and — the part no other screen answers — who in it has
  * published nothing.
  *
@@ -721,9 +850,9 @@ type HodOverview = {
  */
 export function HodHome() {
   const { me } = useAuth()
-  const overview = useApi<HodOverview>(["hod", "overview"], "/api/hod/overview")
-  const standing = useApi<HodStanding>(["hod", "standing", ""], "/api/hod/standing")
-  const targets = useApi<HodTargets>(["hod", "targets", ""], "/api/hod/targets")
+  const overview = useApi<HodOverview>(HOME_DATA.hodOverview.key, HOME_DATA.hodOverview.path)
+  const standing = useApi<HodStanding>(HOME_DATA.hodStanding.key, HOME_DATA.hodStanding.path)
+  const targets = useApi<HodTargets>(HOME_DATA.hodTargets.key, HOME_DATA.hodTargets.path)
 
   const totals = overview.data?.totals
   const people = overview.data?.people ?? []
@@ -742,6 +871,8 @@ export function HodHome() {
             : "What the department has published, and by whom."}
         </Sub>
       </header>
+
+      <Celebrations />
 
       <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         <Figure
@@ -779,6 +910,8 @@ export function HodHome() {
           onRetry={overview.error?.status === 403 ? undefined : () => overview.refetch()}
         />
       )}
+
+      <YourPapers note="What you have filed yourself, with your own amounts. Your department's figures carry none." />
 
       {totals && (
         <section className="space-y-2">
@@ -827,19 +960,7 @@ export function HodHome() {
             under the scheme. That is not the same as having published nothing — a paper nobody
             filed a claim for does not appear anywhere in this system.
           </p>
-          <ul className="divide-y divide-line border-y border-line">
-            {silent.map((p) => (
-              <li key={p.id} className="row">
-                <Link to={`/people/${p.id}`} className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-base">{p.name}</span>
-                    <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
-                  </span>
-                  <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <SilentList people={silent} />
         </section>
       )}
 
@@ -958,6 +1079,38 @@ export function HodHome() {
           />
         </ul>
       </section>
+    </div>
+  )
+}
+
+/**
+ * Members with nothing filed, as a compact grid: a department of seventy
+ * would otherwise push everything after it off the bottom of the page. The
+ * first twelve are shown; the rest are one press away.
+ */
+function SilentList({ people }: { people: { id: string; name: string; designation?: string | null }[] }) {
+  const [all, setAll] = useState(false)
+  const shown = all ? people : people.slice(0, 12)
+  return (
+    <div className="space-y-2">
+      <ul className="grid gap-x-6 border-y border-line sm:grid-cols-2 lg:grid-cols-3">
+        {shown.map((p) => (
+          <li key={p.id} className="row min-w-0 border-b border-line last:border-b-0">
+            <Link to={`/people/${p.id}`} className="flex items-center gap-3 px-1 py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{p.name}</span>
+                <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
+              </span>
+              <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {people.length > 12 && (
+        <Button kind="quiet" size="sm" onClick={() => setAll((v: boolean) => !v)}>
+          {all ? "Show fewer" : `Show all ${people.length}`}
+        </Button>
+      )}
     </div>
   )
 }

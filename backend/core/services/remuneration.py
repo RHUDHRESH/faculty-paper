@@ -412,13 +412,23 @@ def calculate_remuneration(
     # that possess a valid SNIP value and are indexed in Scopus." Both halves
     # matter: a conference proceeding or book chapter earns no QFA even when its
     # subject area is Engineering and it carries a SNIP.
-    engineering = (engineering_class or ENGINEERING) != NON_ENGINEERING
+    # Only a journal *classified* Engineering earns the incentive. An
+    # unclassified one ("Pending", or no subject area yet) used to be treated as
+    # Engineering and paid the QFA; the college decided (2026-09-23) that it is
+    # withheld until the office classifies the journal.
+    engineering = (engineering_class or "") == ENGINEERING
+    unclassified = (engineering_class or "") not in (ENGINEERING, NON_ENGINEERING)
     journal = _is_journal(publication_type) and not _is_conference_or_book(publication_type)
     pub_m = _pub_multiplier(publication_type, cfg)
 
     if scopus and has_snip:
         qf = qf_for(quartile or "", cfg) if (engineering and journal) else 0.0
-        if not engineering:
+        if unclassified and journal:
+            note = (
+                "Subject area not classified yet: the quartile incentive is withheld "
+                "until the office classifies the journal as Engineering."
+            )
+        elif not engineering:
             note = "Non-Engineering: no quartile incentive is added."
         elif not journal:
             note = "The quartile incentive applies to journals only."

@@ -5,6 +5,7 @@ import { Download, Receipt, SearchX } from "lucide-react"
 import { can, useAuth } from "@/app/auth"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Input } from "@/ui/field"
 import { money } from "@/ui/paper"
@@ -201,7 +202,7 @@ export function Ledger() {
         </Sub>
       </header>
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className={filterBar}>
         <label className="block">
           <ColumnLabel className="mb-1 block">Payout month</ColumnLabel>
           <Input

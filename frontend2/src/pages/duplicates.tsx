@@ -176,7 +176,7 @@ export function Duplicates() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="These findings are about payments. Finance, the Principal and the research cell can read them."
+          message="Possible duplicate payments are reviewed by the research cell and the Principal. By the college's rule they are not shown to the Director or Finance."
         />
       </div>
     )
@@ -233,7 +233,7 @@ export function Duplicates() {
           title="Could not load the findings"
           message={
             error?.status === 403
-              ? "Not allowed. Finance, the Principal and the research cell can read these."
+              ? "Not allowed. The research cell and the Principal review these."
               : "The server did not answer. Nothing has been reviewed or changed."
           }
           onRetry={error?.status === 403 ? undefined : () => refetch()}
@@ -250,7 +250,7 @@ export function Duplicates() {
           message={
             status
               ? "No group in this kind is in that state. Try another filter."
-              : "Either the sweep has not been run over this history yet, or it grouped nothing — both read the same from here, so check when it last ran before concluding the books are clean."
+              : "Either the sweep has not been run over this history yet, or it grouped nothing — both read the same from here. The sweep runs on the server (python manage.py find_duplicate_payments; --dry-run first shows what it would record), so ask whoever administers the server before concluding the books are clean."
           }
         />
       ) : (

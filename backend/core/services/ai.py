@@ -1,22 +1,33 @@
 """The one seam every AI feature goes through.
 
-Two providers, both under the college's control, selected by ``AI_PROVIDER``:
+Three providers, and an honest "none":
 
 - ``ollama`` -- a daemon on the developer's own machine. The laptop case.
 - ``harness`` -- the college's own inference service for the Gemma models,
   deployed on Google Cloud beside the API and reached over a private
-  address. The production case: the features follow the app out of
-  localhost without the text following anything else.
+  address.
+- ``openai`` -- a hosted model over the OpenAI-compatible chat-completions
+  API (Groq, Gemini's compatibility endpoint, OpenRouter, a remote Ollama),
+  named by ``AI_BASE_URL``, ``AI_API_KEY`` and ``AI_MODEL``. The free Render
+  deployment's case: nothing else fits on 512 MB and a tenth of a CPU.
+- ``none`` -- nothing is configured. Every AI screen falls back to what it
+  can count without a model, and says so in one line.
 
-Both providers keep one property that is the reason this module exists
-rather than a call to somebody's API: a faculty member's unpublished title
-and abstract, and their whole publication history, are sent to hardware the
-college runs -- and to nothing else. There is deliberately no hosted
-provider here, and an unknown ``AI_PROVIDER`` is refused rather than
-quietly resolved: a typo in a deployment variable should stop the feature,
-not silently change where the text goes. For the same reason **nothing here
-ever falls back to the other provider.** If the configured one is down, the
-answer is that it is down.
+How one is chosen (`provider_name`): an explicit ``AI_PROVIDER`` always wins;
+otherwise a set ``AI_API_KEY`` means ``openai``; otherwise
+``AI_DEFAULT_PROVIDER`` decides, which settings make ``ollama`` on a
+developer machine (DEBUG) and ``none`` in production -- so a production site
+with no key says "not set up" instead of sending somebody to start a daemon
+on a machine that has never had one.
+
+The first two keep a faculty member's unpublished title and abstract on
+hardware the college runs; the third sends them to the service it names.
+That difference is surfaced rather than hidden: `health` reports ``hosted``
+and ``host`` so a screen can say where suggestions come from. An unknown
+``AI_PROVIDER`` is still refused rather than quietly resolved -- a typo in a
+deployment variable should stop the feature, not silently change where the
+text goes -- and **nothing here ever falls back to another provider.** If the
+configured one is down, the answer is that it is down.
 """
 
 from __future__ import annotations
@@ -34,12 +45,17 @@ from typing import Any, Callable, Iterator
 
 from django.conf import settings
 
-from core.services import harness, ollama
+from core.services import harness, ollama, openai_compat
 
 logger = logging.getLogger(__name__)
 
-#: The providers this understands. Both run on hardware the college controls.
-PROVIDERS = ("ollama", "harness")
+#: The providers this understands. ``none`` is a provider in the sense that
+#: it is a configured answer -- "not set up" -- rather than an unknown name.
+PROVIDERS = ("ollama", "harness", "openai", "none")
+
+#: Said wherever nothing is configured. One sentence, no remedy for a reader
+#: who cannot apply one: the operator's remedy is in DEPLOY.md.
+NOT_CONFIGURED = "AI suggestions are not set up on this server."
 
 #: How often a running generation reports itself. Every token would be a
 #: hundred writes down a socket for an answer nobody reads token by token;
@@ -152,19 +168,32 @@ def current_progress() -> Progress | None:
 
 
 def provider_name() -> str:
-    return (getattr(settings, "AI_PROVIDER", "") or "ollama").strip().lower()
+    """Which provider answers, from what is and is not configured.
+
+    An explicit ``AI_PROVIDER`` wins; a key on its own means the hosted
+    provider; with neither, ``AI_DEFAULT_PROVIDER`` -- Ollama on a laptop,
+    "none" in production (see settings).
+    """
+    configured = (getattr(settings, "AI_PROVIDER", "") or "").strip().lower()
+    if configured:
+        return configured
+    if (getattr(settings, "AI_API_KEY", "") or "").strip():
+        return "openai"
+    return (getattr(settings, "AI_DEFAULT_PROVIDER", "") or "ollama").strip().lower()
 
 
 def _backend():
     """The inference module for the configured provider.
 
-    Both modules expose the same surface -- generate, stream, Stopped, an
-    *Error with kind/message, DEFAULT_TIMEOUT, resolve_model, health -- so
+    All three modules expose the same surface -- generate, stream, Stopped,
+    an *Error with kind/message, DEFAULT_TIMEOUT, resolve_model, health -- so
     everything below dispatches on this one call.
     """
     name = provider_name()
     if name == "harness":
         return harness
+    if name == "openai":
+        return openai_compat
     return ollama
 
 
@@ -179,7 +208,31 @@ def model_name(fast: bool = False) -> str:
         return harness.resolve_model(fast)
     if name == "ollama":
         return ollama.resolve_model(fast)
+    if name == "openai":
+        return openai_compat.resolve_model(fast)
     return ""
+
+
+def is_hosted() -> bool:
+    """Whether a question leaves hardware the college runs."""
+    return provider_name() == "openai"
+
+
+def _off(code: str, detail: str) -> dict[str, Any]:
+    """A health answer for a provider that cannot run at all, on both tiers."""
+    return {
+        "provider": provider_name(),
+        "ready": False,
+        "code": code,
+        "detail": detail,
+        "model": "",
+        "fast_ready": False,
+        "fast_code": code,
+        "fast_detail": detail,
+        "fast_model": "",
+        "hosted": False,
+        "host": "",
+    }
 
 
 def health() -> dict[str, Any]:
@@ -192,26 +245,35 @@ def health() -> dict[str, Any]:
     """
     name = provider_name()
     if name not in PROVIDERS:
-        detail = (
+        return _off(
+            "misconfigured",
             f"AI_PROVIDER is set to {name!r}, which this server does not "
-            f"recognise. Known providers: {', '.join(PROVIDERS)}."
+            f"recognise. Known providers: {', '.join(PROVIDERS)}.",
         )
-        return {
-            "provider": name,
-            "ready": False,
-            "code": "misconfigured",
-            "detail": detail,
-            "model": "",
-            "fast_ready": False,
-            "fast_code": "misconfigured",
-            "fast_detail": detail,
-            "fast_model": "",
-        }
+    if name == "none":
+        # Answered without touching the network: there is nothing to ask.
+        return _off("not_configured", NOT_CONFIGURED)
+    if name == "openai" and openai_compat.missing_settings():
+        missing = openai_compat.missing_settings()
+        return _off(
+            "misconfigured",
+            f"The hosted AI provider needs {', '.join(missing)} set as well. "
+            "See DEPLOY.md for the values.",
+        )
 
     backend = _backend()
     state = backend.health()
     out = state.as_dict()
     out["provider"] = name
+    out["hosted"] = name == "openai"
+    out["host"] = openai_compat.host() if name == "openai" else ""
+    failure = getattr(state, "failure", None)
+    if failure == "rejected":
+        # A refused key is not a service that is down, and the remedy is a
+        # different variable. Both tiers share the key, so both are refused.
+        out["code"] = out["fast_code"] = "rejected"
+        out["detail"] = out["fast_detail"] = state.detail
+        return out
     out["code"], out["detail"] = _verdict(state.up, state.model_present, state)
     # Answered separately, because the two tiers fail separately and the
     # remedies are different commands. A server with the considered slot
@@ -236,6 +298,18 @@ def _verdict(up: bool, present: bool, state, *, fast: bool = False):
     on_harness = provider_name() == "harness"
     if up and present:
         return "ready", None
+    if provider_name() == "openai":
+        where = openai_compat.host() or state.base_url
+        if not up:
+            return "service_down", (
+                f"Nothing is answering at {where}. Check AI_BASE_URL, and that the "
+                "service is up."
+            )
+        return "model_missing", (
+            f"{where} does not offer the model {want!r}. Set "
+            f"{'AI_FAST_MODEL' if fast and want != state.model else 'AI_MODEL'} "
+            "to a model it lists."
+        )
     if not up:
         if on_harness:
             return "service_down", (
@@ -348,6 +422,13 @@ def ask_json(
             f"AI_PROVIDER is set to {name!r}, which this server does not recognise.",
             code="misconfigured",
         )
+    if name == "none":
+        raise AIError(NOT_CONFIGURED, code="not_configured")
+    if name == "openai" and openai_compat.missing_settings():
+        raise AIError(
+            f"The hosted AI provider needs {', '.join(openai_compat.missing_settings())} set.",
+            code="misconfigured",
+        )
 
     backend = _backend()
     sink = _SINK.get()
@@ -372,11 +453,11 @@ def ask_json(
                 fmt=schema or "json",
                 fast=fast,
             )
-    except (ollama.OllamaError, harness.HarnessError) as exc:
+    except (ollama.OllamaError, harness.HarnessError, openai_compat.OpenAIError) as exc:
         # Mapped rather than re-raised, so the endpoints answer the same
         # statuses they always did and a screen written against the old codes
-        # keeps working. Both providers raise errors with the same
-        # kind/message shape, so one table serves both.
+        # keeps working. Every provider raises errors with the same
+        # kind/message shape, so one table serves all of them.
         raise AIError(exc.message, code=_CODE_MAP.get(exc.kind, "error")) from exc
 
     if sink is not None:
@@ -443,7 +524,7 @@ def _generate_watched(
                     chars=chars,
                     seconds=round(now - started, 1),
                 )
-    except (ollama.Stopped, harness.Stopped) as exc:
+    except (ollama.Stopped, harness.Stopped, openai_compat.Stopped) as exc:
         raise Cancelled() from exc
 
     sink.note(
@@ -581,11 +662,15 @@ def run_with_progress(
 _MAX_OUTPUT_TOKENS = 2048
 
 #: The providers' failure kinds to the codes the endpoints and screens
-#: already use. One table for both, because both raise the same kinds.
+#: already use. One table for all three, because all three raise these kinds;
+#: the last three only a hosted service produces.
 _CODE_MAP = {
     "unreachable": "unreachable",
     "timeout": "timeout",
     "model_missing": "model_missing",
     "service_error": "rejected",
     "bad_output": "unparsable",
+    "bad_request": "rejected",
+    "rejected": "rejected",
+    "rate_limited": "rate_limited",
 }

@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Sparkles,
   Stamp,
+  Trophy,
   Users,
   Wallet,
   TriangleAlert,
@@ -169,6 +170,15 @@ export const NAV: NavItem[] = [
     icon: Sparkles,
     group: "Research",
     keywords: ["ideas", "topics", "what is new", "ai"],
+  },
+  // Everybody: paper counts per person and per department, with no money on
+  // it at any role, so there is nobody it needs hiding from.
+  {
+    to: "/leaderboard",
+    label: "Leaderboard",
+    icon: Trophy,
+    group: "Research",
+    keywords: ["ranking", "rank", "top", "standings", "department", "q1", "score", "position"],
   },
   {
     to: "/collaborate",

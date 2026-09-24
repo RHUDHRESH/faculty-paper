@@ -174,6 +174,7 @@ export function Table<T>({
   columns,
   getKey,
   rowLink,
+  isCurrent,
   empty,
   maxHeight,
   minWidth,
@@ -184,6 +185,11 @@ export function Table<T>({
   columns: Column<T>[]
   getKey: (row: T) => string
   rowLink?: (row: T) => string | null
+  /** The one row that is the reader's own — their place on a leaderboard.
+   *  Marked for assistive technology (`aria-current`) and tinted, because
+   *  finding yourself in four hundred rows by reading names is the job this
+   *  saves. */
+  isCurrent?: (row: T) => boolean
   /** Shown instead of the table when `rows` is empty. Reserve this for "there
    *  is genuinely nothing" — an error belongs in its own banner, never here,
    *  or a failed request reads as an empty list. */
@@ -232,8 +238,13 @@ export function Table<T>({
         <tbody>
           {rows.map((row, i) => {
             const link = rowLink?.(row) ?? null
+            const current = isCurrent?.(row) ?? false
             return (
-              <tr key={getKey(row)} className="row border-b border-line last:border-b-0">
+              <tr
+                key={getKey(row)}
+                aria-current={current ? "true" : undefined}
+                className={cn("row border-b border-line last:border-b-0", current && "bg-accent-wash")}
+              >
                 {columns.map((col, ci) => {
                   const content = col.cell(row, i)
                   const isLead = ci === 0

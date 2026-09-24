@@ -25,7 +25,7 @@ from django.shortcuts import get_object_or_404
 from ninja import Schema
 from ninja.errors import HttpError
 
-from core.api.common import api, require_user, session_auth
+from core.api.common import _refuse_own_claim, api, require_user, session_auth
 from core.api.dashboard import _SEARCH_SORTS, _search_queryset
 from core.models import AttachmentCheck, AuditLog, Claim, ClaimFlag, ClaimStatus, User
 from core.services import rbac
@@ -134,8 +134,11 @@ def list_flags(
     `paid=yes` is the list the super admin is told about: money that went
     out with a question still open.
     """
-    _require_reviewer(request)
-    qs = ClaimFlag.objects.select_related("claim", "claim__owner", "raised_by", "resolved_by")
+    user = _require_reviewer(request)
+    # A reviewer's own paper is theirs as its claimant, and a claimant is not
+    # shown the doubts about it -- nor asked to answer them.
+    everything = ClaimFlag.objects.exclude(claim__owner=user)
+    qs = everything.select_related("claim", "claim__owner", "raised_by", "resolved_by")
     if status == "open":
         qs = qs.filter(resolved_at__isnull=True)
     elif status == "resolved":
@@ -153,7 +156,6 @@ def list_flags(
 
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
-    everything = ClaimFlag.objects.all()
     return {
         "total": qs.count(),
         "limit": limit,
@@ -180,7 +182,10 @@ def resolve_flag(request: HttpRequest, flag_id: str, payload: ResolveFlagIn):
     # Locked, so two reviewers answering at once cannot both succeed and
     # leave the second one's name on the first one's answer.
     with transaction.atomic():
-        flag = get_object_or_404(ClaimFlag.objects.select_for_update(), pk=flag_id)
+        flag = get_object_or_404(
+            ClaimFlag.objects.select_for_update().select_related("claim"), pk=flag_id
+        )
+        _refuse_own_claim(user, flag.claim)
         if not flag.is_open:
             raise HttpError(409, "This flag has already been resolved")
         flag_service.resolve_flag(flag, actor=user, note=note)
@@ -195,6 +200,7 @@ def raise_flag(request: HttpRequest, claim_id: str, payload: FlagIn):
         raise HttpError(400, f"kind is one of {', '.join(ClaimFlag.Kind.values)}")
     note = _note(payload.note, "what looks wrong")
     claim = _filed_claim(claim_id)
+    _refuse_own_claim(user, claim)
     flag, _ = flag_service.raise_flag(claim, kind=payload.kind, note=note, actor=user)
     return flag_to_dict(flag)
 
@@ -202,8 +208,9 @@ def raise_flag(request: HttpRequest, claim_id: str, payload: FlagIn):
 @api.get("/claims/{claim_id}/review", auth=session_auth)
 def claim_review(request: HttpRequest, claim_id: str):
     """The flags on a claim and what its files were found to say."""
-    _require_reviewer(request)
+    user = _require_reviewer(request)
     claim = _filed_claim(claim_id)
+    _refuse_own_claim(user, claim)
     return {
         "flags": [
             flag_to_dict(f)
@@ -218,6 +225,7 @@ def check_files(request: HttpRequest, claim_id: str):
     """Read the claim's PDFs again, on the job queue. Returns what is known now."""
     user = _require_reviewer(request)
     claim = _filed_claim(claim_id)
+    _refuse_own_claim(user, claim)
     job = enqueue_file_check(claim.id, force=True)
     AuditLog.objects.create(
         actor=user,
@@ -253,9 +261,10 @@ def archive_claims(
     already paid. Drafts are not, for the reason they never are.
     """
     user = _require_reviewer(request)
+    # Every claim but the reviewer's own: each row carries its open flags.
     qs = _search_queryset(
         user, q=q, status=status, year=year, department=department
-    ).annotate(
+    ).exclude(owner=user).annotate(
         open_flags=Count("flags", filter=Q(flags__resolved_at__isnull=True), distinct=True),
         file_count=Count("attachments", distinct=True),
     )

@@ -136,10 +136,13 @@ export function can(role: Role | undefined) {
     seeMoney: !!r && r !== "HOD",
     /**
      * `rbac.CLAIMANT_ROLES`: files, edits, withdraws and tracks their own
-     * papers. A head of department is a faculty member who also heads the
-     * department (the college's decision of 2026-09-23), so they are one.
+     * papers. Everybody on the staff but the super admin: a head of
+     * department is faculty who also heads the department, and an officer --
+     * the research cell, the coordinator, the Principal, the Director,
+     * Finance -- may be an academic too, who "must be able to do both". On
+     * their own papers they are the claimant, never the desk.
      */
-    fileOwnPapers: r === "FACULTY" || r === "HOD",
+    fileOwnPapers: !!r && r !== "SUPER_ADMIN",
 
     // These four mirror named functions in `backend/core/services/rbac.py`
     // and `api.py`. Where they disagree, the screen hides a control the

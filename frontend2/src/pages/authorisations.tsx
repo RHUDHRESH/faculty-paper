@@ -23,6 +23,7 @@ import { Pagination } from "@/ui/pagination"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
 
 /**
  * The Director's queue: everything the Principal has approved and nobody has
@@ -159,6 +160,7 @@ export function Authorisations() {
           Approved by the Principal and waiting on you. Finance cannot pay any of these until
           they carry your authorisation.
         </Sub>
+        <OwnPapersNote className="mt-1" />
       </header>
 
       {/* Three states, not two. Without `loading` these read "—", "—", "—"

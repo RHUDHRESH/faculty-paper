@@ -108,15 +108,17 @@ function daysOf(c: Claim): number | null {
 
 /**
  * The signed-in claimant's own papers, and the money on them, worked out once
- * for whichever home draws them: a faculty member's, or a head of
- * department's -- who is a faculty member too, and files their own.
+ * for whichever home draws them: a faculty member's, a head of department's,
+ * or an officer's -- the Principal, the research cell, the Director, Finance
+ * -- who is an academic too, and files their own.
  *
- * `/api/claims` is "my claims" for both, and the amounts on it are theirs:
- * the server strips a figure from anything that is not the viewer's own
- * before it leaves (`hod.for_head`).
+ * `mine=1`, because for an officer `/api/claims` is the college's papers;
+ * for a faculty member or a head it changes nothing. The amounts are theirs:
+ * the server strips a figure from anything a head does not own
+ * (`hod.for_head`), and shapes the viewer's own papers as the claimant's.
  */
 export function useOwnPapers() {
-  const query = useApi<Payload>(["my-claims"], "/api/claims?limit=200")
+  const query = useApi<Payload>(["my-claims"], "/api/claims?mine=1&limit=200")
   // Money comes from the ledger, which also holds everything paid before this
   // app existed. Claims alone told people with years of payments "₹0".
   const ledger = useApi<MyPayments>(["my-payments"], "/api/me/payments")

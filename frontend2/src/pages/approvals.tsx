@@ -37,6 +37,7 @@ import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
 
 /**
  * The Principal's queue: every `CLEARED` ticket waiting between the research
@@ -423,6 +424,7 @@ export function Approvals() {
           <Sub className="mt-1">
             Cleared tickets waiting on you — approve the spend, or send one back to the research cell.
           </Sub>
+          <OwnPapersNote className="mt-1" />
         </div>
         <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
           <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />

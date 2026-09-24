@@ -182,7 +182,9 @@ export function Papers() {
     setSearchParams(new URLSearchParams())
   }
 
-  const listQuery = new URLSearchParams()
+  // `mine`: for an officer who files their own papers `/api/claims` is the
+  // college's; this page is theirs alone. A no-op for faculty and a head.
+  const listQuery = new URLSearchParams({ mine: "1" })
   if (status) listQuery.set("status", status)
   if (q) listQuery.set("q", q)
   listQuery.set("limit", String(PAGE_SIZE))
@@ -203,7 +205,7 @@ export function Papers() {
   // grew an endpoint that groups by stage in a single query.
   const { data: countData } = useApi<{ counts: Record<string, number> }>(
     ["claims-counts", q] as const,
-    `/api/claims/counts${q ? `?q=${encodeURIComponent(q)}` : ""}`,
+    `/api/claims/counts?mine=1${q ? `&q=${encodeURIComponent(q)}` : ""}`,
     { staleTime: 30_000 }
   )
   const counts = countData?.counts
@@ -607,7 +609,7 @@ function PaperCard({ claim }: { claim: Claim }) {
 /** Every paper on record, for the claimant's own spreadsheet or appraisal
  *  file: what, where, which stage, how much. */
 async function downloadMine() {
-  const res = await api<{ results: (Claim & Record<string, unknown>)[] }>("/api/claims?limit=500")
+  const res = await api<{ results: (Claim & Record<string, unknown>)[] }>("/api/claims?mine=1&limit=500")
   const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
   const head = ["Ticket", "Paper", "Journal", "Year", "DOI", "Stage", "Amount (INR)", "Paid on"]
   const rows = res.results.map((c) =>

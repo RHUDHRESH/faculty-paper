@@ -33,10 +33,33 @@ ROLE_RANK = {
 #: may do, and that includes the second signature on a high-value claim.
 ADMIN_ROLES = (Role.SUPER_ADMIN, Role.RESEARCH_CELL, Role.RESEARCH_COORDINATOR)
 
-#: The accounts a claim can belong to: the people who publish. A head of
-#: department is one of them -- they are faculty who also head the department,
-#: and they keep filing their own papers.
-CLAIMANT_ROLES = (Role.FACULTY, Role.HOD)
+#: The accounts a claim can belong to: everybody on the staff who publishes,
+#: which is everybody but the super admin. A head of department is faculty
+#: who also heads the department; a Principal, a research cell member, the
+#: coordinator, the Director or a Finance officer may be an academic too, and
+#: the owner's rule is that they "must be able to do both: do their own
+#: research as well as track others'". So they file and track their own
+#: papers exactly as faculty do, and on their own papers they are the
+#: claimant (`core.visibility`) -- never the desk (`is_own_claim`).
+#:
+#: The super admin is not here: that account runs the system and stands in
+#: at every desk, which is precisely the seat that must not also be a
+#: claimant's.
+CLAIMANT_ROLES = (
+    Role.FACULTY,
+    Role.HOD,
+    Role.RESEARCH_CELL,
+    Role.RESEARCH_COORDINATOR,
+    Role.PRINCIPAL,
+    Role.DIRECTOR,
+    Role.FINANCE,
+)
+
+#: The teaching staff of a department: the accounts a head of department is
+#: appointed from. Narrower than CLAIMANT_ROLES on purpose -- making a
+#: Principal who publishes the head of a department would take their office
+#: role away from them.
+FACULTY_ROLES = (Role.FACULTY, Role.HOD)
 
 
 def has_min_role(user_role: str, required: str) -> bool:
@@ -45,6 +68,23 @@ def has_min_role(user_role: str, required: str) -> bool:
 
 def can_faculty_portal(role: str) -> bool:
     return role in CLAIMANT_ROLES
+
+
+def can_file_own_papers(role: str | None) -> bool:
+    """File, edit, withdraw and track one's own papers."""
+    return role in CLAIMANT_ROLES
+
+
+def is_own_claim(user, claim) -> bool:
+    """Whether `claim` belongs to `user`, who therefore may not decide it.
+
+    Nobody acts on their own paper at any desk -- clearing, sending back,
+    holding, approving, authorising, paying, voiding, overriding, flagging.
+    It goes to another holder of that desk or, when there is none, to the
+    super admin, who may decide anybody's paper except their own.
+    """
+    owner_id = getattr(claim, "owner_id", None)
+    return owner_id is not None and owner_id == getattr(user, "pk", None)
 
 
 def can_principal_portal(role: str) -> bool:

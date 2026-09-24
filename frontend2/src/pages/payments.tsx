@@ -30,6 +30,7 @@ import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
 
 /**
  * Where money actually leaves the college — the queue of tickets the
@@ -260,6 +261,7 @@ export function Payments() {
             Authorised by the Director and ready to pay. Each amount is worked out
             again from the checked figures when you pay it.
           </Sub>
+          <OwnPapersNote className="mt-1" />
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button kind="quiet" size="sm" asChild>

@@ -27,7 +27,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
+from core.models import AuditLog, Claim, ClaimFlag, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
 from core import visibility
 from core.services import heads, rbac
 from core.services.normalize import normalize_doi, normalize_title
@@ -567,6 +567,16 @@ def admin_audit(
     if not rbac.can_view_audit(user.role):
         raise HttpError(403, "Forbidden")
     qs = AuditLog.objects.select_related("actor").order_by("-created_at")
+    # The trail of the reader's own papers names every desk and person that
+    # handled them; on those they are the claimant, who is told neither. A
+    # flag's rows are filed under the flag, so they are left out by the flag.
+    qs = qs.exclude(
+        entity="Claim",
+        entity_id__in=Claim.objects.filter(owner=user).values_list("id", flat=True),
+    ).exclude(
+        entity="ClaimFlag",
+        entity_id__in=ClaimFlag.objects.filter(claim__owner=user).values_list("id", flat=True),
+    )
     if visibility.is_contest_blind(user.role):
         # Dropped from the query rather than from the page, so the total does
         # not count rows the reader is not shown.
@@ -613,9 +623,15 @@ def admin_payouts(
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
-    qs = Claim.objects.select_related(
-        "owner", "cleared_by", "second_approved_by", "principal_approved_by", "override_by"
-    ).prefetch_related("attachments")
+    qs = (
+        Claim.objects.select_related(
+            "owner", "cleared_by", "second_approved_by", "principal_approved_by", "override_by"
+        )
+        .prefetch_related("attachments")
+        # Finance's desk never carries the officer's own paper
+        # (`rbac.is_own_claim`); another officer, or the super admin, pays it.
+        .exclude(owner=user)
+    )
     if status == "PAID":
         qs = qs.filter(status=ClaimStatus.PAID)
         default_order = "-paid_at"
@@ -769,7 +785,13 @@ def admin_clearing_queue(request: HttpRequest, status: Optional[str] = None):
     user = require_user(request)
     if not rbac.can_clear_claims(user.role):
         raise HttpError(403, "Forbidden")
-    qs = Claim.objects.select_related("owner").prefetch_related("attachments")
+    qs = (
+        Claim.objects.select_related("owner")
+        .prefetch_related("attachments")
+        # Never the clearer's own paper: another officer at the desk, or the
+        # super admin, clears it (`rbac.is_own_claim`).
+        .exclude(owner=user)
+    )
     if status and status != "ALL":
         qs = qs.filter(status=status)
     else:

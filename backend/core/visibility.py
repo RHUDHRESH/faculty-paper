@@ -35,6 +35,14 @@ its history every step taken by somebody else reads as "The college", under an
 action name that does not name a desk. The raw `status` stays, because the
 client screens are built on it.
 
+**Everybody who files is the claimant on their own papers, and only there.**
+A head of department, a Principal, a research cell member, the coordinator,
+the Director and Finance all file their own papers (`rbac.CLAIMANT_ROLES`).
+Each of their own claims is shaped exactly as above -- stage not desk, no
+colleague's name, no desk note, no flag -- and everybody else's reaches them
+as their seat in the chain sees it. The rows are told apart by `owner_id`,
+the pattern `hod.for_head` set.
+
 **A head of department sees nobody's money but their own.** A head is a
 faculty member who also heads the department, so on their own claims they are
 the claimant: those are shaped exactly as above and keep their amounts. Every
@@ -106,15 +114,21 @@ def _is_history_step(value: dict) -> bool:
     return "action" in value and "from_status" in value and "to_status" in value
 
 
-def without_contest_flags(value: Any) -> Any:
+def without_contest_flags(value: Any, *, except_owner: Any = None) -> Any:
     """The same structure with every contested/duplicate flag removed.
 
     Recursive for the same reason `without_money` is: a claim arrives as a
     dict, a queue as a list of them, a report as a dict of lists.
+
+    With `except_owner`, that person's own claims are left whole: a Director
+    or Finance officer who filed a paper is its claimant, and a claimant reads
+    the note they sent it with (`for_claimant` shapes it from there).
     """
     if isinstance(value, dict):
+        if except_owner is not None and _is_claim(value) and value.get("owner_id") == except_owner:
+            return value
         out = {
-            k: without_contest_flags(v)
+            k: without_contest_flags(v, except_owner=except_owner)
             for k, v in value.items()
             if k not in CONTEST_KEYS
         }
@@ -123,7 +137,7 @@ def without_contest_flags(value: Any) -> Any:
             out["note"] = None
         return out
     if isinstance(value, (list, tuple)):
-        return [without_contest_flags(v) for v in value]
+        return [without_contest_flags(v, except_owner=except_owner) for v in value]
     return value
 
 
@@ -234,6 +248,10 @@ def _step_for_claimant(step: dict, owner_id: str | None) -> dict:
 
 
 def _claim_for_claimant(claim: dict) -> dict:
+    # The doubts about a paper are the desk's, never its claimant's -- which
+    # matters for a claimant who also sits at a desk and so is otherwise
+    # shown every flag in the college.
+    claim = without_flags(claim)
     status = claim.get("status")
     claim["faculty_stage"] = faculty_stage(
         status,
@@ -286,15 +304,20 @@ def without_flags(value: Any) -> Any:
 def for_viewer(user: Any, value: Any) -> Any:
     """`value` as the signed-in `user` may see it."""
     role = getattr(user, "role", None)
+    viewer_id = getattr(user, "pk", None)
     if not rbac.can_review_flags(role):
         value = without_flags(value)
     if is_contest_blind(role):
-        return without_contest_flags(value)
+        value = without_contest_flags(value, except_owner=viewer_id)
     if role == Role.FACULTY:
         return for_claimant(value)
+    if rbac.can_file_own_papers(role):
+        # Everybody else who files -- a head, and every office role but the
+        # super admin -- is the claimant on their own papers and on nobody
+        # else's: the claimant's view of those, the desk's view of the rest.
+        value = for_claimant(value, owner_id=viewer_id)
     if role == Role.HOD:
-        # A faculty member who also heads the department: the claimant's view
-        # of their own papers, and nobody's money but their own.
-        viewer_id = getattr(user, "pk", None)
-        return hod.for_head(for_claimant(value, owner_id=viewer_id), viewer_id)
+        # A faculty member who also heads the department: nobody's money but
+        # their own.
+        return hod.for_head(value, viewer_id)
     return value

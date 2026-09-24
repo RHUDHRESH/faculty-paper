@@ -175,8 +175,11 @@ export function PaperDetail() {
 
   // The desks that judge a paper also see its flags and what its files were
   // found to say. Asked for here, above the early returns, because a hook
-  // cannot wait for the claim to load; the server refuses anybody else.
-  const reviewer = reviewsFlags(me?.role)
+  // cannot wait for the claim to load; the server refuses anybody else. Never
+  // on the reader's own paper: an officer who files is its claimant, and the
+  // doubts about it are the desk's (`rbac.is_own_claim`) -- so the request
+  // waits for the claim to say whose it is.
+  const reviewer = reviewsFlags(me?.role) && !!claim && claim.owner_id !== me?.id
   const review = useClaimReview(id, reviewer)
   const checksByUrl = new Map((review.data?.file_checks ?? []).map((c) => [c.url, c]))
 
@@ -608,7 +611,9 @@ export function PaperDetail() {
         />
       )}
 
-      <Notes claimId={claim.id} />
+      {/* The desk's notes, which are about the claimant -- so not on the
+          reader's own paper. */}
+      {!isOwner && <Notes claimId={claim.id} />}
 
       <section className="space-y-3">
         <SectionTitle>History</SectionTitle>

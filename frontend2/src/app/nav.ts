@@ -51,6 +51,12 @@ export type NavItem = {
   /** Absent means everybody who is signed in. */
   roles?: Role[]
   group?: string
+  /**
+   * A heading for these roles only, in place of `group`. The claimant's two
+   * doors are a faculty member's daily work, and so carry no heading; for an
+   * officer they are a second errand beside the desk, and sit under one.
+   */
+  groupFor?: { roles: Role[]; group: string }
   /** Match only this exact path, for an index route. */
   end?: boolean
   /** Shown in the palette even when the sidebar hides it. */
@@ -68,8 +74,14 @@ const ALL_STAFF: Role[] = [
 //: Mirrors `rbac.ADMIN_ROLES`. The research coordinator checks papers at
 //: the same step as the admin office, so every office destination is theirs.
 const OFFICE: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
+//: The office roles held by people who are academics too: everybody at a
+//: desk but the super admin. They "must be able to do both — do their own
+//: research as well as track others'".
+const OFFICERS: Role[] = ["RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "DIRECTOR", "FINANCE"]
 //: Mirrors `rbac.CLAIMANT_ROLES`: the people who file their own papers.
-const CLAIMANTS: Role[] = ["FACULTY", "HOD"]
+const CLAIMANTS: Role[] = ["FACULTY", "HOD", ...OFFICERS]
+//: Where an officer's own papers sit in their sidebar, apart from the desk.
+const MY_RESEARCH = { roles: OFFICERS, group: "My research" }
 //: Mirrors `rbac.can_review_flags`: the desks that judge a paper. Not the
 //: Director or Finance, who are not shown the doubts about what they
 //: authorise and pay, and not a claimant.
@@ -139,20 +151,23 @@ export const NAV: NavItem[] = [
     keywords: ["standing", "targets", "quota", "staff", "contribution", "college"],
   },
   // `rbac.CLAIMANT_ROLES`. A head of department is a faculty member who also
-  // heads the department, and keeps filing their own papers.
+  // heads the department, and keeps filing their own papers; an officer who
+  // publishes files theirs here too, under "My research", beside the desk.
   {
     to: "/papers",
     label: "My papers",
     icon: FileText,
     roles: CLAIMANTS,
-    keywords: ["publications", "tickets", "claims"],
+    groupFor: MY_RESEARCH,
+    keywords: ["publications", "tickets", "claims", "my research", "mine"],
   },
   {
     to: "/papers/new",
     label: "File a paper",
     icon: FileText,
     roles: CLAIMANTS,
-    keywords: ["submit", "claim", "new"],
+    groupFor: MY_RESEARCH,
+    keywords: ["submit", "claim", "new", "my research"],
   },
 
   // ---- what faculty come back for -------------------------------------
@@ -403,5 +418,7 @@ export const NAV: NavItem[] = [
 
 export function navFor(role: Role | undefined): NavItem[] {
   if (!role) return []
-  return NAV.filter((item) => !item.roles || item.roles.includes(role))
+  return NAV.filter((item) => !item.roles || item.roles.includes(role)).map((item) =>
+    item.groupFor?.roles.includes(role) ? { ...item, group: item.groupFor.group } : item
+  )
 }

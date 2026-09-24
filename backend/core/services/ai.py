@@ -268,10 +268,12 @@ def health() -> dict[str, Any]:
     out["hosted"] = name == "openai"
     out["host"] = openai_compat.host() if name == "openai" else ""
     failure = getattr(state, "failure", None)
-    if failure == "rejected":
-        # A refused key is not a service that is down, and the remedy is a
-        # different variable. Both tiers share the key, so both are refused.
-        out["code"] = out["fast_code"] = "rejected"
+    if failure in ("rejected", "rate_limited"):
+        # A refused key and a spent allowance are not a service that is
+        # down, and neither is fixed at AI_BASE_URL. Both tiers share the
+        # key, so both are in the same state; the provider's own sentence
+        # (which says how long to wait) is the one to show.
+        out["code"] = out["fast_code"] = failure
         out["detail"] = out["fast_detail"] = state.detail
         return out
     out["code"], out["detail"] = _verdict(state.up, state.model_present, state)
@@ -301,6 +303,11 @@ def _verdict(up: bool, present: bool, state, *, fast: bool = False):
     if provider_name() == "openai":
         where = openai_compat.host() or state.base_url
         if not up:
+            # Nothing answering at all gets the address to check; anything
+            # else (a stall, a page that is not JSON, a 5xx) keeps the
+            # provider's own sentence, which says what actually happened.
+            if getattr(state, "failure", None) not in (None, "unreachable") and state.detail:
+                return "service_down", state.detail
             return "service_down", (
                 f"Nothing is answering at {where}. Check AI_BASE_URL, and that the "
                 "service is up."

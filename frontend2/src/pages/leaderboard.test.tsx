@@ -184,6 +184,20 @@ describe("Leaderboard", () => {
     expect(await screen.findByText(/You have no papers counted in this period yet/)).toBeInTheDocument()
   })
 
+  it("does not tell somebody with papers they have none because they have no Q1", async () => {
+    // Found in review: "no papers" was decided by the ranked measure.
+    mount({
+      "/api/leaderboard": () => ({
+        ...PEOPLE,
+        sort: "q1",
+        rows: PEOPLE.rows.map((r) => (r.me ? { ...r, papers: 5, q1: 0, rank: 3, joint: true } : r)),
+        me: { rank: 3, of: 3, joint: true, value: 0, movement: null },
+      }),
+    })
+    expect(await screen.findByText("You're joint 3rd of 3")).toBeInTheDocument()
+    expect(screen.queryByText(/You have no papers counted/)).toBeNull()
+  })
+
   it("shows a failure as a failure, not as an empty board", async () => {
     mount({ "/api/leaderboard": failing(500) })
     expect(await screen.findByText("Could not load the leaderboard")).toBeInTheDocument()

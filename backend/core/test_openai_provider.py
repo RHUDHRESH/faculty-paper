@@ -319,8 +319,81 @@ class AskJsonSpeaksChatCompletions(_Fresh):
         self.assertEqual(caught.exception.code, "unreachable")
 
 
+class _Body:
+    """A response whose body cannot be read, or is not JSON."""
+
+    def __init__(self, raises=None, payload: bytes = b""):
+        self._raises = raises
+        self._payload = payload
+        self.closed = False
+
+    def read(self, *args):
+        if self._raises:
+            raise self._raises
+        return self._payload
+
+    def close(self):
+        self.closed = True
+
+    def __iter__(self):
+        return iter([])
+
+
+@override_settings(**GROQ)
+class FailuresReadingTheBodyAreStillProviderFailures(_Fresh):
+    """Found in review: the body is read after `_request`'s error mapping, so
+    a stall mid-body or a login page answering 200 escaped as a raw 500."""
+
+    def test_a_stall_while_reading_the_answer_is_a_timeout(self):
+        import socket
+
+        with patch("urllib.request.urlopen", return_value=_Body(raises=socket.timeout("timed out"))):
+            with self.assertRaises(ai.AIError) as caught:
+                ai.ask_json("anything")
+        self.assertEqual(caught.exception.code, "timeout")
+
+    def test_a_page_that_is_not_json_is_an_unreadable_answer(self):
+        with patch("urllib.request.urlopen", return_value=_Body(payload=b"<html>Sign in</html>")):
+            with self.assertRaises(ai.AIError) as caught:
+                ai.ask_json("anything")
+        self.assertEqual(caught.exception.code, "unparsable")
+
+    def test_a_stall_while_reading_the_model_list_is_a_state_not_a_crash(self):
+        with patch("urllib.request.urlopen", return_value=_Body(raises=TimeoutError("timed out"))):
+            state = ai.health()
+        self.assertFalse(state["ready"])
+        self.assertEqual(state["code"], "service_down")
+
+    def test_the_response_is_closed_after_reading(self):
+        body = _Body(payload=json.dumps({"choices": [{"message": {"content": "{}"}}]}).encode())
+        with patch("urllib.request.urlopen", return_value=body):
+            ai.ask_json("anything")
+        self.assertTrue(body.closed)
+
+    def test_a_rate_limited_model_list_says_so_rather_than_nothing_answering(self):
+        err = _http_error(
+            "https://api.groq.com/openai/v1/models", 429, {"error": {"message": "slow down"}},
+            headers={"retry-after": "12"},
+        )
+        with patch("urllib.request.urlopen", side_effect=err):
+            state = ai.health()
+        self.assertEqual(state["code"], "rate_limited")
+        self.assertIn("12", state["detail"])
+        self.assertNotIn("Nothing is answering", state["detail"])
+
+
 @override_settings(**GROQ)
 class TheWatchedPathReadsServerSentEvents(_Fresh):
+    def test_an_error_sent_as_a_bare_string_mid_stream_is_a_provider_error(self):
+        def responder(req):
+            return _Response(lines=[b'data: {"error": "Rate limit exceeded"}\n'])
+
+        with patch("urllib.request.urlopen", _Captured(responder)):
+            with ai.progress_to(ai.Progress(emit=lambda ev: None)):
+                with self.assertRaises(ai.AIError) as caught:
+                    ai.ask_json("suggest venues")
+        self.assertIn("Rate limit exceeded", str(caught.exception))
+
     def test_progress_sees_the_pieces_and_the_result_parses(self):
         captured = _Captured(_sse('{"a": ', "1}"))
         seen = []

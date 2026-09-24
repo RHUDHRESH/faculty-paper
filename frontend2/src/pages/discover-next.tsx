@@ -46,7 +46,8 @@ type Partner = { name: string; kind: string | null; why: string; first_step: str
 type Partners = {
   partners: Partner[]
   unverified: boolean
-  note?: string
+  /** Why nothing was asked, when there was nothing of the reader's to ask about. */
+  why_empty?: string
   model: string
 }
 
@@ -249,7 +250,7 @@ function IndustryPartners({ status }: { status: AiStatus | undefined }) {
         </p>
       ) : q.data ? (
         q.data.partners.length === 0 ? (
-          <Meta className="block">{q.data.note || "The model named nobody it was confident exists."}</Meta>
+          <Meta className="block">{q.data.why_empty || "The model named nobody it was confident exists."}</Meta>
         ) : (
           <>
             <ul className="divide-y divide-line border-y border-line">
@@ -257,7 +258,9 @@ function IndustryPartners({ status }: { status: AiStatus | undefined }) {
                 <li key={p.name} className="py-3">
                   <p className="font-medium text-fg">
                     {p.name}
-                    {p.kind ? <Meta className="ml-2">{p.kind}</Meta> : null}
+                    {/* A real separator, not a margin: read aloud, the
+                        margin-only version ran name and kind together. */}
+                    {p.kind ? <Meta className="font-normal"> · {p.kind}</Meta> : null}
                   </p>
                   {p.why && <p className="mt-1 text-sm text-fg-muted">{p.why}</p>}
                   {p.first_step && <p className="mt-1 text-sm text-fg">First step: {p.first_step}</p>}

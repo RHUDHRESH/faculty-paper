@@ -300,9 +300,12 @@ function Standing({ data }: { data: Board }) {
       )
     }
     const moved = movementSentence(me.movement, since)
+    // Papers, not the ranked measure: somebody ranked by Q1 with five papers
+    // and no Q1 has papers, and is simply joint last on that measure.
+    const papers = data.rows.find((r) => r.me)?.papers ?? 0
     return (
       <section className="panel-lead rounded-lg px-4 py-4 sm:px-5" aria-label="Your place">
-        {me.value === 0 ? (
+        {papers === 0 ? (
           <>
             <p className="text-lg font-semibold text-fg">You have no papers counted in this period yet.</p>
             <Meta className="mt-1 block">
@@ -406,20 +409,27 @@ function YouPill({ children = "You" }: { children?: string }) {
 
 const WIDE = "hidden sm:table-cell"
 
-function tallyColumns<T extends Tally>(): Column<T>[] {
-  return [
-    { key: "score", header: "Score", align: "right", cell: (r) => count(r.score) },
-    { key: "papers", header: "Papers", align: "right", cell: (r) => count(r.papers) },
-    { key: "q1", header: "Q1", align: "right", className: WIDE, headerClassName: WIDE, cell: (r) => count(r.q1) },
-    {
-      key: "first_author",
-      header: "First author",
-      align: "right",
-      className: WIDE,
-      headerClassName: WIDE,
-      cell: (r) => count(r.first_author),
-    },
-  ]
+const TALLY_HEADERS: Record<Sort, string> = {
+  score: "Score",
+  papers: "Papers",
+  q1: "Q1",
+  first_author: "First author",
+}
+
+/**
+ * One column per measure. On a phone only the measure being ranked by is
+ * shown: four numbers beside a name did not fit 390px, and the one that
+ * decides the order is the one the reader needs.
+ */
+function tallyColumns<T extends Tally>(sort: Sort): Column<T>[] {
+  return (Object.keys(TALLY_HEADERS) as Sort[]).map((key) => ({
+    key,
+    header: TALLY_HEADERS[key],
+    align: "right" as const,
+    className: key === sort ? undefined : WIDE,
+    headerClassName: key === sort ? undefined : WIDE,
+    cell: (r: T) => count(r[key]),
+  }))
 }
 
 function PeopleTable({
@@ -471,7 +481,7 @@ function PeopleTable({
         </div>
       ),
     },
-    ...tallyColumns<PersonRow>(),
+    ...tallyColumns<PersonRow>(data.sort),
     { key: "movement", header: "Move", align: "right", cell: (r) => <Movement value={r.movement} /> },
   ]
 
@@ -495,7 +505,12 @@ function PeopleTable({
 }
 
 function DepartmentTable({ data }: { data: DepartmentBoard }) {
-  const sortLabel = SORTS.find((s) => s.value === data.sort)?.label ?? "Score"
+  // On a phone, one number beside the department: whichever decides the
+  // order. The total and the per-person figure are both visible from `sm` up.
+  const totals = tallyColumns<DepartmentRow>(data.sort).map((c) =>
+    data.per_head && c.key === data.sort ? { ...c, className: WIDE, headerClassName: WIDE } : c
+  )
+  const perPerson = data.per_head ? undefined : WIDE
   const columns: Column<DepartmentRow>[] = [
     { key: "rank", header: "#", className: "w-10", cell: (r) => <Place rank={r.rank} joint={r.joint} /> },
     {
@@ -509,11 +524,13 @@ function DepartmentTable({ data }: { data: DepartmentBoard }) {
       ),
     },
     { key: "people", header: "People", align: "right", className: WIDE, headerClassName: WIDE, cell: (r) => count(r.people) },
-    ...tallyColumns<DepartmentRow>(),
+    ...totals,
     {
       key: "per_head",
-      header: `${sortLabel} per person`,
+      header: "Per person",
       align: "right",
+      className: perPerson,
+      headerClassName: perPerson,
       cell: (r) => r.per_head[data.sort].toFixed(2),
     },
     { key: "movement", header: "Move", align: "right", cell: (r) => <Movement value={r.movement} /> },

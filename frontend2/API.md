@@ -346,10 +346,43 @@ stage — `filed` covers `SUBMITTED` *and* `HOD_APPROVED`, `checked` covers
 `status` there takes a single value. `q` narrows the counts the same way it
 narrows the list, so the chips never promise rows the list will not show.
 
+### Leaderboard — every role, no money
+
+```
+GET /api/leaderboard?board=people|departments
+                    &period=academic|last_academic|calendar|all
+                    &sort=score|papers|q1|first_author
+                    &department=     (people board: rank within one department)
+                    &per_head=true   (department board: rank per person)
+    -> { board, period{key,label,from,to,compared_with}, periods[], sort,
+         rows[{ rank, joint, papers, q1, score, first_author, movement, me, ... }],
+         me{ rank, of, joint, movement, ... } | null, totals, method }
+```
+
+Score is Q1 = 4, Q2 = 3, Q3 = 2, Q4 = 1, other indexed = 1 (`method.weights`).
+Counts filed claims and the ledger's claim-less historic rows, once per paper.
+`movement` is places gained against the period before (null when there is no
+earlier period, or nothing this period). 400 for an unknown board, period or sort.
+
+### New things to work on — counted, no model
+
+```
+GET /api/discover/next     -> { people[{ id, name, department, reasons[], ... }],
+                                journals[{ title, quartile, colleagues, areas, reason }],
+                                topics[{ area, alongside, people, reason }],
+                                grounded_on, why_empty }
+GET /api/discover/partners -> { partners[{ name, kind, why, first_step }],
+                                unverified: true, model, grounded_on }   (needs AI; 503 without)
+```
+
+`/next` never needs a model and never excludes itself for want of one. People
+never include anybody already credited with a paper you share.
+
 ### Discovery — the two AI features
 
 ```
-GET  /api/discover/status        -> { available: boolean, model: string }
+GET  /api/discover/status        -> { available, model, provider, code, detail,
+                                      hosted: boolean, host: string }
 GET  /api/meta/research-domains?q=&limit=
                                  -> { domains: string[] }
 GET  /api/me/interests           -> { domains: string[] }
@@ -359,8 +392,11 @@ POST /api/discover/venues        { title, abstract?, keywords?,
                                    author_position?, total_authors? }
 ```
 
-**Ask `/discover/status` before offering any of it.** With no API key
-configured, `/venues` and `/directions` return **503** with a readable message.
+**Ask `/discover/status` before offering any of it.** With no model
+configured `code` is `not_configured` — say so in one line and offer nothing
+that needs a model — and `/venues`, `/directions` and `/partners` return
+**503** with a readable message. `hosted: true` means what is typed is sent to
+`host`; do not tell the reader it stays on this server.
 That is a supported state, not an error to apologise for — the screen should
 say the feature is switched off, not show a button that always fails.
 

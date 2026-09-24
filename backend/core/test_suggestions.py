@@ -273,6 +273,20 @@ class IndustryPartnersNeedAModel(_Suggest):
         self.assertEqual(res.status_code, 503)
 
     @override_settings(**GROQ)
+    def test_somebody_with_nothing_to_build_on_is_told_why_without_asking_the_model(self):
+        # Found in review: the explanation was keyed `note`, which the
+        # money filter strips, so the page showed a misleading fallback.
+        def responder(req):
+            assert req.full_url.endswith("/models"), "no completion may be asked for"
+            return _Response(json.dumps({"data": [{"id": "llama-3.3-70b-versatile"}]}).encode())
+
+        with patch("urllib.request.urlopen", _Captured(responder)):
+            res = self.client.get("/api/discover/partners")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["partners"], [])
+        self.assertIn("nothing of yours to build on", res.json()["why_empty"])
+
+    @override_settings(**GROQ)
     def test_with_a_model_the_names_come_back_marked_as_suggestions(self):
         self._paper(self.me, areas=(AI,), title="Edge inference for crop disease")
 

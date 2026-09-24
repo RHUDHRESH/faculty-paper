@@ -119,6 +119,15 @@ class WhatCountsAsAPaper(_Board):
         body = self._get(self.asha, period="all")
         self.assertEqual(self._row(body, self.asha)["papers"], 1)
 
+    def test_two_papers_sharing_a_title_but_not_a_doi_are_two_papers(self):
+        # Found in review: the title fallback merged a conference paper and
+        # its journal version, which carry different DOIs.
+        self._claim(self.asha, title="Deep nets", doi="10.1/conference")
+        self._claim(self.asha, title="Deep nets", doi="10.1/journal")
+        self._ledger("TSEC001", title="Deep nets", doi="-")  # no DOI: one of the two
+        body = self._get(self.asha, period="all")
+        self.assertEqual(self._row(body, self.asha)["papers"], 2)
+
     def test_rows_for_people_no_longer_on_the_roster_are_left_out_and_said_so(self):
         self._ledger("GONE-01", title="By somebody who left")
         body = self._get(self.asha, period="all")

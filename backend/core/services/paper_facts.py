@@ -196,22 +196,41 @@ def _claim_indexed(level: Any, status: Any, quartile: str | None) -> bool:
 
 
 class _Identity:
-    """Paper identity across DOIs and titles, so either one finds the other."""
+    """Paper identity across DOIs and titles, so either one finds the other.
+
+    A title joins two rows only when that does not contradict a DOI: a claim
+    with a DOI and a DOI-less ledger copy of it are one paper, but a
+    conference paper and its journal version -- same title, two DOIs -- are
+    two. Rows without any DOI still meet on title alone; that is the only
+    identity they have.
+    """
 
     def __init__(self) -> None:
         self._by_doi: dict[str, str] = {}
-        self._by_title: dict[str, str] = {}
+        self._by_title: dict[str, list[str]] = {}
+        self._doi_of: dict[str, str | None] = {}
 
     def of(self, doi: Any, title: Any, fallback: str) -> str:
-        d = normalize_doi(str(doi)) if doi else None
+        d = normalize_doi(str(doi)) if doi and _cell(doi) else None
         t = normalize_title(str(title or ""))
-        key = (d and self._by_doi.get(d)) or (t and self._by_title.get(t))
-        if not key:
+        key = self._by_doi.get(d) if d else None
+        if key is None and t:
+            for candidate in self._by_title.get(t, ()):
+                bound = self._doi_of.get(candidate)
+                if d is None or bound is None or bound == d:
+                    key = candidate
+                    break
+        if key is None:
             key = f"doi:{d}" if d else (f"title:{t}" if t else f"row:{fallback}")
+            if key in self._doi_of:
+                key = f"{key}#{fallback}"
+            self._doi_of[key] = None
         if d:
             self._by_doi.setdefault(d, key)
-        if t:
-            self._by_title.setdefault(t, key)
+            if self._doi_of.get(key) is None:
+                self._doi_of[key] = d
+        if t and key not in self._by_title.setdefault(t, []):
+            self._by_title[t].append(key)
         return key
 
 

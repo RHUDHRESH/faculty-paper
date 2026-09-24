@@ -29,16 +29,23 @@ def discover_next(request: HttpRequest):
 def discover_partners(request: HttpRequest):
     """Organisations outside the college worth approaching. Needs a model.
 
-    Checked before the daily AI allowance is spent, so a server with nothing
-    configured does not use up anybody's quota answering "not set up".
+    The daily AI allowance is spent only when the model is actually asked:
+    not for a server with nothing configured, and not for somebody with
+    nothing yet to build a question from.
     """
     user = require_user(request)
     state = ai.health()
     if not state.get("ready"):
         raise HttpError(503, state.get("detail") or ai.NOT_CONFIGURED)
-    rate_limit(request, "ai", settings.AI_DAILY_LIMIT, "day", what="the AI suggestions")
     try:
-        return hod.without_money(suggestions.industry_partners(user))
+        return hod.without_money(
+            suggestions.industry_partners(
+                user,
+                before_asking=lambda: rate_limit(
+                    request, "ai", settings.AI_DAILY_LIMIT, "day", what="the AI suggestions"
+                ),
+            )
+        )
     except ai.AIError as exc:
         raise HttpError(_ai_failure_status(exc), str(exc)) from exc
 

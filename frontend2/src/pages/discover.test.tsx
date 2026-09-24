@@ -162,7 +162,9 @@ describe("Discover with a hosted model", () => {
       }),
     })
     fireEvent.click(await screen.findByRole("button", { name: /Suggest organisations/ }))
-    expect(await screen.findByText("Acme Agritech")).toBeInTheDocument()
+    const name = await screen.findByText("Acme Agritech")
+    // Read aloud as "Acme Agritech · company", not "Acme Agritechcompany".
+    expect(name.textContent).toBe("Acme Agritech · company")
     expect(screen.getByText(/not checked against anything we hold/i)).toBeInTheDocument()
   })
 })

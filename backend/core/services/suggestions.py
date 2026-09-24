@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 from datetime import date
-from typing import Any
+from typing import Any, Callable
 
 from core.models import ResearchInterest
 from core.services import ai, paper_facts
@@ -397,13 +397,20 @@ _PARTNERS_SCHEMA = {
 ASK_FOR_PARTNERS = 5
 
 
-def industry_partners(user, *, facts: Facts | None = None) -> dict[str, Any]:
+def industry_partners(
+    user, *, facts: Facts | None = None, before_asking: Callable[[], None] | None = None
+) -> dict[str, Any]:
     """Organisations outside the college worth approaching, from a model.
 
     Grounded on the person's own published titles and subject areas, and
     nothing else about them. Unlike every other suggestion on the page these
     cannot be checked against the college's tables -- we hold no register of
     companies -- so the answer is marked `unverified` and the page says so.
+
+    `before_asking` runs just before the model is asked and not otherwise, so
+    a caller can spend a daily allowance only on a question actually put.
+    The explanation for an empty answer is `why_empty`, not `note`: `note`
+    is one of the keys the money filter strips.
     """
     facts = facts or paper_facts.load()
     mine = sorted(
@@ -421,7 +428,7 @@ def industry_partners(user, *, facts: Facts | None = None) -> dict[str, Any]:
             "partners": [],
             "unverified": True,
             "grounded_on": grounded_on,
-            "note": (
+            "why_empty": (
                 "There is nothing of yours to build on yet. File a paper, or pick the "
                 "domains you work in, and this will have something to work from."
             ),
@@ -440,6 +447,8 @@ def industry_partners(user, *, facts: Facts | None = None) -> dict[str, Any]:
         "sentence tied to their work above) and 'first_step' (one concrete, low-cost first "
         "step). Only name organisations you are confident exist; give fewer rather than guess."
     )
+    if before_asking is not None:
+        before_asking()
     raw = ai.ask_json(prompt, schema=_PARTNERS_SCHEMA, temperature=0.4)
 
     partners: list[dict[str, str]] = []

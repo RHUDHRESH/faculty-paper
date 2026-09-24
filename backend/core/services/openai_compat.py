@@ -271,6 +271,33 @@ def _request(path: str, payload: dict | None = None, *, timeout: int, model: str
         raise OpenAIError("unreachable", f"Nothing is answering at {host() or base_url()}.") from exc
 
 
+def _read_json(response) -> Any:
+    """The body of a whole (not streamed) answer, parsed, and the socket closed.
+
+    Reading happens after `_request` has returned, so its failures are
+    mapped here: a service that stalls part way through the body is a
+    timeout, and a 200 carrying a page that is not JSON -- a proxy's or a
+    sign-in page, which is what a wrong AI_BASE_URL usually produces -- is
+    an unreadable answer, not a crash.
+    """
+    try:
+        raw = response.read()
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        reason = getattr(exc, "reason", exc)
+        if isinstance(exc, TimeoutError) or "timed out" in str(reason).lower():
+            raise OpenAIError("timeout", "The AI service took too long to answer and was stopped.") from exc
+        raise OpenAIError("unreachable", "The AI service stopped answering part way through.") from exc
+    finally:
+        response.close()
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        raise OpenAIError(
+            "bad_output",
+            "The AI service answered with something that is not JSON. Check AI_BASE_URL.",
+        ) from None
+
+
 # --------------------------------------------------------------------------- #
 # Health                                                                      #
 # --------------------------------------------------------------------------- #
@@ -320,20 +347,14 @@ def health(*, timeout: int = HEALTH_TIMEOUT) -> Health:
 
 def _probe(want: str, want_fast: str, url: str, timeout: int) -> Health:
     try:
-        data = json.load(_request("/models", timeout=timeout))
+        data = _read_json(_request("/models", timeout=timeout))
     except OpenAIError as exc:
+        if exc.kind == "bad_output":
+            logger.warning("openai_compat_health_unreadable host=%s", host())
         return Health(
             up=False, model_present=False, model=want, base_url=url, detail=exc.message,
             fast_model=want_fast, fast_model_present=False, fast_detail=exc.message,
             failure=exc.kind,
-        )
-    except (json.JSONDecodeError, ValueError) as exc:
-        detail = "The AI service answered, but not with a model list. Check AI_BASE_URL."
-        logger.warning("openai_compat_health_unreadable host=%s err=%s", host(), exc)
-        return Health(
-            up=False, model_present=False, model=want, base_url=url, detail=detail,
-            fast_model=want_fast, fast_model_present=False, fast_detail=detail,
-            failure="service_error",
         )
 
     rows = data.get("data") if isinstance(data, dict) else data
@@ -411,13 +432,13 @@ def generate(
     if fmt:
         payload["response_format"] = {"type": "json_object"}
     try:
-        data = json.load(_request("/chat/completions", payload, timeout=timeout, model=model))
+        data = _read_json(_request("/chat/completions", payload, timeout=timeout, model=model))
     except OpenAIError as exc:
         if not (fmt and _refuses_json_mode(exc)):
             raise
         logger.info("openai_compat_json_mode_refused host=%s model=%s", host(), model)
         payload.pop("response_format", None)
-        data = json.load(_request("/chat/completions", payload, timeout=timeout, model=model))
+        data = _read_json(_request("/chat/completions", payload, timeout=timeout, model=model))
     return _content_of(data)
 
 
@@ -471,10 +492,12 @@ def stream(
                 chunk = json.loads(data)
             except json.JSONDecodeError:
                 continue
-            if isinstance(chunk, dict) and chunk.get("error"):
+            err = chunk.get("error") if isinstance(chunk, dict) else None
+            if err:
+                # Some services send an object, some a bare string.
+                said = err.get("message") if isinstance(err, dict) else err
                 raise OpenAIError(
-                    "service_error",
-                    _scrub(str((chunk["error"] or {}).get("message") or "The AI service stopped answering.")),
+                    "service_error", _scrub(str(said or "The AI service stopped answering."))
                 )
             try:
                 piece = chunk["choices"][0].get("delta", {}).get("content") or ""

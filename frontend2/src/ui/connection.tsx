@@ -30,7 +30,7 @@ export function ConnectionPath({
         <ol
           key={p}
           aria-label={path.map((h, i) => (i === 0 ? h.person.name : `${h.person.name}${h.evidence ? ` (${h.evidence})` : ""}`)).join(" → ")}
-          className="flex items-center gap-1 overflow-x-auto"
+          className="flex flex-wrap items-center gap-1 gap-y-2 sm:flex-nowrap sm:overflow-x-auto"
         >
           <Waypoints aria-hidden className="mr-1 size-4 shrink-0 text-(--area)" strokeWidth={1.75} />
           {path.map((h, i) => (
@@ -43,7 +43,7 @@ export function ConnectionPath({
               )}
               <li className="flex shrink-0 flex-col items-center gap-0.5">
                 {h.person.id ? (
-                  <Link to={`/people/${h.person.id}`} title={h.person.name}>
+                  <Link to={`/u/${h.person.id}`} title={h.person.name}>
                     <Avatar person={h.person} size="sm" />
                   </Link>
                 ) : (

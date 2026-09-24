@@ -28,6 +28,10 @@ export type GraphNode = {
   degree: number
   papers?: number
   center?: boolean
+  /** Colour: "inside" (navy, the college) or "outside" (people-area terracotta). */
+  tone?: "inside" | "outside"
+  /** Drawn faint (e.g. two hops away). */
+  faint?: boolean
 }
 
 export type GraphLink = {
@@ -173,6 +177,9 @@ export function ForceGraph({
   highlight,
   height = 420,
   label,
+  onPick,
+  pathToCenter,
+  legend,
 }: {
   nodes: GraphNode[]
   links: GraphLink[]
@@ -182,6 +189,12 @@ export function ForceGraph({
   height?: number
   /** What the drawing is, for a screen reader. */
   label: string
+  /** Instead of opening /u/:id, hand the picked node to the page. */
+  onPick?: (id: string) => void
+  /** Pointing at a node lights its shortest path back to the centre. */
+  pathToCenter?: boolean
+  /** Replaces the default legend. */
+  legend?: React.ReactNode
 }) {
   const navigate = useNavigate()
   const [box, width] = useWidth<HTMLDivElement>()
@@ -201,6 +214,36 @@ export function ForceGraph({
     }
     return out
   }, [focus, links])
+
+  // The shortest path from the focus back to the centre: node ids and "a|b" link keys.
+  const path = useMemo(() => {
+    const out = new Set<string>()
+    if (!pathToCenter || !focus || !centerId || focus === centerId) return out
+    const adj = new Map<string, string[]>()
+    for (const l of links) {
+      adj.set(l.source, [...(adj.get(l.source) ?? []), l.target])
+      adj.set(l.target, [...(adj.get(l.target) ?? []), l.source])
+    }
+    const prev = new Map<string, string>([[centerId, centerId]])
+    const queue = [centerId]
+    while (queue.length && !prev.has(focus)) {
+      const at = queue.shift()!
+      for (const nb of adj.get(at) ?? []) {
+        if (!prev.has(nb)) {
+          prev.set(nb, at)
+          queue.push(nb)
+        }
+      }
+    }
+    let at = focus
+    while (prev.has(at) && at !== centerId) {
+      const p = prev.get(at)!
+      out.add(`${at}|${p}`).add(`${p}|${at}`).add(p).add(at)
+      at = p
+    }
+    return out
+  }, [pathToCenter, focus, centerId, links])
+  const pick = (id: string) => (onPick ? onPick(id) : navigate(`/u/${id}`))
 
   useEffect(() => setView(HOME), [nodes])
 
@@ -289,7 +332,8 @@ export function ForceGraph({
                 const a = placed.get(l.source)
                 const b = placed.get(l.target)
                 if (!a || !b) return null
-                const touches = !!focus && (l.source === focus || l.target === focus)
+                const touches =
+                  !!focus && (l.source === focus || l.target === focus || path.has(`${l.source}|${l.target}`))
                 const dim = !!focus && !touches
                 const collab = l.kind === "collab"
                 return (
@@ -315,7 +359,7 @@ export function ForceGraph({
                 if (!p) return null
                 const isFocus = n.id === focus
                 const lit = isFocus || n.id === centerId
-                const dim = !!focus && !isFocus && !neighbours.has(n.id)
+                const dim = !!focus && !isFocus && !neighbours.has(n.id) && !path.has(n.id)
                 const r = px(nodeRadius(n))
                 const showLabel = labelled.has(n.id) || isFocus || neighbours.has(n.id)
                 return (
@@ -329,22 +373,28 @@ export function ForceGraph({
                     onMouseLeave={() => setActive((a) => (a === n.id ? null : a))}
                     onFocus={() => setActive(n.id)}
                     onBlur={() => setActive((a) => (a === n.id ? null : a))}
-                    onClick={() => navigate(`/u/${n.id}`)}
+                    onClick={() => pick(n.id)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault()
-                        navigate(`/u/${n.id}`)
+                        pick(n.id)
                       }
                     }}
                     className="cursor-pointer outline-none"
-                    opacity={dim ? 0.25 : 1}
+                    opacity={dim ? 0.25 : n.faint && !isFocus ? 0.55 : 1}
                   >
                     <circle cx={p.x} cy={p.y} r={r + px(8)} fill="transparent" />
                     <circle
                       cx={p.x}
                       cy={p.y}
                       r={r}
-                      fill={lit ? "var(--color-accent)" : "var(--color-fg-muted)"}
+                      fill={
+                        n.tone === "outside"
+                          ? "var(--area-people)"
+                          : lit || n.tone === "inside"
+                            ? "var(--color-accent)"
+                            : "var(--color-fg-muted)"
+                      }
                       stroke={isFocus ? "var(--color-accent-line)" : "var(--color-bg)"}
                       strokeWidth={px(isFocus ? 4 : 1.5)}
                     />
@@ -380,6 +430,13 @@ export function ForceGraph({
           </Button>
         </div>
       </div>
+      {legend ?? <DefaultLegend />}
+    </div>
+  )
+}
+
+function DefaultLegend() {
+  return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <Meta className="inline-flex items-center gap-1.5 text-xs">
           <svg width="22" height="6" aria-hidden>
@@ -397,6 +454,5 @@ export function ForceGraph({
           Drag to move. Zoom with the buttons, a trackpad pinch or Ctrl and scroll. Tap a person to open them.
         </Meta>
       </div>
-    </div>
   )
 }

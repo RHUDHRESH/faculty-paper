@@ -72,7 +72,7 @@ export function MessagesPage({ pane }: { pane: Pane }) {
           className={cn("min-w-0 flex-1 flex-col bg-bg md:flex", open ? "flex" : "hidden")}
         >
           {to ? (
-            <OpenChat to={to} refPost={params.get("ref")} />
+            <OpenChat to={to} refPost={params.get("ref")} draft={params.get("draft")} />
           ) : pane === "chat" ? (
             <ChatPage />
           ) : pane === "office" ? (

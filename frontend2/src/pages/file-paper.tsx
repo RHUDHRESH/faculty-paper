@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
-import { AlertTriangle, ArrowLeft, Check, ExternalLink, LoaderCircle, Search } from "lucide-react"
+import { AlertTriangle, ArrowLeft, BookOpen, Check, ExternalLink, FilePlusCorner, FileStack, LoaderCircle, PenLine, Search, Send, FileText } from "lucide-react"
 
 import { useCollegeName } from "@/app/institution"
 import { api, ApiError } from "@/lib/api"
@@ -9,15 +9,18 @@ import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { ConfirmDialog } from "@/ui/dialog"
-import { ClaimEligibilityGate, ClaimRulesDialog } from "@/ui/eligibility"
+import { ClaimEligibilityGate, ClaimRulesDialog, CONDITION_IDS, ConfirmedConditions, type ConditionEvidence, type Ticks } from "@/ui/eligibility"
+import { PaperCard } from "@/ui/entity"
+import { HeroBand } from "@/ui/hero"
+import { IconTile } from "@/ui/choice"
 import { Checkbox, DateInput, Field, Input, NumberInput, Radio, Textarea } from "@/ui/field"
 import { stageOf } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, SkeletonText } from "@/ui/state"
-import { PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Wizard, type Step } from "@/ui/wizard"
 
 import { AuthorList } from "./filing/authors"
+import { ChooseFooter, ChooseMethod, type Method, type PulledPaper, type ScopusPull } from "./filing/choose"
 import { SourceTag } from "./filing/bits"
 import { EstimateBar, EstimatePanel } from "./filing/estimate"
 import {
@@ -228,10 +231,21 @@ function buildPayload(
     /** Whose paper this is, when somebody files it for them. Only ever sent on
      *  creation: a PATCH carrying it would move a claim to another person. */
     ownerId?: string | null
+    /** The three conditions as ticked, sent only with a filing. */
+    confirmations?: { ticks: Ticks; version: string }
   }
 ) {
   return {
     ...(extra.ownerId ? { owner_id: extra.ownerId } : {}),
+    ...(extra.submit && extra.confirmations
+      ? {
+          confirmations: CONDITION_IDS.filter((id) => extra.confirmations!.ticks[id]).map((id) => ({
+            id,
+            text_version: extra.confirmations!.version,
+            ticked_at: extra.confirmations!.ticks[id],
+          })),
+        }
+      : {}),
     paper_title: form.paperTitle.trim(),
     doi: form.doi.trim() || null,
     issn: form.issn.trim() || null,
@@ -315,12 +329,18 @@ const ACCEPTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", "
  * missing from it, and says what beside the field that is missing it.
  */
 const STEPS: Step[] = [
-  { id: "paper", title: "The paper", hint: "Paste the DOI or link and most of the form fills itself." },
-  { id: "journal", title: "The journal", hint: "Where it was published, and the figures it is paid on." },
-  { id: "claim", title: "You and the claim", hint: "Your place among the authors, and the college on the paper." },
-  { id: "proof", title: "The proof", hint: "The published paper and the cited references, as files." },
-  { id: "file", title: "Check and file", hint: "Read it back once, then send it to the research cell." },
+  { id: "paper", title: "The paper", hint: "Paste the DOI or link and most of the form fills itself.", icon: FilePlusCorner },
+  { id: "journal", title: "The journal", hint: "Where it was published, and the figures it is paid on.", icon: BookOpen },
+  { id: "claim", title: "You and the claim", hint: "Your place among the authors, and the college on the paper.", icon: PenLine },
+  { id: "proof", title: "The proof", hint: "The published paper and the cited references, as files.", icon: FileStack },
+  { id: "file", title: "Check and file", hint: "Read it back once, then send it to the research cell.", icon: Send },
 ]
+
+/** The four phases the header shows (docs/ux/04). */
+const PHASES = ["Choose", "Confirm", "Details", "File"] as const
+
+/** The text version the server falls back to until the rules arrive. */
+const CONDITIONS_VERSION_FALLBACK = "2026-09"
 
 /** Which field on which step answers each readiness problem. */
 const PROBLEM_FIELD: Record<string, string> = {
@@ -482,7 +502,21 @@ export function FilePaper() {
    * Plain state: a remembered tick is how a duplicate claim gets filed a
    * second year running.
    */
-  const [acknowledged, setAcknowledged] = useState(false)
+  const [ticks, setTicks] = useState<Ticks | null>(null)
+  /** The DOI and title the ticks were given for: a different article needs them again. */
+  const [ticksFor, setTicksFor] = useState("")
+  /**
+   * Where the page is: choosing the paper, confirming the three conditions
+   * about it, or the five-step form. A draft reopened here starts at the
+   * conditions (the article is chosen; the ticks are never remembered); a
+   * paper filed on somebody's behalf starts at the form and is sent through
+   * the conditions before it is filed.
+   */
+  const [phase, setPhase] = useState<"choose" | "confirm" | "form">(() =>
+    isEditRoute ? "confirm" : searchParams.get("for") ? "form" : "choose"
+  )
+  const [method, setMethod] = useState<Method | null>(null)
+  const [picked, setPicked] = useState<PulledPaper | null>(null)
 
   // The draft id is read from the ref by the autosave timer and the save
   // handler; the state half only re-renders once when the draft gets an id.
@@ -858,6 +892,61 @@ export function FilePaper() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, form.paperTitle, form.issn, form.scopusAuthorUrl])
 
+  /* ------------------------- step 1: the paper --------------------------- */
+
+  // "Pull from Scopus": my papers from the record, each marked if filed.
+  const pullEnabled = !isEditRoute && !filingForId
+  const {
+    data: pull,
+    isLoading: pullLoading,
+    error: pullError,
+    refetch: refetchPull,
+  } = useApi<ScopusPull>(["me", "scopus-pull"], "/api/me/scopus-pull", { enabled: pullEnabled })
+
+  // Pull is the default when there is something to pull; otherwise Paste.
+  const chosenMethod: Method = method ?? (!pullEnabled || (pull && pull.unclaimed === 0) || pullError ? "paste" : "pull")
+
+  function choosePulled(p: PulledPaper) {
+    setPicked(p)
+    const total = p.total_authors || p.authors.length || 1
+    patchForm({
+      paperTitle: p.title,
+      doi: p.doi || "",
+      journalTitle: p.venue || "",
+      issn: p.issn || "",
+      publicationDate: p.date || (p.year ? `${p.year}-01-01` : ""),
+      totalAuthors: total,
+      authorPosition: p.author_position || 1,
+      authors: p.authors.map((name, i) => ({ position: i + 1, name })),
+    })
+    // The lookup fills the rest (journal metrics, type, sources) from the DOI.
+    if (p.doi) void findPaper(p.doi)
+  }
+
+  // `?publication={id}` preselects the paper and opens the conditions.
+  const preselectRef = useRef(false)
+  useEffect(() => {
+    const wanted = searchParams.get("publication")
+    if (!wanted || !pull || preselectRef.current) return
+    preselectRef.current = true
+    const hit = pull.papers.find((p) => p.publication_id === wanted && !p.already_claimed)
+    if (hit) {
+      choosePulled(hit)
+      setPhase("confirm")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pull, searchParams])
+
+  const articleKey = `${normaliseDoi(form.doi.trim()).toLowerCase()}|${form.paperTitle.trim().toLowerCase()}`
+  const ticksValid = !!ticks && ticksFor === articleKey
+
+  /** "Change" on the conditions: back to Step 1, and every tick cleared. */
+  function changePaper() {
+    setTicks(null)
+    setTicksFor("")
+    setPhase(isEditRoute ? "form" : "choose")
+  }
+
   /* ------------------------------ estimate ------------------------------- */
 
   const [calc, setCalc] = useState<CalcResult | null>(null)
@@ -959,11 +1048,25 @@ export function FilePaper() {
     verify?.scopus_status === "not_configured" || (!verify && lookupRes?.scopus_status === "not_configured")
 
   async function fileNow(opts: { contest?: boolean } = {}) {
+    // The conditions are about one article. Not ticked yet, or ticked for a
+    // different DOI or title: ask again before anything is sent.
+    if (!ticksValid) {
+      setTicks(null)
+      setPhase("confirm")
+      toast.info("Confirm the three conditions for this article, then file it.")
+      return
+    }
     setFileBusy(true)
     setSubmitError(null)
     const contest = opts.contest ?? (scopusOff && contestNote.trim().length >= 10)
     try {
-      const payload = buildPayload(form, { submit: true, contest, contestNote, ownerId: filingFor?.id })
+      const payload = buildPayload(form, {
+        submit: true,
+        contest,
+        contestNote,
+        ownerId: filingFor?.id,
+        confirmations: { ticks: ticks!, version: rules.conditions_version || CONDITIONS_VERSION_FALLBACK },
+      })
       const result = claimIdRef.current
         ? await api<ClaimDetail>(`/api/claims/${claimIdRef.current}`, { method: "PATCH", json: payload })
         : await api<ClaimDetail>("/api/claims", { method: "POST", json: payload })
@@ -1046,20 +1149,29 @@ export function FilePaper() {
 
   // Ctrl Enter continues, from inside a text box too. Not on the last step:
   // filing keeps its own button and dialog.
+  // Step 1 can be left once there is an article to confirm things about.
+  const canLeaveChoose =
+    !lookupBusy &&
+    (chosenMethod === "pull" ? !!picked : Boolean(lookupRes?.ok || form.paperTitle.trim()))
+  function leaveChoose() {
+    if (canLeaveChoose) setPhase("confirm")
+  }
+
   const advance = useRef(() => {})
   advance.current = () => {
+    if (phase === "choose") return leaveChoose()
     if (validate(step) === null) goTo(step + 1)
   }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && step < STEPS.length - 1 && !fileBusy) {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && phase !== "confirm" && step < STEPS.length - 1 && !fileBusy) {
         e.preventDefault()
         advance.current()
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [step, fileBusy])
+  }, [step, fileBusy, phase])
 
   /* ------------------------------- render -------------------------------- */
 
@@ -1153,35 +1265,6 @@ export function FilePaper() {
       </Callout>
     ) : null
 
-  // The conditions are the ticket's own preconditions, read before the form
-  // exists. Skipped for a draft being edited and when filing on somebody
-  // else's behalf: the confirmations are in the first person.
-  if (!acknowledged && !isEditRoute && !filingFor) {
-    return (
-      <div className="page space-y-6 py-8">
-        <div>
-          <button
-            type="button"
-            onClick={() => navigate("/papers")}
-            className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
-          >
-            <ArrowLeft className="size-3.5" aria-hidden />
-            My papers
-          </button>
-          <PageTitle className="mt-2">File a paper</PageTitle>
-          <Sub className="mt-1">Read the conditions, then confirm three things. The form opens after that.</Sub>
-        </div>
-        {draftsNotice}
-        <ClaimEligibilityGate
-          minReferences={rules.min_sec_references}
-          onAcknowledge={() => setAcknowledged(true)}
-          onCancel={() => navigate("/papers")}
-          cancelLabel="Not yet — back to my papers"
-        />
-      </div>
-    )
-  }
-
   const countOnly = form.claimReason === "COUNT_ONLY"
   const estimateProps = {
     calc,
@@ -1196,38 +1279,178 @@ export function FilePaper() {
     assumedReferences: assumeReferences && !countOnly ? rules.min_sec_references : null,
   }
 
+  const phaseIndex = phase === "choose" ? 0 : phase === "confirm" ? 1 : step === STEPS.length - 1 ? 3 : 2
+  const backToPapers = (
+    <button
+      type="button"
+      onClick={() => {
+        if (dirtyRef.current) setConfirmLeave(true)
+        else navigate("/papers")
+      }}
+      className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+    >
+      <ArrowLeft className="size-3.5" aria-hidden />
+      My papers
+    </button>
+  )
+  const heroTitle =
+    phase === "choose"
+      ? "Choose the paper"
+      : phase === "confirm"
+        ? "Confirm three things about this paper"
+        : editingExisting
+          ? ticketNumber
+            ? `Edit ticket ${ticketNumber}`
+            : "Edit your draft"
+          : filingFor
+            ? `File a paper for ${filingFor.name}`
+            : "File a paper"
+  const heroSentence =
+    phase === "choose"
+      ? "Start from your record — it fills almost everything."
+      : phase === "confirm"
+        ? "All three have to be true. Tick each one yourself — they are recorded with your claim."
+        : filingFor
+          ? "The claim will be theirs, not yours — it goes on their record and is paid to them."
+          : "Five steps. Most of them filled themselves from the paper you chose."
+  const hero = (
+    <div className="space-y-2">
+      {backToPapers}
+      <HeroBand
+        area="record"
+        eyebrow={phase === "form" ? "File a paper" : `File a paper · step ${phaseIndex + 1} of 4`}
+        title={heroTitle}
+        titleClassName="text-2xl sm:text-display"
+        sentence={heroSentence}
+        actions={phase === "form" ? <SaveStatus state={savingState} lastSavedAt={lastSavedAt} onRetry={() => void save()} /> : undefined}
+        className="[&>div:last-of-type]:p-5 sm:[&>div:last-of-type]:p-6"
+      >
+        <PhaseTrack current={phaseIndex} />
+      </HeroBand>
+    </div>
+  )
+
+  if (phase === "choose") {
+    return (
+      <div className="page space-y-6 pb-16 pt-6 md:pt-8">
+        {hero}
+        {draftsNotice}
+        <ChooseMethod
+          method={chosenMethod}
+          onMethod={setMethod}
+          pull={pull}
+          pullLoading={pullEnabled && pullLoading}
+          pullError={!!pullError}
+          onRetryPull={() => void refetchPull()}
+          selectedId={picked?.publication_id ?? null}
+          onSelect={choosePulled}
+          paste={
+            <>
+              <div className="space-y-3 rounded-2xl bg-(--area-wash) p-4 sm:p-5" data-field="find">
+                <PasteBox value={pasted} onChange={setPasted} onFind={() => void findPaper()} busy={lookupBusy} />
+              </div>
+              {lookupBusy ? (
+                <FoundCardSkeleton />
+              ) : lookupRes?.ok ? (
+                <FoundCard res={lookupRes} filled={filled} collegeName={collegeName} onJump={() => {}} />
+              ) : (
+                <LookupProblem res={lookupRes} error={lookupError} onPick={(doi) => void findPaper(doi)} />
+              )}
+            </>
+          }
+        />
+        <ChooseFooter
+          disabled={!canLeaveChoose}
+          onContinue={leaveChoose}
+          note={
+            chosenMethod === "pull" && picked
+              ? lookupBusy
+                ? "Filling in the details…"
+                : `Chosen: ${picked.title}`
+              : chosenMethod === "paste" && !canLeaveChoose
+                ? "Find the paper first."
+                : undefined
+          }
+        />
+      </div>
+    )
+  }
+
+  if (phase === "confirm") {
+    const eid = picked?.eid || (lookupRes?.ok ? lookupRes.paper?.eid : null) || null
+    const position = picked?.author_position && picked.total_authors ? `author ${picked.author_position} of ${picked.total_authors}` : null
+    const priorHit = priorCheck?.warning ? priorCheck.matches[0] : null
+    const evidence: Record<string, ConditionEvidence> = {
+      indexed: eid
+        ? { tone: "positive", text: `✓ Scopus EID ${eid} lists this article${position ? ` (you are ${position})` : ""}.` }
+        : { tone: "neutral", text: "We could not confirm it from here. Check your Scopus Author Profile before ticking." },
+      "no-duplicate": priorHit
+        ? {
+            tone: "critical",
+            text: `A claim for this article is on record${priorHit.who ? ` by ${priorHit.who}` : ""}${priorHit.when ? ` (${priorHit.when})` : ""}${priorHit.reference ? `, ${priorHit.reference}` : ""}.`,
+          }
+        : priorCheck
+          ? { tone: "positive", text: `✓ No claim found for this ${form.doi.trim() ? "DOI" : "title"} in our records.` }
+          : { tone: "neutral", text: priorCheckBusy ? "Checking our records…" : "Not checked yet." },
+      documents: {
+        tone: "neutral",
+        text: `You attach them on the proof step: the article PDF and ${rules.min_sec_references} numbered SEC references.`,
+      },
+    }
+    return (
+      <div className="page space-y-6 pb-16 pt-6 md:pt-8">
+        {hero}
+        {draftsNotice}
+        <ClaimEligibilityGate
+          // Remounted per article: ticks never carry from one paper to another.
+          key={articleKey}
+          minReferences={rules.min_sec_references}
+          paper={
+            <div className="flex flex-col gap-3 rounded-2xl bg-paper p-4 shadow-[inset_0_0_0_1px_var(--color-line)] sm:flex-row sm:items-start">
+              <IconTile icon={FileText} size="lg" className="max-sm:hidden" />
+              <PaperCard
+                className="min-w-0 flex-1 bg-transparent p-0 shadow-none"
+                title={form.paperTitle.trim() || "The article you are about to describe"}
+                journal={form.journalTitle || null}
+                year={yearOf(form.publicationDate) || null}
+                authors={form.authors.map((a) => ({ name: a.name, you: a.position === form.authorPosition }))}
+                sources={eid ? ["Scopus"] : undefined}
+              />
+              <Button kind="default" size="sm" type="button" onClick={changePaper} className="self-start">
+                Change
+              </Button>
+            </div>
+          }
+          evidence={evidence}
+          blocked={
+            priorHit ? (
+              <>
+                <p className="font-medium">This article already has a claim — open it instead.</p>
+                <p className="mt-1 text-sm text-fg-muted">
+                  One claim per article. If it was yours and was sent back, edit that one from{" "}
+                  <Link to="/papers" className="font-medium text-accent underline underline-offset-2">
+                    My papers
+                  </Link>
+                  .
+                </p>
+              </>
+            ) : undefined
+          }
+          onAcknowledge={(t) => {
+            setTicks(t)
+            setTicksFor(articleKey)
+            setPhase("form")
+          }}
+          onCancel={() => navigate("/papers")}
+          cancelLabel="Not yet — back to my papers"
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="page space-y-5 pb-16 pt-6 md:pt-8">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <button
-            type="button"
-            onClick={() => {
-              if (dirtyRef.current) setConfirmLeave(true)
-              else navigate("/papers")
-            }}
-            className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
-          >
-            <ArrowLeft className="size-3.5" aria-hidden />
-            My papers
-          </button>
-          <PageTitle className="mt-2">
-            {editingExisting
-              ? ticketNumber
-                ? `Edit ticket ${ticketNumber}`
-                : "Edit your draft"
-              : filingFor
-                ? `File a paper for ${filingFor.name}`
-                : "File a paper"}
-          </PageTitle>
-          <Sub className="mt-1">
-            {filingFor
-              ? "The claim will be theirs, not yours — it goes on their record and is paid to them."
-              : "Five steps. Paste the DOI at the start and most of them fill themselves."}
-          </Sub>
-        </div>
-        <SaveStatus state={savingState} lastSavedAt={lastSavedAt} onRetry={() => void save()} />
-      </header>
+      {hero}
 
       {/* Not a grey line in the header: a claimant typing past a failed save
           loses the lot. */}
@@ -1345,6 +1568,18 @@ export function FilePaper() {
               />
             </section>
             <PreFlight problems={problems} rules={rules} form={form} onGoToProblem={goToProblem} />
+            {ticksValid && ticks ? (
+              <ConfirmedConditions ticks={ticks} minReferences={rules.min_sec_references} />
+            ) : (
+              <Callout tone="caution" title="The three conditions are not confirmed for this article">
+                {ticks
+                  ? "The DOI or title changed since you confirmed them, so they have to be ticked again."
+                  : "They are asked before filing."}{" "}
+                <button type="button" onClick={() => setPhase("confirm")} className="font-medium underline underline-offset-2">
+                  Confirm them now
+                </button>
+              </Callout>
+            )}
             {/* The check above answers this too, from the same query; said
                 separately only when that check could not run. */}
             {!verify && (
@@ -1405,6 +1640,45 @@ export function FilePaper() {
         }}
       />
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Phase track                                                               */
+/* ------------------------------------------------------------------------ */
+
+/** Choose · Confirm · Details · File, as four dots on a line (docs/ux/04). */
+function PhaseTrack({ current }: { current: number }) {
+  return (
+    <ol aria-label="Filing progress" className="mt-5 flex max-w-xl items-start">
+      {PHASES.map((label, i) => {
+        const done = i < current
+        const here = i === current
+        return (
+          <li key={label} className="flex flex-1 flex-col items-start last:flex-none" aria-current={here ? "step" : undefined}>
+            <div className="flex w-full items-center">
+              <span
+                aria-hidden
+                className={cn(
+                  "grid size-7 shrink-0 place-items-center rounded-full text-xs font-semibold tabular",
+                  done || here ? "bg-(--area) text-white" : "bg-surface text-fg-muted shadow-[inset_0_0_0_1.5px_var(--color-line)]",
+                  here && "ring-4 ring-(--area-line)"
+                )}
+              >
+                {done ? <Check className="size-4" strokeWidth={3} /> : i + 1}
+              </span>
+              {i < PHASES.length - 1 && (
+                <span aria-hidden className={cn("mx-1 h-0.5 flex-1 rounded", done ? "bg-(--area)" : "bg-line")} />
+              )}
+            </div>
+            <span className={cn("mt-1.5 text-xs sm:text-sm", here ? "font-semibold text-fg" : "text-fg-muted")}>
+              {label}
+              <span className="sr-only">{done ? " (done)" : here ? " (current)" : ""}</span>
+            </span>
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 

@@ -705,12 +705,11 @@
     font-weight: 600;
     letter-spacing: -0.02em;
   }
-  /* 12px column-head caps. */
+  /* Column heads: small, sentence case (no shouting; docs/ux/17). */
   .caps {
-    font-size: var(--text-xs);
-    line-height: var(--text-xs--line-height);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-weight: 500;
   }
 }
 

@@ -62,7 +62,7 @@ export function Meta({ children, className }: React.ComponentProps<"span">) {
 }
 
 /** A machine category: a column head, a field name in a grid. The only place
- *  uppercase is used, because here it genuinely is a label and not a phrase.
+ *  sentence case like every other label (docs/ux/17: no ALL-CAPS labels).
  *
  *  `fg-muted`, not `fg-subtle`: subtle is a 12px uppercase word at under 3:1
  *  against the page, which is the contrast of a disabled control, and these
@@ -73,7 +73,7 @@ export function ColumnLabel({ children, className }: React.ComponentProps<"span"
   return (
     <span
       className={cn(
-        "text-xs font-medium uppercase tracking-[0.04em] text-fg-muted",
+        "text-sm font-medium text-fg-muted",
         className
       )}
     >

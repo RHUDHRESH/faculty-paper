@@ -21,7 +21,7 @@ export function OwnPapersNote({ className }: { className?: string }) {
   if (!can(me?.role).fileOwnPapers) return null
   return (
     <p className={cn("text-sm text-fg-muted", className)}>
-      Your own papers are never in this queue — another officer or the super admin decides them.
+      Your own papers are never in this queue. Another officer or the super admin decides them.
       Follow yours under{" "}
       <Link to="/papers" className="text-accent underline-offset-4 hover:underline">
         My papers

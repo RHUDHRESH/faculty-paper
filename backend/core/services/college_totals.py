@@ -28,11 +28,12 @@ from typing import Any, Optional
 from django.db.models import F, Q
 from django.db.models.functions import Coalesce
 
+from core.services.record_dates import ledger_month_recorded
 from core.models import Authorship, Claim, ClaimStatus, PaidLedger, Publication
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.records import collect
 
-NO_DEPARTMENT = "No department"
+NO_DEPARTMENT = "Department not recorded"
 
 
 def _dept(value: Optional[str]) -> str:
@@ -67,13 +68,15 @@ def payments(year: Optional[int] = None, department: Optional[str] = None,
         orphans = orphans.filter(payout_month__year=ym[0], payout_month__month=ym[1])
     out = [
         {"month": r["payout_month"], "department": _dept(r["dept"]), "amount": r["amount"] or 0,
-         "owner_id": r["claim__owner_id"], "name": r["claim__owner__name"] or r["faculty_name"]}
+         "owner_id": r["claim__owner_id"], "name": r["claim__owner__name"] or r["faculty_name"],
+         # The "Processed" sheet names no month; the one stored is the import's.
+         "month_recorded": ledger_month_recorded(r["raw_json"])}
         for r in ledger.values("payout_month", "dept", "amount", "claim__owner_id",
-                               "claim__owner__name", "faculty_name")
+                               "claim__owner__name", "faculty_name", "raw_json")
     ]
     out += [
         {"month": r["payout_month"], "department": _dept(r["owner__department"]),
-         "amount": r["remuneration"] or 0, "owner_id": r["owner_id"], "name": r["owner__name"]}
+         "amount": r["remuneration"] or 0, "owner_id": r["owner_id"], "name": r["owner__name"], "month_recorded": True}
         for r in orphans.values("payout_month", "owner__department", "remuneration",
                                 "owner_id", "owner__name")
     ]

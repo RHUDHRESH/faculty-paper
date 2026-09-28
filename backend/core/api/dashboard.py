@@ -327,7 +327,7 @@ def _year_on_year_rows(qs) -> list[dict[str, Any]]:
 
     def counts_for(year: int) -> dict[str, int]:
         return {
-            (r["owner__department"] or "No department"): r["n"]
+            (r["owner__department"] or "Department not recorded"): r["n"]
             for r in qs.filter(publication_year=year)
             .values("owner__department")
             .annotate(n=Count("id"))
@@ -466,7 +466,10 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
     # alone describe only what this app processed (core/services/college_totals.py).
     pays = college_totals.payments(year, department, month)
     months: dict[str, dict[str, Any]] = {}
-    for p in (p for p in pays if p["month"]):
+    # A payment whose month nobody recorded is not charted under the import's
+    # month (it made a false spike); it is stated once as `month_unrecorded`.
+    unrecorded = [p for p in pays if not p.get("month_recorded", True)]
+    for p in (p for p in pays if p["month"] and p.get("month_recorded", True)):
         k = p["month"].strftime("%Y-%m")
         slot = months.setdefault(k, {"key": k, "count": 0, "amount": 0.0})
         slot["count"] += 1
@@ -481,7 +484,7 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
 
     dept_rows: dict[str, dict[str, Any]] = {}
     if record is None:
-        for r in rows("owner__department", label_blank="No department"):
+        for r in rows("owner__department", label_blank="Department not recorded"):
             dept_rows[r["key"].casefold()] = {**r, "amount": 0.0}
     else:
         for paper in record:
@@ -531,6 +534,7 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
         "by_engineering": rows("engineering_class", label_blank="Unclassified"),
         "by_status": rows("status"),
         "by_month": by_month,
+        "month_unrecorded": {"count": len(unrecorded), "amount": round(sum(p["amount"] for p in unrecorded), 2)},
         "by_year": by_year,
         "by_type": rows("aggregation_type", label_blank="Not stated"),
         "by_indexing": _multi_rows(qs, "indexing_level"),

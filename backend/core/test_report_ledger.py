@@ -74,3 +74,25 @@ class ReportsFromTheRecordTests(TestCase):
         table = body["tables"][0]
         self.assertEqual(table["totals"]["amount"], 6000.0)
         self.assertEqual(table["totals"]["count"], 4)
+
+
+class UnrecordedMonthTests(TestCase):
+    """A "Processed"-sheet row names no month; its stored month is the import's.
+    It counts in the total but is not charted under that month."""
+
+    def test_unrecorded_month_is_not_charted(self):
+        from datetime import date
+        import json
+        from django.test import Client
+        from core.models import PaidLedger, Role, User
+        u = User.objects.create_user(email="p@x.edu", password="p", name="Principal", role=Role.PRINCIPAL)
+        PaidLedger.objects.create(payout_month=date(2024, 3, 1), amount=100, staff_id="S1", department="EEE",
+                                  raw_json=json.dumps({"Payout Month": "Mar 2024"}))
+        PaidLedger.objects.create(payout_month=date(2026, 9, 1), amount=50, staff_id="S2", department="EEE",
+                                  raw_json=json.dumps({"Scopus Article Title": "No month here"}))
+        c = Client()
+        c.force_login(u)
+        d = c.get("/api/reports").json()
+        self.assertEqual(d["totals"]["paid_amount"], 150)
+        self.assertEqual([m["key"] for m in d["by_month"]], ["2024-03"])
+        self.assertEqual(d["month_unrecorded"], {"count": 1, "amount": 50})

@@ -6,6 +6,7 @@ import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Meta, SectionTitle, Sub } from "@/ui/text"
+import { StreamingText } from "@/ui/motion/stream"
 
 /**
  * New things to work on: who to write with, where to aim, what to try.
@@ -262,7 +263,7 @@ export function IndustryPartners({ status }: { status: AiStatus | undefined }) {
                         margin-only version ran name and kind together. */}
                     {p.kind ? <Meta className="font-normal"> · {p.kind}</Meta> : null}
                   </p>
-                  {p.why && <p className="mt-1 text-sm text-fg-muted">{p.why}</p>}
+                  {p.why && <StreamingText as="p" className="mt-1 text-sm text-fg-muted" text={p.why} />}
                   {p.first_step && <p className="mt-1 text-sm text-fg">First step: {p.first_step}</p>}
                 </li>
               ))}

@@ -26,6 +26,7 @@ import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTit
 import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Meta, SectionTitle, Sub } from "@/ui/text"
 import { TabIndicator } from "@/ui/motion/page"
+import { StreamingText, ThinkingIndicator } from "@/ui/motion/stream"
 import { toast } from "@/ui/toast"
 import { IndustryPartners } from "@/pages/discover-next"
 import { FeedCard, ModelCard, useHidden, type FeedItem, type ForYou } from "@/pages/discover-feed"
@@ -908,7 +909,7 @@ function JournalCard({ journal }: { journal: VerifiedJournal }) {
           <Meta className="mt-0.5 block">
             {[journal.quartile, journal.subject, journal.issn].filter(Boolean).join(" · ") || "—"}
           </Meta>
-          {journal.why && <p className="mt-1.5 text-sm text-fg-muted">{journal.why}</p>}
+          {journal.why && <StreamingText as="p" className="mt-1.5 text-sm text-fg-muted" text={journal.why} />}
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-subtle">
             <span>SNIP {journal.snip != null ? journal.snip.toFixed(2) : "—"}</span>
             <span>SJR {journal.sjr != null ? journal.sjr.toFixed(3) : "—"}</span>
@@ -952,6 +953,7 @@ function Directions({ hosted }: { hosted: boolean }) {
 
       {q.isLoading ? (
         <div className="space-y-3">
+          <ThinkingIndicator label="Thinking about what could come next" />
           <SkeletonText lines={1} className="max-w-sm" />
           <SkeletonRows rows={3} rowHeight={84} />
           <Meta className="block">
@@ -993,9 +995,9 @@ function Directions({ hosted }: { hosted: boolean }) {
             <Meta className="block">{groundedOnLine(q.data.grounded_on)}</Meta>
             <ul className="divide-y divide-line border-y border-line">
               {q.data.directions.map((d, i) => (
-                <li key={i} className="py-4">
+                <li key={i} className={cn("py-4", i < 8 && "stagger-in")} style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
                   <p className="text-base font-semibold text-fg">{d.topic}</p>
-                  <p className="mt-1 text-sm text-fg-muted">{d.why}</p>
+                  <StreamingText as="p" className="mt-1 block text-sm text-fg-muted" text={d.why} />
                   <p className="mt-2.5 flex flex-wrap items-start gap-x-2 gap-y-1 text-sm">
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-accent-wash px-1.5 py-0.5 text-xs font-medium text-accent">
                       <Sparkles className="size-3" aria-hidden />

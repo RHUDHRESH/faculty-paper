@@ -127,7 +127,7 @@ export function MonthView({
                     className={cn(
                       "grid size-6 place-items-center rounded-full text-xs tabular",
                       outside ? "text-fg-subtle" : "text-fg",
-                      isToday && "bg-[var(--area-time)] font-semibold text-white dark:text-[#0f2230]"
+                      isToday && "bg-[var(--area-time)] font-semibold text-white dark:text-bg"
                     )}
                   >
                     {d.getDate()}
@@ -228,7 +228,7 @@ export function CompactMonth({
                       "flex h-10 w-10 flex-col items-center justify-center rounded-full text-sm tabular",
                       d.getMonth() !== month && "text-fg-subtle",
                       day === today && "font-semibold text-[var(--area-time)]",
-                      day === selected && "bg-[var(--area-time)] text-white dark:text-[#0f2230]"
+                      day === selected && "bg-[var(--area-time)] text-white dark:text-bg"
                     )}
                   >
                     {d.getDate()}
@@ -319,7 +319,7 @@ export function WeekView({
               <span
                 className={cn(
                   "ml-0.5 inline-grid size-6 place-items-center rounded-full text-sm tabular text-fg",
-                  day === today && "bg-[var(--area-time)] font-semibold text-white dark:text-[#0f2230]"
+                  day === today && "bg-[var(--area-time)] font-semibold text-white dark:text-bg"
                 )}
               >
                 {d.getDate()}

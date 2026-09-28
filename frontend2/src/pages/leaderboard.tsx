@@ -551,7 +551,7 @@ function PinnedMe({ board }: { board: HonoursBoard }) {
   return (
     <div
       role="status"
-      className="sticky bottom-3 z-20 flex items-center gap-3 rounded-xl bg-brand px-4 py-2 text-sm text-brand-fg shadow-float print:hidden"
+      className="sticky bottom-3 z-20 flex items-center gap-3 rounded-2xl bg-fg px-4 py-2 text-sm text-bg shadow-pop print:hidden"
     >
       <span className="font-semibold tabular-nums">{rankText(me.rank, me.joint)}</span>
       <span className="flex-1">Your place</span>

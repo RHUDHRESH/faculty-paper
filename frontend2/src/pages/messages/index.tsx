@@ -238,7 +238,7 @@ function InboxLink({ to, children }: { to: string; children: React.ReactNode }) 
 function Unread({ n }: { n: number }) {
   if (!n) return null
   return (
-    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--area-people)] px-1.5 text-xs font-semibold text-white tabular dark:text-[#0b1020]">
+    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--area-people)] px-1.5 text-xs font-semibold text-white tabular dark:text-bg">
       <span className="sr-only">Unread: </span>
       {n}
     </span>

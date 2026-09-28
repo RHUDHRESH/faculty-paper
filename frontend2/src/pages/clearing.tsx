@@ -40,6 +40,8 @@ import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { EditClaimFieldsDialog, HoldControl, HoldNote, ReasonActionDialog, useIsOwnClaim } from "@/ui/desk-actions"
 import { HeaderSpot } from "@/ui/page-header"
+import { Avatar, initialsOf } from "@/ui/person"
+import { ClaimFlagsPanel, RaiseFlagDialog, useClaimReview } from "@/pages/claim-review"
 
 /**
  * The research cell's daily job: every submitted ticket, oldest first, and
@@ -104,6 +106,8 @@ type QueueClaim = {
   status: string
   owner_name: string
   owner_email: string
+  owner_id?: string
+  owner_photo_url?: string | null
   owner_department: string | null
   remuneration: number | null
   remuneration_is_estimate: boolean
@@ -124,6 +128,7 @@ type QueueClaim = {
   scimago_dataset_year: number | null
   author_position: number | null
   total_authors: number | null
+  affiliation_ok?: boolean | null
   authors_json: string | null
   attachments: Attachment[]
   duplicate_warning: boolean
@@ -149,6 +154,14 @@ type ClaimDetail = QueueClaim & {
   cleared_by_name?: string | null
   on_hold?: boolean | null
   hold_reason?: string | null
+  confirmations?: Confirmation[]
+}
+
+type Confirmation = {
+  id: string
+  text: string
+  ticked_at: string
+  user_name: string | null
 }
 
 type RecalcResult = {
@@ -371,7 +384,7 @@ export function Clearing() {
               </>
             )}{" "}
             · oldest{" "}
-            <span className={cn("font-semibold", oldest > 14 ? "text-critical" : oldest > 7 ? "text-caution" : "text-fg")}>
+            <span className={cn("font-semibold", waitTone(oldest) || "text-fg")}>
               {waitingLabel(oldest).toLowerCase()}
             </span>
           </p>
@@ -603,21 +616,22 @@ export function Clearing() {
                     )}
                   </td>
                   <td className="px-3 py-3 align-top">
-                    <span className="block">{c.owner_name}</span>
-                    {c.owner_department && <Meta className="block">{c.owner_department}</Meta>}
+                    <span className="flex items-start gap-2">
+                      <Avatar person={faceOf(c)} size="sm" />
+                      <span className="min-w-0">
+                        <span className="block break-words">{c.owner_name}</span>
+                        {c.owner_department && <Meta className="block">{c.owner_department}</Meta>}
+                      </span>
+                    </span>
                   </td>
                   <td className="px-3 py-3 align-top text-sm text-fg-muted">
-                    {c.journal_title || "—"}
+                    <span className="block break-words">{c.journal_title || "No journal named"}</span>
+                    {c.quartile && <QuartileTag q={c.quartile} />}
                   </td>
                   <td className="px-3 py-3 align-top text-right">
                     <span
-                      className={cn(
-                        "tabular",
-                        (c.waiting_days ?? 0) > 14
-                          ? "font-medium text-critical"
-                          : (c.waiting_days ?? 0) > 7 && "font-medium text-caution"
-                      )}
-                      title={(c.waiting_days ?? 0) > 7 ? "Waiting more than a week" : undefined}
+                      className={cn("tabular", waitTone(c.waiting_days) && `font-medium ${waitTone(c.waiting_days)}`)}
+                      title={waitTitle(c.waiting_days)}
                     >
                       {waitingLabel(c.waiting_days)}
                     </span>
@@ -704,8 +718,9 @@ function QueueCard({
 }) {
   return (
     <li className={cn("row flex items-start gap-3 px-1 py-3", selected && "bg-selected")}>
-      <span className="pt-1">
+      <span className="flex flex-col items-center gap-2 pt-1">
         <Checkbox checked={selected} onCheckedChange={onToggle} aria-label={selectLabel(c)} />
+        <Avatar person={faceOf(c)} size="sm" />
       </span>
       <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
         <span className="flex items-start justify-between gap-3">
@@ -714,7 +729,11 @@ function QueueCard({
             <Meta className="mt-0.5 block">
               {c.ticket_number || "Not yet ticketed"} · {c.owner_name}
             </Meta>
-            {c.journal_title && <Meta className="block break-words">{c.journal_title}</Meta>}
+            {c.journal_title && (
+              <Meta className="block break-words">
+                {c.journal_title} {c.quartile && <QuartileTag q={c.quartile} />}
+              </Meta>
+            )}
           </span>
           <span className="shrink-0 text-right">
             {c.calc_error ? (
@@ -725,7 +744,7 @@ function QueueCard({
             <span
               className={cn(
                 "block text-xs tabular",
-                (c.waiting_days ?? 0) > 7 ? "font-medium text-caution" : "text-fg-muted"
+                waitTone(c.waiting_days) ? `font-medium ${waitTone(c.waiting_days)}` : "text-fg-muted"
               )}
             >
               {waitingLabel(c.waiting_days)}
@@ -743,6 +762,7 @@ function QueueCard({
               <AlertTriangle className="size-3" /> Could not calculate
             </RowFlag>
           )}
+          {c.contest_forward && <RowFlag tone="caution">Contested by the claimant</RowFlag>}
           {!c.calc_error && c.remuneration_is_estimate && <RowFlag tone="caution">Estimate</RowFlag>}
           <VerifiedBadge ok={c.verification_ok} />
         </span>
@@ -810,6 +830,28 @@ function VerifiedBadge({ ok, issues = [] }: { ok: boolean | null; issues?: strin
     )
   }
   return <span className="text-sm text-fg-muted">Not checked</span>
+}
+
+/** The claimant's face as the API sends it; Avatar falls back to initials. */
+function faceOf(c: QueueClaim) {
+  return { name: c.owner_name, initials: initialsOf(c.owner_name), photo_url: c.owner_photo_url ?? null }
+}
+
+/** Amber after two weeks, red after a month. */
+function waitTone(days: number | null | undefined): string {
+  const d = days ?? 0
+  return d > 30 ? "text-critical" : d > 14 ? "text-caution" : ""
+}
+
+function waitTitle(days: number | null | undefined): string | undefined {
+  const d = days ?? 0
+  return d > 30 ? "Waiting more than a month" : d > 14 ? "Waiting more than two weeks" : undefined
+}
+
+function QuartileTag({ q }: { q: string }) {
+  return (
+    <span className="ml-1 inline-block rounded-sm bg-sunken px-1.5 py-0.5 text-xs font-medium text-fg">{q}</span>
+  )
 }
 
 function waitingLabel(days: number | null | undefined): string {
@@ -904,6 +946,8 @@ function TicketSheet({
   const [verifyOpen, setVerifyOpen] = useState(false)
   const [secondOpen, setSecondOpen] = useState(false)
   const [overrideOpen, setOverrideOpen] = useState(false)
+  const [flagOpen, setFlagOpen] = useState(false)
+  const review = useClaimReview(claim?.id, !!claim)
 
   const duplicateMatches = parseJsonArray<DuplicateMatch>(claim?.duplicate_matches_json)
   const snapshot = parseJsonObject<{ issues?: string[] }>(claim?.verification_snapshot_json)
@@ -960,12 +1004,50 @@ function TicketSheet({
                 </Callout>
               )}
 
-              <section className="space-y-1">
+              {own && (
+                <Callout tone="caution" title="This is your own claim">
+                  <p>
+                    Nobody acts on a claim they filed, so clear, send back, hold, reject and flag are
+                    not offered here. Another officer at this desk has to review it.
+                  </p>
+                </Callout>
+              )}
+
+              <section className="space-y-2">
                 <SectionTitle>Claimant</SectionTitle>
-                <p className="text-sm">{claim.owner_name}</p>
-                <Meta className="block">
-                  {[claim.owner_department, claim.owner_email].filter(Boolean).join(" · ")}
-                </Meta>
+                <div className="flex items-center gap-3">
+                  <Avatar person={faceOf(claim)} size="md" />
+                  <div className="min-w-0">
+                    <p className="break-words text-sm">{claim.owner_name}</p>
+                    <Meta className="block break-words">
+                      {[claim.owner_department, claim.owner_email].filter(Boolean).join(" · ")}
+                    </Meta>
+                  </div>
+                </div>
+              </section>
+
+              <ClaimedVsRecord claim={claim} />
+
+              <section className="space-y-2">
+                <SectionTitle>What the claimant confirmed</SectionTitle>
+                {!claim.confirmations || claim.confirmations.length === 0 ? (
+                  <p className="text-sm text-fg-muted">No confirmations on record for this ticket.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {claim.confirmations.map((cf) => (
+                      <li key={cf.id} className="flex gap-2 text-sm">
+                        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-positive" aria-hidden />
+                        <span className="min-w-0">
+                          <span className="block text-pretty">{cf.text}</span>
+                          <Meta className="block">
+                            Ticked {formatDateTime(cf.ticked_at)}
+                            {cf.user_name ? ` by ${cf.user_name}` : ""}
+                          </Meta>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
 
               <ClaimContext claim={claim} />
@@ -1055,21 +1137,19 @@ function TicketSheet({
                 ) : (
                   <ul className="divide-y divide-line border-y border-line">
                     {claim.attachments.map((a) => (
-                      <li key={a.id} className="row">
-                        <a
-                          href={a.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-2 px-1 py-2"
-                        >
-                          <Paperclip className="size-4 shrink-0 text-fg-subtle" aria-hidden />
-                          <span className="min-w-0 flex-1 truncate text-sm">{a.filename}</span>
-                        </a>
-                      </li>
+                      <AttachmentRow key={a.id} a={a} />
                     ))}
                   </ul>
                 )}
               </section>
+
+              <ClaimFlagsPanel
+                claimId={claim.id}
+                review={review.data}
+                loading={review.isLoading}
+                failed={review.isError}
+                onRetry={() => void review.refetch()}
+              />
 
               <section className="space-y-3">
                 <SectionTitle>History</SectionTitle>
@@ -1123,15 +1203,21 @@ function TicketSheet({
                 </Button>
               )}
 
-              {claim.status === "SUBMITTED" && <HoldControl claim={claim} />}
+              {!own && (
+                <Button kind="quiet" onClick={() => setFlagOpen(true)}>
+                  Flag
+                </Button>
+              )}
+
+              {claim.status === "SUBMITTED" && <HoldControl claim={claim} onDone={onFinished} />}
 
               {claim.status === "SUBMITTED" && !own && (
                 <>
                   <Button kind="danger" onClick={() => setOutrightOpen(true)}>
-                    Reject — cannot be refiled
+                    Reject outright
                   </Button>
                   <Button kind="danger" onClick={() => setRejectOpen(true)}>
-                    Send it back
+                    Send back
                   </Button>
                   <Button kind="primary" onClick={() => setClearOpen(true)}>
                     Clear
@@ -1166,6 +1252,7 @@ function TicketSheet({
                 onOpenChange={setEditOpen}
               />
             )}
+            <RaiseFlagDialog claimId={claim.id} open={flagOpen} onClose={() => setFlagOpen(false)} />
             <ManualVerifyDialog claim={claim} open={verifyOpen} onOpenChange={setVerifyOpen} />
             <SecondSignatureDialog
               claim={claim}
@@ -1182,6 +1269,99 @@ function TicketSheet({
         ) : null}
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** The claimant's own figures beside what the record says. */
+function ClaimedVsRecord({ claim: c }: { claim: ClaimDetail }) {
+  const pos =
+    c.author_position != null
+      ? `${ordinal(c.author_position)}${c.total_authors ? ` of ${c.total_authors}` : ""}`
+      : "Not recorded"
+  const rows: { label: string; claimed: string; record: string; differs: boolean }[] = [
+    {
+      label: "SNIP",
+      claimed: c.self_reported_snip != null ? String(c.self_reported_snip) : "Not given",
+      record: c.snip != null ? c.snip.toFixed(3) : "Not found",
+      differs: c.self_reported_snip != null && c.snip != null && Math.abs(c.self_reported_snip - c.snip) > 0.0005,
+    },
+    {
+      label: "Quartile",
+      claimed: c.self_reported_quartile || "Not given",
+      record: c.quartile || "Not found",
+      differs: !!c.self_reported_quartile && !!c.quartile && c.self_reported_quartile !== c.quartile,
+    },
+    { label: "Author position", claimed: pos, record: pos, differs: false },
+    {
+      label: "Affiliation",
+      claimed: "This college",
+      record:
+        c.affiliation_ok === true
+          ? "This college is on the paper"
+          : c.affiliation_ok === false
+            ? "This college is not on the paper"
+            : "Not checked",
+      differs: c.affiliation_ok === false,
+    },
+  ]
+  return (
+    <section className="space-y-2">
+      <SectionTitle>Claimed and on record</SectionTitle>
+      <table className="w-full table-fixed border-collapse text-sm">
+        <thead>
+          <tr className="text-left text-xs text-fg-muted">
+            <th scope="col" className="w-1/4 py-1 pr-2 font-normal">Figure</th>
+            <th scope="col" className="py-1 pr-2 font-normal">Claimant says</th>
+            <th scope="col" className="py-1 font-normal">Record says</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.label} className="border-t border-line align-top">
+              <th scope="row" className="py-1.5 pr-2 text-left font-normal text-fg-muted">{r.label}</th>
+              <td className="break-words py-1.5 pr-2 tabular">{r.claimed}</td>
+              <td className={cn("break-words py-1.5 tabular", r.differs && "font-medium text-critical")}>
+                {r.record}
+                {r.differs && <span className="sr-only"> (differs from the claim)</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"]
+  const v = n % 100
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`
+}
+
+/** An attachment, openable in place: PDFs and images preview inline. */
+function AttachmentRow({ a }: { a: Attachment }) {
+  const [show, setShow] = useState(false)
+  const lower = a.filename.toLowerCase()
+  const kind = lower.endsWith(".pdf") ? "pdf" : /\.(png|jpe?g|gif|webp)$/.test(lower) ? "image" : null
+  return (
+    <li className="py-2">
+      <div className="flex flex-wrap items-center gap-2 px-1">
+        <Paperclip className="size-4 shrink-0 text-fg-subtle" aria-hidden />
+        <span className="min-w-0 flex-1 break-all text-sm">{a.filename}</span>
+        {kind && (
+          <Button kind="quiet" size="sm" aria-expanded={show} onClick={() => setShow((v) => !v)}>
+            {show ? "Hide" : "View here"}
+          </Button>
+        )}
+        <a href={a.url} target="_blank" rel="noreferrer" className="text-sm underline underline-offset-2">
+          Open in a new tab
+        </a>
+      </div>
+      {show && kind === "pdf" && (
+        <iframe title={a.filename} src={a.url} className="mt-2 h-[28rem] w-full rounded-md ring-1 ring-line" />
+      )}
+      {show && kind === "image" && <img src={a.url} alt={a.filename} className="mt-2 max-w-full rounded-md" />}
+    </li>
   )
 }
 

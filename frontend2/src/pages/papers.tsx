@@ -95,6 +95,7 @@ const SOURCE_LABEL: Record<string, string> = {
   openalex: "OpenAlex",
   scopus_sheet: "Scopus",
   record: "ERP",
+  claim: "Claims & ledger",
 }
 
 const VIEW_KEY = "papers.view"

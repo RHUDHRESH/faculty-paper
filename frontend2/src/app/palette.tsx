@@ -228,7 +228,7 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
                     )}
                     {groups.map((g, gi) => (
                       <div key={`${g.kind}-${gi}`} role="group" aria-label={groupLabel(g, !q.trim(), gi)}>
-                        <p className="px-3 pt-2 pb-1 text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">
+                        <p className="px-3 pt-2 pb-1 text-sm font-medium text-fg-muted">
                           {groupLabel(g, !q.trim(), gi)}
                           {g.status === "error" && " — did not answer"}
                         </p>

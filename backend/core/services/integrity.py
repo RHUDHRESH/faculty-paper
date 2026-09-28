@@ -78,19 +78,19 @@ class Finding:
 
 def _user_row(u: User, extra: str = "") -> dict[str, Any]:
     return {"id": u.pk, "label": f"{u.name} <{u.email}>{(' - ' + extra) if extra else ''}",
-            "href": f"/admin/users?q={u.email}"}
+            "href": f"/people/{u.pk}"}
 
 
 def _claim_row(c: Claim, extra: str = "") -> dict[str, Any]:
     label = c.ticket_number or c.pk
     title = (c.paper_title or "")[:80]
     return {"id": c.pk, "label": f"{label} [{c.status}] {title}{(' - ' + extra) if extra else ''}",
-            "href": f"/admin/all?ticket={c.pk}"}
+            "href": f"/papers/{c.pk}"}
 
 
 def _pub_row(p: Publication, extra: str = "") -> dict[str, Any]:
     return {"id": p.pk, "label": f"{p.year or '?'} {(p.title or '(no title)')[:80]}{(' - ' + extra) if extra else ''}",
-            "href": f"/admin/data?publication={p.pk}"}
+            "href": ""}
 
 
 # ---------------------------------------------------------------- people --
@@ -199,7 +199,7 @@ def check_claims() -> list[Finding]:
                       help="The calculator picks one; with two active, which one is an accident.")
     active = list(FormulaConfig.objects.filter(active=True).order_by("-updated_at"))
     formula.count = len(active) if len(active) > 1 else 0
-    formula.rows = [{"id": x.pk, "label": f"{x.name} v{x.version}", "href": "/admin/formula"} for x in active]
+    formula.rows = [{"id": x.pk, "label": f"{x.name} v{x.version}", "href": "/policy"} for x in active]
     out.append(formula)
     return out
 
@@ -220,13 +220,13 @@ def check_ledger() -> list[Finding]:
         rows.append(r)
     f.count = len(rows)
     f.rows = [{"id": r.pk, "label": f"{r.faculty_name or '?'} ({r.staff_id or 'no staff id'}) {(r.paper_title or '')[:60]} {r.amount:.0f}",
-               "href": f"/finance/ledger?q={r.staff_id or r.faculty_name or ''}"} for r in rows[:SAMPLE]]
+               "href": f"/ledger?q={r.staff_id or r.faculty_name or ''}"} for r in rows[:SAMPLE]]
 
     neg = Finding("ledger_negative", "Ledger", "Negative ledger rows", "info",
                   help="Expected only as the balancing row of a corrected amount.")
     qs = PaidLedger.objects.filter(amount__lt=0)
     neg.count = qs.count()
-    neg.rows = [{"id": r.pk, "label": f"{r.faculty_name} {r.amount:.0f}", "href": "/finance/ledger"} for r in qs[:SAMPLE]]
+    neg.rows = [{"id": r.pk, "label": f"{r.faculty_name} {r.amount:.0f}", "href": "/ledger"} for r in qs[:SAMPLE]]
     return [f, neg]
 
 

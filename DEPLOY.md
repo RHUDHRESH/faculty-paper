@@ -237,6 +237,78 @@ In production without a shell: `POST /api/admin/erp-import` (session auth,
 SUPER_ADMIN) takes the `.xlsx` upload and runs it as a background job; poll
 `GET /api/admin/jobs/{job_id}` and check counts with `GET /api/admin/erp-stats`.
 
+## Backups and moving to a new Postgres (Render free expires ~23 Oct 2026)
+
+The Render free Postgres is deleted about 30 days after creation. Everything
+needed to move is in the app; no shell is required.
+
+**Taking a backup.** Sign in as a super admin, open *Set up → Data health*
+(`/data/health`), press **Make a backup now**, wait for it to appear in the
+list (a few minutes on 0.1 CPU; it runs on the job queue), then **Download**.
+The file is `manual-YYYYMMDD-HHMMSS-….json.gz`: every row of every table in
+`manage.py dumpdata` format, except sessions, the django-q queue, content types
+and permissions (recreated by `migrate`) and older stored backups. Uploaded
+evidence stored in the database (`DJANGO_MEDIA_STORAGE=db`) is included.
+Primary keys are kept, so links and ids survive.
+
+A weekly backup is also made automatically (Sunday-ish, schedule
+`backup-weekly`) and kept in the database's file store — the newest four, and
+none bigger than 40 MB (a bigger one is skipped and logged as
+`BACKUP_SKIPPED`). Those protect against a bad import or delete, **not**
+against the database itself being deleted — download one and keep it
+elsewhere. On the real data (Sept 2026) a backup is ~14 MB and ~157,000 rows.
+
+API equivalents: `POST /api/admin/backups` → `{job_id}`; poll
+`GET /api/admin/jobs/{job_id}`; `GET /api/admin/backups` lists;
+`GET /api/admin/backups/download?name=backups/…` downloads.
+
+**Restoring into Neon (or any Postgres).**
+
+1. Create the Neon project; copy its connection string (with
+   `?sslmode=require`).
+2. On Render, set the API service's `DATABASE_URL` to it and redeploy. The
+   start command runs `migrate`, which builds every table (and the scheduled
+   jobs) in the empty database.
+3. Open the site; first-run setup appears. Create the first super admin with
+   an email address that is **not** in the backup (e.g.
+   `restore@yourcollege.edu`) — a restore adds rows by primary key and would
+   collide with an existing address.
+4. Signed in as that account, upload the `.json.gz` to the restore endpoint
+   (`POST /api/admin/restore`, form fields `file` and `confirm=RESTORE`; max
+   90 MB). It refuses if the database already holds a claim. It runs on the
+   job queue; poll `GET /api/admin/jobs/{job_id}` until `done`. The default
+   formula made by setup is stood down in favour of the backup's own.
+5. Sign in with a restored account (passwords are restored as they were), run
+   *Data health → Run now*, and compare counts with the old site. Deactivate
+   the temporary restore account.
+
+Local check of the same round trip (SQLite):
+
+```bash
+DJANGO_USE_SQLITE=1 DJANGO_SQLITE_PATH=/tmp/fresh.sqlite3 python manage.py migrate
+DJANGO_USE_SQLITE=1 DJANGO_SQLITE_PATH=/tmp/fresh.sqlite3 python manage.py loaddata manual-….json.gz
+```
+
+## Data health and database constraints
+
+`/data/health` (super admin) lists what in the data contradicts itself —
+duplicate staff/biometric/Scopus ids, paid claims without a ledger row or with
+a ledger total different from the remuneration, ledger rows matching no
+person, publications sharing a DOI, dangling references, orphaned files, paper
+counts that disagree between screens — with links to fix them. It runs nightly
+(`integrity-audit-nightly`) and on demand; `manage.py integrity_audit` prints
+the same report. Only unambiguous fixes are offered (normalise DOIs, trim
+identifiers, delete notifications about deleted claims, recount discussion
+posts), each written to the audit log.
+
+Migration `0062_integrity_constraints` adds: case-insensitive unique email,
+unique non-blank staff id, one active formula, non-negative formula amounts,
+budgets and claim remuneration, and at least one author / author position ≥ 1.
+It first deactivates extra active formulas (keeping the newest) and lowercases
+emails where that collides with nobody; any constraint the data still violates
+is **skipped with a printed warning** rather than failing the deploy — fix the
+rows listed on Data health, then `migrate core 0061 && migrate` to add it.
+
 ## Security notes
 
 - Payouts are computed only from server-verified SNIP/quartile; faculty

@@ -24,6 +24,11 @@ import re
 import unicodedata
 
 TITLES = frozenset({"dr", "mr", "mrs", "ms", "miss", "prof", "professor", "er", "sri", "smt", "thiru", "selvi"})
+#: Honorifics that are also given names. "Selvi" is Miss in Tamil and also the
+#: whole name of Dr. M. Selvi; it is dropped only when another name word
+#: remains, or "M. Selvi" has no name at all and can never be matched (real
+#: data: 28 papers stranded on the author-matches screen).
+NAME_OR_TITLE = frozenset({"selvi", "sri", "thiru"})
 
 
 def _ascii(value: str) -> str:
@@ -36,12 +41,15 @@ def name_parts(name: str | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
     all_caps = raw.upper() == raw
     full: list[str] = []
     initials: list[str] = []
+    held: list[str] = []
     for chunk in re.split(r"[\s.,_\-]+", raw):
         token = re.sub(r"[^A-Za-z]", "", chunk)
         if not token:
             continue
         low = token.lower()
         if low in TITLES:
+            if low in NAME_OR_TITLE:
+                held.append(low)
             continue
         if len(token) == 1:
             initials.append(low)
@@ -50,6 +58,8 @@ def name_parts(name: str | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
             initials.extend(low)
         else:
             full.append(low)
+    if not full and held:
+        full = held
     return tuple(full), tuple(initials)
 
 

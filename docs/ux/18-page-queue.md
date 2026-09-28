@@ -71,8 +71,8 @@ own worktree, reviewed on screen by the orchestrator before merge.
 | 20 | Department (HOD) | /department | done |
 | 21 | People + person + author matches | /people /people/:id /people/matches | done |
 | 22 | Reports + report builder | /reports /reports/build | in flight |
-| 23 | Ledger | /ledger | in flight |
-| 24 | Flags + duplicates | /flags /duplicates | queued |
+| 23 | Ledger | /ledger | done |
+| 24 | Flags + duplicates | /flags /duplicates | in flight |
 | 25 | Archive (past claims) | /archive | queued |
 | 26 | Audit + faults | /audit /faults | queued |
 | 27 | Imports + batches | /imports /batches /batches/:id | queued |

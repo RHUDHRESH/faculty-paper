@@ -172,7 +172,7 @@ describe("sharing a paper", () => {
     })
     renderWithProviders(<Feed />, { route: "/discussions?share=c9" })
     const box = await screen.findByRole("combobox", { name: "Write a post" })
-    await waitFor(() => expect(box).toHaveValue('New paper out: “Grain boundaries” in Acta Materialia, 2026 (Q1).\nWritten with @user:"Ravi Kumar".'))
+    await waitFor(() => expect(box).toHaveValue('New paper out: “Grain boundaries” in Acta Materialia, 2026 (Q1).\nWritten with @Ravi Kumar.')) // shown as a name; sent as @user:"Ravi Kumar"
     expect(screen.getAllByText("Grain boundaries").length).toBeGreaterThan(0)
 
     const user = userEvent.setup()

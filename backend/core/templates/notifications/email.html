@@ -22,8 +22,8 @@
 {% endif %}
 </td></tr>
 <tr><td style="padding:16px 24px 20px 24px;border-top:1px solid #e1e4ee;font-size:12px;line-height:1.5;color:#6b7080;">
-You are getting this because &ldquo;{{ kind_label }}&rdquo; is set to email in your notification settings.<br>
-<a href="{{ unsubscribe_url }}" style="color:#2b398f;">Stop these emails</a> &middot; <a href="{{ settings_url }}" style="color:#2b398f;">All notification settings</a>
+{% if kind_label %}You are getting this because &ldquo;{{ kind_label }}&rdquo; is set to email in your notification settings.<br>{% endif %}
+<a href="{{ settings_url }}" style="color:#2b398f;">Change what you get emailed</a>{% if unsubscribe_url %} &middot; <a href="{{ unsubscribe_url }}" style="color:#2b398f;">Stop these emails</a>{% endif %}
 </td></tr>
 </table>
 </td></tr>

@@ -1,0 +1,12 @@
+{% extends "notifications/email.html" %}
+{% block content %}
+{% if body %}<p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;">{{ body }}</p>{% endif %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+{% for i in batch %}
+<tr><td style="padding:6px 0;border-bottom:1px solid #eef0f5;font-size:14px;line-height:1.45;">
+<a href="{{ i.href }}" style="color:#1d2130;text-decoration:none;">{{ i.title }}</a>
+</td></tr>
+{% endfor %}
+</table>
+<p style="margin:16px 0 0 0;"></p>
+{% endblock %}

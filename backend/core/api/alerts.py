@@ -53,6 +53,16 @@ def put_notification_preferences(request: HttpRequest, payload: PreferencesIn):
     return notify_service.preferences_payload(user)
 
 
+@api.post("/notifications/test-email", auth=session_auth)
+def send_test_email(request: HttpRequest):
+    """Super admin only: email myself, to prove the mail server works."""
+    user = require_user(request)
+    if user.role != "SUPER_ADMIN":
+        raise HttpError(403, "Only the super admin can send a test email.")
+    sent, message = notify_service.send_test_email(user)
+    return {"sent": sent, "message": message, "smtp": notify_service.smtp_status()}
+
+
 @api.get("/notifications/digest", auth=session_auth)
 def my_digest(request: HttpRequest):
     """The weekly summary as it would be sent now -- the "This week" tab."""

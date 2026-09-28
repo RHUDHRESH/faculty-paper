@@ -234,6 +234,13 @@ def send_weekly_digest() -> dict:
     return run()
 
 
+def flush_held_emails() -> dict:
+    """Hourly (schedule "email-batch"): one email carrying what the hourly limit held back."""
+    from core.services.notify import flush_held_emails as run
+
+    return run()
+
+
 def send_nudges() -> dict:
     """Daily (schedule "daily-nudges"): filing-deadline and quota nudges."""
     from core.services.nudges import send_nudges as run

@@ -35,6 +35,8 @@ is not real, and nothing sent to a claimant names a desk or an officer.
 from __future__ import annotations
 
 import logging
+import re
+from datetime import timedelta
 from dataclasses import dataclass
 from typing import Any
 
@@ -111,9 +113,10 @@ KINDS: dict[str, Kind] = {
              "When a paper of yours is cited again. Checked once a day.",
              _PAPERS, "papers", EMAIL, "claimant"),
         Kind("digest", "Weekly summary",
-             "Monday morning: where you stand, what your department published, "
-             "somebody to write with, and what is waiting on you.",
-             _REMINDERS, "updates", EMAIL, "claimant"),
+             "Monday morning, only when there is something in it: your papers' "
+             "progress, papers found on your record, your department's pace, or "
+             "what is waiting on your desk. Email is opt-in.",
+             _REMINDERS, "updates", IN_APP),
         Kind("nudge_cutoff", "Filing deadline",
              "A few days before this month's filing closes, if you have a draft.",
              _REMINDERS, "updates", EMAIL, "claimant"),
@@ -163,6 +166,46 @@ KINDS: dict[str, Kind] = {
 }
 
 SECTIONS = ("papers", "people", "work", "updates")
+
+#: The one button in each kind's email, taking the reader to the exact page.
+EMAIL_ACTIONS: dict[str, str] = {
+    "claim_approved": "See the paper",
+    "claim_paid": "See the payment",
+    "claim_sent_back": "Make the changes",
+    "claim_not_accepted": "See the reason",
+    "claim_status": "See the paper",
+    "citation": "See who cited it",
+    "digest": "Open this week in the app",
+    "nudge_cutoff": "Finish your draft",
+    "nudge_quota": "See your quota",
+    "desk": "Open the queue",
+    "follow": "See their profile",
+    "comment": "Read the comment",
+    "mention": "See where",
+    "reaction": "See the post",
+    "message": "Read the message",
+    "collab": "Open the conversation",
+    "endorsement": "See your profile",
+    "badge": "See your badges",
+    "target": "See the department",
+    "moderation": "See what happened",
+    GENERAL: "Open in the app",
+}
+
+#: Words that would tell a claimant which desk, or who, is holding their
+#: paper. A sentence carrying one is left out of a claimant's email.
+DESK_WORDS = ("principal", "director", "finance", "hod", "head of department",
+              "research cell", "coordinator", "supervisor", "clearing", "desk",
+              "admin", "officer")
+_DESK_RE = re.compile(r"\b(" + "|".join(re.escape(w) for w in DESK_WORDS) + r")\b", re.I)
+
+
+def claimant_safe(text: str | None) -> str:
+    """`text` less every sentence that names a desk or the person at it."""
+    if not text:
+        return ""
+    parts = re.split(r"(?<=[.!?])\s+|\n+", text)
+    return " ".join(p for p in parts if p and not _DESK_RE.search(p)).strip()
 
 
 def kind_of(key: str | None) -> Kind:
@@ -224,6 +267,8 @@ def preferences_payload(user: User) -> dict[str, Any]:
     personal = settings_for(user)
     return {
         "email_available": email_enabled(),
+        # Only the super admin is shown the mail server and can test it.
+        "smtp": smtp_status() if user.role == "SUPER_ADMIN" else None,
         "whatsapp_available": whatsapp.enabled(),
         "email": user.email,
         "has_phone": bool(whatsapp.normalise_phone(user.phone)),
@@ -507,6 +552,99 @@ def email_room_today() -> int | None:
     return max(0, cap - emails_sent_today())
 
 
+# --------------------------------------------------------------------------- #
+# Hourly batching                                                              #
+# --------------------------------------------------------------------------- #
+#
+# Nobody is sent more than EMAIL_HOURLY_PER_PERSON emails in an hour. Past
+# that, an alert stays in the app with no email, and the hourly job
+# (`flush_held_emails`, schedule "email-batch") sends everything held as one
+# email. Alerts sent together share one emailed_at, so an email is counted
+# once however many alerts it carried.
+
+#: How far back the hourly job looks for alerts it still owes an email.
+HELD_WINDOW = timedelta(hours=6)
+
+
+def hourly_limit() -> int:
+    return int(getattr(settings, "EMAIL_HOURLY_PER_PERSON", 4) or 0)
+
+
+def emails_this_hour(user: User, now=None) -> int:
+    now = now or timezone.now()
+    return (
+        Notification.objects.filter(user=user, emailed_at__gte=now - timedelta(hours=1))
+        .values("emailed_at")
+        .distinct()
+        .count()
+    )
+
+
+def _hour_is_full(user: User) -> bool:
+    limit = hourly_limit()
+    return limit > 0 and emails_this_hour(user) >= limit
+
+
+def _is_claimant(user: User) -> bool:
+    from core.services import rbac
+
+    return user.role in rbac.CLAIMANT_ROLES
+
+
+def _deliver(user: User, subject: str, ctx: dict[str, Any], template: str,
+             unsubscribe: str | None, connection: Any = None) -> bool:
+    html = render_to_string(template, ctx)
+    text = render_to_string("notifications/email.txt", ctx)
+    headers = {}
+    if unsubscribe:
+        headers = {
+            "List-Unsubscribe": f"<{unsubscribe}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        }
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=text,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        to=[user.email],
+        headers=headers,
+        connection=connection,
+    )
+    msg.attach_alternative(html, "text/html")
+    msg.send()
+    return True
+
+
+def _base_context(user: User) -> dict[str, Any]:
+    from core.services import institution
+
+    return {
+        "college": institution.get("college_name"),
+        "settings_url": app_url("/settings/notifications"),
+        "app_base": getattr(settings, "APP_BASE_URL", "") or "",
+        "name": user.name or user.email,
+    }
+
+
+def email_context(note: Notification, user: User, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """What one alert's email says. A claimant's never names a desk."""
+    spec = kind_of(note.kind)
+    title, body = note.title, note.body or ""
+    if _is_claimant(user):
+        title = claimant_safe(title) or spec.label
+        body = claimant_safe(body)
+    return {
+        **_base_context(user),
+        "subject": title,
+        "title": title,
+        "body": body,
+        "action_url": app_url(note.href) if note.href else app_url("/notifications"),
+        "action_label": EMAIL_ACTIONS.get(spec.key, "Open in the app"),
+        "kind_label": spec.label,
+        "unsubscribe_url": app_url(f"/api/notifications/unsubscribe/{unsubscribe_token(user, spec.key)}"),
+        **(extra or {}),
+    }
+
+
 def send_email(
     note: Notification,
     user: User,
@@ -515,46 +653,23 @@ def send_email(
     context: dict[str, Any] | None = None,
     connection: Any = None,
 ) -> bool:
-    """Email one alert. Returns whether it went. Never raises."""
+    """Email one alert. Returns whether it went. Never raises.
+
+    Held back (False) when this person's hour is full: the hourly job sends
+    it with the rest, as one email.
+    """
     if not email_enabled() or not user.email:
         return False
     room = email_room_today()
     if room is not None and room <= 0:
         logger.warning("email_cap_reached kind=%s user=%s", note.kind, user.pk)
         return False
-    from core.services import institution
-
-    spec = kind_of(note.kind)
-    unsubscribe = app_url(f"/api/notifications/unsubscribe/{unsubscribe_token(user, spec.key)}")
-    ctx = {
-        "college": institution.get("college_name"),
-        "title": note.title,
-        "body": note.body or "",
-        "action_url": app_url(note.href) if note.href else None,
-        "action_label": "Open in the app",
-        "kind_label": spec.label,
-        "unsubscribe_url": unsubscribe,
-        "settings_url": app_url("/settings/notifications"),
-        "app_base": getattr(settings, "APP_BASE_URL", "") or "",
-        "name": user.name or user.email,
-        **(context or {}),
-    }
+    if _hour_is_full(user):
+        logger.info("email_held kind=%s user=%s", note.kind, user.pk)
+        return False
+    ctx = email_context(note, user, context)
     try:
-        html = render_to_string(template, ctx)
-        text = render_to_string("notifications/email.txt", ctx)
-        msg = EmailMultiAlternatives(
-            subject=note.title,
-            body=text,
-            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-            to=[user.email],
-            headers={
-                "List-Unsubscribe": f"<{unsubscribe}>",
-                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-            },
-            connection=connection,
-        )
-        msg.attach_alternative(html, "text/html")
-        msg.send()
+        _deliver(user, ctx["subject"], ctx, template, ctx["unsubscribe_url"], connection)
     except Exception:
         logger.exception("email_failed kind=%s user=%s", note.kind, user.pk)
         return False
@@ -562,3 +677,116 @@ def send_email(
     Notification.objects.filter(pk=note.pk).update(emailed_at=now)
     note.emailed_at = now
     return True
+
+
+def held_for(user: User, now=None) -> list[Notification]:
+    """Unread alerts of the last few hours this person wanted by email and
+    was not sent, because their hour was full."""
+    now = now or timezone.now()
+    wanted = [k for k, level in levels_for(user).items() if level == EMAIL]
+    return list(
+        Notification.objects.filter(
+            user=user, kind__in=wanted, emailed_at__isnull=True, read=False,
+            created_at__gte=now - HELD_WINDOW,
+        ).order_by("created_at")
+    )
+
+
+def flush_held_emails(now=None) -> dict[str, int]:
+    """The hourly job: one email per person carrying everything held back."""
+    now = now or timezone.now()
+    summary = {"people": 0, "alerts": 0}
+    if not email_enabled():
+        return summary
+    people = User.objects.filter(
+        active=True,
+        notifications__emailed_at__isnull=True,
+        notifications__read=False,
+        notifications__created_at__gte=now - HELD_WINDOW,
+    ).exclude(email="").distinct()
+    for user in people:
+        notes = held_for(user, now)
+        if not notes or _hour_is_full(user):
+            continue
+        room = email_room_today()
+        if room is not None and room <= 0:
+            break
+        claimant = _is_claimant(user)
+        items = []
+        for n in notes:
+            title = (claimant_safe(n.title) or kind_of(n.kind).label) if claimant else n.title
+            items.append({"title": title, "href": app_url(n.href or "/notifications")})
+        count = len(items)
+        subject = f"{count} update{'s' if count != 1 else ''} while you were away"
+        ctx = {
+            **_base_context(user),
+            "subject": subject,
+            "title": subject,
+            "body": "These came in faster than one email an hour, so here they are together.",
+            "batch": items,
+            "text_sections": "\n".join(f"- {i['title']}: {i['href']}" for i in items),
+            "action_url": app_url("/notifications"),
+            "action_label": "Open your notifications",
+            "kind_label": "",
+            "unsubscribe_url": None,
+        }
+        try:
+            _deliver(user, subject, ctx, "notifications/batch_email.html", None)
+        except Exception:
+            logger.exception("email_batch_failed user=%s", user.pk)
+            continue
+        stamp = timezone.now()
+        Notification.objects.filter(pk__in=[n.pk for n in notes]).update(emailed_at=stamp)
+        summary["people"] += 1
+        summary["alerts"] += count
+    return summary
+
+
+# --------------------------------------------------------------------------- #
+# Mail server status and the test email                                        #
+# --------------------------------------------------------------------------- #
+
+
+def smtp_status() -> dict[str, Any]:
+    """What the settings page says about the mail server. Never the password."""
+    host = getattr(settings, "EMAIL_HOST", "") or ""
+    configured = email_enabled()
+    if host:
+        line = (f"Email goes out through {host}, port {getattr(settings, 'EMAIL_PORT', '')}, "
+                f"from {getattr(settings, 'DEFAULT_FROM_EMAIL', '')}.")
+    elif configured:
+        line = "Email is switched on without a mail server; it is written to the server log."
+    else:
+        line = ("The mail server (SMTP) is not set up, so nothing is emailed yet. "
+                "Set EMAIL_HOST and the other EMAIL_ variables on the server.")
+    return {
+        "configured": configured,
+        "host": host,
+        "port": getattr(settings, "EMAIL_PORT", None) if host else None,
+        "from_email": getattr(settings, "DEFAULT_FROM_EMAIL", ""),
+        "line": line,
+    }
+
+
+def send_test_email(user: User) -> tuple[bool, str]:
+    """Email `user` a test message. Returns (sent, what to show them)."""
+    if not email_enabled():
+        return False, smtp_status()["line"]
+    if not user.email:
+        return False, "Your account has no email address."
+    ctx = {
+        **_base_context(user),
+        "subject": "Test email",
+        "title": "Test email",
+        "body": "If you can read this, the mail server is working.",
+        "action_url": app_url("/settings/notifications"),
+        "action_label": "Back to notification settings",
+        "kind_label": "",
+        "unsubscribe_url": None,
+    }
+    try:
+        _deliver(user, "Test email", ctx, "notifications/email.html", None)
+    except Exception as exc:
+        logger.exception("email_test_failed user=%s", user.pk)
+        return False, f"The mail server refused it: {exc.__class__.__name__}. Check the EMAIL_ settings."
+    return True, f"Sent to {user.email}. It can take a minute to arrive."

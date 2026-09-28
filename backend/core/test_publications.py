@@ -291,6 +291,15 @@ class ApiTests(_Base):
         self.assertEqual(self.get(f"/api/people/{self.subha.id}/connection?to={self.joyal.id}")["hops"], 1)
         self.assertEqual(self.client.get(f"/api/people/{self.subha.id}/connection?to=nobody").status_code, 404)
 
+    def test_why(self):
+        body = self.get(f"/api/people/{self.joyal.id}/why?for=me")
+        self.assertEqual(body["for"], f"u:{self.subha.id}")
+        together = [r for r in body["reasons"] if r["kind"] == "together"]
+        self.assertEqual(len(together), 1)
+        self.assertTrue(together[0]["text"].startswith("1 paper together"))
+        self.assertTrue(self.get(f"/api/people/{self.subha.id}/why?of=A7")["about"])
+        self.assertEqual(self.client.get(f"/api/people/{self.subha.id}/why?of=nobody").status_code, 404)
+
     def test_external_search(self):
         body = self.get("/api/search/people-external?q=outsider")
         hit = body["results"][0]

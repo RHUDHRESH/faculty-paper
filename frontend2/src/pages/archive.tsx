@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { FileSearch, Search, SearchX } from "lucide-react"
+import { Download, FileSearch, Flag, Search, SearchX } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { reviewsFlags } from "@/app/nav"
-import { cn } from "@/lib/cn"
+import { api } from "@/lib/api"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
@@ -14,6 +14,10 @@ import { Pagination } from "@/ui/pagination"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 import { HeaderSpot } from "@/ui/page-header"
+import { filterBar } from "@/ui/filter-bar"
+import { Avatar } from "@/ui/person"
+import { toast } from "@/ui/toast"
+import { RaiseFlagDialog } from "@/pages/claim-review"
 
 /**
  * Looking into the past: every claim filed with the college, paid and
@@ -36,8 +40,12 @@ type Row = {
   publication_year: number | null
   status: string
   status_note: string | null
+  owner_id?: string
   owner_name: string
   owner_department: string | null
+  owner_photo_url?: string | null
+  /** "Imported from the ERP, <sheet>" for a ticket from the old records. */
+  origin?: string | null
   remuneration: number | null
   paid_at: string | null
   file_count: number
@@ -59,8 +67,8 @@ const STATUS_OPTIONS: ComboboxOption[] = [
   { value: "FINANCE_APPROVED", label: "Approved (old chain)" },
 ]
 
-const FLAGGED_FILTERS = [
-  { value: "", label: "All" },
+const FLAGGED_FILTERS: ComboboxOption[] = [
+  { value: "", label: "Any flags" },
   { value: "open", label: "With open flags" },
   { value: "none", label: "No open flags" },
 ]
@@ -90,6 +98,7 @@ export function PastClaims() {
   // request rather than one per keystroke.
   const [searchDraft, setSearchDraft] = useState(q)
   const [yearDraft, setYearDraft] = useState(year)
+  const [exporting, setExporting] = useState(false)
   useEffect(() => setSearchDraft(q), [q])
   useEffect(() => setYearDraft(year), [year])
   useEffect(() => {
@@ -161,6 +170,29 @@ export function PastClaims() {
     ...(departments.data ?? []).map((d) => ({ value: d, label: d })),
   ]
 
+  // Every row the filters match, not just this page: asked for in pages of
+  // 200, the server's cap, and written out in the order shown.
+  async function downloadCsv() {
+    setExporting(true)
+    try {
+      const all: Row[] = []
+      for (let offset = 0; ; offset += 200) {
+        const qs = new URLSearchParams(query)
+        qs.set("limit", "200")
+        qs.set("offset", String(offset))
+        const p = await api<Payload>(`/api/archive/claims?${qs.toString()}`)
+        all.push(...p.results)
+        if (p.results.length === 0 || all.length >= p.total) break
+      }
+      saveCsv(all)
+      toast.ok(all.length === 1 ? "Downloaded 1 claim as CSV" : `Downloaded ${all.length} claims as CSV`)
+    } catch (e) {
+      toast.fail(e, "Could not download the CSV. Try again.")
+    } finally {
+      setExporting(false)
+    }
+  }
+
   function clearAll() {
     setSearchDraft("")
     setYearDraft("")
@@ -180,40 +212,35 @@ export function PastClaims() {
         <HeaderSpot name="spot-archive" />
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="relative sm:col-span-2">
+      <div className={filterBar} role="search" aria-label="Filter past claims">
+        <div className="relative min-w-0 flex-1 sm:min-w-[16rem]">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
           <Input
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Search title, ticket, DOI, ISSN or faculty"
+            placeholder="Title, ticket, DOI, ISSN or faculty"
             aria-label="Search past claims"
             className="pl-8"
           />
         </div>
-        <Combobox value={status} onChange={(v) => setParam("status", v)} options={STATUS_OPTIONS} aria-label="Status" />
+        <Combobox value={status} onChange={(v) => setParam("status", v)} options={STATUS_OPTIONS} aria-label="Status" className="sm:w-40" />
         <NumberInput
           value={yearDraft}
           onChange={(e) => setYearDraft(e.target.value)}
-          placeholder="Publication year"
+          placeholder="Year"
           aria-label="Publication year"
           min={1990}
           max={2100}
+          className="sm:w-24"
         />
         <Combobox
           value={department}
           onChange={(v) => setParam("department", v)}
           options={departmentOptions}
           aria-label="Department"
-          className="sm:col-span-2"
+          className="sm:w-52"
         />
-        <div className="flex flex-wrap items-center gap-1 sm:col-span-2" role="group" aria-label="Flags">
-          {FLAGGED_FILTERS.map((f) => (
-            <Chip key={f.value || "all"} active={flagged === f.value} onClick={() => setParam("flagged", f.value)}>
-              {f.label}
-            </Chip>
-          ))}
-        </div>
+        <Combobox value={flagged} onChange={(v) => setParam("flagged", v)} options={FLAGGED_FILTERS} aria-label="Flags" className="sm:w-40" />
       </div>
 
       <div className="flex min-h-7 flex-wrap items-center gap-2" role="status" aria-live="polite">
@@ -226,6 +253,12 @@ export function PastClaims() {
         {filtered && (
           <Button kind="quiet" size="sm" onClick={clearAll}>
             Clear all
+          </Button>
+        )}
+        {total > 0 && !isError && (
+          <Button kind="quiet" size="sm" className="ml-auto" onClick={downloadCsv} disabled={exporting}>
+            <Download className="size-4" aria-hidden />
+            {exporting ? "Preparing CSV…" : filtered ? "Download these as CSV" : "Download all as CSV"}
           </Button>
         )}
       </div>
@@ -274,68 +307,104 @@ export function PastClaims() {
   )
 }
 
-/** One claim, stacked so it reads the same at 375px as on a desk. */
+/** One claim: a card that opens the claim, and a flag beside it. */
 function PastRow({ row }: { row: Row }) {
+  const [flagging, setFlagging] = useState(false)
   const paid = row.status === "PAID"
   return (
-    <li className="row">
-      <Link to={`/papers/${row.id}`} className="block px-1 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
-            <Meta className="mt-0.5 block truncate">
-              {[row.ticket_number, row.owner_name, row.owner_department].filter(Boolean).join(" · ")}
+    <li className="row flex items-start gap-2">
+      <Link
+        to={`/papers/${row.id}`}
+        className="flex min-w-0 flex-1 gap-3 rounded-sm px-1 py-3"
+      >
+        <Avatar
+          person={{ name: row.owner_name, initials: "", photo_url: row.owner_photo_url ?? null }}
+          size="sm"
+          className="mt-0.5"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-start justify-between gap-3">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
+              <Meta className="mt-0.5 block truncate">
+                {[row.owner_name, row.owner_department, row.ticket_number].filter(Boolean).join(" · ")}
+              </Meta>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="block tabular text-sm font-medium">{money(row.remuneration)}</span>
+              {paid && row.paid_at && <Meta className="block">Paid {formatDate(row.paid_at)}</Meta>}
+            </span>
+          </span>
+          <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <Stage stage={stageOf(row.status)} className="w-[8rem]" />
+            {row.open_flags > 0 && (
+              <span className="rounded-sm bg-caution-wash px-1.5 py-0.5 text-xs font-medium text-caution">
+                {row.open_flags === 1 ? "1 open flag" : `${row.open_flags} open flags`}
+              </span>
+            )}
+            <Meta className="min-w-0">
+              {[
+                row.journal_title,
+                row.publication_year,
+                row.file_count === 1 ? "1 file" : row.file_count === 0 ? "No files" : `${row.file_count} files`,
+                row.origin,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </Meta>
           </span>
-          <span className="shrink-0 text-right">
-            <span className="block tabular text-sm font-medium">{money(row.remuneration)}</span>
-            {paid && row.paid_at && <Meta className="block">Paid {formatDate(row.paid_at)}</Meta>}
-          </span>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <Stage stage={stageOf(row.status)} className="w-[8rem]" />
-          {row.open_flags > 0 && (
-            <span className="rounded-sm bg-caution-wash px-1.5 py-0.5 text-xs font-medium text-caution">
-              {row.open_flags === 1 ? "1 open flag" : `${row.open_flags} open flags`}
-            </span>
-          )}
-          <Meta>
-            {[
-              row.journal_title,
-              row.publication_year,
-              row.file_count === 1 ? "1 file" : `${row.file_count} files`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </Meta>
-        </div>
+        </span>
       </Link>
+      <Button
+        kind="quiet"
+        size="sm"
+        className="mt-2.5 shrink-0"
+        onClick={() => setFlagging(true)}
+        aria-label={`Raise a flag on ${row.paper_title || "this claim"}`}
+      >
+        <Flag className="size-4" aria-hidden />
+        <span className="max-sm:sr-only">Flag</span>
+      </Button>
+      <RaiseFlagDialog claimId={row.id} open={flagging} onClose={() => setFlagging(false)} />
     </li>
   )
 }
 
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "h-7 rounded-sm px-2 text-sm transition-colors duration-[var(--dur-1)] ease-out",
-        active ? "bg-selected font-medium text-fg" : "text-fg-muted hover:bg-hover hover:text-fg"
-      )}
-    >
-      {children}
-    </button>
+const CSV_HEAD = [
+  "Ticket", "Title", "Journal", "Year", "Faculty", "Department", "Status",
+  "Origin", "Amount", "Paid on", "Files", "Open flags",
+]
+
+function csvCell(v: unknown): string {
+  const t = v == null ? "" : String(v)
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
+}
+
+/** The filtered claims as CSV, one row each, in the order shown. */
+export function archiveCsv(rows: Row[]): string {
+  const label = new Map(STATUS_OPTIONS.map((o) => [o.value, o.label]))
+  const lines = rows.map((r) =>
+    [
+      r.ticket_number, r.paper_title, r.journal_title, r.publication_year, r.owner_name,
+      r.owner_department, label.get(r.status) ?? r.status, r.origin ?? "Filed here",
+      r.remuneration, r.paid_at ? r.paid_at.slice(0, 10) : "", r.file_count, r.open_flags,
+    ]
+      .map(csvCell)
+      .join(",")
   )
+  return [CSV_HEAD.join(","), ...lines].join("\r\n") + "\r\n"
+}
+
+function saveCsv(rows: Row[]) {
+  const blob = new Blob(["﻿" + archiveCsv(rows)], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `past-claims-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 function formatDate(iso: string): string {

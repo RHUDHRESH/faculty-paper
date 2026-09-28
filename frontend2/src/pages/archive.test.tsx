@@ -9,7 +9,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
-import { PastClaims } from "@/pages/archive"
+import { PastClaims, archiveCsv } from "@/pages/archive"
 import { HOD, fakeApi, failing, renderWithProviders } from "@/test/harness"
 
 /**
@@ -68,15 +68,42 @@ describe("past claims", () => {
 
   it("asks the server for flagged claims only when told to", async () => {
     vi.mocked(api).mockImplementation(fakeApi(table([ROW])))
+    renderWithProviders(<PastClaims />, { route: "/?flagged=open" })
+    await screen.findAllByText("Lattice struts under cyclic load")
+    const asked = vi.mocked(api).mock.calls.map(([path]) => String(path))
+    expect(asked.some((p) => p.startsWith("/api/archive/claims") && p.includes("flagged=open"))).toBe(true)
+  })
+
+  it("says an imported ticket came from the ERP, not that it was sent back", async () => {
+    const imported = {
+      ...ROW,
+      status: "SUBMITTED",
+      status_note: "Imported from Raw_Data",
+      origin: "Imported from the ERP, Raw data sheet",
+    }
+    vi.mocked(api).mockImplementation(fakeApi(table([imported])))
+    renderWithProviders(<PastClaims />)
+    expect(await screen.findByText(/Imported from the ERP, Raw data sheet/)).toBeInTheDocument()
+    expect(screen.queryByText(/Sent back/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Raw_Data/)).not.toBeInTheDocument()
+  })
+
+  it("opens a flag with a reason from the row", async () => {
+    vi.mocked(api).mockImplementation(fakeApi(table([ROW])))
     const user = userEvent.setup()
     renderWithProviders(<PastClaims />)
     await screen.findAllByText("Lattice struts under cyclic load")
+    await user.click(screen.getByRole("button", { name: /Raise a flag on Lattice struts/ }))
+    expect(await screen.findByRole("dialog")).toBeInTheDocument()
+  })
 
-    await user.click(screen.getByRole("button", { name: "With open flags" }))
-    await waitFor(() => {
-      const asked = vi.mocked(api).mock.calls.map(([path]) => String(path))
-      expect(asked.some((p) => p.startsWith("/api/archive/claims") && p.includes("flagged=open"))).toBe(true)
-    })
+  it("writes what is filtered as CSV, quoting commas", () => {
+    const csv = archiveCsv([{ ...ROW, paper_title: "Struts, lattices", origin: "Imported from the ERP" }])
+    const [head, line] = csv.split("\r\n")
+    expect(head.startsWith("Ticket,Title")).toBe(true)
+    expect(line).toContain('"Struts, lattices"')
+    expect(line).toContain("Paid")
+    expect(line).toContain("Imported from the ERP")
   })
 
   it("keeps both a search and a year typed in quick succession", async () => {

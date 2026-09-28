@@ -59,3 +59,4 @@ from core.api.publications import *  # noqa: F401,F403
 from core.api.me_summary import *  # noqa: F401,F403
 from core.api.search_all import *  # noqa: F401,F403
 from core.api.research import *  # noqa: F401,F403
+from core.api.author_review import *  # noqa: F401,F403

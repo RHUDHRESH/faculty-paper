@@ -2675,3 +2675,28 @@ class PublicationMetrics(models.Model):
     first_year = models.IntegerField(blank=True, null=True)
     last_year = models.IntegerField(blank=True, null=True)
     computed_at = models.DateTimeField(default=timezone.now)
+
+
+class AuthorAlias(models.Model):
+    """What the office decided about one college author name nobody matched.
+
+    Keyed on the normalised name (`author_names.name_key`), so every spelling
+    that sorts to the same parts shares one decision. `MATCHED` names a user
+    and match_authors applies it on every future run; `NOT_ROSTER` hides the
+    name (a former member of staff); `AMBIGUOUS` parks it for a closer look.
+    """
+
+    MATCHED = "MATCHED"
+    NOT_ROSTER = "NOT_ROSTER"
+    AMBIGUOUS = "AMBIGUOUS"
+    STATUSES = [(MATCHED, "Matched"), (NOT_ROSTER, "Not on our roster"), (AMBIGUOUS, "Ambiguous")]
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    name_key = models.CharField(max_length=160, unique=True)
+    #: One spelling as it appeared, for display.
+    sample_name = models.CharField(max_length=255, blank=True, default="")
+    status = models.CharField(max_length=16, choices=STATUSES)
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.CASCADE, related_name="author_aliases")
+    decided_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)

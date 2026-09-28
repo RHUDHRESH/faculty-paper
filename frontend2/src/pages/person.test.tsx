@@ -10,7 +10,23 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
-import { PeopleDirectory, PublicProfile } from "@/pages/person"
+import { PeopleDirectory, PublicProfile, PublishedWork } from "@/pages/person"
+
+describe("Published work — the full record", () => {
+  it("lists the record by year, 10 at a time, with Show more", async () => {
+    const papers = Array.from({ length: 23 }, (_, i) => ({
+      id: `p${i}`, title: `Paper ${i}`, year: 2026 - Math.floor(i / 5), citations: i, venue: "J Test", quartile: "Q1", doi: null,
+    }))
+    renderWithProviders(<PublishedWork papers={papers} />)
+    expect(screen.getByText("23 papers")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "2026" })).toBeInTheDocument()
+    expect(screen.getByText("Paper 9")).toBeInTheDocument()
+    expect(screen.queryByText("Paper 10")).toBeNull()
+    await userEvent.click(screen.getByRole("button", { name: "Show more (13 left)" }))
+    expect(screen.getByText("Paper 19")).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/₹|Rs\.|remuneration/i)
+  })
+})
 import { fakeApi, FACULTY, renderWithProviders, type ApiTable } from "@/test/harness"
 
 /**
@@ -108,7 +124,7 @@ describe("PublicProfile", () => {
   it("shows who they are and their own work, with the college co-authors linked", async () => {
     mount(profile())
     expect(await screen.findByRole("heading", { name: "Dr Ravi Kumar" })).toBeInTheDocument()
-    expect(screen.getByText("Strain in epitaxial films")).toBeInTheDocument()
+    expect(await screen.findByText("Strain in epitaxial films")).toBeInTheDocument()
     expect(screen.getByText("Thin films, mostly.")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /ORCID/ })).toHaveAttribute(
       "href",

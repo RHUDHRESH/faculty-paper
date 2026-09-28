@@ -947,6 +947,9 @@ GET /api/college/research -> { totals, papers_by_year[], topics[{id,label,papers
                                departments[], dept_topic[{dept,topic,papers}], near_me[], my_topics[] }
 GET /api/discover/for-you -> { items[{kind:direction|venue|person|paper,id,title,why,source,payload}],
                                counts, tuned_to[], my_topics[], grounded_on }
+POST /api/discover/dismiss {kind, id, undo?} -> { id, dismissed }
+    ("Not interested", per user on the server; for-you and /discover/next leave dismissed ids out;
+     undo:true brings the item back)
 ```
 
 From the publication record. `citations_by_year` is citations earned by the

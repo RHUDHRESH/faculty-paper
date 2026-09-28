@@ -41,6 +41,11 @@ export const toast = {
   info(message: string) {
     void sonner().then((s) => s.toast(message))
   },
+
+  /** A note with an Undo button, for a quiet change that is easy to regret. */
+  undoable(message: string, onUndo: () => void) {
+    void sonner().then((s) => s.toast(message, { action: { label: "Undo", onClick: onUndo } }))
+  },
 }
 
 let loading: Promise<typeof import("sonner")> | null = null

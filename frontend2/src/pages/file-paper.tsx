@@ -1594,7 +1594,7 @@ export function FilePaper() {
         <Callout tone="critical" title="Your changes are not being saved">
           <p>
             {saveError || "The server did not answer."} Nothing typed here has been lost yet, but it only
-            exists in this browser tab — do not close it until this saves.
+            exists in this browser tab, so keep it open until this saves.
           </p>
           <Button kind="default" size="sm" className="mt-2" onClick={() => void save()}>
             Try saving again

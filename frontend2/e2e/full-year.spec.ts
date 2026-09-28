@@ -4,7 +4,7 @@
  * Built on `manage.py e2e_year` (see that file for the cast). Serial: each
  * step starts where the last one left the database.
  */
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 
 import { expect, test, type Page } from "@playwright/test"
 
@@ -113,6 +113,14 @@ function amountIn(text: string): string {
   const m = text.match(/₹\s*[\d,]+(?:\.\d+)?/)
   expect(m, `no amount in ${JSON.stringify(text)}`).not.toBeNull()
   return m![0].replace(/\s+/g, "")
+}
+
+/** Click something that downloads, and read what arrived. */
+async function download(page: Page, click: () => Promise<unknown>): Promise<{ name: string; text: string; size: number }> {
+  const [dl] = await Promise.all([page.waitForEvent("download"), click()])
+  const file = await dl.path()
+  const buf = readFileSync(file!)
+  return { name: dl.suggestedFilename(), text: buf.toString("latin1"), size: buf.length }
 }
 
 /** Figures read off one page, to compare against the next. */
@@ -285,8 +293,94 @@ test.describe("A year at the college", () => {
     await expect(sheet.getByRole("heading", { name: "Flags from the research cell" })).toBeVisible()
     await expect(sheet).toContainText(FLAG_NOTE)
     await sheet.getByRole("button", { name: "Approve", exact: true }).click()
-    await page.waitForTimeout(800)
-    await snap(page, "08-approve")
+    const ask = page.getByRole("dialog", { name: "Approve this spend?" })
+    const confirm = ask.getByRole("button", { name: /^Approve ₹/ })
+    expect(amountIn(await confirm.innerText())).toBe("₹74,500")
+    await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith("/principal-approve") && r.ok()),
+      confirm.click(),
+    ])
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(flagged).toHaveCount(0)
+    // The rest in one go.
+    await page.getByRole("checkbox", { name: "Select all" }).check()
+    // Revathi's two inside her quota at ₹0, her third at ₹44,700, Anand's refiled one at ₹57,600.
+    await expect(page.getByText("4 selected · ₹1,02,300")).toBeVisible()
+    await page.getByRole("button", { name: "Approve 4 tickets" }).click()
+    const bulk = page.getByRole("dialog")
+    const go = bulk.getByRole("button", { name: /₹/ })
+    expect(amountIn(await go.innerText())).toBe("₹1,02,300")
+    await Promise.all([
+      page.waitForResponse((r) => r.request().method() === "POST" && /approve/.test(r.url()) && r.ok()),
+      go.click(),
+    ])
+    await page.waitForTimeout(1000)
+    await snap(page, "08-bulk-done")
+    await close(page)
+  })
+
+  test("the Director authorises the month's batch within budget, and never sees a flag", async ({ browser }) => {
+    const page = await as(browser, "director")
+    await page.goto("/authorisations")
+    const list = page.getByRole("region", { name: "Approved claims" })
+    await expect(list.getByRole("listitem")).toHaveCount(5)
+    // 74,500 + 57,600 + 0 + 0 + 44,700
+    await expect(page.getByText("₹1,76,800").first()).toBeVisible()
+    // Money-desk rule: flags are for the research side, never for the Director.
+    await expect(page.locator("main")).not.toContainText(/flag/i)
+    await expect(page.locator("main")).not.toContainText(FLAG_NOTE)
+    const left = page.getByRole("complementary", { name: "Where the money goes" })
+    await expect(left).toContainText("₹48,23,200")
+    await page.getByRole("checkbox", { name: "Select all 5 on this page" }).check()
+    await expect(page.getByText("5 selected · ₹1,76,800")).toBeVisible()
+    await page.getByRole("button", { name: "Review and authorise 5" }).click()
+    const ask = page.getByRole("dialog", { name: "Authorise 5 claims?" })
+    await expect(ask).toContainText("across 5 claims")
+    await expect(ask).toContainText("₹1,76,800")
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/director/bulk-approve") && r.ok()),
+      ask.getByRole("button", { name: "Authorise ₹1,76,800" }).click(),
+    ])
+    await expect(list).toContainText("Nothing is waiting on you")
+    await close(page)
+  })
+
+  test("Finance pays the month and downloads the bank file, never seeing a flag", async ({ browser }) => {
+    const page = await as(browser, "finance")
+    await page.goto("/payments")
+    await expect(page.getByRole("row", { name: /September 2026\s*5 claims ₹1,76,800/ })).toBeVisible()
+    await expect(page.locator("main")).not.toContainText(/flag/i)
+    await page.getByRole("checkbox", { name: "Select all payable rows" }).check()
+    await expect(page.getByText("5 selected · ₹1,76,800")).toBeVisible()
+    await page.getByRole("button", { name: "Mark 5 paid" }).click()
+    const ask = page.getByRole("dialog", { name: "Mark 5 claims paid?" })
+    await expect(ask).toContainText("₹1,76,800")
+    await ask.getByRole("button", { name: "Number the empty ones" }).click()
+    await expect(ask.getByRole("textbox", { name: "Voucher #" }).first()).toHaveValue(/PV-2026-/)
+    const list = await download(page, () => ask.getByRole("button", { name: "Download payment list" }).click())
+    expect(list.text).toContain(tickets.anand_scopus)
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("bulk-mark-paid") && r.ok()),
+      ask.getByRole("button", { name: "Mark 5 paid — ₹1,76,800" }).click(),
+    ])
+    await page.goto("/statements")
+    const statement = page.getByRole("region", { name: "Statement for September 2026" })
+    await expect(statement).toContainText("₹1,76,800")
+    await expect(page.getByText("Agrees with this statement")).toBeVisible()
+    const bank = await download(page, () => statement.getByRole("link", { name: "Bank and accounts file (CSV)" }).click())
+    writeFileSync(`${OUT}/bank.csv`, bank.text)
+    expect(bank.text).toContain("Anand Kumar")
+    expect(bank.text).toContain("74500")
+    await close(page)
+  })
+
+  test("the Director downloads the signed statement for the month", async ({ browser }) => {
+    const page = await as(browser, "director")
+    await page.goto("/statements")
+    const statement = page.getByRole("region", { name: "Statement for September 2026" })
+    await expect(statement).toContainText("₹1,76,800")
+    const pdf = await download(page, () => statement.getByRole("link", { name: "Statement to sign (PDF)" }).click())
+    expect(pdf.text.startsWith("%PDF")).toBe(true)
     await close(page)
   })
 })

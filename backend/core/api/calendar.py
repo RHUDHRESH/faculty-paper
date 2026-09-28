@@ -188,7 +188,45 @@ RECORD_KINDS = {
     "PAYOUT": "Payout run",
     "COLLEAGUE": "Colleague published",
     "SCOUT": "Research scout deadline",
+    "DEPT": "Department date",
 }
+
+
+def _department_dates(user: User, first: date, last: date) -> list[dict[str, Any]]:
+    """The dates a head has set for their department, shown to its faculty.
+
+    Target review dates (a department target to everyone in it, a personal
+    target to that person), and assignment due dates (to the people on it; the
+    head sees every open one). Internal submission deadlines are ordinary
+    department-visibility calendar entries the head creates. No money.
+    """
+    from core.models import DepartmentAssignment, DepartmentTarget
+
+    department = (getattr(user, "department", "") or "").strip()
+    if not department:
+        return []
+    head = user.role == Role.HOD
+    out: list[dict[str, Any]] = []
+    targets = DepartmentTarget.objects.filter(
+        department__iexact=department, due_date__gte=first, due_date__lte=last
+    ).select_related("person")
+    if not head:
+        targets = targets.filter(Q(person__isnull=True) | Q(person=user))
+    for t in targets:
+        what = f"{t.target} {DepartmentTarget.Metric(t.metric).label.lower()}"
+        who = f" for {t.person.name}" if t.person_id else ""
+        title = f"Target review: {what}{who} ({t.year})"
+        out.append(_record_entry("DEPT", f"target-{t.id}", t.due_date, title, url="/department"))
+    work = DepartmentAssignment.objects.filter(
+        department__iexact=department, due_date__gte=first, due_date__lte=last
+    ).exclude(status=DepartmentAssignment.Status.DONE).select_related("assignee", "partner")
+    if not head:
+        work = work.filter(Q(assignee=user) | Q(partner=user))
+    for a in work:
+        names = a.assignee.name + (f" and {a.partner.name}" if a.partner_id else "")
+        title = f"Due: {a.title}" + (f" ({names})" if head else "")
+        out.append(_record_entry("DEPT", f"assignment-{a.id}", a.due_date, title))
+    return out
 
 
 def _cutoffs(first: date, last: date) -> list[dict[str, Any]]:
@@ -379,6 +417,7 @@ def _record(user: User, first: date, last: date) -> list[dict[str, Any]]:
                 ))
 
     out.extend(_scout_deadlines(user, first, last))
+    out.extend(_department_dates(user, first, last))
     out.extend(_cutoffs(first, last))
     out.sort(key=lambda e: (e["starts_on"], e["kind"]))
     return out

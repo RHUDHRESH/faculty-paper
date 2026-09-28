@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { Input } from "@/ui/field"
 import { Table, type Column } from "@/ui/table"
+import { toast } from "@/ui/toast"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 import { money, stageOf } from "@/ui/paper"
@@ -249,13 +250,13 @@ export function ClaimsList() {
       key: "journal",
       header: "Journal",
       className: "max-w-[14rem]",
-      cell: (c) => <span className="line-clamp-2 text-sm text-fg-muted">{c.journal_title || "—"}</span>,
+      cell: (c) => <span className="line-clamp-2 text-sm text-fg-muted">{c.journal_title || "Not given"}</span>,
     },
     {
       key: "year",
       header: "Year",
       className: "w-16",
-      cell: (c) => <span className="tabular">{c.publication_year ?? "—"}</span>,
+      cell: (c) => <span className="tabular">{c.publication_year ?? ""}</span>,
     },
     {
       key: "amount",
@@ -280,7 +281,7 @@ export function ClaimsList() {
           <Sub className="mt-1">Every paper you have filed, and every draft still waiting on you.</Sub>
         </div>
         <div className="flex items-center gap-2">
-          <Button kind="quiet" onClick={() => void downloadMine()}>
+          <Button kind="quiet" onClick={() => downloadMine().catch((err) => toast.fail(err))}>
             Download all as CSV
           </Button>
           <Button kind="primary" asChild>
@@ -347,7 +348,7 @@ export function ClaimsList() {
           })}
         </div>
 
-        <div className="relative ml-auto w-full max-w-xs">
+        <div className="relative w-full sm:ml-auto sm:max-w-xs">
           <Search
             className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
             aria-hidden
@@ -498,7 +499,9 @@ function AmountCell({ claim }: { claim: Claim }) {
         <span className="text-xs font-normal leading-tight text-caution">Estimate</span>
       )}
       {claim.remuneration === 0 && !claim.remuneration_is_estimate && (
-        <span className="text-xs font-normal leading-tight text-fg-muted">No payment due</span>
+        <span className="text-xs font-normal leading-tight text-fg-muted">
+          {claim.status === "PAID" ? "Amount not on record" : "No payment due"}
+        </span>
       )}
     </span>
   )
@@ -522,7 +525,9 @@ function AmountCell({ claim }: { claim: Claim }) {
 function StageWord({ status, stage, className }: { status: string; stage?: string | null; className?: string }) {
   return (
     <span className={cn("block min-w-[7rem]", className)}>
-      <span className="block text-sm">{stage || facultyStage(status)}</span>
+      {(stage || facultyStage(status)) !== "Paid" && (
+        <span className="block text-sm">{stage || facultyStage(status)}</span>
+      )}
       <Journey size="sm" stage={stage || facultyStage(status)} className="mt-1 w-24" />
     </span>
   )

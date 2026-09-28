@@ -79,7 +79,7 @@ describe("PaperDetail — an imported ticket's history", () => {
     const history = within(historySection())
     expect(history.queryByText(/You filed it/)).toBeNull()
     expect(history.getByText(/Brought across from the college's records/)).toBeInTheDocument()
-    expect(history.getByText(/the college's records do not say when/)).toBeInTheDocument()
+    expect(history.getByText(/the college's records do not say when/i)).toBeInTheDocument()
     expect(screen.queryByText(/Paid on 23 Sept 2026/)).toBeNull()
   })
 

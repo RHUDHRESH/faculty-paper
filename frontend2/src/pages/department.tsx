@@ -206,7 +206,13 @@ export function DepartmentSiteProfile({ code }: { code: string | null }) {
   return (
     <section aria-label="About the department" className="panel overflow-hidden">
       {p.image_url && (
-        <img src={p.image_url} alt="" className="h-36 w-full object-cover sm:h-48" loading="lazy" />
+        <img
+          src={p.image_url}
+          alt=""
+          className="h-36 w-full object-cover sm:h-48"
+          loading="lazy"
+          onError={(e) => { e.currentTarget.style.display = "none" }}
+        />
       )}
       <div className="space-y-3 p-4">
         {p.description && <p className="max-w-prose text-sm text-fg-muted">{p.description}</p>}

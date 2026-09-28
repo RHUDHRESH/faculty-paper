@@ -298,6 +298,8 @@ type AuditPayload = {
 }
 
 const PAGE_SIZE = 50
+/** The server's AUDIT_CSV_CAP (backend/core/api/admin.py). */
+const AUDIT_CSV_CAP = 50000
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", {
@@ -620,9 +622,20 @@ export function Audit() {
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-bg-subtle"
         >
           <Download className="size-4" aria-hidden />
-          Download CSV{total ? ` (${total.toLocaleString("en-IN")})` : ""}
+          Download CSV
+          {total
+            ? total > AUDIT_CSV_CAP
+              ? ` (newest ${AUDIT_CSV_CAP.toLocaleString("en-IN")} of ${total.toLocaleString("en-IN")})`
+              : ` (${total.toLocaleString("en-IN")})`
+            : ""}
         </a>
       </div>
+      {total > AUDIT_CSV_CAP && (
+        <p className="text-sm text-fg-muted">
+          The CSV stops at {AUDIT_CSV_CAP.toLocaleString("en-IN")} rows and says so on its first line. Narrow the
+          dates to export the rest.
+        </p>
+      )}
 
       {!filtered && page === 0 && <Origins />}
 

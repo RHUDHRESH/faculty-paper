@@ -380,7 +380,7 @@ export function NeedsYouCard({ own, unclaimed }: { own: OwnPapers; unclaimed: nu
   return (
     <section aria-label="Needs you" className="panel p-5 sm:p-6" data-area="record">
       <h2 className="text-lg font-semibold">
-        Needs you <span className="text-fg-muted">({count})</span>
+        Needs you
       </h2>
       <ul className="mt-3 divide-y divide-line">
         {sentBack.map((c) => (

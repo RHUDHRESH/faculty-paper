@@ -97,7 +97,11 @@ def get_team(request: HttpRequest, code: str):
 
 @api.get("/teams", auth=session_auth)
 def list_teams(
-    request: HttpRequest, q: Optional[str] = None, limit: int = 20, mine: bool = False
+    request: HttpRequest,
+    q: Optional[str] = None,
+    limit: int = 20,
+    mine: bool = False,
+    owner_id: Optional[str] = None,
 ):
     """Teams, searched -- or, with `mine`, the ones the signed-in person mentors.
 
@@ -106,11 +110,16 @@ def list_teams(
     says whether a filed claim already holds it: the scheme pays once per
     team, so a held team is shown with the ticket that holds it rather than
     offered and then refused.
+
+    `owner_id` is for the office filing on a mentor's behalf, where the claim
+    is the mentor's and so are the teams it may name. Ignored for anybody who
+    may not file for somebody else -- a claimant sees their own teams only.
     """
     user = require_user(request)
     qs = Team.objects.prefetch_related("members").select_related("mentor")
     if mine:
-        own = list(qs.filter(mentor=user).order_by("code")[:200])
+        mentor_id = owner_id if owner_id and rbac.can_clear_claims(user.role) else user.id
+        own = list(qs.filter(mentor_id=mentor_id).order_by("code")[:200])
         holders = {
             c.team_id: c
             for c in holding_claims()

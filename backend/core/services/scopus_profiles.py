@@ -270,16 +270,19 @@ def account_index() -> dict[str, list[User]]:
     """Scopus id -> the accounts that carry it.
 
     An account's own id (the stored id, or the one in its profile link) is
-    preferred; the faculty master's id for the account's staff id is used
-    only for ids no account claims directly. Deactivated accounts are dropped
+    what it is matched on. The faculty master's id for its staff id is used
+    only for an account that carries no id of its own -- the same rule as
+    `ids_for` -- so a stale id left in the master cannot give somebody a
+    second profile beside their own. Deactivated accounts are dropped
     wherever an active one carries the same id.
     """
     direct: dict[str, list[User]] = {}
     by_staff: dict[str, list[User]] = {}
     for user in User.objects.all():
-        for sid in _own_ids(user):
+        own = _own_ids(user)
+        for sid in own:
             direct.setdefault(sid, []).append(user)
-        if user.staff_id:
+        if user.staff_id and not own:
             by_staff.setdefault(staff_key(user.staff_id), []).append(user)
     index = dict(direct)
     for fm in FacultyMaster.objects.exclude(scopus_author_id__isnull=True).exclude(
@@ -299,28 +302,36 @@ def account_index() -> dict[str, list[User]]:
 
 
 def ids_for(user: User) -> set[str]:
-    """The Scopus ids that are this person's: their own, else the master's."""
+    """The Scopus ids that are this person's: their own, else the master's.
+
+    The master is matched on staff id the way `account_index` matches it
+    (`staff_key`: no spaces, one case), so a person's page and their
+    department's totals cannot disagree about whose id it is.
+    """
     own = _own_ids(user)
     if own or not user.staff_id:
         return own
+    key = staff_key(user.staff_id)
     return {
         sid
-        for sid in (
-            normalize_scopus_id(v)
-            for v in FacultyMaster.objects.filter(staff_id__iexact=user.staff_id.strip())
-            .values_list("scopus_author_id", flat=True)
-        )
-        if sid
+        for staff_id, raw in FacultyMaster.objects.exclude(scopus_author_id__isnull=True)
+        .exclude(scopus_author_id="")
+        .values_list("staff_id", "scopus_author_id")
+        if staff_id and staff_key(staff_id) == key and (sid := normalize_scopus_id(raw))
     }
 
 
 def profile_for(user: User) -> ScopusProfile | None:
+    """The profile for the id this person carries now.
+
+    Not the link recorded at import time: after the office corrects an id,
+    that link points at somebody else's profile until the next import, and
+    showing it would present another author's citations as this person's.
+    """
     ids = ids_for(user)
-    if ids:
-        found = ScopusProfile.objects.filter(scopus_id__in=ids).order_by("-imported_at").first()
-        if found:
-            return found
-    return ScopusProfile.objects.filter(user=user).order_by("-imported_at").first()
+    if not ids:
+        return None
+    return ScopusProfile.objects.filter(scopus_id__in=ids).order_by("-imported_at").first()
 
 
 def profile_dict(profile: ScopusProfile | None) -> dict[str, Any] | None:
@@ -346,11 +357,12 @@ def linked_profiles() -> list[tuple[User, ScopusProfile]]:
     """Each profile with the one account it belongs to, matched now.
 
     A profile whose id matches no account, or more than one, is left out:
-    counting it towards a department would be a guess.
+    counting it towards a department would be a guess. The document list and
+    the raw metrics are not loaded -- every caller wants three integers.
     """
     index = account_index()
     out = []
-    for profile in ScopusProfile.objects.all():
+    for profile in ScopusProfile.objects.defer("documents", "metrics"):
         users = index.get(profile.scopus_id, [])
         if len(users) == 1:
             out.append((users[0], profile))
@@ -358,9 +370,16 @@ def linked_profiles() -> list[tuple[User, ScopusProfile]]:
 
 
 def department_totals(department: str | None = None) -> list[dict[str, Any]]:
-    """Scopus publications and citations per department, from linked profiles."""
+    """Scopus publications and citations per department, from linked profiles.
+
+    The department's current faculty: active accounts in the faculty roles,
+    the same people its head sees listed. A leaver's career does not count
+    towards the department they left.
+    """
     rows: dict[str, dict[str, Any]] = {}
     for user, profile in linked_profiles():
+        if not user.active or user.role not in FACULTY_ROLES:
+            continue
         dept = (user.department or "").strip() or "No department"
         if department and dept.casefold() != department.strip().casefold():
             continue

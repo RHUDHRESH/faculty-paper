@@ -35,7 +35,10 @@ class RosterError(ValueError):
 
 @dataclass
 class RosterRow:
+    sheet: str
     row_number: int
+    #: From the row's own sheet: a workbook carries one sheet per year.
+    academic_year: str | None
     code: str
     department: str | None
     title: str | None
@@ -47,11 +50,20 @@ class RosterRow:
 
 @dataclass
 class Roster:
-    sheet: str
-    academic_year: str | None
+    #: Every sheet that carried a Team ID column, in workbook order.
+    sheets: list[str] = field(default_factory=list)
     rows: list[RosterRow] = field(default_factory=list)
-    #: One sentence per row that was not loaded, naming the row.
+    #: One sentence per row that was not loaded, naming the sheet and row.
     skipped: list[str] = field(default_factory=list)
+
+    @property
+    def sheet(self) -> str:
+        return ", ".join(self.sheets)
+
+    @property
+    def academic_year(self) -> str | None:
+        years = sorted({r.academic_year for r in self.rows if r.academic_year})
+        return ", ".join(years) or None
 
 
 def _key(header: Any) -> str:
@@ -81,7 +93,9 @@ def _find_header(rows: list[tuple]) -> tuple[int, dict[str, int]] | None:
 def read_roster(source: str | IO[bytes], *, academic_year: str | None = None) -> Roster:
     """Read the roster out of a workbook, without touching the database.
 
-    `academic_year` overrides the one read off the sheet name.
+    Every sheet with a Team ID column is read, each row taking its academic
+    year from its own sheet's name; `academic_year` overrides that for all of
+    them.
     """
     import openpyxl
 
@@ -92,50 +106,62 @@ def read_roster(source: str | IO[bytes], *, academic_year: str | None = None) ->
             "That file is not an Excel workbook (.xlsx). Upload the roster "
             "workbook itself, not an export of it."
         ) from exc
+    override = _academic_year(academic_year) or (academic_year or "").strip()[:9] or None
+    roster = Roster()
+    seen: dict[str, int] = {}
     try:
         for ws in wb.worksheets:
             rows = list(ws.iter_rows(values_only=True))
             found = _find_header(rows)
-            if found is not None:
-                header_at, columns = found
-                return _read_sheet(
-                    ws.title,
-                    rows[header_at + 1 :],
-                    columns,
-                    first_row_number=header_at + 2,
-                    academic_year=_academic_year(academic_year)
-                    or (academic_year or "").strip()[:9]
-                    or _academic_year(ws.title),
-                )
+            if found is None:
+                continue
+            header_at, columns = found
+            roster.sheets.append(ws.title)
+            _read_sheet(
+                roster,
+                seen,
+                ws.title,
+                rows[header_at + 1 :],
+                columns,
+                first_row_number=header_at + 2,
+                academic_year=override or _academic_year(ws.title),
+            )
     finally:
         wb.close()
-    raise RosterError(
-        "No sheet in that workbook has a \"Team ID\" column, so it is not the "
-        "final-year project roster."
-    )
+    if not roster.sheets:
+        raise RosterError(
+            "No sheet in that workbook has a \"Team ID\" column, so it is not the "
+            "final-year project roster."
+        )
+    return roster
 
 
 def _read_sheet(
+    roster: Roster,
+    seen: dict[str, int],
     sheet: str,
     rows: list[tuple],
     columns: dict[str, int],
     *,
     first_row_number: int,
     academic_year: str | None,
-) -> Roster:
+) -> None:
+    """Add one sheet's rows to `roster`. `seen` spans sheets: a team id that
+    appears twice anywhere in the workbook is loaded once, from its later row."""
+
     def cell(row: tuple, key: str) -> Any:
         j = columns.get(key)
         return row[j] if j is not None and j < len(row) else None
 
-    roster = Roster(sheet=sheet, academic_year=academic_year)
-    seen: dict[str, int] = {}
     for offset, row in enumerate(rows):
         number = first_row_number + offset
         if not any(v is not None and str(v).strip() for v in row):
             continue
         code = _s(cell(row, "teamid"), 64, drop_na=False)
         if not code:
-            roster.skipped.append(f"Row {number}: no Team ID, so it was not loaded.")
+            roster.skipped.append(
+                f"Sheet {sheet} row {number}: no Team ID, so it was not loaded."
+            )
             continue
 
         students: list[tuple[str | None, str]] = []
@@ -148,7 +174,9 @@ def _read_sheet(
             slot += 1
 
         parsed = RosterRow(
+            sheet=sheet,
             row_number=number,
+            academic_year=academic_year,
             code=code,
             department=_s(cell(row, "department"), 255),
             title=_s(cell(row, "projecttitle"), 300),
@@ -158,15 +186,15 @@ def _read_sheet(
         )
         earlier = seen.get(code.upper())
         if earlier is not None:
+            before = roster.rows[earlier]
             roster.skipped.append(
-                f"Row {number}: Team ID {code} already appeared on row "
-                f"{roster.rows[earlier].row_number}; the later row was used."
+                f"Sheet {sheet} row {number}: Team ID {code} already appeared on "
+                f"sheet {before.sheet} row {before.row_number}; the later row was used."
             )
             roster.rows[earlier] = parsed
             continue
         seen[code.upper()] = len(roster.rows)
         roster.rows.append(parsed)
-    return roster
 
 
 def _mentor_index() -> dict[str, list[User]]:
@@ -215,8 +243,20 @@ def import_roster(roster: Roster, *, actor: User | None = None) -> dict[str, Any
 
     with transaction.atomic():
         for row in roster.rows:
+            team = Team.objects.filter(code__iexact=row.code).first()
             mentor = _pick_mentor(index, row.mentor_staff_id)
-            if mentor is None:
+            mentor_id = mentor.id if mentor else None
+            if (
+                mentor_id is None
+                and team is not None
+                and team.mentor_id
+                and staff_key(team.mentor_staff_id) == staff_key(row.mentor_staff_id)
+            ):
+                # The Faculty ID matches no account, and the office linked this
+                # team's mentor by hand for that same Faculty ID. The roster has
+                # not changed its mind, so neither does the import.
+                mentor_id = team.mentor_id
+            if mentor_id is None:
                 unmatched.append({
                     "code": row.code,
                     "faculty_id": row.mentor_staff_id,
@@ -227,14 +267,13 @@ def import_roster(roster: Roster, *, actor: User | None = None) -> dict[str, Any
             wanted = {
                 "title": row.title,
                 "department": row.department,
-                "mentor_id": mentor.id if mentor else None,
+                "mentor_id": mentor_id,
                 "mentor_name": row.mentor_name,
                 "mentor_staff_id": row.mentor_staff_id,
             }
-            if roster.academic_year:
-                wanted["academic_year"] = roster.academic_year
+            if row.academic_year:
+                wanted["academic_year"] = row.academic_year
 
-            team = Team.objects.filter(code__iexact=row.code).first()
             if team is None:
                 team = Team.objects.create(code=row.code, imported_at=now, **wanted)
                 created += 1

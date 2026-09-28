@@ -112,6 +112,29 @@ class RosterImportTests(TestCase):
         self._import([roster_row("PR26CH0003", students=[(1, "A")])], sheet="25-26")
         self.assertEqual(Team.objects.get(code="PR26CH0003").academic_year, "2025-26")
 
+    def test_every_year_sheet_is_read_with_its_own_academic_year(self):
+        """One sheet per academic year. Reading only the first would load
+        last year's teams and silently leave this year's mentors unable to
+        claim."""
+        from core.services.fyp_roster import import_roster, read_roster
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        for sheet, code in (("24-25", "PR25CH0001"), ("25-26", "PR26CH0001")):
+            ws = wb.create_sheet(sheet)
+            ws.append([None] * len(HEADER))
+            ws.append(HEADER)
+            ws.append(roster_row(code, students=[(1, "A")]))
+        buf = io.BytesIO()
+        wb.save(buf)
+
+        result = import_roster(read_roster(io.BytesIO(buf.getvalue())))
+        self.assertEqual(result["created"], 2)
+        self.assertEqual(
+            dict(Team.objects.values_list("code", "academic_year")),
+            {"PR25CH0001": "2024-25", "PR26CH0001": "2025-26"},
+        )
+
     def test_an_unmatched_mentor_keeps_the_raw_id_and_name_and_is_reported(self):
         result = self._import([
             roster_row("PR26ME0029", faculty_id="TSME134", mentor="DR SELVAM",
@@ -126,6 +149,27 @@ class RosterImportTests(TestCase):
             [{"code": "PR26ME0029", "faculty_id": "TSME134", "mentor_name": "DR SELVAM",
               "department": "MECHANICAL"}],
         )
+
+    def test_a_mentor_the_office_linked_by_hand_survives_a_re_import(self):
+        """The roster's Faculty ID matched nobody, so the office linked the
+        mentor by hand. Loading the same roster again must not undo that."""
+        row = roster_row("PR26ME0029", faculty_id="TSME134", mentor="DR SELVAM",
+                         students=[(1, "A")])
+        self._import([row])
+        selvam = _person("selvam@test.edu", "Selvam", staff_id="TSME-134")
+        Team.objects.filter(code="PR26ME0029").update(mentor=selvam)
+
+        again = self._import([row])
+        self.assertEqual(Team.objects.get(code="PR26ME0029").mentor_id, selvam.id)
+        self.assertEqual(again["mentors_unmatched"], [])
+
+    def test_a_changed_faculty_id_is_not_kept_on_the_old_hand_made_link(self):
+        self._import([roster_row("PR26ME0029", faculty_id="TSME134", students=[(1, "A")])])
+        selvam = _person("selvam@test.edu", "Selvam", staff_id="TSME-134")
+        Team.objects.filter(code="PR26ME0029").update(mentor=selvam)
+
+        self._import([roster_row("PR26ME0029", faculty_id="TSME999", students=[(1, "A")])])
+        self.assertIsNone(Team.objects.get(code="PR26ME0029").mentor_id)
 
     def test_the_faculty_id_is_matched_however_it_was_typed(self):
         self._import([roster_row("PR26CH0004", faculty_id=" tsch001 ", students=[(1, "A")])])
@@ -433,6 +477,37 @@ class StudentProjectClaimRuleTests(TestCase):
         self.assertFalse(claim.quota_applied)
         self.assertIsNone(claim.quota_position)
 
+    def test_a_paper_that_becomes_a_student_project_gives_back_its_quota_slot(self):
+        """A research-faculty paper filed as an incentive took slot 1; sent
+        back and refiled as a student project, it must stop counting against
+        the quota, or the author's next faculty paper is paid a slot early."""
+        from core.models import Claim, ClaimStatus
+
+        self.mentor.faculty_type = "RESEARCH"
+        self.mentor.research_quota = 2
+        self.mentor.save()
+        common = dict(owner=self.mentor, publication_year=2026, claim_reason="INCENTIVE",
+                      publication_type="Conference Proceeding")
+        was_incentive = Claim.objects.create(
+            paper_title="Filed as an incentive first", status=ClaimStatus.REJECTED,
+            quota_position=1, ticket_number="OLD-1", **common,
+        )
+        later = Claim.objects.create(
+            paper_title="The next faculty paper", status=ClaimStatus.SUBMITTED,
+            quota_position=2, ticket_number="OLD-2", **common,
+        )
+
+        self.client.force_login(self.mentor)
+        r = self.client.patch(
+            f"/api/claims/{was_incentive.id}", data=json.dumps(self.payload()),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        was_incentive.refresh_from_db()
+        later.refresh_from_db()
+        self.assertIsNone(was_incentive.quota_position)
+        self.assertEqual(later.quota_position, 1, "the slot it held was not given back")
+
     # -- who may file ----------------------------------------------------
 
     def test_somebody_who_is_not_the_mentor_is_refused_and_told_whose_team_it_is(self):
@@ -519,6 +594,26 @@ class StudentProjectClaimRuleTests(TestCase):
         )
         self.assertEqual(refile.status_code, 409, refile.content)
 
+    def test_a_status_override_cannot_give_a_team_a_second_filed_claim(self):
+        """The rescue for stranded statuses must not be a way round the rule:
+        overriding a withdrawn claim back to SUBMITTED while another claim
+        holds its team would have both paid."""
+        first = self.file().json()
+        self.client.post(
+            f"/api/claims/{first['id']}/withdraw", data=json.dumps({}),
+            content_type="application/json",
+        )
+        second = self.file(paper_title="Filed instead").json()
+
+        self.client.force_login(_person("rescue@test.edu", "Rescue", role=Role.SUPER_ADMIN))
+        r = self.client.post(
+            f"/api/admin/claims/{first['id']}/override-status",
+            data=json.dumps({"to_status": "SUBMITTED", "note": "Put it back where it was"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 409, r.content)
+        self.assertIn(second["ticket_number"], r.json()["detail"])
+
     # -- conference papers only ---------------------------------------------
 
     def test_a_journal_article_is_refused_because_the_scheme_is_for_conference_papers(self):
@@ -552,6 +647,21 @@ class StudentProjectClaimRuleTests(TestCase):
         ticket = self.file().json()["ticket_number"]
         mine = self.client.get("/api/teams", {"mine": "true"}).json()["results"]
         self.assertEqual(mine[0]["claimed_by"]["ticket_number"], ticket)
+
+    def test_the_office_filing_for_a_mentor_is_shown_that_mentor_s_teams(self):
+        office = _person("proxy@test.edu", "Proxy", role=Role.RESEARCH_CELL)
+        self.client.force_login(office)
+        teams = self.client.get(
+            "/api/teams", {"mine": "true", "owner_id": self.mentor.id}
+        ).json()["results"]
+        self.assertEqual([t["code"] for t in teams], ["PR26CH0001", "PR26CH0002"])
+
+    def test_a_claimant_cannot_list_somebody_else_s_teams_that_way(self):
+        self.client.force_login(self.other)
+        teams = self.client.get(
+            "/api/teams", {"mine": "true", "owner_id": self.mentor.id}
+        ).json()["results"]
+        self.assertEqual([t["code"] for t in teams], ["PR26CH0003"])
 
     def test_mine_means_mine_even_for_the_office(self):
         office = _person("cell2@test.edu", "Cell", role=Role.RESEARCH_CELL)

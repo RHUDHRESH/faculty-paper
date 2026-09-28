@@ -41,7 +41,12 @@ const team = (code: string, over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-function mount(teams: unknown[], form: Partial<FormState> = {}, over: ApiTable = {}) {
+function mount(
+  teams: unknown[],
+  form: Partial<FormState> = {},
+  over: ApiTable = {},
+  props: { ownerId?: string | null; claimId?: string | null } = {}
+) {
   vi.mocked(api).mockImplementation(
     fakeApi({
       "/api/auth/me": () => FACULTY,
@@ -52,7 +57,14 @@ function mount(teams: unknown[], form: Partial<FormState> = {}, over: ApiTable =
   const patchForm = vi.fn()
   const state = { ...emptyForm(), claimReason: "STUDENT_PROJECT" as const, ...form }
   renderWithProviders(
-    <ReasonQuestion form={state} patchForm={patchForm} problems={[]} rules={RULE_FALLBACK} />
+    <ReasonQuestion
+      form={state}
+      patchForm={patchForm}
+      problems={[]}
+      rules={RULE_FALLBACK}
+      ownerId={props.ownerId}
+      claimId={props.claimId}
+    />
   )
   return { patchForm }
 }
@@ -89,6 +101,32 @@ describe("the mentor's team picker", () => {
     const region = await screen.findByRole("group", { name: /your final-year project teams/i })
     expect(within(region).getByText(/₹15,000/)).toBeInTheDocument()
     expect(within(region).getAllByText(/conference papers only/i).length).toBeGreaterThan(0)
+  })
+
+  it("lists the mentor's teams when the office files on their behalf", async () => {
+    mount([], {}, { "/api/teams?mine=true&owner_id=u-mentor": () => ({ results: [team("PR26CH0009")] }) }, {
+      ownerId: "u-mentor",
+    })
+    expect(await screen.findByRole("radio", { name: /PR26CH0009/ })).toBeInTheDocument()
+    expect(
+      vi.mocked(api).mock.calls.some(([p]) => p === "/api/teams?mine=true&owner_id=u-mentor")
+    ).toBe(true)
+  })
+
+  it("does not show the claim being edited as blocked by itself", async () => {
+    mount(
+      [
+        team("PR26CH0001", {
+          claimed_by: { claim_id: "c-own", ticket_number: "SEC-2026-0042", status: "REJECTED" },
+        }),
+      ],
+      { teamCode: "PR26CH0001" },
+      {},
+      { claimId: "c-own" }
+    )
+    const own = await screen.findByRole("radio", { name: /PR26CH0001/ })
+    expect(own).toBeEnabled()
+    expect(screen.queryByText(/already claimed/i)).toBeNull()
   })
 
   it("does not offer the reason to somebody who mentors no team, and says why", async () => {

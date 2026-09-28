@@ -228,6 +228,57 @@ class ImportProfilesTests(TestCase):
         self.assertIn(JOYAL, text)
 
 
+class OnePersonOneProfileTests(TestCase):
+    """A person is linked through their own Scopus id, and only through the
+    faculty master's when they carry none -- never through both."""
+
+    def _import(self, sheets=TWO_SHEETS):
+        from core.services.scopus_profiles import import_profiles, read_profiles
+
+        return import_profiles(read_profiles(io.BytesIO(profiles_workbook(sheets))))
+
+    def test_a_stale_master_id_does_not_give_an_account_a_second_profile(self):
+        from core.models import ScopusProfile
+        from core.services.scopus_profiles import department_totals
+
+        person = _person("p@test.edu", "Joyal Isac S", department="EEE",
+                         scopus_author_id=JOYAL, staff_id="TSEE001")
+        FacultyMaster.objects.create(name="Joyal Isac S", staff_id="TSEE001",
+                                     scopus_author_id=GENERAL)  # stale
+        self._import()
+        self.assertEqual(ScopusProfile.objects.get(scopus_id=JOYAL).user_id, person.id)
+        self.assertIsNone(ScopusProfile.objects.get(scopus_id=GENERAL).user_id)
+        rows = department_totals()
+        self.assertEqual([(r["department"], r["people_with_profile"]) for r in rows], [("EEE", 1)])
+
+    def test_a_corrected_id_is_what_shows_not_the_link_made_at_import(self):
+        person = _person("p@test.edu", "Somebody", scopus_author_id=JOYAL)
+        self._import()
+        person.scopus_author_id = "99999999999"  # corrected; no sheet for it yet
+        person.save()
+        client = Client()
+        client.force_login(person)
+        self.assertIsNone(client.get("/api/me/scopus").json()["profile"])
+
+    def test_the_master_is_matched_on_staff_id_the_same_way_everywhere(self):
+        from core.services.scopus_profiles import ids_for
+
+        person = _person("p@test.edu", "Spaced Id", staff_id="TSEE 009")
+        FacultyMaster.objects.create(name="Spaced Id", staff_id="tsee009",
+                                     scopus_author_id="57527550200.0")
+        self.assertEqual(ids_for(person), {GENERAL})
+
+    def test_a_deactivated_account_is_not_counted_in_its_department(self):
+        from core.services.scopus_profiles import department_totals
+
+        _person("gone@test.edu", "Left Last Year", department="EEE",
+                scopus_author_id=GENERAL, active=False)
+        _person("here@test.edu", "Still Here", department="EEE", scopus_author_id=JOYAL)
+        self._import()
+        (row,) = department_totals()
+        self.assertEqual((row["people_with_profile"], row["citations"]), (1, 166))
+
+
 class ProfileUploadTests(TestCase):
     def setUp(self):
         self.client = Client()

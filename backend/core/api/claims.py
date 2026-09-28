@@ -69,6 +69,26 @@ def _peek_next_quota_slot(claim: Claim) -> int:
     return highest + 1
 
 
+def _release_quota_position(claim: Claim) -> None:
+    """Give back the research-quota slot of a paper that no longer takes one.
+
+    A paper filed as an incentive takes a slot; sent back and refiled as a
+    student project it is paid under its own scheme, outside the quota. The
+    slot is not dropped by anything else -- only a changed year drops one --
+    so without this the paper went on counting against the quota and the
+    author's next faculty paper was paid a slot early. The year's remaining
+    papers close up behind it, under the same guard on settled money as a
+    corrected year.
+    """
+    if claim.quota_position is None or not claim.pk:
+        return
+    year = claim.publication_year
+    claim.quota_position = None
+    Claim.objects.filter(pk=claim.pk).update(quota_position=None)
+    claim._remember_quota_baseline()
+    claim._close_quota_gap(year)
+
+
 def _assign_quota_position(claim: Claim) -> None:
     """Give a paper its place in its author's research-quota year, once.
 
@@ -266,6 +286,7 @@ def claim_counts(request: HttpRequest, q: Optional[str] = None):
 __all__ = [
     '_CLAIM_SORTS',
     '_assign_quota_position',
+    '_release_quota_position',
     '_claims_queryset',
     '_peek_next_quota_slot',
     '_refuse_hod_money_screens',

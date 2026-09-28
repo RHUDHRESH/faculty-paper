@@ -26,7 +26,7 @@ from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, DepartmentTarget, Role, User
 from core import hod
 from core.services import rbac
-from core.services.scopus_profiles import linked_profiles, profile_dict, profile_for
+from core.services.scopus_profiles import department_totals, linked_profiles, profile_dict, profile_for
 
 # ---------- head of department ----------
 
@@ -99,17 +99,17 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
 
     # What Scopus holds for the department's people, from the office's profile
     # import: career totals, not this year's, so they ignore the year filter.
+    # The totals are the department's current faculty, counted by the same
+    # function the college report uses, so the two screens agree.
     staff = list(people)
-    profiles = {
-        u.id: p for u, p in linked_profiles() if u.id in {s.id for s in staff}
-    }
+    staff_ids = {s.id for s in staff}
+    profiles = {u.id: p for u, p in linked_profiles() if u.id in staff_ids}
+    counted = department_totals(hod.department_of(user))
     scopus = {
-        "people_with_profile": len(profiles),
-        "publications": sum(p.total_publications or 0 for p in profiles.values()),
-        "citations": sum(p.total_citations or 0 for p in profiles.values()),
-        "highest_h_index": max(
-            (p.h_index for p in profiles.values() if p.h_index is not None), default=None
-        ),
+        "people_with_profile": counted[0]["people_with_profile"] if counted else 0,
+        "publications": counted[0]["publications"] if counted else 0,
+        "citations": counted[0]["citations"] if counted else 0,
+        "highest_h_index": counted[0]["highest_h_index"] if counted else None,
         "last_imported_at": max(
             (p.imported_at for p in profiles.values()), default=None
         ),

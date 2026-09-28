@@ -2345,7 +2345,14 @@ export function FilePaper() {
             />
           )}
           {currentId === "reason" && (
-            <ReasonQuestion form={form} patchForm={patchForm} problems={problems} rules={rules} />
+            <ReasonQuestion
+              form={form}
+              patchForm={patchForm}
+              problems={problems}
+              rules={rules}
+              ownerId={filingForId}
+              claimId={claimIdRef.current}
+            />
           )}
           {currentId === "paper" && <PaperQuestion form={form} patchForm={patchForm} />}
           {currentId === "journal" && <JournalQuestion form={form} patchForm={patchForm} />}
@@ -2854,18 +2861,29 @@ export function ReasonQuestion({
   patchForm,
   problems,
   rules,
+  ownerId,
+  claimId,
 }: {
   form: FormState
   patchForm: (updater: Partial<FormState> | ((prev: FormState) => Partial<FormState>)) => void
   problems: Problem[]
   rules: FilingRules
+  /** The faculty member the office is filing for; their teams, not the office's. */
+  ownerId?: string | null
+  /** The claim being edited, which may itself be what holds its team. */
+  claimId?: string | null
 }) {
   const teamMissing = problems.some((p) => p.key === "team")
   const studentProject = form.claimReason === "STUDENT_PROJECT"
-  // Only the mentor may claim for a team, so the teams offered are this
-  // person's own, off the roster. Fetched here, not only once the option is
+  // Only the mentor may claim for a team, so the teams offered are the claim
+  // owner's own, off the roster. Fetched here, not only once the option is
   // picked, because whether there are any decides whether it can be picked.
-  const teams = useApi<{ results: MyTeam[] }>(["teams", "mine"], "/api/teams?mine=true")
+  const teams = useApi<{ results: MyTeam[] }>(
+    ["teams", "mine", ownerId ?? null],
+    ownerId
+      ? `/api/teams?mine=true&owner_id=${encodeURIComponent(ownerId)}`
+      : "/api/teams?mine=true"
+  )
   // Known to mentor nothing only once the list has come back empty. While it
   // loads, or if it failed, the option stays open and the server decides.
   const mentorsNone = teams.isSuccess && (teams.data?.results.length ?? 0) === 0
@@ -2913,6 +2931,7 @@ export function ReasonQuestion({
           // chosen.
           required={teamMissing}
           rules={rules}
+          claimId={claimId}
         />
       )}
     </div>
@@ -5093,6 +5112,7 @@ function TeamPicker({
   onCode,
   required,
   rules,
+  claimId,
 }: {
   teams: UseQueryResult<{ results: MyTeam[] }, ApiError>
   code: string
@@ -5100,6 +5120,8 @@ function TeamPicker({
   /** The claim names no team yet and the server will refuse it. */
   required?: boolean
   rules: FilingRules
+  /** A claim sent back to be fixed still holds its team; it is not blocked by itself. */
+  claimId?: string | null
 }) {
   const mine = teams.data?.results ?? []
   const chosen = code.trim().toUpperCase()
@@ -5137,13 +5159,14 @@ function TeamPicker({
         <ul className="divide-y divide-line border-y border-line">
           {mine.map((t) => {
             const isChosen = chosen === t.code.toUpperCase()
+            const heldByOther = !!t.claimed_by && t.claimed_by.claim_id !== claimId
             return (
               <li key={t.id} className="px-1 py-3">
                 <Radio
                   name="fyp-team"
                   checked={isChosen}
                   // The one this draft already holds stays selectable.
-                  disabled={!!t.claimed_by && !isChosen}
+                  disabled={heldByOther && !isChosen}
                   onChange={() => onCode(t.code)}
                   label={`${t.code} · ${t.title || "Untitled project"}`}
                   hint={
@@ -5154,7 +5177,7 @@ function TeamPicker({
                       : "No students listed on the roster"
                   }
                 />
-                {t.claimed_by ? (
+                {heldByOther && t.claimed_by ? (
                   <Meta className="mt-1 block pl-6">
                     Already claimed on ticket {t.claimed_by.ticket_number || "(not yet numbered)"} —
                     the scheme pays once per team.

@@ -21,7 +21,7 @@ from core.api.schemas import ActionIn, ClaimIn, RecalcIn, _apply_faculty_payload
 from core.api.deps import claim_to_dict
 from core.api.common import require_user
 from core.api.teams import _min_sec_references, _numbered_sec_references
-from core.api.claims import _assign_quota_position, _claims_queryset, _refuse_hod_unless_own
+from core.api.claims import _assign_quota_position, _claims_queryset, _refuse_hod_unless_own, _release_quota_position
 
 import json
 import re
@@ -492,6 +492,8 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
     _apply_calc(claim, allow_self_reported=True)
     # Files land before the submission gate reads them.
     claim.save()
+    if claim.claim_reason == ClaimReason.STUDENT_PROJECT:
+        _release_quota_position(claim)
     _persist_attachments(claim, attachments, user)
     if payload.submit:
         from_status = claim.status

@@ -338,146 +338,248 @@ def _papers_for_files(user: User, years: list[int]):
     )
 
 
+def _summary(b: dict[str, Any]) -> str:
+    """One paragraph a Principal can read and stop: output, pace, who needs help."""
+    t = b["totals"]
+    n_push, n_pairs = len(b["push"]), len(b["pairs"])
+    parts = [
+        f"The Department of {b['department']} has {t['publications']} "
+        f"{'paper' if t['publications'] == 1 else 'papers'} on record for {b['year']} so far, "
+        f"{t['q1']} of them in Q1 journals and {t['first_author']} led by the department's own faculty, "
+        f"from {t['faculty_published']} of its {t['faculty']} faculty members."
+    ]
+    if b["targets"]:
+        parts.append(_headline(b))
+    else:
+        ahead = t["this_year_to_date"] >= t["last_year_to_date"]
+        parts.append(
+            f"That is {'ahead of' if ahead else 'behind'} last year's pace: {t['last_year_to_date']} by the same "
+            f"date in {b['year'] - 1} ({t['last_year_full']} in all of {b['year'] - 1}). No department target is set."
+        )
+    if n_push:
+        parts.append(
+            f"{n_push} faculty {'member needs' if n_push == 1 else 'members need'} a push"
+            + (f", and {n_pairs} writing {'pair is' if n_pairs == 1 else 'pairs are'} suggested to help." if n_pairs else ".")
+        )
+    else:
+        parts.append("Every faculty member has published this year.")
+    return " ".join(parts)
+
+
 def _report_pdf(user: User, b: dict[str, Any]) -> bytes:
+    from xml.sax.saxutils import escape
+
     from reportlab.graphics.charts.barcharts import VerticalBarChart
-    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.shapes import Drawing, Rect, String
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     ink = colors.HexColor("#1F2430")
     muted = colors.HexColor("#6B7280")
     accent = colors.HexColor("#C2410C")
+    grey = colors.HexColor("#9CA3AF")
     rule = colors.HexColor("#D9DCE1")
+    wash = colors.HexColor("#F4F5F7")
     styles = getSampleStyleSheet()
-    h1 = styles["Title"].clone("h1", fontSize=16, leading=20, alignment=0, textColor=ink)
-    h2 = styles["Heading2"].clone("h2", fontSize=11.5, leading=14, textColor=ink, spaceBefore=8)
-    body = styles["BodyText"].clone("b", fontSize=9, leading=12, textColor=ink)
-    small = body.clone("s", fontSize=7.5, leading=9.5, textColor=muted)
+    base = styles["BodyText"].clone("base", fontName="Helvetica", fontSize=9, leading=12, textColor=ink)
+    h1 = base.clone("h1", fontName="Helvetica-Bold", fontSize=17, leading=21)
+    sub = base.clone("sub", fontSize=10, leading=13, textColor=muted)
+    h2 = base.clone("h2", fontName="Helvetica-Bold", fontSize=11.5, leading=14, spaceBefore=10, spaceAfter=4)
+    lead = base.clone("lead", fontSize=10, leading=14.5)
+    small = base.clone("small", fontSize=7.5, leading=9.5, textColor=muted)
+    cell = base.clone("cell", fontSize=8, leading=10)
+    cell_r = cell.clone("cell_r", alignment=2)
+    head = cell.clone("head", fontName="Helvetica-Bold")
+    head_r = head.clone("head_r", alignment=2)
 
+    left, right, width = 18 * mm, 18 * mm, A4[0] - 36 * mm
     t = b["totals"]
+    as_of = date.fromisoformat(b["as_of"]).strftime("%d %B %Y")
+
+    def p(text: Any, style=cell) -> Paragraph:
+        return Paragraph(escape(str(text)), style)
+
+    def table(rows: list[list[Any]], widths_mm: list[float], numeric_from: int | None = None) -> Table:
+        """Header row plus rows, every cell a Paragraph so nothing overflows."""
+        out = []
+        for i, row in enumerate(rows):
+            styled = []
+            for j, v in enumerate(row):
+                num = numeric_from is not None and j >= numeric_from
+                styled.append(v if isinstance(v, Paragraph) else p(v, (head_r if num else head) if i == 0 else (cell_r if num else cell)))
+            out.append(styled)
+        scale = width / (sum(widths_mm) * mm)
+        tb = Table(out, colWidths=[w * mm * scale for w in widths_mm], repeatRows=1)
+        tb.setStyle(TableStyle([
+            ("LINEBELOW", (0, 0), (-1, 0), 0.6, ink), ("LINEBELOW", (0, 1), (-1, -1), 0.25, rule),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        return tb
+
     story: list[Any] = [
-        Paragraph(f"{b['department']}: research output, {b['year']}", h1),
+        Paragraph(f"Research publication report, {b['year']}", h1),
+        Paragraph(f"Department of {escape(b['department'])}, prepared for the Principal", sub),
+        Spacer(1, 1.5 * mm),
         Paragraph(
-            f"Saveetha Engineering College. Prepared by {user.name}, Head of Department, "
-            f"on {date.fromisoformat(b['as_of']).strftime('%d %B %Y')}. Counts of filed papers; "
-            "papers the review chain did not accept are excluded. No money figures.", small,
+            f"Prepared by {escape(user.name)}, Head of Department, on {as_of}. Counts of filed papers; "
+            "papers the review chain did not accept are left out. No money figures appear in this report.",
+            small,
         ),
         Spacer(1, 4 * mm),
-        Paragraph(_headline(b), body),
-        Spacer(1, 3 * mm),
+        Paragraph("Summary", h2),
+        Paragraph(escape(_summary(b)), lead),
     ]
-    summary = [
-        ["Papers", "Q1 papers", "Led from here", "Faculty who published", "Papers per teacher"],
-        [t["publications"], t["q1"], t["first_author"],
-         f"{t['faculty_published']} of {t['faculty']}", t["per_teacher"] if t["per_teacher"] is not None else "-"],
-    ]
-    st = Table(summary, colWidths=[34 * mm] * 5)
-    st.setStyle(TableStyle([
-        ("FONT", (0, 0), (-1, 0), "Helvetica", 7.5), ("TEXTCOLOR", (0, 0), (-1, 0), muted),
-        ("FONT", (0, 1), (-1, 1), "Helvetica-Bold", 13), ("TEXTCOLOR", (0, 1), (-1, 1), ink),
-        ("LINEBELOW", (0, 1), (-1, 1), 0.5, rule), ("BOTTOMPADDING", (0, 1), (-1, 1), 6),
-    ]))
-    story += [st]
 
+    # ---- pace ----
+    pace: list[Any] = [Paragraph("Pace", h2)]
+    figures = Table(
+        [
+            [p("Papers", small), p("Q1 papers", small), p("Led from here", small),
+             p("Faculty who published", small), p("Papers per teacher", small)],
+            [p(t["publications"], h2), p(t["q1"], h2), p(t["first_author"], h2),
+             p(f"{t['faculty_published']} of {t['faculty']}", h2),
+             p(t["per_teacher"] if t["per_teacher"] is not None else "-", h2)],
+        ],
+        colWidths=[width / 5] * 5,
+    )
+    figures.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), wash),
+        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 1), (-1, 1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    pace.append(figures)
+    pace.append(Spacer(1, 3 * mm))
+    elapsed = f"{round(100 * b['elapsed'])}% of {b['year']} has gone."
     if b["targets"]:
-        story.append(Paragraph("Department targets", h2))
         rows = [["Target", "Set", "Done", "Expected by now", "Status"]] + [
             [x["label"], x["target"], x["done"], f"{x['expected_by_now']:g}", _VERDICT_TEXT[x["verdict"]]]
             for x in b["targets"]
         ]
-        tt = Table(rows, colWidths=[60 * mm, 22 * mm, 22 * mm, 34 * mm, 32 * mm])
-        tt.setStyle(TableStyle([
-            ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8), ("FONT", (0, 1), (-1, -1), "Helvetica", 8.5),
-            ("LINEBELOW", (0, 0), (-1, 0), 0.5, ink), ("LINEBELOW", (0, 1), (-1, -1), 0.25, rule),
-            ("ALIGN", (1, 0), (3, -1), "RIGHT"),
-        ]))
-        story.append(tt)
+        pace.append(table(rows, [60, 22, 22, 34, 32], numeric_from=1))
+        pace.append(Paragraph(elapsed, small))
+    else:
+        rows = [
+            ["", str(b["year"]), str(b["year"] - 1)],
+            [f"Papers by {date.fromisoformat(b['as_of']).strftime('%d %B')}", t["this_year_to_date"], t["last_year_to_date"]],
+            ["Papers in the whole year", "year not over", t["last_year_full"]],
+        ]
+        pace.append(table(rows, [90, 40, 40], numeric_from=1))
+        pace.append(Paragraph(f"No department target is set for {b['year']}, so pace is judged against last year. {elapsed}", small))
+    story.append(KeepTogether(pace))
 
-    # One series, direct labels, the partial year said in words: the chart a
-    # Principal reads in two seconds, not a legend to decode.
-    story.append(Paragraph(f"Papers per year, {b['by_year'][0]['year']} to {b['year']}", h2))
-    d = Drawing(170 * mm, 52 * mm)
+    # One chart, both series labelled on the bars, legend below, partial year said in words.
+    chart: list[Any] = [Paragraph(f"Papers per year, {b['by_year'][0]['year']} to {b['year']}", h2)]
+    d = Drawing(width, 50 * mm)
     ch = VerticalBarChart()
-    ch.x, ch.y, ch.width, ch.height = 8 * mm, 8 * mm, 155 * mm, 38 * mm
+    ch.x, ch.y, ch.width, ch.height = 10 * mm, 10 * mm, width - 14 * mm, 36 * mm
     ch.data = [[r["publications"] for r in b["by_year"]], [r["q1"] for r in b["by_year"]]]
-    ch.categoryAxis.categoryNames = [
-        f"{r['year']}{' (so far)' if r['partial'] else ''}" for r in b["by_year"]
-    ]
+    ch.categoryAxis.categoryNames = [f"{r['year']}{' (so far)' if r['partial'] else ''}" for r in b["by_year"]]
+    ch.categoryAxis.labels.fontName = "Helvetica"
     ch.categoryAxis.labels.fontSize = 7.5
+    ch.categoryAxis.strokeColor = rule
     ch.valueAxis.valueMin = 0
+    ch.valueAxis.valueMax = max([1] + ch.data[0]) * 1.18
+    ch.valueAxis.labels.fontName = "Helvetica"
     ch.valueAxis.labels.fontSize = 7
     ch.valueAxis.strokeColor = colors.white
     ch.valueAxis.visibleGrid = True
     ch.valueAxis.gridStrokeColor = rule
-    ch.bars[0].fillColor = colors.HexColor("#9CA3AF")
+    ch.bars[0].fillColor = grey
     ch.bars[1].fillColor = accent
     ch.bars.strokeColor = None
     ch.barLabelFormat = "%d"
+    ch.barLabels.fontName = "Helvetica"
     ch.barLabels.fontSize = 7
     ch.barLabels.nudge = 5
     d.add(ch)
-    d.add(String(10 * mm, 48 * mm, "All papers", fontSize=7.5, fillColor=muted))
-    d.add(String(30 * mm, 48 * mm, "Q1 papers", fontSize=7.5, fillColor=accent))
-    story.append(d)
+    d.add(Rect(10 * mm, 1.5 * mm, 2.5 * mm, 2.5 * mm, fillColor=grey, strokeColor=None))
+    d.add(String(14 * mm, 2 * mm, "All papers", fontName="Helvetica", fontSize=7.5, fillColor=muted))
+    d.add(Rect(34 * mm, 1.5 * mm, 2.5 * mm, 2.5 * mm, fillColor=accent, strokeColor=None))
+    d.add(String(38 * mm, 2 * mm, "Q1 papers", fontName="Helvetica", fontSize=7.5, fillColor=muted))
+    chart.append(d)
+    story.append(KeepTogether(chart))
 
+    # ---- push list ----
     story.append(Paragraph("Who needs a push", h2))
     if b["push"]:
         rows = [["Faculty", "Designation", "Why"]] + [
-            [r["person"]["name"], r["person"]["designation"] or "", Paragraph("; ".join(r["reasons"]), body)]
+            [r["person"]["name"], r["person"]["designation"] or "", "; ".join(r["reasons"])]
             for r in b["push"][:25]
         ]
-        pt = Table(rows, colWidths=[45 * mm, 38 * mm, 87 * mm], repeatRows=1)
-        pt.setStyle(TableStyle([
-            ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8), ("FONT", (0, 1), (-1, -1), "Helvetica", 8),
-            ("LINEBELOW", (0, 0), (-1, 0), 0.5, ink), ("LINEBELOW", (0, 1), (-1, -1), 0.25, rule),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
-        story.append(pt)
+        story.append(table(rows, [48, 36, 86]))
         if len(b["push"]) > 25:
-            story.append(Paragraph(f"and {len(b['push']) - 25} more; the Excel file lists everyone.", small))
+            story.append(Paragraph(f"And {len(b['push']) - 25} more; the Excel workbook lists everyone.", small))
     else:
-        story.append(Paragraph("Nobody: everyone has published this year.", body))
+        story.append(Paragraph("Nobody: everyone has published this year.", base))
 
     if b["pairs"]:
         story.append(Paragraph("Suggested writing pairs", h2))
-        rows = [["Junior", "With", "Area"]] + [
-            [p["mentee"]["name"], p["mentor"]["name"], p["area"] or ""] for p in b["pairs"]
+        rows = [["Faculty", "To write with", "Area"]] + [
+            [x["mentee"]["name"], x["mentor"]["name"], x["area"] or ""] for x in b["pairs"]
         ]
-        pr = Table(rows, colWidths=[55 * mm, 55 * mm, 60 * mm])
-        pr.setStyle(TableStyle([
-            ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8), ("FONT", (0, 1), (-1, -1), "Helvetica", 8),
-            ("LINEBELOW", (0, 0), (-1, 0), 0.5, ink), ("LINEBELOW", (0, 1), (-1, -1), 0.25, rule),
-        ]))
-        story.append(pr)
+        story.append(table(rows, [55, 55, 60]))
 
-    story.append(Paragraph(f"Faculty, {b['year']}", h2))
+    # ---- per teacher ----
+    story.append(Paragraph(f"Per teacher, {b['year']}", h2))
     rows = [["Faculty", "Designation", str(b["year"]), str(b["year"] - 1), "Q1", "Led", "All years"]] + [
-        [p["name"], p["designation"] or "", p["this_year"], p["last_year"], p["q1_this_year"],
-         p["led_this_year"], p["total"]]
-        for p in sorted(b["people"], key=lambda p: (-p["this_year"], p["name"]))
+        [x["name"], x["designation"] or "", x["this_year"], x["last_year"], x["q1_this_year"],
+         x["led_this_year"], x["total"]]
+        for x in sorted(b["people"], key=lambda x: (-x["this_year"], x["name"]))
     ]
-    ft = Table(rows, colWidths=[52 * mm, 40 * mm, 16 * mm, 16 * mm, 14 * mm, 14 * mm, 18 * mm], repeatRows=1)
-    ft.setStyle(TableStyle([
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8), ("FONT", (0, 1), (-1, -1), "Helvetica", 8),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.5, ink), ("LINEBELOW", (0, 1), (-1, -1), 0.25, rule),
-        ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-    ]))
-    story.append(ft)
+    story.append(table(rows, [54, 40, 15, 15, 12, 12, 18], numeric_from=2))
+    story.append(Spacer(1, 2 * mm))
+    story.append(Paragraph(
+        f"{b['year']} counts papers filed with a publication year of {b['year']}; Q1 and Led are for "
+        f"{b['year']}. All years is everything on record.", small,
+    ))
 
-    def footer(canvas, doc):
-        canvas.setFont("Helvetica", 7)
-        canvas.setFillColor(muted)
-        canvas.drawString(18 * mm, 10 * mm, f"{b['department']} research output {b['year']}, as of {b['as_of']}")
-        canvas.drawRightString(A4[0] - 18 * mm, 10 * mm, f"Page {doc.page}")
+    department, year = b["department"], b["year"]
+
+    class Numbered(rl_canvas.Canvas):
+        """Letterhead on every page and "Page n of N", which needs the total first."""
+
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self._pages: list[dict] = []
+
+        def showPage(self):
+            self._pages.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._pages)
+            for state in self._pages:
+                self.__dict__.update(state)
+                self._chrome(total)
+                super().showPage()
+            super().save()
+
+        def _chrome(self, total: int):
+            top = A4[1] - 12 * mm
+            self.setFillColor(ink)
+            self.setFont("Helvetica-Bold", 10)
+            self.drawString(left, top, "Saveetha Engineering College")
+            self.setFont("Helvetica", 8)
+            self.setFillColor(muted)
+            self.drawRightString(A4[0] - right, top, f"Department of {department}")
+            self.setStrokeColor(accent)
+            self.setLineWidth(1.2)
+            self.line(left, top - 3 * mm, A4[0] - right, top - 3 * mm)
+            self.setFont("Helvetica", 7)
+            self.drawString(left, 10 * mm, f"Research publication report {year}, {department}, as of {as_of}")
+            self.drawRightString(A4[0] - right, 10 * mm, f"Page {self._pageNumber} of {total}")
 
     buf = io.BytesIO()
     SimpleDocTemplate(
-        buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm,
-        title=f"{b['department']} research output {b['year']}", author=user.name,
-    ).build(story, onFirstPage=footer, onLaterPages=footer)
+        buf, pagesize=A4, leftMargin=left, rightMargin=right, topMargin=22 * mm, bottomMargin=18 * mm,
+        title=f"{department} research publication report {year}", author=user.name,
+    ).build(story, canvasmaker=Numbered)
     return buf.getvalue()
 
 

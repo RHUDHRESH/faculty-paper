@@ -116,6 +116,17 @@ class BriefTests(TestCase):
         self.assertAlmostEqual(float(page.mediabox.width), 595.27, places=0)
         self.assertNotIn(str(int(FIGURE)), page.extract_text())
 
+    def test_pdf_reads_like_a_document(self):
+        from pypdf import PdfReader
+        pages = PdfReader(io.BytesIO(self.c.get("/api/hod/report?fmt=pdf").content)).pages
+        first = pages[0].extract_text()
+        for part in ("Saveetha Engineering College", "Research publication report", "Summary",
+                     "Pace", "Who needs a push", f"Page 1 of {len(pages)}"):
+            self.assertIn(part, first)
+        text = " ".join(p.extract_text() for p in pages)
+        self.assertIn("Per teacher", text)
+        self.assertIn(f"Page {len(pages)} of {len(pages)}", text)
+
     def test_faculty_cannot(self):
         c = Client()
         c.force_login(self.star)

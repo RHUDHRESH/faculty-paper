@@ -118,6 +118,21 @@ export function sortCalls(list: Opportunity[], today = new Date()) {
   return { open, closed }
 }
 
+const NOT_AN_END = /(?:^|\s)(?:Mr|Mrs|Ms|Dr|Prof|Er|St|vs|etc|e\.g|i\.e|[A-Z])\.$/
+
+/**
+ * Where the first sentence ends, or -1. A full stop after a title or an
+ * initial ("Mr. S. Joyal Isac") is not the end: splitting there made the
+ * lead read "Mr."
+ */
+export function sentenceEnd(text: string): number {
+  for (const m of text.matchAll(/[.!?](\s+)(?=[A-Z])/g)) {
+    const stop = (m.index ?? 0) + 1
+    if (!NOT_AN_END.test(text.slice(0, stop))) return stop
+  }
+  return -1
+}
+
 function daysLeft(days: number | null) {
   if (days === null) return null
   if (days === 0) return "Closes today"
@@ -137,7 +152,7 @@ function CallRow({ o, d, days, closed }: { o: Opportunity; d: Date | null; days:
             </p>
           </>
         ) : (
-          <p className="text-sm text-fg-subtle">No date given</p>
+          <p className="text-sm text-fg-subtle">Rolling</p>
         )}
       </div>
       <div className="min-w-0 space-y-1">
@@ -181,7 +196,7 @@ export function Scout() {
   const left = data?.runs_left ?? 0
 
   const summary = r ? r.web.summary || "Here is what is worth your attention next." : ""
-  const cut = summary.search(/(?<=[.!?])\s+(?=[A-Z])/)
+  const cut = sentenceEnd(summary)
   const lead = cut > 0 ? summary.slice(0, cut) : summary
   const rest = cut > 0 ? summary.slice(cut).trim() : ""
   const typed = useTypewriter(lead)

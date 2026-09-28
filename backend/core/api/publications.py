@@ -461,6 +461,22 @@ def admin_queue_harvest(request: HttpRequest, payload: HarvestIn):
     return {"ok": True, "queued": True, "job_id": job_id}
 
 
+@api.post("/admin/publications/scopus-sync", auth=session_auth)
+def admin_queue_scopus_sync(request: HttpRequest, limit: Optional[int] = None):
+    """Queue the Scopus AU-ID sync for every member with a Scopus id."""
+    from django.conf import settings
+
+    user = _super_admin(request)
+    if not getattr(settings, "SCOPUS_API_KEY", ""):
+        raise HttpError(400, "SCOPUS_API_KEY is not set on this server.")
+    from django_q.tasks import async_task
+
+    job_id = async_task("core.tasks.sync_scopus_authors", limit, timeout=6 * 3600)
+    AuditLog.objects.create(actor=user, action="SCOPUS_SYNC_QUEUED", entity="Publication",
+                            detail_json=json.dumps({"limit": limit, "job_id": job_id}))
+    return {"ok": True, "queued": True, "job_id": job_id}
+
+
 @api.get("/admin/publications/status", auth=session_auth)
 def admin_publication_status(request: HttpRequest):
     """What the record holds, and the college authors nobody could be matched to."""
@@ -492,5 +508,6 @@ __all__ = [
     "my_scopus_pull",
     "my_publication_evidence",
     "admin_queue_harvest",
+    "admin_queue_scopus_sync",
     "admin_publication_status",
 ]

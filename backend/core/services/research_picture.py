@@ -20,6 +20,7 @@ from django.utils import timezone
 
 from core.models import Authorship, Claim, Follow, Publication, ResearchGoal, ResearchInterest, User
 from core.services import coauthors as graph
+from core.services.normalize import clean_venue
 from core.services.person_record import papers_for
 
 #: Papers this far back count as "what you work on now".
@@ -85,6 +86,7 @@ class _College:
             "id", "title", "year", "date", "venue", "quartile", "citations", "topics_json", "type", "doi"
         ):
             p["topics"] = _topics(p.pop("topics_json"))
+            p["venue"] = clean_venue(p["venue"])
             p["members"] = set()
             self.pubs[p["id"]] = p
         self.users: dict[str, User] = {}
@@ -124,6 +126,7 @@ def my_research(user: User, college: Optional[_College] = None) -> dict[str, Any
         if p.id in seen:
             continue
         seen.add(p.id)
+        p.venue = clean_venue(p.venue)  # "-" / "N/A" are not somewhere you publish
         pubs.append((p, a.position))
     all_auth = defaultdict(list)
     for pid, uid, college_flag, inst in Authorship.objects.filter(publication_id__in=seen).values_list(

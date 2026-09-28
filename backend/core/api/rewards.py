@@ -1,53 +1,45 @@
-"""Badges, celebrations, goals, the impact card and the wall of fame.
+"""Badges, celebrations, goals and the wall of fame.
 
 Everything here is about work people have already done, and everything here
 may be seen by people other than its owner -- a colleague looking at a badge
-shelf, a head reading the department's goals, anybody at all holding a shared
-card's link. So none of it carries money, and the records it is built from
+shelf, a head reading the department's goals. So none of it carries money, and the records it is built from
 (`core.services.records`) never read an amount in the first place.
 
-Three kinds of visibility:
+Two kinds of visibility:
 
 - **Anyone signed in**: a person's badges, the wall of fame.
-- **The person themselves**: their celebrations, their goals, their card.
+- **The person themselves**: their celebrations, their goals.
   A head sees the department's goals as counts and nothing else.
-- **Anyone with the link**, signed in or not: a shared impact card, while its
-  owner has sharing turned on. Off, the page and its image are a plain 404.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
-import secrets
 from collections import defaultdict
 from datetime import date
 from typing import Any, Optional
 
-from django.core.cache import cache
-from django.db import IntegrityError, transaction
-from django.http import Http404, HttpRequest, HttpResponse
+from django.db import transaction
+from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.html import escape
 from ninja import Schema
 from ninja.errors import HttpError
 
 from core import hod
-from core.api.common import api, rate_limit, rate_limit_for, require_user, session_auth
+from core.api.common import api, rate_limit_for, require_user, session_auth
 from core.api.hod_planning import _acting_department
 from core.models import (
     AuditLog,
     Badge,
     Celebration,
-    ImpactShare,
     ResearchGoal,
     Role,
     User,
     WallCheer,
     WallPin,
 )
-from core.services import achievements, impact_card, records
+from core.services import achievements, records
 
 # ---------- badges ----------
 
@@ -273,206 +265,6 @@ def hod_goals(request: HttpRequest, year: Optional[int] = None, department: Opti
     })
 
 
-# ---------- the impact card ----------
-
-_SHARE_PATH = "/api/share/impact/{token}"
-#: The rendered PNG is kept this long, keyed on what is drawn on it.
-_CARD_CACHE_SECONDS = 600
-#: What a shared card says is kept this long for the public link. Working it
-#: out reads the whole department's papers, and the link needs no sign-in, so
-#: without this every hit on a posted link was a department-wide read.
-_SHARED_SUMMARY_SECONDS = 300
-#: Hits a single shared link may take in an hour. A link preview is fetched a
-#: handful of times per post; this is room for a lot of posts, and a ceiling
-#: on anybody hammering one link.
-SHARE_HITS_PER_HOUR = 600
-
-
-class ShareIn(Schema):
-    enabled: bool
-
-
-def _share_state(share: Optional[ImpactShare]) -> dict[str, Any]:
-    on = bool(share and share.enabled)
-    return {
-        "enabled": on,
-        "token": share.token if share else None,
-        "path": _SHARE_PATH.format(token=share.token) if on else None,
-    }
-
-
-def _options(request: HttpRequest, size: Optional[str] = None) -> dict[str, Any]:
-    q = request.GET
-    return impact_card.normalise_options(
-        format=q.get("format"), size=size, theme=q.get("theme"), headline=q.get("headline"),
-        photo=q.get("photo"), strip=q.get("strip"), qr=q.get("qr"), quote=q.get("quote"),
-    )
-
-
-def _share_url(request: HttpRequest, user: User) -> Optional[str]:
-    share = ImpactShare.objects.filter(user=user, enabled=True).first()
-    return request.build_absolute_uri(_SHARE_PATH.format(token=share.token)) if share else None
-
-
-def _shared_summary_key(user: User) -> str:
-    return f"impact-summary:{user.id}"
-
-
-def _shared_summary(user: User) -> dict[str, Any]:
-    facts = cache.get(_shared_summary_key(user))
-    if facts is None:
-        facts = impact_card.summary(user)
-        cache.set(_shared_summary_key(user), facts, _SHARED_SUMMARY_SECONDS)
-    return facts
-
-
-def _forget_shared_summary(user: User) -> None:
-    cache.delete(_shared_summary_key(user))
-
-
-def _png(user: User, options: dict[str, Any], facts: Optional[dict[str, Any]] = None,
-         share_url: Optional[str] = None) -> HttpResponse:
-    facts = facts if facts is not None else impact_card.summary(user)
-    drawn = hashlib.sha1(
-        json.dumps([facts, options, share_url], sort_keys=True, default=str).encode()
-    ).hexdigest()
-    key = f"impact-card:{user.id}:{drawn}"
-    body = cache.get(key)
-    if body is None:
-        body = impact_card.render(facts, options=options, share_url=share_url)
-        cache.set(key, body, _CARD_CACHE_SECONDS)
-    response = HttpResponse(body, content_type="image/png")
-    response["Cache-Control"] = "no-store"
-    response["X-Content-Type-Options"] = "nosniff"
-    return response
-
-
-@api.get("/me/impact", auth=session_auth)
-def my_impact(request: HttpRequest):
-    user = require_user(request)
-    share = ImpactShare.objects.filter(user=user).first()
-    return {**impact_card.public_facts(impact_card.summary(user)), "share": _share_state(share)}
-
-
-@api.get("/me/impact/card.png", auth=session_auth)
-def my_impact_card(request: HttpRequest, size: Optional[str] = None):
-    user = require_user(request)
-    rate_limit(request, "impact-card", 240, "hour", what="card images")
-    return _png(user, _options(request, size), share_url=_share_url(request, user))
-
-
-@api.get("/me/impact/share", auth=session_auth)
-def my_impact_share(request: HttpRequest):
-    user = require_user(request)
-    return _share_state(ImpactShare.objects.filter(user=user).first())
-
-
-@api.put("/me/impact/share", auth=session_auth)
-def set_my_impact_share(request: HttpRequest, payload: ShareIn):
-    """Turn the public link on or off. The link stays the same across both."""
-    user = require_user(request)
-    share = ImpactShare.objects.filter(user=user).first()
-    if share is None:
-        if not payload.enabled:
-            return _share_state(None)
-        try:
-            share = ImpactShare.objects.create(
-                user=user, token=secrets.token_urlsafe(24), enabled=True
-            )
-        except IntegrityError:  # a double click racing itself
-            share = ImpactShare.objects.get(user=user)
-    share.enabled = payload.enabled
-    share.save(update_fields=["enabled", "updated_at"])
-    AuditLog.objects.create(
-        actor=user, action="IMPACT_SHARE_ON" if payload.enabled else "IMPACT_SHARE_OFF",
-        entity="ImpactShare", entity_id=share.id,
-    )
-    return _share_state(share)
-
-
-def _shared(token: str) -> User:
-    rate_limit_for(None, f"share-{token}", SHARE_HITS_PER_HOUR, "hour", what="views of one card")
-    share = (
-        ImpactShare.objects.filter(token=token, enabled=True, user__active=True)
-        .select_related("user")
-        .first()
-    )
-    if share is None:
-        # One answer for "no such link" and "turned off": the difference is
-        # the owner's business.
-        raise Http404
-    return share.user
-
-
-@api.get("/share/impact/{token}/card.png")
-def shared_impact_card(request: HttpRequest, token: str, size: Optional[str] = None):
-    """The card image, for a crawler or anybody holding the link."""
-    user = _shared(token)
-    url = request.build_absolute_uri(_SHARE_PATH.format(token=token))
-    return _png(user, _options(request, size), _shared_summary(user), share_url=url)
-
-
-@api.get("/share/impact/{token}")
-def shared_impact_page(request: HttpRequest, token: str):
-    """A plain page with OpenGraph tags, readable without JavaScript.
-
-    LinkedIn and WhatsApp read the tags and never run the app, which is why
-    this is HTML from the server rather than a route in the single-page app.
-    """
-    user = _shared(token)
-    facts = _shared_summary(user)
-    image = request.build_absolute_uri(f"{_SHARE_PATH.format(token=token)}/card.png?format=linkedin")
-    page = request.build_absolute_uri(_SHARE_PATH.format(token=token))
-    name = escape(facts["name"])
-    where = ", ".join(p for p in (facts["department"], facts["college"]) if p)
-    papers = facts["papers"]
-    line = f"{papers} paper{'s' if papers != 1 else ''}, {facts['q1']} in Q1 journals"
-    if facts.get("citations") is not None:
-        line += f", {facts['citations']} citations"
-    description = escape(f"{line}. {where}.")
-    title = f"{name} · Research impact"
-    html = f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>{title}</title>
-<meta name="description" content="{description}">
-<meta property="og:type" content="profile">
-<meta property="og:title" content="{title}">
-<meta property="og:description" content="{description}">
-<meta property="og:url" content="{escape(page)}">
-<meta property="og:image" content="{escape(image)}">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="627">
-<meta property="og:image:alt" content="{title}: {description}">
-<meta name="twitter:card" content="summary_large_image">
-<style>
-  :root {{ color-scheme: light dark; font-family: system-ui, sans-serif; }}
-  body {{ margin: 0; display: grid; min-height: 100vh; place-items: center; background: #f4f5fb; color: #1b1f33; }}
-  main {{ max-width: 960px; padding: 24px; }}
-  img {{ width: 100%; height: auto; border-radius: 12px; }}
-  p {{ color: #4a5070; line-height: 1.5; }}
-  .verified {{ color: #8a6410; font-weight: 600; }}
-  @media (prefers-color-scheme: dark) {{ body {{ background: #10131f; color: #e8eaf6; }} p {{ color: #aab0cc; }} }}
-</style>
-</head>
-<body>
-<main>
-<img src="{escape(image)}" alt="{title}: {description}" width="1200" height="627">
-<h1>{name}</h1>
-<p>{description}</p>
-<p class="verified">&#10003; Verified by {escape(facts["college"] or "the college")} &middot; {escape(facts["as_of"])}</p>
-</main>
-</body>
-</html>"""
-    response = HttpResponse(html, content_type="text/html; charset=utf-8")
-    response["Cache-Control"] = "no-store"
-    response["X-Robots-Tag"] = "noindex"
-    return response
-
-
 # ---------- the wall of fame ----------
 
 _MONTH = re.compile(r"^(\d{4})-(\d{2})$")
@@ -671,12 +463,6 @@ __all__ = [
     "my_goals",
     "set_my_goals",
     "hod_goals",
-    "my_impact",
-    "my_impact_card",
-    "my_impact_share",
-    "set_my_impact_share",
-    "shared_impact_card",
-    "shared_impact_page",
     "wall",
     "pin_paper",
     "cheer_paper",

@@ -1,4 +1,4 @@
-"""Badges, celebrations, goals, the impact card and the wall of fame.
+"""Badges, celebrations, goals and the wall of fame.
 
 Five features that reward work people have already done, and one rule over
 all of them: **only real achievements, computed from real records, and never
@@ -35,7 +35,6 @@ from core.models import (
     ClaimStatus,
     DepartmentMilestone,
     DepartmentTarget,
-    ImpactShare,
     Notification,
     PaidLedger,
     ResearchGoal,
@@ -721,103 +720,6 @@ class GoalApiTests(_Api):
         self.assertEqual(self.as_(self.asha).get("/api/hod/goals").status_code, 403)
 
 
-class ImpactCardTests(_Api):
-    def setUp(self):
-        super().setUp()
-        _claim(self.asha, "A Q1 paper", quartile="Q1", journal="Nature Photonics")
-        _ledger(self.asha, "An older paper", quartile="Q2", journal="Optics Letters")
-
-    def share(self, enabled):
-        return self.send(self.asha, "put", "/api/me/impact/share", {"enabled": enabled})
-
-    def test_the_summary_has_the_facts_and_no_money(self):
-        r = self.as_(self.asha).get("/api/me/impact")
-        self.assertEqual(r.status_code, 200, r.content)
-        body = r.json()
-        self.assertEqual(body["name"], "Asha Menon")
-        self.assertEqual((body["papers"], body["q1"]), (2, 1))
-        self.assertEqual(body["top_journal"], "Nature Photonics")
-        self.assertFalse(body["share"]["enabled"])
-        self.assert_no_money(body)
-
-    def test_the_card_renders_at_both_sizes(self):
-        from PIL import Image
-
-        for size, dims in (("wide", (1200, 627)), ("square", (1080, 1080))):
-            r = self.as_(self.asha).get(f"/api/me/impact/card.png?size={size}")
-            self.assertEqual(r.status_code, 200, r.content[:200])
-            self.assertEqual(r["Content-Type"], "image/png")
-            self.assertEqual(Image.open(BytesIO(r.content)).size, dims)
-
-    def test_sharing_is_off_until_turned_on(self):
-        ImpactShare.objects.filter(user=self.asha).delete()
-        self.assertEqual(Client().get("/api/share/impact/nothing-here").status_code, 404)
-
-    def test_a_shared_card_has_a_public_page_with_an_open_graph_image(self):
-        r = self.share(True)
-        self.assertEqual(r.status_code, 200, r.content)
-        token = r.json()["token"]
-        page = Client().get(f"/api/share/impact/{token}")
-        self.assertEqual(page.status_code, 200)
-        html = page.content.decode()
-        self.assertIn('property="og:image"', html)
-        self.assertIn(f"/api/share/impact/{token}/card.png", html)
-        self.assertIn("Asha Menon", html)
-        for private in ("12345.67", "5432.1", "₹", self.asha.email, "TSCS001"):
-            self.assertNotIn(private, html)
-
-        png = Client().get(f"/api/share/impact/{token}/card.png")
-        self.assertEqual(png.status_code, 200)
-        self.assertEqual(png["Content-Type"], "image/png")
-
-    def test_turning_sharing_off_hides_the_page_and_the_image(self):
-        token = self.share(True).json()["token"]
-        self.share(False)
-        self.assertEqual(Client().get(f"/api/share/impact/{token}").status_code, 404)
-        self.assertEqual(Client().get(f"/api/share/impact/{token}/card.png").status_code, 404)
-
-        # Back on, the same link works again.
-        self.assertEqual(self.share(True).json()["token"], token)
-        self.assertEqual(Client().get(f"/api/share/impact/{token}").status_code, 200)
-
-    def test_a_shared_link_does_not_recompute_the_card_on_every_hit(self):
-        from core.api import rewards
-        from core.services import impact_card
-
-        token = self.share(True).json()["token"]
-        calls = []
-        original = impact_card.summary
-
-        def counting(user):
-            calls.append(user.id)
-            return original(user)
-
-        impact_card.summary = counting
-        try:
-            for _ in range(3):
-                self.assertEqual(Client().get(f"/api/share/impact/{token}").status_code, 200)
-                self.assertEqual(Client().get(f"/api/share/impact/{token}/card.png").status_code, 200)
-        finally:
-            impact_card.summary = original
-            rewards._forget_shared_summary(self.asha)
-        self.assertEqual(len(calls), 1)
-
-    def test_a_shared_link_is_rate_limited(self):
-        from core.api import rewards
-
-        token = self.share(True).json()["token"]
-        original = rewards.SHARE_HITS_PER_HOUR
-        rewards.SHARE_HITS_PER_HOUR = 2
-        try:
-            codes = [Client().get(f"/api/share/impact/{token}").status_code for _ in range(3)]
-        finally:
-            rewards.SHARE_HITS_PER_HOUR = original
-        self.assertEqual(codes, [200, 200, 429])
-
-    def test_the_private_card_needs_a_session(self):
-        self.assertEqual(Client().get("/api/me/impact/card.png").status_code, 401)
-
-
 class WallTests(_Api):
     def setUp(self):
         super().setUp()
@@ -893,3 +795,10 @@ class WallTests(_Api):
 
     def test_signed_out_is_refused(self):
         self.assertEqual(Client().get("/api/wall").status_code, 401)
+
+
+class ImpactCardRemovedTests(_Api):
+    def test_impact_endpoints_are_gone(self):
+        self.assertEqual(self.as_(self.asha).get("/api/me/impact").status_code, 404)
+        self.assertEqual(self.as_(self.asha).get("/api/me/impact/card.png").status_code, 404)
+        self.assertEqual(Client().get("/api/share/impact/anything").status_code, 404)

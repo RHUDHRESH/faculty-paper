@@ -1,4 +1,4 @@
-"""Home, My research and the Impact card report the same paper count.
+"""Home and My research report the same paper count.
 
 The UX walk found the card saying 20 while Home and My research said 10
 (docs/ux/15). All three now read `core.services.person_record`: the
@@ -32,8 +32,7 @@ class PaperCountAgreesTests(TestCase):
     def _three(self):
         home = self.c.get("/api/me/summary").json()["papers"]
         research = self.c.get("/api/me/research").json()["metrics"]["papers"]
-        card = self.c.get("/api/me/impact").json()["papers"]
-        return home, research, card
+        return home, research
 
     def test_record_plus_claims_only_is_one_count_everywhere(self):
         # On the record only (OpenAlex found it, no claim).
@@ -55,46 +54,8 @@ class PaperCountAgreesTests(TestCase):
         # Not recognised yet: counts nowhere.
         Claim.objects.create(owner=self.me, status=ClaimStatus.SUBMITTED, paper_title="Under review")
 
-        home, research, card = self._three()
-        self.assertEqual((home, research, card), (5, 5, 5))
+        home, research = self._three()
+        self.assertEqual((home, research), (5, 5))
 
     def test_empty_record_is_zero_everywhere(self):
-        self.assertEqual(self._three(), (0, 0, 0))
-
-    def test_card_never_carries_money_or_the_photo_path(self):
-        PaidLedger.objects.create(staff_id="S1", paper_title="Paid paper", payout_month=date(2024, 5, 1),
-                                  amount=25000)
-        body = self.c.get("/api/me/impact").json()
-        self.assertNotIn("25000", str(body))
-        self.assertNotIn("photo", body)
-        self.assertEqual(body["papers"], 1)
-        self.assertTrue(body["headlines"])
-
-
-class CardFormatsTests(TestCase):
-    def setUp(self):
-        cache.clear()
-        self.me = User.objects.create_user(email="c@x.edu", password="p", name="Dr. K. Iyer", role=Role.FACULTY)
-        self.c = Client()
-        self.c.force_login(self.me)
-
-    def test_every_format_and_theme_draws_at_its_size(self):
-        from io import BytesIO
-
-        from PIL import Image
-
-        from core.services.impact_card import FORMATS, THEMES
-        for fmt, dims in FORMATS.items():
-            for theme in THEMES:
-                r = self.c.get(f"/api/me/impact/card.png?format={fmt}&theme={theme}&qr=1&strip=0")
-                self.assertEqual(r.status_code, 200)
-                self.assertEqual(Image.open(BytesIO(r.content)).size, dims)
-        old = self.c.get("/api/me/impact/card.png?size=wide")
-        self.assertEqual(Image.open(BytesIO(old.content)).size, FORMATS["linkedin"])
-
-    def test_public_page_is_verified_and_previews_the_linkedin_card(self):
-        self.c.put("/api/me/impact/share", {"enabled": True}, content_type="application/json")
-        token = self.c.get("/api/me/impact").json()["share"]["token"]
-        html = Client().get(f"/api/share/impact/{token}").content.decode()
-        self.assertIn("Verified by", html)
-        self.assertIn("card.png?format=linkedin", html)
+        self.assertEqual(self._three(), (0, 0))

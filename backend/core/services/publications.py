@@ -53,7 +53,7 @@ from core.models import (
     User,
 )
 from core.services.author_names import departments_in, name_key, name_parts, name_score
-from core.services.normalize import normalize_doi, normalize_title
+from core.services.normalize import clean_venue, normalize_doi, normalize_title
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ def upsert_work(work: dict) -> tuple[Publication, bool]:
         "normalized_title": title_key[:512],
         "year": work.get("publication_year"),
         "date": _date(work.get("publication_date")),
-        "venue": (source.get("display_name") or location.get("raw_source_name") or "")[:512],
+        "venue": clean_venue(source.get("display_name") or location.get("raw_source_name"))[:512],
         "issn": (source.get("issn_l") or ",".join(source.get("issn") or []))[:64],
         "type": (work.get("type") or "")[:64],
         "citations": int(work.get("cited_by_count") or 0),
@@ -504,7 +504,7 @@ def link_records() -> dict[str, int]:
                 continue
             pub = Publication.objects.create(
                 doi=rec["doi"], eid=rec["eid"] or None, title=" ".join(rec["title"].split()),
-                normalized_title=title_key, year=rec["year"], venue=rec["venue"][:512],
+                normalized_title=title_key, year=rec["year"], venue=clean_venue(rec["venue"])[:512],
                 issn=rec["issn"][:64], type=rec["type"][:64], source="record",
                 quartile=rec["quartile"] if rec["quartile"] in QUARTILES else "",
             )
@@ -538,7 +538,7 @@ def link_records() -> dict[str, int]:
 # --------------------------------------------------------------------------- matching
 
 #: Evidence that survives a re-match: somebody's record or a person said so.
-ANCHORED = ("record", "scopus_sheet", "manual")
+ANCHORED = ("record", "scopus_sheet", "scopus", "scopus_id", "manual")
 INFERRED = ("orcid", "alias", "author_id", "name", "name_dept")
 
 
@@ -551,13 +551,15 @@ class _NameIndex:
         self.by_token: dict[str, list[User]] = {}
         for u in people:
             full, _ = name_parts(u.name)
-            for t in set(full):
+            # "Kamaladevi" on the roster, "Kamala Devi" on a paper: index the
+            # run-together form too, and look the paper's up the same way.
+            for t in set(full) | {"".join(full)}:
                 self.by_token.setdefault(t, []).append(u)
 
     def candidates(self, name: str) -> list[tuple[float, User]]:
         full, _ = name_parts(name)
         seen: dict[str, User] = {}
-        for t in full:
+        for t in set(full) | {"".join(full)}:
             for u in self.by_token.get(t, ()):
                 seen[u.id] = u
         scored = [(name_score(name, u.name), u) for u in seen.values()]
@@ -576,6 +578,52 @@ def _choose(cands: list[tuple[float, User]], affiliation: str) -> tuple[User | N
     if len(in_dept) == 1:
         return in_dept[0], "name_dept", round(0.7 * top, 2)
     return None, "", 0.0
+
+
+SELF_FLOOR = 0.85
+
+
+def is_own_variant(user_name: str, display_name: str) -> bool:
+    """An unlinked author row on a paper `user` is already on, whose name is
+    theirs ("R. Subhashini" beside Dr. R. Subhashini): the same person, not a
+    co-author."""
+    return name_score(user_name, display_name) >= SELF_FLOOR
+
+
+def _absorb_own_variants(by_id: dict[str, User]) -> int:
+    """A paper that already has a member on it through a record (a loose row
+    with no author position) and an unlinked OpenAlex row carrying that
+    member's name: the OpenAlex row *is* them. Move them onto it and drop the
+    loose row, so they are neither on the paper twice nor their own
+    co-author. Only when exactly one member on the paper fits the name."""
+    on_paper: dict[str, list[Authorship]] = {}
+    for row in Authorship.objects.filter(user__isnull=False).only(
+        "id", "publication_id", "user_id", "position", "match_confidence", "match_method", "match_locked"
+    ):
+        on_paper.setdefault(row.publication_id, []).append(row)
+    moved = 0
+    free = Authorship.objects.filter(
+        user__isnull=True, match_locked=False, publication_id__in=list(on_paper)
+    ).only("id", "publication_id", "display_name", "position")
+    for row in free:
+        linked = on_paper.get(row.publication_id) or []
+        fits = [a for a in linked if a.user_id in by_id and is_own_variant(by_id[a.user_id].name, row.display_name)]
+        if len({a.user_id for a in fits}) != 1:
+            continue
+        loose = [a for a in fits if a.position is None and not a.match_locked]
+        if row.position is None or not loose or any(a.position is not None for a in fits):
+            continue
+        keep = loose[0]
+        Authorship.objects.filter(id=row.id).update(
+            user_id=keep.user_id, match_confidence=keep.match_confidence,
+            match_method=keep.match_method, is_college=True,
+        )
+        Authorship.objects.filter(id=keep.id).delete()
+        linked.remove(keep)
+        linked.append(Authorship(id=row.id, publication_id=row.publication_id, user_id=keep.user_id,
+                                 position=row.position))
+        moved += 1
+    return moved
 
 
 def match_authors() -> dict[str, Any]:
@@ -658,6 +706,7 @@ def match_authors() -> dict[str, Any]:
                 ambiguous.append({"name": row.display_name, "publication_id": row.publication_id,
                                   "candidates": [c.name for _, c in cands[:5]]})
         propagated += propagate()
+        absorbed = _absorb_own_variants(by_id)
         # One person once per paper: keep their most certain row.
         dupes = 0
         seen: set[tuple[str, str]] = set()
@@ -677,10 +726,48 @@ def match_authors() -> dict[str, Any]:
         "college_matched": college.filter(user__isnull=False).count(),
         "college_unmatched": college.filter(user__isnull=True).count(),
         "propagated": propagated,
+        "own_variants_absorbed": absorbed,
         "ambiguous": ambiguous,
         "duplicates_cleared": dupes,
         "users_with_publications": Authorship.objects.filter(user__isnull=False).values("user_id").distinct().count(),
     }
+
+
+def link_by_scopus_ids(*, fetch: Fetch = openalex_get) -> dict[str, int]:
+    """OpenAlex author profiles that carry a member's Scopus author id
+    (`ids.scopus`) are that member, on every paper (0.97, `scopus_id`).
+
+    Asks OpenAlex about the author ids on college rows and on rows already
+    matched -- 50 a request. Never overrides a locked or record/manual row."""
+    from core.services.scopus_profiles import normalize_scopus_id
+
+    by_sid: dict[str, User] = {}
+    for u in User.objects.filter(active=True).exclude(scopus_author_id__isnull=True).exclude(scopus_author_id=""):
+        sid = normalize_scopus_id(u.scopus_author_id)
+        if sid:
+            by_sid.setdefault(sid, u)
+    summary = {"scopus_ids": len(by_sid), "authors_checked": 0, "authors_linked": 0, "rows_linked": 0}
+    if not by_sid:
+        return summary
+    ids = set(
+        Authorship.objects.filter(Q(is_college=True) | Q(user__isnull=False))
+        .exclude(openalex_author_id="").values_list("openalex_author_id", flat=True)
+    )
+    for batch in _or_batches(sorted(ids)):
+        payload = fetch("authors", {"filter": "openalex:" + "|".join(batch), "per_page": BATCH, "select": "id,ids"})
+        for a in payload.get("results") or []:
+            summary["authors_checked"] += 1
+            sid = normalize_scopus_id((a.get("ids") or {}).get("scopus"))
+            u = by_sid.get(sid or "")
+            if not u:
+                continue
+            summary["authors_linked"] += 1
+            summary["rows_linked"] += (
+                Authorship.objects.filter(openalex_author_id=short_id(a.get("id")), match_locked=False)
+                .exclude(match_method__in=("record", "manual", "scopus_sheet", "scopus"))
+                .update(user=u, match_confidence=0.97, match_method="scopus_id", is_college=True)
+            )
+    return summary
 
 
 def matched_author_ids(min_confidence: float = 0.8) -> set[str]:
@@ -788,6 +875,7 @@ def run_harvest(
     out["record_dois"] = fetch_stage("record_dois", lambda: harvest_record_dois(fetch=fetch))
     out["records"] = link_records()
     log(f"records linked: {out['records']}")
+    out["scopus_ids"] = fetch_stage("scopus_ids", lambda: link_by_scopus_ids(fetch=fetch))
     match = match_authors()
     if expand and not out["partial"]:
         out["authors"] = fetch_stage("authors", lambda: harvest_author_ids(matched_author_ids(), fetch=fetch))

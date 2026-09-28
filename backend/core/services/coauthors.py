@@ -18,6 +18,7 @@ from typing import Any, Iterable
 from django.db.models import Q
 
 from core.models import Authorship, Publication, User
+from core.services.normalize import clean_venue
 
 
 def node_of(user_id: str | None, author_key: str) -> str:
@@ -67,7 +68,24 @@ def coauthors(user: User) -> dict[str, Any]:
         .values_list("publication_id", "user_id", "author_key", "display_name", "is_college",
                      "institution_name", "institution_country", "publication__year")
     )
+    rows = list(rows)
+    from core.services.author_names import name_score
+
+    # Linked colleagues on these papers, to fold their unlinked name variants into.
+    linked_names: dict[str, str] = {}
+    for _pid, uid, *_rest in rows:
+        if uid:
+            linked_names.setdefault(uid, "")
+    for u in User.objects.filter(id__in=list(linked_names)).only("id", "name"):
+        linked_names[u.id] = u.name
     for pid, uid, key, name, college, inst, country, year in rows:
+        if not uid:
+            # Their own name on their own paper is them, never a co-author.
+            if name_score(user.name, name) >= 0.85:
+                continue
+            fits = [i for i, n in linked_names.items() if n and name_score(n, name) >= 0.85]
+            if len(fits) == 1:
+                uid = fits[0]
         node = node_of(uid, key)
         p = people.setdefault(node, {"key": node, "user_id": uid, "name": name, "inside": False,
                                      "papers": set(), "first_year": None, "last_year": None,
@@ -391,7 +409,7 @@ def why(target: str, viewer: str) -> dict[str, Any]:
         return out
 
     def venues(ps: list[Publication]) -> dict[str, str]:
-        return {p.venue.strip().lower(): p.venue.strip() for p in ps if p.venue.strip()}
+        return {clean_venue(p.venue).lower(): clean_venue(p.venue) for p in ps if clean_venue(p.venue)}
 
     reasons: list[dict[str, Any]] = []
     both = t_ids & v_ids

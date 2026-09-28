@@ -6,7 +6,6 @@ from django.test import Client, TestCase
 
 from core.api.me_summary import PUBLIC_STATS_KEY, h_index, strip_of
 from core.models import Claim, ClaimStatus, PaidLedger, Role, User
-from core.services import impact_card
 
 
 class HIndexTests(TestCase):
@@ -34,7 +33,7 @@ class MeSummaryTests(TestCase):
             staff_id=sid, paper_title=title, payout_month=month, amount=amount
         )
 
-    def test_counts_match_the_impact_card(self):
+    def test_counts(self):
         self._ledger("S1", "Alpha", date(2024, 3, 1))
         self._ledger("S1", "Beta", date(2024, 3, 1), amount=0)  # a recorded paper, no money
         self._ledger("S2", "Gamma", date(2023, 1, 1))
@@ -43,12 +42,10 @@ class MeSummaryTests(TestCase):
         Claim.objects.create(owner=self.me, status=ClaimStatus.DRAFT, paper_title="")
 
         body = self.c.get("/api/me/summary").json()
-        card = impact_card.summary(self.me)
-        self.assertEqual(body["papers"], card["papers"])
         self.assertEqual(body["papers"], 2)
         self.assertEqual(body["papers_source"], "record")
         self.assertIsNone(body["unclaimed"])
-        self.assertEqual(body["dept_rank"]["rank"], card["rank"])
+        self.assertEqual(body["dept_rank"]["rank"], 1)
         self.assertEqual(body["dept_rank"]["of"], 2)
         self.assertEqual((body["returned"], body["drafts"], body["on_the_way"]), (1, 1, 1))
         self.assertEqual(body["money"]["to_date"], 1000)

@@ -182,6 +182,25 @@ def harvest_publications(since: int | None = None, limit: int | None = None, exp
     return summary
 
 
+def sync_scopus_authors(limit: int | None = None) -> dict:
+    """Queued by POST /api/admin/publications/scopus-sync: each member's
+    Scopus papers (AU-ID search) into the publication record, then a re-match.
+    Resumable: stops at the quota, oldest-synced people first next time."""
+    import json
+
+    from core.models import AuditLog
+    from core.services import publications
+    from core.services.scopus_sync import sync_scopus_authors as run
+
+    summary = run(limit=limit)
+    summary.pop("per_user", None)
+    summary["match"] = {k: v for k, v in publications.match_authors().items() if k != "ambiguous"}
+    publications.refresh_metrics()
+    AuditLog.objects.create(action="SCOPUS_SYNC_DONE", entity="Publication",
+                            detail_json=json.dumps(summary, default=str))
+    return summary
+
+
 def refresh_publication_citations() -> dict:
     """Weekly (schedule "publication-citations", migration 0052): citation
     counts for every harvested paper, then everybody's h-index again."""

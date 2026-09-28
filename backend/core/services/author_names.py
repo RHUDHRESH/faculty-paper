@@ -65,7 +65,10 @@ def name_score(a: str | None, b: str | None) -> float:
     if not fa or not fb:
         return 0.0
     if "".join(fa) == "".join(fb) and (fa != fb):
-        # "Joyalisac" / "Joyal Isac"
+        # "Joyalisac" / "Joyal Isac" -- unless their initials disagree
+        # ("Kamaladevi R" / "K. Kamala Devi").
+        if ia and ib and not set(ia) & set(ib):
+            return 0.0
         return 0.9
     common = set(fa) & set(fb)
     if not common:

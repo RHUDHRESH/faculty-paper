@@ -224,7 +224,7 @@ describe("filing a paper", { timeout: 20_000 }, () => {
     await waitFor(() =>
       expect(calls.filter((c) => c.path === "/api/calculate").at(-1)?.body).toMatchObject({ sec_reference_count: 2 })
     )
-    expect(screen.getAllByText(/Assumes the 2 cited references/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Estimate, with 2 references/).length).toBeGreaterThan(0)
   })
 
   it("keeps the form in place when the first save gives the draft its address", async () => {
@@ -244,12 +244,12 @@ describe("filing a paper", { timeout: 20_000 }, () => {
     expect(screen.getByLabelText("Paste the DOI or link")).toBeInTheDocument()
     expect(screen.getByLabelText("Paper title")).toHaveValue("A paper typed by hand")
     // Still the same job: a paper being filed, not "edit your draft".
-    expect(screen.getByRole("heading", { level: 1, name: "File a paper" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { level: 1, name: "Add the details" })).toBeInTheDocument()
   })
 
   it("remembers whose paper it is after the first save, when filing for someone", async () => {
     const { calls } = mount({ routed: true, route: "/papers/new?for=u-asha" })
-    await screen.findByRole("heading", { level: 1, name: "File a paper for Asha Menon" })
+    await screen.findByRole("heading", { level: 1, name: "The details, for Asha Menon" })
     const user = userEvent.setup()
     await user.click(await screen.findByLabelText("Paper title"))
     await user.paste("Filed by the office")
@@ -259,7 +259,7 @@ describe("filing a paper", { timeout: 20_000 }, () => {
     )
     expect(calls.find((c) => c.method === "POST" && c.path === "/api/claims")?.body).toMatchObject({ owner_id: "u-asha" })
     await new Promise((r) => setTimeout(r, 300))
-    expect(screen.getByRole("heading", { level: 1, name: "File a paper for Asha Menon" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { level: 1, name: "The details, for Asha Menon" })).toBeInTheDocument()
     expect(screen.getByText("Filing on behalf of Asha Menon")).toBeInTheDocument()
   })
 

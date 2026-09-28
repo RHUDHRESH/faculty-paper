@@ -300,7 +300,7 @@ export function EstimateDetail({
         <SummaryRow label="Base amount" value={money(calc.base)} />
         <SummaryRow label="Quartile incentive" value={money(calc.qf)} />
         <SummaryRow label="Author point" value={calc.point != null ? calc.point.toFixed(3) : "—"} />
-        {calc.category_label && <SummaryRow label="Category" value={calc.category_label} />}
+        {calc.category_label && <SummaryRow label="Category" value={calc.category_label.replace(/\s+—\s+/g, ": ")} />}
       </dl>
       {calc.note && calc.remuneration !== 0 && <p className="text-sm text-fg-muted">{calc.note}</p>}
       <p className="text-sm text-fg-muted">

@@ -23,6 +23,7 @@ from core.api.schemas import ActionIn, ClaimIn, RecalcIn, _apply_faculty_payload
 from core.api.deps import claim_to_dict
 from core.api.common import require_user
 from core.api.teams import _min_sec_references, _numbered_sec_references
+from core.services import filing_conditions
 from core.api.claims import _assign_quota_position, _claims_queryset, _refuse_hod_unless_own
 
 import json
@@ -196,6 +197,7 @@ def get_claim(request: HttpRequest, claim_id: str):
     # What the history can truthfully say: an imported ticket carries the
     # import's moment as its filing and payment time (services/record_dates).
     data["record"] = claim_record(claim, has_actions=bool(actions))
+    data["confirmations"] = filing_conditions.for_claim(claim)
     return data
 
 
@@ -223,6 +225,8 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
     # Validate before any write, so a rejected attachment set cannot leave a
     # half-created claim behind.
     attachments = _validated_attachments(payload)
+    # Before any write: filing without the three conditions is refused.
+    ticked = filing_conditions.validate(payload.confirmations) if payload.submit else None
 
     claim = Claim(owner=owner)
     _apply_faculty_payload(claim, payload)
@@ -245,6 +249,7 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
 
     if payload.submit:
         _submit_claim(claim, user, contest=bool(payload.contest_forward), contest_note=payload.contest_note)
+        filing_conditions.record(request, claim, user, ticked, _min_sec_references())
     else:
         ClaimAction.objects.create(
             claim=claim,
@@ -475,6 +480,7 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
             "This paper was not accepted, so it cannot be edited or filed again.",
         )
     attachments = _validated_attachments(payload)
+    ticked = filing_conditions.validate(payload.confirmations) if payload.submit else None
     _apply_faculty_payload(claim, payload)
     _bind_identity_from_user(claim, user, payload)
     paid_check = check_already_paid(
@@ -498,6 +504,7 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
             contest=bool(payload.contest_forward),
             contest_note=payload.contest_note,
         )
+        filing_conditions.record(request, claim, user, ticked, _min_sec_references())
         if from_status == ClaimStatus.REJECTED:
             ClaimAction.objects.create(
                 claim=claim,

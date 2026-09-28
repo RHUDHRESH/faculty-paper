@@ -1196,6 +1196,31 @@ class AuditLog(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class ClaimConfirmation(models.Model):
+    """One eligibility condition ticked by a person for one article, at filing.
+
+    Legal record (services/filing_conditions.py): the exact text and version
+    shown, when it was ticked, and from where. Never edited. The AuditLog row written alongside
+    outlives the claim if the claim is ever deleted.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="confirmations")
+    user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="claim_confirmations")
+    condition_id = models.CharField(max_length=32)
+    text_version = models.CharField(max_length=16)
+    text = models.TextField()
+    doi = models.CharField(max_length=255, blank=True, null=True)
+    paper_title = models.TextField(blank=True, null=True)
+    ticked_at = models.DateTimeField()
+    recorded_at = models.DateTimeField(auto_now_add=True)
+    ip_address = models.CharField(max_length=64, blank=True, null=True)
+    user_agent = models.CharField(max_length=512, blank=True, default="")
+
+    class Meta:
+        indexes = [models.Index(fields=["claim", "recorded_at"])]
+
+
 class Notification(models.Model):
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")

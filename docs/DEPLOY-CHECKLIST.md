@@ -12,7 +12,7 @@ services, so nothing ships until you click it.
 | Re-run `migrate` | "No migrations to apply". |
 | Roll back to 0061 and migrate again (data steps run twice) | OK; the schedule rows are not duplicated (8 schedules). |
 | Postgres review of 0062-0065 | See "Postgres notes". Not executed on Postgres (no local Postgres/Docker was running). |
-| `manage.py test core --parallel 2` | see the report of the run |
+| `manage.py test core --parallel 2` | 2263 tests OK (1909 s), plus 2 new guard tests OK |
 | vitest `--maxWorkers=2` | 67 files, 472 tests passed |
 | `npm run build` | passed, 141 s locally |
 | e2e money-chain + desk-rules | passed |

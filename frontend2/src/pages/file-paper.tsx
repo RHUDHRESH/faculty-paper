@@ -14,7 +14,7 @@ import { PaperCard } from "@/ui/entity"
 import { HeroBand } from "@/ui/hero"
 import { IconTile } from "@/ui/choice"
 import { Checkbox, DateInput, Field, Input, NumberInput, Radio, Textarea } from "@/ui/field"
-import { stageOf } from "@/ui/paper"
+import { money, stageOf } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, SkeletonText } from "@/ui/state"
 import { toast } from "@/ui/toast"
 import { Wizard, type Step } from "@/ui/wizard"
@@ -43,7 +43,7 @@ import { applyLookup, type PaperLookup, type StoredAuthor } from "./filing/looku
 import { AttachmentGroup, ReferenceFields, ReferenceTally } from "./filing/proof"
 import { readiness, sameFileOnThisForm, type Problem } from "./filing/readiness"
 import { ContestNote, EstimateDetail, PreFlight, PriorCheckLine, Receipt } from "./filing/receipt"
-import { TeamPicker } from "./filing/team"
+import { MENTORS_NO_TEAM, TeamPicker, useMyTeams } from "./filing/team"
 import {
   emptyForm,
   NO_CARRIED_EVIDENCE,
@@ -61,6 +61,7 @@ import { VerifyPanel } from "./filing/verify"
 
 // The pieces the readiness tests and other screens import from here.
 export { emptyForm, NO_CARRIED_EVIDENCE, RULE_FALLBACK, readiness }
+export { isConferencePaper } from "./filing/types"
 export type { CarriedEvidence, FormState, Problem }
 
 /* ------------------------------------------------------------------------ */
@@ -521,7 +522,7 @@ export function FilePaper() {
   // The draft id is read from the ref by the autosave timer and the save
   // handler; the state half only re-renders once when the draft gets an id.
   const claimIdRef = useRef<string | null>(null)
-  const [, setClaimId] = useState<string | null>(null)
+  const [claimId, setClaimId] = useState<string | null>(null)
   const dirtyRef = useRef(false)
   const [savingState, setSavingState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle")
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
@@ -1539,6 +1540,8 @@ export function FilePaper() {
             lookupError={lookupError}
             filled={filled}
             ownerId={filingFor?.id}
+            rules={rules}
+            claimId={claimId}
             onJump={(key) => {
               const target = CHECK_TARGET[key]
               if (target) goTo(target.step, target.field)
@@ -1789,6 +1792,8 @@ function PaperStep({
   lookupError,
   filled,
   ownerId,
+  rules,
+  claimId,
   onJump,
 }: {
   form: FormState
@@ -1802,9 +1807,16 @@ function PaperStep({
   lookupError: string | null
   filled: string[]
   ownerId?: string | null
+  rules: FilingRules
+  claimId?: string | null
   onJump: (key: string) => void
 }) {
   const collegeName = useCollegeName()
+  const studentProject = form.claimReason === "STUDENT_PROJECT"
+  // Only a team's mentor may claim for it: known to mentor nothing only once
+  // the list has come back empty.
+  const teams = useMyTeams(ownerId)
+  const mentorsNone = teams.isSuccess && (teams.data?.results.length ?? 0) === 0
   const src = lookupRes?.ok ? lookupRes.field_sources : {}
   const doiIssue = doiProblem(form.doi)
 
@@ -1834,10 +1846,15 @@ function PaperStep({
         />
         <Radio
           name="claim-reason"
-          checked={form.claimReason === "STUDENT_PROJECT"}
+          checked={studentProject}
+          disabled={mentorsNone && !studentProject}
           onChange={() => patchForm({ claimReason: "STUDENT_PROJECT" })}
-          label="Student project conference incentive"
-          hint="A conference paper from a student project you mentored. Paid — and it has to name the team."
+          label="Final-year project conference incentive"
+          hint={
+            mentorsNone
+              ? MENTORS_NO_TEAM
+              : `A conference paper from a final-year project team you mentor — a fixed ${money(rules.student_project_amount)} per team, once.`
+          }
         />
         <Radio
           name="claim-reason"
@@ -1848,7 +1865,14 @@ function PaperStep({
         />
       </fieldset>
       {form.claimReason === "STUDENT_PROJECT" && (
-        <TeamPicker code={form.teamCode} onCode={(teamCode) => patchForm({ teamCode })} error={err("team")} />
+        <TeamPicker
+          teams={teams}
+          code={form.teamCode}
+          onCode={(teamCode) => patchForm({ teamCode })}
+          error={err("team")}
+          rules={rules}
+          claimId={claimId}
+        />
       )}
 
       <div className="space-y-4">

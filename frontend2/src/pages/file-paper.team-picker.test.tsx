@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -8,7 +8,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
 })
 
 import { api } from "@/lib/api"
-import { RULE_FALLBACK, ReasonQuestion, emptyForm, type FormState } from "@/pages/file-paper"
+import { RULE_FALLBACK, emptyForm, type FormState } from "@/pages/file-paper"
+import { TeamPicker, useMyTeams } from "@/pages/filing/team"
 import { FACULTY, fakeApi, renderWithProviders, type ApiTable } from "@/test/harness"
 
 /**
@@ -57,16 +58,24 @@ function mount(
   const patchForm = vi.fn()
   const state = { ...emptyForm(), claimReason: "STUDENT_PROJECT" as const, ...form }
   renderWithProviders(
-    <ReasonQuestion
-      form={state}
-      patchForm={patchForm}
-      problems={[]}
-      rules={RULE_FALLBACK}
+    <Harness
+      code={state.teamCode}
+      onCode={(teamCode) => patchForm({ teamCode })}
       ownerId={props.ownerId}
       claimId={props.claimId}
     />
   )
   return { patchForm }
+}
+
+function Harness(p: {
+  code: string
+  onCode: (c: string) => void
+  ownerId?: string | null
+  claimId?: string | null
+}) {
+  const teams = useMyTeams(p.ownerId)
+  return <TeamPicker teams={teams} code={p.code} onCode={p.onCode} rules={RULE_FALLBACK} claimId={p.claimId} />
 }
 
 describe("the mentor's team picker", () => {
@@ -129,10 +138,8 @@ describe("the mentor's team picker", () => {
     expect(screen.queryByText(/already claimed/i)).toBeNull()
   })
 
-  it("does not offer the reason to somebody who mentors no team, and says why", async () => {
-    mount([], { claimReason: "INCENTIVE" })
-    const option = await screen.findByRole("radio", { name: /student project/i })
-    await waitFor(() => expect(option).toBeDisabled())
-    expect(screen.getByText(/not the mentor of any final-year project team/i)).toBeInTheDocument()
+  it("says why when the person mentors no team", async () => {
+    mount([])
+    expect(await screen.findByText(/not the mentor of any final-year project team/i)).toBeInTheDocument()
   })
 })

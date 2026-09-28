@@ -101,9 +101,11 @@ export type PatchForm = (updater: Partial<FormState> | ((prev: FormState) => Par
 export type FilingRules = {
   max_authors: number
   min_sec_references: number
+  /** The final-year project scheme's fixed amount per team per conference paper. */
+  student_project_amount: number
   attachment_limits: { PUBLISHED_PAPER: number; SEC_REFERENCE: number }
   max_upload_bytes: number
-  why: { max_authors: string; min_sec_references: string }
+  why: { max_authors: string; min_sec_references: string; student_project?: string }
   policy_version: number | null
   /** The version of the three conditions a filing must quote back. */
   conditions_version?: string
@@ -114,12 +116,15 @@ export type FilingRules = {
 export const RULE_FALLBACK: FilingRules = {
   max_authors: 9,
   min_sec_references: 2,
+  student_project_amount: 15000,
   attachment_limits: { PUBLISHED_PAPER: 10, SEC_REFERENCE: 50 },
   max_upload_bytes: 10 * 1024 * 1024,
   why: {
     max_authors: "A paper with more than 9 authors carries no remuneration.",
     min_sec_references:
       "The policy requires 2 cited references that carry the college's affiliation.",
+    student_project:
+      "The final-year project scheme pays a fixed ₹15,000 per team for a conference paper, to the team's mentor, once per team. It is for conference papers only.",
   },
   policy_version: null,
 }
@@ -186,4 +191,13 @@ export type FileCheck = {
   found: string[]
   missing: string[]
   pages: number
+}
+
+/**
+ * Whether a publication type is a conference paper, the only kind the
+ * final-year project scheme pays on. The same test the server makes
+ * (`is_conference_paper`): a label mentioning a conference or proceedings.
+ */
+export function isConferencePaper(publicationType: string): boolean {
+  return /conference|proceeding/i.test(publicationType)
 }

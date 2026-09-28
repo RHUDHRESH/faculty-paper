@@ -303,9 +303,32 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
     }
 
 
+def record_authorship(c: Claim) -> dict[str, Any]:
+    """Where the claimant sits on the stored publication's author list.
+
+    `author_position` is what the claimant typed; this reads the Authorship
+    rows of the linked Publication (by link, else by DOI) so the clearing
+    desk compares the claim with the record instead of repeating it.
+    """
+    from core.models import Authorship, Publication
+
+    pub = c.publications.first()
+    if pub is None and c.doi:
+        pub = Publication.objects.filter(doi__iexact=c.doi.strip()).first()
+    if pub is None:
+        return {"record_author_position": None, "record_total_authors": None, "record_has_authors": False}
+    rows = Authorship.objects.filter(publication=pub)
+    total = rows.count()
+    mine = rows.filter(user_id=c.owner_id, position__isnull=False).order_by("position").first()
+    return {
+        "record_author_position": mine.position if mine else None,
+        "record_total_authors": total or None,
+        "record_has_authors": total > 0,
+    }
 
 
 __all__ = [
+    'record_authorship',
     '_format_payout_month',
     '_google_link',
     '_me_dict',

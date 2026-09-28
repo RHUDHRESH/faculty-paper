@@ -42,6 +42,7 @@ import { EditClaimFieldsDialog, HoldControl, HoldNote, ReasonActionDialog, useIs
 import { HeaderSpot } from "@/ui/page-header"
 import { Avatar, initialsOf } from "@/ui/person"
 import { ClaimFlagsPanel, RaiseFlagDialog, useClaimReview } from "@/pages/claim-review"
+import { recordPosition } from "@/pages/clearing-position"
 import { AgeingChips, type AgeBucket, type DeskFields, inBucket, isClean, MonthlyReport, SchemeRules, WatchCallout } from "@/pages/clearing-desk"
 
 /**
@@ -129,6 +130,9 @@ type QueueClaim = {
   scimago_dataset_year: number | null
   author_position: number | null
   total_authors: number | null
+  record_author_position?: number | null
+  record_total_authors?: number | null
+  record_has_authors?: boolean
   affiliation_ok?: boolean | null
   authors_json: string | null
   attachments: Attachment[]
@@ -1294,6 +1298,7 @@ function ClaimedVsRecord({ claim: c }: { claim: ClaimDetail }) {
     c.author_position != null
       ? `${ordinal(c.author_position)}${c.total_authors ? ` of ${c.total_authors}` : ""}`
       : "Not recorded"
+  const posRec = recordPosition(c)
   const rows: { label: string; claimed: string; record: string; differs: boolean }[] = [
     {
       label: "SNIP",
@@ -1307,7 +1312,7 @@ function ClaimedVsRecord({ claim: c }: { claim: ClaimDetail }) {
       record: c.quartile || "Not found",
       differs: !!c.self_reported_quartile && !!c.quartile && c.self_reported_quartile !== c.quartile,
     },
-    { label: "Author position", claimed: pos, record: pos, differs: false },
+    { label: "Author position", claimed: pos, record: posRec.text, differs: posRec.differs },
     {
       label: "Affiliation",
       claimed: "This college",

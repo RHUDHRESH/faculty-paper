@@ -23,7 +23,12 @@ const SHADE_AREA = [
   "bg-(--area-fill)/75",
   "bg-(--area-fill)",
 ]
-const SHADE_SOLID = ["bg-white/10", "bg-white/35", "bg-white/55", "bg-white/80", "bg-area-honours-fill"]
+/** A 40 px invisible hit area around each square (WCAG 2.5.8). Neighbours
+ *  overlap, so a tap between two squares goes to the later one. */
+export const TAP_TARGET =
+  "relative before:absolute before:left-1/2 before:top-1/2 before:size-10 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
+
+const SHADE_SOLID =["bg-white/10", "bg-white/35", "bg-white/55", "bg-white/80", "bg-area-honours-fill"]
 
 export function cellName(month: string, papers: number): string {
   const [y, m] = month.split("-").map(Number)
@@ -78,7 +83,11 @@ export function RecordStrip({
         aria-label={name}
         title={`${MONTHS[m]} ${y} · ${n} ${n === 1 ? "paper" : "papers"}`}
         onClick={() => pick(month)}
-        className={cn("size-3 rounded-[3px] sm:size-3.5", shades[shadeOf(n)])}
+        className={cn(
+          "size-3 rounded-[3px] sm:size-3.5",
+          TAP_TARGET,
+          shades[shadeOf(n)]
+        )}
       />
     )
   }

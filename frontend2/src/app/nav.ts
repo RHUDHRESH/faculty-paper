@@ -351,6 +351,16 @@ export const NAV: NavItem[] = [
     keywords: ["paid", "vouchers", "history"],
   },
   {
+    to: "/statements",
+    label: "Monthly statements",
+    icon: FileText,
+    // The month the Director signs and Finance sends to the bank: totals,
+    // reconciliation with the ledger, the A4 statement and the bank file.
+    roles: ["FINANCE", "DIRECTOR", "PRINCIPAL", "SUPER_ADMIN"],
+    group: "Look at",
+    keywords: ["payout", "statement", "bank", "neft", "reconcile", "month", "sign", "pdf"],
+  },
+  {
     to: "/duplicates",
     label: "Duplicates",
     icon: Coins,

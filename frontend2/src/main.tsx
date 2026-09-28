@@ -102,6 +102,7 @@ const Batch = page(() => import("@/pages/batches"), "Batch")
 const Batches = page(() => import("@/pages/batches"), "Batches")
 const Reference = page(() => import("@/pages/reference"), "Reference")
 const Ledger = page(() => import("@/pages/ledger"), "Ledger")
+const Statements = page(() => import("@/pages/statements"), "Statements")
 const Papers = page(() => import("@/pages/papers"), "Papers")
 const ClaimsList = page(() => import("@/pages/claims-list"), "ClaimsList")
 const Payments = page(() => import("@/pages/payments"), "Payments")
@@ -175,6 +176,7 @@ const PRELOADS: [string, Page][] = [
   ["/journals", Journals],
   ["/accreditation", Accreditation],
   ["/ledger", Ledger],
+  ["/statements", Statements],
   ["/duplicates", Duplicates],
   ["/flags", Flags],
   ["/archive", PastClaims],
@@ -363,6 +365,7 @@ function App() {
           <Route path="/journals/:title" element={<JournalRecord />} />
           <Route path="/accreditation" element={<Accreditation />} />
           <Route path="/ledger" element={<Ledger />} />
+          <Route path="/statements" element={<Statements />} />
           <Route path="/duplicates" element={<Duplicates />} />
           <Route path="/flags" element={<Flags />} />
           <Route path="/archive" element={<PastClaims />} />

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -127,6 +127,8 @@ class Command(BaseCommand):
         n = 0
         for i, status in enumerate(plan):
             when = now - timedelta(days=rnd.randint(12, 60))
+            if status == ClaimStatus.PAID:  # filed and authorised before last month's payout
+                when = now - timedelta(days=now.day + rnd.randint(45, 70))
             c = self._claim(people[i % len(people)], status, rnd, when)
             if i in (5, 9, 15, 21):
                 # Flagged at clearing, principal, director and paid stages: the
@@ -140,7 +142,7 @@ class Command(BaseCommand):
                 m = date(now.year, now.month, 1) - timedelta(days=1)
                 c.payout_month = date(m.year, m.month, 1)
                 c.voucher_number = f"PV-{c.ticket_number}"
-                c.paid_at = when + timedelta(days=12)
+                c.paid_at = timezone.make_aware(datetime(m.year, m.month, 6, 11, 0))
                 c.save(update_fields=["payout_month", "voucher_number", "paid_at"])
                 PaidLedger.objects.create(
                     claim=c, payout_month=c.payout_month, department=c.owner.department,

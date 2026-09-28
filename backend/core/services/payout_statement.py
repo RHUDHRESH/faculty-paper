@@ -231,8 +231,9 @@ def financial_year(fy: Optional[str] = None) -> dict[str, Any]:
         out.append({"month": k, "label": date(y, mo, 1).strftime("%b"),
                     "amount": round(per.get(k, 0.0), 2), "cumulative": round(running, 2)})
     alloc = Budget.objects.filter(financial_year=fy, department__isnull=True).aggregate(s=Sum("amount"))["s"]
+    # The Budget page's rule, so the two screens agree: owed from clearing on.
     committed = Claim.objects.filter(
-        status__in=[ClaimStatus.PRINCIPAL_APPROVED, ClaimStatus.DIRECTOR_APPROVED]
+        status__in=[ClaimStatus.CLEARED, ClaimStatus.PRINCIPAL_APPROVED, ClaimStatus.DIRECTOR_APPROVED]
     ).aggregate(s=Sum("remuneration"))["s"] or 0
     return {"financial_year": fy, "allocation": alloc, "paid": round(running, 2),
             "committed": round(committed, 2), "months": out}

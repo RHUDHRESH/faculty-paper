@@ -5,6 +5,7 @@ import { Coins, Pencil, Plus } from "lucide-react"
 import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
+import { BudgetBurn, type FinancialYear } from "@/pages/statements"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
@@ -238,6 +239,8 @@ export function Budget() {
             mayEdit={mayEdit}
             onEdit={openEdit}
           />
+
+          <FyBurn fy={data.financial_year} />
 
           <section className="space-y-3">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -1043,4 +1046,13 @@ function formatDay(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+}
+
+/** Month by month spend against the allocation, from the ledger. */
+function FyBurn({ fy }: { fy: string }) {
+  const burn = useApi<FinancialYear>(
+    ["payouts", "fy", fy],
+    `/api/payouts/financial-year?financial_year=${encodeURIComponent(fy)}`
+  )
+  return burn.data ? <BudgetBurn fy={burn.data} /> : null
 }

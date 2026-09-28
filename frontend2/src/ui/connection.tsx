@@ -1,3 +1,4 @@
+import { firstName } from "@/lib/names"
 import { Waypoints } from "lucide-react"
 import { Fragment } from "react"
 import { Link } from "react-router-dom"
@@ -49,7 +50,7 @@ export function ConnectionPath({
                 ) : (
                   <Avatar person={h.person} size="sm" />
                 )}
-                <span className="max-w-16 truncate text-[11px] text-fg-muted">{i === 0 ? "You" : h.person.name.split(" ")[0]}</span>
+                <span className="max-w-16 truncate text-[11px] text-fg-muted">{i === 0 ? "You" : firstName(h.person.name) || h.person.name}</span>
               </li>
             </Fragment>
           ))}

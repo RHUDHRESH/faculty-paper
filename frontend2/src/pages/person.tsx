@@ -315,8 +315,11 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
       {data.completeness && data.completeness.score < 100 && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sunken px-4 py-2 text-sm">
           <span className="text-fg-muted">
-            <span className="font-medium text-fg">Profile {data.completeness.score}%</span> · add a photo and ORCID to
-            show up in search.
+            <span className="font-medium text-fg">Profile {data.completeness.score}%</span>
+            {(() => {
+              const missing = data.completeness.items.filter((i) => !i.done).map((i) => i.label.toLowerCase())
+              return missing.length ? ` · still to add: ${missing.slice(0, 3).join(", ")}` : ""
+            })()}
           </span>
           <button type="button" onClick={() => setFinishing(true)} className="font-medium text-accent hover:underline">
             Finish profile →

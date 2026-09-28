@@ -92,7 +92,7 @@ describe("Convocation shared components", () => {
     )
     expect(screen.getByText("Me").tagName).toBe("STRONG")
     expect(screen.getByText(/2 of 3/)).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: /File it/ })).toHaveAttribute("href", "/file?paper=1")
+    expect(screen.getByRole("link", { name: /^File$/ })).toHaveAttribute("href", "/file?paper=1")
   })
 
   it("PersonCard and JournalCard render their contract", () => {

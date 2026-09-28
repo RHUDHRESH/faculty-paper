@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from typing import Any, Iterable
 
+from django.conf import settings
 from django.db.models import Q
 
 from core.models import Authorship, Publication, User
@@ -213,6 +214,7 @@ def _describe(nodes: set[str]) -> dict[str, dict[str, Any]]:
         if n.startswith("u:"):
             u = users.get(n[2:])
             out[n] = {"key": n, "user_id": n[2:], "name": u.name if u else "", "department": u.department if u else None,
+                      "photo_url": f"{settings.MEDIA_URL}{u.photo}" if u and u.photo else None,
                       "is_college_member": True, "institution": "Saveetha Engineering College"}
     external = [n for n in nodes if not n.startswith("u:")]
     for key, name, inst, college in (

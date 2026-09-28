@@ -102,15 +102,14 @@ function mount(
 }
 
 describe("FacultyHome", () => {
-  it("opens on the record: four linked figures and the Record strip", async () => {
+  it("opens on the record: four linked figures and the money card", async () => {
     mount([claim()])
     expect(await screen.findByRole("link", { name: "20 papers" })).toHaveAttribute("href", "/papers")
     expect(screen.getByRole("link", { name: "46 citations" })).toHaveAttribute("href", "/research#citations")
     expect(screen.getByRole("link", { name: "3 h-index" })).toHaveAttribute("href", "/research#metrics")
     expect(screen.getByRole("link", { name: /Rank 1 of 6 in S&H-ENGLISH/ })).toHaveAttribute("href", "/leaderboard?dept=mine")
     expect(screen.getByText("↑2 this academic year")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "March 2024, 2 papers" })).toBeInTheDocument()
-    // Money is one row, received to date from the ledger.
+    // Money is its own card: paid to date from the ledger is the headline.
     expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent("₹52,377.50")
   })
 
@@ -134,8 +133,8 @@ describe("FacultyHome", () => {
 
   it("lists unclaimed papers from the record only when the record knows", async () => {
     mount([claim()], [], { "/api/me/summary": () => summary({ unclaimed: 10 }) })
-    expect(await screen.findByText(/10 papers on your record aren't claimed yet/)).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: /review them/i })).toHaveAttribute("href", "/papers?filter=unclaimed")
+    expect(await screen.findByText(/10 papers on your record are not filed yet/)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /open my papers|unfiled papers/i })).toHaveAttribute("href", "/papers?filter=unclaimed")
   })
 
   it("greets by the time of day in India", () => {

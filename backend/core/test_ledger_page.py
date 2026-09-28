@@ -52,6 +52,17 @@ class LedgerPageTests(TestCase):
         self.assertEqual([m["month"] for m in body["by_month"]], ["2024-01", "2024-02"])
         self.assertEqual(body["by_department"][0]["department"], "ECE")
 
+    def test_a_row_without_a_recorded_month_stays_out_of_the_bars(self):
+        PaidLedger.objects.create(
+            payout_month=date(2024, 2, 1), amount=700, faculty_name="Arun K",
+            raw_json='{"Faculty Name": "Arun K"}',
+        )
+        body = self.get()
+        feb = [m for m in body["by_month"] if m["month"] == "2024-02"][0]
+        self.assertEqual(feb["count"], 2)
+        self.assertEqual(body["no_month"], {"amount": 700, "count": 1})
+        self.assertEqual(body["total_amount"], 5700)
+
     def test_rows_carry_a_face_and_markers(self):
         rows = {r["amount"]: r for r in self.get()["results"]}
         self.assertTrue(rows[5000]["photo_url"].endswith("faces/priya.jpg"))

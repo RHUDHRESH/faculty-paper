@@ -70,6 +70,8 @@ type LedgerPayload = {
   results: LedgerRow[]
   /** Ignores the month filter, so a chosen month is a lit bar among the rest. */
   by_month?: MonthTotal[]
+  /** Rows whose month is only the import default; kept out of the bars. */
+  no_month?: { amount: number; count: number }
   by_department?: DeptTotal[]
   people?: number
   duplicates_open?: number
@@ -201,6 +203,7 @@ export function Ledger() {
       {data && (data.by_month?.length ?? 0) > 1 && (
         <MonthBars
           months={data.by_month ?? []}
+          noMonth={data.no_month}
           selected={month}
           onPick={(m) => setFilter("month", m === month ? "" : m)}
         />
@@ -348,7 +351,8 @@ const MARKER_WHY: Record<Marker, string> = {
 }
 
 function Markers({ row }: { row: LedgerRow }) {
-  const markers = row.markers ?? []
+  // "Month not recorded" is said in the month itself, not as a chip.
+  const markers = (row.markers ?? []).filter((m) => m !== "MONTH_NOT_RECORDED")
   if (!markers.length && row.scheme !== "FYP") return null
   return (
     <span className="mt-1 flex flex-wrap gap-1">
@@ -424,7 +428,8 @@ const columns: Column<LedgerRow>[] = [
     key: "month",
     header: "Month",
     className: "w-28 whitespace-nowrap",
-    cell: (r) => <span className="tabular">{monthLabel(r.payout_month)}</span>,
+    cell: (r) =>
+      hasMonth(r) ? <span className="tabular">{monthLabel(r.payout_month)}</span> : <Meta>Not recorded</Meta>,
   },
   {
     key: "voucher",
@@ -453,7 +458,7 @@ function PaymentCard({ row }: { row: LedgerRow }) {
             <Amount value={row.amount} />
           </span>
           <Meta className="block truncate">
-            {[monthLabel(row.payout_month), row.department, row.staff_id].filter(Boolean).join(" · ")}
+            {[hasMonth(row) ? monthLabel(row.payout_month) : "Month not recorded", row.department, row.staff_id].filter(Boolean).join(" · ")}
           </Meta>
         </span>
       </span>
@@ -542,10 +547,12 @@ function Totals({
  */
 function MonthBars({
   months,
+  noMonth,
   selected,
   onPick,
 }: {
   months: MonthTotal[]
+  noMonth?: { amount: number; count: number }
   selected: string
   onPick: (month: string) => void
 }) {
@@ -615,6 +622,14 @@ function MonthBars({
           </div>
         </div>
       </div>
+      {noMonth && noMonth.count > 0 && (
+        <Meta className="block">
+          {money(noMonth.amount)} in {noMonth.count.toLocaleString("en-IN")}{" "}
+          {noMonth.count === 1 ? "payment has" : "payments have"} no month recorded, so{" "}
+          {noMonth.count === 1 ? "it is" : "they are"} not in the bars (the total above includes{" "}
+          {noMonth.count === 1 ? "it" : "them"}).
+        </Meta>
+      )}
       <details className="text-sm">
         <summary className="cursor-pointer text-fg-muted hover:text-fg">Show the numbers</summary>
         <div className="mt-2 max-h-72 overflow-auto rounded-lg ring-1 ring-edge">
@@ -700,6 +715,10 @@ function Departments({
 /* ------------------------------------------------------------------------ */
 /* Helpers                                                                   */
 /* ------------------------------------------------------------------------ */
+
+function hasMonth(r: LedgerRow): boolean {
+  return Boolean(r.payout_month) && !(r.markers ?? []).includes("MONTH_NOT_RECORDED")
+}
 
 /** "2026-08" as "Aug 2026". */
 function monthLabel(value: string | null | undefined): string {

@@ -153,13 +153,21 @@ def admin_ledger(
     dup_keys = _duplicate_keys()
     # The month chart ignores the month filter, so choosing a month lights
     # its bar instead of collapsing the chart to a single bar.
-    by_month = (
-        _ledger_queryset(None, department, scheme, q)
-        .order_by()
-        .values("payout_month")
-        .annotate(s=Sum("amount"), n=Count("id"))
-        .order_by("payout_month")
-    )
+    # A row whose month is only the import's default is not charted in that
+    # month; it is counted apart, so the bar is not inflated by a guess.
+    months: dict[Any, list[float]] = {}
+    no_month = [0.0, 0]
+    for pm, raw, amt in (
+        _ledger_queryset(None, department, scheme, q).order_by().values_list("payout_month", "raw_json", "amount")
+    ):
+        if ledger_month_recorded(raw):
+            m = months.setdefault(pm, [0.0, 0])
+            m[0] += amt or 0
+            m[1] += 1
+        else:
+            no_month[0] += amt or 0
+            no_month[1] += 1
+    by_month = [{"payout_month": k, "s": v[0], "n": v[1]} for k, v in sorted(months.items())]
     by_dept = (
         qs.order_by().values("department").annotate(s=Sum("amount"), n=Count("id")).order_by("-s")
     )
@@ -168,6 +176,7 @@ def admin_ledger(
             {"month": _format_payout_month(m["payout_month"]), "amount": round(m["s"] or 0, 2), "count": m["n"]}
             for m in by_month
         ],
+        "no_month": {"amount": round(no_month[0], 2), "count": no_month[1]},
         "by_department": [
             {"department": d["department"] or None, "amount": round(d["s"] or 0, 2), "count": d["n"]}
             for d in by_dept

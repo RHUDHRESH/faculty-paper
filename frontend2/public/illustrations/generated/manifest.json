@@ -1,7 +1,7 @@
 {
   "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
   "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
-  "count": 129,
+  "count": 165,
   "assets": [
     {
       "name": "empty-no-papers",
@@ -2425,6 +2425,690 @@
         "png": 12744
       },
       "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-structural",
+      "category": "topic",
+      "purpose": "Topic: structural engineering",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-structural.svg",
+        "webp": "/illustrations/generated/topic-structural.webp",
+        "png": "/illustrations/generated/topic-structural.png"
+      },
+      "bytes": {
+        "svg": 53062,
+        "webp": 18692,
+        "png": 17279
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-concrete",
+      "category": "topic",
+      "purpose": "Topic: concrete technology",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-concrete.svg",
+        "webp": "/illustrations/generated/topic-concrete.webp",
+        "png": "/illustrations/generated/topic-concrete.png"
+      },
+      "bytes": {
+        "svg": 29990,
+        "webp": 17256,
+        "png": 15552
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-water-resources",
+      "category": "topic",
+      "purpose": "Topic: water resources / hydraulics",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-water-resources.svg",
+        "webp": "/illustrations/generated/topic-water-resources.webp",
+        "png": "/illustrations/generated/topic-water-resources.png"
+      },
+      "bytes": {
+        "svg": 35870,
+        "webp": 18974,
+        "png": 15953
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-environmental",
+      "category": "topic",
+      "purpose": "Topic: environmental engineering / sustainability",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-environmental.svg",
+        "webp": "/illustrations/generated/topic-environmental.webp",
+        "png": "/illustrations/generated/topic-environmental.png"
+      },
+      "bytes": {
+        "svg": 56574,
+        "webp": 21046,
+        "png": 18220
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-transportation",
+      "category": "topic",
+      "purpose": "Topic: transportation engineering",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-transportation.svg",
+        "webp": "/illustrations/generated/topic-transportation.webp",
+        "png": "/illustrations/generated/topic-transportation.png"
+      },
+      "bytes": {
+        "svg": 52017,
+        "webp": 20304,
+        "png": 21094
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-precision-agriculture",
+      "category": "topic",
+      "purpose": "Topic: precision agriculture / agri-tech",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-precision-agriculture.svg",
+        "webp": "/illustrations/generated/topic-precision-agriculture.webp",
+        "png": "/illustrations/generated/topic-precision-agriculture.png"
+      },
+      "bytes": {
+        "svg": 63553,
+        "webp": 28348,
+        "png": 23795
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-optimisation",
+      "category": "topic",
+      "purpose": "Topic: optimisation / operations research",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-optimisation.svg",
+        "webp": "/illustrations/generated/topic-optimisation.webp",
+        "png": "/illustrations/generated/topic-optimisation.png"
+      },
+      "bytes": {
+        "svg": 21394,
+        "webp": 15028,
+        "png": 10219
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-quantum-computing",
+      "category": "topic",
+      "purpose": "Topic: quantum computing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-quantum-computing.svg",
+        "webp": "/illustrations/generated/topic-quantum-computing.webp",
+        "png": "/illustrations/generated/topic-quantum-computing.png"
+      },
+      "bytes": {
+        "svg": 26580,
+        "webp": 16044,
+        "png": 15536
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-computer-networks",
+      "category": "topic",
+      "purpose": "Topic: computer networks / SDN",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-computer-networks.svg",
+        "webp": "/illustrations/generated/topic-computer-networks.webp",
+        "png": "/illustrations/generated/topic-computer-networks.png"
+      },
+      "bytes": {
+        "svg": 34020,
+        "webp": 15278,
+        "png": 9898
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-edtech",
+      "category": "topic",
+      "purpose": "Topic: education technology / engineering education",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-edtech.svg",
+        "webp": "/illustrations/generated/topic-edtech.webp",
+        "png": "/illustrations/generated/topic-edtech.png"
+      },
+      "bytes": {
+        "svg": 24942,
+        "webp": 15008,
+        "png": 13638
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-food-technology",
+      "category": "topic",
+      "purpose": "Topic: food technology",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-food-technology.svg",
+        "webp": "/illustrations/generated/topic-food-technology.webp",
+        "png": "/illustrations/generated/topic-food-technology.png"
+      },
+      "bytes": {
+        "svg": 44399,
+        "webp": 19838,
+        "png": 17555
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-industry-4",
+      "category": "topic",
+      "purpose": "Topic: Industry 4.0 / smart manufacturing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-industry-4.svg",
+        "webp": "/illustrations/generated/topic-industry-4.webp",
+        "png": "/illustrations/generated/topic-industry-4.png"
+      },
+      "bytes": {
+        "svg": 39251,
+        "webp": 18072,
+        "png": 14845
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-paper",
+      "category": "icon",
+      "purpose": "Icon: paper",
+      "page": "Paper cards, lists",
+      "files": {
+        "svg": "/illustrations/generated/icon-paper.svg",
+        "webp": "/illustrations/generated/icon-paper.webp",
+        "png": "/illustrations/generated/icon-paper.png"
+      },
+      "bytes": {
+        "svg": 5030,
+        "webp": 3920,
+        "png": 2280
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-journal",
+      "category": "icon",
+      "purpose": "Icon: journal",
+      "page": "Paper cards, journal pickers",
+      "files": {
+        "svg": "/illustrations/generated/icon-journal.svg",
+        "webp": "/illustrations/generated/icon-journal.webp",
+        "png": "/illustrations/generated/icon-journal.png"
+      },
+      "bytes": {
+        "svg": 3609,
+        "webp": 3340,
+        "png": 1937
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-citation",
+      "category": "icon",
+      "purpose": "Icon: citation",
+      "page": "Paper metrics",
+      "files": {
+        "svg": "/illustrations/generated/icon-citation.svg",
+        "webp": "/illustrations/generated/icon-citation.webp",
+        "png": "/illustrations/generated/icon-citation.png"
+      },
+      "bytes": {
+        "svg": 1070,
+        "webp": 5048,
+        "png": 2565
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-quartile",
+      "category": "icon",
+      "purpose": "Icon: quartile ranking",
+      "page": "Paper metrics, filters",
+      "files": {
+        "svg": "/illustrations/generated/icon-quartile.svg",
+        "webp": "/illustrations/generated/icon-quartile.webp",
+        "png": "/illustrations/generated/icon-quartile.png"
+      },
+      "bytes": {
+        "svg": 3477,
+        "webp": 4848,
+        "png": 4120
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-doi",
+      "category": "icon",
+      "purpose": "Icon: DOI link",
+      "page": "File a paper, paper detail",
+      "files": {
+        "svg": "/illustrations/generated/icon-doi.svg",
+        "webp": "/illustrations/generated/icon-doi.webp",
+        "png": "/illustrations/generated/icon-doi.png"
+      },
+      "bytes": {
+        "svg": 2386,
+        "webp": 10266,
+        "png": 5116
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-author",
+      "category": "icon",
+      "purpose": "Icon: author",
+      "page": "Author chips",
+      "files": {
+        "svg": "/illustrations/generated/icon-author.svg",
+        "webp": "/illustrations/generated/icon-author.webp",
+        "png": "/illustrations/generated/icon-author.png"
+      },
+      "bytes": {
+        "svg": 1570,
+        "webp": 4722,
+        "png": 2782
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-coauthors",
+      "category": "icon",
+      "purpose": "Icon: co-authors",
+      "page": "Author chips, collaborate",
+      "files": {
+        "svg": "/illustrations/generated/icon-coauthors.svg",
+        "webp": "/illustrations/generated/icon-coauthors.webp",
+        "png": "/illustrations/generated/icon-coauthors.png"
+      },
+      "bytes": {
+        "svg": 2466,
+        "webp": 11640,
+        "png": 5535
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-deadline",
+      "category": "icon",
+      "purpose": "Icon: deadline",
+      "page": "Calendar, clearing",
+      "files": {
+        "svg": "/illustrations/generated/icon-deadline.svg",
+        "webp": "/illustrations/generated/icon-deadline.webp",
+        "png": "/illustrations/generated/icon-deadline.png"
+      },
+      "bytes": {
+        "svg": 4030,
+        "webp": 13686,
+        "png": 6348
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-payout",
+      "category": "icon",
+      "purpose": "Icon: payout",
+      "page": "Payouts",
+      "files": {
+        "svg": "/illustrations/generated/icon-payout.svg",
+        "webp": "/illustrations/generated/icon-payout.webp",
+        "png": "/illustrations/generated/icon-payout.png"
+      },
+      "bytes": {
+        "svg": 4639,
+        "webp": 13436,
+        "png": 6305
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-verified",
+      "category": "icon",
+      "purpose": "Icon: verified",
+      "page": "Status chips",
+      "files": {
+        "svg": "/illustrations/generated/icon-verified.svg",
+        "webp": "/illustrations/generated/icon-verified.webp",
+        "png": "/illustrations/generated/icon-verified.png"
+      },
+      "bytes": {
+        "svg": 3204,
+        "webp": 7694,
+        "png": 4872
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-flag",
+      "category": "icon",
+      "purpose": "Icon: flag",
+      "page": "Flags",
+      "files": {
+        "svg": "/illustrations/generated/icon-flag.svg",
+        "webp": "/illustrations/generated/icon-flag.webp",
+        "png": "/illustrations/generated/icon-flag.png"
+      },
+      "bytes": {
+        "svg": 1990,
+        "webp": 5612,
+        "png": 3159
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-search",
+      "category": "icon",
+      "purpose": "Icon: search",
+      "page": "Search inputs",
+      "files": {
+        "svg": "/illustrations/generated/icon-search.svg",
+        "webp": "/illustrations/generated/icon-search.webp",
+        "png": "/illustrations/generated/icon-search.png"
+      },
+      "bytes": {
+        "svg": 1307,
+        "webp": 5068,
+        "png": 2970
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-scout",
+      "category": "icon",
+      "purpose": "Icon: research scout",
+      "page": "Nav, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/icon-scout.svg",
+        "webp": "/illustrations/generated/icon-scout.webp",
+        "png": "/illustrations/generated/icon-scout.png"
+      },
+      "bytes": {
+        "svg": 4326,
+        "webp": 12678,
+        "png": 6145
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-idea",
+      "category": "icon",
+      "purpose": "Icon: idea",
+      "page": "Discover, For you",
+      "files": {
+        "svg": "/illustrations/generated/icon-idea.svg",
+        "webp": "/illustrations/generated/icon-idea.webp",
+        "png": "/illustrations/generated/icon-idea.png"
+      },
+      "bytes": {
+        "svg": 4420,
+        "webp": 11284,
+        "png": 5477
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-lab",
+      "category": "icon",
+      "purpose": "Icon: lab",
+      "page": "Research, profiles",
+      "files": {
+        "svg": "/illustrations/generated/icon-lab.svg",
+        "webp": "/illustrations/generated/icon-lab.webp",
+        "png": "/illustrations/generated/icon-lab.png"
+      },
+      "bytes": {
+        "svg": 3909,
+        "webp": 8854,
+        "png": 4308
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-conference",
+      "category": "icon",
+      "purpose": "Icon: conference",
+      "page": "Paper type chips, calendar",
+      "files": {
+        "svg": "/illustrations/generated/icon-conference.svg",
+        "webp": "/illustrations/generated/icon-conference.webp",
+        "png": "/illustrations/generated/icon-conference.png"
+      },
+      "bytes": {
+        "svg": 2665,
+        "webp": 6486,
+        "png": 3201
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-grant",
+      "category": "icon",
+      "purpose": "Icon: grant",
+      "page": "Budget, research",
+      "files": {
+        "svg": "/illustrations/generated/icon-grant.svg",
+        "webp": "/illustrations/generated/icon-grant.webp",
+        "png": "/illustrations/generated/icon-grant.png"
+      },
+      "bytes": {
+        "svg": 3768,
+        "webp": 14614,
+        "png": 6593
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-calendar",
+      "category": "icon",
+      "purpose": "Icon: calendar",
+      "page": "Nav, Calendar",
+      "files": {
+        "svg": "/illustrations/generated/icon-calendar.svg",
+        "webp": "/illustrations/generated/icon-calendar.webp",
+        "png": "/illustrations/generated/icon-calendar.png"
+      },
+      "bytes": {
+        "svg": 5808,
+        "webp": 5546,
+        "png": 2974
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-bell",
+      "category": "icon",
+      "purpose": "Icon: notifications",
+      "page": "Nav",
+      "files": {
+        "svg": "/illustrations/generated/icon-bell.svg",
+        "webp": "/illustrations/generated/icon-bell.webp",
+        "png": "/illustrations/generated/icon-bell.png"
+      },
+      "bytes": {
+        "svg": 1738,
+        "webp": 4326,
+        "png": 2784
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-message",
+      "category": "icon",
+      "purpose": "Icon: message",
+      "page": "Nav, Messages",
+      "files": {
+        "svg": "/illustrations/generated/icon-message.svg",
+        "webp": "/illustrations/generated/icon-message.webp",
+        "png": "/illustrations/generated/icon-message.png"
+      },
+      "bytes": {
+        "svg": 1793,
+        "webp": 4846,
+        "png": 2758
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-discussion",
+      "category": "icon",
+      "purpose": "Icon: discussion",
+      "page": "Nav, Discussions",
+      "files": {
+        "svg": "/illustrations/generated/icon-discussion.svg",
+        "webp": "/illustrations/generated/icon-discussion.webp",
+        "png": "/illustrations/generated/icon-discussion.png"
+      },
+      "bytes": {
+        "svg": 2403,
+        "webp": 12784,
+        "png": 5773
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-profile",
+      "category": "icon",
+      "purpose": "Icon: profile",
+      "page": "Nav, Profiles",
+      "files": {
+        "svg": "/illustrations/generated/icon-profile.svg",
+        "webp": "/illustrations/generated/icon-profile.webp",
+        "png": "/illustrations/generated/icon-profile.png"
+      },
+      "bytes": {
+        "svg": 4979,
+        "webp": 7584,
+        "png": 3307
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-department",
+      "category": "icon",
+      "purpose": "Icon: department",
+      "page": "Department chips",
+      "files": {
+        "svg": "/illustrations/generated/icon-department.svg",
+        "webp": "/illustrations/generated/icon-department.webp",
+        "png": "/illustrations/generated/icon-department.png"
+      },
+      "bytes": {
+        "svg": 4619,
+        "webp": 6388,
+        "png": 3187
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-leaderboard",
+      "category": "icon",
+      "purpose": "Icon: leaderboard",
+      "page": "Nav, Leaderboard",
+      "files": {
+        "svg": "/illustrations/generated/icon-leaderboard.svg",
+        "webp": "/illustrations/generated/icon-leaderboard.webp",
+        "png": "/illustrations/generated/icon-leaderboard.png"
+      },
+      "bytes": {
+        "svg": 3586,
+        "webp": 3014,
+        "png": 1812
+      },
+      "sheet": "sheet25",
       "date": "2026-09-28",
       "background": "transparent"
     }

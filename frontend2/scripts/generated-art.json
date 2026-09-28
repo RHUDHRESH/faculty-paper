@@ -3,11 +3,13 @@
   "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
   "variants": {
     "sheet": "Sheet variant: background perfectly flat and untextured so items can be cut out; 3 columns x 2 rows, each item centred in its cell with wide empty gaps, no borders or dividers; every item in the same style.",
-    "hero": "Format: wide 16:9 illustration, composition weighted to the right with calm empty space on the left for a headline or card, flat untextured background."
+    "hero": "Format: wide 16:9 illustration, composition weighted to the right with calm empty space on the left for a headline or card, flat untextured background.",
+    "icon": "Icon style (replaces the illustration style block): flat single-colour icon set, 2 colours max (charcoal #2B2B2B + clay #C96A4A accent), thick even strokes, rounded ends, plain flat white background, no texture, no text — suitable for vector tracing; 4 columns x 3 rows."
   },
   "processing": {
-    "sheet": "Split on the grid; background flood-filled from the border (pale low-chroma pixels only, so enclosed cream fills stay opaque); 5x5 darkest-neighbour colour on soft edges (no pale fringe in dark mode); cropped with 16px pad; PNG (quantised) + WebP at max 640px, both <=150 KB; SVG via vtracer (colour, spline, hard alpha) + svgo --multipass.",
-    "hero": "Background kept (flat ~#F3EEE6, matches the canvas); WebP + quantised PNG at max 1600px, both <=150 KB; no SVG (too detailed to trace well)."
+    "sheet": "Split on the grid; background flood-filled from the border (pale low-chroma pixels only, so enclosed cream fills stay opaque); 5x5 darkest-neighbour colour on soft edges (no pale fringe in dark mode); cropped with 16px pad; PNG (quantised) + WebP at max 640px, both <=150 KB; SVG via vtracer (colour, spline, hard alpha) + svgo --multipass. Enclosed openings (e.g. gear holes) keep the canvas cream, so in dark mode place these on a light plate (same rule as the older illustrations).",
+    "hero": "Background kept (flat ~#F3EEE6, matches the canvas); WebP + quantised PNG at max 1600px, both <=150 KB; no SVG (too detailed to trace well).",
+    "icon": "Colour-to-alpha against the white background everywhere (interiors become transparent); 256px PNG/WebP; SVG via vtracer + svgo with the charcoal ink rewritten to currentColor (clay accent kept). currentColor only themes when the SVG is inlined or used as a CSS mask; as a plain <img> the ink renders black."
   },
   "sheets": [
     {
@@ -992,6 +994,260 @@
           "category": "topic",
           "purpose": "Topic: additive manufacturing / 3D printing",
           "page": "Discover, Research scout"
+        }
+      ]
+    },
+    {
+      "id": "sheet22",
+      "raw": "sheet22_topics_f.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheets: (1) a steel I-beam frame with a small load arrow — 'structural engineering'; (2) a concrete block with visible aggregate dots and a small trowel — 'concrete technology'; (3) a water droplet above small wavy water lines and a tiny dam wall — 'water resources'; (4) a globe with a leaf and a small recycling loop of arrows — 'environmental engineering'; (5) a road curving into the distance with a small bus and a traffic light — 'transportation engineering'; (6) a small drone hovering above neat crop rows — 'precision agriculture'.",
+      "assets": [
+        {
+          "name": "topic-structural",
+          "category": "topic",
+          "purpose": "Topic: structural engineering",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-concrete",
+          "category": "topic",
+          "purpose": "Topic: concrete technology",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-water-resources",
+          "category": "topic",
+          "purpose": "Topic: water resources / hydraulics",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-environmental",
+          "category": "topic",
+          "purpose": "Topic: environmental engineering / sustainability",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-transportation",
+          "category": "topic",
+          "purpose": "Topic: transportation engineering",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-precision-agriculture",
+          "category": "topic",
+          "purpose": "Topic: precision agriculture / agri-tech",
+          "page": "Discover, Research scout"
+        }
+      ],
+      "note": "Slight drift: more scenic, adds a pale water blue outside the palette."
+    },
+    {
+      "id": "sheet23",
+      "raw": "sheet23_topics_g.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheets: (1) a curved valley line with a small ball resting at its lowest point and a flag — 'optimisation and operations research'; (2) a sphere with a single arrow through it and a small orbiting dot, like a qubit diagram — 'quantum computing'; (3) three small computers linked through a central router by lines — 'computer networks'; (4) a tablet showing a simple lesson card beside a small graduation cap — 'education technology'; (5) a bowl of grain beside a small lab test tube and a leaf — 'food technology'; (6) a conveyor belt carrying small boxes past a sensor with a signal arc — 'Industry 4.0 and smart manufacturing'.",
+      "assets": [
+        {
+          "name": "topic-optimisation",
+          "category": "topic",
+          "purpose": "Topic: optimisation / operations research",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-quantum-computing",
+          "category": "topic",
+          "purpose": "Topic: quantum computing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-computer-networks",
+          "category": "topic",
+          "purpose": "Topic: computer networks / SDN",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-edtech",
+          "category": "topic",
+          "purpose": "Topic: education technology / engineering education",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-food-technology",
+          "category": "topic",
+          "purpose": "Topic: food technology",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-industry-4",
+          "category": "topic",
+          "purpose": "Topic: Industry 4.0 / smart manufacturing",
+          "page": "Discover, Research scout"
+        }
+      ],
+      "note": "Retrieved from the ChatGPT Library."
+    },
+    {
+      "id": "sheet24",
+      "raw": "sheet24_icons_a.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Style: flat single-colour icon set, 2 colours max (charcoal #2B2B2B + clay #C96A4A accent), thick even strokes, rounded ends, plain flat white background, no texture, no shading, no text, no letters, no numbers, no logos — suitable for vector tracing. Grid: 4 columns x 3 rows of icons, every icon the same size and stroke weight, each centred in its cell with wide empty gaps, no borders, no dividers, no labels. Icons, in reading order left-to-right, top-to-bottom: (1) a single paper sheet with a folded corner and three lines — 'paper'; (2) a closed bound journal with a ribbon — 'journal'; (3) a pair of quotation marks — 'citation'; (4) four ascending bars with the tallest accented — 'quartile ranking'; (5) two chain links — 'DOI link'; (6) a single head-and-shoulders silhouette — 'author'; (7) two overlapping head-and-shoulders silhouettes — 'co-authors'; (8) a clock face with a small flag — 'deadline'; (9) a coin dropping into an open hand — 'payout'; (10) a badge with a check mark — 'verified'; (11) a pennant flag on a pole — 'flag'; (12) a magnifying glass — 'search'.",
+      "assets": [
+        {
+          "name": "icon-paper",
+          "category": "icon",
+          "purpose": "Icon: paper",
+          "page": "Paper cards, lists"
+        },
+        {
+          "name": "icon-journal",
+          "category": "icon",
+          "purpose": "Icon: journal",
+          "page": "Paper cards, journal pickers"
+        },
+        {
+          "name": "icon-citation",
+          "category": "icon",
+          "purpose": "Icon: citation",
+          "page": "Paper metrics"
+        },
+        {
+          "name": "icon-quartile",
+          "category": "icon",
+          "purpose": "Icon: quartile ranking",
+          "page": "Paper metrics, filters"
+        },
+        {
+          "name": "icon-doi",
+          "category": "icon",
+          "purpose": "Icon: DOI link",
+          "page": "File a paper, paper detail"
+        },
+        {
+          "name": "icon-author",
+          "category": "icon",
+          "purpose": "Icon: author",
+          "page": "Author chips"
+        },
+        {
+          "name": "icon-coauthors",
+          "category": "icon",
+          "purpose": "Icon: co-authors",
+          "page": "Author chips, collaborate"
+        },
+        {
+          "name": "icon-deadline",
+          "category": "icon",
+          "purpose": "Icon: deadline",
+          "page": "Calendar, clearing"
+        },
+        {
+          "name": "icon-payout",
+          "category": "icon",
+          "purpose": "Icon: payout",
+          "page": "Payouts"
+        },
+        {
+          "name": "icon-verified",
+          "category": "icon",
+          "purpose": "Icon: verified",
+          "page": "Status chips"
+        },
+        {
+          "name": "icon-flag",
+          "category": "icon",
+          "purpose": "Icon: flag",
+          "page": "Flags"
+        },
+        {
+          "name": "icon-search",
+          "category": "icon",
+          "purpose": "Icon: search",
+          "page": "Search inputs"
+        }
+      ]
+    },
+    {
+      "id": "sheet25",
+      "raw": "sheet25_icons_b.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Icon variant (as sheet24). Same icon set, same stroke weight and colours as the previous sheet. Icons, in reading order: (1) a paper kite with a short dotted trail — 'research scout'; (2) a lightbulb with two short rays — 'idea'; (3) a conical lab flask with two bubbles — 'lab'; (4) a lectern with a small microphone — 'conference'; (5) a scroll tied with a ribbon and a small coin — 'grant'; (6) a calendar page with one marked day — 'calendar'; (7) a bell — 'notifications'; (8) a single speech bubble — 'message'; (9) two overlapping speech bubbles — 'discussion'; (10) an ID card with a round portrait circle and two lines — 'profile'; (11) a small building with columns and a pediment — 'department'; (12) a three-step podium — 'leaderboard'.",
+      "assets": [
+        {
+          "name": "icon-scout",
+          "category": "icon",
+          "purpose": "Icon: research scout",
+          "page": "Nav, Research scout"
+        },
+        {
+          "name": "icon-idea",
+          "category": "icon",
+          "purpose": "Icon: idea",
+          "page": "Discover, For you"
+        },
+        {
+          "name": "icon-lab",
+          "category": "icon",
+          "purpose": "Icon: lab",
+          "page": "Research, profiles"
+        },
+        {
+          "name": "icon-conference",
+          "category": "icon",
+          "purpose": "Icon: conference",
+          "page": "Paper type chips, calendar"
+        },
+        {
+          "name": "icon-grant",
+          "category": "icon",
+          "purpose": "Icon: grant",
+          "page": "Budget, research"
+        },
+        {
+          "name": "icon-calendar",
+          "category": "icon",
+          "purpose": "Icon: calendar",
+          "page": "Nav, Calendar"
+        },
+        {
+          "name": "icon-bell",
+          "category": "icon",
+          "purpose": "Icon: notifications",
+          "page": "Nav"
+        },
+        {
+          "name": "icon-message",
+          "category": "icon",
+          "purpose": "Icon: message",
+          "page": "Nav, Messages"
+        },
+        {
+          "name": "icon-discussion",
+          "category": "icon",
+          "purpose": "Icon: discussion",
+          "page": "Nav, Discussions"
+        },
+        {
+          "name": "icon-profile",
+          "category": "icon",
+          "purpose": "Icon: profile",
+          "page": "Nav, Profiles"
+        },
+        {
+          "name": "icon-department",
+          "category": "icon",
+          "purpose": "Icon: department",
+          "page": "Department chips"
+        },
+        {
+          "name": "icon-leaderboard",
+          "category": "icon",
+          "purpose": "Icon: leaderboard",
+          "page": "Nav, Leaderboard"
         }
       ]
     }

@@ -21,6 +21,7 @@ OUT = Path(__file__).resolve().parents[1] / "public" / "illustrations" / "genera
 OUT.mkdir(parents=True, exist_ok=True)
 MAX_BYTES = 150 * 1024
 SVG_MAX = 80 * 1024
+ICON_MODE = False
 
 
 def bg_colour(a: np.ndarray) -> np.ndarray:
@@ -55,6 +56,18 @@ def key_out(img: Image.Image, thr: float = 22.0) -> Image.Image:
     rgb = np.where((al < 0.98)[..., None], dark, a)
     out = np.dstack([rgb, al * 255]).astype(np.uint8)
     return Image.fromarray(out, "RGBA")
+
+
+def key_icon(img: Image.Image) -> Image.Image:
+    """Colour-to-alpha against the flat background, applied everywhere (icons
+    have no opaque paper fills, so enclosed white must become transparent)."""
+    a = np.asarray(img.convert("RGB")).astype(np.float32)
+    bg = bg_colour(a)
+    dist = np.sqrt(((a - bg) ** 2).sum(-1))
+    al = np.clip((dist - 18) / 70, 0, 1)
+    k = np.clip(al, 0.15, 1)[..., None]
+    rgb = np.clip((a - (1 - k) * bg) / k, 0, 255)
+    return Image.fromarray(np.dstack([rgb, al * 255]).astype(np.uint8), "RGBA")
 
 
 def crop_to_content(im: Image.Image, pad: int = 16) -> Image.Image:
@@ -117,6 +130,8 @@ def process(im: Image.Image, name: str, vector: bool, keep_bg: bool, use_rembg: 
         cut = remove(im.convert("RGBA"))
     elif keep_bg:
         cut = im.convert("RGBA")
+    elif ICON_MODE:
+        cut = key_icon(im)
     else:
         cut = key_out(im)
     if not keep_bg:
@@ -131,7 +146,10 @@ def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
     vector, keep_bg, use_rembg = "--vector" in flags, "--keep-bg" in flags, "--rembg" in flags
+    global ICON_MODE
+    ICON_MODE = "--icon" in flags
     mode, raw = args[0], Image.open(args[1]).convert("RGB")
+    names = args[4].split(",") if mode == "sheet" else [args[2]]
     if mode == "sheet":
         cols, rows, names = int(args[2]), int(args[3]), args[4].split(",")
         w, h = raw.width / cols, raw.height / rows
@@ -140,11 +158,23 @@ def main() -> None:
                 continue
             r, c = divmod(i, cols)
             cell = raw.crop((int(c * w), int(r * h), int((c + 1) * w), int((r + 1) * h)))
-            print(name, process(cell, name, vector, False, use_rembg, 640))
+            print(name, process(cell, name, vector, False, use_rembg, 256 if ICON_MODE else 640))
     else:
         print(args[2], process(raw, args[2], vector, keep_bg, use_rembg, 1600))
     if vector:
         subprocess.run(f'npx --yes svgo --multipass -q -f "{OUT}"', check=False, shell=True)
+        if ICON_MODE:
+            import re
+            def ink(m):
+                h = m.group(2)
+                h = "".join(c * 2 for c in h) if len(h) == 3 else h
+                r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+                dark = (r + g + b) / 3 < 110 and max(r, g, b) - min(r, g, b) < 40
+                return f'{m.group(1)}"currentColor"' if dark else m.group(0)
+            for n in names:
+                f = OUT / f"{n}.svg"
+                if f.exists():
+                    f.write_text(re.sub(r'(fill=)"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})"', ink, f.read_text()))
         for f in sorted(OUT.glob("*.svg")):
             # a trace heavier than 80 KB is not "flat" art: ship raster only
             if f.stat().st_size > SVG_MAX:

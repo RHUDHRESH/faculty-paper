@@ -5,6 +5,8 @@ import {
   CalendarRange,
   FileText,
   IndianRupee,
+  Sparkles,
+  Telescope,
   UsersRound,
   type LucideIcon,
 } from "lucide-react"
@@ -38,7 +40,7 @@ export type EventRow = {
 /** A date the record already holds. Never editable here. */
 export type RecordRow = {
   id: string
-  kind: "PAID" | "PUBLISHED" | "FILED" | "CUTOFF"
+  kind: "PAID" | "PUBLISHED" | "FILED" | "CUTOFF" | "PAYOUT" | "COLLEAGUE" | "SCOUT"
   kind_label: string
   title: string
   starts_on: string
@@ -48,6 +50,10 @@ export type RecordRow = {
   claim_id: string | null
   titles: string[]
   whole_month: boolean
+  /** A colleague's publication: who, with their face. */
+  person?: { user_id: string; name: string; photo_url?: string | null; initials?: string } | null
+  /** A scout deadline's source page. */
+  url?: string | null
 }
 
 export type CalendarPayload = {
@@ -67,7 +73,8 @@ export type FeedLink = { url: string; webcal: string; google_subscribe_url: stri
 /* ------------------------------------------------------------------------ */
 
 /** The three layers the filter chips switch. */
-export type Layer = "college" | "papers" | "mine"
+export type Layer = "college" | "papers" | "colleagues" | "mine"
+export const ALL_LAYERS: Layer[] = ["college", "papers", "colleagues", "mine"]
 
 export type CalItem = {
   key: string
@@ -109,7 +116,7 @@ export function toItems(data: CalendarPayload | undefined): CalItem[] {
     end: r.starts_on,
     startTime: null,
     endTime: null,
-    layer: r.kind === "CUTOFF" ? "college" : "papers",
+    layer: r.kind === "CUTOFF" || r.kind === "PAYOUT" ? "college" : r.kind === "COLLEAGUE" ? "colleagues" : "papers",
     record: r,
   }))
   return [...events, ...record].sort(
@@ -135,7 +142,10 @@ export const KIND_STYLE: Record<string, KindStyle> = {
   SUBMISSION_WINDOW: { icon: CalendarRange, colour: "var(--area-time)" },
   PAYOUT_RUN: { icon: IndianRupee, colour: "var(--color-positive)" },
   MEETING: { icon: UsersRound, colour: PEOPLE },
-  PAID: { icon: FileText, colour: RECORD },
+  PAID: { icon: IndianRupee, colour: "var(--color-positive)" },
+  PAYOUT: { icon: IndianRupee, colour: "var(--color-positive)" },
+  COLLEAGUE: { icon: Sparkles, colour: PEOPLE },
+  SCOUT: { icon: Telescope, colour: "var(--color-gold, #b8860b)" },
   PUBLISHED: { icon: FileText, colour: RECORD },
   FILED: { icon: FileText, colour: RECORD },
   REMINDER: { icon: Bell, colour: "var(--color-fg-muted)" },

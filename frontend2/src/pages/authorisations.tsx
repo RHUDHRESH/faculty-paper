@@ -213,7 +213,9 @@ export function Authorisations() {
             value={
               totals?.longest_wait_days == null
                 ? "None"
-                : `${totals.longest_wait_days} ${totals.longest_wait_days === 1 ? "day" : "days"}`
+                : totals.longest_wait_days === 0
+                  ? "Today"
+                  : `${totals.longest_wait_days} ${totals.longest_wait_days === 1 ? "day" : "days"}`
             }
             hint="Since the Principal approved it"
             tone={
@@ -625,7 +627,7 @@ function ClaimRow({
       />
 
       <div className="min-w-0 flex-1 space-y-2">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+        <div className="flex flex-col gap-x-4 gap-y-1 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold">
               {claim.owner_name}
@@ -645,13 +647,17 @@ function ClaimRow({
                 .join(" · ")}
             </Meta>
           </div>
-          <div className="shrink-0 text-right">
+          <div className="flex shrink-0 items-baseline gap-2 sm:block sm:text-right">
             <p className="text-lg font-semibold tabular">{money(claim.remuneration)}</p>
             {approved && (
               <Meta className="block text-xs">
                 Approved {approved}
                 {claim.waiting_days != null &&
-                  ` · ${claim.waiting_days} ${claim.waiting_days === 1 ? "day" : "days"} ago`}
+                  ` · ${
+                    claim.waiting_days === 0
+                      ? "today"
+                      : `${claim.waiting_days} ${claim.waiting_days === 1 ? "day" : "days"} ago`
+                  }`}
               </Meta>
             )}
           </div>

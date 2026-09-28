@@ -5,13 +5,11 @@ import {
   Camera,
   ExternalLink,
   FileText,
-  Gem,
   Handshake,
   Mail,
   Pencil,
   Quote,
   Search,
-  TrendingUp,
   UserCheck,
   UserPlus,
   Users,
@@ -21,10 +19,9 @@ import {
 
 import { firstName, HowConnected, WhyTheyMatter } from "@/pages/person-context"
 import { Chip } from "@/ui/chip"
-import { HeroBand } from "@/ui/hero"
 import { initialsOf } from "@/ui/person"
+import { Picture, topicPicture } from "@/ui/picture"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
-import { StatRow, StatTile } from "@/ui/stat"
 
 import { CollabDialog } from "@/pages/chat"
 import {
@@ -116,6 +113,7 @@ export type Profile = {
     scopus_url: string | null
     orcid_id: string | null
     orcid_url: string | null
+    scholar_url?: string | null
     research_faculty: boolean
   }
   is_me: boolean
@@ -212,6 +210,7 @@ type Coauthor = {
   papers_together: number
   institutions: string[]
   is_college_member: boolean
+  photo_url?: string | null
 }
 type CoauthorsBody = { inside?: Coauthor[]; outside?: Coauthor[] }
 
@@ -259,58 +258,60 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
 
   return (
     <div data-area="people" className="page space-y-6">
-      <HeroBand
-        area="people"
-        eyebrow={[person.designation, person.department, "Saveetha Engineering College"].filter(Boolean).join(" · ") || person.role_label}
-        title={person.name}
-        titleClassName="honour text-[2rem] leading-[1.15] sm:text-honour"
-        sentence={person.bio ? <span className="whitespace-pre-wrap">{person.bio}</span> : undefined}
-        aside={<Avatar person={person} size="xl" className="max-lg:hidden" />}
-      >
-        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-          {person.research_faculty && (
-            <span className="inline-flex items-center rounded-sm bg-accent-wash px-1.5 py-0.5 text-xs font-medium text-fg">
-              Research faculty
-            </span>
-          )}
-          {person.orcid_url && (
-            <a
-              href={person.orcid_url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-sm text-accent underline-offset-4 hover:underline"
-            >
-              ORCID {person.orcid_id}
-              <ExternalLink className="size-3" aria-hidden />
-            </a>
-          )}
-          {person.scopus_url && (
-            <a
-              href={person.scopus_url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-sm text-accent underline-offset-4 hover:underline"
-            >
-              Scopus profile
-              <ExternalLink className="size-3" aria-hidden />
-            </a>
-          )}
-        </div>
-        {person.interests.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1">
-            {person.interests.map((i) => (
-              <Link
-                key={i}
-                to={`/search?scope=people&q=${encodeURIComponent(i)}`}
-                className="rounded-sm bg-surface/70 px-1.5 py-0.5 text-xs text-fg-muted hover:bg-hover hover:text-fg"
-              >
-                {i}
-              </Link>
-            ))}
+      <header className="grid gap-6 border-b border-line pb-8 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10">
+        <Avatar
+          person={person}
+          size="xl"
+          className="size-36 rounded-2xl text-5xl sm:size-48"
+        />
+        <div className="min-w-0 space-y-4">
+          <div>
+            <h1 className="honour text-[2rem] leading-[1.15] sm:text-honour">{person.name}</h1>
+            <p className="mt-1.5 text-base text-fg-muted">
+              {[person.designation, person.department].filter(Boolean).join(", ") || person.role_label}
+              {person.research_faculty && (
+                <span className="ml-2 inline-flex items-center rounded-sm bg-accent-wash px-1.5 py-0.5 align-middle text-xs font-medium text-fg">
+                  Research faculty
+                </span>
+              )}
+            </p>
           </div>
-        )}
-        <FollowBar data={data} routeId={routeId} onEdit={() => setEditing(true)} onPropose={() => setProposing(true)} />
-      </HeroBand>
+          {person.bio && (
+            <p className="max-w-[62ch] whitespace-pre-wrap text-[15px] leading-relaxed text-fg">{person.bio}</p>
+          )}
+          <ProfileLinks person={person} />
+          {person.interests.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {person.interests.map((i) => (
+                <Link
+                  key={i}
+                  to={`/search?scope=people&q=${encodeURIComponent(i)}`}
+                  className="rounded-sm bg-sunken px-1.5 py-0.5 text-xs text-fg-muted hover:bg-hover hover:text-fg"
+                >
+                  {i}
+                </Link>
+              ))}
+            </div>
+          )}
+          <FollowBar data={data} routeId={routeId} onEdit={() => setEditing(true)} onPropose={() => setProposing(true)} />
+        </div>
+      </header>
+
+      <dl className="flex flex-wrap gap-x-10 gap-y-4" aria-label="Record">
+        {[
+          { label: "Papers", value: m ? m.total_publications : data.counts.papers },
+          { label: "Citations", value: m ? (m.total_citations ?? 0) : metrics.isLoading ? null : "Not yet" },
+          { label: "h-index", value: m ? (m.h_index ?? 0) : metrics.isLoading ? null : "Not yet" },
+          { label: "i10-index", value: m ? (m.i10_index ?? 0) : metrics.isLoading ? null : "Not yet" },
+        ].map((x) => (
+          <div key={x.label} className="flex flex-col-reverse">
+            <dt className="text-sm text-fg-muted">{x.label}</dt>
+            <dd className="honour tabular text-[1.75rem] leading-tight text-fg">
+              {x.value === null ? <Skeleton className="h-7 w-12" /> : x.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
 
       {data.completeness && data.completeness.score < 100 && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sunken px-4 py-2 text-sm">
@@ -329,16 +330,11 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-6">
-          <StatRow className="grid-cols-2 sm:grid-cols-4">
-            <StatTile icon={FileText} area="people" figure={m ? m.total_publications : data.counts.papers} label="Papers" />
-            <StatTile icon={Quote} area="people" figure={m ? (m.total_citations ?? "—") : null} label="Citations" />
-            <StatTile icon={TrendingUp} area="people" figure={m ? (m.h_index ?? "—") : null} label="h-index" />
-            <StatTile icon={Gem} area="people" figure={m ? (m.i10_index ?? "—") : null} label="i10-index" />
-          </StatRow>
-
           {data.research_post && (
             <ResearchPostPanel personId={person.id} routeId={routeId} post={data.research_post} isMe={data.is_me} />
           )}
+
+          <BadgeShelf userId={person.id} own={data.is_me} />
 
           <div role="tablist" aria-label="Profile" className="flex gap-1 border-b border-line">
             {tabs.map((t) => (
@@ -392,7 +388,6 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
                   </ul>
                 </section>
               )}
-              <BadgeShelf userId={person.id} own={data.is_me} />
               <Collaborations
                 collaborations={data.collaborations ?? []}
                 routeId={routeId}
@@ -467,6 +462,36 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
       )}
       {proposing && <CollabDialog person={person} onClose={() => setProposing(false)} />}
     </div>
+  )
+}
+
+/** Scopus, ORCID and Google Scholar as quiet marks, each labelled for screen readers and on hover. */
+function ProfileLinks({ person }: { person: Profile["person"] }) {
+  const links = [
+    person.scopus_url && { href: person.scopus_url, mark: "Sc", label: "Scopus profile" },
+    person.orcid_url && { href: person.orcid_url, mark: "iD", label: `ORCID ${person.orcid_id ?? ""}`.trim() },
+    person.scholar_url && { href: person.scholar_url, mark: "GS", label: "Google Scholar profile" },
+  ].filter(Boolean) as { href: string; mark: string; label: string }[]
+  if (!links.length) return null
+  return (
+    <ul className="flex flex-wrap items-center gap-2" aria-label="Research profiles elsewhere">
+      {links.map((l) => (
+        <li key={l.mark}>
+          <a
+            href={l.href}
+            target="_blank"
+            rel="noreferrer"
+            title={l.label}
+            aria-label={`${l.label} (opens in a new tab)`}
+            className="group inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-2.5 text-xs text-fg-muted hover:border-fg-subtle hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <span className="font-semibold tracking-tight text-fg">{l.mark}</span>
+            <span className="max-sm:sr-only">{l.label.split(" ")[0] === "Google" ? "Scholar" : l.label.split(" ")[0]}</span>
+            <ExternalLink className="size-3 opacity-60" aria-hidden />
+          </a>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -565,19 +590,28 @@ function CoauthorRail({
   if (query.isLoading) return <SkeletonRows rows={3} rowHeight={32} />
   const inside = Array.isArray(query.data?.inside) ? query.data!.inside : null
   const outside = Array.isArray(query.data?.outside) ? query.data!.outside : []
-  const rows: { key: string; name: string; to: string | null; papers: number; inside: boolean; where: string | null }[] =
+  const rows: {
+    key: string
+    name: string
+    photo_url?: string | null
+    to: string | null
+    papers: number
+    inside: boolean
+    where: string | null
+  }[] =
     inside
       ? [...inside.map((c) => ({ ...c, inside: true })), ...outside.map((c) => ({ ...c, inside: false }))]
           .sort((a, b) => b.papers_together - a.papers_together)
           .map((c) => ({
             key: c.key,
             name: c.name,
+            photo_url: c.photo_url ?? null,
             to: c.user_id ? `/u/${c.user_id}` : null,
             papers: c.papers_together,
             inside: c.inside,
             where: c.inside ? c.department : (c.institutions[0] ?? null),
           }))
-      : fallback.map((c) => ({ key: c.id, name: c.name, to: `/u/${c.id}`, papers: c.together, inside: true, where: c.department ?? null }))
+      : fallback.map((c) => ({ key: c.id, name: c.name, photo_url: c.photo_url, to: `/u/${c.id}`, papers: c.together, inside: true, where: c.department ?? null }))
   if (!rows.length) return <p className="text-sm text-fg-muted">Nobody on the record yet.</p>
   return (
     <div className="space-y-2">
@@ -589,7 +623,7 @@ function CoauthorRail({
       <ul className="space-y-2">
         {rows.slice(0, 8).map((c) => (
           <li key={c.key} className="flex items-center gap-2">
-            <Avatar person={{ name: c.name, initials: initialsOf(c.name), photo_url: null }} size="sm" />
+            <Avatar person={{ name: c.name, initials: initialsOf(c.name), photo_url: c.photo_url ?? null }} size="md" />
             <span className="min-w-0 flex-1">
               {c.to ? (
                 <Link to={c.to} className="block truncate text-sm text-fg hover:underline hover:underline-offset-4">
@@ -763,7 +797,16 @@ export function PublishedWork({ papers }: { papers: RecordPaper[] }) {
           <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg-subtle">{g.year}</h3>
           <ul className="divide-y divide-line border-y border-line">
             {g.rows.map((p) => (
-              <li key={p.id} className="min-w-0 space-y-0.5 py-3">
+              <li key={p.id} className="flex min-w-0 items-start gap-4 py-3">
+                {(() => {
+                  const pic = topicPicture(p.title, p.venue)
+                  return pic ? (
+                    <Picture name={pic} className="size-14 shrink-0 rounded-md object-cover max-sm:hidden" />
+                  ) : (
+                    <span className="size-14 shrink-0 rounded-md bg-sunken max-sm:hidden" aria-hidden />
+                  )
+                })()}
+                <div className="min-w-0 flex-1 space-y-0.5">
                 <p className="text-base break-words">
                   {p.doi ? (
                     <a
@@ -781,6 +824,7 @@ export function PublishedWork({ papers }: { papers: RecordPaper[] }) {
                 <Meta className="block">
                   {[p.venue, p.quartile, p.citations ? `${p.citations} citations` : null].filter(Boolean).join(" · ")}
                 </Meta>
+                </div>
               </li>
             ))}
           </ul>

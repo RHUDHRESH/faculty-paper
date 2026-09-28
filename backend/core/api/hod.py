@@ -7,6 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer, safe_append
 from core.api.common import _csv_row, _hod_scope, api, rate_limit, session_auth
 from core.api.common import require_user
 
@@ -778,7 +779,7 @@ def hod_export(
 
     if fmt == "csv":
         buf = io.StringIO()
-        writer = csv.writer(buf)
+        writer = csv_writer(buf)
         writer.writerow(_csv_row(_HOD_EXPORT_HEADERS))
         for row in rows:
             writer.writerow(_csv_row(row))
@@ -792,11 +793,11 @@ def hod_export(
     wb = Workbook()
     ws = wb.active
     ws.title = "Publications"
-    ws.append(_HOD_EXPORT_HEADERS)
+    safe_append(ws, _HOD_EXPORT_HEADERS)
     for cell in ws[1]:
         cell.font = Font(bold=True)
     for row in rows:
-        ws.append(["" if v is None else v for v in _csv_row(row)])
+        safe_append(ws, ["" if v is None else v for v in _csv_row(row)])
     ws.freeze_panes = "A2"
     for column, width in zip(ws.columns, [14, 24, 60, 36, 14, 28, 10, 9, 8, 18, 18, 9, 9, 14]):
         ws.column_dimensions[column[0].column_letter].width = width

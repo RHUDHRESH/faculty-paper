@@ -88,7 +88,9 @@ def run_bulk_verify(claim_ids: list[str], actor_id: str | None = None) -> dict:
     """Scopus verification over a list of claims — each call is 2–4 external
     requests, so a list of any size has no business inside one HTTP request."""
     from core.api import _verify_claim
+    from core.api.common import OWN_PAPER
     from core.models import Claim, ClaimAction, User
+    from core.services import rbac
 
     actor = User.objects.filter(pk=actor_id).first() if actor_id else None
     done: list[str] = []
@@ -97,6 +99,10 @@ def run_bulk_verify(claim_ids: list[str], actor_id: str | None = None) -> dict:
         claim = Claim.objects.filter(pk=cid).first()
         if claim is None:
             failed.append({"id": cid, "reason": "Not found"})
+            continue
+        if actor is not None and rbac.is_own_claim(actor, claim):
+            # The single verify refuses an officer's own paper; so does this.
+            failed.append({"id": cid, "reason": OWN_PAPER})
             continue
         try:
             _verify_claim(claim)

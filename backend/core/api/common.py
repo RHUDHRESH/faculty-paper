@@ -211,18 +211,16 @@ def rate_limit(request: HttpRequest, bucket: str, limit: int, window: str, *, wh
 
 
 def _csv_safe(value: Any) -> Any:
-    """Neutralise spreadsheet formula injection in exported free text.
+    """Neutralise spreadsheet formula injection (core.services.cell_safe)."""
+    from core.services.cell_safe import safe_cell
 
-    Paper titles and faculty names are user-supplied and land straight in a file
-    someone opens in Excel, where a leading = + - or @ is executed as a formula.
-    """
-    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
-        return "'" + value
-    return value
+    return safe_cell(value)
 
 
 def _csv_row(values: list[Any]) -> list[Any]:
-    return [_csv_safe(v) for v in values]
+    from core.services.cell_safe import safe_row
+
+    return safe_row(values)
 
 
 def _require_admin_ops(user: User) -> None:

@@ -9,7 +9,8 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django.core.management import call_command
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from core.api.common import _apply_calc
@@ -20,6 +21,10 @@ class Command(BaseCommand):
     help = "Seed the demo college plus suspicious claims for the research cell."
 
     def handle(self, *args, **opts):
+        # Its own guard, not only `seed`'s: it writes demo tickets and a
+        # watch-list entry that must never land in a live college's data.
+        if not settings.DEBUG:
+            raise CommandError("seed_demo runs only with DJANGO_DEBUG=true.")
         call_command("seed", demo=True)
         base = Claim.objects.filter(ticket_number__startswith="DEMO-", issn__isnull=False).first()
         if base is None:

@@ -21,6 +21,7 @@ roll; the brief says so rather than presenting it as exact.
 """
 from __future__ import annotations
 
+from core.services.cell_safe import safe_append
 import io
 from collections import defaultdict
 from datetime import date
@@ -270,16 +271,16 @@ def xlsx(b: dict[str, Any], college: str) -> bytes:
 
     def sheet(ws, title: str, columns: list[str], rows: list[list[Any]], money_cols=(), widths=None):
         ws.title = title
-        ws.append([college])
+        safe_append(ws, [college])
         ws["A1"].font = Font(bold=True, size=13)
-        ws.append([f"Research publications and incentive spend, {b['year']} (FY {b['financial_year']})"])
-        ws.append([])
-        ws.append(columns)
+        safe_append(ws, [f"Research publications and incentive spend, {b['year']} (FY {b['financial_year']})"])
+        safe_append(ws, [])
+        safe_append(ws, columns)
         for c in ws[4]:
             c.font, c.fill = head, fill
             c.alignment = Alignment(wrap_text=True, vertical="top")
         for r in rows:
-            ws.append(r)
+            safe_append(ws, r)
         for col in money_cols:
             for row in ws.iter_rows(min_row=5, min_col=col, max_col=col):
                 for c in row:
@@ -322,7 +323,7 @@ def xlsx(b: dict[str, Any], college: str) -> bytes:
     ], widths=[20, 24, 18])
     ws = wb.create_sheet("Notes")
     for line in b["notes"]:
-        ws.append([line])
+        safe_append(ws, [line])
     ws.column_dimensions["A"].width = 120
     out = io.BytesIO()
     wb.save(out)

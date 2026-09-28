@@ -9,6 +9,7 @@ later cannot reach a reader either.
 
 from __future__ import annotations
 
+from core.services.cell_safe import dict_writer
 import csv
 import io
 from typing import Optional
@@ -98,7 +99,7 @@ def _csv(rows: list[dict], filename: str) -> HttpResponse:
         flat.append(out)
     cols = list(dict.fromkeys(k for r in flat for k in r))
     buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=cols)
+    writer = dict_writer(buf, fieldnames=cols)
     writer.writeheader()
     writer.writerows(flat)
     resp = HttpResponse(buf.getvalue(), content_type="text/csv")

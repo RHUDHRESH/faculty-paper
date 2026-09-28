@@ -21,6 +21,7 @@ defensible when somebody asks a year later.
 """
 from __future__ import annotations
 
+from core.services.cell_safe import safe_append
 import io
 from datetime import date
 from typing import Any
@@ -320,13 +321,13 @@ def pack_workbook(pack: dict[str, Any]) -> bytes:
     wb.remove(wb.active)
     for name, table in pack.items():
         ws = wb.create_sheet(title=name[:31])
-        ws.append(table["columns"])
+        safe_append(ws, table["columns"])
         for cell in ws[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(vertical="top", wrap_text=True)
         for row in table["rows"]:
             # A leading "=" would be read as a formula by Excel.
-            ws.append([
+            safe_append(ws, [
                 f"'{v}" if isinstance(v, str) and v.startswith("=") else v for v in row
             ])
         ws.freeze_panes = "A2"

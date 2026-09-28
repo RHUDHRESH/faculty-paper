@@ -12,6 +12,7 @@ workbook, and a wrong one would show somebody else's payment as yours.
 """
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer
 from datetime import date
 
 from django.db.models import Q
@@ -36,7 +37,14 @@ def ledger_for(user) -> "PaidLedger.objects":
     mine = Q(claim__owner=user)
     staff_id = (user.staff_id or "").strip()
     if staff_id:
-        mine |= Q(claim__isnull=True, staff_id__iexact=staff_id)
+        # Case-insensitive only while nobody else's staff id matches that way
+        # (the ERP types them inconsistently); otherwise exact, so "sec123"
+        # never reads the payments of "SEC123".
+        from core.models import User
+
+        shared = User.objects.filter(staff_id__iexact=staff_id).exclude(pk=user.pk).exists()
+        match = Q(staff_id=staff_id) if shared else Q(staff_id__iexact=staff_id)
+        mine |= Q(claim__isnull=True) & match
     return PaidLedger.objects.filter(mine).select_related("claim")
 
 
@@ -106,7 +114,7 @@ def my_payment_statement(request: HttpRequest, fy: Optional[int] = None, format:
     label = _fy_label(fy) if fy is not None else None
     if format == "csv":
         buf = io.StringIO()
-        w = csv.writer(buf)
+        w = csv_writer(buf)
         w.writerow(["Name", user.name or ""])
         w.writerow(["Staff ID", user.staff_id or ""])
         w.writerow(["Financial year", label or "All years"])

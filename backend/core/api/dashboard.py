@@ -7,6 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer, safe_append
 from core.api.common import _csv_row, _waiting_days, api, rate_limit, session_auth
 from core.api.deps import _format_payout_month, claim_to_dict
 from core.api.common import require_user
@@ -1101,11 +1102,11 @@ def _claims_file(rows, stem: str, fmt: str) -> HttpResponse:
         wb = Workbook()
         ws = wb.active
         ws.title = "Publications"
-        ws.append(_EXPORT_HEADERS)
+        safe_append(ws, _EXPORT_HEADERS)
         for c in rows:
             # openpyxl treats a leading "=" as a formula, so the same
             # injection guard as the CSV path applies.
-            ws.append(["" if v is None else v for v in _csv_row(_export_row(c))])
+            safe_append(ws, ["" if v is None else v for v in _csv_row(_export_row(c))])
         ws.freeze_panes = "A2"
         # Enough width to read a paper title without widening every column by
         # hand, which is what the office did to every export it received.
@@ -1121,7 +1122,7 @@ def _claims_file(rows, stem: str, fmt: str) -> HttpResponse:
         return res
 
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv_writer(buf)
     w.writerow(_csv_row(_EXPORT_HEADERS))
     for c in rows:
         w.writerow(_csv_row(_export_row(c)))

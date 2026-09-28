@@ -13,6 +13,7 @@ from django.http import HttpRequest, HttpResponse
 from ninja.errors import HttpError
 
 from core.api.common import api, rate_limit, require_user, session_auth
+from core.models import Role
 from core.services import payout_statement as ps
 from core.services import rbac
 
@@ -57,7 +58,11 @@ def payout_statement_pdf(request: HttpRequest, month: str):
 
 @api.get("/payouts/statement.csv", auth=session_auth)
 def payout_statement_csv(request: HttpRequest, month: str):
-    _reader(request)
+    # The bank-upload file carries every payee's account-ready line: Finance
+    # and the super admin only, not every reader of the statement.
+    user = _reader(request)
+    if user.role not in (Role.FINANCE, Role.SUPER_ADMIN):
+        raise HttpError(403, "The bank-upload file is for Finance.")
     rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     st = ps.statement(_month(month))
     resp = HttpResponse(ps.bank_csv(st), content_type="text/csv; charset=utf-8")

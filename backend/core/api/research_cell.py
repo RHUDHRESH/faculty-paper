@@ -8,6 +8,7 @@ the same rows the ticket's own history shows, so the two never disagree.
 
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer
 import csv
 import io
 from datetime import date, datetime, time
@@ -225,7 +226,7 @@ def admin_clearing_report(request: HttpRequest, month: Optional[str] = None, for
     if format != "csv":
         return body
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv_writer(buf)
     w.writerow(["Date", "Ticket", "Title", "Claimant", "Department", "Outcome", "By", "Days taken", "Amount", "Note"])
     for r in body["rows"]:
         w.writerow([r["date"], r["ticket"], r["title"], r["claimant"], r["department"], r["outcome"], r["by"],

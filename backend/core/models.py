@@ -240,6 +240,13 @@ class User(AbstractBaseUser, PermissionsMixin):
                 condition=models.Q(staff_id__isnull=False) & ~models.Q(staff_id=""),
                 name="user_staff_id_unique",
             ),
+            # ...in any case: the payments page matches the ledger's staff id
+            # case-insensitively (migration 0068).
+            models.UniqueConstraint(
+                Lower("staff_id"),
+                condition=models.Q(staff_id__isnull=False) & ~models.Q(staff_id=""),
+                name="user_staff_id_ci_unique",
+            ),
         ]
 
     def __str__(self):

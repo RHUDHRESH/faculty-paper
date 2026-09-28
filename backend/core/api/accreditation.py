@@ -8,7 +8,7 @@ order and must not be casually reordered.
 from __future__ import annotations
 
 from core.api.common import api, session_auth
-from core.api.common import require_user
+from core.api.common import _refuse_own_claim, require_user
 from core.api.claims import _assign_quota_position, _claims_queryset
 from core.api.journals import _issn_variants
 from core.api.dashboard import reports
@@ -209,6 +209,8 @@ def pack_row_edit(request: HttpRequest, claim_id: str, payload: PackRowEditIn):
         raise HttpError(400, "Say why this is being changed.")
 
     claim = get_object_or_404(_claims_queryset(user), pk=claim_id)
+    # Nobody corrects the record of their own paper, from any screen.
+    _refuse_own_claim(user, claim)
     before = getattr(claim, field, None)
     value: Any = (payload.value or "").strip() or None
 

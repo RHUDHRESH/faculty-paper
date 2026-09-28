@@ -154,10 +154,10 @@ describe("SignIn — Convocation landing", () => {
     )
   }
 
-  it("says what this is for, in the honour face", async () => {
+  it("says what this is for, in the display serif", async () => {
     stubStats(null)
     mount(() => ({}))
-    expect(await screen.findByText("Your research, on the record.")).toHaveClass("honour")
+    expect(await screen.findByText("Your research, on the record.")).toHaveClass("display")
   })
 
   it("draws the live stats line from the public endpoint", async () => {

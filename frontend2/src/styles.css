@@ -175,17 +175,17 @@
      token, so the edge stays part of the palette. */
 
   /* Content sits *in* this. A text field; a well holding a control. */
-  --shadow-well: none;
+  --shadow-well: 0 0 #0000;
 
   /* You can press this. A filled or bordered control, and nothing else —
      the shadow is the affordance, so putting it on something inert is a lie
      about what happens when you click. */
-  --shadow-raise: none;
+  --shadow-raise: 0 0 #0000;
 
   /* This is the object that answers the page's question. At most one per
      view. Deliberately weak — it has no competition, so it does not need to
      shout in order to win. */
-  --shadow-lift: none;
+  --shadow-lift: 0 0 #0000;
 
   /* Content passes beneath this. A pinned table head, a sticky action bar.
      Directional and asymmetric, because it describes an occlusion and not a
@@ -625,9 +625,9 @@
   --color-area-time-wash: #27302f;
   --color-area-time-line: #3b4a50;
   --color-paper: #2a2825;
-  --shadow-well: none;
-  --shadow-raise: none;
-  --shadow-lift: none;
+  --shadow-well: 0 0 #0000;
+  --shadow-raise: 0 0 #0000;
+  --shadow-lift: 0 0 #0000;
   --shadow-under: 0 1px 0 rgb(0 0 0 / 0.3);
   --shadow-pop: 0 8px 24px -8px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.06);
   --shadow-modal: 0 20px 48px -12px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.07);

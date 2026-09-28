@@ -24,6 +24,7 @@ import { SignIn } from "@/pages/sign-in"
 import { NotBuilt, NotFound } from "@/pages/not-found"
 
 import "@/styles.css"
+import "@/ui/motion/motion.css"
 
 /**
  * Every page loads when it is first opened, not on sign-in. A claimant never

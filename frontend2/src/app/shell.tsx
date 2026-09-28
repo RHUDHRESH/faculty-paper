@@ -19,6 +19,8 @@ import { api, forgetCsrf } from "@/lib/api"
 import { toast } from "@/ui/toast"
 import { useCollegeName } from "@/app/institution"
 import { ROLE_LABEL } from "@/app/account"
+import { motion, useReducedMotion } from "motion/react"
+import { PageTransition, sidebarSpring } from "@/ui/motion/page"
 
 /**
  * Who you are signed in as, and the two things you can do about it.
@@ -137,6 +139,7 @@ export function Shell({
   const collegeName = useCollegeName()
   const { me } = useAuth()
   const { pathname } = useLocation()
+  const reduceMotion = useReducedMotion()
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("sidebar") === "collapsed"
   )
@@ -194,11 +197,13 @@ export function Shell({
   return (
     <RadixDialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
       <div className="flex min-h-svh bg-bg">
-        <aside
-          style={{ width: collapsed ? 56 : 240 }}
+        <motion.aside
+          initial={false}
+          animate={{ width: collapsed ? 56 : 240 }}
+          transition={reduceMotion ? { duration: 0 } : sidebarSpring}
           className={cn(
             "sticky top-0 hidden h-svh shrink-0 flex-col border-r border-line",
-            "bg-sunken transition-[width] duration-[var(--dur-3)] ease-[var(--ease-out)] md:flex print:hidden"
+            "bg-sunken md:flex print:hidden"
           )}
         >
           <div className="flex h-12 items-center gap-2 px-3">
@@ -312,7 +317,7 @@ export function Shell({
               <AccountMenu collapsed={collapsed} />
             </div>
           </div>
-        </aside>
+        </motion.aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/85 px-3 backdrop-blur md:hidden print:hidden">
@@ -339,7 +344,9 @@ export function Shell({
 
           <main className="min-w-0 flex-1 py-8">
             <Suspense fallback={<PageLoading />}>
-              <Outlet />
+              <PageTransition>
+                <Outlet />
+              </PageTransition>
             </Suspense>
           </main>
         </div>

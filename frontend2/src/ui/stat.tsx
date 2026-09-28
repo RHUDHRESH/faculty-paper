@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
 import { Chip, type Area } from "@/ui/chip"
+import { MaybeCount } from "@/ui/motion/count-up"
 
 /**
  * A showcase figure (docs/ux/00 §8): area-coloured 32px icon, figure, label,
@@ -40,7 +41,7 @@ export function StatTile({
     <>
       <Icon aria-hidden className="size-8 text-(--area)" strokeWidth={1.5} />
       <div className="mt-3 flex flex-wrap items-baseline gap-2">
-        <span className="figure text-figure text-fg">{figure ?? "—"}</span>
+        <span className="figure text-figure text-fg">{figure == null ? "—" : <MaybeCount figure={figure} />}</span>
         {spark}
         {caution && (
           <Chip tone="caution" className="self-center">
@@ -58,7 +59,7 @@ export function StatTile({
       )}
     </>
   )
-  const box = cn("panel block p-6 text-left", className)
+  const box = cn("panel hover-lift block p-6 text-left", className)
   return (
     <div data-area={area} className="min-w-0">
       {to ? (

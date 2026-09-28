@@ -8,6 +8,9 @@ import { Chip } from "@/ui/chip"
 import { HeroBand } from "@/ui/hero"
 import { Callout, InlineError, SkeletonRows } from "@/ui/state"
 import { Meta, SectionTitle, Sub } from "@/ui/text"
+import { cn } from "@/lib/cn"
+import { STAGGER_CAP } from "@/ui/motion/list"
+import { StreamingText, ThinkingIndicator, useTypewriter } from "@/ui/motion/stream"
 
 type Source = { url: string; title: string }
 type ScoutResult = {
@@ -66,8 +69,15 @@ function Origin({ web }: { web: boolean }) {
   )
 }
 
-function Card({ children }: { children: React.ReactNode }) {
-  return <li className="rounded-xl bg-surface p-4 shadow-[inset_0_0_0_1px_var(--color-edge)]">{children}</li>
+function Card({ children, i = 0 }: { children: React.ReactNode; i?: number }) {
+  return (
+    <li
+      className={cn("hover-lift rounded-xl bg-surface p-4 shadow-[inset_0_0_0_1px_var(--color-edge)]", i < STAGGER_CAP && "stagger-in")}
+      style={{ animationDelay: `${Math.min(i, STAGGER_CAP) * 30}ms` }}
+    >
+      {children}
+    </li>
+  )
 }
 
 /**
@@ -88,11 +98,12 @@ export function Scout() {
   const busy = data?.status === "queued" || data?.status === "running" || start.isPending
   const r = data?.status === "done" ? data.result : undefined
   const left = data?.runs_left ?? 0
+  const typed = useTypewriter(r ? r.web.summary || "Here is what is worth your attention next." : "")
 
   const sentence = busy
     ? "Reading your record and searching the web. This takes a minute or two."
     : r
-      ? r.web.summary || "Here is what is worth your attention next."
+      ? <StreamingText text={typed} />
       : "Next-level problems, open calls, and people to work with — from your papers and the web."
 
   return (
@@ -122,7 +133,12 @@ export function Scout() {
           {data.error}
         </Callout>
       )}
-      {busy && <SkeletonRows rows={6} />}
+      {busy && (
+        <div className="space-y-3">
+          <ThinkingIndicator label="Scouting the web" />
+          <SkeletonRows rows={6} />
+        </div>
+      )}
 
       {r && (
         <>
@@ -132,8 +148,8 @@ export function Scout() {
               <Origin web />
             </div>
             <ul className="grid gap-3 md:grid-cols-2">
-              {r.web.opportunities.map((o) => (
-                <Card key={o.title}>
+              {r.web.opportunities.map((o, i) => (
+                <Card key={o.title} i={i}>
                   <div className="flex flex-wrap items-center gap-2">
                     <Chip tone="area">{KIND[o.kind] ?? o.kind}</Chip>
                     {o.deadline && <Chip tone="caution">Deadline {o.deadline}</Chip>}
@@ -152,8 +168,8 @@ export function Scout() {
               <Origin web />
             </div>
             <ul className="space-y-3">
-              {r.web.directions.map((d) => (
-                <Card key={d.title}>
+              {r.web.directions.map((d, i) => (
+                <Card key={d.title} i={i}>
                   <p className="flex items-start gap-2 font-medium">
                     <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0 text-(--area)" />
                     {d.title}
@@ -174,8 +190,8 @@ export function Scout() {
               <Origin web={false} />
             </div>
             <ul className="grid gap-3 md:grid-cols-2">
-              {r.colleagues.map((c) => (
-                <Card key={c.user_id}>
+              {r.colleagues.map((c, i) => (
+                <Card key={c.user_id} i={i}>
                   <div className="flex items-center justify-between gap-2">
                     <Link to={`/u/${c.user_id}`} className="font-medium hover:underline">{c.name}</Link>
                     <Chip tone="neutral" icon={UsersRound}>{c.department || "—"}</Chip>
@@ -195,8 +211,8 @@ export function Scout() {
               <Origin web />
             </div>
             <ul className="grid gap-3 md:grid-cols-2">
-              {r.web.external_people.map((p) => (
-                <Card key={p.name}>
+              {r.web.external_people.map((p, i) => (
+                <Card key={p.name} i={i}>
                   <p className="font-medium">{p.name}</p>
                   <Meta>{p.affiliation}</Meta>
                   <Sub className="mt-1">{p.work}</Sub>

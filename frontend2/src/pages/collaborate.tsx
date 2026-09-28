@@ -9,7 +9,7 @@ import { useApi } from "@/lib/query"
 import { PersonContext, isExternalKey } from "@/pages/person-context"
 import { BigSearch } from "@/ui/big-search"
 import { Chip } from "@/ui/chip"
-import { ForceGraph, type GraphLink, type GraphNode } from "@/ui/graph"
+import { YourCircle } from "@/ui/circle"
 import { HeroBand } from "@/ui/hero"
 import { Avatar, PersonLink, initialsOf } from "@/ui/person"
 import { Picture } from "@/ui/picture"
@@ -57,6 +57,8 @@ type EgoNode = {
   papers: number
   together: number
   degree: number
+  photo_url?: string | null
+  initials?: string
 }
 type Ego = { center: string; coauthors: number; capped: boolean; nodes: EgoNode[]; links: { source: string; target: string; papers: number }[] }
 
@@ -575,23 +577,6 @@ function EgoMap({
   compact?: boolean
 }) {
   const data = query.data
-  const { nodes, links, idOf } = useMemo(() => {
-    const idOf = new Map<string, string>()
-    const nodes: GraphNode[] = (data?.nodes ?? []).map((n) => {
-      idOf.set(n.key, n.user_id ?? n.key)
-      return {
-        id: n.key,
-        name: n.hop === 0 ? "You" : n.name,
-        department: n.is_college_member ? n.department : n.institution,
-        degree: n.hop === 1 ? Math.max(n.degree, n.together * 2) : n.degree,
-        papers: n.papers,
-        tone: n.hop === 0 || n.is_college_member ? "inside" : "outside",
-        faint: n.hop === 2,
-      }
-    })
-    const links: GraphLink[] = (data?.links ?? []).map((l) => ({ ...l, kind: "coauthor" as const }))
-    return { nodes, links, idOf }
-  }, [data])
   if (query.isLoading) return <Skeleton className="w-full" style={{ height }} />
   if (query.isError)
     return (
@@ -604,33 +589,13 @@ function EgoMap({
   if (!data || data.nodes.length <= 1)
     return <p className="rounded-lg bg-sunken px-4 py-10 text-center text-sm text-fg-muted">Your circle draws itself once your papers list co-authors.</p>
   return (
-    <div className="space-y-2">
-      <ForceGraph
-        nodes={nodes}
-        links={links}
-        centerId={data.center}
-        height={height}
-        pathToCenter
-        onPick={(key) => {
-          const id = idOf.get(key)
-          if (id && key !== data.center) onPick(id)
-        }}
-        label={`Your co-author circle: you, ${plural(data.coauthors, "co-author")} and people two steps away. ${nodes.length} people shown.`}
-        legend={
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-muted">
-            <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden className="size-2.5 rounded-full bg-accent" /> Saveetha
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden className="size-2.5 rounded-full bg-(--area)" /> Outside
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <UsersRound aria-hidden className="size-3.5" /> Faint: two steps away
-            </span>
-            {!compact && data.capped && <span>Showing the 60 closest; your full list is on Your co-authors.</span>}
-          </div>
-        }
-      />
-    </div>
+    <YourCircle
+      people={data.nodes}
+      links={data.links}
+      height={height}
+      compact={compact}
+      onConnect={onPick}
+      footnote={!compact && data.capped ? <span>Showing the 60 closest; your full list is on Your co-authors.</span> : undefined}
+    />
   )
 }

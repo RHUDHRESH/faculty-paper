@@ -1250,6 +1250,168 @@
           "page": "Nav, Leaderboard"
         }
       ]
+    },
+    {
+      "id": "sheet26",
+      "raw": "sheet26_icons_c.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Icon variant (as sheet24). Same icon set, same stroke weight and colours as the previous sheets. Icons, in reading order: (1) a round medal on a ribbon — 'badge'; (2) a trophy cup — 'trophy'; (3) an arrow pointing up out of a tray — 'upload'; (4) an arrow pointing down into a tray — 'download'; (5) an arrow entering an open box — 'import'; (6) an arrow leaving an open box — 'export'; (7) an archive box with a slot — 'archive'; (8) a list with a magnifying glass over it — 'audit'; (9) a document with a small bar chart — 'report'; (10) a gear — 'settings'; (11) a padlock — 'privacy'; (12) a rubber stamp — 'approve'.",
+      "assets": [
+        {
+          "name": "icon-badge",
+          "category": "icon",
+          "purpose": "Icon: badge",
+          "page": "Badge shelf, profile"
+        },
+        {
+          "name": "icon-trophy",
+          "category": "icon",
+          "purpose": "Icon: trophy",
+          "page": "Leaderboard, wall of fame"
+        },
+        {
+          "name": "icon-upload",
+          "category": "icon",
+          "purpose": "Icon: upload",
+          "page": "Attachments"
+        },
+        {
+          "name": "icon-download",
+          "category": "icon",
+          "purpose": "Icon: download",
+          "page": "Reports, exports"
+        },
+        {
+          "name": "icon-import",
+          "category": "icon",
+          "purpose": "Icon: import",
+          "page": "Imports"
+        },
+        {
+          "name": "icon-export",
+          "category": "icon",
+          "purpose": "Icon: export",
+          "page": "Reports"
+        },
+        {
+          "name": "icon-archive",
+          "category": "icon",
+          "purpose": "Icon: archive",
+          "page": "Archive"
+        },
+        {
+          "name": "icon-audit",
+          "category": "icon",
+          "purpose": "Icon: audit",
+          "page": "Audit"
+        },
+        {
+          "name": "icon-report",
+          "category": "icon",
+          "purpose": "Icon: report",
+          "page": "Reports"
+        },
+        {
+          "name": "icon-settings",
+          "category": "icon",
+          "purpose": "Icon: settings",
+          "page": "Nav, Settings"
+        },
+        {
+          "name": "icon-privacy",
+          "category": "icon",
+          "purpose": "Icon: privacy",
+          "page": "Privacy, visibility toggles"
+        },
+        {
+          "name": "icon-approve",
+          "category": "icon",
+          "purpose": "Icon: approve",
+          "page": "Clearing, approvals"
+        }
+      ]
+    },
+    {
+      "id": "sheet27",
+      "raw": "sheet27_icons_d.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Icon variant (as sheet24). Same icon set, same stroke weight and colours as the previous sheets. Icons, in reading order: (1) a circle with an X — 'reject'; (2) an hourglass — 'pending'; (3) a pencil — 'edit'; (4) a waste bin — 'delete'; (5) a funnel — 'filter'; (6) an up arrow beside a down arrow — 'sort'; (7) three dots joined by two lines — 'share'; (8) a bookmark ribbon — 'bookmark'; (9) a five-point star — 'favourite'; (10) a heart — 'like'; (11) a speech bubble with three dots inside — 'comment'; (12) a paper clip — 'attachment'.",
+      "assets": [
+        {
+          "name": "icon-reject",
+          "category": "icon",
+          "purpose": "Icon: reject / returned",
+          "page": "Clearing status"
+        },
+        {
+          "name": "icon-pending",
+          "category": "icon",
+          "purpose": "Icon: pending",
+          "page": "Clearing status"
+        },
+        {
+          "name": "icon-edit",
+          "category": "icon",
+          "purpose": "Icon: edit",
+          "page": "Forms"
+        },
+        {
+          "name": "icon-delete",
+          "category": "icon",
+          "purpose": "Icon: delete",
+          "page": "Forms (destructive)"
+        },
+        {
+          "name": "icon-filter",
+          "category": "icon",
+          "purpose": "Icon: filter",
+          "page": "Lists, search"
+        },
+        {
+          "name": "icon-sort",
+          "category": "icon",
+          "purpose": "Icon: sort",
+          "page": "Tables"
+        },
+        {
+          "name": "icon-share",
+          "category": "icon",
+          "purpose": "Icon: share",
+          "page": "Paper detail, reactions"
+        },
+        {
+          "name": "icon-bookmark",
+          "category": "icon",
+          "purpose": "Icon: bookmark / save",
+          "page": "Discover, For you"
+        },
+        {
+          "name": "icon-favourite",
+          "category": "icon",
+          "purpose": "Icon: favourite",
+          "page": "Reactions"
+        },
+        {
+          "name": "icon-like",
+          "category": "icon",
+          "purpose": "Icon: like",
+          "page": "Reactions, Feed"
+        },
+        {
+          "name": "icon-comment",
+          "category": "icon",
+          "purpose": "Icon: comment",
+          "page": "Discussions, Feed"
+        },
+        {
+          "name": "icon-attachment",
+          "category": "icon",
+          "purpose": "Icon: attachment",
+          "page": "Attachments"
+        }
+      ]
     }
   ]
 }

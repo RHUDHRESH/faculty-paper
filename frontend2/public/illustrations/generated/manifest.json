@@ -1,7 +1,7 @@
 {
   "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
   "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
-  "count": 165,
+  "count": 189,
   "assets": [
     {
       "name": "empty-no-papers",
@@ -2914,7 +2914,7 @@
         "png": "/illustrations/generated/icon-idea.png"
       },
       "bytes": {
-        "svg": 4420,
+        "svg": 4388,
         "webp": 11284,
         "png": 5477
       },
@@ -2990,7 +2990,7 @@
         "png": "/illustrations/generated/icon-calendar.png"
       },
       "bytes": {
-        "svg": 5808,
+        "svg": 5608,
         "webp": 5546,
         "png": 2974
       },
@@ -3066,7 +3066,7 @@
         "png": "/illustrations/generated/icon-profile.png"
       },
       "bytes": {
-        "svg": 4979,
+        "svg": 4946,
         "webp": 7584,
         "png": 3307
       },
@@ -3085,7 +3085,7 @@
         "png": "/illustrations/generated/icon-department.png"
       },
       "bytes": {
-        "svg": 4619,
+        "svg": 4587,
         "webp": 6388,
         "png": 3187
       },
@@ -3109,6 +3109,462 @@
         "png": 1812
       },
       "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-badge",
+      "category": "icon",
+      "purpose": "Icon: badge",
+      "page": "Badge shelf, profile",
+      "files": {
+        "svg": "/illustrations/generated/icon-badge.svg",
+        "webp": "/illustrations/generated/icon-badge.webp",
+        "png": "/illustrations/generated/icon-badge.png"
+      },
+      "bytes": {
+        "svg": 3419,
+        "webp": 8112,
+        "png": 5433
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-trophy",
+      "category": "icon",
+      "purpose": "Icon: trophy",
+      "page": "Leaderboard, wall of fame",
+      "files": {
+        "svg": "/illustrations/generated/icon-trophy.svg",
+        "webp": "/illustrations/generated/icon-trophy.webp",
+        "png": "/illustrations/generated/icon-trophy.png"
+      },
+      "bytes": {
+        "svg": 3569,
+        "webp": 7176,
+        "png": 4682
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-upload",
+      "category": "icon",
+      "purpose": "Icon: upload",
+      "page": "Attachments",
+      "files": {
+        "svg": "/illustrations/generated/icon-upload.svg",
+        "webp": "/illustrations/generated/icon-upload.webp",
+        "png": "/illustrations/generated/icon-upload.png"
+      },
+      "bytes": {
+        "svg": 2322,
+        "webp": 3666,
+        "png": 2399
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-download",
+      "category": "icon",
+      "purpose": "Icon: download",
+      "page": "Reports, exports",
+      "files": {
+        "svg": "/illustrations/generated/icon-download.svg",
+        "webp": "/illustrations/generated/icon-download.webp",
+        "png": "/illustrations/generated/icon-download.png"
+      },
+      "bytes": {
+        "svg": 2287,
+        "webp": 3866,
+        "png": 2270
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-import",
+      "category": "icon",
+      "purpose": "Icon: import",
+      "page": "Imports",
+      "files": {
+        "svg": "/illustrations/generated/icon-import.svg",
+        "webp": "/illustrations/generated/icon-import.webp",
+        "png": "/illustrations/generated/icon-import.png"
+      },
+      "bytes": {
+        "svg": 5094,
+        "webp": 7784,
+        "png": 4530
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-export",
+      "category": "icon",
+      "purpose": "Icon: export",
+      "page": "Reports",
+      "files": {
+        "svg": "/illustrations/generated/icon-export.svg",
+        "webp": "/illustrations/generated/icon-export.webp",
+        "png": "/illustrations/generated/icon-export.png"
+      },
+      "bytes": {
+        "svg": 5111,
+        "webp": 13932,
+        "png": 5789
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-archive",
+      "category": "icon",
+      "purpose": "Icon: archive",
+      "page": "Archive",
+      "files": {
+        "svg": "/illustrations/generated/icon-archive.svg",
+        "webp": "/illustrations/generated/icon-archive.webp",
+        "png": "/illustrations/generated/icon-archive.png"
+      },
+      "bytes": {
+        "svg": 3162,
+        "webp": 3696,
+        "png": 2202
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-audit",
+      "category": "icon",
+      "purpose": "Icon: audit",
+      "page": "Audit",
+      "files": {
+        "svg": "/illustrations/generated/icon-audit.svg",
+        "webp": "/illustrations/generated/icon-audit.webp",
+        "png": "/illustrations/generated/icon-audit.png"
+      },
+      "bytes": {
+        "svg": 4578,
+        "webp": 11310,
+        "png": 5201
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-report",
+      "category": "icon",
+      "purpose": "Icon: report",
+      "page": "Reports",
+      "files": {
+        "svg": "/illustrations/generated/icon-report.svg",
+        "webp": "/illustrations/generated/icon-report.webp",
+        "png": "/illustrations/generated/icon-report.png"
+      },
+      "bytes": {
+        "svg": 4559,
+        "webp": 4428,
+        "png": 2675
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-settings",
+      "category": "icon",
+      "purpose": "Icon: settings",
+      "page": "Nav, Settings",
+      "files": {
+        "svg": "/illustrations/generated/icon-settings.svg",
+        "webp": "/illustrations/generated/icon-settings.webp",
+        "png": "/illustrations/generated/icon-settings.png"
+      },
+      "bytes": {
+        "svg": 4584,
+        "webp": 8702,
+        "png": 5091
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-privacy",
+      "category": "icon",
+      "purpose": "Icon: privacy",
+      "page": "Privacy, visibility toggles",
+      "files": {
+        "svg": "/illustrations/generated/icon-privacy.svg",
+        "webp": "/illustrations/generated/icon-privacy.webp",
+        "png": "/illustrations/generated/icon-privacy.png"
+      },
+      "bytes": {
+        "svg": 3642,
+        "webp": 4670,
+        "png": 2987
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-approve",
+      "category": "icon",
+      "purpose": "Icon: approve",
+      "page": "Clearing, approvals",
+      "files": {
+        "svg": "/illustrations/generated/icon-approve.svg",
+        "webp": "/illustrations/generated/icon-approve.webp",
+        "png": "/illustrations/generated/icon-approve.png"
+      },
+      "bytes": {
+        "svg": 2669,
+        "webp": 4454,
+        "png": 2739
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-reject",
+      "category": "icon",
+      "purpose": "Icon: reject / returned",
+      "page": "Clearing status",
+      "files": {
+        "svg": "/illustrations/generated/icon-reject.svg",
+        "webp": "/illustrations/generated/icon-reject.webp",
+        "png": "/illustrations/generated/icon-reject.png"
+      },
+      "bytes": {
+        "svg": 2350,
+        "webp": 8314,
+        "png": 5314
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-pending",
+      "category": "icon",
+      "purpose": "Icon: pending",
+      "page": "Clearing status",
+      "files": {
+        "svg": "/illustrations/generated/icon-pending.svg",
+        "webp": "/illustrations/generated/icon-pending.webp",
+        "png": "/illustrations/generated/icon-pending.png"
+      },
+      "bytes": {
+        "svg": 3802,
+        "webp": 7070,
+        "png": 4364
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-edit",
+      "category": "icon",
+      "purpose": "Icon: edit",
+      "page": "Forms",
+      "files": {
+        "svg": "/illustrations/generated/icon-edit.svg",
+        "webp": "/illustrations/generated/icon-edit.webp",
+        "png": "/illustrations/generated/icon-edit.png"
+      },
+      "bytes": {
+        "svg": 4167,
+        "webp": 6950,
+        "png": 4462
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-delete",
+      "category": "icon",
+      "purpose": "Icon: delete",
+      "page": "Forms (destructive)",
+      "files": {
+        "svg": "/illustrations/generated/icon-delete.svg",
+        "webp": "/illustrations/generated/icon-delete.webp",
+        "png": "/illustrations/generated/icon-delete.png"
+      },
+      "bytes": {
+        "svg": 5189,
+        "webp": 6530,
+        "png": 4300
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-filter",
+      "category": "icon",
+      "purpose": "Icon: filter",
+      "page": "Lists, search",
+      "files": {
+        "svg": "/illustrations/generated/icon-filter.svg",
+        "webp": "/illustrations/generated/icon-filter.webp",
+        "png": "/illustrations/generated/icon-filter.png"
+      },
+      "bytes": {
+        "svg": 3848,
+        "webp": 5622,
+        "png": 3569
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-sort",
+      "category": "icon",
+      "purpose": "Icon: sort",
+      "page": "Tables",
+      "files": {
+        "svg": "/illustrations/generated/icon-sort.svg",
+        "webp": "/illustrations/generated/icon-sort.webp",
+        "png": "/illustrations/generated/icon-sort.png"
+      },
+      "bytes": {
+        "svg": 2573,
+        "webp": 4406,
+        "png": 2816
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-share",
+      "category": "icon",
+      "purpose": "Icon: share",
+      "page": "Paper detail, reactions",
+      "files": {
+        "svg": "/illustrations/generated/icon-share.svg",
+        "webp": "/illustrations/generated/icon-share.webp",
+        "png": "/illustrations/generated/icon-share.png"
+      },
+      "bytes": {
+        "svg": 2506,
+        "webp": 6350,
+        "png": 4871
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-bookmark",
+      "category": "icon",
+      "purpose": "Icon: bookmark / save",
+      "page": "Discover, For you",
+      "files": {
+        "svg": "/illustrations/generated/icon-bookmark.svg",
+        "webp": "/illustrations/generated/icon-bookmark.webp",
+        "png": "/illustrations/generated/icon-bookmark.png"
+      },
+      "bytes": {
+        "svg": 4570,
+        "webp": 5146,
+        "png": 3155
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-favourite",
+      "category": "icon",
+      "purpose": "Icon: favourite",
+      "page": "Reactions",
+      "files": {
+        "svg": "/illustrations/generated/icon-favourite.svg",
+        "webp": "/illustrations/generated/icon-favourite.webp",
+        "png": "/illustrations/generated/icon-favourite.png"
+      },
+      "bytes": {
+        "svg": 6449,
+        "webp": 5874,
+        "png": 4415
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-like",
+      "category": "icon",
+      "purpose": "Icon: like",
+      "page": "Reactions, Feed",
+      "files": {
+        "svg": "/illustrations/generated/icon-like.svg",
+        "webp": "/illustrations/generated/icon-like.webp",
+        "png": "/illustrations/generated/icon-like.png"
+      },
+      "bytes": {
+        "svg": 2364,
+        "webp": 5298,
+        "png": 3792
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-comment",
+      "category": "icon",
+      "purpose": "Icon: comment",
+      "page": "Discussions, Feed",
+      "files": {
+        "svg": "/illustrations/generated/icon-comment.svg",
+        "webp": "/illustrations/generated/icon-comment.webp",
+        "png": "/illustrations/generated/icon-comment.png"
+      },
+      "bytes": {
+        "svg": 3524,
+        "webp": 5354,
+        "png": 3461
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-attachment",
+      "category": "icon",
+      "purpose": "Icon: attachment",
+      "page": "Attachments",
+      "files": {
+        "svg": "/illustrations/generated/icon-attachment.svg",
+        "webp": "/illustrations/generated/icon-attachment.webp",
+        "png": "/illustrations/generated/icon-attachment.png"
+      },
+      "bytes": {
+        "svg": 3566,
+        "webp": 8728,
+        "png": 4864
+      },
+      "sheet": "sheet27",
       "date": "2026-09-28",
       "background": "transparent"
     }

@@ -350,7 +350,7 @@ function FindingRow({
 
   const person = {
     name: finding.faculty_name || ordered[0]?.person || "Unknown",
-    initials: initialsOf(finding.faculty_name || ordered[0]?.person),
+    initials: initialsOf((finding.faculty_name || ordered[0]?.person || "").replace(/[(][^)]*[)]/g, "")),
     photo_url: finding.faculty_photo_url ?? ordered.find((m) => m.photo_url)?.photo_url ?? null,
   }
 
@@ -394,7 +394,7 @@ function FindingRow({
               {money(finding.extra_amount)}
             </span>
           ) : null}
-          <Meta className="block tabular">{money(finding.total_amount)} paid in all</Meta>
+          <Meta className="hidden tabular sm:block">{money(finding.total_amount)} paid in all</Meta>
         </span>
       </button>
 
@@ -470,7 +470,7 @@ function Comparison({ members }: { members: Member[] }) {
       value: (m) => (m.person || "").trim().toLowerCase(),
       render: (m) => (
         <span className="flex min-w-0 items-center gap-2">
-          <Avatar person={{ name: m.person || "Unknown", initials: initialsOf(m.person), photo_url: m.photo_url ?? null }} size="xs" />
+          <Avatar person={{ name: m.person || "Unknown", initials: initialsOf((m.person || "").replace(/[(][^)]*[)]/g, "")), photo_url: m.photo_url ?? null }} size="xs" />
           <span className="min-w-0">
             <span className="block">{m.person || "Unknown"}</span>
             {m.department && <Meta className="block">{m.department}</Meta>}
@@ -484,7 +484,7 @@ function Comparison({ members }: { members: Member[] }) {
       render: (m) => (
         <span className="block">
           {m.title || "No title"}
-          {m.doi && <Meta className="block break-all">{m.doi}</Meta>}
+          {m.doi && m.doi.trim() !== "-" && <Meta className="block break-all">{m.doi}</Meta>}
         </span>
       ),
     },
@@ -512,7 +512,7 @@ function Comparison({ members }: { members: Member[] }) {
   ]
 
   return (
-    <div className="overflow-x-auto rounded-md border border-line">
+    <div className="relative overflow-x-auto rounded-md border border-line">
       <table className="w-full min-w-[32rem] table-fixed text-sm">
         <caption className="sr-only">The payments in this group, side by side</caption>
         <thead>

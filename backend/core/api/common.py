@@ -136,6 +136,9 @@ class ViewerAwareRenderer(JSONRenderer):
         user = getattr(request, "user", None)
         if getattr(user, "is_authenticated", False):
             data = visibility.for_viewer(user, data)
+            from core import faces
+
+            data = faces.fill(data)
         return super().render(request, data, response_status=response_status)
 
 

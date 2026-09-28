@@ -137,18 +137,32 @@ function StatsBody({ stats }: { stats: Stats }) {
         <Tile label={p.count === 1 ? "post" : "posts"} value={p.count} note={p.count_30d ? `${p.count_30d} in ${stats.days} days` : undefined} />
       </section>
 
-      <Trend
-        title="Profile views"
-        caption={`People who opened your profile each day, over the last ${stats.days} days. Each person counts once a day.`}
-        dimension="day"
-        points={stats.views_by_day.map((d) => ({ key: d.day, label: dayLabel(d.day), count: d.count }))}
-        height={160}
-      />
+      {stats.views_by_day.some((d) => d.count > 0) ? (
+        <Trend
+          title="Profile views"
+          caption={`People who opened your profile each day, over the last ${stats.days} days. Each person counts once a day.`}
+          dimension="day"
+          points={stats.views_by_day.map((d) => ({ key: d.day, label: dayLabel(d.day), count: d.count }))}
+          height={160}
+        />
+      ) : (
+        <section className="space-y-2">
+          <SectionTitle>Profile views</SectionTitle>
+          <Meta className="block">
+            Nobody opened your profile in the last {stats.days} days. A clear headline and your areas help colleagues find you.{" "}
+            <Link to="/u/me" className="text-accent hover:underline">
+              Edit your profile
+            </Link>
+          </Meta>
+        </section>
+      )}
 
       <section className="space-y-3">
         <SectionTitle>How people reacted</SectionTitle>
         {p.reactions + p.comments === 0 ? (
-          <Meta className="block">No reactions or comments yet.</Meta>
+          <Meta className="block">
+            No reactions or comments yet. They show here once you post.
+          </Meta>
         ) : (
           <ul className="flex flex-wrap gap-x-6 gap-y-2">
             {REACTIONS.map((r) => (
@@ -292,7 +306,9 @@ export function SocialSettingsPanel() {
       ) : (
         <div className="space-y-3">
           {query.data.notifications.map((n) => (
-            <Switch key={n.kind} checked={n.on} onCheckedChange={(on) => flip(n.kind, on)} label={n.label} />
+            <div key={n.kind}>
+              <Switch checked={n.on} onCheckedChange={(on) => flip(n.kind, on)} label={n.label} />
+            </div>
           ))}
           <div className="hairline my-2" />
           <Switch

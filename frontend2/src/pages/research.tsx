@@ -25,6 +25,7 @@ import { Chip } from "@/ui/chip"
 import { JournalCard, PersonCard } from "@/ui/entity"
 import { GoalRing } from "@/ui/goal-rings"
 import { HeroBand } from "@/ui/hero"
+import { Picture } from "@/ui/picture"
 import { Avatar, initialsOf } from "@/ui/person"
 import { RecordStrip } from "@/ui/record-strip"
 import { StatRow, StatTile } from "@/ui/stat"
@@ -57,6 +58,8 @@ type Coauthor = {
   papers_together: number
   last_year_together: number | null
   institutions: string[]
+  photo_url?: string | null
+  initials?: string
 }
 
 export type Idea = {
@@ -185,7 +188,7 @@ export function Research() {
         area="research"
         eyebrow="Research"
         title="My research"
-        sentence={sentence}
+        sentence={tab === "college" ? sentence : undefined}
         actions={
           <>
             {me?.id && (
@@ -201,6 +204,11 @@ export function Research() {
         }
       >
         {tabs}
+        {tab !== "college" && (
+          <p className="mt-5 max-w-3xl font-serif text-2xl leading-snug text-fg sm:text-[28px]" aria-live="polite">
+            {sentence}
+          </p>
+        )}
       </HeroBand>
 
       {tab === "college" ? <CollegeTab /> : <MeTab q={mine} />}
@@ -295,7 +303,7 @@ function Section({
   return (
     <section id={id} aria-labelledby={`${id ?? eyebrow}-h`} className="space-y-5 scroll-mt-20">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.06em] text-(--area)">{eyebrow}</p>
+        <p className="text-xs font-semibold text-(--area)">{eyebrow}</p>
         <SectionTitle>
           <span id={`${id ?? eyebrow}-h`} className="text-xl">
             {title}
@@ -387,6 +395,7 @@ function Present({ d }: { d: MyResearch }) {
   const co = [...d.coauthors.inside.slice(0, 5), ...d.coauthors.outside.slice(0, 3)]
   return (
     <Section eyebrow="Present" title="What you work on now">
+      <TopicPicture topics={d.topics} />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="panel min-w-0 p-5">
           {d.topics.length ? (
@@ -433,7 +442,7 @@ function Present({ d }: { d: MyResearch }) {
           <ul className="mt-3 divide-y divide-line">
             {co.map((c) => (
               <li key={c.key} className="flex items-center gap-3 py-2">
-                <Avatar person={{ name: c.name, initials: initialsOf(c.name), photo_url: null }} size="sm" />
+                <Avatar person={{ name: c.name, initials: c.initials ?? initialsOf(c.name), photo_url: c.photo_url ?? null }} size="sm" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-fg">
                     {c.user_id ? (
@@ -495,7 +504,7 @@ export function IdeaCard({ idea }: { idea: Idea }) {
       className="flex min-w-[17rem] snap-start flex-col gap-3 rounded-2xl bg-(--area-wash) p-5 shadow-[inset_0_0_0_1px_var(--area-line)] sm:min-w-0"
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-(--area)">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-(--area)">
           <Lightbulb aria-hidden className="size-4" strokeWidth={1.75} />
           {IDEA_LABEL[idea.kind]}
         </p>
@@ -605,7 +614,7 @@ function ThisYear({ t }: { t: MyResearch["this_year"] }) {
     <div id="this-year" className="panel scroll-mt-20 p-5">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1 space-y-2">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.06em] text-(--area)">This year</h3>
+          <h3 className="text-sm font-semibold text-(--area)">This year</h3>
           <p className="text-lg font-semibold text-fg">{paceLine(t)}</p>
           <p className="text-sm text-fg-muted">
             Last year you published {t.last_year_total} in all.
@@ -865,6 +874,42 @@ function HeatGrid({ d }: { d: CollegePicture }) {
         </tbody>
       </table>
     </div>
+  )
+}
+
+const TOPIC_PICTURES: [RegExp, string][] = [
+  [/smart grid|power flow|microgrid|distribution system/i, "topic-smart-grid"],
+  [/photovoltaic|solar/i, "topic-solar-energy"],
+  [/wind/i, "topic-wind-energy"],
+  [/converter|power quality|harmonic|inverter|power electronic/i, "topic-power-electronics"],
+  [/battery|electric vehicle/i, "topic-electric-vehicles"],
+  [/control/i, "topic-control-systems"],
+  [/deep learning|neural/i, "topic-deep-learning"],
+  [/machine learning/i, "topic-machine-learning"],
+  [/language|nlp/i, "topic-nlp"],
+  [/vision|image/i, "topic-computer-vision"],
+  [/iot|internet of things|sensor/i, "topic-iot"],
+  [/nano|luminescen|material/i, "topic-nanomaterials"],
+  [/signal/i, "topic-signal-processing"],
+  [/optimi[sz]/i, "topic-optimisation"],
+]
+
+/** The picture for a person's top area, or null when none of their top topics maps to one. */
+export function topicPicture(labels: string[]): { name: string; label: string } | null {
+  for (const label of labels) for (const [re, name] of TOPIC_PICTURES) if (re.test(label)) return { name, label }
+  return null
+}
+
+function TopicPicture({ topics }: { topics: MyResearch["topics"] }) {
+  const pic = topicPicture(topics.slice(0, 3).map((t) => t.label))
+  if (!pic) return null
+  return (
+    <figure className="flex items-center gap-4">
+      <Picture name={pic.name} className="size-20 shrink-0 sm:size-24" />
+      <figcaption className="text-sm text-fg-muted">
+        Your main area: <span className="font-medium text-fg">{pic.label}</span>
+      </figcaption>
+    </figure>
   )
 }
 

@@ -368,5 +368,26 @@ describe("money-blindness", () => {
     await screen.findByText(PLAN.vision)
     await screen.findAllByText("Draft the NAAC criterion 3 narrative")
     expect(document.body.textContent).not.toContain("₹")
+    expect(document.body.textContent).not.toMatch(/payout|incentive|amount/i)
+  })
+})
+
+describe("people with nothing on record", () => {
+  it("says so plainly and offers a reminder to that one person", async () => {
+    const user = userEvent.setup()
+    mount({
+      "/api/hod/overview": () => ({
+        ...OVERVIEW,
+        people: [...OVERVIEW.people, person("u9", "New Physicist", 0)],
+      }),
+      "/api/hod/nudge": () => ({ sent: 1, skipped: [] }),
+    })
+    const region = await screen.findByRole("region", { name: /the department/i })
+    expect((await within(region).findAllByText("Nothing on record")).length).toBeGreaterThan(0)
+    await user.click(within(region).getByRole("button", { name: "Send New Physicist a reminder" }))
+    const dialog = await screen.findByRole("dialog")
+    await user.click(within(dialog).getByRole("button", { name: "Send reminder" }))
+    await waitFor(() => expect(callsTo("/api/hod/nudge", "POST")).toHaveLength(1))
+    expect(callsTo("/api/hod/nudge", "POST")[0][1]).toMatchObject({ json: { user_ids: ["u9"] } })
   })
 })

@@ -43,6 +43,8 @@ import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
 import { HeaderSpot } from "@/ui/page-header"
+import { Illustration, departmentArt } from "@/ui/illustration"
+import { Avatar, initialsOf } from "@/ui/person"
 
 /**
  * A head of department's own screen: where the department stands, what it has
@@ -286,12 +288,19 @@ export function Department() {
   return (
     <div className="page space-y-10">
       <header className="page-head">
-        <div>
-          <PageTitle>{standing.data?.department || "My department"}</PageTitle>
-          <Sub className="mt-1">
-            Where the department stands, what it is aiming at, who is doing what, and where it
-            could do more.
-          </Sub>
+        <div className="flex min-w-0 items-center gap-4">
+          <Illustration
+            name={departmentArt(me?.department)}
+            width={64}
+            className="shrink-0"
+          />
+          <div className="min-w-0">
+            <PageTitle>{standing.data?.department || "My department"}</PageTitle>
+            <Sub className="mt-1">
+              Where the department stands, what it is aiming at, who is doing what, and where it
+              could do more.
+            </Sub>
+          </div>
         </div>
         <Combobox
           value={year}
@@ -356,6 +365,7 @@ export function Department() {
         failed={overview.isError}
         onRetry={() => void overview.refetch()}
         onSetFor={(person) => setEditing({ target: null, person })}
+        onRemind={setReminding}
       />
 
       <OpportunitiesSection
@@ -416,7 +426,7 @@ function StandingSection({ data }: { data: Standing }) {
     <section className="space-y-4">
       <SectionTitle>Against the college</SectionTitle>
 
-      <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           label="Publications"
           value={data.mine.publications.toLocaleString("en-IN")}
@@ -446,6 +456,25 @@ function StandingSection({ data }: { data: Standing }) {
         />
       </div>
 
+      <figure className="space-y-3" aria-labelledby="standing-chart-title">
+        <figcaption id="standing-chart-title" className="text-sm font-medium">
+          The department beside the college average
+        </figcaption>
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-4 sm:grid-cols-2">
+          <PairedBars
+            label="Q1 rate"
+            mine={data.mine.q1_rate}
+            college={data.college.q1_rate}
+            percent
+          />
+          <PairedBars
+            label="Papers per person"
+            mine={data.mine.per_head}
+            college={data.college.per_head}
+          />
+        </div>
+      </figure>
+
       {q1Delta != null && q1Delta < 0 && data.position != null && data.position <= 3 && (
         // The specific shape worth calling out: high volume, lower quality
         // than the college average. It reads as success on every other screen.
@@ -470,6 +499,54 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
       <ColumnLabel className="block">{label}</ColumnLabel>
       <p className="mt-0.5 text-2xl font-semibold tabular">{value}</p>
       {hint && <Meta className="mt-0.5 block text-xs">{hint}</Meta>}
+    </div>
+  )
+}
+
+/**
+ * Two labelled bars on one scale: this department, then the college. Values
+ * are printed beside each bar so nothing depends on reading a length, and a
+ * missing figure says so rather than drawing an empty bar that reads as zero.
+ */
+function PairedBars({
+  label,
+  mine,
+  college,
+  percent,
+}: {
+  label: string
+  mine: number | null
+  college: number | null
+  percent?: boolean
+}) {
+  const fmt = (v: number) =>
+    percent ? `${Math.round(v * 1000) / 10}%` : String(Math.round(v * 100) / 100)
+  const top = Math.max(mine ?? 0, college ?? 0) || 1
+  const rows: { who: string; v: number | null; tone: string }[] = [
+    { who: "This department", v: mine, tone: "bg-accent" },
+    { who: "College average", v: college, tone: "bg-fg-subtle" },
+  ]
+  return (
+    <div>
+      <p className="mb-1.5 text-sm text-fg-muted">{label}</p>
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.who} className="grid grid-cols-[7.5rem_minmax(0,1fr)_3.5rem] items-center gap-2">
+            <span className="truncate text-xs text-fg-muted">{r.who}</span>
+            <span className="h-2.5 overflow-hidden rounded-full bg-sunken" aria-hidden>
+              {r.v != null && (
+                <span
+                  className={cn("block h-full rounded-full", r.tone)}
+                  style={{ width: `${(r.v / top) * 100}%` }}
+                />
+              )}
+            </span>
+            <span className="text-right text-sm tabular">
+              {r.v == null ? <Meta>Not known</Meta> : fmt(r.v)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -822,7 +899,7 @@ function AssignmentRow({ assignment: a }: { assignment: Assignment }) {
   async function withdrawIt() {
     try {
       await withdraw.mutateAsync(undefined as never)
-      toast.ok(`Withdrawn — “${a.title}”`)
+      toast.ok(`Withdrew “${a.title}”`)
     } catch (err) {
       toast.fail(err)
       throw err
@@ -895,6 +972,7 @@ function PeopleSection({
   failed,
   onRetry,
   onSetFor,
+  onRemind,
 }: {
   overview: Overview | undefined
   targets: TargetsPayload | undefined
@@ -902,6 +980,7 @@ function PeopleSection({
   failed: boolean
   onRetry: () => void
   onSetFor: (person: Person) => void
+  onRemind: (group: OpportunityGroup) => void
 }) {
   const byPerson = new Map<string, Target[]>()
   for (const t of targets?.personal_targets ?? []) {
@@ -920,6 +999,8 @@ function PeopleSection({
         </SectionTitle>
         <Meta>{people.length} people</Meta>
       </div>
+
+      {!loading && !failed && people.length > 0 && <PublishedShare people={people} />}
 
       {/* Scopus's own count of what they have published, across careers --
           not the papers filed here, which the table's first columns count. */}
@@ -973,12 +1054,40 @@ function PeopleSection({
                 return (
                   <tr key={p.id} className="row border-b border-line last:border-b-0">
                     <td className="p-0 align-middle">
-                      <Link to={`/people/${p.id}`} className="block px-3 py-2">
-                        <span className="block truncate">{p.name}</span>
-                        <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
+                      <Link to={`/people/${p.id}`} className="flex items-center gap-3 px-3 py-2">
+                        <Avatar size="sm" person={faceOf(p)} />
+                        <span className="min-w-0">
+                          <span className="block truncate">{p.name}</span>
+                          <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
+                        </span>
                       </Link>
                     </td>
-                    <td className="px-3 py-2 text-right align-middle tabular">{p.publications}</td>
+                    <td className="px-3 py-2 text-right align-middle tabular">
+                      {p.publications > 0 ? (
+                        p.publications
+                      ) : (
+                        <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
+                          <Meta>Nothing on record</Meta>
+                          <Button
+                            kind="quiet"
+                            size="sm"
+                            aria-label={`Send ${p.name} a reminder`}
+                            onClick={() =>
+                              onRemind({
+                                key: "silent",
+                                title: p.name,
+                                blurb: "",
+                                count: 1,
+                                people: [{ id: p.id, name: p.name, designation: p.designation }],
+                              })
+                            }
+                          >
+                            <BellRing />
+                            Remind
+                          </Button>
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right align-middle tabular">
                       {p.q1 || <Meta>—</Meta>}
                     </td>
@@ -1081,8 +1190,9 @@ function OpportunitiesSection({
                 <li key={p.id}>
                   <Link
                     to={`/people/${p.id}`}
-                    className="text-sm underline-offset-4 hover:underline"
+                    className="inline-flex items-center gap-1.5 text-sm underline-offset-4 hover:underline"
                   >
+                    <Avatar size="xs" person={faceOf(p)} />
                     {p.name}
                   </Link>
                 </li>
@@ -1214,7 +1324,7 @@ function TargetDialog({
   async function submit() {
     if (!valid) return
     try {
-      const result = await save.mutateAsync({
+      await save.mutateAsync({
         year: existing?.year ?? defaultYear,
         metric,
         target: parsed,
@@ -1225,7 +1335,7 @@ function TargetDialog({
         due_date: dueDate || undefined,
       })
       toast.ok(
-        `${result.created ? "Set" : "Updated"} — ${who}: ${parsed} ${metrics
+        `Target saved for ${who}: ${parsed} ${metrics
           .find((m) => m.key === metric)
           ?.label.toLowerCase()} for ${existing?.year ?? defaultYear}`
       )
@@ -1287,11 +1397,11 @@ function TargetDialog({
               />
             </Field>
 
-            <Field label="Deadline" hint="Optional — when it should be reached by.">
+            <Field label="Deadline" hint="Optional. When it should be reached by.">
               <DateInput value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
             </Field>
 
-            <Field label="Note" hint="Optional — where the number came from.">
+            <Field label="Note" hint="Optional. Where the number came from.">
               <Input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
@@ -1369,7 +1479,7 @@ function PlanDialog({ plan, onClose }: { plan: Plan | undefined; onClose: () => 
     const finalAreas = canAdd ? [...areas, pending] : areas
     try {
       await save.mutateAsync({ vision: vision.trim(), research_areas: finalAreas })
-      toast.ok("Department vision saved — the department's faculty can read it")
+      toast.ok("Department vision saved. The department's faculty can read it")
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -1445,7 +1555,7 @@ function PlanDialog({ plan, onClose }: { plan: Plan | undefined; onClose: () => 
               {full
                 ? `${MAX_AREAS} areas is the most a department can name.`
                 : tooLong
-                  ? `A short label — ${MAX_AREA_LENGTH} characters at most. The description belongs in the vision.`
+                  ? `A short label, ${MAX_AREA_LENGTH} characters at most. The description belongs in the vision.`
                   : duplicate
                     ? "Already listed."
                     : "Short labels, one at a time. Press Enter to add."}
@@ -1540,7 +1650,7 @@ function AssignDialog({
       })
       toast.ok(
         pairing
-          ? `Paired — ${nameOf(assignee)} and ${nameOf(partner)}, and both have been told`
+          ? `Assigned: ${nameOf(assignee)} and ${nameOf(partner)} will write together, and both have been told`
           : `Assigned to ${nameOf(assignee)}, who has been told`
       )
       onClose()
@@ -1623,7 +1733,7 @@ function AssignDialog({
             <DateInput value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </Field>
 
-          <Field label="Notes" hint="Optional — anything they need to know to start.">
+          <Field label="Notes" hint="Optional. Anything they need to know to start.">
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
           </Field>
         </DialogBody>
@@ -1718,7 +1828,7 @@ function ReminderDialog({ group, onClose }: { group: OpportunityGroup; onClose: 
           </p>
           <Field
             label="Message"
-            hint={`${length} of ${REMINDER_MAX} characters${length < REMINDER_MIN ? ` — at least ${REMINDER_MIN}` : ""}.`}
+            hint={`${length} of ${REMINDER_MAX} characters${length < REMINDER_MIN ? `, at least ${REMINDER_MIN}` : ""}.`}
           >
             <Textarea
               value={message}
@@ -1751,4 +1861,37 @@ function ordinal(n: number): string {
   const rem100 = n % 100
   if (rem100 >= 11 && rem100 <= 13) return `${n}th`
   return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`
+}
+
+/** A face for a row: the photo the server sent, if it sent one; else initials. */
+function faceOf(p: { name: string; initials?: string; photo_url?: string | null }) {
+  return { name: p.name, initials: p.initials ?? initialsOf(p.name), photo_url: p.photo_url ?? null }
+}
+
+/**
+ * How many of the department have anything filed, drawn as one bar. Uses the
+ * same rule as the table below: a person with one or more papers.
+ */
+function PublishedShare({ people }: { people: { publications: number }[] }) {
+  const filed = people.filter((p) => p.publications > 0).length
+  const total = people.length
+  const pct = Math.round((filed / total) * 100)
+  return (
+    <div className="space-y-1.5">
+      <p className="text-sm">
+        <span className="font-medium tabular">
+          {filed} of {total}
+        </span>{" "}
+        have at least one paper on record ({pct}%).{" "}
+        {total - filed > 0 ? `${total - filed} have nothing filed yet.` : "Everybody has filed."}
+      </p>
+      <div
+        className="flex h-2.5 w-full max-w-xl overflow-hidden rounded-full bg-sunken"
+        role="img"
+        aria-label={`${filed} of ${total} people have a paper on record`}
+      >
+        <span className="block h-full bg-accent" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
 }

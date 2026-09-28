@@ -102,6 +102,12 @@ def _format_payout_month(d: date | None) -> str | None:
     return d.strftime("%Y-%m")
 
 
+def _journal_watch(c: Claim) -> dict | None:
+    from core.services.journal_watch import watch_for
+
+    return watch_for(c.issn, c.journal_title)
+
+
 def claim_to_dict(c: Claim) -> dict[str, Any]:
     return {
         "id": c.id,
@@ -272,6 +278,15 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         #: Whole days this ticket has sat where it is, for the queue that has
         #: to decide what to look at first.
         "waiting_days": _waiting_days(c),
+        # Scheme rules the research cell applies, shown rather than implied:
+        # a research faculty member's first N papers a year are unpaid, and
+        # a final-year project claim is paid per team to its mentor.
+        "quota_applied": c.quota_applied,
+        "quota_note": c.quota_note,
+        "quota_position": c.quota_position,
+        "owner_faculty_type": c.owner.faculty_type,
+        "owner_research_quota": c.owner.research_quota,
+        "journal_watch": _journal_watch(c),
         "second_approved_at": c.second_approved_at.isoformat() if c.second_approved_at else None,
         "needs_second_approval": _needs_second_approval(
             c, _high_value_threshold(fresh=False)

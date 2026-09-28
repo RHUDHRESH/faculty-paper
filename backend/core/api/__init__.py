@@ -63,3 +63,4 @@ from core.api.research import *  # noqa: F401,F403
 from core.api.author_review import *  # noqa: F401,F403
 from core.api.scout import *  # noqa: F401,F403
 from core.api.college_site import *  # noqa: F401,F403
+from core.api.research_cell import *  # noqa: F401,F403

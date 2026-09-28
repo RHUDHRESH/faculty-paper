@@ -1871,6 +1871,25 @@ class StoredFile(models.Model):
         return self.name
 
 
+class JournalWatch(models.Model):
+    """A journal the research cell has chosen to look at twice.
+
+    Scopus's discontinued list and UGC-CARE removals arrive late, and cloned
+    titles reuse real ISSNs. The research cell keeps its own list, with the
+    reason, and every ticket in that journal carries the warning to the desk.
+    Matched by ISSN when one is given, otherwise by the title (ignoring case).
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    issn = models.CharField(max_length=32, blank=True, null=True, db_index=True)
+    title = models.CharField(max_length=512, blank=True, null=True)
+    reason = models.TextField()
+    added_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="journal_watches"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
 class ClaimFlag(models.Model):
     """A discrepancy somebody noticed on a claim, which never stops it.
 

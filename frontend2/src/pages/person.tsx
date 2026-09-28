@@ -545,7 +545,7 @@ function CitationBars({ rows }: { rows: ReturnType<typeof citationsByYear> }) {
             aria-label={`${r.year}: ${r.citations} citation${r.citations === 1 ? "" : "s"}`}
             aria-pressed={open === r.year}
             onClick={() => setOpen(open === r.year ? null : r.year)}
-            className="flex h-full flex-1 flex-col justify-end"
+            className="tap-exempt flex h-full min-w-0 flex-1 flex-col justify-end"
             title={`${r.year} · ${r.citations} citation${r.citations === 1 ? "" : "s"}`}
           >
             <span

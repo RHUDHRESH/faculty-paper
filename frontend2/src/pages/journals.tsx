@@ -13,6 +13,7 @@ import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText }
 import { Table, type Column } from "@/ui/table"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { HeaderSpot } from "@/ui/page-header"
+import { JournalWatchList } from "@/pages/clearing-desk"
 
 /**
  * Where this college publishes (`Journals`) and one journal's record
@@ -202,6 +203,11 @@ export function Journals() {
             </Meta>
           )}
         </>
+      )}
+      {can(me?.role).clear && (
+        <div className="border-t border-line pt-6">
+          <JournalWatchList />
+        </div>
       )}
     </div>
   )

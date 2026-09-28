@@ -65,7 +65,7 @@ import time
 from typing import Any
 
 from core.models import Claim, ClaimStatus, Mention, Role, User
-from core.services import ai, rbac
+from core.services import ai, openai_compat, rbac
 from core.services.normalize import normalize_issn
 
 logger = logging.getLogger(__name__)
@@ -678,20 +678,35 @@ def _answer_with_model(question: str, context: list[str], asker: User) -> str | 
     names = raw.get("journals")
     names = names if isinstance(names, list) else []
     lines = [prose, *_resolved_journals(names, asker)]
-    lines.append(
-        f"*Written by the model on this machine, {elapsed:.0f}s. It is slow, and it "
-        "states no figures — every number above is read from our own records.*"
-    )
+    if ai.is_hosted():
+        # Said because it is true: the question went to that service, and a
+        # footer claiming it stayed here would be the one false sentence in
+        # an answer built to state nothing it cannot stand behind.
+        lines.append(
+            f"*Written by {ai.model_name(fast=True)} at {openai_compat.host()}, "
+            f"{elapsed:.0f}s. It states no figures — every number above is read from "
+            "our own records.*"
+        )
+    else:
+        lines.append(
+            f"*Written by the model on this machine, {elapsed:.0f}s. It is slow, and it "
+            "states no figures — every number above is read from our own records.*"
+        )
     return "\n\n".join(lines)
 
 
+_HELP_LOCAL = (
+    "For a question no table can answer I ask the model running on this machine "
+    "— no account, nothing leaving the server, and somewhere between fifteen and "
+    "forty seconds of waiting, which is what a model on a CPU costs. I keep those "
+    "answers short for that reason."
+)
+
 HELP = (
     "I look things up in this college's own records and in the open scholarly "
-    "sources first, because those answers are exact and instant. For a question "
-    "no table can answer I ask the model running on this machine — no account, "
-    "nothing leaving the server, and somewhere between fifteen and forty "
-    "seconds of waiting, which is what a model on a CPU costs. I keep those "
-    "answers short for that reason.\n\n"
+    "sources first, because those answers are exact and instant. "
+    + _HELP_LOCAL
+    + "\n\n"
     "Mention something alongside me and I will answer about it:\n"
     "- `@agent @journal:\"Applied Soft Computing\"` — its standing, and what a paper there pays\n"
     "- `@agent @paper:ERP-001934` — where that ticket is\n"
@@ -703,6 +718,18 @@ HELP = (
     "I will not guess. If a journal is not in our reference data I will say so "
     "rather than price it, and no figure I print comes from the model."
 )
+
+
+def help_text() -> str:
+    """HELP, with the sentence about the model true of the configured one."""
+    if not ai.is_hosted():
+        return HELP
+    return HELP.replace(
+        _HELP_LOCAL,
+        f"For a question no table can answer I ask a hosted model at "
+        f"{openai_compat.host()} — your question and what I looked up for it are "
+        "sent there to be answered. I keep those answers short.",
+    )
 
 
 def answer(post, asker: User) -> str | None:
@@ -745,7 +772,7 @@ def answer(post, asker: User) -> str | None:
     # Nothing was mentioned alongside it, so the rest of the sentence is the
     # question.
     if len(question) < 8:
-        return HELP
+        return help_text()
 
     # "find recent work on X" has a keyless answer that is better than a 12b
     # model's recollection of the literature, and arrives in a second rather

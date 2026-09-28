@@ -29,7 +29,7 @@ from core.services import ai, discover as discover_service, research_search, tre
 from core.services import rbac
 from core.services.normalize import normalize_issn
 from core.services.search import KINDS as SEARCH_KINDS, search as run_search
-from core import hod
+from core import hod, social
 
 # ---------- what to write next, and where to send it ----------
 #
@@ -115,6 +115,10 @@ def discover_status(request: HttpRequest):
         "code": state.get("code"),
         "detail": state.get("detail"),
         "base_url": state.get("base_url"),
+        # Whether what somebody types here leaves the college, and to where.
+        # The screen says so rather than claiming it runs "on this server".
+        "hosted": bool(state.get("hosted")),
+        "host": state.get("host") or "",
     }
 
 
@@ -217,7 +221,10 @@ def _ai_failure_status(exc: ai.AIError) -> int:
     sends somebody looking for a network fault that is not there, when the fix
     is one `ollama pull` on the machine it runs on.
     """
-    return 503 if exc.code in ("model_missing", "unreachable", "misconfigured") else 502
+    unavailable = (
+        "model_missing", "unreachable", "misconfigured", "not_configured", "rate_limited",
+    )
+    return 503 if exc.code in unavailable else 502
 
 
 def _log_venue_search(user: User, title: str, result: dict[str, Any]) -> None:
@@ -425,19 +432,65 @@ def trends_openings(request: HttpRequest):
         raise HttpError(_ai_failure_status(exc), str(exc)) from exc
 
 
+def _my_areas(user: User) -> tuple[Any, list[tuple[str, int]], list[str]]:
+    """What somebody has filed, and the subject areas it falls in, most first.
+
+    The same papers their profile lists (`social.published_papers`): not a
+    draft, and not one the college refused.
+    """
+    mine = social.published_papers(user)
+    my_areas: dict[str, int] = {}
+    for raw in mine.values_list("subjects_json", flat=True):
+        for area, _q in _split_subjects(raw):
+            my_areas[area] = my_areas.get(area, 0) + 1
+    ranked_areas = sorted(my_areas.items(), key=lambda kv: -kv[1])
+    stated = list(
+        ResearchInterest.objects.filter(user=user).values_list("domain", flat=True)
+    )
+    return mine, ranked_areas, stated
+
+
 @api.get("/programme/me", auth=session_auth)
-def programme_me(request: HttpRequest, limit: int = 12):
-    """The research picture around one person: their areas, and who else is in them.
+def programme_me(request: HttpRequest):
+    """One person's research, and only theirs: their papers, areas and co-authors.
 
-    Everything here is derived from data the college already holds, and none of
-    it needs a model or a key. That is deliberate. The AI features switch off
-    when the credits run out; "what is my department publishing and who should
-    I talk to" is too useful to switch off with them.
+    The owner's rule: "X's research" shows X's work. It used to mix in the
+    college's picture -- who else works nearby, what others filed lately --
+    which made a page titled with somebody's name mostly about other people.
+    That half is `/programme/around` now, on its own page.
 
-    The three questions it answers, in the order somebody asks them:
+    Everything here is derived from papers the person filed, and none of it
+    needs a model or a key. No money: the paper list is the same one their
+    public profile shows (`social.research_record`), so the two can never
+    disagree about what somebody has published.
+    """
+    user = require_user(request)
+    mine, ranked_areas, stated = _my_areas(user)
+    top_areas = [a for a, _n in ranked_areas[:8]]
+    record = social.research_record(user)
 
-    - what do I work on? -- taken from the subject areas of papers they have
-      actually filed, not from a profile they filled in once and never revised;
+    return {
+        **record,
+        "areas": [{"key": a, "count": n} for a, n in ranked_areas[:12]],
+        "interests": stated,
+        # Interests a person stated but has not published in are still theirs,
+        # and are what a new arrival with no papers has instead of an area list.
+        "search_terms": top_areas[:4] or stated[:4],
+        "totals": {"my_papers": mine.count(), "my_areas": len(ranked_areas)},
+        # Said on screen, because an empty page looks broken and is usually
+        # just somebody whose journals we could not classify.
+        "classified": mine.exclude(subjects_json__isnull=True)
+        .exclude(subjects_json="")
+        .count(),
+    }
+
+
+@api.get("/programme/around", auth=session_auth)
+def programme_around(request: HttpRequest, limit: int = 12):
+    """The college around one person's areas: who else works in them, and what was filed lately.
+
+    Two questions, in the order somebody asks them:
+
     - who else works on it? -- colleagues with papers in the same areas, most
       overlap first, excluding the person themselves;
     - what is happening in it right now? -- the most recent papers filed in
@@ -450,24 +503,8 @@ def programme_me(request: HttpRequest, limit: int = 12):
     """
     user = require_user(request)
     limit = max(1, min(int(limit), 50))
-
-    mine = Claim.objects.filter(owner=user).exclude(status=ClaimStatus.DRAFT)
-
-    # ---- my areas, from what I have actually published --------------------
-    my_areas: dict[str, int] = {}
-    for raw in mine.values_list("subjects_json", flat=True):
-        for area, _q in _split_subjects(raw):
-            my_areas[area] = my_areas.get(area, 0) + 1
-    ranked_areas = sorted(my_areas.items(), key=lambda kv: -kv[1])
+    _mine, ranked_areas, _stated = _my_areas(user)
     top_areas = [a for a, _n in ranked_areas[:8]]
-
-    stated = list(
-        ResearchInterest.objects.filter(user=user).values_list("domain", flat=True)
-    )
-
-    # Interests a person stated but has not published in are still theirs, and
-    # are what a new arrival with no papers has instead of an area list.
-    search_terms = top_areas[:4] or stated[:4]
 
     colleagues: list[dict[str, Any]] = []
     live: list[dict[str, Any]] = []
@@ -526,21 +563,9 @@ def programme_me(request: HttpRequest, limit: int = 12):
         )[:limit]
 
     return {
-        "areas": [{"key": a, "count": n} for a, n in ranked_areas[:12]],
-        "interests": stated,
-        "search_terms": search_terms,
+        "areas": list(top_areas),
         "colleagues": colleagues,
         "live": live,
-        "totals": {
-            "my_papers": mine.count(),
-            "my_areas": len(ranked_areas),
-            "colleagues": len(colleagues),
-        },
-        # Said on screen, because an empty programme page looks broken and is
-        # usually just somebody whose journals we could not classify.
-        "classified": mine.exclude(subjects_json__isnull=True)
-        .exclude(subjects_json="")
-        .count(),
     }
 
 
@@ -829,6 +854,8 @@ __all__ = [
     'journals_top',
     'my_interests',
     'programme_me',
+    'programme_around',
+    '_my_areas',
     'research_domains',
     'research_search_endpoint',
     'search_everything',

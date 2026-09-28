@@ -19,6 +19,7 @@ from core.models import FormulaConfig
 from core.services.remuneration import (
     DEFAULT_AUTHOR_POINTS,
     DEFAULT_PUB_TYPE_MULTIPLIERS,
+    DEFAULT_STUDENT_PROJECT_AMOUNT,
     MAX_ELIGIBLE_AUTHORS,
     MIN_SEC_REFERENCES,
 )
@@ -85,6 +86,13 @@ class Command(BaseCommand):
                 publication_type_multipliers_json=json.dumps(DEFAULT_PUB_TYPE_MULTIPLIERS),
                 notes="Step 8 of the Publication Processing Workflow document.",
                 active=True,
+                # Not in the document -- the final-year project scheme sits
+                # outside Step 8 -- so it is carried, not reset.
+                student_project_amount=(
+                    current.student_project_amount
+                    if current
+                    else DEFAULT_STUDENT_PROJECT_AMOUNT
+                ),
                 **POLICY,
             )
         self.stdout.write(

@@ -1,11 +1,40 @@
+import threading
 import uuid
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.utils import timezone
 
 
 def cuid():
     return uuid.uuid4().hex
+
+
+_clock_lock = threading.Lock()
+_clock_last = None
+
+
+def monotonic_now():
+    """Now, but never at or before the last value this process handed out.
+
+    The system clock on some hosts ticks once a millisecond, so two rows
+    written in the same loop share a timestamp exactly -- and with a random
+    id as the tie-break, "newest first" then orders them by coin toss. The
+    feed is ordered by when things were written, so its rows take their time
+    from here: one microsecond past the previous one when the clock has not
+    moved.
+    """
+    global _clock_last
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    with _clock_lock:
+        now = timezone.now()
+        if _clock_last is not None and now <= _clock_last:
+            now = _clock_last + timedelta(microseconds=1)
+        _clock_last = now
+        return now
 
 
 class Role(models.TextChoices):
@@ -160,6 +189,31 @@ class User(AbstractBaseUser, PermissionsMixin):
     #: as a penalty rather than as an agreement.
     research_quota_note = models.TextField(blank=True, null=True)
 
+    #: The one detail on an account its owner edits directly
+    #: (PATCH /auth/profile/self). Nothing is paid or checked against it, so
+    #: routing it through a super admin would only guarantee it goes stale.
+    phone = models.CharField(max_length=32, blank=True, null=True)
+
+    #: A few lines about themselves, shown on the public profile. Self-service
+    #: for the same reason as the phone: nothing is paid on it.
+    bio = models.TextField(blank=True, null=True)
+    #: The person's ORCID iD, checksum-verified before it is kept. Unlike the
+    #: Scopus link it attributes no claim to anybody, so it is theirs to set.
+    orcid_id = models.CharField(max_length=19, blank=True, null=True)
+    #: The storage name of their profile photo (`avatars/<uuid>.<ext>`),
+    #: re-encoded small on upload so it carries no camera metadata.
+    photo = models.CharField(max_length=255, blank=True, null=True)
+
+    #: A Google account the person linked from their profile, identified by
+    #: Google's stable subject id rather than by email: a personal Gmail
+    #: address never matches the college address the account was made with,
+    #: and an address can be renamed where the subject cannot. Unique, so one
+    #: Google account opens at most one account here.
+    google_sub = models.CharField(max_length=255, unique=True, blank=True, null=True)
+    #: Shown back on the profile so the person can see which account it is.
+    google_email = models.EmailField(blank=True, null=True)
+    google_linked_at = models.DateTimeField(blank=True, null=True)
+
     active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -245,6 +299,10 @@ class DepartmentTarget(models.Model):
         related_name="targets_set_on_them",
     )
     note = models.TextField(blank=True, null=True)
+    #: When the number is meant to be reached by. Optional: a year-long
+    #: target already has the year as its horizon, and a head who wants the
+    #: Q1 papers in before the accreditation visit can say so.
+    due_date = models.DateField(blank=True, null=True)
     set_by = models.ForeignKey(
         "User", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="targets_set",
@@ -272,6 +330,96 @@ class DepartmentTarget(models.Model):
     def __str__(self) -> str:
         who = self.person.name if self.person_id else self.department
         return f"{who} {self.year} {self.metric}: {self.target}"
+
+
+class DepartmentPlan(models.Model):
+    """What a department says it is for, in the head's words.
+
+    A target says how much; nothing said *what*. A new lecturer asking "what
+    should I be working on here" had nobody's answer but whoever they happened
+    to ask, and two heads in succession could steer the same department in
+    different directions without either direction ever being written down.
+
+    One row per department. `research_areas` is a short list of short labels
+    ("Photonics", "Condensed matter") rather than prose, so it can be shown as
+    chips and matched against later; the prose belongs in `vision`.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    department = models.CharField(max_length=255, unique=True)
+    vision = models.TextField(blank=True, default="")
+    research_areas = models.JSONField(default=list, blank=True)
+    updated_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="department_plans_updated",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.department} plan"
+
+
+class DepartmentAssignment(models.Model):
+    """A piece of work a head has handed to somebody in their department.
+
+    Three kinds, because a head hands out three different things: a task
+    ("draft the criterion 3 narrative"), a pairing of two people who should
+    write together, and a research area somebody is asked to take up. They
+    share a status and a deadline, and the people on one see it on their own
+    home screen -- which is the whole point: an instruction given in a
+    corridor has no record, and nobody can tell later whether it was done.
+
+    Both people must be in the department the assignment belongs to; that is
+    checked by the endpoints, which know who is asking. The database refuses
+    the one shape that is wrong whoever asks: a person paired with themselves.
+    Deliberately carries no money -- a head is money-blind.
+    """
+
+    class Kind(models.TextChoices):
+        TASK = "TASK", "Task"
+        PAIRING = "PAIRING", "Co-author pairing"
+        RESEARCH_AREA = "RESEARCH_AREA", "Research area"
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        IN_PROGRESS = "IN_PROGRESS", "In progress"
+        DONE = "DONE", "Done"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    department = models.CharField(max_length=255, db_index=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    title = models.CharField(max_length=200)
+    notes = models.TextField(blank=True, default="")
+    assignee = models.ForeignKey(
+        "User", on_delete=models.CASCADE, related_name="assignments"
+    )
+    #: The second author of a PAIRING; empty for every other kind.
+    partner = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="paired_assignments",
+    )
+    due_date = models.DateField(blank=True, null=True)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True
+    )
+    created_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="assignments_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(partner=models.F("assignee")),
+                name="assignment_partner_is_not_the_assignee",
+            ),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.department} {self.kind}: {self.title[:40]}"
 
 
 class JournalStanding(models.Model):
@@ -396,6 +544,10 @@ class FormulaConfig(models.Model):
     #: Finance can pay them. Zero disables the rule — it needs two admin
     #: accounts to satisfy, so it is opt-in rather than on by default.
     high_value_threshold = models.FloatField(default=0)
+    #: The day of the month filing closes for that month's payment run, 1-28.
+    #: Empty means the college has not set one, and then nobody is reminded of
+    #: a deadline -- a reminder about a date nobody decided is fake urgency.
+    filing_cutoff_day = models.PositiveSmallIntegerField(blank=True, null=True)
     author_point_json = models.TextField()
     # e.g. {"Journal": 1, "Conference Proceeding": 0.8, "Book Series": 0.5, "Other": 0.5}
     publication_type_multipliers_json = models.TextField(
@@ -403,6 +555,11 @@ class FormulaConfig(models.Model):
     )
     student_remuneration_zero = models.BooleanField(default=True)
     qf_only_for_no_snip = models.BooleanField(default=True)
+    #: The Final Year Student Project Reimbursement Scheme: a fixed amount per
+    #: team per conference paper, paid to the team's mentor. A scheme of its
+    #: own -- not the SNIP formula, no author-position split (college decision
+    #: of 2026-09-23, "15k per conference").
+    student_project_amount = models.FloatField(default=15000)
     active = models.BooleanField(default=True)
     notes = models.TextField(blank=True, null=True)
     updated_by = models.ForeignKey(
@@ -608,6 +765,24 @@ class Claim(models.Model):
         related_name="duplicate_overrides",
     )
     override_at = models.DateTimeField(null=True, blank=True)
+
+    #: Paused at the desk it is sitting at, without leaving it. A flag rather
+    #: than a status, so the paper keeps its place in the chain and every
+    #: status filter -- the queues, the counts, the budget, the reports --
+    #: goes on finding it where it was. Only the research supervisor's desk
+    #: (SUBMITTED) and the Principal's (CLEARED) can hold a paper; any status
+    #: change lifts the hold, because the paper is no longer where it was held.
+    on_hold = models.BooleanField(default=False)
+    hold_reason = models.TextField(blank=True, null=True)
+    held_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL, related_name="held_claims"
+    )
+    held_at = models.DateTimeField(null=True, blank=True)
+    #: REJECTED has always meant "returned to the claimant to fix and file
+    #: again". This marks the other kind of rejection -- not accepted at all --
+    #: which cannot be edited or refiled. A flag on REJECTED rather than a new
+    #: status, so everything that counts rejections keeps counting both.
+    rejected_outright = models.BooleanField(default=False)
 
     year_mismatch = models.BooleanField(default=False)
     year_mismatch_override = models.BooleanField(default=False)
@@ -949,6 +1124,15 @@ class Team(models.Model):
     #: Kept as text as well, because the roster carries mentors this system has
     #: no account for and losing the name is worse than not linking it.
     mentor_name = models.CharField(max_length=255, blank=True, null=True)
+    #: The roster's "Faculty ID" exactly as the department wrote it. `mentor`
+    #: is linked by matching it against `User.staff_id`; kept on its own so an
+    #: unmatched mentor can still be found and linked once their account
+    #: exists, rather than the one identifier the roster gave being lost.
+    mentor_staff_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    #: When the office's roster import last wrote this team. Null for a team
+    #: entered by hand. A student-project claim is paid per team, so where the
+    #: team came from is part of why the claim is payable.
+    imported_at = models.DateTimeField(blank=True, null=True)
 
     active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
@@ -997,6 +1181,48 @@ class TeamMember(models.Model):
         return f"{self.name} ({self.register_number or 'no register number'})"
 
 
+class ScopusProfile(models.Model):
+    """One author's Scopus profile, as the office's profile workbook has it.
+
+    Academic figures, not money: publications, citations, the h-index and the
+    document list Scopus holds for the author. Imported rather than fetched,
+    because the college's workbook is what it has and the Scopus API key is
+    rationed for verifying claims.
+
+    `user` is the account the profile was linked to when it was imported --
+    by the account's own Scopus id, or through the faculty master's. It is a
+    record of that match, not the only way to find a person's profile: an id
+    corrected on an account afterwards is matched again on the next import,
+    and `core.services.scopus_profiles.profile_for` looks the id up directly.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    #: Digits only. The workbook hands them over as floats ("57527550200.0").
+    scopus_id = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="scopus_profiles"
+    )
+    author_name = models.CharField(max_length=255, blank=True, null=True)
+    affiliation = models.CharField(max_length=512, blank=True, null=True)
+    total_publications = models.PositiveIntegerField(blank=True, null=True)
+    total_citations = models.PositiveIntegerField(blank=True, null=True)
+    h_index = models.PositiveIntegerField(blank=True, null=True)
+    #: Every Metric | Value pair on the sheet, as read, plus the Year |
+    #: Publications table under "Publications by year".
+    metrics = models.JSONField(default=dict, blank=True)
+    # The papers on the sheet go into the publication record (Publication /
+    # Authorship), not here: one list of papers, not two.
+    source_sheet = models.CharField(max_length=255, blank=True, default="")
+    source_file = models.CharField(max_length=255, blank=True, null=True)
+    imported_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["author_name", "scopus_id"]
+
+    def __str__(self) -> str:
+        return f"{self.scopus_id} ({self.source_sheet})"
+
+
 class PaidLedger(models.Model):
     """Master_List_Accounts style month ledger."""
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
@@ -1026,6 +1252,31 @@ class AuditLog(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class ClaimConfirmation(models.Model):
+    """One eligibility condition ticked by a person for one article, at filing.
+
+    Legal record (services/filing_conditions.py): the exact text and version
+    shown, when it was ticked, and from where. Never edited. The AuditLog row written alongside
+    outlives the claim if the claim is ever deleted.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="confirmations")
+    user = models.ForeignKey(User, null=True, on_delete=models.SET_NULL, related_name="claim_confirmations")
+    condition_id = models.CharField(max_length=32)
+    text_version = models.CharField(max_length=16)
+    text = models.TextField()
+    doi = models.CharField(max_length=255, blank=True, null=True)
+    paper_title = models.TextField(blank=True, null=True)
+    ticked_at = models.DateTimeField()
+    recorded_at = models.DateTimeField(auto_now_add=True)
+    ip_address = models.CharField(max_length=64, blank=True, null=True)
+    user_agent = models.CharField(max_length=512, blank=True, default="")
+
+    class Meta:
+        indexes = [models.Index(fields=["claim", "recorded_at"])]
+
+
 class Notification(models.Model):
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
@@ -1035,6 +1286,19 @@ class Notification(models.Model):
     read = models.BooleanField(default=False)
     claim_id = models.CharField(max_length=32, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    #: Which kind of alert this is (core.services.notify.KINDS). It is what a
+    #: person switches off, and what the bell's tabs filter on. Rows written
+    #: before kinds existed, or by code that writes rows directly, are
+    #: "general" -- which can be switched off like any other.
+    kind = models.CharField(max_length=40, default="general", db_index=True)
+    #: Alerts with the same key merge while unread: three likes on one post
+    #: are one line, "Asha and 2 others liked your post".
+    group_key = models.CharField(max_length=160, blank=True, null=True, db_index=True)
+    group_count = models.PositiveIntegerField(default=1)
+    #: Who the grouped alert is about, newest first: [{"id", "name"}].
+    actors = models.JSONField(default=list, blank=True)
+    #: When this alert also went out by email. What the daily email cap counts.
+    emailed_at = models.DateTimeField(blank=True, null=True, db_index=True)
 
 
 class ProfileChangeRequest(models.Model):
@@ -1253,6 +1517,9 @@ class ThreadParticipant(models.Model):
         "User", on_delete=models.CASCADE, related_name="direct_threads"
     )
     added_at = models.DateTimeField(auto_now_add=True)
+    #: When they last had the conversation open and in front of them. What
+    #: "unread" is counted from, and what the others see as "seen".
+    last_read_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         constraints = [
@@ -1415,11 +1682,18 @@ class CalendarEvent(models.Model):
             (v, label)
             for v, label in Thread.Visibility.choices
             if v != Thread.Visibility.DIRECT
-        ],
+        ]
+        #: A personal reminder: its creator's and nobody else's, the office
+        #: included. Threads have no such thing; a diary does.
+        + [("PRIVATE", "Only me")],
         default=Thread.Visibility.PUBLIC,
         db_index=True,
     )
     department = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+
+    #: Null on both for an all-day entry. A time is local college time.
+    starts_at = models.TimeField(blank=True, null=True)
+    ends_at = models.TimeField(blank=True, null=True)
 
     #: Where it came from, when it came from somewhere.
     thread = models.ForeignKey(
@@ -1441,6 +1715,22 @@ class CalendarEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.starts_on} {self.title[:40]}"
+
+
+class CalendarFeed(models.Model):
+    """The secret in somebody's calendar subscription URL.
+
+    A bearer token: whoever holds the link reads the feed, which is why the
+    feed carries titles and dates only, and why a reset replaces the token --
+    the old link stops working at once.
+    """
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="calendar_feed")
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"feed {self.user_id}"
 
 
 class ResearchInterest(models.Model):
@@ -1500,3 +1790,888 @@ class SystemSetting(models.Model):
 
     def __str__(self) -> str:
         return f"{self.key}"
+
+
+class StoredFile(models.Model):
+    """An uploaded file kept in the database (core.storage_db.DatabaseStorage)."""
+
+    name = models.CharField(max_length=512, unique=True)
+    content = models.BinaryField()
+    size = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class ClaimFlag(models.Model):
+    """A discrepancy somebody noticed on a claim, which never stops it.
+
+    The college's rule (2026-09-23): a claim with a question over it keeps
+    moving and can be paid. Holding the money until the question is answered
+    is what a hold is for; a flag is the record that the question was asked,
+    by whom, and what the answer was -- so that paying a claim somebody had
+    doubts about is a visible decision rather than an unnoticed one.
+
+    Seen by the research cell, the coordinator, the Principal and the super
+    admin. Never by the Director or Finance (the same rule as the contested
+    payment-history match, `core.visibility`) and never by the claimant.
+    """
+
+    class Kind(models.TextChoices):
+        CONTENT_MISMATCH = "CONTENT_MISMATCH", "The file does not match the claim"
+        AMOUNT = "AMOUNT", "Amount"
+        AUTHOR = "AUTHOR", "Author"
+        AFFILIATION = "AFFILIATION", "Affiliation"
+        DUPLICATE = "DUPLICATE", "Possible duplicate"
+        OTHER = "OTHER", "Something else"
+
+    class Source(models.TextChoices):
+        AUTO = "AUTO", "Raised by a check"
+        MANUAL = "MANUAL", "Raised by a reviewer"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="flags")
+    kind = models.CharField(max_length=32, choices=Kind.choices, db_index=True)
+    source = models.CharField(max_length=8, choices=Source.choices, default=Source.MANUAL)
+    note = models.TextField()
+    #: Null for a flag a check raised on its own.
+    raised_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="flags_raised"
+    )
+    raised_at = models.DateTimeField(auto_now_add=True)
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="flags_resolved"
+    )
+    resolved_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    resolution_note = models.TextField(blank=True, null=True)
+    #: What an automatic check keys its flag on -- one flag per file, per
+    #: import rule -- so running the check again raises nothing twice, and a
+    #: flag somebody has resolved is not raised again behind their back.
+    #: Null on a reviewer's own flag: two people may well ask two questions.
+    auto_key = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        ordering = ["-raised_at"]
+        indexes = [models.Index(fields=["claim", "resolved_at"])]
+        constraints = [
+            models.UniqueConstraint(fields=["claim", "auto_key"], name="one_auto_flag_per_key")
+        ]
+
+    @property
+    def is_open(self) -> bool:
+        return self.resolved_at is None
+
+    def __str__(self) -> str:
+        return f"{self.kind} on {self.claim_id}"
+
+
+class AttachmentCheck(models.Model):
+    """What one file on a claim was found to say, against what the claim says.
+
+    Keyed on the claim and the file's URL rather than on the attachment row:
+    a draft's attachment set is deleted and rebuilt on every save
+    (`_persist_attachments`), and a result tied to the row would vanish with
+    it while the file itself had not changed.
+    """
+
+    class Outcome(models.TextChoices):
+        MATCHED = "MATCHED", "The file says what the claim says"
+        MISMATCH = "MISMATCH", "The title or DOI is not in the file"
+        NO_TEXT = "NO_TEXT", "No text to read -- probably scanned"
+        UNREADABLE = "UNREADABLE", "The file could not be opened"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="file_checks")
+    url = models.TextField()
+    kind = models.CharField(max_length=32, choices=AttachmentKind.choices)
+    filename = models.CharField(max_length=255, blank=True, null=True)
+    #: The bytes that were read.
+    content_hash = models.CharField(max_length=64, blank=True, null=True)
+    #: The claim's facts the file was compared with, hashed
+    #: (`content_check.claim_fingerprint`). A result is reused only while the
+    #: claim still says the same thing; change the title and the file is read
+    #: again.
+    claim_fingerprint = models.CharField(max_length=64, blank=True, null=True)
+    outcome = models.CharField(max_length=16, choices=Outcome.choices)
+    #: Which of the claim's facts turned up in the text, and which did not:
+    #: title, doi, journal, claimant, affiliation (a published paper) or
+    #: reference_title, affiliation (a cited reference).
+    found_json = models.TextField(default="[]")
+    missing_json = models.TextField(default="[]")
+    #: Found as a share of what could be looked for, 0-100. Null when there
+    #: was no text to look in.
+    score = models.PositiveSmallIntegerField(blank=True, null=True)
+    detail = models.TextField(blank=True, null=True)
+    text_chars = models.PositiveIntegerField(default=0)
+    checked_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["checked_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["claim", "url"], name="one_check_per_claim_file")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.outcome} {self.url}"
+
+
+# ---------------------------------------------------------------- the feed --
+
+
+class FeedPost(models.Model):
+    """One post in the college's feed.
+
+    The feed replaced the open threads: a colleague sharing a paper, asking
+    who has used a machine, or announcing a seminar wants to be *seen*, and a
+    list of thread titles hid all of that behind a click. Private conversations
+    (a named few, or the research office) stay as threads -- they are messages,
+    not posts.
+
+    Visibility is two-valued and read in one place (`core.social.visible_posts`):
+
+    - EVERYONE    everybody signed in
+    - DEPARTMENT  the author's department, snapshotted into `department` when
+                  the post is written. A department-only post must not follow
+                  its author into their next department.
+
+    No money is ever stored or rendered here. A paper reference points at the
+    author's own filed paper and is shown by title, journal, year and quartile.
+    """
+
+    class Visibility(models.TextChoices):
+        EVERYONE = "EVERYONE", "Everybody"
+        DEPARTMENT = "DEPARTMENT", "My department"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="feed_posts")
+    body = models.TextField(blank=True, default="")
+    visibility = models.CharField(
+        max_length=16, choices=Visibility.choices, default=Visibility.EVERYONE, db_index=True
+    )
+    #: The author's department when they wrote it. Always set when they had
+    #: one: it is what a DEPARTMENT post is visible to, and what "follow a
+    #: department" and the department tab match on.
+    department = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+
+    link_url = models.CharField(max_length=500, blank=True, null=True)
+    paper = models.ForeignKey(
+        "Claim", null=True, blank=True, on_delete=models.SET_NULL, related_name="feed_posts"
+    )
+    #: Resolved @mentions, as written. Resolved once, when the post is saved,
+    #: for the reason `Mention` gives: a name must not quietly re-point later.
+    mentions_json = models.TextField(default="[]")
+
+    #: An image or a PDF, stored under `feed/` and served only through the
+    #: authenticated view that checks the reader may see this post.
+    attachment_name = models.CharField(max_length=255, blank=True, null=True)
+    attachment_kind = models.CharField(max_length=8, blank=True, null=True)
+    attachment_label = models.CharField(max_length=255, blank=True, null=True)
+    attachment_size = models.PositiveIntegerField(blank=True, null=True)
+
+    #: Ordered on, so it comes from `monotonic_now`: two posts must never tie.
+    created_at = models.DateTimeField(default=monotonic_now, db_index=True)
+    edited_at = models.DateTimeField(blank=True, null=True)
+
+    #: Hidden by the super admin. Still there for its author, who is told why.
+    hidden_at = models.DateTimeField(blank=True, null=True)
+    hidden_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="feed_posts_hidden"
+    )
+    hidden_reason = models.CharField(max_length=300, blank=True, null=True)
+
+    #: The open thread this post was carried over from, when it was one.
+    legacy_thread = models.OneToOneField(
+        "Thread", null=True, blank=True, on_delete=models.SET_NULL, related_name="feed_post"
+    )
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["-created_at", "-id"], name="feedpost_newest_first"),
+            models.Index(fields=["author", "-created_at"], name="feedpost_by_author"),
+            models.Index(fields=["department", "-created_at"], name="feedpost_by_department"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.author_id}: {self.body[:40]}"
+
+
+class FeedComment(models.Model):
+    """A reply under a post.
+
+    `kind` exists only for comments carried over from an old thread, where
+    the assistant or the system had written some of the replies.
+    """
+
+    class Kind(models.TextChoices):
+        HUMAN = "HUMAN", "Written by a person"
+        AGENT = "AGENT", "Answered by the assistant"
+        SYSTEM = "SYSTEM", "Recorded by the system"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    post = models.ForeignKey(FeedPost, on_delete=models.CASCADE, related_name="comments")
+    #: Null for a carried-over assistant or system reply -- nobody wrote it.
+    author = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.CASCADE, related_name="feed_comments"
+    )
+    kind = models.CharField(max_length=8, choices=Kind.choices, default=Kind.HUMAN)
+    body = models.TextField()
+    mentions_json = models.TextField(default="[]")
+    created_at = models.DateTimeField(default=monotonic_now)
+    edited_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [models.Index(fields=["post", "created_at"], name="feedcomment_by_post")]
+
+    def __str__(self) -> str:
+        return f"{self.post_id}: {self.body[:40]}"
+
+
+class FeedReaction(models.Model):
+    """A reaction to a post: a like, or one of the three a college has use for.
+
+    One of each kind per person per post -- congratulating twice is still
+    congratulating once -- but a person may both like a post and say they
+    would like to work on it, because those are different things to say.
+    """
+
+    class Kind(models.TextChoices):
+        LIKE = "LIKE", "Like"
+        CONGRATS = "CONGRATS", "Congrats"
+        INTERESTED = "INTERESTED", "Interested"
+        #: "I would like to work on this with you." Opens a message to the
+        #: author, which is the point of saying it.
+        COLLABORATE = "COLLABORATE", "Want to collaborate"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    post = models.ForeignKey(FeedPost, on_delete=models.CASCADE, related_name="reactions")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="feed_reactions")
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.LIKE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["post", "user", "kind"], name="one_reaction_kind_per_person_per_post"
+            )
+        ]
+
+
+class Follow(models.Model):
+    """Somebody following a colleague, a department, a subject area or a journal.
+
+    Exactly one of `person`, `department`, `topic` and `journal` is set. A
+    department is kept as the name people are filed under, because that is
+    the only department record the system has; a topic is a subject area as
+    the papers and interests spell it; a journal is its title.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    follower = models.ForeignKey(User, on_delete=models.CASCADE, related_name="follows")
+    person = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.CASCADE, related_name="followers"
+    )
+    department = models.CharField(max_length=255, blank=True, null=True)
+    topic = models.CharField(max_length=160, blank=True, null=True)
+    journal = models.CharField(max_length=512, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["follower", "person"], name="follow_a_person_once",
+                condition=models.Q(person__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["follower", "department"], name="follow_a_department_once",
+                condition=models.Q(department__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["follower", "topic"], name="follow_a_topic_once",
+                condition=models.Q(topic__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=["follower", "journal"], name="follow_a_journal_once",
+                condition=models.Q(journal__isnull=False),
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(person__isnull=False, department__isnull=True,
+                             topic__isnull=True, journal__isnull=True)
+                    | models.Q(person__isnull=True, department__isnull=False,
+                               topic__isnull=True, journal__isnull=True)
+                    | models.Q(person__isnull=True, department__isnull=True,
+                               topic__isnull=False, journal__isnull=True)
+                    | models.Q(person__isnull=True, department__isnull=True,
+                               topic__isnull=True, journal__isnull=False)
+                ),
+                name="follow_one_thing",
+            ),
+        ]
+
+
+class PostReport(models.Model):
+    """Somebody telling the super admin a post should not be there."""
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Waiting for the super admin"
+        HIDDEN = "HIDDEN", "The post was hidden"
+        DISMISSED = "DISMISSED", "Looked at, left up"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    post = models.ForeignKey(FeedPost, on_delete=models.CASCADE, related_name="reports")
+    reporter = models.ForeignKey(User, on_delete=models.CASCADE, related_name="post_reports")
+    reason = models.CharField(max_length=500)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(blank=True, null=True)
+    resolved_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="post_reports_resolved"
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["post", "reporter"], name="one_open_report_per_person_per_post",
+                condition=models.Q(status="OPEN"),
+            )
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Rewards for work already done: badges, celebrations, goals, the impact card
+# and the wall of fame. Everything here is computed from recognised papers
+# (`core.services.records`) and none of it carries money -- these are the
+# things other people see.
+# ---------------------------------------------------------------------------
+
+
+class Badge(models.Model):
+    """Something a person has done, recognised once, with the paper that did it.
+
+    Awarded by `core.services.achievements.award_badges`, which is safe to run
+    any number of times: `(user, key)` is unique, so a second run finds the row
+    and leaves it. `key` is the kind plus whatever makes it repeatable --
+    `FIRST_Q1` happens once, `TOP10_DEPARTMENT:2025` once a year.
+
+    `earned_on` is when the achievement happened (the evidence paper's date),
+    not when this row was written: a badge for a 2024 paper says 2024 even
+    though the engine that noticed it was built in 2026.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="badges")
+    kind = models.CharField(max_length=32, db_index=True)
+    key = models.CharField(max_length=80)
+    earned_on = models.DateField()
+    #: The paper that earned it, copied rather than linked: most history is a
+    #: ledger row with no claim, and a badge must still say which paper it was.
+    evidence_title = models.TextField(blank=True, default="")
+    evidence_journal = models.CharField(max_length=512, blank=True, default="")
+    evidence_year = models.IntegerField(blank=True, null=True)
+    evidence_claim = models.ForeignKey(
+        Claim, null=True, blank=True, on_delete=models.SET_NULL, related_name="badges"
+    )
+    #: One plain sentence, e.g. "With a colleague in ECE".
+    detail = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-earned_on", "kind"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "key"], name="one_badge_per_key_per_person")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.key}"
+
+
+class Celebration(models.Model):
+    """A one-time moment on somebody's home screen, shown once and then gone.
+
+    One row per person per occasion, so "shown once" is a fact in the database
+    rather than a flag in one browser's storage: a person who signs in on their
+    phone does not see yesterday's celebration a second time. `key` makes the
+    fan-out idempotent -- the same milestone reached twice by two job runs is
+    one celebration.
+    """
+
+    class Kind(models.TextChoices):
+        BADGE = "BADGE", "A badge"
+        TARGET = "TARGET", "A department target"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="celebrations")
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    key = models.CharField(max_length=160)
+    title = models.CharField(max_length=200)
+    body = models.TextField(blank=True, default="")
+    badge = models.ForeignKey(
+        Badge, null=True, blank=True, on_delete=models.CASCADE, related_name="celebrations"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    seen_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "key"], name="one_celebration_per_occasion")
+        ]
+
+
+class DepartmentMilestone(models.Model):
+    """A department crossed 50, 75 or 100 per cent of one of its targets.
+
+    Recorded so the crossing is celebrated once however many times the check
+    runs. The target's size is part of the key: a head who raises the number
+    has set a new target, and reaching half of it is a new milestone.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    department = models.CharField(max_length=255, db_index=True)
+    year = models.PositiveIntegerField()
+    metric = models.CharField(max_length=24)
+    target = models.PositiveIntegerField()
+    threshold = models.PositiveSmallIntegerField()
+    done = models.PositiveIntegerField()
+    reached_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-reached_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["department", "year", "metric", "target", "threshold"],
+                name="one_milestone_per_target_threshold",
+            )
+        ]
+
+
+class ResearchGoal(models.Model):
+    """What a person means to publish this year, in their own numbers.
+
+    Private to them. Their head sees only counts across the department
+    (`/api/hod/goals`) -- how many people set a goal, how many met it -- never
+    whose goal is whose. Nothing reminds anybody about a goal.
+    """
+
+    class Metric(models.TextChoices):
+        PAPERS = "PAPERS", "Papers"
+        Q1 = "Q1", "Q1 papers"
+        FIRST_AUTHOR = "FIRST_AUTHOR", "First-author papers"
+        CITATIONS = "CITATIONS", "Citations"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="research_goals")
+    year = models.PositiveIntegerField()
+    metric = models.CharField(max_length=16, choices=Metric.choices)
+    target = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["year", "metric"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "year", "metric"], name="one_goal_per_metric_per_year"
+            )
+        ]
+
+
+class ImpactShare(models.Model):
+    """Whether somebody's impact card may be seen by anyone with the link.
+
+    Off until the person turns it on, and off again the moment they say so:
+    the public page and its image both answer 404 while `enabled` is false.
+    The token is random and is the only thing in the URL -- no id, no name.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="impact_share")
+    token = models.CharField(max_length=64, unique=True)
+    enabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class WallPin(models.Model):
+    """The paper of the month a head chose for their department's wall.
+
+    `department` empty is the college-wide wall, which the Principal or a
+    super admin pins. The paper is named by its normalised title (the key the
+    wall groups co-authors under) and its title is copied so the pin still
+    reads correctly if the paper's record later changes.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    department = models.CharField(max_length=255, blank=True, default="")
+    month = models.DateField()
+    paper_key = models.CharField(max_length=512)
+    title = models.TextField()
+    pinned_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="wall_pins"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["department", "month"], name="one_pin_per_wall_month")
+        ]
+
+
+class WallCheer(models.Model):
+    """One person congratulating the authors of one paper on the wall of fame.
+
+    Keyed by the wall's paper key (the normalised title it groups co-authors
+    under), because most wall papers are historic ledger rows with no claim
+    and no feed post to react to. Once per person per paper, by constraint.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    paper_key = models.CharField(max_length=512, db_index=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="wall_cheers")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["paper_key", "user"], name="one_cheer_per_person_paper")
+        ]
+
+
+# ---------------------------------------------------------------------------
+# The social layer's second storey: collaboration, profiles that say what
+# somebody is good at, and the numbers a person sees about their own reach.
+# ---------------------------------------------------------------------------
+
+
+class CollaborationRequest(models.Model):
+    """"Shall we write this together?" -- sent as a card in a direct message.
+
+    It lives in the conversation between the two people, as a message with a
+    structured part, so the answer and whatever they say around it stay in
+    one place. Suggesting a call keeps it open; accepting makes a
+    `Collaboration` both of them can see on their profiles.
+    """
+
+    class State(models.TextChoices):
+        PENDING = "PENDING", "Waiting for an answer"
+        CALL = "CALL", "A call was suggested"
+        ACCEPTED = "ACCEPTED", "Accepted"
+        DECLINED = "DECLINED", "Declined"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    thread = models.ForeignKey(Thread, on_delete=models.CASCADE, related_name="collab_requests")
+    #: The message that carries the card.
+    post = models.OneToOneField(Post, on_delete=models.CASCADE, related_name="collab_request")
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name="collab_requests_sent")
+    recipient = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="collab_requests_received"
+    )
+    topic = models.CharField(max_length=200)
+    journal = models.CharField(max_length=512, blank=True, default="")
+    message = models.TextField(blank=True, default="")
+    state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
+    response_note = models.CharField(max_length=500, blank=True, default="")
+    responded_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class Collaboration(models.Model):
+    """Two (or more) colleagues who agreed to work on something together.
+
+    Shown on every member's profile and drawn in the collaboration graph
+    beside the co-authorships the claims imply. Ended rather than deleted, so
+    the graph can one day say "worked together on" as well as "working on".
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    request = models.OneToOneField(
+        CollaborationRequest, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="collaboration",
+    )
+    topic = models.CharField(max_length=200)
+    journal = models.CharField(max_length=512, blank=True, default="")
+    members = models.ManyToManyField(User, related_name="collaborations")
+    created_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class PinnedPaper(models.Model):
+    """One of the (at most three) papers somebody chose to show first."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="pinned_papers")
+    claim = models.ForeignKey("Claim", on_delete=models.CASCADE, related_name="pins")
+    position = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["position", "created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "claim"], name="pin_a_paper_once")
+        ]
+
+
+class Skill(models.Model):
+    """Something a person says they can do, for colleagues to vouch for."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="skills")
+    name = models.CharField(max_length=80)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            # "Python" and "python" are one skill; listing it twice would split
+            # its endorsements in two.
+            models.UniqueConstraint(
+                models.functions.Lower("name"), "user", name="one_skill_per_name_per_person"
+            )
+        ]
+        indexes = [models.Index(fields=["name"], name="skill_by_name")]
+
+
+class Endorsement(models.Model):
+    """A colleague vouching for somebody's skill. Once each."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    skill = models.ForeignKey(Skill, on_delete=models.CASCADE, related_name="endorsements")
+    endorser = models.ForeignKey(User, on_delete=models.CASCADE, related_name="endorsements_given")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["skill", "endorser"], name="endorse_a_skill_once")
+        ]
+
+
+class ProfileVisit(models.Model):
+    """Somebody opened somebody else's profile, counted once per day.
+
+    Only ever shown back as numbers, and only to the person visited. Who
+    visited is kept so the count can be of people rather than page loads; it
+    is never shown to anybody. A person can choose not to be counted
+    (`SocialSettings.count_my_visits`).
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    profile = models.ForeignKey(User, on_delete=models.CASCADE, related_name="profile_visits")
+    viewer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="profiles_visited")
+    day = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["profile", "viewer", "day"], name="one_visit_per_viewer_per_day"
+            )
+        ]
+        indexes = [models.Index(fields=["profile", "day"], name="visit_by_profile_day")]
+
+
+class PostView(models.Model):
+    """A post reached somebody's screen. Once per person: this is reach, not load count."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    post = models.ForeignKey(FeedPost, on_delete=models.CASCADE, related_name="views")
+    viewer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="posts_seen")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["post", "viewer"], name="one_view_per_person_per_post")
+        ]
+
+
+class SocialSettings(models.Model):
+    """A person's switches that are about them rather than one kind of alert.
+
+    `count_my_visits` off means their visits to other people's profiles and
+    posts are not recorded for anybody's statistics. `whatsapp_opt_in` is the
+    explicit consent WhatsApp's business rules want before a message; it only
+    matters once the college has configured the channel. A person with no row
+    is counted and not on WhatsApp.
+
+    Which kinds of alert a person wants, and how, is not here: that is
+    `NotificationPreference`, the one store every alert (social ones included)
+    is checked against. The social layer's old mute list was moved into it
+    (migration 0051).
+    """
+
+    user = models.OneToOneField(
+        User, primary_key=True, on_delete=models.CASCADE, related_name="social_settings"
+    )
+    count_my_visits = models.BooleanField(default=True)
+    whatsapp_opt_in = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class NotificationPreference(models.Model):
+    """How one person wants one kind of alert: in the app and by email, in the
+    app only, or not at all.
+
+    No row means the kind's default (core.services.notify.KINDS). A row is
+    written only when somebody changes a setting, so a kind added next year
+    reaches everybody at its default without a data migration.
+    """
+
+    class Level(models.TextChoices):
+        EMAIL = "email", "In the app and by email"
+        IN_APP = "in_app", "In the app"
+        OFF = "off", "Off"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="notification_preferences"
+    )
+    kind = models.CharField(max_length=40)
+    level = models.CharField(max_length=8, choices=Level.choices)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "kind"], name="one_preference_per_kind")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.kind}={self.level}"
+
+
+class CitationCount(models.Model):
+    """How often OpenAlex says a paper has been cited, keyed by its DOI.
+
+    Keyed by DOI rather than by claim: co-authors each file their own claim
+    for one paper, and it is checked once and told to each of them.
+    """
+
+    doi = models.CharField(primary_key=True, max_length=255)
+    #: Null until OpenAlex has been asked, or when it did not know the DOI.
+    count = models.IntegerField(blank=True, null=True)
+    openalex_id = models.CharField(max_length=64, blank=True, null=True)
+    #: Oldest first is the order the daily job works through, so a DOI list
+    #: larger than one day's share is covered over several days.
+    checked_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    changed_at = models.DateTimeField(blank=True, null=True)
+
+
+class CitationHistory(models.Model):
+    """A citation count as it was on a day it changed."""
+
+    citation = models.ForeignKey(CitationCount, on_delete=models.CASCADE, related_name="history")
+    count = models.IntegerField()
+    at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["at"]
+
+
+class Publication(models.Model):
+    """One paper, whoever in the college wrote it -- the full publication record.
+
+    Filled from OpenAlex (every work whose raw affiliation names the college,
+    plus every DOI the college's claims and ledger rows carry), from the
+    Scopus profile workbook, and -- for a paper neither source knows -- from
+    the claim or ledger row itself (`source = "record"`). Carries no money.
+
+    Identity is the OpenAlex id where there is one, else the DOI, else the
+    Scopus EID; `normalized_title` is the last resort when linking records.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    openalex_id = models.CharField(max_length=32, unique=True, blank=True, null=True)
+    doi = models.CharField(max_length=255, blank=True, null=True, db_index=True)
+    eid = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    title = models.TextField(blank=True, default="")
+    normalized_title = models.CharField(max_length=512, blank=True, default="", db_index=True)
+    year = models.IntegerField(blank=True, null=True, db_index=True)
+    date = models.DateField(blank=True, null=True)
+    venue = models.CharField(max_length=512, blank=True, default="")
+    issn = models.CharField(max_length=64, blank=True, default="")
+    #: OpenAlex work type (article, book-chapter...) or the record's own
+    #: document type when OpenAlex does not know the paper.
+    type = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    #: SJR quartile from the college's own records (claim or ledger row).
+    quartile = models.CharField(max_length=8, blank=True, default="", db_index=True)
+    citations = models.IntegerField(default=0)
+    citations_refreshed_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    oa_url = models.TextField(blank=True, default="")
+    #: A short list of topic names, JSON.
+    topics_json = models.TextField(blank=True, default="[]")
+    #: openalex | scopus_sheet | record
+    source = models.CharField(max_length=16, default="openalex")
+    claims = models.ManyToManyField("Claim", blank=True, related_name="publications")
+    ledger_rows = models.ManyToManyField("PaidLedger", blank=True, related_name="publications")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-year", "title"]
+
+    def __str__(self):
+        return f"{self.year} {self.title[:60]}"
+
+
+class Authorship(models.Model):
+    """One author on one publication, inside or outside the college.
+
+    `author_key` identifies the person across papers when nobody in the
+    college is behind the row: the OpenAlex author id (``A123``) when OpenAlex
+    gave one, else ``n:<normalised name>``. The co-author graph and the
+    external search group on it.
+    """
+
+    publication = models.ForeignKey(Publication, on_delete=models.CASCADE, related_name="authorships")
+    #: 1-based; null for an author added from a record with no author order.
+    position = models.IntegerField(blank=True, null=True)
+    display_name = models.CharField(max_length=255)
+    raw_affiliation = models.TextField(blank=True, default="")
+    openalex_author_id = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    orcid = models.CharField(max_length=19, blank=True, default="", db_index=True)
+    institution_name = models.CharField(max_length=255, blank=True, default="")
+    institution_country = models.CharField(max_length=8, blank=True, default="")
+    author_key = models.CharField(max_length=160, db_index=True)
+    #: The raw affiliation names the college, or a college record put them here.
+    is_college = models.BooleanField(default=False, db_index=True)
+    user = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL, related_name="authorships"
+    )
+    #: 0..1: how sure the matcher is that `user` wrote this.
+    match_confidence = models.FloatField(default=0)
+    #: orcid | record | author_id | name | name_dept | scopus_sheet | manual
+    match_method = models.CharField(max_length=16, blank=True, default="")
+    #: Set when a person corrects a match; the matcher leaves the row alone.
+    match_locked = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["publication_id", "position"]
+        indexes = [models.Index(fields=["user", "publication"], name="authorship_user_pub")]
+
+    def __str__(self):
+        return f"{self.display_name} on {self.publication_id}"
+
+
+class PublicationMetrics(models.Model):
+    """A college member's publication record in six numbers, kept current by
+    match_authors and the weekly citation refresh."""
+
+    user = models.OneToOneField(
+        "User", on_delete=models.CASCADE, primary_key=True, related_name="publication_metrics"
+    )
+    total_publications = models.IntegerField(default=0)
+    total_citations = models.IntegerField(default=0)
+    h_index = models.IntegerField(default=0)
+    i10_index = models.IntegerField(default=0)
+    first_year = models.IntegerField(blank=True, null=True)
+    last_year = models.IntegerField(blank=True, null=True)
+    computed_at = models.DateTimeField(default=timezone.now)

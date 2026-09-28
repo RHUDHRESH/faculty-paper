@@ -38,7 +38,7 @@ def _claims_queryset(user: User):
     qs = (
         Claim.objects.select_related(
             "owner", "manual_verified_by", "cleared_by", "second_approved_by",
-            "override_by",
+            "override_by", "held_by",
         )
         .prefetch_related("attachments")
         .all()
@@ -67,6 +67,26 @@ def _peek_next_quota_slot(claim: Claim) -> int:
         or 0
     )
     return highest + 1
+
+
+def _release_quota_position(claim: Claim) -> None:
+    """Give back the research-quota slot of a paper that no longer takes one.
+
+    A paper filed as an incentive takes a slot; sent back and refiled as a
+    student project it is paid under its own scheme, outside the quota. The
+    slot is not dropped by anything else -- only a changed year drops one --
+    so without this the paper went on counting against the quota and the
+    author's next faculty paper was paid a slot early. The year's remaining
+    papers close up behind it, under the same guard on settled money as a
+    corrected year.
+    """
+    if claim.quota_position is None or not claim.pk:
+        return
+    year = claim.publication_year
+    claim.quota_position = None
+    Claim.objects.filter(pk=claim.pk).update(quota_position=None)
+    claim._remember_quota_baseline()
+    claim._close_quota_gap(year)
 
 
 def _assign_quota_position(claim: Claim) -> None:
@@ -100,7 +120,9 @@ def _assign_quota_position(claim: Claim) -> None:
         or owner.faculty_type != "RESEARCH"
         or not owner.research_quota
         or not claim.publication_year
-        or claim.claim_reason == ClaimReason.COUNT_ONLY
+        # Neither takes a slot: a count asks for no money, and a student
+        # project is paid under its own scheme, outside the quota.
+        or claim.claim_reason in (ClaimReason.COUNT_ONLY, ClaimReason.STUDENT_PROJECT)
         or not claim.pk
     ):
         return
@@ -139,20 +161,34 @@ _CLAIM_SORTS = {
 }
 
 
+_HOD_ELSEWHERE = (
+    "Heads of department see their department's publications under "
+    "Department, which carry no payment details."
+)
+
+
 def _refuse_hod_money_screens(user: User) -> None:
     """A head of department has their own screens, which carry no money.
 
-    The claim payload carries the remuneration, and while a head owns no
-    claims -- they cannot file one -- an open door that returns an empty list
-    today returns a paid amount the day somebody gives the account a claim.
-    Refused outright, pointing at the screen that answers their question.
+    For the endpoints that total or list money across whatever the viewer may
+    see (`/dashboard`, `/lookup/ticket`). A head's own papers are on `/claims`,
+    where each row is either theirs -- and keeps its figure -- or somebody
+    else's and loses it (`hod.for_head`); a total has no owner to ask.
     """
     if user.role == Role.HOD:
-        raise HttpError(
-            403,
-            "Heads of department see their department's publications under "
-            "Department, which carry no payment details.",
-        )
+        raise HttpError(403, _HOD_ELSEWHERE)
+
+
+def _refuse_hod_unless_own(user: User, claim_id: str) -> None:
+    """A head opens their own papers here, like any claimant; nobody else's.
+
+    `_claims_queryset` already scopes a head to their own claims, so a
+    colleague's would 404. The 403 says where that paper actually lives --
+    the department screens link to it, and "this paper does not exist" would
+    send a head looking for a paper that is sitting in their own department.
+    """
+    if user.role == Role.HOD and not Claim.objects.filter(pk=claim_id, owner=user).exists():
+        raise HttpError(403, _HOD_ELSEWHERE)
 
 
 @api.get("/claims", auth=session_auth)
@@ -163,6 +199,7 @@ def list_claims(
     sort: str = "recent",
     limit: int = 50,
     offset: int = 0,
+    mine: bool = False,
 ):
     """Paginated. The old shape silently truncated at 200 rows — beyond that,
     tickets simply did not exist as far as the UI was concerned.
@@ -171,10 +208,17 @@ def list_claims(
     screens used to filter the fifty rows they had already fetched, so an admin
     on page one searching for a ticket sitting on page three was told there was
     no such ticket.
+
+    `mine` is "My papers" for somebody who also sees the college's: a
+    Principal, an officer, the Director or Finance filing their own. For a
+    faculty member or a head it changes nothing -- theirs is all they see.
     """
     user = require_user(request)
-    _refuse_hod_money_screens(user)
+    # A head is here for their own papers: `_claims_queryset` gives them only
+    # those, and the renderer strips the figure off anything that is not.
     qs = _claims_queryset(user)
+    if mine:
+        qs = qs.filter(owner=user)
     if status:
         qs = qs.filter(status=status)
     if q and q.strip():
@@ -205,7 +249,7 @@ def list_claims(
 # is the literal string "counts" and 404s. The same collision already cost us
 # `/admin/data/Claim/export` once.
 @api.get("/claims/counts", auth=session_auth)
-def claim_counts(request: HttpRequest, q: Optional[str] = None):
+def claim_counts(request: HttpRequest, q: Optional[str] = None, mine: bool = False):
     """How many claims sit at each stage, in one query.
 
     Added because the papers screen was asking seven times -- one request per
@@ -213,9 +257,18 @@ def claim_counts(request: HttpRequest, q: Optional[str] = None):
     list endpoint takes a single status, while a stage covers several. Grouping
     here means one query, and it means the grouping matches `stageOf` on the
     client instead of approximating it.
+
+    `mine` counts only the viewer's own papers, as `/claims` lists them.
+    Without it, somebody who sees the college's is counting their desk, which
+    never carries their own paper (`rbac.is_own_claim`): the badge must match
+    the queue, and must not tell a claimant which desk holds theirs.
     """
     user = require_user(request)
     scope = _claims_queryset(user)
+    if mine:
+        scope = scope.filter(owner=user)
+    elif rbac.can_view_college_wide(user.role):
+        scope = scope.exclude(owner=user)
     if q:
         scope = scope.filter(
             Q(paper_title__icontains=q) | Q(ticket_number__icontains=q)
@@ -249,9 +302,11 @@ def claim_counts(request: HttpRequest, q: Optional[str] = None):
 __all__ = [
     '_CLAIM_SORTS',
     '_assign_quota_position',
+    '_release_quota_position',
     '_claims_queryset',
     '_peek_next_quota_slot',
     '_refuse_hod_money_screens',
+    '_refuse_hod_unless_own',
     'claim_counts',
     'list_claims',
 ]

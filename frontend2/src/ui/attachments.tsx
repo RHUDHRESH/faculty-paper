@@ -250,10 +250,14 @@ export function AttachmentGallery({
   files,
   emptyLabel = "No files are attached to this ticket.",
   className,
+  annotate,
 }: {
   files: Attachment[]
   emptyLabel?: React.ReactNode
   className?: string
+  /** A line under a file saying something the file itself does not -- what
+   *  the content check found in it, for the desks that judge a paper. */
+  annotate?: (file: Attachment) => React.ReactNode
 }) {
   const [viewing, setViewing] = useState<Attachment | null>(null)
 
@@ -291,6 +295,7 @@ export function AttachmentGallery({
                   file={file}
                   index={i}
                   onView={() => setViewing(file)}
+                  note={annotate?.(file)}
                 />
               ))}
             </ul>
@@ -311,10 +316,12 @@ function AttachmentRow({
   file,
   index,
   onView,
+  note,
 }: {
   file: Attachment
   index: number
   onView: () => void
+  note?: React.ReactNode
 }) {
   const medium = mediumOf(file)
   const name = file.filename || `Document ${index + 1}`
@@ -347,6 +354,7 @@ function AttachmentRow({
           {meta}
           {medium === "file" ? `${meta ? " · " : ""}Downloads to your device` : ""}
         </Meta>
+        {note}
       </div>
 
       {medium === "file" ? (

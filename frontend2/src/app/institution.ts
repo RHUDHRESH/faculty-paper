@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 
-import { api } from "@/lib/api"
+import { api, bootAnswer } from "@/lib/api"
 
 export type Institution = {
   college_name: string
@@ -24,10 +24,15 @@ const EMPTY: Institution = {
  * college renames itself about once a decade, and the settings screen bumps
  * the key when it does.
  */
+/** Usually already in flight from index.html on the first ask. */
+function fetchInstitution() {
+  return bootAnswer<Institution>("/api/institution") ?? api<Institution>("/api/institution")
+}
+
 export function useInstitution(): Institution {
   const q = useQuery({
     queryKey: ["institution"],
-    queryFn: () => api<Institution>("/api/institution"),
+    queryFn: fetchInstitution,
     staleTime: Infinity,
     retry: 1,
   })
@@ -42,7 +47,7 @@ export function useCollegeName(): string {
 export function useInstitutionRequired(): Institution {
   const q = useQuery({
     queryKey: ["institution"],
-    queryFn: () => api<Institution>("/api/institution"),
+    queryFn: fetchInstitution,
     staleTime: Infinity,
   })
   return q.data ?? EMPTY

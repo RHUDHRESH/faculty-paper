@@ -636,8 +636,26 @@ function ScimagoPanel({
         </Sub>
       </div>
 
+      {/* The server cannot fetch this (SCImago answers a server with a
+          403 challenge page -- checked 2026-09-23), but a browser can: this
+          opens SCImago's own export for the year, which the browser saves,
+          ready for the upload below. */}
+      <div className="flex flex-wrap items-center gap-3 rounded-md bg-sunken p-3 text-sm">
+        <a
+          className="font-medium text-accent hover:underline"
+          href={`https://www.scimagojr.com/journalrank.php?year=${suggested}&out=xls`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Download the {suggested} rankings from SCImago
+        </a>
+        <span className="text-fg-muted">
+          Opens in your browser and saves the file; then upload it below with the same year.
+        </span>
+      </div>
+
       <Steps
-        title="Getting the file"
+        title="Or get it by hand"
         note="There is no button here that fetches it for you, and there should not be: SCImago fronts its portal with a bot-protection challenge that only a browser can answer, so a server asking for the file gets the challenge page instead of the CSV. Every time, not intermittently."
         steps={[
           <>

@@ -114,6 +114,8 @@ export function AttachmentGroup({
   kind,
   rows,
   busy,
+  progress,
+  uploadError,
   empty,
   sameAs,
   onAdd,
@@ -129,6 +131,10 @@ export function AttachmentGroup({
   kind: AttachmentRow["kind"]
   rows: AttachmentRow[]
   busy: boolean
+  /** The file going up now and how far it has got. */
+  progress?: { name: string; pct: number } | null
+  /** Why the last file did not go up: said at the drop zone, not only in a toast. */
+  uploadError?: string
   /** Said in place of the list when nothing is attached. An unexplained gap
    *  above an upload button reads as "this is optional", which for the
    *  published paper is the opposite of true. */
@@ -248,15 +254,28 @@ export function AttachmentGroup({
           "flex flex-col items-center justify-center gap-2 rounded-md border border-dashed px-4 text-center",
           "transition-colors duration-[var(--dur-1)]",
           rows.length ? "min-h-16 py-3" : "min-h-28 py-5",
-          over ? "border-accent bg-accent-wash" : error ? "border-critical bg-critical-wash" : "border-edge bg-sunken"
+          over ? "border-accent bg-accent-wash" : error || uploadError ? "border-critical bg-critical-wash" : "border-edge bg-sunken"
         )}
       >
         {rows.length === 0 && !busy && <p className="text-sm text-fg-muted">{empty}</p>}
+        {busy && progress && (
+          <div className="w-full max-w-sm space-y-1" role="status" aria-live="polite">
+            <p className="truncate text-sm text-fg">
+              Uploading {progress.name} <span className="tabular text-fg-muted">{progress.pct}%</span>
+            </p>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
+              <div
+                className="h-full rounded-full bg-accent transition-[width] duration-150"
+                style={{ width: `${progress.pct}%` }}
+              />
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button kind="default" size="md" onClick={() => inputRef.current?.click()} disabled={busy}>
+          <Button kind="default" size="md" onClick={() => inputRef.current?.click()} disabled={busy} title={busy ? "One file at a time: wait for this upload to finish" : undefined}>
             {busy ? <LoaderCircle className="animate-spin" /> : <Upload />}
             {busy
-              ? "Uploading — wait for this one"
+              ? "Uploading, wait for this one"
               : rows.length
                 ? many
                   ? "Add more files"
@@ -272,6 +291,12 @@ export function AttachmentGroup({
           )}
         </div>
       </div>
+      {uploadError && (
+        <p role="alert" className="flex items-start gap-1.5 text-sm text-critical">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          {uploadError}
+        </p>
+      )}
       {error && (
         <p role="alert" className="text-sm text-critical">
           {error}

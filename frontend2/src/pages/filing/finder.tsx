@@ -214,8 +214,8 @@ export function FoundCard({
             {metrics.engineering_class && (
               <Row label="Subject area" source={src.engineering_class}>
                 {metrics.engineering_class === "Engineering"
-                  ? "Engineering — the quartile incentive applies"
-                  : "Not Engineering — no quartile incentive"}
+                  ? "Engineering: the quartile incentive applies"
+                  : "Not Engineering: no quartile incentive"}
               </Row>
             )}
           </>
@@ -244,7 +244,7 @@ export function FoundCard({
       <p className="text-sm text-fg-muted">
         {filled.length
           ? `${sentenceCase(listOf(filled))} ${filled.length === 1 ? "is" : "are"} filled in below. Everything stays editable.`
-          : "Nothing needed changing — this matches what you had already entered."}
+          : "Nothing needed changing. This matches what you had already entered."}
       </p>
 
       {res.to_check.length > 0 ? (

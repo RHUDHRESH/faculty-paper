@@ -291,15 +291,39 @@ function buildPayload(
   }
 }
 
-/** `body: formData` is the one shape `api()`'s `Options` type omits; the
- *  cast is the escape hatch, and the request still carries the CSRF header. */
-async function uploadAttachment(file: File): Promise<UploadResult> {
+/** Sent with XMLHttpRequest rather than `api()`: fetch cannot report upload
+ *  progress, and a 9 MB scan on a slow link needs a moving bar, not a spinner. */
+let uploadCsrf: string | null = null
+async function uploadAttachment(file: File, onProgress?: (pct: number) => void): Promise<UploadResult> {
+  if (!uploadCsrf) {
+    const r = await fetch("/api/auth/csrf", { credentials: "same-origin" })
+    uploadCsrf = ((await r.json()) as { csrfToken: string }).csrfToken
+  }
   const body = new FormData()
   body.append("file", file)
-  return api<UploadResult>("/api/claims/upload", {
-    method: "POST",
-    body,
-  } as unknown as Parameters<typeof api>[1])
+  return new Promise<UploadResult>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("POST", "/api/claims/upload")
+    xhr.withCredentials = true
+    xhr.setRequestHeader("X-CSRFToken", uploadCsrf as string)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.onerror = () => reject(new Error("The connection dropped during the upload. Check your network and try again."))
+    xhr.onload = () => {
+      let data: unknown = null
+      try {
+        data = JSON.parse(xhr.responseText)
+      } catch {
+        /* not JSON */
+      }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(data as UploadResult)
+      if (xhr.status === 403) uploadCsrf = null
+      const detail = (data as { detail?: string; error?: string } | null)?.detail ?? (data as { error?: string } | null)?.error
+      reject(new ApiError(xhr.status, detail || `The upload was refused (${xhr.status}).`, data))
+    }
+    xhr.send(body)
+  })
 }
 
 /* ------------------------------------------------------------------------ */
@@ -336,7 +360,7 @@ const STEPS: Step[] = [
   { id: "journal", title: "The journal", hint: "Where it was published, and the figures it is paid on.", icon: BookOpen },
   { id: "claim", title: "You and the claim", hint: "Your place among the authors, and the college on the paper.", icon: PenLine },
   { id: "proof", title: "The proof", hint: "The published paper and the cited references, as files.", icon: FileStack },
-  { id: "file", title: "Check and file", hint: "Read it back once, then send it to the research cell.", icon: Send },
+  { id: "file", title: "Check and file", hint: "Read it back once, then send it for checking.", icon: Send },
 ]
 
 /** The four phases the header shows (docs/ux/04). */
@@ -570,7 +594,7 @@ export function FilePaper() {
       claimReason: c.claimReason,
     }))
     toast.info(
-      `Started from ${copySource.journal_title || "your earlier claim"} — the journal is filled in; add this paper's own details and files.`
+      `Started from ${copySource.journal_title || "your earlier claim"}. The journal is filled in; add this paper's own details and files.`
     )
   }, [copySource])
 
@@ -710,7 +734,7 @@ export function FilePaper() {
       setLookupError(
         err instanceof ApiError
           ? err.message
-          : "The server did not answer. Fill the details in below — nothing you typed is lost."
+          : "The server did not answer. Fill the details in below. Nothing you typed is lost."
       )
     } finally {
       setLookupBusy(false)
@@ -735,7 +759,7 @@ export function FilePaper() {
       })
       setScimago(res)
       if (res.found && res.matched_quartile) patchForm({ selfReportedQuartile: res.matched_quartile })
-      else if (!res.found) setScimagoError(res.message || "No match in the Scimago data — set the quartile yourself.")
+      else if (!res.found) setScimagoError(res.message || "No match in the Scimago data. Set the quartile yourself.")
     } catch (err) {
       setScimagoError(err instanceof ApiError ? err.message : "Could not look this up. Set the quartile yourself.")
     } finally {
@@ -746,26 +770,30 @@ export function FilePaper() {
   /* ------------------------------- proof --------------------------------- */
 
   const [uploadingKind, setUploadingKind] = useState<AttachmentRow["kind"] | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<{ name: string; pct: number } | null>(null)
+  const [uploadError, setUploadError] = useState<{ kind: AttachmentRow["kind"]; message: string } | null>(null)
 
   async function addAttachment(kind: AttachmentRow["kind"], file: File) {
     // Said before a byte is sent: a 40 MB scan used to upload in full and
     // only then be refused.
     const ext = `.${(file.name.split(".").pop() || "").toLowerCase()}`
     if (!ACCEPTED_EXTENSIONS.includes(ext)) {
-      toast.fail(new Error(`${file.name} is not a file this form takes — use a PDF, an image or a Word document.`))
+      const message = `${file.name} is not a file this form takes. Use a PDF, an image or a Word document.`
+      setUploadError({ kind, message })
+      toast.fail(new Error(message))
       return
     }
     if (file.size > rules.max_upload_bytes) {
-      toast.fail(
-        new Error(
-          `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is ${Math.round(rules.max_upload_bytes / 1024 / 1024)} MB. Save just the relevant pages and try again.`
-        )
-      )
+      const message = `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is ${Math.round(rules.max_upload_bytes / 1024 / 1024)} MB. Save just the relevant pages and try again.`
+      setUploadError({ kind, message })
+      toast.fail(new Error(message))
       return
     }
+    setUploadError(null)
     setUploadingKind(kind)
+    setUploadProgress({ name: file.name, pct: 0 })
     try {
-      const res = await uploadAttachment(file)
+      const res = await uploadAttachment(file, (pct) => setUploadProgress({ name: file.name, pct }))
       // A match on this same claim is a mis-drop, said by the on-form check;
       // a match on a *different* ticket stays, as a warning.
       const elsewhere =
@@ -792,9 +820,11 @@ export function FilePaper() {
         ],
       }))
     } catch (err) {
+      setUploadError({ kind, message: `Could not upload ${file.name}. ${err instanceof Error ? err.message : ""}`.trim() })
       toast.fail(err, `Could not upload ${file.name}.`)
     } finally {
       setUploadingKind(null)
+      setUploadProgress(null)
     }
   }
 
@@ -883,7 +913,7 @@ export function FilePaper() {
       setVerify(null)
       setVerifyError(
         err instanceof ApiError && err.status === 403
-          ? `${err.message} Filing is unaffected — the research cell runs the same check.`
+          ? `${err.message} Filing is unaffected; the same check runs again after you file.`
           : err instanceof ApiError
             ? err.message
             : "The check could not be run. Nothing about your claim is wrong, and filing still works."
@@ -1158,7 +1188,7 @@ export function FilePaper() {
   function fileForTheRecord() {
     patchForm({ claimReason: "COUNT_ONLY" })
     goTo(0, "reason")
-    toast.info("Switched to a count-only claim — the publication is recorded, with no payment.")
+    toast.info("Switched to a count-only claim. The publication is recorded, with no payment.")
   }
 
   // Ctrl Enter continues, from inside a text box too. Not on the last step:
@@ -1506,7 +1536,7 @@ export function FilePaper() {
           blocked={
             rival ? (
               <>
-                <p className="font-medium">This article already has a claim — open it instead.</p>
+                <p className="font-medium">This article already has a claim. Open it instead.</p>
                 <p className="mt-1 text-sm text-fg-muted">
                   One claim per article.{" "}
                   <Link to={`/papers/${rival.id}`} className="font-medium text-accent underline underline-offset-2">
@@ -1531,7 +1561,7 @@ export function FilePaper() {
               </>
             ) : priorHit ? (
               <>
-                <p className="font-medium">This article already has a claim — open it instead.</p>
+                <p className="font-medium">This article already has a claim. Open it instead.</p>
                 <p className="mt-1 text-sm text-fg-muted">
                   One claim per article. If it was yours and was sent back, edit that one from{" "}
                   <Link to="/papers" className="font-medium text-accent underline underline-offset-2">
@@ -1548,7 +1578,7 @@ export function FilePaper() {
             setPhase("form")
           }}
           onCancel={() => navigate("/papers")}
-          cancelLabel="Not yet — back to my papers"
+          cancelLabel="Not yet, back to my papers"
         />
       </div>
     )
@@ -1611,7 +1641,7 @@ export function FilePaper() {
         nextLabel="Continue"
         busy={fileBusy}
         aside={<EstimatePanel {...estimateProps} />}
-        footerNote={savingState === "error" ? "Not saved — see above" : "Saved as you go. Going back changes nothing."}
+        footerNote={savingState === "error" ? "Not saved, see above" : "Saved as you go. Going back changes nothing."}
       >
         {step === 0 && (
           <PaperStep
@@ -1654,6 +1684,8 @@ export function FilePaper() {
             carried={carried}
             err={err}
             uploadingKind={uploadingKind}
+            uploadProgress={uploadProgress}
+            uploadError={uploadError}
             onAdd={addAttachment}
             onRemove={removeAttachment}
             onUpdate={updateAttachment}
@@ -1726,8 +1758,8 @@ export function FilePaper() {
         title="File this paper?"
         description={
           scopusOff && contestNote.trim().length < 10
-            ? "It goes to the research cell to be checked. Scopus is not connected here, so filing will ask for a one-line note — you can add it on the next screen."
-            : "Once filed it leaves your hands and goes to the research cell to be checked. A ticket number appears as soon as it is filed."
+            ? "It goes to the college to be checked. Scopus is not connected here, so filing will ask for a one-line note; you can add it on the next screen."
+            : "Once filed it leaves your hands and goes to the college to be checked. A ticket number appears as soon as it is filed."
         }
         confirmLabel="File it"
         onConfirm={async () => {
@@ -1739,7 +1771,7 @@ export function FilePaper() {
         open={confirmLeave}
         onOpenChange={setConfirmLeave}
         title="Leave without saving?"
-        description="Your last few changes have not been saved yet. Give it a moment and they will be — or leave now and lose them."
+        description="Your last few changes have not been saved yet. Give it a moment and they will be, or leave now and lose them."
         confirmLabel="Leave anyway"
         danger
         onConfirm={() => {
@@ -1931,7 +1963,7 @@ function PaperStep({
           checked={form.claimReason === "INCENTIVE"}
           onChange={() => patchForm({ claimReason: "INCENTIVE" })}
           label="Faculty publication incentive"
-          hint="The usual case — this claims the remuneration."
+          hint="The usual case. This claims the remuneration."
         />
         <Radio
           name="claim-reason"
@@ -2138,7 +2170,7 @@ function JournalStep({
               {metrics.quartile ? ` as ${metrics.quartile}` : ""}
               {metrics.snip != null ? `, SNIP ${metrics.snip}` : ""}
               {metrics.engineering_class ? `, classified ${metrics.engineering_class}` : ""}.
-              {metrics.matched_by === "title" && " Matched by name — check it is the same journal."}
+              {metrics.matched_by === "title" && " Matched by name. Check it is the same journal."}
             </p>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
@@ -2201,7 +2233,7 @@ function JournalStep({
         </section>
       )}
 
-      <Field label="Subject area" hint="Descriptive only — it does not change the amount.">
+      <Field label="Subject area" hint="Descriptive only. It does not change the amount.">
         <Input value={form.subjectCategory} onChange={(e) => patchForm({ subjectCategory: e.target.value })} />
       </Field>
     </div>
@@ -2332,7 +2364,7 @@ function ClaimStep({
       <section className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_14rem]" data-field="scopus">
         <Field
           label="Your Scopus author profile"
-          hint="The link to your author page on Scopus. The research cell checks the paper is on it."
+          hint="The link to your author page on Scopus. The college checks the paper is on it."
           error={err("scopus")}
         >
           <Input
@@ -2342,7 +2374,7 @@ function ClaimStep({
             spellCheck={false}
           />
         </Field>
-        <Field label="Your designation" hint="Optional — it appears on the ticket.">
+        <Field label="Your designation" hint="Optional. It appears on the ticket.">
           <Input value={form.designation} onChange={(e) => patchForm({ designation: e.target.value })} />
         </Field>
       </section>
@@ -2360,6 +2392,8 @@ function ProofStep({
   carried,
   err,
   uploadingKind,
+  uploadProgress,
+  uploadError,
   onAdd,
   onRemove,
   onUpdate,
@@ -2370,6 +2404,8 @@ function ProofStep({
   carried: CarriedEvidence
   err: Err
   uploadingKind: AttachmentRow["kind"] | null
+  uploadProgress?: { name: string; pct: number } | null
+  uploadError?: { kind: AttachmentRow["kind"]; message: string } | null
   onAdd: (kind: AttachmentRow["kind"], file: File) => Promise<void>
   onRemove: (url: string) => void
   onUpdate: (url: string, patch: Partial<AttachmentRow>) => void
@@ -2386,10 +2422,12 @@ function ProofStep({
       <div data-field="paper-file">
         <AttachmentGroup
           title="The published paper"
-          hint="The full-length article as it appears in the journal — PDF, scan or photo."
+          hint="The full-length article as it appears in the journal: PDF, scan or photo."
           kind="PUBLISHED_PAPER"
           rows={papers}
           busy={uploadingKind === "PUBLISHED_PAPER"}
+          progress={uploadingKind === "PUBLISHED_PAPER" ? uploadProgress : null}
+          uploadError={uploadError?.kind === "PUBLISHED_PAPER" ? uploadError.message : undefined}
           sameAs={sameAs}
           onAdd={onAdd}
           onRemove={onRemove}
@@ -2410,6 +2448,8 @@ function ProofStep({
           kind="SEC_REFERENCE"
           rows={refs}
           busy={uploadingKind === "SEC_REFERENCE"}
+          progress={uploadingKind === "SEC_REFERENCE" ? uploadProgress : null}
+          uploadError={uploadError?.kind === "SEC_REFERENCE" ? uploadError.message : undefined}
           sameAs={sameAs}
           onAdd={onAdd}
           onRemove={onRemove}
@@ -2418,8 +2458,8 @@ function ProofStep({
           error={err("refs-none", "ref-numbers", "refs-url-only", "ref-numbers-zero", "refs-few")}
           empty={
             carried.secProofUrl
-              ? "This claim carries a link instead of files, which is worth nothing in the amount — attach the papers."
-              : "Nothing attached yet. Drop the cited papers here — several at once is fine."
+              ? "This claim carries a link instead of files, which is worth nothing in the amount. Attach the papers."
+              : "Nothing attached yet. Drop the cited papers here. Several at once is fine."
           }
           renderExtra={(row) => <ReferenceFields row={row} onUpdate={onUpdate} />}
         />

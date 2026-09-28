@@ -72,7 +72,7 @@ export function EstimatePanel(props: EstimateProps) {
               ? priceable
                 ? "Appears once the journal is priced."
                 : "Appears once the journal's quartile, SNIP or indexing is in."
-              : "From the figures on this form. The research cell verifies them, so it can change."}
+              : "From the figures on this form. The college verifies them, so it can change."}
         </p>
       )}
       {calc?.category_label && !countOnly && amount != null && (

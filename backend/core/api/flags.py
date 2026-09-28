@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Q
 from django.http import HttpRequest
@@ -243,6 +244,28 @@ def check_files(request: HttpRequest, claim_id: str):
 # ---------- looking into the past ----------
 
 
+# The sheets of the old ERP workbook a ticket can have come from, by the tag
+# `erp_import.stable_ticket` writes into its number.
+_ERP_SHEETS = {
+    "RAW": "Raw data sheet",
+    "PROCESSED": "Processed sheet",
+    "ACCOUNTS": "Accounts sheet",
+}
+
+
+def _erp_origin(ticket: Optional[str]) -> Optional[str]:
+    """"Imported from the ERP, <sheet>" for an imported ticket, else None.
+
+    The importer writes notes like "Imported from Raw_Data" to
+    `status_note`, which read as a reason the claim was sent back.
+    """
+    if not ticket or not ticket.startswith("ERP-"):
+        return None
+    tag = ticket.split("-")[1] if ticket.count("-") >= 2 else ""
+    sheet = _ERP_SHEETS.get(tag)
+    return f"Imported from the ERP, {sheet}" if sheet else "Imported from the ERP"
+
+
 @api.get("/archive/claims", auth=session_auth)
 def archive_claims(
     request: HttpRequest,
@@ -275,7 +298,7 @@ def archive_claims(
 
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
-    rows = qs.order_by(_SEARCH_SORTS.get(sort, "-updated_at"), "-id")[offset : offset + limit]
+    rows = qs.select_related("owner").order_by(_SEARCH_SORTS.get(sort, "-updated_at"), "-id")[offset : offset + limit]
     return {
         "total": qs.count(),
         "limit": limit,
@@ -289,8 +312,11 @@ def archive_claims(
                 "publication_year": c.publication_year,
                 "status": c.status,
                 "status_note": c.status_note,
+                "owner_id": c.owner_id,
                 "owner_name": c.owner.name,
                 "owner_department": c.owner.department,
+                "owner_photo_url": f"{settings.MEDIA_URL}{c.owner.photo}" if c.owner.photo else None,
+                "origin": _erp_origin(c.ticket_number),
                 "remuneration": c.remuneration,
                 "paid_at": c.paid_at.isoformat() if c.paid_at else None,
                 "file_count": c.file_count,

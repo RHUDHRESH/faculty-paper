@@ -490,6 +490,17 @@ class PastClaimsTests(FlagBase):
         self.assertEqual(rows["FG-A1"]["open_flags"], 0)
         self.assertEqual(self._tickets(self.admin, "?flagged=open"), ["ERP-000123"])
 
+    def test_an_imported_ticket_says_where_it_came_from(self):
+        from core.api.flags import _erp_origin
+
+        self.assertEqual(_erp_origin("ERP-RAW-12"), "Imported from the ERP, Raw data sheet")
+        self.assertEqual(_erp_origin("ERP-000123"), "Imported from the ERP")
+        self.assertIsNone(_erp_origin("FG-A1"))
+        rows = {r["ticket_number"]: r for r in self._as(self.admin).get("/api/archive/claims").json()["results"]}
+        self.assertEqual(rows["ERP-000123"]["origin"], "Imported from the ERP")
+        self.assertIsNone(rows["FG-A1"]["origin"])
+        self.assertIn("owner_photo_url", rows["FG-A1"])
+
     def test_a_past_paid_claim_can_be_opened_and_flagged(self):
         detail = self._as(self.cell).get(f"/api/claims/{self.imported.id}")
         self.assertEqual(detail.status_code, 200)

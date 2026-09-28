@@ -261,6 +261,44 @@ class BellListTests(TestCase):
         self.assertEqual(self.c.get("/api/notifications/unread-count").json()["unread"], 0)
 
 
+class BellFaceAndDeskWordingTests(TestCase):
+    """The bell draws the actor's face; the claimant is never told a desk."""
+
+    def setUp(self):
+        self.me = _person("face@test.edu")
+        self.c = Client()
+        self.c.force_login(self.me)
+
+    def test_row_carries_the_latest_actor_with_a_face(self):
+        a = _person("a2@test.edu", "Asha Menon")
+        notify(self.me, "follow", verb="started following you", actor=a, group_key="f:me")
+        notify(self.me, "claim_paid", "Paid", "Paid.")
+        rows = {r["kind"]: r for r in self.c.get("/api/notifications").json()}
+        actor = rows["follow"]["actor"]
+        self.assertEqual(actor["user_id"], str(a.pk))
+        self.assertEqual(actor["name"], "Asha Menon")
+        self.assertIn("initials", actor)
+        self.assertIn("photo_url", actor)
+        self.assertIsNone(rows["claim_paid"]["actor"])
+
+    def test_claimant_copy_never_names_a_desk_or_officer(self):
+        from core.api import desks
+        from core.api.journals import _faculty_status_copy
+        from core.models import ClaimStatus
+
+        banned = ("principal", "director", "finance", "hod", "head of department",
+                  "research cell", "supervisor", "clearing", "desk", "admin")
+        copies = [desks._HOLD_COPY, desks._RESUME_COPY]
+        for status in ClaimStatus.values:
+            for prev in ClaimStatus.values:
+                copies.append(_faculty_status_copy(status, from_status=prev, ticket_number="T-1", amount=100))
+                copies.append(_faculty_status_copy(status, outright=True, from_status=prev, ticket_number="T-1"))
+        for title, body in copies:
+            text = f"{title} {body}".lower()
+            for word in banned:
+                self.assertNotIn(word, text, f"{word!r} leaks in {title!r}: {body!r}")
+
+
 class UnsubscribeTests(TestCase):
     def setUp(self):
         self.me = _person("me@test.edu")

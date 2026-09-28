@@ -1,7 +1,7 @@
 {
   "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
   "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
-  "count": 189,
+  "count": 207,
   "assets": [
     {
       "name": "empty-no-papers",
@@ -3565,6 +3565,348 @@
         "png": 4864
       },
       "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-email",
+      "category": "icon",
+      "purpose": "Icon: email",
+      "page": "Profiles, invites",
+      "files": {
+        "svg": "/illustrations/generated/icon-email.svg",
+        "webp": "/illustrations/generated/icon-email.webp",
+        "png": "/illustrations/generated/icon-email.png"
+      },
+      "bytes": {
+        "svg": 3493,
+        "webp": 6688,
+        "png": 4267
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-globe",
+      "category": "icon",
+      "purpose": "Icon: web / international",
+      "page": "Profiles, collaboration",
+      "files": {
+        "svg": "/illustrations/generated/icon-globe.svg",
+        "webp": "/illustrations/generated/icon-globe.webp",
+        "png": "/illustrations/generated/icon-globe.png"
+      },
+      "bytes": {
+        "svg": 2662,
+        "webp": 18092,
+        "png": 9180
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-open-access",
+      "category": "icon",
+      "purpose": "Icon: open access",
+      "page": "Paper metadata",
+      "files": {
+        "svg": "/illustrations/generated/icon-open-access.svg",
+        "webp": "/illustrations/generated/icon-open-access.webp",
+        "png": "/illustrations/generated/icon-open-access.png"
+      },
+      "bytes": {
+        "svg": 3765,
+        "webp": 7924,
+        "png": 4568
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-impact",
+      "category": "icon",
+      "purpose": "Icon: impact / growth",
+      "page": "Metrics, reports",
+      "files": {
+        "svg": "/illustrations/generated/icon-impact.svg",
+        "webp": "/illustrations/generated/icon-impact.webp",
+        "png": "/illustrations/generated/icon-impact.png"
+      },
+      "bytes": {
+        "svg": 3479,
+        "webp": 7396,
+        "png": 4209
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-h-index",
+      "category": "icon",
+      "purpose": "Icon: h-index",
+      "page": "Profile metrics",
+      "files": {
+        "svg": "/illustrations/generated/icon-h-index.svg",
+        "webp": "/illustrations/generated/icon-h-index.webp",
+        "png": "/illustrations/generated/icon-h-index.png"
+      },
+      "bytes": {
+        "svg": 3669,
+        "webp": 6194,
+        "png": 3009
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-patent",
+      "category": "icon",
+      "purpose": "Icon: patent",
+      "page": "Record kinds",
+      "files": {
+        "svg": "/illustrations/generated/icon-patent.svg",
+        "webp": "/illustrations/generated/icon-patent.webp",
+        "png": "/illustrations/generated/icon-patent.png"
+      },
+      "bytes": {
+        "svg": 5876,
+        "webp": 9896,
+        "png": 5153
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-book-chapter",
+      "category": "icon",
+      "purpose": "Icon: book chapter",
+      "page": "Record kinds",
+      "files": {
+        "svg": "/illustrations/generated/icon-book-chapter.svg",
+        "webp": "/illustrations/generated/icon-book-chapter.webp",
+        "png": "/illustrations/generated/icon-book-chapter.png"
+      },
+      "bytes": {
+        "svg": 4637,
+        "webp": 11664,
+        "png": 5651
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-thesis",
+      "category": "icon",
+      "purpose": "Icon: thesis / student",
+      "page": "Record kinds, supervision",
+      "files": {
+        "svg": "/illustrations/generated/icon-thesis.svg",
+        "webp": "/illustrations/generated/icon-thesis.webp",
+        "png": "/illustrations/generated/icon-thesis.png"
+      },
+      "bytes": {
+        "svg": 4964,
+        "webp": 12486,
+        "png": 5909
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-mentor",
+      "category": "icon",
+      "purpose": "Icon: mentor",
+      "page": "Who to work with",
+      "files": {
+        "svg": "/illustrations/generated/icon-mentor.svg",
+        "webp": "/illustrations/generated/icon-mentor.webp",
+        "png": "/illustrations/generated/icon-mentor.png"
+      },
+      "bytes": {
+        "svg": 5961,
+        "webp": 12810,
+        "png": 6384
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-agreement",
+      "category": "icon",
+      "purpose": "Icon: agreement / MoU",
+      "page": "Collaborate",
+      "files": {
+        "svg": "/illustrations/generated/icon-agreement.svg",
+        "webp": "/illustrations/generated/icon-agreement.webp",
+        "png": "/illustrations/generated/icon-agreement.png"
+      },
+      "bytes": {
+        "svg": 10580,
+        "webp": 18270,
+        "png": 7763
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-home",
+      "category": "icon",
+      "purpose": "Icon: home",
+      "page": "Nav",
+      "files": {
+        "svg": "/illustrations/generated/icon-home.svg",
+        "webp": "/illustrations/generated/icon-home.webp",
+        "png": "/illustrations/generated/icon-home.png"
+      },
+      "bytes": {
+        "svg": 4635,
+        "webp": 8266,
+        "png": 4799
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-highlights",
+      "category": "icon",
+      "purpose": "Icon: new / highlights",
+      "page": "For you, Moments",
+      "files": {
+        "svg": "/illustrations/generated/icon-highlights.svg",
+        "webp": "/illustrations/generated/icon-highlights.webp",
+        "png": "/illustrations/generated/icon-highlights.png"
+      },
+      "bytes": {
+        "svg": 2169,
+        "webp": 9514,
+        "png": 4825
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-divider-leaf",
+      "category": "decorative",
+      "purpose": "Section divider with leaf sprig",
+      "page": "Section breaks, Moments",
+      "files": {
+        "svg": "/illustrations/generated/deco-divider-leaf.svg",
+        "webp": "/illustrations/generated/deco-divider-leaf.webp",
+        "png": "/illustrations/generated/deco-divider-leaf.png"
+      },
+      "bytes": {
+        "svg": 6238,
+        "webp": 6802,
+        "png": 4058
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-corner-laurel",
+      "category": "decorative",
+      "purpose": "Corner flourish (laurel)",
+      "page": "Wall of fame, convocation cards",
+      "files": {
+        "svg": "/illustrations/generated/deco-corner-laurel.svg",
+        "webp": "/illustrations/generated/deco-corner-laurel.webp",
+        "png": "/illustrations/generated/deco-corner-laurel.png"
+      },
+      "bytes": {
+        "svg": 27212,
+        "webp": 19090,
+        "png": 11919
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-sparkles",
+      "category": "decorative",
+      "purpose": "Heading accent sparkles",
+      "page": "Celebration headings, For you",
+      "files": {
+        "svg": "/illustrations/generated/deco-sparkles.svg",
+        "webp": "/illustrations/generated/deco-sparkles.webp",
+        "png": "/illustrations/generated/deco-sparkles.png"
+      },
+      "bytes": {
+        "svg": 10828,
+        "webp": 8274,
+        "png": 5516
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-divider-dots",
+      "category": "decorative",
+      "purpose": "Dotted divider with star",
+      "page": "Section breaks",
+      "files": {
+        "svg": "/illustrations/generated/deco-divider-dots.svg",
+        "webp": "/illustrations/generated/deco-divider-dots.webp",
+        "png": "/illustrations/generated/deco-divider-dots.png"
+      },
+      "bytes": {
+        "svg": 4867,
+        "webp": 4402,
+        "png": 2721
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-scatter-leaves-books",
+      "category": "decorative",
+      "purpose": "Scatter cluster of leaves, dots and books (not a seamless tile)",
+      "page": "Empty-state backdrops, sign-in",
+      "files": {
+        "svg": "/illustrations/generated/deco-scatter-leaves-books.svg",
+        "webp": "/illustrations/generated/deco-scatter-leaves-books.webp",
+        "png": "/illustrations/generated/deco-scatter-leaves-books.png"
+      },
+      "bytes": {
+        "svg": 37775,
+        "webp": 23352,
+        "png": 15356
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-underline-swoosh",
+      "category": "decorative",
+      "purpose": "Hand-drawn clay underline for a heading word",
+      "page": "Hero headings",
+      "files": {
+        "svg": "/illustrations/generated/deco-underline-swoosh.svg",
+        "webp": "/illustrations/generated/deco-underline-swoosh.webp",
+        "png": "/illustrations/generated/deco-underline-swoosh.png"
+      },
+      "bytes": {
+        "svg": 3276,
+        "webp": 5732,
+        "png": 2745
+      },
+      "sheet": "sheet29",
       "date": "2026-09-28",
       "background": "transparent"
     }

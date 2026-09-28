@@ -158,7 +158,7 @@ def main() -> None:
                 continue
             r, c = divmod(i, cols)
             cell = raw.crop((int(c * w), int(r * h), int((c + 1) * w), int((r + 1) * h)))
-            print(name, process(cell, name, vector, False, use_rembg, 256 if ICON_MODE else 640))
+            print(name, process(cell, name, vector, keep_bg, use_rembg, 256 if ICON_MODE else (1400 if keep_bg else 640)))
     else:
         print(args[2], process(raw, args[2], vector, keep_bg, use_rembg, 1600))
     if vector:

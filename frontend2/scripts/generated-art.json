@@ -1412,6 +1412,133 @@
           "page": "Attachments"
         }
       ]
+    },
+    {
+      "id": "sheet28",
+      "raw": "sheet28_icons_e.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Icon variant (as sheet24), re-sent in a new chat after the icon conversation stopped loading. Icons with rounded line style (outlined charcoal shapes with small clay accents), in reading order: (1) an envelope — 'email'; (2) a globe with meridian lines — 'web / international'; (3) an open padlock — 'open access'; (4) a line chart arrow rising to the upper right — 'impact'; (5) a stack of horizontal bars of decreasing length — 'h-index'; (6) a certificate with a ribbon seal — 'patent'; (7) an open book with a bookmark — 'book chapter'; (8) a graduation cap — 'thesis / student'; (9) a larger figure with a hand on a smaller figure's shoulder, simple silhouettes — 'mentor'; (10) two hands shaking — 'agreement'; (11) a simple house — 'home'; (12) a sparkle of three four-point stars — 'new / highlights'.",
+      "assets": [
+        {
+          "name": "icon-email",
+          "category": "icon",
+          "purpose": "Icon: email",
+          "page": "Profiles, invites"
+        },
+        {
+          "name": "icon-globe",
+          "category": "icon",
+          "purpose": "Icon: web / international",
+          "page": "Profiles, collaboration"
+        },
+        {
+          "name": "icon-open-access",
+          "category": "icon",
+          "purpose": "Icon: open access",
+          "page": "Paper metadata"
+        },
+        {
+          "name": "icon-impact",
+          "category": "icon",
+          "purpose": "Icon: impact / growth",
+          "page": "Metrics, reports"
+        },
+        {
+          "name": "icon-h-index",
+          "category": "icon",
+          "purpose": "Icon: h-index",
+          "page": "Profile metrics"
+        },
+        {
+          "name": "icon-patent",
+          "category": "icon",
+          "purpose": "Icon: patent",
+          "page": "Record kinds"
+        },
+        {
+          "name": "icon-book-chapter",
+          "category": "icon",
+          "purpose": "Icon: book chapter",
+          "page": "Record kinds"
+        },
+        {
+          "name": "icon-thesis",
+          "category": "icon",
+          "purpose": "Icon: thesis / student",
+          "page": "Record kinds, supervision"
+        },
+        {
+          "name": "icon-mentor",
+          "category": "icon",
+          "purpose": "Icon: mentor",
+          "page": "Who to work with"
+        },
+        {
+          "name": "icon-agreement",
+          "category": "icon",
+          "purpose": "Icon: agreement / MoU",
+          "page": "Collaborate"
+        },
+        {
+          "name": "icon-home",
+          "category": "icon",
+          "purpose": "Icon: home",
+          "page": "Nav"
+        },
+        {
+          "name": "icon-highlights",
+          "category": "icon",
+          "purpose": "Icon: new / highlights",
+          "page": "For you, Moments"
+        }
+      ]
+    },
+    {
+      "id": "sheet29",
+      "raw": "sheet29_decorative.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Sheet variant, simple clear lines, flat fills. Small decorative elements for a calm academic web app: (1) a long thin horizontal divider — a hand-drawn line with a small leaf sprig in the middle; (2) a corner flourish — a quarter-circle of laurel leaves for a top-left page corner; (3) a small cluster of three sparkles and two dots, for accenting headings; (4) a long thin horizontal divider of small evenly spaced dots with a tiny star in the centre; (5) a square seamless-pattern tile of tiny scattered leaves, dots and small open books spaced far apart in sand and sage on the background; (6) a gentle hand-drawn underline swoosh in clay colour.",
+      "assets": [
+        {
+          "name": "deco-divider-leaf",
+          "category": "decorative",
+          "purpose": "Section divider with leaf sprig",
+          "page": "Section breaks, Moments"
+        },
+        {
+          "name": "deco-corner-laurel",
+          "category": "decorative",
+          "purpose": "Corner flourish (laurel)",
+          "page": "Wall of fame, convocation cards"
+        },
+        {
+          "name": "deco-sparkles",
+          "category": "decorative",
+          "purpose": "Heading accent sparkles",
+          "page": "Celebration headings, For you"
+        },
+        {
+          "name": "deco-divider-dots",
+          "category": "decorative",
+          "purpose": "Dotted divider with star",
+          "page": "Section breaks"
+        },
+        {
+          "name": "deco-scatter-leaves-books",
+          "category": "decorative",
+          "purpose": "Scatter cluster of leaves, dots and books (not a seamless tile)",
+          "page": "Empty-state backdrops, sign-in"
+        },
+        {
+          "name": "deco-underline-swoosh",
+          "category": "decorative",
+          "purpose": "Hand-drawn clay underline for a heading word",
+          "page": "Hero headings"
+        }
+      ],
+      "note": "Item 5 came out as a scatter cluster, not a seamless tile."
     }
   ]
 }

@@ -50,7 +50,7 @@ export function PrintButton() {
   return (
     <Button kind="quiet" size="sm" onClick={() => window.print()} className="print:hidden">
       <Printer />
-      Print or save as PDF
+      Print
     </Button>
   )
 }

@@ -475,8 +475,8 @@ function CollegeReports() {
         </div>
         {/* Secondary, and plural: the report is on the page. These are for
             taking a copy of it somewhere the page cannot go. */}
-        <div className="min-w-0">
-          <ColumnLabel className="mb-1 block print:hidden">Also download as</ColumnLabel>
+        <div className="min-w-0 print:hidden">
+          <ColumnLabel className="mb-1 block">Also download as</ColumnLabel>
           <div className="flex flex-wrap gap-1">
             <Button kind="quiet" size="sm" asChild>
               <a href={exportHref("xlsx")} download>
@@ -492,10 +492,12 @@ function CollegeReports() {
             <PrintButton />
           </div>
         </div>
-        <HeaderSpot name="spot-reports" />
+        <span className="contents print:hidden">
+          <HeaderSpot name="spot-reports" />
+        </span>
       </header>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 print:hidden">
         <Combobox
           value={year}
           onChange={(v) => setFilter("year", v)}
@@ -597,7 +599,7 @@ function CollegeReports() {
               value={money(data.totals.paid_amount)}
               hint={
                 data.totals.paid_claims
-                  ? `${data.totals.paid_claims.toLocaleString("en-IN")} claims · typically ${money(data.per_paper.median)} each`
+                  ? `${data.totals.paid_claims.toLocaleString("en-IN")} claims${data.per_paper.median > 0 ? ` · typically ${money(data.per_paper.median)} each` : ""}`
                   : "Nothing paid yet"
               }
               onOpen={() =>
@@ -631,15 +633,35 @@ function CollegeReports() {
             />
           </section>
 
-          <Trend
-            title="Paid by month"
-            dimension="Month"
-            unit="money"
-            points={data.by_month.map((p) => ({
-              ...p,
-              to: drillHref({ label: `Paid in ${p.key}`, filters: { ...scope, status: "PAID", month: p.key } }),
-            }))}
-          />
+          {data.by_month.length >= 2 ? (
+            <Trend
+              title="Paid by month"
+              dimension="Month"
+              unit="money"
+              points={data.by_month.map((p) => ({
+                ...p,
+                to: drillHref({ label: `Paid in ${p.key}`, filters: { ...scope, status: "PAID", month: p.key } }),
+              }))}
+            />
+          ) : data.by_month.length === 1 ? (
+            // One month is a figure, not a trend; a line needs two points.
+            <section className="space-y-1">
+              <SectionTitle>Paid by month</SectionTitle>
+              <Sub>
+                Every payment so far was settled in {data.by_month[0].key}:{" "}
+                <Link
+                  className="font-medium text-accent underline-offset-2 hover:underline"
+                  to={drillHref({
+                    label: `Paid in ${data.by_month[0].key}`,
+                    filters: { ...scope, status: "PAID", month: data.by_month[0].key },
+                  })}
+                >
+                  {money(data.by_month[0].amount ?? 0)}
+                </Link>
+                . A monthly line appears once a second month is paid.
+              </Sub>
+            </section>
+          ) : null}
 
           <section className="space-y-10">
             <SectionTitle>Where it comes from</SectionTitle>
@@ -1124,8 +1146,8 @@ function HodReports() {
           <PageTitle>{data ? `${data.department} publications` : "Reports"}</PageTitle>
           <Sub className="mt-1">What the department has produced, and by whom.</Sub>
         </div>
-        <div className="min-w-0">
-          <ColumnLabel className="mb-1 block print:hidden">Also download as</ColumnLabel>
+        <div className="min-w-0 print:hidden">
+          <ColumnLabel className="mb-1 block">Also download as</ColumnLabel>
           <div className="flex flex-wrap gap-1">
             <Button kind="quiet" size="sm" asChild>
               <a href={exportHref("xlsx")} download>
@@ -1141,7 +1163,9 @@ function HodReports() {
             <PrintButton />
           </div>
         </div>
-        <HeaderSpot name="spot-reports" />
+        <span className="contents print:hidden">
+          <HeaderSpot name="spot-reports" />
+        </span>
       </header>
 
       <Callout tone="info" title="Payment figures are not shown for this role">
@@ -1149,7 +1173,7 @@ function HodReports() {
         has been paid for it.
       </Callout>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 print:hidden">
         <Combobox
           value={year}
           onChange={setYear}
@@ -1717,7 +1741,7 @@ function DirectionPanel({
       ) : (
         <>
           {!pairComparable && (
-            <Callout tone="caution" title="Not compared: the earlier year is not a full earlier year">
+            <Callout tone="caution" title="Not compared: the earlier year is not an earlier year">
               Only {priorTotal.toLocaleString("en-IN")}{" "}
               {priorTotal === 1 ? "paper is" : "papers are"} recorded for {yoy.last_year},
               against {recentTotal.toLocaleString("en-IN")} for {yoy.this_year}. That gap is the
@@ -1922,7 +1946,7 @@ function HodDirection({ byYear }: { byYear: Point[] }) {
           {latest.key} against {previous.key}
         </h3>
         <p className="mt-0.5 text-sm text-fg-muted">
-          Counted on publication year — what the department published, not when anything was
+          Counted on publication year: what the department published, not when anything was
           processed.
         </p>
       </div>
@@ -1935,7 +1959,7 @@ function HodDirection({ byYear }: { byYear: Point[] }) {
       )}
 
       {!comparable ? (
-        <Callout tone="caution" title="Not compared: the earlier year is not a full earlier year">
+        <Callout tone="caution" title="Not compared: the earlier year is not an earlier year">
           {previous.count.toLocaleString("en-IN")}{" "}
           {previous.count === 1 ? "publication is" : "publications are"} recorded for{" "}
           {previous.key}, against {latest.count.toLocaleString("en-IN")} for {latest.key}. A gap

@@ -389,10 +389,10 @@ export function ReportBuilder() {
 
         {/* Secondary by placement and by weight: the report is already on
             screen, so these are for taking it somewhere else. */}
-        <div className="min-w-0">
-          <ColumnLabel className="mb-1 block print:hidden">Also download as</ColumnLabel>
+        <div className="min-w-0 print:hidden">
+          <ColumnLabel className="mb-1 block">Also download as</ColumnLabel>
           <div className="flex flex-wrap gap-1">
-            {FORMATS.map((fmt) => (
+            {FORMATS.filter((f) => f.key !== "csv" || chosen.length === 1).map((fmt) => (
               <Button key={fmt.key} kind="quiet" size="sm" asChild>
                 <a href={`/api/reports/build?${downloadQuery.toString()}&fmt=${fmt.key}`} download>
                   {fmt.key === "xlsx" && <Download />}
@@ -403,7 +403,9 @@ export function ReportBuilder() {
             <PrintButton />
           </div>
         </div>
-        <HeaderSpot name="spot-reports" />
+        <span className="contents print:hidden">
+          <HeaderSpot name="spot-reports" />
+        </span>
       </header>
 
       {/* ---- the three steps: what to count, how to group, which slice ---- */}
@@ -703,11 +705,25 @@ function Breakdown({
           {!table.overlapping && table.totals.amount != null
             ? ` · ${money(table.totals.amount)}`
             : ""}
+          {" · "}
+          {/* A CSV holds one table, so each breakdown carries its own: the
+              file is exactly the rows on screen here. */}
+          <a
+            className="font-medium text-accent underline-offset-2 hover:underline print:hidden"
+            href={`/api/reports/build?${new URLSearchParams({
+              ...scopeFilters,
+              dimensions: table.key,
+              fmt: "csv",
+            }).toString()}`}
+            download
+          >
+            CSV of this table
+          </a>
         </Meta>
       </div>
 
       {table.overlapping && (
-        <Callout tone="caution" title="Counts only — one paper can sit in several rows here">
+        <Callout tone="caution" title="Counts only: one paper can sit in several rows here">
           A paper spanning several {table.label.toLowerCase()}s is counted under each, so these
           rows add to more than the number of papers and the amounts cannot be added at all —
           the same rupee would be counted once per row. The chart therefore draws counts

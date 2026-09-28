@@ -230,7 +230,7 @@ describe("a head of department is shown no money, by any route", () => {
     vi.mocked(api).mockImplementation(hodApi())
     renderWithProviders(<Reports />, { route: "/reports" })
 
-    await waitFor(() => expect(screen.getByText(/ECE — publications/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole("heading", { name: "ECE publications" })).toBeInTheDocument())
 
     // Deliberately the whole document rather than a named chart. The rule is
     // "not by any route", and a per-chart assertion only ever covers the
@@ -242,7 +242,7 @@ describe("a head of department is shown no money, by any route", () => {
     vi.mocked(api).mockImplementation(hodApi())
     renderWithProviders(<Reports />, { route: "/reports" })
 
-    await waitFor(() => expect(screen.getByText(/ECE — publications/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole("heading", { name: "ECE publications" })).toBeInTheDocument())
 
     // Not vacuous: the numbers tables are there, they simply have no money
     // column in them.
@@ -254,7 +254,7 @@ describe("a head of department is shown no money, by any route", () => {
     vi.mocked(api).mockImplementation(hodApi())
     renderWithProviders(<Reports />, { route: "/reports" })
 
-    await waitFor(() => expect(screen.getByText(/ECE — publications/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole("heading", { name: "ECE publications" })).toBeInTheDocument())
 
     // The fixture carries `amount: 0` on every row, exactly as the server
     // does, so this can only pass if the page took the key off.

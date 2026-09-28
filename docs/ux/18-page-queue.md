@@ -61,13 +61,13 @@ own worktree, reviewed on screen by the orchestrator before merge.
 | 10 | Home, every role | / | done |
 | 11 | My research + my stats | /research /u/me/stats | done |
 | 12 | Profile (public + own) | /u/:id /me | done |
-| 13 | Search | /search | in flight |
+| 13 | Search | /search | done |
 | 14 | Notifications + notification settings | /notifications /settings/notifications | done |
 | 15 | Sign in, password, privacy, 404 | * /privacy | in flight |
 | 16 | Clearing queue + claim review | /clearing | in flight |
 | 17 | Approvals (Principal) | /approvals | in flight |
 | 18 | Authorisations (Director) | /authorisations | in flight |
-| 19 | Payments + done | /payments /payments/done | queued |
+| 19 | Payments + done | /payments /payments/done | in flight |
 | 20 | Department (HOD) | /department | queued |
 | 21 | People + person + author matches | /people /people/:id /people/matches | queued |
 | 22 | Reports + report builder | /reports /reports/build | queued |

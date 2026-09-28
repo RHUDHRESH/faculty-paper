@@ -229,7 +229,7 @@ export function Shell({
             </button>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Main">
+          <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Main">
             {listed.map((item) => {
               const heading = item.group && !seen.has(item.group) ? item.group : null
               if (item.group) seen.add(item.group)

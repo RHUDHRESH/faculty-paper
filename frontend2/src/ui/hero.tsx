@@ -143,7 +143,7 @@ export function HeroBand({
           {eyebrow && <p className="text-sm text-fg-muted">{eyebrow}</p>}
           <div className="mt-1 flex flex-wrap items-start justify-between gap-4">
             <h1 className={cn("display text-display min-w-0 text-fg", titleClassName)}>{title}</h1>
-            {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
+            {actions && <div className="flex min-w-0 max-w-full flex-wrap gap-2 sm:shrink-0">{actions}</div>}
           </div>
           {sentence && <p className="mt-2 max-w-prose text-base text-fg-muted">{sentence}</p>}
           {figure && (

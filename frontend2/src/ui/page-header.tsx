@@ -35,7 +35,7 @@ export function PageHeader({
         {eyebrow && <p className="text-sm text-fg-muted">{eyebrow}</p>}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <h1 className="display text-balance text-[1.75rem] leading-9 text-fg">{title}</h1>
-          {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+          {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>}
         </div>
         {sub && <div className="mt-1.5 max-w-prose text-pretty text-base text-fg-muted">{sub}</div>}
         {children}

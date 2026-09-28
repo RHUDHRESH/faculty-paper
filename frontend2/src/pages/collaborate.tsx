@@ -140,7 +140,7 @@ export function Collaborate() {
       </div>
 
       {view === "coauthors" && (
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
           <CoauthorList query={co} onPick={open} meId={meId} />
           <aside className="space-y-3 max-lg:hidden">
             <SectionTitle className="flex items-center gap-1.5">
@@ -312,7 +312,7 @@ function CoauthorList({
   ]
   return (
     <section aria-label="Your co-authors">
-      <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
         <div role="group" aria-label="Show" className="flex gap-4 text-sm">
           {filters.map((f) => (
             <button

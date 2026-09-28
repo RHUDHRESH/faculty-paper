@@ -71,7 +71,7 @@ function SourceChip({ source }: { source: FeedItem["source"] }) {
   return source === "counted" ? (
     null
   ) : (
-    <Chip className="bg-accent-wash text-accent">
+    <Chip className="h-auto min-h-6 max-w-full shrink whitespace-normal bg-accent-wash py-0.5 text-accent">
       Suggested by the model · checked against our records
     </Chip>
   )

@@ -16,7 +16,7 @@ import { AUTH_DIR, BACKEND_DIR, pythonExecutable } from "./backend"
 export const UPSTREAM_FIXTURES =
   process.env.E2E_UPSTREAM_FIXTURES || path.join(AUTH_DIR, "upstream.json")
 
-export type CastKey = "anand" | "revathi" | "hod" | "cell" | "principal" | "director" | "finance" | "admin"
+export type CastKey = "anand" | "revathi" | "meena" | "hod" | "cell" | "principal" | "director" | "finance" | "admin"
 
 export type Year = {
   people: Record<CastKey, { id: string; name: string; email: string; session: string }>

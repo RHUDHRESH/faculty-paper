@@ -55,6 +55,7 @@ J_WATCHED = ("Global Journal of Rapid Acceptance", issn("2345673"), 0.4, "Q4")
 CAST = {
     "anand": ("Anand Kumar", Role.FACULTY, "YR0001", "57300000001"),
     "revathi": ("Revathi Sundaram", Role.FACULTY, "YR0002", "57300000002"),
+    "meena": ("Meena Krishnan", Role.FACULTY, "YR0004", None),
     "hod": ("Hema Rajan", Role.HOD, "YR0003", None),
     "cell": ("Cell Officer", Role.RESEARCH_CELL, None, None),
     "principal": ("Prabhu Principal", Role.PRINCIPAL, None, None),
@@ -74,6 +75,9 @@ PAPERS = {
                   "10.99999/year.rev.2", 1, 3),
     "revathi_3": ("revathi", "Low-power federated vision for smart classrooms", J_GOOD,
                   "10.99999/year.rev.3", 2, 4),
+    # The research cell officer writes papers too, and files them like anyone.
+    "cell_own": ("cell", "Auditing incentive schemes with open ledgers", J_SECOND,
+                 "10.99999/year.cell.1", 1, 2),
 }
 
 #: Not on anybody's record: Anand files it by pasting the DOI.
@@ -112,7 +116,7 @@ class Command(BaseCommand):
             "people": {k: {"id": u.id, "name": u.name, "email": u.email, "session": self._session(u)}
                        for k, u in people.items()},
             "cookie_name": settings.SESSION_COOKIE_NAME,
-            "papers": {k: {"title": v[1], "doi": v[3], "journal": v[2][0], "issn": v[2][1]}
+            "papers": {k: {"title": v[1], "doi": v[3], "journal": v[2][0], "issn": v[2][1], "owner": v[0]}
                        for k, v in PAPERS.items()},
             "doi_paper": {"title": DOI_PAPER[1], "doi": DOI_PAPER[3], "journal": DOI_PAPER[2][0]},
             "watched_journal": J_WATCHED[0],

@@ -508,7 +508,7 @@ export function MoneyCard({ own }: { own: OwnPapers }) {
           )}
         </div>
       </dl>
-      <Link to="/papers?filter=paid" className="mt-4 inline-flex text-sm text-accent hover:underline">
+      <Link to="/papers/statement" className="mt-4 inline-flex text-sm text-accent hover:underline">
         See every payment
       </Link>
     </section>

@@ -15,7 +15,11 @@ from __future__ import annotations
 from datetime import date
 
 from django.db.models import Q
-from django.http import HttpRequest
+import csv
+import io
+from typing import Optional
+
+from django.http import HttpRequest, HttpResponse
 
 from core.api.common import api, require_user, session_auth
 from core.api.deps import _format_payout_month
@@ -62,4 +66,70 @@ def my_payments(request: HttpRequest):
     }
 
 
-__all__ = ["my_payments", "ledger_for", "academic_year_start"]
+def financial_year_of(d: date) -> int:
+    """Indian financial year (1 April to 31 March), named by its starting year."""
+    return d.year if d.month >= 4 else d.year - 1
+
+
+def _fy_label(fy: int) -> str:
+    return f"{fy}-{str(fy + 1)[-2:]}"
+
+
+@api.get("/me/payments/statement", auth=session_auth)
+def my_payment_statement(request: HttpRequest, fy: Optional[int] = None, format: str = "json"):
+    """Your incentive payments for one financial year (April to March), for tax filing.
+
+    Without `fy`, rows cover all years. Every year you were paid in is listed
+    with its total either way. `format=csv` returns a spreadsheet download.
+    """
+    user = require_user(request)
+    rows = list(ledger_for(user).filter(amount__gt=0).order_by("payout_month", "id"))
+    years: dict[int, float] = {}
+    for r in rows:
+        k = financial_year_of(r.payout_month)
+        years[k] = round(years.get(k, 0) + (r.amount or 0), 2)
+    if fy is not None:
+        rows = [r for r in rows if financial_year_of(r.payout_month) == fy]
+    out_rows = [
+        {
+            "payout_month": _format_payout_month(r.payout_month),
+            "financial_year": _fy_label(financial_year_of(r.payout_month)),
+            "paper_title": r.paper_title,
+            "journal_title": r.journal_title,
+            "amount": r.amount,
+            "voucher_number": r.voucher_number,
+            "claim_id": r.claim_id,
+        }
+        for r in rows
+    ]
+    total = round(sum(r.amount or 0 for r in rows), 2)
+    label = _fy_label(fy) if fy is not None else None
+    if format == "csv":
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["Name", user.name or ""])
+        w.writerow(["Staff ID", user.staff_id or ""])
+        w.writerow(["Financial year", label or "All years"])
+        w.writerow([])
+        w.writerow(["Month paid", "Financial year", "Paper", "Journal", "Voucher", "Amount (INR)"])
+        for r in out_rows:
+            w.writerow([r["payout_month"], r["financial_year"], r["paper_title"] or "",
+                        r["journal_title"] or "", r["voucher_number"] or "", r["amount"]])
+        w.writerow([])
+        w.writerow(["Total", "", "", "", "", total])
+        resp = HttpResponse(buf.getvalue(), content_type="text/csv")
+        resp["Content-Disposition"] = f'attachment; filename="payment-statement-{label or "all-years"}.csv"'
+        return resp
+    return {
+        "name": user.name,
+        "staff_id": user.staff_id,
+        "fy": fy,
+        "fy_label": label,
+        "years": [{"fy": k, "label": _fy_label(k), "total": v} for k, v in sorted(years.items(), reverse=True)],
+        "total": total,
+        "count": len(out_rows),
+        "rows": out_rows,
+    }
+
+
+__all__ = ["my_payments", "my_payment_statement", "financial_year_of", "ledger_for", "academic_year_start"]

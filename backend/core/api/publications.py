@@ -77,6 +77,7 @@ def _pub_dict(p: Publication, user: User) -> dict:
         "oa_url": p.oa_url or None,
         "topics": json.loads(p.topics_json or "[]"),
         "source": p.source,
+        "scopus_indexed": bool(getattr(p, "scopus_indexed", False)),
         "author_position": mine.position if mine else None,
         "total_authors": sum(1 for a in authors if a.position is not None) or len(authors),
         "match_confidence": mine.match_confidence if mine else None,

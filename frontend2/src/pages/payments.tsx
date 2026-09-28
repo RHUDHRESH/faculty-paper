@@ -410,7 +410,54 @@ export function Payments() {
         />
       ) : (
         <>
-          <TableScroller minWidth="66rem">
+          {/* Phones: one card per claim, so amount and Pay are never scrolled off. */}
+          <div className="space-y-4 md:hidden">
+            {groupByMonth(rows).map((g) => (
+              <section key={g.key} aria-label={g.label} className="space-y-2">
+                <h2 className="flex items-baseline justify-between gap-2 text-sm font-semibold">
+                  <span>
+                    {g.label} <span className="font-normal text-fg-muted">{g.rows.length} {g.rows.length === 1 ? "claim" : "claims"}</span>
+                  </span>
+                  <span className="tabular">{money(g.total)}</span>
+                </h2>
+                {g.rows.map((c) => {
+                  const payable = isPayable(c)
+                  return (
+                    <div key={c.id} className={cn("rounded-lg p-3 ring-1 ring-inset ring-edge", selected.has(c.id) && "bg-selected")}>
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          checked={selected.has(c.id)}
+                          disabled={!payable}
+                          onCheckedChange={() => toggleSelected(c)}
+                          aria-label={`Select ${c.paper_title || "this ticket"}`}
+                        />
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div>
+                            <span className="block break-words">{c.paper_title || "Untitled"}</span>
+                            <Meta className="block">{c.ticket_number || "Not yet ticketed"}</Meta>
+                          </div>
+                          <Claimant c={c} />
+                          {!payable && (
+                            <p className="text-xs text-critical">
+                              {c.calc_error ? "Could not calculate an amount." : secondApprovalReason(c)}
+                            </p>
+                          )}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-lg font-semibold tabular">{c.calc_error ? "No amount" : money(c.remuneration)}</span>
+                            <Button kind="default" size="sm" disabled={!payable} onClick={() => setPayId(c.id)}>
+                              Pay
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </section>
+            ))}
+          </div>
+          <div className="hidden md:block">
+          <TableScroller minWidth="52rem">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr>
@@ -522,6 +569,7 @@ export function Payments() {
               ))}
             </table>
           </TableScroller>
+          </div>
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
         </>
       )}
@@ -1078,7 +1126,41 @@ export function PaymentsDone() {
         <EmptyState icon={Receipt} title="No payment matches" message={`Nothing on this page matches "${q.trim()}".`} />
       ) : (
         <>
-          <TableScroller minWidth="58rem">
+          <div className="space-y-4 md:hidden">
+            {groupByMonth(rows).map((g) => (
+              <section key={g.key} aria-label={g.label} className="space-y-2">
+                <h2 className="flex items-baseline justify-between gap-2 text-sm font-semibold">
+                  <span>
+                    {g.label} <span className="font-normal text-fg-muted">{g.rows.length} {g.rows.length === 1 ? "claim" : "claims"}</span>
+                  </span>
+                  <span className="tabular">{money(g.total)}</span>
+                </h2>
+                {g.rows.map((c) => (
+                  <div key={c.id} className="space-y-2 rounded-lg p-3 ring-1 ring-inset ring-edge">
+                    <div>
+                      <span className="block break-words">{c.paper_title || "Untitled"}</span>
+                      <Meta className="block">{c.ticket_number || "Not yet ticketed"}</Meta>
+                    </div>
+                    <Claimant c={c} />
+                    <div className="flex items-end justify-between gap-2">
+                      <Meta>
+                        Voucher {c.voucher_number || "none"} · {formatDateTime(c.paid_at)}
+                      </Meta>
+                      <span className="text-lg font-semibold tabular">{money(c.remuneration)}</span>
+                    </div>
+                    {isSuper && (
+                      <Button kind="quiet" size="sm" onClick={() => setVoidId(c.id)}>
+                        <Undo2 className="size-3.5" />
+                        Undo
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </section>
+            ))}
+          </div>
+          <div className="hidden md:block">
+          <TableScroller minWidth="52rem">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr>
@@ -1135,6 +1217,7 @@ export function PaymentsDone() {
               ))}
             </table>
           </TableScroller>
+          </div>
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
         </>
       )}

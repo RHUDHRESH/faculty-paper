@@ -97,7 +97,7 @@ describe("the payable queue", () => {
       })
     )
     const { container } = renderWithProviders(<Payments />)
-    await screen.findByRole("button", { name: "Pay" })
+    await screen.findAllByRole("button", { name: "Pay" })
 
     // The row's select checkbox and the refresh button are both icon-only or
     // glyph-led; an unnamed one is announced as "button" and nothing else.
@@ -137,7 +137,7 @@ describe("paying one claim", () => {
     )
     renderWithProviders(<Payments />)
 
-    await user.click(await screen.findByRole("button", { name: "Pay" }))
+    await user.click((await screen.findAllByRole("button", { name: "Pay" }))[0]!)
 
     const dialog = await screen.findByRole("dialog")
     const confirm = within(dialog).getByRole("button", { name: "Pay — ₹52,377.50" })
@@ -175,7 +175,7 @@ describe("paying one claim", () => {
     )
     renderWithProviders(<Payments />)
 
-    await user.click(await screen.findByRole("button", { name: "Pay" }))
+    await user.click((await screen.findAllByRole("button", { name: "Pay" }))[0]!)
     const dialog = await screen.findByRole("dialog")
     await user.click(within(dialog).getByRole("button", { name: "Pay — ₹52,377.50" }))
 
@@ -198,8 +198,8 @@ describe("paying one claim", () => {
     )
     renderWithProviders(<Payments />)
 
-    expect(await screen.findByText("September 2025")).toBeTruthy()
-    await user.click(await screen.findByRole("button", { name: "Pay" }))
+    expect((await screen.findAllByText("September 2025"))[0]).toBeTruthy()
+    await user.click((await screen.findAllByRole("button", { name: "Pay" }))[0]!)
     const dialog = await screen.findByRole("dialog")
     await user.click(within(dialog).getByRole("button", { name: "Pay — ₹52,377.50" }))
 
@@ -212,7 +212,7 @@ describe("paying one claim", () => {
       fakeApi({
         "/api/auth/me": () => FINANCE,
         "/api/admin/payouts": () =>
-          payoutsPage([{ ...PAYABLE, needs_second_approval: true, duplicate_warning: true, override_duplicate: true, override_by_name: "X" } as typeof PAYABLE]),
+          payoutsPage([{ ...PAYABLE, needs_second_approval: true, duplicate_warning: true, override_duplicate: true, override_by_name: "X" } as unknown as typeof PAYABLE]),
       })
     )
     renderWithProviders(<Payments />)

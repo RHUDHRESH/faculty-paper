@@ -56,7 +56,7 @@ def record_duplicates(request: HttpRequest, person: Optional[str] = None, reason
         pairs = [p for p in pairs if p["reason"] == reason]
     names = dict(User.objects.filter(pk__in={u for p in pairs for u in p["shared_people"]}).values_list("pk", "name"))
     for p in pairs:
-        p["people"] = [{"id": u, "name": names.get(u, "")} for u in p["shared_people"]]
+        p["people"] = [{"user_id": u, "name": names.get(u, "")} for u in p["shared_people"]]
     return {"summary": s, "reasons": rq.REASONS, "pairs": pairs[:200]}
 
 

@@ -1078,7 +1078,7 @@ function OpportunitiesSection({
           <ul className="divide-y divide-line border-y border-line">
             {data.incomplete_records.papers.slice(0, 10).map((c) => (
               <li key={c.id} className="row">
-                <Link to={`/papers/${c.id}`} className="flex items-center gap-3 px-1 py-2 sm:px-2">
+                <Link to={`/department/papers/${c.id}`} className="flex items-center gap-3 px-1 py-2 sm:px-2">
                   <TriangleAlert className="size-4 shrink-0 text-caution" aria-hidden />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm">{paperTitle(c.paper_title)}</span>

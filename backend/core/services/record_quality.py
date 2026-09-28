@@ -477,8 +477,10 @@ def roster_name_suggestions(min_papers: int = 2) -> list[dict[str, Any]]:
             continue
         best = None
         for t in full:
+            if len(t) < 6:
+                continue
             for s in by_first.get(t[0], ()):
-                if not _close(t, s):
+                if abs(len(s) - len(t)) > 2 or not _close(t, s):
                     continue
                 suggested = _replace_token(u.name, t, s)
                 want_full = sorted(s if x == t else x for x in full)

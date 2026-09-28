@@ -104,6 +104,8 @@ const Reference = page(() => import("@/pages/reference"), "Reference")
 const Ledger = page(() => import("@/pages/ledger"), "Ledger")
 const Papers = page(() => import("@/pages/papers"), "Papers")
 const ClaimsList = page(() => import("@/pages/claims-list"), "ClaimsList")
+const AppraisalList = page(() => import("@/pages/my-record"), "AppraisalList")
+const PaymentStatement = page(() => import("@/pages/my-record"), "PaymentStatement")
 const Payments = page(() => import("@/pages/payments"), "Payments")
 const PaymentsDone = page(() => import("@/pages/payments"), "PaymentsDone")
 const Publications = page(() => import("@/pages/publications"), "Publications")
@@ -140,6 +142,8 @@ const HOMES: Record<Role, Page> = {
 
 const PRELOADS: [string, Page][] = [
   ["/papers/claims", ClaimsList],
+  ["/papers/appraisal", AppraisalList],
+  ["/papers/statement", PaymentStatement],
   ["/papers/new", FilePaper],
   ["/papers/:id/edit", FilePaper],
   ["/papers/:id", PaperDetail],
@@ -326,6 +330,8 @@ function App() {
           <Route path="/search" element={<Search />} />
           <Route path="/papers" element={<Papers />} />
           <Route path="/papers/claims" element={<ClaimsList />} />
+          <Route path="/papers/appraisal" element={<AppraisalList />} />
+          <Route path="/papers/statement" element={<PaymentStatement />} />
           <Route path="/papers/new" element={<FilePaper />} />
           <Route path="/papers/:id/edit" element={<FilePaper />} />
           <Route path="/papers/:id" element={<PaperDetail />} />

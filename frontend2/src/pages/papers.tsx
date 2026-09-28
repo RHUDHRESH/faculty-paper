@@ -4,6 +4,7 @@ import {
   CloudDownload,
   ClipboardPaste,
   FilePlusCorner,
+  FileText,
   Hourglass,
   IndianRupee,
   MoreHorizontal,
@@ -327,6 +328,18 @@ export function Papers() {
                 File a paper
               </Link>
             </Button>
+            <Button kind="quiet" asChild>
+              <Link to="/papers/appraisal">
+                <FileText />
+                List for appraisal
+              </Link>
+            </Button>
+            <Button kind="quiet" asChild>
+              <Link to="/papers/statement">
+                <IndianRupee />
+                Payment statement
+              </Link>
+            </Button>
           </>
         }
       >
@@ -439,6 +452,10 @@ export function Papers() {
                   <MenuItem onSelect={() => download("my-papers.bib", toBibtex(rows), "application/x-bibtex")}>
                     Download as BibTeX
                   </MenuItem>
+                  <MenuSeparator />
+                  <MenuLabel>For appraisal and tax</MenuLabel>
+                  <MenuItem onSelect={() => nav("/papers/appraisal")}>Publication list for appraisal (PDF or spreadsheet)</MenuItem>
+                  <MenuItem onSelect={() => nav("/papers/statement")}>My payment statement</MenuItem>
                   <MenuSeparator />
                   <MenuItem onSelect={() => nav("/papers/claims")}>All my claims, drafts included</MenuItem>
                 </MenuContent>

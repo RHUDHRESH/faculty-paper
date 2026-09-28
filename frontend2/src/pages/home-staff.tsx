@@ -8,6 +8,7 @@ import {
   Building2,
   Copy,
   FileCheck,
+  FileText,
   Plus,
   TriangleAlert,
   Users,
@@ -35,7 +36,7 @@ import { Callout, ErrorState, InlineError, Skeleton } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 
 /**
- * The first screen for everybody who is not a claimant — the research cell, a
+ * The first screen for everybody who is not a claimant â€” the research cell, a
  * super admin, the Principal, Finance and a head of department.
  *
  * Four of the six roles in this system used to sign in and land on "Not built
@@ -63,7 +64,7 @@ export function greeting(name: string | undefined): string {
   return first ? `Hello, ${first}` : "Home"
 }
 
-/** A number that is an answer, not a tile — same as the faculty home. */
+/** A number that is an answer, not a tile â€” same as the faculty home. */
 export function Figure({
   label,
   value,
@@ -154,7 +155,7 @@ export function QueueRow({
               !empty && tone === "caution" && "text-caution"
             )}
           >
-            {count === null ? "—" : count.toLocaleString("en-IN")}
+            {count === null ? "â€”" : count.toLocaleString("en-IN")}
           </span>
         )}
         <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
@@ -183,7 +184,7 @@ export type Claim = {
  * A ticket, in a list on a home page.
  *
  * It carries an amount, so it is only ever rendered on a home that is
- * allowed to show one. `HodHome` deliberately does not use it — the
+ * allowed to show one. `HodHome` deliberately does not use it â€” the
  * money-blind screen is built out of its own money-free rows rather than out
  * of this one with a flag turned off, because a flag defaulting to "show"
  * is one careless call site away from a leak.
@@ -197,7 +198,7 @@ export function ClaimRow({ claim }: { claim: Claim }) {
           <Meta className="block truncate">
             {[claim.owner_name, claim.owner_department, claim.ticket_number]
               .filter(Boolean)
-              .join(" · ")}
+              .join(" Â· ")}
           </Meta>
         </span>
         <span className="hidden w-24 shrink-0 text-right text-base tabular sm:block">
@@ -306,9 +307,9 @@ export function DeskQueue({
                 {c.paper_title || "Untitled"}
               </Link>
               <Meta className="block truncate">
-                {[c.owner_name, c.owner_department].filter(Boolean).join(" · ")}
+                {[c.owner_name, c.owner_department].filter(Boolean).join(" Â· ")}
                 {showMoney && c.remuneration ? (
-                  <span className="sm:hidden"> · {money(c.remuneration)}</span>
+                  <span className="sm:hidden"> Â· {money(c.remuneration)}</span>
                 ) : null}
               </Meta>
             </div>
@@ -340,7 +341,7 @@ export function DeskQueue({
 }
 
 /* ------------------------------------------------------------------------ */
-/* The office — research cell and super admin                               */
+/* The office â€” research cell and super admin                               */
 /* ------------------------------------------------------------------------ */
 
 type StageCounts = {
@@ -377,7 +378,7 @@ export function collegeSince(ym: string | null | undefined): string | undefined 
  * What is stuck, what is waiting, and what moved.
  *
  * The clearing count comes from `/api/claims/counts` rather than from the
- * length of `/api/admin/clearing-queue`, which is capped at 200 rows — on a
+ * length of `/api/admin/clearing-queue`, which is capped at 200 rows â€” on a
  * backlog of 340 the queue screen says 340 and a count taken from the array
  * would have said 200, on the same page, three lines apart.
  */
@@ -467,14 +468,14 @@ export function OfficeHome() {
       <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
         <Figure
           label="Waiting to be checked"
-          value={waiting === null ? "—" : waiting.toLocaleString("en-IN")}
+          value={waiting === null ? "â€”" : waiting.toLocaleString("en-IN")}
           hint="Filed, not yet cleared"
           loading={counts.isLoading}
           muted={waiting === 0}
         />
         <Figure
           label="Sent back"
-          value={sentBack === null ? "—" : sentBack.toLocaleString("en-IN")}
+          value={sentBack === null ? "â€”" : sentBack.toLocaleString("en-IN")}
           hint="With the claimant to correct"
           loading={counts.isLoading}
           muted={sentBack === 0}
@@ -596,6 +597,7 @@ export function PrincipalHome() {
   const queue = useApi<PrincipalQueue>(HOME_DATA.principalQueue.key, HOME_DATA.principalQueue.path)
   // Totals only: this home prints no list of recent tickets.
   const dashboard = useApi<Dashboard>(HOME_DATA.collegeTotals.key, HOME_DATA.collegeTotals.path)
+  const brief = useApi<{ headline: string }>(["reports-brief", ""], "/api/reports/brief")
 
   const totals = queue.data?.totals
   const longest = totals?.longest_wait_days ?? null
@@ -611,7 +613,7 @@ export function PrincipalHome() {
       <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
         <Figure
           label="Waiting on you"
-          value={totals ? totals.count.toLocaleString("en-IN") : "—"}
+          value={totals ? totals.count.toLocaleString("en-IN") : "â€”"}
           hint="Checked, awaiting your approval"
           loading={queue.isLoading}
           muted={totals?.count === 0}
@@ -624,7 +626,7 @@ export function PrincipalHome() {
         />
         <Figure
           label="Longest wait"
-          value={longest === null ? "—" : `${longest} ${longest === 1 ? "day" : "days"}`}
+          value={longest === null ? "â€”" : `${longest} ${longest === 1 ? "day" : "days"}`}
           hint={longest === null ? "Nothing waiting" : "Since it was checked"}
           tone={longest !== null && longest > 30 ? "critical" : undefined}
           loading={queue.isLoading}
@@ -664,19 +666,43 @@ export function PrincipalHome() {
         </Waiting>
       )}
 
-      <section className="space-y-2">
+      {/* The Principal's standing question is not "what has ever been paid"
+          but "how did the year go": the brief's one sentence, then the way in. */}
+      <section className="space-y-3">
         <div className="flex items-baseline justify-between gap-3">
-          <SectionTitle>The college</SectionTitle>
-          <Link to="/reports" className="text-sm text-accent underline-offset-4 hover:underline">
-            Reports
+          <SectionTitle>The college, last full year</SectionTitle>
+          <Link to="/reports/brief" className="text-sm text-accent underline-offset-4 hover:underline">
+            Open the year brief
           </Link>
         </div>
-        <Figure
-          label="Paid to date"
-          value={money(dashboard.data?.ledger_total ?? dashboard.data?.total_paid)}
-          hint={collegeSince(dashboard.data?.ledger_since)}
-          loading={dashboard.isLoading}
-        />
+        {brief.data ? (
+          <p data-testid="principal-brief-headline" className="max-w-3xl font-serif text-lg leading-snug text-fg">
+            {brief.data.headline}
+          </p>
+        ) : brief.isError ? (
+          <Figure
+            label="Paid to date"
+            value={money(dashboard.data?.ledger_total ?? dashboard.data?.total_paid)}
+            hint={collegeSince(dashboard.data?.ledger_since)}
+            loading={dashboard.isLoading}
+          />
+        ) : (
+          <div className="h-14 max-w-3xl animate-pulse rounded bg-sunken" />
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" asChild>
+            <a href="/api/reports/brief/export?fmt=pdf" download>
+              <FileText />
+              Council PDF
+            </a>
+          </Button>
+          <Button size="sm" kind="quiet" asChild>
+            <Link to="/accreditation">NAAC and NIRF tables</Link>
+          </Button>
+          <Button size="sm" kind="quiet" asChild>
+            <Link to="/budget">Budget</Link>
+          </Button>
+        </div>
       </section>
 
       <YourPapers />
@@ -685,7 +711,7 @@ export function PrincipalHome() {
 }
 
 /* ------------------------------------------------------------------------ */
-/* Finance                                                                   */
+/* Finance                                                                 */
 /* ------------------------------------------------------------------------ */
 
 type PayoutsPayload = { total: number; results: Claim[] }
@@ -703,7 +729,7 @@ const PAYABLE_PAGE = 200
  * What Finance can pay right now, what it comes to, and what is held up.
  *
  * "Blocked" is its own figure because a high-value claim needing a second
- * signature looks completely payable in a list — same stage, same amount, a
+ * signature looks completely payable in a list â€” same stage, same amount, a
  * pay button that simply refuses. Counting those separately is the
  * difference between a queue and a queue with three landmines in it.
  */
@@ -758,7 +784,7 @@ export function FinanceHome() {
         <Figure
           label="Comes to"
           value={money(readyAmount)}
-          hint={partial ? `first ${rows.length} of ${total} — open the queue for the rest` : undefined}
+          hint={partial ? `first ${rows.length} of ${total} â€” open the queue for the rest` : undefined}
           loading={payable.isLoading}
         />
         <Figure
@@ -766,7 +792,7 @@ export function FinanceHome() {
           value={blocked.length.toLocaleString("en-IN")}
           hint={
             blocked.length
-              ? "High value — needs a second signature from the office"
+              ? "High value â€” needs a second signature from the office"
               : "Nothing is held up"
           }
           tone={blocked.length ? "caution" : undefined}
@@ -801,7 +827,7 @@ export function FinanceHome() {
       {blocked.length > 0 && (
         <Callout tone="caution" title={`${blocked.length} approved but not payable`}>
           These are over the high-value threshold and need a second, different signature before
-          Finance can move them. The research cell or a super admin gives it — the Principal
+          Finance can move them. The research cell or a super admin gives it â€” the Principal
           cannot, and paying one is refused by the server rather than allowed and reversed later.
         </Callout>
       )}
@@ -839,7 +865,7 @@ export function FinanceHome() {
       <section className="space-y-2">
         <div className="flex items-baseline justify-between gap-3">
           <SectionTitle>
-            The budget{budget.data ? ` — FY ${budget.data.financial_year}` : ""}
+            The budget{budget.data ? ` â€” FY ${budget.data.financial_year}` : ""}
           </SectionTitle>
           <Link to="/budget" className="text-sm text-accent underline-offset-4 hover:underline">
             Budget
@@ -877,7 +903,7 @@ export function FinanceHome() {
             label="Left"
             value={
               budget.data?.college.remaining == null
-                ? "—"
+                ? "â€”"
                 : money(Math.abs(budget.data.college.remaining))
             }
             tone={
@@ -959,7 +985,7 @@ type HodOverview = {
  *
  * The same pieces a faculty member's home is built from, so the two cannot
  * drift: their own money, anything sent back to them, and every paper still
- * moving drawn as the claimant's journey — never which desk holds it, even
+ * moving drawn as the claimant's journey â€” never which desk holds it, even
  * for somebody who sits at one. `/api/claims?mine=1` is theirs alone, and the
  * amounts on it are theirs (`hod.for_head`, `core.visibility`).
  */
@@ -987,7 +1013,7 @@ export function YourPapers({
       </div>
 
       {isError ? (
-        // A dropped request is not an empty record: no ₹0 in its place.
+        // A dropped request is not an empty record: no â‚¹0 in its place.
         <InlineError
           message="Could not load your papers. Nothing has been lost."
           onRetry={() => void refetch()}
@@ -1011,7 +1037,7 @@ export function YourPapers({
 }
 
 /**
- * A head's department, and — the part no other screen answers — who in it has
+ * A head's department, and â€” the part no other screen answers â€” who in it has
  * published nothing.
  *
  * There is not a rupee on this page, and there is none in the endpoint behind
@@ -1050,24 +1076,24 @@ export function HodHome() {
       <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
         <Figure
           label="Publications"
-          value={totals ? totals.publications.toLocaleString("en-IN") : "—"}
+          value={totals ? totals.publications.toLocaleString("en-IN") : "â€”"}
           loading={overview.isLoading}
         />
         <Figure
           label="Q1 papers"
-          value={totals ? totals.q1.toLocaleString("en-IN") : "—"}
+          value={totals ? totals.q1.toLocaleString("en-IN") : "â€”"}
           hint="Top-quartile journals"
           loading={overview.isLoading}
         />
         <Figure
           label="First author"
-          value={totals ? totals.first_author.toLocaleString("en-IN") : "—"}
+          value={totals ? totals.first_author.toLocaleString("en-IN") : "â€”"}
           hint="Papers led from this department"
           loading={overview.isLoading}
         />
         <Figure
           label="Under review"
-          value={totals ? totals.under_review.toLocaleString("en-IN") : "—"}
+          value={totals ? totals.under_review.toLocaleString("en-IN") : "â€”"}
           hint="Filed, not yet settled"
           loading={overview.isLoading}
         />
@@ -1124,12 +1150,12 @@ export function HodHome() {
           <SectionTitle>Nothing on record</SectionTitle>
           {/* The only screen in the app that answers this. It is a
               department's own business who has not published, and a list of
-              names with no context beside them is an accusation — so the
+              names with no context beside them is an accusation â€” so the
               sentence above it says plainly what the list does and does not
               mean. */}
           <p className="max-w-2xl text-base text-fg-muted">
             {silent.length} {silent.length === 1 ? "member has" : "members have"} nothing filed
-            under the scheme. That is not the same as having published nothing — a paper nobody
+            under the scheme. That is not the same as having published nothing â€” a paper nobody
             filed a claim for does not appear anywhere in this system.
           </p>
           <SilentList people={silent} />
@@ -1155,7 +1181,7 @@ export function HodHome() {
               value={
                 standing.data.position
                   ? `${standing.data.position} of ${standing.data.of}`
-                  : "—"
+                  : "â€”"
               }
               hint="By number of publications"
             />
@@ -1163,7 +1189,7 @@ export function HodHome() {
               label="Share of the college"
               value={
                 standing.data.share == null
-                  ? "—"
+                  ? "â€”"
                   : `${Math.round(standing.data.share * 100)}%`
               }
               hint={`of ${standing.data.college.publications.toLocaleString("en-IN")} publications`}
@@ -1172,7 +1198,7 @@ export function HodHome() {
               label="Q1 rate"
               value={
                 standing.data.mine.q1_rate == null
-                  ? "—"
+                  ? "â€”"
                   : `${Math.round(standing.data.mine.q1_rate * 1000) / 10}%`
               }
               hint={

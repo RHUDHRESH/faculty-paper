@@ -60,11 +60,16 @@ def list_duplicate_findings(
     if kind:
         qs = qs.filter(kind=kind)
     if status:
-        qs = qs.filter(status=status)
+        # "CONFIRMED,DISMISSED,RECOVERED" is the history: everything decided.
+        qs = qs.filter(status__in=[x for x in status.split(",") if x])
 
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
     total = qs.count()
+
+    page = list(qs[offset : offset + limit])
+    rows_of = {f.id: json.loads(f.rows_json or "[]") for f in page}
+    _add_faces(page, rows_of)
 
     everything = DuplicateFinding.objects.filter(kind=kind or "SAME_PERSON")
     return {
@@ -82,13 +87,14 @@ def list_duplicate_findings(
                 "payment_count": f.payment_count,
                 "total_amount": f.total_amount,
                 "extra_amount": f.extra_amount,
-                "rows": json.loads(f.rows_json or "[]"),
+                "rows": rows_of[f.id],
+                "faculty_photo_url": getattr(f, "_photo_url", None),
                 "note": f.note,
                 "recovered_amount": f.recovered_amount,
                 "reviewed_by_name": f.reviewed_by.name if f.reviewed_by_id else None,
                 "reviewed_at": f.reviewed_at.isoformat() if f.reviewed_at else None,
             }
-            for f in qs[offset : offset + limit]
+            for f in page
         ],
         "summary": {
             "open": everything.filter(status=DuplicateFinding.Status.OPEN).count(),
@@ -110,6 +116,70 @@ def list_duplicate_findings(
             ),
         },
     }
+
+
+def _sheet_month(raw_json) -> str | None:
+    """"YYYY-MM" from the ERP row's own month column, when it reads as one."""
+    import re
+    from core.services.record_dates import MONTH_KEYS, erp_row
+
+    row = erp_row(raw_json) or {}
+    for k in MONTH_KEYS:
+        m = re.match(r"(\d{4})-(\d{2})", str(row.get(k) or ""))
+        if m:
+            return f"{m.group(1)}-{m.group(2)}"
+    return None
+
+
+def _add_faces(findings, rows_of) -> None:
+    """A photo for each payment's person: the claimant's account for a claim,
+    and an exact name match for an imported ERP row (which has no account)."""
+    from django.conf import settings
+    from core.models import User
+
+    ids, names = set(), set()
+    for f in findings:
+        names.add((f.faculty_name or "").strip().lower())
+        for r in rows_of[f.id]:
+            if r.get("source") == "claim" and r.get("person_key"):
+                ids.add(r["person_key"])
+            names.add((r.get("person") or "").strip().lower())
+    names.discard("")
+    by_id, by_name = {}, {}
+    for uid, name, photo in User.objects.filter(id__in=ids).values_list("id", "name", "photo"):
+        by_id[uid] = photo
+    if names:
+        from django.db.models.functions import Lower
+        for name, photo in (User.objects.annotate(n=Lower("name")).filter(n__in=names)
+                            .exclude(photo="").exclude(photo__isnull=True)
+                            .values_list("n", "photo")):
+            by_name.setdefault(name, photo)
+
+    def url(p):
+        return f"{settings.MEDIA_URL}{p}" if p else None
+
+    # A "Processed"-sheet row carries the import's month, not a real one.
+    from core.models import PriorPayment
+    from core.services.record_dates import ledger_month_recorded
+
+    prior_ids = {r["id"] for f in findings for r in rows_of[f.id] if r.get("source") == "prior"}
+    raw = dict(PriorPayment.objects.filter(id__in=prior_ids).values_list("id", "raw_json"))
+
+    for f in findings:
+        for r in rows_of[f.id]:
+            r["month_recorded"] = (
+                ledger_month_recorded(raw.get(r["id"])) if r.get("source") == "prior" else True
+            )
+            if r.get("source") == "prior" and r["month_recorded"]:
+                # The sweep stored paid_at's month, which the import may have
+                # stamped; the sheet's own month column is the record.
+                month = _sheet_month(raw.get(r["id"]))
+                if month:
+                    r["when"] = month
+            photo = by_id.get(r.get("person_key")) if r.get("source") == "claim" else None
+            r["photo_url"] = url(photo or by_name.get((r.get("person") or "").strip().lower()))
+        f._photo_url = url(by_name.get((f.faculty_name or "").strip().lower())) or next(
+            (r["photo_url"] for r in rows_of[f.id] if r["photo_url"]), None)
 
 
 @api.post("/admin/duplicate-findings/{finding_id}", auth=session_auth)

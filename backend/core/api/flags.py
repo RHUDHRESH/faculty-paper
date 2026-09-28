@@ -96,6 +96,7 @@ def _claim_summary(c: Claim) -> dict[str, Any]:
         "id": c.id,
         "ticket_number": c.ticket_number,
         "paper_title": c.paper_title,
+        "owner_id": c.owner_id,
         "owner_name": c.owner.name,
         "owner_department": c.owner.department,
         "status": c.status,

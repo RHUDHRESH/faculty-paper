@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { CircleCheck } from "lucide-react"
 
@@ -19,6 +19,8 @@ import {
   type ClaimFlag,
 } from "@/pages/claim-review"
 import { HeaderSpot } from "@/ui/page-header"
+import { Avatar, initialsOf } from "@/ui/person"
+import { useQueueKeys } from "@/ui/queue-keys"
 
 /**
  * Every discrepancy flag in one queue -- the super admin's list of questions
@@ -39,6 +41,7 @@ type FlagWithClaim = ClaimFlag & {
     ticket_number: string | null
     paper_title: string | null
     owner_name: string
+    owner_photo_url?: string | null
     owner_department: string | null
     status: string
     remuneration: number | null
@@ -56,7 +59,7 @@ type FlagsPayload = {
 
 const STATUS_FILTERS = [
   { value: "open", label: "Open" },
-  { value: "resolved", label: "Resolved" },
+  { value: "resolved", label: "History" },
   { value: "all", label: "All" },
 ]
 
@@ -82,6 +85,7 @@ export function Flags() {
   const claim = searchParams.get("claim") ?? ""
   const page = Math.max(0, Number.parseInt(searchParams.get("page") ?? "0", 10) || 0)
   const [resolving, setResolving] = useState<ClaimFlag | null>(null)
+  const [selected, setSelected] = useState(0)
 
   function setParam(name: string, value: string) {
     setSearchParams((prev) => {
@@ -91,6 +95,7 @@ export function Flags() {
       if (name !== "page") next.delete("page")
       return next
     })
+    setSelected(0)
   }
 
   const query = new URLSearchParams({ status })
@@ -110,8 +115,23 @@ export function Flags() {
     if (!data) return
     const maxPage = Math.max(0, Math.ceil(data.total / PAGE_SIZE) - 1)
     if (page > maxPage) setParam("page", maxPage > 0 ? String(maxPage) : "")
+    if (selected > data.results.length - 1) setSelected(Math.max(0, data.results.length - 1))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
+
+  const list = useMemo(() => data?.results ?? [], [data])
+  const current = list[Math.min(selected, list.length - 1)]
+  const keys = useMemo(
+    () => ({
+      j: () => setSelected((i) => Math.min(i + 1, Math.max(0, list.length - 1))),
+      k: () => setSelected((i) => Math.max(0, i - 1)),
+      r: () => {
+        if (current?.open) setResolving(current)
+      },
+    }),
+    [list.length, current]
+  )
+  useQueueKeys(keys, allowed && list.length > 0)
 
   if (!allowed) {
     return (
@@ -180,6 +200,12 @@ export function Flags() {
         )}
       </div>
 
+      {flags.length > 0 && (
+        <Meta className="hidden sm:block">
+          <Kbd>j</Kbd> <Kbd>k</Kbd> to move · <Kbd>r</Kbd> to resolve the selected flag
+        </Meta>
+      )}
+
       {isLoading && !data ? (
         <SkeletonRows rows={5} rowHeight={112} />
       ) : isError ? (
@@ -206,21 +232,37 @@ export function Flags() {
       ) : (
         <>
           <ul className="divide-y divide-line border-y border-line">
-            {flags.map((f) => (
+            {flags.map((f, i) => (
               <FlagRow
                 key={f.id}
+                selected={current?.id === f.id}
+                onSelect={() => setSelected(i)}
                 flag={f}
                 onResolve={() => setResolving(f)}
                 claimLink={
                   <div className="space-y-1">
-                    <ClaimLine claim={f.claim} />
+                    <div className="flex min-w-0 items-start gap-2">
+                      <Avatar
+                        person={{ name: f.claim.owner_name, initials: initialsOf(f.claim.owner_name), photo_url: f.claim.owner_photo_url ?? null }}
+                        size="sm"
+                      />
+                      <ClaimLine claim={f.claim} />
+                    </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <Stage stage={stageOf(f.claim.status)} className="w-[8rem]" />
-                      {f.claim.status === "PAID" && (
-                        <Meta>
-                          Paid{f.claim.paid_at ? ` on ${formatDate(f.claim.paid_at)}` : ""}
-                          {f.claim.remuneration != null ? ` · ${money(f.claim.remuneration)}` : ""}
-                        </Meta>
+                      {f.claim.remuneration != null && (
+                        <span
+                          className={cn(
+                            "text-sm font-medium tabular",
+                            f.open && f.claim.status === "PAID" && "text-critical"
+                          )}
+                        >
+                          {money(f.claim.remuneration)}
+                          {f.claim.status === "PAID" ? " paid" : " at stake"}
+                        </span>
+                      )}
+                      {f.claim.status === "PAID" && f.claim.paid_at && (
+                        <Meta>on {formatDate(f.claim.paid_at)}</Meta>
                       )}
                     </div>
                   </div>
@@ -239,6 +281,12 @@ export function Flags() {
 
       <ResolveFlagDialog flag={resolving} onClose={() => setResolving(null)} />
     </div>
+  )
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="rounded-sm border border-line bg-sunken px-1 font-mono text-xs text-fg">{children}</kbd>
   )
 }
 

@@ -70,7 +70,7 @@ describe("the flagged queue", () => {
 
     expect(await screen.findByText("Crop yield prediction in coastal districts")).toBeInTheDocument()
     expect(screen.getByText(/Raised by the file check/)).toBeInTheDocument()
-    expect(screen.getByText(/Paid on/)).toBeInTheDocument()
+    expect(screen.getByText(/41,000 paid/)).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /Crop yield prediction/ })).toHaveAttribute("href", "/papers/claim-1")
   })
 
@@ -123,5 +123,16 @@ describe("the flagged queue", () => {
         json: { note: "Opened the scan: it is the right paper" },
       })
     })
+  })
+
+  it("opens the resolve dialog on r for the selected flag", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({ "/api/auth/me": () => ADMIN, "/api/flags": () => page([FLAG]) })
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<Flags />)
+    await screen.findByText("Crop yield prediction in coastal districts")
+    await user.keyboard("r")
+    expect(await screen.findByRole("button", { name: "Resolve this flag" })).toBeInTheDocument()
   })
 })

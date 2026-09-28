@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import uuid
 import zipfile
 from dataclasses import dataclass, field
@@ -181,7 +182,10 @@ def _bio(row: dict) -> str:
         parts.append(row["qualifications"].strip().rstrip(","))
     if row.get("teaching_experience"):
         parts.append(f"Teaching experience: {row['teaching_experience']}.")
-    areas = [a for a in row.get("research_areas") or [] if a]
+    # PDF bullets arrive as private-use glyphs; a line with a colon is a
+    # heading or a table cell that leaked in, not an area.
+    areas = [re.sub(r"[-]", "", str(a)).strip(" -,.●•▪") for a in row.get("research_areas") or []]
+    areas = [a for a in areas if a and ":" not in a and a.lower() not in ("nil", "na")]
     if areas:
         parts.append("Areas of specialisation: " + ", ".join(areas[:8]) + ".")
     # The profile editor holds a bio to 600 characters; an imported one must fit it.

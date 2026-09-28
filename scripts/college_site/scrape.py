@@ -88,6 +88,7 @@ def save_image(url: str, max_side: int = 1600) -> str | None:
     return name
 
 
+BULLETS = " -,.●•▪"
 SECTION_RE = re.compile(r"^\s*([A-Z][A-Z &/()\-]{3,}):?\s*$")
 
 
@@ -108,15 +109,25 @@ def parse_pdf(url: str) -> dict:
         line = line.replace("", "").replace("•", "").strip()
         if not line:
             continue
+        line = re.sub(r"[-]", "", line).strip()
+        if not line:
+            continue
         m = SECTION_RE.match(line)
         if m and len(line) < 60:
             current = m.group(1).strip().upper()
+            continue
+        if line.endswith(":") and len(line) < 60:
+            # "Ph.Ds AWARDED WITH DETAILS:" -- a heading with a lower-case letter.
+            current = line.rstrip(":").strip().upper()
             continue
         sections.setdefault(current, []).append(line)
     out: dict = {}
     for key, lines in sections.items():
         if "SPECIALI" in key or "RESEARCH INTEREST" in key or "AREA" in key:
-            out["research_areas"] = [l.strip(" -,.") for l in lines if 2 < len(l) < 80][:12]
+            out["research_areas"] = [
+                l.strip(BULLETS) for l in lines
+                if 2 < len(l) < 80 and ":" not in l and l.strip(BULLETS).lower() not in ("nil", "na", "-")
+            ][:12]
     m = re.search(r"Scopus ID:\s*(\d{6,})", body)
     if m:
         out["scopus_author_id"] = m.group(1)
@@ -180,14 +191,18 @@ def scrape_department(slug: str) -> dict:
     paras = [p for p in paras if len(p) > 120][:3]
     description = " ".join(paras[:2]) or (og_desc.get("content", "") if og_desc else "")
     image = og_img.get("content") if og_img else None
+    if not image:
+        # The first content picture that is not a logo: the department banner.
+        for img in soup.select(".elementor-widget-image img"):
+            src = img.get("src") or ""
+            if src and "logo" not in src.lower():
+                image = src
+                break
     out = {"slug": slug, "url": url, "description": description[:1500], "image_url": image}
     if image:
         out["image_file"] = save_image(image)
-    research = get(url + "research/")
-    if research:
-        rs = BeautifulSoup(research, "html.parser")
-        items = [text(li) for li in rs.select(".elementor-widget-text-editor li, .elementor-icon-list-text")]
-        out["research_focus"] = [i for i in items if 3 < len(i) < 120][:20]
+    # The department "research" pages list publications and supervisors, not
+    # focus areas -- nothing there is a clean research-focus list, so none is kept.
     return out
 
 
@@ -222,7 +237,7 @@ def main() -> None:
             (OUT / "faculty.json").write_text(json.dumps(unique, indent=1, ensure_ascii=False), encoding="utf8")
     for slug, dept in departments.items():
         dept.update(scrape_department(slug))
-    logo = save_image("https://saveetha.ac.in/wp-content/uploads/2022/12/logo.png", 800)
+    logo = save_image("https://saveetha.ac.in/wp-content/uploads/2024/03/sec-logo-01as.png", 800)
     (OUT / "faculty.json").write_text(json.dumps(unique, indent=1, ensure_ascii=False), encoding="utf8")
     (OUT / "departments.json").write_text(json.dumps(list(departments.values()), indent=1, ensure_ascii=False), encoding="utf8")
     print("faculty", len(unique), "photos", sum(1 for r in unique if r.get("photo_file")),

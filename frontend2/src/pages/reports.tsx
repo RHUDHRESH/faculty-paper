@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useMemo } from "react"
 import { Link, useLocation, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
@@ -811,7 +812,7 @@ function CollegeReports() {
                   ? `${data.top_by_amount.hidden} more people not shown here.`
                   : undefined
               }
-              points={data.top_by_amount.rows.map((p) => ({
+              points={data.top_by_amount.rows.filter((p) => (p.amount ?? 0) > 0).map((p) => ({
                 key: p.id,
                 label: p.label ?? p.key,
                 count: p.count,
@@ -981,7 +982,7 @@ function ClaimRow({ claim: c }: { claim: SearchClaim }) {
       <a href={`/papers/${c.id}`} className="block px-1 py-3">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+            <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
             <Meta className="mt-0.5 block truncate">
               {[c.owner_name, c.owner_department, c.publication_year].filter(Boolean).join(" · ")}
             </Meta>
@@ -1368,7 +1369,7 @@ function HodReports() {
                     {drillQuery.data.results.map((c) => (
                       <li key={c.id} className="row">
                         <a href={`/papers/${c.id}`} className="block px-1 py-3">
-                          <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+                          <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
                           <Meta className="mt-0.5 block truncate">
                             {[c.owner_name, c.journal_title, c.publication_year].filter(Boolean).join(" · ")}
                           </Meta>
@@ -1503,7 +1504,7 @@ function StuckPanel({
                   <div className="flex items-start justify-between gap-3">
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-base">
-                        {c.paper_title || "Untitled"}
+                        {paperTitle(c.paper_title)}
                       </span>
                       <Meta className="mt-0.5 block truncate">
                         {[c.owner_name, c.owner_department, c.desk].filter(Boolean).join(" · ")}

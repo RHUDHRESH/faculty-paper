@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { Link } from "react-router-dom"
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
@@ -727,7 +728,7 @@ export function Approvals() {
                       />
                     </td>
                     <td className="px-3 py-3 align-top">
-                      <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
+                      <span className="block break-words text-base">{paperTitle(c.paper_title)}</span>
                       <Meta className="mt-0.5 block">
                         {c.ticket_number || "Not yet ticketed"} · Cleared by {c.cleared_by_name || "—"}
                       </Meta>
@@ -834,7 +835,7 @@ function QueueCard({
       <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
         <span className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
+            <span className="block break-words text-base">{paperTitle(c.paper_title)}</span>
             <span className="mt-1 flex items-center gap-2">
               <Avatar person={claimant(c)} size="xs" />
               <Meta className="min-w-0 break-words">
@@ -1053,7 +1054,7 @@ function TicketSheet({
         ) : claim ? (
           <>
             <SheetHeader>
-              <SheetTitle className="break-words">{claim.paper_title || "Untitled"}</SheetTitle>
+              <SheetTitle className="break-words">{paperTitle(claim.paper_title)}</SheetTitle>
               <SheetDescription>
                 {claim.ticket_number || "Not yet ticketed"}
                 {claim.journal_title ? ` · ${claim.journal_title}` : ""}

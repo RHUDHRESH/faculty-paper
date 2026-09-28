@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useEffect, useId, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import {
@@ -295,7 +296,7 @@ function GeneralQuery() {
       className: "max-w-[20rem]",
       cell: (r) => (
         <span className="block">
-          <span className="block truncate text-base">{r.paper_title || "Untitled"}</span>
+          <span className="block truncate text-base">{paperTitle(r.paper_title)}</span>
           <Meta className="mt-0.5 block truncate">{r.ticket_number || "—"}</Meta>
         </span>
       ),
@@ -565,7 +566,7 @@ function SearchCard({ row, seeMoney }: { row: SearchRow; seeMoney: boolean }) {
       <Link to={`/papers/${row.id}`} className="block px-1 py-3">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
+            <span className="block truncate text-base">{paperTitle(row.paper_title)}</span>
             <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
               <Avatar
                 person={{ name: row.owner_name, initials: initialsOf(row.owner_name), photo_url: row.owner_photo_url ?? null }}
@@ -624,6 +625,11 @@ function chipLabel(key: GeneralFilterKey, value: string): string {
 function AmountCell({ row }: { row: SearchRow }) {
   if (row.calc_error) {
     return <span className="text-xs text-critical">Could not calculate</span>
+  }
+  // Rows brought in from the old ERP spreadsheet were paid through the ledger
+  // and carry no amount of their own; "₹0" beside "Paid" read as unpaid.
+  if (row.remuneration === 0) {
+    return <span className="text-xs text-fg-muted">Not recorded</span>
   }
   return (
     <span className="inline-flex flex-col items-end">
@@ -981,7 +987,7 @@ function HodQuery({ department }: { department: string | null }) {
       className: "max-w-[20rem]",
       cell: (r) => (
         <span className="block">
-          <span className="block truncate text-base">{r.paper_title || "Untitled"}</span>
+          <span className="block truncate text-base">{paperTitle(r.paper_title)}</span>
           <Meta className="mt-0.5 block truncate">{r.ticket_number || "—"}</Meta>
         </span>
       ),
@@ -1149,7 +1155,7 @@ function HodCard({ row }: { row: HodRow }) {
   return (
     <li className="row">
       <Link to={`/papers/${row.id}`} className="block px-1 py-3">
-        <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
+        <span className="block truncate text-base">{paperTitle(row.paper_title)}</span>
         <Meta className="mt-0.5 block truncate">
           {[row.owner_name, row.ticket_number].filter(Boolean).join(" · ")}
         </Meta>

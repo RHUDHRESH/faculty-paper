@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ArrowLeft, Download, Play, Upload } from "lucide-react"
@@ -293,7 +294,7 @@ export function Batch() {
       cell: (r) => (
         <span className="block">
           <span className="block truncate text-sm">
-            {r.matched_title || r.paper_title || "Untitled"}
+            {r.matched_title || paperTitle(r.paper_title)}
           </span>
           <Meta className="mt-0.5 block truncate">{r.author_id_raw || "—"}</Meta>
         </span>

@@ -105,8 +105,15 @@ def _faults_now() -> dict[str, Any]:
     # ---- work that has stopped moving ----
     stale_days = 14
     stale_cut = now - timedelta(days=stale_days)
-    stale_submitted = claims.filter(status=ClaimStatus.SUBMITTED, updated_at__lt=stale_cut)
-    stale_cleared = claims.filter(status=ClaimStatus.CLEARED, updated_at__lt=stale_cut)
+    # Measured from arrival at the step (as `_waiting_days` does for the queue),
+    # not updated_at: an import or any edit resets updated_at, and the real
+    # college data showed 0 stale tickets beside a queue 90 days old.
+    stale_submitted = claims.filter(status=ClaimStatus.SUBMITTED).filter(
+        Q(submitted_at__lt=stale_cut) | Q(submitted_at__isnull=True, updated_at__lt=stale_cut)
+    )
+    stale_cleared = claims.filter(status=ClaimStatus.CLEARED).filter(
+        Q(cleared_at__lt=stale_cut) | Q(cleared_at__isnull=True, updated_at__lt=stale_cut)
+    )
     legacy = claims.filter(status__in=[
         ClaimStatus.HOD_APPROVED,
         ClaimStatus.RESEARCH_APPROVED,

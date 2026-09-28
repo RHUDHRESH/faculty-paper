@@ -333,12 +333,12 @@ function Past({ d }: { d: MyResearch }) {
   const endYear = new Date().getFullYear()
   return (
     <Section eyebrow="Past" title="Your record">
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <div className="panel p-5">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+        <div className="panel min-w-0 p-5">
           <Timeline events={events} />
         </div>
         <div className="flex min-w-0 flex-col gap-6">
-          <div className="panel p-5">
+          <div className="panel min-w-0 p-5">
             {d.metrics.citations ? (
               <Trend
                 title="Citations by year of publication"
@@ -359,7 +359,7 @@ function Past({ d }: { d: MyResearch }) {
             )}
           </div>
           {d.top_papers.length > 1 && (
-            <div className="panel p-5">
+            <div className="panel min-w-0 p-5">
               <h3 className="text-sm font-semibold text-fg">Your most-cited papers</h3>
               <ol className="mt-3 divide-y divide-line">
                 {d.top_papers.map((p) => (
@@ -395,7 +395,7 @@ function Present({ d }: { d: MyResearch }) {
   const co = [...d.coauthors.inside.slice(0, 5), ...d.coauthors.outside.slice(0, 3)]
   return (
     <Section eyebrow="Present" title="What you work on now">
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="panel min-w-0 p-5">
           {d.topics.length ? (
             <>
@@ -411,9 +411,9 @@ function Present({ d }: { d: MyResearch }) {
                   .filter((t) => t.recent > 0)
                   .slice(0, 5)
                   .map((t) => (
-                    <Link key={t.id} to={topicHref(t.label)}>
-                      <Chip tone="area" icon={Sparkles}>
-                        {t.label} · {t.recent} lately
+                    <Link key={t.id} to={topicHref(t.label)} className="min-w-0 max-w-full">
+                      <Chip tone="area" icon={Sparkles} className="max-w-full">
+                        <span className="truncate">{t.label} · {t.recent} lately</span>
                       </Chip>
                     </Link>
                   ))}
@@ -467,7 +467,7 @@ function Present({ d }: { d: MyResearch }) {
       {d.venues.length > 0 && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-fg">Where you publish</h3>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {d.venues.slice(0, 3).map((v) => (
               <JournalCard
                 key={v.id}

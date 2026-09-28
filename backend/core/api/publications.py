@@ -120,12 +120,39 @@ def _publications(user: User, *, year=None, year_from=None, year_to=None, type=N
     return [_pub_dict(p, user) for p in qs]
 
 
+def _claims_only(user: User, *, year=None, year_from=None, year_to=None, type=None, quartile=None,
+                 q=None, sort="year") -> list[dict]:
+    """Papers known only from a recognised claim or ledger row -- the same
+    `person_record` count Home and the Impact card use -- as record entries."""
+    from core.services.person_record import papers_for
+    out = []
+    for p in papers_for(user):
+        if p.source != "claims":
+            continue
+        if (year and p.year != year) or (year_from and (p.year or 0) < year_from) \
+                or (year_to and (p.year or 9999) > year_to) or type \
+                or (quartile and (p.quartile or "").lower() != quartile.lower()) \
+                or (q and q.lower() not in (p.title or "").lower()):
+            continue
+        out.append({
+            "id": f"claim-{len(out) + 1}", "title": p.title, "year": p.year, "date": p.on.isoformat() if p.on else None,
+            "venue": p.venue or None, "issn": None, "type": None, "quartile": p.quartile, "doi": None,
+            "eid": None, "openalex_id": None, "citations": p.citations, "citations_refreshed_at": None,
+            "oa_url": None, "topics": [], "source": "claim", "author_position": p.position,
+            "total_authors": 0, "match_confidence": None, "authors": [], "claim_ids": [],
+        })
+    return out
+
+
 def _record(user: User, **filters) -> dict:
-    items = _publications(user, **filters)
+    items = _publications(user, **filters) + _claims_only(user, **filters)
+    metrics = _metrics(user)
+    if not any(filters.get(k) for k in ("year", "year_from", "year_to", "type", "quartile", "q")):
+        metrics["total_publications"] = len(items)
     return hod.without_money({
         "user": {"id": user.id, "name": user.name, "department": user.department,
                  "scopus_author_id": user.scopus_author_id, "orcid": user.orcid_id},
-        "metrics": _metrics(user),
+        "metrics": metrics,
         "count": len(items),
         "publications": items,
     })
@@ -232,6 +259,11 @@ def my_publications(request: HttpRequest, year: Optional[int] = None, year_from:
     index = _ClaimIndex(user)
     for p in out["publications"]:
         p.update(claim_state(p, index))
+        if p["source"] == "claim":
+            # Known only from a recognised claim or the paid ledger: filed, never "unclaimed".
+            p["eligible"], p["ineligible_reason"] = True, None
+            if p["claim"] is None:
+                p["claim"] = {"id": None, "stage": ClaimStatus.PAID, "days_waiting": None}
     out["unclaimed"] = sum(1 for p in out["publications"] if p["claim"] is None and p["eligible"])
     return out
 

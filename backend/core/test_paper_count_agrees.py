@@ -33,6 +33,10 @@ class PaperCountAgreesTests(TestCase):
         home = self.c.get("/api/me/summary").json()["papers"]
         research = self.c.get("/api/me/research").json()["metrics"]["papers"]
         card = self.c.get("/api/me/impact").json()["papers"]
+        mine = self.c.get("/api/me/publications").json()
+        self.assertEqual(mine["count"], card)
+        self.assertEqual(mine["metrics"]["total_publications"], card)
+        self.assertNotIn("25000", str(mine))
         return home, research, card
 
     def test_record_plus_claims_only_is_one_count_everywhere(self):

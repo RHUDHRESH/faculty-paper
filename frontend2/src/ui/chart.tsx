@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { Link } from "react-router-dom"
 import { cn } from "@/lib/cn"
 import { money } from "@/ui/paper"
+import { Avatar } from "@/ui/person"
 
 /**
  * Charts, without a charting library.
@@ -44,6 +45,8 @@ export type Point = {
   amount?: number
   /** Where this row lives, if it is a thing with a page of its own. */
   to?: string
+  /** A person: drawn with their face beside the name (RankedBars). */
+  face?: { name: string; initials: string; photo_url: string | null }
 }
 
 /** Which number the chart is drawing. */
@@ -524,13 +527,15 @@ export function RankedBars({
                   <Link
                     to={p.to}
                     title={name}
-                    className="min-w-0 overflow-hidden text-sm hover:text-accent hover:underline"
+                    className="flex min-w-0 items-center gap-2 overflow-hidden text-sm hover:text-accent hover:underline"
                   >
-                    <span className="block truncate">{name}</span>
+                    {p.face && <Avatar person={p.face} size="xs" />}
+                    <span className="block min-w-0 truncate">{name}</span>
                   </Link>
                 ) : (
-                  <span className="min-w-0 overflow-hidden text-sm" title={name}>
-                    <span className="block truncate">{name}</span>
+                  <span className="flex min-w-0 items-center gap-2 overflow-hidden text-sm" title={name}>
+                    {p.face && <Avatar person={p.face} size="xs" />}
+                    <span className="block min-w-0 truncate">{name}</span>
                   </span>
                 )}
 

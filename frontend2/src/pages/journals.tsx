@@ -7,6 +7,7 @@ import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { RankedBars, MixBar, Trend, type Point } from "@/ui/chart"
+import { initialsOf } from "@/ui/person"
 import { Input } from "@/ui/field"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
@@ -267,6 +268,8 @@ type JournalAuthor = {
   department: string
   count: number
   amount?: number
+  photo_url?: string | null
+  initials?: string
 }
 
 type JournalClaimRow = {
@@ -418,6 +421,7 @@ export function JournalRecord() {
     count: a.count,
     amount: showMoney ? a.amount : undefined,
     to: `/people/${a.id}`,
+    face: { name: a.key, initials: a.initials ?? initialsOf(a.key), photo_url: a.photo_url ?? null },
   }))
 
   const activeYears =

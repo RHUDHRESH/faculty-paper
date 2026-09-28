@@ -28,8 +28,8 @@ import { cn } from "@/lib/cn"
 type Size = "md" | "lg"
 
 const CONTROL_SIZE: Record<Size, string> = {
-  md: "h-8 px-2.5 text-sm rounded-md",
-  lg: "h-10 px-3 text-base rounded-md",
+  md: "h-9 px-3 text-sm rounded-lg",
+  lg: "h-11 px-3.5 text-base rounded-lg",
 }
 
 function mergeRefs<T>(...refs: Array<Ref<T> | undefined>) {

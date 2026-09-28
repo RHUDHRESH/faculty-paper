@@ -69,7 +69,7 @@ export const BigSearch = forwardRef<
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="h-16 w-full rounded-2xl bg-surface pr-24 pl-14 text-xl text-fg shadow-[inset_0_0_0_1px_var(--color-field)] placeholder:text-fg-subtle focus:shadow-[inset_0_0_0_2px_var(--color-accent)] focus:outline-none max-sm:text-lg"
+          className="h-16 w-full rounded-3xl bg-surface pr-24 pl-14 text-lg text-fg shadow-[inset_0_0_0_1px_var(--color-edge),0_2px_12px_-4px_rgb(43_42_39/0.08)] placeholder:text-fg-subtle focus:shadow-[inset_0_0_0_1px_var(--color-accent-line),0_2px_16px_-4px_rgb(43_42_39/0.12)] focus:outline-none max-sm:text-lg"
         />
         <kbd
           aria-hidden

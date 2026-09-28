@@ -38,7 +38,7 @@ const KIND: Record<Kind, string> = {
     "shadow-raise active:shadow-none " +
     "disabled:bg-fg-subtle disabled:shadow-none",
   default:
-    "bg-surface text-fg ring-1 ring-inset ring-edge " +
+    "bg-surface text-fg ring-1 ring-inset ring-edge font-medium " +
     "hover:bg-hover " +
     "shadow-raise active:shadow-none disabled:shadow-none",
   quiet: "text-fg-muted hover:bg-hover hover:text-fg",
@@ -48,10 +48,10 @@ const KIND: Record<Kind, string> = {
 }
 
 const SIZE: Record<Size, string> = {
-  sm: "h-7 gap-1.5 px-2 text-xs rounded-sm",
-  md: "h-8 gap-1.5 px-2.5 text-sm rounded-md",
-  lg: "h-10 gap-2 px-4 text-base rounded-md",
-  icon: "size-8 rounded-md",
+  sm: "h-7 gap-1.5 px-2.5 text-xs rounded-md",
+  md: "h-9 gap-1.5 px-3.5 text-sm rounded-lg",
+  lg: "h-11 gap-2 px-5 text-base rounded-lg",
+  icon: "size-9 rounded-lg",
 }
 
 export const Button = forwardRef<

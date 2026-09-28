@@ -23,7 +23,7 @@ import { AuthorList } from "./filing/authors"
 import { ChooseFooter, ChooseMethod, type Method, type PulledPaper, type ScopusPull } from "./filing/choose"
 import { SourceTag } from "./filing/bits"
 import { EstimateBar, EstimatePanel } from "./filing/estimate"
-import { FiledReceipt } from "./filing/filed"
+import { FiledReceipt, receiptAmount } from "./filing/filed"
 import {
   CHECK_TARGET,
   FoundCard,
@@ -41,6 +41,7 @@ import {
   yearOf,
 } from "./filing/identifiers"
 import { applyLookup, type PaperLookup, type StoredAuthor } from "./filing/lookup"
+import { useDebouncedSave } from "./filing/autosave"
 import { AttachmentGroup, ReferenceFields, ReferenceTally } from "./filing/proof"
 import { readiness, sameFileOnThisForm, type Problem } from "./filing/readiness"
 import { ContestNote, EstimateDetail, PreFlight, PriorCheckLine, Receipt } from "./filing/receipt"
@@ -94,6 +95,8 @@ type ClaimDetail = {
   scopus_author_url: string | null
   designation: string | null
   claim_reason: string | null
+  /** What the server priced the claim at, from the journal figures it verified. */
+  remuneration?: number | null
   team: { code: string } | null
   affiliation_ok: boolean
   total_authors: number
@@ -671,12 +674,7 @@ export function FilePaper() {
   }
 
   // The debounce: a burst of keystrokes becomes one request 2.5s after the last.
-  useEffect(() => {
-    if (!dirtyRef.current) return
-    const t = setTimeout(() => void save(), 2500)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form])
+  useDebouncedSave(form, dirtyRef, () => void save())
 
   useEffect(() => {
     const t = setInterval(() => forceTick((n) => n + 1), 30_000)
@@ -1122,6 +1120,10 @@ export function FilePaper() {
         ? await api<ClaimDetail>(`/api/claims/${claimIdRef.current}`, { method: "PATCH", json: payload })
         : await api<ClaimDetail>("/api/claims", { method: "POST", json: payload })
       dirtyRef.current = false
+      // The filed claim is this form's claim from now on: anything that
+      // saves after this point must address it, never create another.
+      claimIdRef.current = result.id
+      setClaimId(result.id)
       // Step 7: the receipt, not a jump to the paper's page.
       setFiled(result)
       window.scrollTo({ top: 0 })
@@ -1402,7 +1404,7 @@ export function FilePaper() {
     return (
       <FiledReceipt
         claim={filed}
-        estimate={calc?.remuneration ?? null}
+        estimate={receiptAmount(filed.remuneration, calc?.remuneration)}
         countOnly={countOnly}
         ticks={ticks ?? {}}
         minReferences={rules.min_sec_references}

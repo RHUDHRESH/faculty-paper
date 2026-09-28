@@ -30,3 +30,10 @@ class FacesTests(TestCase):
         c.force_login(self.b)
         r = c.get(f"/api/people/{self.b.id}/coauthors")
         self.assertEqual(r.status_code, 200)
+
+    def test_person_dicts_keyed_by_id_get_faces_but_other_ids_do_not(self):
+        data = {"people": [{"id": self.a.id, "name": self.a.name, "department": "EEE"}],
+                "departments": [{"id": "EEE", "name": "Electrical", "department": "EEE"}]}
+        faces.fill(data)
+        self.assertTrue(data["people"][0]["photo_url"].endswith("photos/a.jpg"))
+        self.assertNotIn("photo_url", data["departments"][0])

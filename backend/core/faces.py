@@ -16,10 +16,20 @@ from django.conf import settings
 _NAME_KEYS = ("name", "display_name")
 
 
+def _uid(d: dict) -> str | None:
+    """The user this dict describes: `user_id`, or -- for person-shaped dicts
+    keyed by `id` (a name plus a department or designation) -- `id`."""
+    uid = d.get("user_id")
+    if isinstance(uid, str) and uid:
+        return uid
+    if isinstance(d.get("id"), str) and "name" in d and ("department" in d or "designation" in d):
+        return d["id"]
+    return None
+
+
 def _people(data: Any, out: list[dict]) -> None:
     if isinstance(data, dict):
-        uid = data.get("user_id")
-        if isinstance(uid, str) and uid and any(k in data for k in _NAME_KEYS) \
+        if _uid(data) and any(k in data for k in _NAME_KEYS) \
                 and ("photo_url" not in data or "initials" not in data):
             out.append(data)
         for v in data.values():
@@ -40,11 +50,14 @@ def fill(data: Any) -> Any:
     _people(data, found)
     if not found:
         return data
-    photos = dict(User.objects.filter(id__in={d["user_id"] for d in found})
-                  .exclude(photo="").exclude(photo__isnull=True).values_list("id", "photo"))
+    ids = {_uid(d) for d in found}
+    photos = dict(User.objects.filter(id__in=ids).values_list("id", "photo"))
     for d in found:
+        uid = _uid(d)
+        if "user_id" not in d and uid not in photos:
+            continue  # an `id` that is not a person (a department, a journal)
         if "photo_url" not in d:
-            p = photos.get(d["user_id"])
+            p = photos.get(uid)
             d["photo_url"] = f"{settings.MEDIA_URL}{p}" if p else None
         if "initials" not in d:
             d["initials"] = initials(next((d[k] for k in _NAME_KEYS if d.get(k)), ""))

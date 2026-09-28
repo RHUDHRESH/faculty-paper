@@ -1,18 +1,18 @@
 import { useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { ExternalLink, UserRound, Waypoints } from "lucide-react"
+import { ChevronDown, ExternalLink, Globe, MessageSquare, UserRound, UsersRound, Waypoints } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { useDebounced, useSearchAll, type SearchItem } from "@/app/search-engine"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
-import { PersonContext, firstName, isExternalKey } from "@/pages/person-context"
+import { PersonContext, isExternalKey } from "@/pages/person-context"
 import { BigSearch } from "@/ui/big-search"
 import { Chip } from "@/ui/chip"
-import { PersonCard } from "@/ui/entity"
 import { YourCircle } from "@/ui/circle"
 import { HeroBand } from "@/ui/hero"
-import { initialsOf } from "@/ui/person"
+import { Avatar, PersonLink, initialsOf } from "@/ui/person"
+import { Picture } from "@/ui/picture"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
@@ -38,6 +38,8 @@ type Coauthor = {
   institutions: string[]
   countries: string[]
   is_college_member: boolean
+  photo_url?: string | null
+  initials?: string
 }
 type Coauthors = { user_id: string; publications: number; inside_count: number; outside_count: number; inside: Coauthor[]; outside: Coauthor[] }
 
@@ -50,6 +52,8 @@ type EgoNode = {
   institution: string | null
   college_affiliated?: boolean
   hop: 0 | 1 | 2
+  photo_url?: string | null
+  initials?: string
   papers: number
   together: number
   degree: number
@@ -58,7 +62,7 @@ type EgoNode = {
 }
 type Ego = { center: string; coauthors: number; capped: boolean; nodes: EgoNode[]; links: { source: string; target: string; papers: number }[] }
 
-type NextPerson = { id: string; name: string; department: string | null; designation: string | null; papers: number; reasons: string[] }
+type NextPerson = { id: string; name: string; department: string | null; designation: string | null; papers: number; reasons: string[]; shared_areas?: string[] }
 type Next = { people: NextPerson[] }
 
 type View = "coauthors" | "suggested" | "map"
@@ -97,8 +101,8 @@ export function Collaborate() {
     : co.isError
       ? "Your co-authors could not be counted just now."
       : total === 0
-        ? "Nobody on your record yet — they appear from your papers' author lists."
-        : `You've written with ${plural(total, "person", "people")} — ${inside.length} at Saveetha, ${outside.length} outside, across ${plural(institutions.size + (inside.length ? 1 : 0), "institution")}.`
+        ? "Nobody on your record yet. Co-authors appear from your papers' author lists."
+        : `You've written with ${plural(total, "person", "people")}: ${inside.length} at Saveetha, ${outside.length} outside, across ${plural(institutions.size + (inside.length ? 1 : 0), "institution")}.`
 
   const tabs: { id: View; label: string; count?: number }[] = [
     { id: "coauthors", label: "Your co-authors", count: co.data ? total : undefined },
@@ -108,7 +112,13 @@ export function Collaborate() {
 
   return (
     <div data-area="people" className="page space-y-8">
-      <HeroBand spot="collaboration" area="people" eyebrow="People" title="Who to work with" sentence={sentence}>
+      <HeroBand
+        area="people"
+        eyebrow="People"
+        title="Who to work with"
+        sentence={sentence}
+        aside={<Picture name="spot-who-to-work-with" eager className="h-44 w-56 max-lg:hidden" />}
+      >
         <PeopleSearch onPick={open} />
       </HeroBand>
 
@@ -133,7 +143,7 @@ export function Collaborate() {
 
       {view === "coauthors" && (
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <CoauthorList query={co} onPick={open} />
+          <CoauthorList query={co} onPick={open} meId={meId} />
           <aside className="space-y-3 max-lg:hidden">
             <SectionTitle className="flex items-center gap-1.5">
               <Waypoints aria-hidden className="size-4 text-(--area)" strokeWidth={1.75} />
@@ -185,7 +195,7 @@ function PeopleSearch({ onPick }: { onPick: (id: string) => void }) {
       onChange={setQ}
       hideScopes
       label="Find anyone"
-      placeholder="Find anyone — see how you're connected"
+      placeholder="Find anyone and see how you're connected"
       className="mt-5"
     >
       {show && (
@@ -234,16 +244,55 @@ function PeopleSearch({ onPick }: { onPick: (id: string) => void }) {
 
 /* --------------------------------------------------------------- co-authors */
 
-function CoauthorList({ query, onPick }: { query: ReturnType<typeof useApi<Coauthors>>; onPick: (id: string) => void }) {
+type Face = { name: string; initials: string; photo_url: string | null }
+
+/** Two letters for an institution: "Anna University" -> "AU". */
+function monogram(inst: string | null | undefined): string | null {
+  const words = (inst || "").replace(/\b(of|the|and|for|&)\b/gi, " ").split(/[\s,.-]+/).filter((w) => /^[A-Z]/.test(w))
+  if (!words.length) return null
+  return (words[0][0] + (words.length > 1 ? words[1][0] : "")).toUpperCase()
+}
+
+/** A colleague's face; an outside author gets their institution's monogram, never a made-up face. */
+function PersonFace({ person, outside, institution }: { person: Face; outside: boolean; institution?: string | null }) {
+  if (!outside) return <Avatar person={person} size="lg" className="size-12 text-base sm:size-14" />
+  const m = monogram(institution)
+  return (
+    <span
+      aria-hidden
+      title={institution ?? undefined}
+      className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-sunken text-sm font-semibold tracking-wide text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)] sm:size-14"
+    >
+      {m ?? <Globe className="size-5" strokeWidth={1.5} />}
+    </span>
+  )
+}
+
+const yearsOf = (c: Coauthor) =>
+  c.first_year_together && c.last_year_together && c.first_year_together !== c.last_year_together
+    ? `${c.first_year_together}–${c.last_year_together}`
+    : c.last_year_together
+      ? String(c.last_year_together)
+      : null
+
+function CoauthorList({
+  query,
+  onPick,
+  meId,
+}: {
+  query: ReturnType<typeof useApi<Coauthors>>
+  onPick: (id: string) => void
+  meId: string
+}) {
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<"papers" | "recent">("papers")
   const [shown, setShown] = useState(40)
-  if (query.isLoading) return <SkeletonRows rows={5} rowHeight={96} />
+  if (query.isLoading) return <SkeletonRows rows={6} rowHeight={72} />
   if (query.isError)
     return (
       <ErrorState
         title="Could not work out who you have written with"
-        message="The server did not answer. This page only reads — nothing has been lost."
+        message="The server did not answer. This page only reads, so nothing has been lost."
         onRetry={() => void query.refetch()}
       />
     )
@@ -264,9 +313,9 @@ function CoauthorList({ query, onPick }: { query: ReturnType<typeof useApi<Coaut
     { id: "outside", label: "Outside", n: outside.length },
   ]
   return (
-    <section className="space-y-3" aria-label="Your co-authors">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div role="group" aria-label="Show" className="flex gap-1.5">
+    <section aria-label="Your co-authors">
+      <div className="flex items-center justify-between gap-3 border-b border-line pb-3">
+        <div role="group" aria-label="Show" className="flex gap-4 text-sm">
           {filters.map((f) => (
             <button
               key={f.id}
@@ -274,101 +323,115 @@ function CoauthorList({ query, onPick }: { query: ReturnType<typeof useApi<Coaut
               aria-pressed={filter === f.id}
               onClick={() => setFilter(f.id)}
               className={cn(
-                "h-8 rounded-full px-3 text-sm transition-colors duration-[var(--dur-1)]",
-                filter === f.id ? "bg-(--area-wash) font-medium text-(--area) shadow-[inset_0_0_0_1px_var(--area-line)]" : "text-fg-muted hover:bg-hover"
+                "transition-colors duration-[var(--dur-1)]",
+                filter === f.id ? "font-medium text-fg" : "text-fg-muted hover:text-fg"
               )}
             >
-              {f.label} <span className="tabular">{f.n}</span>
+              {f.label} <span className="tabular text-fg-subtle">{f.n}</span>
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 text-sm text-fg-muted">
-          Sort
+        <label className="flex items-center gap-1 text-sm text-fg-muted">
+          <span className="max-sm:sr-only">Sort by</span>
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as "papers" | "recent")}
-            className="h-8 rounded-md bg-surface px-2 text-sm text-fg shadow-[inset_0_0_0_1px_var(--color-field)]"
+            className="h-8 rounded-md bg-transparent px-1 text-sm text-fg hover:bg-hover"
           >
             <option value="papers">Most papers</option>
             <option value="recent">Most recent</option>
           </select>
         </label>
       </div>
-      <ul className="grid gap-3 sm:grid-cols-2">
+      <ul className="divide-y divide-line">
         {rows.slice(0, shown).map((c) => (
-          <li key={c.key}>
-            <CoauthorCard c={c} inside={c.inside} onPick={onPick} />
-          </li>
+          <CoauthorRow key={c.key} c={c} inside={c.inside} onPick={onPick} meId={meId} />
         ))}
       </ul>
       {rows.length > shown && (
         <button type="button" onClick={() => setShown((n) => n + 40)} className="mt-4 text-sm font-medium text-accent hover:underline">
-          Show more ({rows.length - shown} left)
+          Show {Math.min(40, rows.length - shown)} more of {rows.length - shown}
         </button>
       )}
     </section>
   )
 }
 
-function CoauthorCard({ c, inside, onPick }: { c: Coauthor; inside: boolean; onPick: (id: string) => void }) {
-  const years =
-    c.first_year_together && c.last_year_together && c.first_year_together !== c.last_year_together
-      ? ` · ${c.first_year_together}–${c.last_year_together}`
-      : c.last_year_together
-        ? ` · ${c.last_year_together}`
-        : ""
-  const context = (
-    <button type="button" onClick={() => onPick(pickId(c))} className="text-left hover:text-fg hover:underline hover:underline-offset-4">
-      {plural(c.papers_together, "paper")} together{years}
-    </button>
-  )
-  const affiliation = inside ? (c.is_college_member ? "Saveetha" : "Saveetha (former)") : (c.institutions[0] ?? "Outside")
+const action =
+  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-fg shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-hover"
+
+function CoauthorRow({ c, inside, onPick, meId }: { c: Coauthor; inside: boolean; onPick: (id: string) => void; meId: string }) {
+  const [open, setOpen] = useState(false)
+  const years = yearsOf(c)
+  const where = inside
+    ? [c.department, c.is_college_member ? "Saveetha" : "Saveetha, former"].filter(Boolean).join(" · ")
+    : [c.institutions[0], c.countries[0]].filter(Boolean).join(" · ") || "Outside the college"
+  const face: Face = { name: c.name, initials: c.initials ?? initialsOf(c.name), photo_url: c.photo_url ?? null }
+  const openAlex = !c.user_id && /^A\d+$/.test(c.key) ? `https://openalex.org/authors/${c.key}` : null
   return (
-    <div className="flex h-full flex-col">
-      <PersonCard
-        className="h-full"
-        person={{ name: c.name, initials: initialsOf(c.name), photo_url: null, department: c.department }}
-        to={c.user_id ? `/u/${c.user_id}` : undefined}
-        affiliation={affiliation.length > 40 ? `${affiliation.slice(0, 39)}…` : affiliation}
-        context={context}
-        messageTo={c.user_id ? `/messages?to=${c.user_id}` : undefined}
-        path={
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => onPick(pickId(c))}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm text-(--area) hover:bg-(--area-wash)"
-            >
-              <Waypoints aria-hidden className="size-4" strokeWidth={1.75} />
-              How you're connected
+    <li className="py-4">
+      <div className="flex items-center gap-4">
+        <PersonFace person={face} outside={!inside} institution={c.institutions[0]} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base">
+            {c.user_id ? <PersonLink id={c.user_id} name={c.name} /> : <span className="font-medium text-fg">{c.name}</span>}
+          </p>
+          <p className="truncate text-sm text-fg-muted">{where}</p>
+          <p className="text-sm text-fg-subtle">
+            <span className="tabular">{plural(c.papers_together, "paper")}</span> together{years && ` · ${years}`}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {c.user_id ? (
+            <Link to={`/messages?to=${c.user_id}`} className={cn(action, "max-sm:hidden")}>
+              <MessageSquare aria-hidden className="size-4" strokeWidth={1.75} /> Message
+            </Link>
+          ) : openAlex ? (
+            <a href={openAlex} target="_blank" rel="noreferrer" className={cn(action, "max-sm:hidden")}>
+              OpenAlex <ExternalLink aria-hidden className="size-3.5" />
+            </a>
+          ) : (
+            <button type="button" onClick={() => onPick(pickId(c))} className={cn(action, "max-sm:hidden")}>
+              Open profile
             </button>
-            {!c.user_id && /^A\d+$/.test(c.key) && (
-              <a
-                href={`https://openalex.org/authors/${c.key}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm text-fg-muted hover:bg-hover"
-              >
-                OpenAlex <ExternalLink aria-hidden className="size-3" />
+          )}
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label={`How you're connected to ${c.name}`}
+            onClick={() => setOpen((v) => !v)}
+            className="inline-flex size-9 items-center justify-center rounded-md text-fg-muted hover:bg-hover hover:text-fg"
+          >
+            <ChevronDown aria-hidden className={cn("size-4 transition-transform duration-[var(--dur-2)]", open && "rotate-180")} />
+          </button>
+        </div>
+      </div>
+      {open && (
+        <div className="mt-3 space-y-3 rounded-lg bg-sunken p-4 sm:ml-[4.5rem]">
+          <div className="flex flex-wrap gap-2 sm:hidden">
+            {c.user_id ? (
+              <Link to={`/messages?to=${c.user_id}`} className={action}>
+                <MessageSquare aria-hidden className="size-4" strokeWidth={1.75} /> Message
+              </Link>
+            ) : openAlex ? (
+              <a href={openAlex} target="_blank" rel="noreferrer" className={action}>
+                OpenAlex <ExternalLink aria-hidden className="size-3.5" />
               </a>
-            )}
+            ) : null}
           </div>
-        }
-      />
-    </div>
+          <PersonContext meId={meId} target={pickId(c)} header={false} />
+        </div>
+      )}
+    </li>
   )
 }
 
 function NoCoauthors() {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-lg bg-sunken px-6 py-12 text-center">
-      <div className="rounded-3xl bg-(--area-wash) p-4">
-        <img src="/illustrations/network-bridge.svg" alt="" width={200} height={125} />
-      </div>
+    <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+      <Picture name="empty-no-collaborators" className="h-40 w-56" />
       <p className="mt-2 text-lg font-semibold text-fg">Your co-authors will appear here</p>
-      <p className="max-w-sm text-base text-fg-muted">
-        We find them from your papers' author lists — no one needs to file anything.
-      </p>
+      <p className="max-w-sm text-base text-fg-muted">We find them from your papers' author lists, so nobody needs to file anything.</p>
       <Link to="/papers" className="mt-3 inline-flex h-9 items-center rounded-md bg-accent px-4 text-sm font-medium text-accent-fg">
         Check my record
       </Link>
@@ -378,7 +441,22 @@ function NoCoauthors() {
 
 /* ---------------------------------------------------------------- suggested */
 
-type Suggestion = { id: string; name: string; sub: string | null; group: string; reason: string; outside: boolean }
+type Suggestion = {
+  id: string
+  name: string
+  face: Face
+  sub: string | null
+  group: string
+  reason: string
+  via: Face[]
+  outside: boolean
+}
+
+const faceOf = (n: { name: string; initials?: string; photo_url?: string | null }): Face => ({
+  name: n.name,
+  initials: n.initials ?? initialsOf(n.name),
+  photo_url: n.photo_url ?? null,
+})
 
 /** Grouped: your co-authors' co-authors (two hops, college first), then the counted suggestions from Discover. */
 function useSuggestions(ego: Ego | undefined, next: Next | undefined): Suggestion[] {
@@ -399,11 +477,13 @@ function useSuggestions(ego: Ego | undefined, next: Next | undefined): Suggestio
         out.push({
           id,
           name: n.name,
+          face: faceOf(n),
           sub: n.is_college_member ? [n.department, "Saveetha"].filter(Boolean).join(" · ") : n.institution,
           group: "Your co-authors' co-authors",
           reason: via.length
-            ? `Wrote with ${via.slice(0, 2).map((v) => v.name).join(" and ")}${via.length > 2 ? ` and ${via.length - 2} more` : ""}`
-            : "Two steps from you",
+            ? `Wrote with your co-author${via.length > 1 ? "s" : ""} ${via.slice(0, 2).map((v) => v.name).join(" and ")}${via.length > 2 ? ` and ${via.length - 2} more` : ""}`
+            : "Two steps from you in the author record",
+          via: via.slice(0, 3).map(faceOf),
           outside: !n.is_college_member,
         })
       }
@@ -413,9 +493,13 @@ function useSuggestions(ego: Ego | undefined, next: Next | undefined): Suggestio
       out.push({
         id: p.id,
         name: p.name,
+        face: faceOf(p),
         sub: [p.department, p.designation].filter(Boolean).join(" · "),
         group: "Works on your topics",
-        reason: p.reasons[0] ?? `${plural(p.papers, "paper")} on record`,
+        reason: p.shared_areas?.length
+          ? `Also works on ${p.shared_areas.slice(0, 2).join(" and ")}`
+          : (p.reasons[0] ?? `${plural(p.papers, "paper")} on record`),
+        via: [],
         outside: false,
       })
     }
@@ -424,41 +508,52 @@ function useSuggestions(ego: Ego | undefined, next: Next | undefined): Suggestio
 }
 
 function Suggested({ loading, items, onPick, meId }: { loading: boolean; items: Suggestion[]; onPick: (id: string) => void; meId: string }) {
-  if (loading) return <SkeletonRows rows={4} rowHeight={96} />
+  if (loading) return <SkeletonRows rows={5} rowHeight={72} />
   if (!items.length)
     return (
-      <p className="rounded-lg bg-sunken px-6 py-10 text-center text-base text-fg-muted">
-        Suggestions come from your co-authors' co-authors and from colleagues on your topics. They fill in as your record does.
-      </p>
+      <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+        <Picture name="empty-no-collaborators" className="h-40 w-56" />
+        <p className="max-w-md text-base text-fg-muted">
+          Suggestions come from your co-authors' co-authors and from colleagues on your topics. Add papers to your record and they fill in.
+        </p>
+      </div>
     )
   const groups = [...new Set(items.map((i) => i.group))]
   return (
-    <div className="space-y-8">
+    <div className="max-w-3xl space-y-10">
       {groups.map((g) => (
-        <section key={g} className="space-y-3">
-          <SectionTitle>{g}</SectionTitle>
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <section key={g}>
+          <SectionTitle className="border-b border-line pb-3">{g}</SectionTitle>
+          <ul className="divide-y divide-line">
             {items
               .filter((i) => i.group === g)
               .map((s) => (
-                <li key={s.id}>
-                  <PersonCard
-                    className="h-full"
-                    person={{ name: s.name, initials: initialsOf(s.name), photo_url: null, department: s.sub }}
-                    to={isExternalKey(s.id) || s.id === meId ? undefined : `/u/${s.id}`}
-                    affiliation={s.outside ? "Outside" : "Saveetha"}
-                    context={s.reason}
-                    path={
-                      <button
-                        type="button"
-                        onClick={() => onPick(s.id)}
-                        className="inline-flex h-8 w-fit items-center gap-1.5 rounded-md px-2 text-sm text-(--area) hover:bg-(--area-wash)"
-                      >
-                        <Waypoints aria-hidden className="size-4" strokeWidth={1.75} />
-                        How you're connected to {firstName(s.name)}
-                      </button>
-                    }
-                  />
+                <li key={s.id} className="flex items-center gap-4 py-4">
+                  <PersonFace person={s.face} outside={s.outside} institution={s.sub} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base">
+                      {isExternalKey(s.id) || s.id === meId ? (
+                        <span className="font-medium text-fg">{s.name}</span>
+                      ) : (
+                        <PersonLink id={s.id} name={s.name} />
+                      )}
+                    </p>
+                    {s.sub && <p className="truncate text-sm text-fg-muted">{s.sub}</p>}
+                    <p className="mt-1 flex items-center gap-2 text-sm text-fg-subtle">
+                      {s.via.length > 0 && (
+                        <span className="flex shrink-0 -space-x-2">
+                          {s.via.map((v, i) => (
+                            <Avatar key={i} person={v} size="sm" className="ring-2 ring-canvas" />
+                          ))}
+                        </span>
+                      )}
+                      <span className="line-clamp-2">{s.reason}</span>
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => onPick(s.id)} className={cn(action, "max-sm:px-2")}>
+                    <Waypoints aria-hidden className="size-4" strokeWidth={1.75} />
+                    <span className="max-sm:sr-only">How you're connected</span>
+                  </button>
                 </li>
               ))}
           </ul>

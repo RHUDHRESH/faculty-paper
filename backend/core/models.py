@@ -2745,6 +2745,28 @@ class Authorship(models.Model):
         return f"{self.display_name} on {self.publication_id}"
 
 
+class PublicationMerge(models.Model):
+    """Two records of one paper folded into one by a super admin.
+
+    `snapshot_json` holds everything needed to put the removed record back:
+    its own fields, the authorships deleted as repeats, which authorships,
+    claims, ledger rows and posts moved, and the kept record's fields before
+    the merge filled its blanks. `undone_at` is set when that happened.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    kept_id = models.CharField(max_length=32, db_index=True)
+    removed_id = models.CharField(max_length=32, db_index=True)
+    reason = models.CharField(max_length=32, blank=True, default="")
+    snapshot_json = models.TextField(default="{}")
+    actor = models.ForeignKey("User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    undone_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
 class PublicationMetrics(models.Model):
     """A college member's publication record in six numbers, kept current by
     match_authors and the weekly citation refresh."""

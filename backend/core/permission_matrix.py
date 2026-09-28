@@ -322,6 +322,30 @@ CAPABILITIES: list[Capability] = [
         "Which profiles match no account and which accounts carry no or a "
         "different Scopus id -- the office's list to put right.",
         None, "Reading"),
+    cap("Open a department colleague's paper", "GET", "/api/hod/papers/{claim}",
+        {HOD},
+        "A head reads what their department published, one paper at a time: "
+        "title, journal, authors, indexing. No money, no review notes; the "
+        "claim page itself stays the claimant's and the office's.",
+        None, "Department"),
+    cap("Review papers recorded twice", "GET", "/api/admin/record/duplicates",
+        {SUPER_ADMIN},
+        "Merging publication records changes every count that reads them; "
+        "one role owns the record's integrity.",
+        None, "Reading"),
+    cap("Merge two publication records", "POST", "/api/admin/record/duplicates/merge",
+        {SUPER_ADMIN},
+        "Changes a person's paper count. Audit-logged and reversible, and "
+        "only a super admin.",
+        {"keep_id": "none", "drop_id": "none2"}, "Reading"),
+    cap("Read roster name suggestions", "GET", "/api/admin/record/roster-names",
+        {SUPER_ADMIN},
+        "Suggestions to rename people; renaming is a super admin's call.",
+        None, "Reading"),
+    cap("Correct a roster name", "POST", "/api/admin/record/roster-names/apply",
+        {SUPER_ADMIN},
+        "Never automatic: a person accepts each correction.",
+        {"user_id": "{user}", "name": "Matrix Name"}, "Reading"),
 ]
 
 

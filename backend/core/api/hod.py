@@ -720,6 +720,53 @@ def hod_publications(
     })
 
 
+@api.get("/hod/papers/{claim_id}", auth=session_auth)
+def hod_paper(request: HttpRequest, claim_id: str):
+    """One department colleague's paper, as a publication: title, journal,
+    authors, indexing, citations. Never the claim's money, its review notes,
+    its attachments or its chain -- the claim page stays the claimant's and
+    the office's (it answers a head 403 for anybody else's paper)."""
+    user = _require_hod(request)
+    c = _hod_scope(user).filter(pk=claim_id).first()
+    if c is None:
+        raise HttpError(404, "No paper from your department has that id")
+    from core.api.publications import _claim_authors
+
+    record = c.publications.prefetch_related("authorships").first()
+    authors = []
+    if record is not None:
+        for a in sorted(record.authorships.all(), key=lambda a: (a.position is None, a.position or 0)):
+            authors.append({"name": a.display_name, "position": a.position, "user_id": a.user_id,
+                            "is_college": a.is_college or bool(a.user_id)})
+    else:
+        for r in _claim_authors(c):
+            authors.append({"name": r.get("name") or "", "position": r.get("position"), "user_id": r.get("user_id"),
+                            "is_college": bool(r.get("user_id"))})
+    return hod.without_money({
+        "id": c.id,
+        "ticket_number": c.ticket_number,
+        "paper_title": c.paper_title,
+        "journal_title": c.journal_title or (record.venue if record else ""),
+        "issn": c.issn,
+        "doi": c.doi or (record.doi if record else None),
+        "publication_year": c.publication_year or (record.year if record else None),
+        "quartile": c.quartile,
+        "snip": c.snip,
+        "indexing_level": c.indexing_level,
+        "publication_type": c.publication_type,
+        "author_position": c.author_position,
+        "total_authors": c.total_authors,
+        "owner_id": c.owner_id,
+        "owner_name": c.owner.name,
+        "owner_department": c.owner.department,
+        "scopus_url": c.scopus_url,
+        "progress": hod.progress_of(c.status),
+        "citations": record.citations if record else None,
+        "oa_url": (record.oa_url or None) if record else None,
+        "authors": authors,
+    })
+
+
 _HOD_EXPORT_HEADERS = [
     "Ticket", "Faculty", "Paper title", "Journal", "ISSN", "DOI",
     "Year of publication", "Quartile", "SNIP", "Indexed in",

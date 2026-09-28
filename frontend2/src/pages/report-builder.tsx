@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { useLocation, useSearchParams } from "react-router-dom"
+import { Link, useLocation, useSearchParams } from "react-router-dom"
 import { BarChart3, Download, Table2, X } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
@@ -20,6 +20,7 @@ import {
 } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Answer, PrintButton, PrintStamp } from "./reports-print"
 import { HeaderSpot } from "@/ui/page-header"
 
 /**
@@ -337,6 +338,11 @@ export function ReportBuilder() {
           title="Not open to this account"
           message="Reports are college-wide. A head of department sees their own department's publications instead."
         />
+        <div className="mt-4 flex justify-center">
+          <Button kind="default" size="sm" asChild>
+            <Link to="/reports">Open your department's report</Link>
+          </Button>
+        </div>
       </div>
     )
   }
@@ -370,17 +376,21 @@ export function ReportBuilder() {
     <div className="page space-y-8">
       <header className="page-head">
         <div className="min-w-0">
+          <PrintStamp
+            title="Custom report"
+            scope={[year || "all years", department || "every department"].join(" · ")}
+          />
           <PageTitle>Build a report</PageTitle>
           <Sub className="mt-1">
-            Choose what to break the figures down by. The report is on this page; the file is
-            the same thing in an envelope.
+            Choose what to count, how to group it and which slice to look at. The preview
+            below is the report; the files carry exactly the same rows.
           </Sub>
         </div>
 
         {/* Secondary by placement and by weight: the report is already on
             screen, so these are for taking it somewhere else. */}
         <div className="min-w-0">
-          <ColumnLabel className="mb-1 block">Also download as</ColumnLabel>
+          <ColumnLabel className="mb-1 block print:hidden">Also download as</ColumnLabel>
           <div className="flex flex-wrap gap-1">
             {FORMATS.map((fmt) => (
               <Button key={fmt.key} kind="quiet" size="sm" asChild>
@@ -390,84 +400,82 @@ export function ReportBuilder() {
                 </a>
               </Button>
             ))}
+            <PrintButton />
           </div>
         </div>
         <HeaderSpot name="spot-reports" />
       </header>
 
-      {/* ---- what to break it down by ---- */}
-      <section className="space-y-2">
-        <ColumnLabel className="block">Break down by</ColumnLabel>
-        {data ? (
-          <div className="flex flex-wrap gap-1" role="group" aria-label="Break down by">
-            {data.available.map((d) => (
-              <Chip
-                key={d.key}
-                active={chosen.includes(d.key)}
-                onClick={() => toggleDimension(d.key)}
-              >
-                {d.label}
-              </Chip>
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {[6, 8, 5, 7, 6, 9].map((w, i) => (
-              <Skeleton key={i} className="h-7" style={{ width: `${w}rem` }} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ---- filters and presentation ---- */}
-      <div className="flex flex-wrap items-end gap-3 border-y border-line py-3">
-        <div>
-          <ColumnLabel className="mb-1 block">Publication year</ColumnLabel>
-          <Combobox
-            value={year}
-            onChange={(v) => setParam("year", v)}
-            options={yearOptions}
-            aria-label="Publication year"
-            className="w-44"
-          />
-        </div>
-        <div>
-          <ColumnLabel className="mb-1 block">Department</ColumnLabel>
-          <Combobox
-            value={department}
-            onChange={(v) => setParam("department", v)}
-            options={departmentOptions}
-            placeholder={departments.isLoading ? "Loading…" : "Every department"}
-            disabled={departments.isLoading}
-            aria-label="Department"
-            className="w-52"
-          />
-        </div>
-        <div>
-          <ColumnLabel className="mb-1 block">Measure</ColumnLabel>
-          <div className="flex gap-1">
+      {/* ---- the three steps: what to count, how to group, which slice ---- */}
+      <section
+        aria-label="Build the report"
+        className="grid grid-cols-[minmax(0,1fr)] gap-6 rounded-xl border border-line bg-surface p-5 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,15rem)] print:hidden"
+      >
+        <Step n={1} title="What to count">
+          <div className="flex flex-wrap gap-1" role="group" aria-label="What to count">
             <Chip active={measure === "count"} onClick={() => setParam("measure", "count")}>
               Publications
             </Chip>
             <Chip active={measure === "amount"} onClick={() => setParam("measure", "amount")}>
-              Amount
+              Amount paid
             </Chip>
           </div>
-        </div>
-        <div>
-          <ColumnLabel className="mb-1 block">As</ColumnLabel>
-          <div className="flex gap-1">
-            <Chip active={view === "bars"} onClick={() => setParam("view", "bars")}>
-              <BarChart3 className="size-3.5" aria-hidden />
-              Chart
-            </Chip>
-            <Chip active={view === "table"} onClick={() => setParam("view", "table")}>
-              <Table2 className="size-3.5" aria-hidden />
-              Table
-            </Chip>
+          <div className="mt-4">
+            <ColumnLabel className="mb-1 block">Show as</ColumnLabel>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Show as">
+              <Chip active={view === "bars"} onClick={() => setParam("view", "bars")}>
+                <BarChart3 className="size-3.5" aria-hidden />
+                Chart
+              </Chip>
+              <Chip active={view === "table"} onClick={() => setParam("view", "table")}>
+                <Table2 className="size-3.5" aria-hidden />
+                Table
+              </Chip>
+            </div>
           </div>
-        </div>
-      </div>
+        </Step>
+        <Step n={2} title="How to group" hint="Pick one or more. Each becomes its own breakdown.">
+          {data ? (
+            <div className="flex flex-wrap gap-1" role="group" aria-label="How to group">
+              {data.available.map((d) => (
+                <Chip
+                  key={d.key}
+                  active={chosen.includes(d.key)}
+                  onClick={() => toggleDimension(d.key)}
+                >
+                  {d.label}
+                </Chip>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {[6, 8, 5, 7, 6, 9].map((w, i) => (
+                <Skeleton key={i} className="h-7" style={{ width: `${w}rem` }} />
+              ))}
+            </div>
+          )}
+        </Step>
+        <Step n={3} title="Which slice">
+          <div className="space-y-3">
+            <Combobox
+              value={year}
+              onChange={(v) => setParam("year", v)}
+              options={yearOptions}
+              aria-label="Publication year"
+              className="w-full"
+            />
+            <Combobox
+              value={department}
+              onChange={(v) => setParam("department", v)}
+              options={departmentOptions}
+              placeholder={departments.isLoading ? "Loading…" : "Every department"}
+              disabled={departments.isLoading}
+              aria-label="Department"
+              className="w-full"
+            />
+          </div>
+        </Step>
+      </section>
 
       {/* ---- what is currently narrowing the figures, and how to undo it ---- */}
       {filtered && (
@@ -486,7 +494,10 @@ export function ReportBuilder() {
       )}
 
       {/* ---- the answer, before any breakdown of it ---- */}
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+      {data && scope.data && !nothingMatches && (
+        <Answer>{builderAnswer(data.tables[0], scope.data.total, measure, year, department)}</Answer>
+      )}
+      <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2">
         <Headline
           label="Publications in scope"
           value={scope.data ? scope.data.total.toLocaleString("en-IN") : "—"}
@@ -955,4 +966,49 @@ function BuilderSkeleton() {
       ))}
     </div>
   )
+}
+
+function Step({
+  n,
+  title,
+  hint,
+  children,
+}: {
+  n: number
+  title: string
+  hint?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-2 flex items-baseline gap-2">
+        <span className="grid size-5 shrink-0 place-items-center rounded-full bg-accent-wash text-xs font-medium text-accent tabular">
+          {n}
+        </span>
+        <span className="text-sm font-medium text-fg">{title}</span>
+      </div>
+      {hint && <Meta className="mb-2 block">{hint}</Meta>}
+      {children}
+    </div>
+  )
+}
+
+/** One sentence: the leader of the first grouping, against the whole. */
+function builderAnswer(
+  table: BuiltTable | undefined,
+  total: number,
+  measure: Measure,
+  year: string,
+  department: string
+): string {
+  const where = [department, year ? `in ${year}` : ""].filter(Boolean).join(" ")
+  const all = `${total.toLocaleString("en-IN")} publication${total === 1 ? "" : "s"}${where ? ` ${where}` : ""}`
+  if (!table || table.rows.length === 0) return `${all[0].toUpperCase()}${all.slice(1)} in scope.`
+  const useAmount = measure === "amount" && !table.overlapping
+  const top = [...table.rows].sort((a, b) =>
+    useAmount ? b.amount - a.amount : b.count - a.count
+  )[0]
+  const name = top.key
+  const figure = useAmount ? money(top.amount) : `${top.count.toLocaleString("en-IN")}`
+  return `By ${table.label.toLowerCase()}, ${name} leads with ${figure} of ${all}.`
 }

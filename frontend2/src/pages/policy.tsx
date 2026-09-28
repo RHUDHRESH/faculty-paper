@@ -1244,37 +1244,39 @@ function EditDialog({
 
   const nextVersion = current.version + 1
 
+  const payload: Record<string, unknown> = {
+    name: form.name.trim() || `Policy v${nextVersion}`,
+    effective_from: form.effective_from || undefined,
+    effective_to: form.effective_to || undefined,
+    snip_multiplier: num(form.snip_multiplier),
+    snip_cap: num(form.snip_cap),
+    qf_q1: num(form.qf_q1),
+    qf_q2: num(form.qf_q2),
+    qf_q3: num(form.qf_q3),
+    qf_q4: num(form.qf_q4),
+    qf_no_snip: current.qf_no_snip,
+    qf_snip_only: current.qf_snip_only,
+    // Retired deliberately: sending the stored value back would write
+    // the withdrawn incentive into every future version.
+    qf_others: 0,
+    author_point_json: authorPointJson,
+    publication_type_multipliers_json: multipliersJson,
+    student_remuneration_zero: form.student_remuneration_zero,
+    qf_only_for_no_snip: form.qf_only_for_no_snip,
+    high_value_threshold: num(form.high_value_threshold),
+    fixed_journal_no_snip: num(form.fixed_journal_no_snip),
+    fixed_other_no_snip: num(form.fixed_other_no_snip),
+    fixed_web_of_science: num(form.fixed_web_of_science),
+    max_authors: Math.round(num(form.max_authors)),
+    min_sec_references: Math.round(num(form.min_sec_references)),
+    student_project_amount: num(form.student_project_amount),
+    filing_cutoff_day: form.filing_cutoff_day.trim() ? Math.round(num(form.filing_cutoff_day)) : null,
+    notes: form.notes.trim() || undefined,
+  }
+
   async function publish() {
     try {
-      const result = await save.mutateAsync({
-        name: form.name.trim() || `Policy v${nextVersion}`,
-        effective_from: form.effective_from || undefined,
-        effective_to: form.effective_to || undefined,
-        snip_multiplier: num(form.snip_multiplier),
-        snip_cap: num(form.snip_cap),
-        qf_q1: num(form.qf_q1),
-        qf_q2: num(form.qf_q2),
-        qf_q3: num(form.qf_q3),
-        qf_q4: num(form.qf_q4),
-        qf_no_snip: current.qf_no_snip,
-        qf_snip_only: current.qf_snip_only,
-        // Retired deliberately: sending the stored value back would write
-        // the withdrawn incentive into every future version.
-        qf_others: 0,
-        author_point_json: authorPointJson,
-        publication_type_multipliers_json: multipliersJson,
-        student_remuneration_zero: form.student_remuneration_zero,
-        qf_only_for_no_snip: form.qf_only_for_no_snip,
-        high_value_threshold: num(form.high_value_threshold),
-        fixed_journal_no_snip: num(form.fixed_journal_no_snip),
-        fixed_other_no_snip: num(form.fixed_other_no_snip),
-        fixed_web_of_science: num(form.fixed_web_of_science),
-        max_authors: Math.round(num(form.max_authors)),
-        min_sec_references: Math.round(num(form.min_sec_references)),
-        student_project_amount: num(form.student_project_amount),
-        filing_cutoff_day: form.filing_cutoff_day.trim() ? Math.round(num(form.filing_cutoff_day)) : null,
-        notes: form.notes.trim() || undefined,
-      })
+      const result = await save.mutateAsync(payload)
       toast.ok(`Published — ${result.name} v${result.version} now prices every claim`)
       onOpenChange(false)
     } catch (err) {
@@ -1490,7 +1492,9 @@ function EditDialog({
         confirmLabel={`Publish v${nextVersion}`}
         requirePhrase={`v${nextVersion}`}
         onConfirm={publish}
-      />
+      >
+        {confirming && <ImpactPreview payload={payload} liveVersion={current.version} />}
+      </ConfirmDialog>
     </>
   )
 }
@@ -2127,4 +2131,87 @@ function formatDay(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+}
+
+type Impact = {
+  live_version: number | null
+  open_claims: number
+  changed_count: number
+  before_total: number
+  after_total: number
+  changed: {
+    id: string
+    ticket_number: string | null
+    title: string
+    owner: string | null
+    before: number
+    after: number
+  }[]
+}
+
+/** Before/after for every unpaid claim, priced by the server under the live
+ *  version and under this draft. Nothing is saved to produce it. */
+export function ImpactPreview({
+  payload,
+  liveVersion,
+}: {
+  payload: Record<string, unknown>
+  liveVersion: number
+}) {
+  const [state, setState] = useState<
+    { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; data: Impact }
+  >({ kind: "loading" })
+  const key = JSON.stringify(payload)
+  useEffect(() => {
+    let live = true
+    setState({ kind: "loading" })
+    api<Impact>("/api/admin/formula/preview", { method: "POST", json: JSON.parse(key) })
+      .then((data) => {
+        if (!live) return
+        if (data && Array.isArray(data.changed)) setState({ kind: "ok", data })
+        else setState({ kind: "error", message: "the server sent no preview" })
+      })
+      .catch((e: unknown) =>
+        live && setState({ kind: "error", message: e instanceof Error ? e.message : "Preview failed" })
+      )
+    return () => {
+      live = false
+    }
+  }, [key])
+
+  if (state.kind === "loading")
+    return <p className="text-sm text-fg-muted">Working out what this changes for unpaid claims…</p>
+  if (state.kind === "error")
+    return <p className="text-sm text-critical">Could not preview the change: {state.message}</p>
+  const d = state.data
+  const delta = d.after_total - d.before_total
+  return (
+    <section aria-label="What this changes" className="space-y-2 rounded-md bg-bg-subtle p-3 text-sm">
+      <p className="font-medium">
+        {d.changed_count === 0
+          ? `None of the ${d.open_claims} unpaid claims changes amount.`
+          : `${d.changed_count} of ${d.open_claims} unpaid claims change amount.`}
+      </p>
+      <p className="text-fg-muted">
+        Under v{liveVersion}: {money(d.before_total)}. Under this draft: {money(d.after_total)}
+        {delta !== 0 ? ` (${delta > 0 ? "up" : "down"} ${money(Math.abs(delta))})` : ""}. Paid
+        claims keep what they were paid.
+      </p>
+      {d.changed.length > 0 && (
+        <ul className="max-h-40 space-y-1 overflow-y-auto">
+          {d.changed.slice(0, 20).map((c) => (
+            <li key={c.id} className="flex flex-wrap justify-between gap-x-3">
+              <Link to={`/papers/${c.id}`} className="min-w-0 truncate underline-offset-2 hover:underline">
+                {c.ticket_number ?? c.title}
+                {c.owner ? `, ${c.owner}` : ""}
+              </Link>
+              <span className="tabular">
+                {money(c.before)} to {money(c.after)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
 }

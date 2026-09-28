@@ -118,6 +118,19 @@ def list_duplicate_findings(
     }
 
 
+def _sheet_month(raw_json) -> str | None:
+    """"YYYY-MM" from the ERP row's own month column, when it reads as one."""
+    import re
+    from core.services.record_dates import MONTH_KEYS, erp_row
+
+    row = erp_row(raw_json) or {}
+    for k in MONTH_KEYS:
+        m = re.match(r"(\d{4})-(\d{2})", str(row.get(k) or ""))
+        if m:
+            return f"{m.group(1)}-{m.group(2)}"
+    return None
+
+
 def _add_faces(findings, rows_of) -> None:
     """A photo for each payment's person: the claimant's account for a claim,
     and an exact name match for an imported ERP row (which has no account)."""
@@ -145,8 +158,24 @@ def _add_faces(findings, rows_of) -> None:
     def url(p):
         return f"{settings.MEDIA_URL}{p}" if p else None
 
+    # A "Processed"-sheet row carries the import's month, not a real one.
+    from core.models import PriorPayment
+    from core.services.record_dates import ledger_month_recorded
+
+    prior_ids = {r["id"] for f in findings for r in rows_of[f.id] if r.get("source") == "prior"}
+    raw = dict(PriorPayment.objects.filter(id__in=prior_ids).values_list("id", "raw_json"))
+
     for f in findings:
         for r in rows_of[f.id]:
+            r["month_recorded"] = (
+                ledger_month_recorded(raw.get(r["id"])) if r.get("source") == "prior" else True
+            )
+            if r.get("source") == "prior" and r["month_recorded"]:
+                # The sweep stored paid_at's month, which the import may have
+                # stamped; the sheet's own month column is the record.
+                month = _sheet_month(raw.get(r["id"]))
+                if month:
+                    r["when"] = month
             photo = by_id.get(r.get("person_key")) if r.get("source") == "claim" else None
             r["photo_url"] = url(photo or by_name.get((r.get("person") or "").strip().lower()))
         f._photo_url = url(by_name.get((f.faculty_name or "").strip().lower())) or next(

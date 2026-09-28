@@ -33,7 +33,7 @@ const FINDING = {
   extra_amount: 10000,
   rows: [
     { source: "prior", id: "p1", reference: "V-1", title: "Crop yield prediction", doi: "10.1/x", amount: 10000, when: "2021-04", person: "Dr Asha Menon", department: null },
-    { source: "prior", id: "p2", reference: "V-2", title: "Crop yield prediction", doi: "10.1/x", amount: 10000, when: "2022-06", person: "Dr Asha Menon", department: null },
+    { source: "prior", id: "p2", reference: "V-2", title: "Crop yield prediction", doi: "10.1/x", amount: 10000, when: "2022-06", person: "Dr Asha Menon", department: null, month_recorded: false },
   ],
   note: null,
   recovered_amount: null,
@@ -60,6 +60,9 @@ describe("the duplicates queue", () => {
     expect(within(voucherRow).getByText(/differs from payment 1/)).toBeInTheDocument()
     const amountRow = within(table).getByRole("row", { name: /Amount/ })
     expect(within(amountRow).queryByText(/differs/)).toBeNull()
+    const monthRow = within(table).getByRole("row", { name: /Month/ })
+    expect(within(monthRow).getByText("Not recorded")).toBeInTheDocument()
+    expect(screen.queryByText(/Jun 2022/)).toBeNull()
   })
 
   it("rules out on r with a reason, confirming with the same verb", async () => {

@@ -64,6 +64,8 @@ type Member = {
   person: string | null
   department: string | null
   photo_url?: string | null
+  /** False where the ledger row names no month (the import filled one in). */
+  month_recorded?: boolean
 }
 
 type Finding = {
@@ -341,8 +343,8 @@ function FindingRow({
     () => [...finding.rows].sort((a, b) => (a.when || "").localeCompare(b.when || "")),
     [finding.rows]
   )
-  const latest = [...ordered].reverse().find((m) => m.when)?.when ?? null
-  const first = ordered.find((m) => m.when)?.when ?? null
+  const latest = [...ordered].reverse().map(monthOf).find(Boolean) ?? null
+  const first = ordered.map(monthOf).find(Boolean) ?? null
 
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView({ block: "nearest" })
@@ -488,7 +490,11 @@ function Comparison({ members }: { members: Member[] }) {
         </span>
       ),
     },
-    { label: "Month", value: (m) => m.when || "", render: (m) => monthLabel(m.when) },
+    {
+      label: "Month",
+      value: (m) => monthOf(m) || "",
+      render: (m) => (monthOf(m) ? monthLabel(monthOf(m)) : "Not recorded"),
+    },
     {
       label: "Voucher",
       value: (m) => m.reference || "",
@@ -768,6 +774,11 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
       {children}
     </button>
   )
+}
+
+/** The payment's month, or null where the ledger row recorded none. */
+function monthOf(m: Member): string | null {
+  return m.month_recorded === false ? null : m.when
 }
 
 /** "2019-04" as "Apr 2019". */

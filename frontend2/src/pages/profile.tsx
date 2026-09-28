@@ -86,6 +86,7 @@ type FullMe = {
   active: boolean
   portal: string
   phone: string | null
+  orcid_id?: string | null
   google: GoogleLink | null
 }
 
@@ -330,6 +331,7 @@ export function Profile() {
           </Sub>
         </div>
         <PhoneForm phone={me.phone} />
+        <OrcidForm orcid={me.orcid_id ?? null} />
         <Interests />
       </section>
 
@@ -516,6 +518,75 @@ export function Profile() {
 /* ------------------------------------------------------------------------ */
 /* Details you can change                                                   */
 /* ------------------------------------------------------------------------ */
+
+/**
+ * The ORCID iD, through the same self-service route. The server checks the
+ * checksum; match_authors then puts every paper carrying it on this account.
+ */
+function OrcidForm({ orcid }: { orcid: string | null }) {
+  const saved = orcid ?? ""
+  const [value, setValue] = useState(saved)
+  const [error, setError] = useState<string | null>(null)
+  const id = useId()
+  useEffect(() => {
+    setValue(saved)
+  }, [saved])
+  const save = useApiMutation<{ orcid_id: string }, { orcid_id: string | null }>("/api/auth/profile/self", {
+    method: "PATCH",
+    invalidates: [["profile", "me"]],
+  })
+  const dirty = value.trim() !== saved
+
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    save.mutate(
+      { orcid_id: value.trim() },
+      {
+        onSuccess: (data) => {
+          setValue(data.orcid_id ?? "")
+          toast.ok(data.orcid_id ? "ORCID saved. Papers carrying it will be matched to you." : "ORCID removed")
+        },
+        onError: (err) => setError(err.message),
+      }
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-1.5">
+      <label htmlFor={id} className="block text-sm font-medium">
+        ORCID iD
+      </label>
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value)
+            setError(null)
+          }}
+          placeholder="0000-0002-1825-0097"
+          aria-describedby={`${id}-help`}
+          aria-invalid={error ? true : undefined}
+          className="min-w-0 max-w-xs flex-1"
+        />
+        <Button kind="primary" type="submit" disabled={!dirty || save.isPending} aria-label="Save ORCID iD">
+          {save.isPending && <LoaderCircle className="animate-spin" />}
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+      </div>
+      {error ? (
+        <p id={`${id}-help`} role="alert" className="text-xs text-critical">
+          {error}
+        </p>
+      ) : (
+        <p id={`${id}-help`} className="text-xs text-fg-muted">
+          Optional. Paste the iD or the orcid.org link; papers carrying it are matched to you automatically.
+        </p>
+      )}
+    </form>
+  )
+}
 
 /**
  * The phone number, saved through `PATCH /auth/profile/self` — the one route

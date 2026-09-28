@@ -190,6 +190,24 @@ def refresh_publication_citations() -> dict:
     return refresh_citations()
 
 
+def rematch_authors(actor_id: str | None = None) -> dict:
+    """Queued by POST /api/admin/author-matches/rerun: link records, match
+    authors (applying the office's aliases) and refresh metrics."""
+    import json
+
+    from core.models import AuditLog
+    from core.services import publications
+
+    linked = publications.link_records()
+    out = publications.match_authors()
+    out["ambiguous"] = len(out.pop("ambiguous"))
+    out["linked"] = linked
+    out["people_with_metrics"] = publications.refresh_metrics()
+    AuditLog.objects.create(actor_id=actor_id, action="AUTHOR_MATCH_DONE", entity="Publication",
+                            detail_json=json.dumps(out, default=str))
+    return out
+
+
 def send_weekly_digest() -> dict:
     """Monday 8am IST (schedule "weekly-digest"): the weekly summary."""
     from core.services.digest import send_weekly_digest as run

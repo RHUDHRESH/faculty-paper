@@ -539,7 +539,7 @@ def link_records() -> dict[str, int]:
 
 #: Evidence that survives a re-match: somebody's record or a person said so.
 ANCHORED = ("record", "scopus_sheet", "manual")
-INFERRED = ("orcid", "author_id", "name", "name_dept")
+INFERRED = ("orcid", "alias", "author_id", "name", "name_dept")
 
 
 def _people() -> list[User]:
@@ -603,6 +603,24 @@ def match_authors() -> dict[str, Any]:
             u = orcid_of.get(row.orcid)
             if u:
                 Authorship.objects.filter(id=row.id).update(user=u, match_confidence=1.0, match_method="orcid")
+
+        # 1b. Names the office has already said belong to somebody
+        # (core.services.author_review); survives every re-harvest.
+        from core.models import AuthorAlias
+
+        alias_of = {}
+        for k, uid in AuthorAlias.objects.filter(status=AuthorAlias.MATCHED, user__isnull=False).values_list(
+            "name_key", "user_id"
+        ):
+            if uid in by_id:
+                alias_of[k] = by_id[uid]
+        if alias_of:
+            for row in Authorship.objects.filter(user__isnull=True, is_college=True, match_locked=False).only(
+                "id", "display_name"
+            ):
+                u = alias_of.get(name_key(row.display_name))
+                if u:
+                    Authorship.objects.filter(id=row.id).update(user=u, match_confidence=0.9, match_method="alias")
 
         def propagate() -> int:
             owners: dict[str, set[str]] = {}

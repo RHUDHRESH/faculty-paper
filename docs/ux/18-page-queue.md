@@ -18,11 +18,24 @@ own worktree, reviewed on screen by the orchestrator before merge.
 3. Screenshots: copy `D:\Faculty Paper\repo\frontend2\design-shot.local.mjs` into
    your `frontend2`, change 5180 to your port, run
    `MSYS_NO_PATHCONV=1 TAG=<page> node design-shot.local.mjs <routes...>`.
-   It signs in as faculty member Joyal Isac. For an office page, sign in as an
-   office role instead: copy `D:\Faculty Paper\repo\frontend2\shot.local.mjs`
-   (uses `manage.py e2e_session --role <ROLE>` against the e2e API on 5174),
-   or ask the orchestrator for a session. Look at every shot at 1440 and 390
+   It signs in as faculty member Joyal Isac. Look at every shot at 1440 and 390
    wide. Fix what looks wrong before reporting. Never commit `*.local.mjs`.
+
+   **Office pages (any role):** the shared local DB has no Research cell,
+   Director or Finance accounts yet, and its office accounts are behind a
+   forced password change. So check office pages on a private copy:
+   ```
+   cp "D:/Faculty Paper/data/local-full.sqlite3" <your scratch>/office.sqlite3
+   export DJANGO_SQLITE_PATH=<your scratch>/office.sqlite3 DJANGO_USE_SQLITE=true DJANGO_DEBUG=true PYTHONUTF8=1
+   manage.py migrate -v0
+   manage.py e2e_session --role RESEARCH_CELL --json   # throwaway account; also PRINCIPAL, DIRECTOR, FINANCE, HOD, SUPER_ADMIN, RESEARCH_COORDINATOR
+   manage.py e2e_session --role FACULTY --claim --json # seeds a SUBMITTED claim for queues
+   manage.py runserver <PORT+1000> --noreload           # your own API on the copy
+   ```
+   Point a second Vite (`VITE_API_PROXY=http://localhost:<PORT+1000>`) at it and
+   set the `sessionid` cookie from `session_key`. Run every manage.py command
+   with the env above (a missing `DJANGO_SQLITE_PATH` gives "no table
+   core_user"). Never point these at `local-full.sqlite3` or `real.sqlite3`.
 4. Audit every button and link on your page: it does what its label says,
    it is keyboard reachable with a visible focus ring, disabled states explain
    why, and every toast uses the same verb as the button.
@@ -36,16 +49,16 @@ own worktree, reviewed on screen by the orchestrator before merge.
 ## Queue (status: in flight / done / queued)
 | # | Page(s) | Routes | Status |
 |---|---|---|---|
-| 1 | Research scout + Discover | /scout /discover | in flight |
+| 1 | Research scout + Discover | /scout /discover | done |
 | 2 | Leaderboard + Calendar | /leaderboard /wall /calendar | in flight |
 | 3 | Messages + Discussions | /messages/* /discussions/* | in flight |
-| 4 | Who to work with | /collaborate | in flight |
+| 4 | Who to work with | /collaborate | done |
 | 5 | Your circle (map) | /collaborate?view=map | in flight |
-| 6 | File a paper, every step + receipt + edit | /papers/new /papers/:id/edit | queued |
-| 7 | Flows check, every role end to end | all | queued |
-| 8 | Paper detail + claims list | /papers/:id /papers/claims | queued |
-| 9 | My papers | /papers | queued |
-| 10 | Home, every role | / | queued |
+| 6 | File a paper, every step + receipt + edit | /papers/new /papers/:id/edit | in flight |
+| 7 | Flows check, every role end to end | all | in flight |
+| 8 | Paper detail + claims list | /papers/:id /papers/claims | done |
+| 9 | My papers | /papers | in flight |
+| 10 | Home, every role | / | in flight |
 | 11 | My research + my stats | /research /u/me/stats | queued |
 | 12 | Profile (public + own) | /u/:id /me | queued |
 | 13 | Search | /search | queued |

@@ -1770,6 +1770,26 @@ class ResearchInterest(models.Model):
         return f"{self.user_id}: {self.domain}"
 
 
+class DiscoverDismissal(models.Model):
+    """"Not interested" on a Discover card, kept per person on the server so it
+    follows them between devices. `key` is the feed id (`topic:ml`,
+    `venue:ieee access`, `person:<id>`, `paper:<id>`); undo deletes the row."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="discover_dismissals")
+    kind = models.CharField(max_length=24)
+    key = models.CharField(max_length=300)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "key"], name="unique_dismissal_per_person")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id}: {self.key}"
+
+
 class SystemSetting(models.Model):
     """Institution-level configuration that belongs to the data, not the code.
 

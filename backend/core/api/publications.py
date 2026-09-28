@@ -258,8 +258,17 @@ def person_ego(request: HttpRequest, user_id: str, limit: int = graph.EGO_MAX):
 @api.get("/people/{user_id}/why", auth=session_auth)
 def person_why(request: HttpRequest, user_id: str, of: Optional[str] = None):
     """Why `of` (a user id or external author key; default: this member)
-    might matter to the signed-in viewer -- counted from the record."""
+    might matter to a reader -- counted from the record. `?for=<user id>`
+    (office roles only) asks on someone else's behalf; `for=me` or no `for`
+    means the signed-in viewer."""
+    from core import discussions
+
     viewer = require_user(request)
+    who = (request.GET.get("for") or "me").strip()
+    if who not in ("me", viewer.id):
+        if not discussions.is_office(viewer.role):
+            raise HttpError(403, "Only the office can ask on someone else's behalf.")
+        viewer = _person(who)
     target = graph.resolve_node(of or user_id)
     if target is None:
         raise HttpError(404, "Nobody in the publication record has that id or author key.")

@@ -300,6 +300,38 @@ class ApiTests(_Base):
         self.assertTrue(self.get(f"/api/people/{self.subha.id}/why?of=A7")["about"])
         self.assertEqual(self.client.get(f"/api/people/{self.subha.id}/why?of=nobody").status_code, 404)
 
+    def test_why_for_someone_else(self):
+        # Faculty cannot ask on another's behalf; the office can.
+        url = f"/api/people/{self.joyal.id}/why?for={self.kumar1.id}"
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertEqual(self.get(f"/api/people/{self.joyal.id}/why?for={self.subha.id}")["for"], f"u:{self.subha.id}")
+        self.client.force_login(self.admin)
+        self.assertEqual(self.get(url)["for"], f"u:{self.kumar1.id}")
+
+    def test_discover_dismiss(self):
+        from core.models import DiscoverDismissal
+        post = lambda body: self.client.post("/api/discover/dismiss", json.dumps(body),
+                                             content_type="application/json")
+        self.assertEqual(post({"kind": "venue", "id": "venue:x"}).json()["dismissed"], True)
+        post({"kind": "venue", "id": "venue:x"})
+        self.assertEqual(DiscoverDismissal.objects.filter(user=self.subha).count(), 1)
+        self.assertEqual(post({"kind": "venue", "id": "venue:x", "undo": True}).json()["dismissed"], False)
+        self.assertFalse(DiscoverDismissal.objects.exists())
+        self.assertEqual(post({"kind": "venue", "id": " "}).status_code, 400)
+
+    def test_dismissed_items_leave_suggestions(self):
+        from core.services.dismissals import without_dismissed
+        things = {"people": [{"id": "p1"}, {"id": "p2"}], "journals": [{"title": "IEEE  Access"}],
+                  "topics": [{"area": "Machine Learning"}]}
+        out = without_dismissed(things, {"person:p1", "venue:ieee access", "topic:machine learning"})
+        self.assertEqual(out["people"], [{"id": "p2"}])
+        self.assertEqual(out["journals"], [])
+        self.assertEqual(out["topics"], [])
+        self.client.post("/api/discover/dismiss", json.dumps({"kind": "paper", "id": "paper:zzz"}),
+                         content_type="application/json")
+        ids = [i["id"] for i in self.get("/api/discover/for-you")["items"]]
+        self.assertNotIn("paper:zzz", ids)
+
     def test_external_search(self):
         body = self.get("/api/search/people-external?q=outsider")
         hit = body["results"][0]

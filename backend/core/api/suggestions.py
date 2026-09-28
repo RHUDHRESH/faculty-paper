@@ -16,13 +16,14 @@ from core import hod
 from core.api.common import api, rate_limit, require_user, session_auth
 from core.api.discover import _ai_failure_status
 from core.services import ai, suggestions
+from core.services.dismissals import dismissed_keys, without_dismissed
 
 
 @api.get("/discover/next", auth=session_auth)
 def discover_next(request: HttpRequest):
     """Who to write with, where to aim, and what to try -- each with its reason."""
     user = require_user(request)
-    return hod.without_money(suggestions.for_person(user))
+    return hod.without_money(without_dismissed(suggestions.for_person(user), dismissed_keys(user)))
 
 
 @api.get("/discover/partners", auth=session_auth)

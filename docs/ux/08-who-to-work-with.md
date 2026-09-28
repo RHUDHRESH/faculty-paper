@@ -106,7 +106,8 @@ edits it and sends it. It is never sent automatically.
   - `/api/search/people-external?q=`
 - Existing endpoints: `/api/collaborate/me` and `/api/collaborate/graph` (retire them once
   the Authorship-based ones land), `/api/discover/partners`, `/api/dm/with/{user_id}`.
-- **NEW: `/api/people/{id}/why?for=me`** returns
+- **NEW: `/api/people/{id}/why?for=me`** (`for` = `me` or, for office roles only, a user id;
+  default the signed-in user; `of=` overrides who it is about) returns
   `{reasons:[{kind:"shared_venue|topic|complement|q1", text, refs}]}`. It can be derived
   server-side from overlaps.
 

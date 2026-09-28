@@ -897,7 +897,8 @@ GET /api/external-person?key=<external author key>
 GET /api/people/{user_id|me}/ego?limit=60
     -> { center, coauthors, capped, nodes[{ key, user_id, name, department, is_college_member,
          institution, hop(0|1|2), papers, together, degree }], links[{source,target,papers}] }
-GET /api/people/{user_id|me}/why?of=<user id | external key>
+GET /api/people/{user_id|me}/why?of=<user id | external key>&for=<me | user id>
+    (`for` defaults to the signed-in viewer; another user id is office roles only, else 403)
     -> { for, about, papers, your_papers, reasons[{ kind: together|shared_venue|topic|complement|q1|common_coauthors,
          text, refs[] }] }
 ```

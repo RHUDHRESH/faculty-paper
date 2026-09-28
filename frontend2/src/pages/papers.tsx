@@ -92,13 +92,6 @@ export function tabOf(p: RecordPaper): Exclude<Tab, "all"> {
   return p.eligible ? "unclaimed" : "ineligible"
 }
 
-const SOURCE_LABEL: Record<string, string> = {
-  openalex: "OpenAlex",
-  scopus_sheet: "Scopus",
-  record: "ERP",
-  claim: "Claims & ledger",
-}
-
 
 function csvCell(v: unknown): string {
   const s = v == null ? "" : String(v)
@@ -533,8 +526,8 @@ export function Papers() {
             ) : (
               <EmptyState
                 art="no-results"
-                title="No papers match"
-                message="Try another tab, or clear the filters and search."
+                title={tab === "ineligible" && counts.ineligible === 0 ? "Every paper can be claimed" : "No papers match"}
+                message={tab === "ineligible" && counts.ineligible === 0 ? "None of your papers has too many authors for the scheme." : "Try another tab, or clear the filters and search."}
                 action={
                   <Button
                     onClick={() => {
@@ -560,7 +553,7 @@ export function Papers() {
                       </span>
                     </h2>
                   )}
-                  <div className="divide-y divide-line">
+                  <div className="panel divide-y divide-line overflow-hidden p-0">
                     {list.map((p) => (
                       <RecordCard
                         key={p.id}
@@ -648,8 +641,8 @@ function YearBars({
   const max = Math.max(1, ...span.map((y) => sum(byYear.get(y))))
   const SEG = [
     { k: "paid", cls: "bg-positive", label: "Paid" },
-    { k: "progress", cls: "bg-(--area)", label: "In progress" },
-    { k: "unclaimed", cls: "bg-(--area-fill)", label: "Not claimed" },
+    { k: "progress", cls: "bg-caution", label: "In progress" },
+    { k: "unclaimed", cls: "bg-(--area)", label: "Not claimed" },
     { k: "ineligible", cls: "bg-line", label: "Not eligible" },
   ] as const
   return (
@@ -813,7 +806,7 @@ function RecordCard({
       }
       claim={state === "unclaimed" ? { unclaimed: true, fileTo: `/papers/new?publication=${p.id}` } : undefined}
       picture={topicPicture(p.title, p.venue)}
-      className="rounded-none border-0 bg-transparent px-0 shadow-none ring-0 sm:px-2"
+      className="!rounded-none !border-0 !bg-transparent !shadow-none !ring-0"
       actions={
         <Menu>
           <MenuTrigger asChild>
@@ -863,7 +856,7 @@ function RecordCard({
               <span className="text-(--area)">View claim</span>
             </Link>
           )}
-          {showMoney && p.claim?.amount != null && (
+          {showMoney && !!p.claim?.amount && (
             <span className="font-medium tabular-nums text-fg">{money(p.claim.amount)} to you</span>
           )}
           {state === "ineligible" && (

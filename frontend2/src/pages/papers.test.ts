@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { tabOf, toBibtex, toCsv, type RecordPaper } from "./papers"
+import { describeChange, maxAuthors, tabOf, toBibtex, toCsv, type RecordPaper } from "./papers"
 
 const base: RecordPaper = {
   id: "p1",
@@ -39,5 +39,12 @@ describe("My papers", () => {
     const bib = toBibtex([base])
     expect(bib).toMatch(/^@article\{kumar20240,/)
     expect(bib).toContain("doi = {10.1/x}")
+  })
+
+  it("reports what a Scopus pull changed, in words", () => {
+    const paid: RecordPaper = { ...base, claim: { id: "c", stage: "PAID", days_waiting: null } }
+    expect(describeChange([base], [base])).toBe("nothing new")
+    expect(describeChange([base], [paid, { ...base, id: "p2" }])).toBe("1 new paper, 1 now paid")
+    expect(maxAuthors("More than 10 authors")).toBe(10)
   })
 })

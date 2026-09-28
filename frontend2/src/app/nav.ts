@@ -542,6 +542,15 @@ export const NAV: NavItem[] = [
     group: "Set up",
     keywords: ["integrity", "audit", "duplicates", "backup", "restore", "orphans", "constraints"],
   },
+  {
+    to: "/data/record",
+    label: "Record quality",
+    icon: HeartPulse,
+    // `_super` in api/record_quality.py: duplicate papers, roster names.
+    roles: ["SUPER_ADMIN"],
+    group: "Set up",
+    keywords: ["duplicate papers", "merge", "roster", "name typo", "spelling", "anomalies"],
+  },
 ]
 
 /**

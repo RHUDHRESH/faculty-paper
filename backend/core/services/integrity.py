@@ -268,6 +268,44 @@ def check_publications() -> list[Finding]:
                     un.rows.append({"id": pk, "label": f"{model.__name__} {doi}", "href": ""})
     un.count = bad
     out.append(un)
+    out += check_record_quality()
+    return out
+
+
+def check_record_quality() -> list[Finding]:
+    """Records that cannot be right, and papers recorded twice on somebody's
+    record. Fixed on Record quality (/data/record) or by the one safe fix."""
+    from core.services import record_quality as rq
+
+    found = rq.anomalies()
+    specs = [
+        ("pub_placeholder_title", "Publications titled \"-\", \"NA\" or nothing", "warning", None,
+         "Imported rows with no real title. Look the paper up by its DOI on Record quality, or delete the record."),
+        ("pub_impossible_year", f"Publications dated before {rq.FIRST_YEAR} or in the future", "warning", None,
+         "Usually another author's old paper matched by name. Check the authors on Record quality."),
+        ("pub_no_authors", "Publications with no authors", "warning", None,
+         "Nobody's record shows them, yet they count in college totals. Re-harvest or delete them."),
+        ("pub_venue_is_url", "Journal names that are a web address", "warning", "clear_url_venues",
+         "A link such as \"decision.csl.uiuc.edu\" where the journal belongs. The fix moves it to the paper's "
+         "link and leaves the journal blank (\"Not recorded\")."),
+    ]
+    out = []
+    for key, title, sev, fix, help_ in specs:
+        f = Finding(key, "Publications", title, sev, fix=fix, help=help_)
+        qs = found[key.removeprefix("pub_")]
+        f.count = qs.count()
+        f.rows = [{**_pub_row(p, (p.venue or "")[:60] if key == "pub_venue_is_url" else ""), "href": "/data/record"}
+                  for p in qs[:SAMPLE]]
+        out.append(f)
+
+    dup = Finding("pub_duplicate_on_record", "Publications", "Papers recorded twice on somebody's record", "error",
+                  help="Same DOI, same title and year, or a preprint beside its published version. Each doubles a "
+                       "person's count. Review and merge them on Record quality; a merge can be undone.")
+    pairs = rq.find_duplicates()
+    dup.count = len(pairs)
+    dup.rows = [{"id": p["key"], "label": f"{p['reason_label']}: {p['keep']['year'] or '?'} {p['keep']['title'][:70]}",
+                 "href": "/data/record"} for p in pairs[:SAMPLE]]
+    out.append(dup)
     return out
 
 
@@ -507,7 +545,14 @@ FIXES: dict[str, tuple[str, Callable[[], int]]] = {
     "trim_user_ids": ("Trim spaces from account identifiers", _fix_trim_user_ids),
     "delete_dangling_notifications": ("Delete notifications about deleted claims", _fix_delete_dangling_notifications),
     "recount_threads": ("Recount discussion posts", _fix_recount_threads),
+    "clear_url_venues": ("Move web addresses out of journal names", lambda: _fix_clear_url_venues()),
 }
+
+
+def _fix_clear_url_venues() -> int:
+    from core.services import record_quality
+
+    return record_quality.fix_url_venues()
 
 
 def apply_fix(key: str, actor: Optional[User]) -> int:

@@ -77,6 +77,8 @@ const Authorisations = page(() => import("@/pages/authorisations"), "Authorisati
 const Clearing = page(() => import("@/pages/clearing"), "Clearing")
 const Data = page(() => import("@/pages/data"), "Data")
 const DataHealth = page(() => import("@/pages/data-health"), "DataHealth")
+const RecordQuality = page(() => import("@/pages/record-quality"), "RecordQuality")
+const HodPaper = page(() => import("@/pages/hod-paper"), "HodPaper")
 const Department = page(() => import("@/pages/department"), "Department")
 const Collaborate = page(() => import("@/pages/collaborate"), "Collaborate")
 const Discover = page(() => import("@/pages/discover"), "Discover")
@@ -370,6 +372,7 @@ function App() {
           <Route path="/u/:id" element={<PublicProfile />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/department" element={<Department />} />
+          <Route path="/department/papers/:id" element={<HodPaper />} />
           <Route path="/publications" element={<Publications />} />
           <Route path="/reports/brief" element={<YearBrief />} />
           <Route path="/reports" element={<Reports />} />
@@ -402,6 +405,7 @@ function App() {
           <Route path="/batches" element={<Batches />} />
           <Route path="/batches/:id" element={<Batch />} />
           <Route path="/data/health" element={<DataHealth />} />
+          <Route path="/data/record" element={<RecordQuality />} />
           <Route path="/data" element={<Data />} />
           <Route path="/me" element={<Profile />} />
           <Route path="/wall" element={<WallOfFame />} />

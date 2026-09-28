@@ -1,0 +1,388 @@
+{
+  "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
+  "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
+  "count": 21,
+  "assets": [
+    {
+      "name": "empty-no-papers",
+      "category": "empty-state",
+      "purpose": "No papers filed yet",
+      "page": "My papers (empty)",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-papers.svg",
+        "webp": "/illustrations/generated/empty-no-papers.webp",
+        "png": "/illustrations/generated/empty-no-papers.png"
+      },
+      "bytes": {
+        "svg": 44630,
+        "webp": 20438,
+        "png": 19387
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-nothing-to-review",
+      "category": "empty-state",
+      "purpose": "Review queue is clear",
+      "page": "Clearing / approvals (empty queue)",
+      "files": {
+        "svg": "/illustrations/generated/empty-nothing-to-review.svg",
+        "webp": "/illustrations/generated/empty-nothing-to-review.webp",
+        "png": "/illustrations/generated/empty-nothing-to-review.png"
+      },
+      "bytes": {
+        "svg": 40640,
+        "webp": 16684,
+        "png": 13669
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-messages",
+      "category": "empty-state",
+      "purpose": "No messages or no thread selected",
+      "page": "Messages",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-messages.svg",
+        "webp": "/illustrations/generated/empty-no-messages.webp",
+        "png": "/illustrations/generated/empty-no-messages.png"
+      },
+      "bytes": {
+        "svg": 16209,
+        "webp": 12262,
+        "png": 7892
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-results",
+      "category": "empty-state",
+      "purpose": "Search returned nothing",
+      "page": "Search, Discover, People",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-results.svg",
+        "webp": "/illustrations/generated/empty-no-results.webp",
+        "png": "/illustrations/generated/empty-no-results.png"
+      },
+      "bytes": {
+        "svg": 22449,
+        "webp": 16736,
+        "png": 13580
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-calendar",
+      "category": "empty-state",
+      "purpose": "No events or deadlines",
+      "page": "Calendar",
+      "files": {
+        "svg": "/illustrations/generated/empty-calendar.svg",
+        "webp": "/illustrations/generated/empty-calendar.webp",
+        "png": "/illustrations/generated/empty-calendar.png"
+      },
+      "bytes": {
+        "svg": 43888,
+        "webp": 20056,
+        "png": 14781
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "not-found-404",
+      "category": "error-state",
+      "purpose": "Page not found",
+      "page": "404 route",
+      "files": {
+        "svg": "/illustrations/generated/not-found-404.svg",
+        "webp": "/illustrations/generated/not-found-404.webp",
+        "png": "/illustrations/generated/not-found-404.png"
+      },
+      "bytes": {
+        "svg": 20128,
+        "webp": 13204,
+        "png": 8701
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "file-from-index",
+      "category": "filing-method",
+      "purpose": "Filing option: pick the paper from the Scopus/indexed list",
+      "page": "File a paper (method tile 1)",
+      "files": {
+        "svg": "/illustrations/generated/file-from-index.svg",
+        "webp": "/illustrations/generated/file-from-index.webp",
+        "png": "/illustrations/generated/file-from-index.png"
+      },
+      "bytes": {
+        "svg": 69998,
+        "webp": 25996,
+        "png": 21684
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "file-paste-doi",
+      "category": "filing-method",
+      "purpose": "Filing option: paste a DOI",
+      "page": "File a paper (method tile 2)",
+      "files": {
+        "svg": "/illustrations/generated/file-paste-doi.svg",
+        "webp": "/illustrations/generated/file-paste-doi.webp",
+        "png": "/illustrations/generated/file-paste-doi.png"
+      },
+      "bytes": {
+        "svg": 57894,
+        "webp": 27242,
+        "png": 16300
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "file-by-hand",
+      "category": "filing-method",
+      "purpose": "Filing option: type the details by hand",
+      "page": "File a paper (method tile 3)",
+      "files": {
+        "svg": "/illustrations/generated/file-by-hand.svg",
+        "webp": "/illustrations/generated/file-by-hand.webp",
+        "png": "/illustrations/generated/file-by-hand.png"
+      },
+      "bytes": {
+        "svg": 74765,
+        "webp": 37062,
+        "png": 21405
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "leaderboard-honours",
+      "category": "page-spot",
+      "purpose": "Leaderboard / honours header",
+      "page": "Leaderboard, Wall of fame",
+      "files": {
+        "svg": "/illustrations/generated/leaderboard-honours.svg",
+        "webp": "/illustrations/generated/leaderboard-honours.webp",
+        "png": "/illustrations/generated/leaderboard-honours.png"
+      },
+      "bytes": {
+        "svg": 36644,
+        "webp": 23992,
+        "png": 18261
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "discover-ideas",
+      "category": "page-spot",
+      "purpose": "Discover / research ideas",
+      "page": "Discover, For you",
+      "files": {
+        "svg": "/illustrations/generated/discover-ideas.svg",
+        "webp": "/illustrations/generated/discover-ideas.webp",
+        "png": "/illustrations/generated/discover-ideas.png"
+      },
+      "bytes": {
+        "svg": 50744,
+        "webp": 30686,
+        "png": 19516
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "collaboration",
+      "category": "page-spot",
+      "purpose": "Collaboration / people working together",
+      "page": "Who to work with, Collaborate",
+      "files": {
+        "svg": "/illustrations/generated/collaboration.svg",
+        "webp": "/illustrations/generated/collaboration.webp",
+        "png": "/illustrations/generated/collaboration.png"
+      },
+      "bytes": {
+        "svg": 76307,
+        "webp": 33254,
+        "png": 20413
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "hero-research-scout",
+      "category": "hero",
+      "purpose": "Research scout page header",
+      "page": "Research scout",
+      "files": {
+        "webp": "/illustrations/generated/hero-research-scout.webp",
+        "png": "/illustrations/generated/hero-research-scout.png"
+      },
+      "bytes": {
+        "webp": 82564,
+        "png": 118232
+      },
+      "sheet": "hero01",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "hero-sign-in",
+      "category": "hero",
+      "purpose": "Sign-in page scene (primary)",
+      "page": "Sign in",
+      "files": {
+        "webp": "/illustrations/generated/hero-sign-in.webp",
+        "png": "/illustrations/generated/hero-sign-in.png"
+      },
+      "bytes": {
+        "webp": 134226,
+        "png": 143981
+      },
+      "sheet": "hero02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "hero-sign-in-alt",
+      "category": "hero",
+      "purpose": "Sign-in page scene (alternate)",
+      "page": "Sign in / Setup",
+      "files": {
+        "webp": "/illustrations/generated/hero-sign-in-alt.webp",
+        "png": "/illustrations/generated/hero-sign-in-alt.png"
+      },
+      "bytes": {
+        "webp": 138198,
+        "png": 121392
+      },
+      "sheet": "hero02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "spot-home-faculty",
+      "category": "page-spot",
+      "purpose": "Faculty home header",
+      "page": "Home (faculty)",
+      "files": {
+        "webp": "/illustrations/generated/spot-home-faculty.webp",
+        "png": "/illustrations/generated/spot-home-faculty.png"
+      },
+      "bytes": {
+        "webp": 35126,
+        "png": 30773
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-home-hod",
+      "category": "page-spot",
+      "purpose": "Head of department home header",
+      "page": "Home (HoD)",
+      "files": {
+        "webp": "/illustrations/generated/spot-home-hod.webp",
+        "png": "/illustrations/generated/spot-home-hod.png"
+      },
+      "bytes": {
+        "webp": 36694,
+        "png": 36052
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-home-admin",
+      "category": "page-spot",
+      "purpose": "Administration home header",
+      "page": "Home (admin / office)",
+      "files": {
+        "webp": "/illustrations/generated/spot-home-admin.webp",
+        "png": "/illustrations/generated/spot-home-admin.png"
+      },
+      "bytes": {
+        "webp": 35922,
+        "png": 34588
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-search",
+      "category": "page-spot",
+      "purpose": "Search header",
+      "page": "Search",
+      "files": {
+        "webp": "/illustrations/generated/spot-search.webp",
+        "png": "/illustrations/generated/spot-search.png"
+      },
+      "bytes": {
+        "webp": 32818,
+        "png": 30286
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-my-papers",
+      "category": "page-spot",
+      "purpose": "My papers header",
+      "page": "My papers",
+      "files": {
+        "webp": "/illustrations/generated/spot-my-papers.webp",
+        "png": "/illustrations/generated/spot-my-papers.png"
+      },
+      "bytes": {
+        "webp": 39824,
+        "png": 36740
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-my-research",
+      "category": "page-spot",
+      "purpose": "My research header",
+      "page": "My research",
+      "files": {
+        "webp": "/illustrations/generated/spot-my-research.webp",
+        "png": "/illustrations/generated/spot-my-research.png"
+      },
+      "bytes": {
+        "webp": 40366,
+        "png": 34875
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    }
+  ]
+}

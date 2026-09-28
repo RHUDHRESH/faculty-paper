@@ -58,3 +58,31 @@ icon.
 ## Brand
 `frontend2/public/brand/emblem*.png` and `wordmark.png` are Saveetha Engineering College marks,
 supplied by the college. They are not covered by this CC0 dedication.
+
+<!-- generated-art:begin -->
+
+## Generated illustrations: `frontend2/public/illustrations/generated/`
+
+**Source:** ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner. Original art, no third-party characters, logos or likenesses; raw downloads are kept outside the repo in `D:/Faculty Paper/data/generated/raw/`. Machine-readable list: `generated/manifest.json` (name, purpose, files, suggested page). Pipeline: `frontend2/scripts/process-generated-art.py`; registry: `frontend2/scripts/generated-art.json`.
+
+**Shared style block** (prefixed to every prompt):
+
+> Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.
+
+- *sheet variant:* Sheet variant: background perfectly flat and untextured so items can be cut out; 3 columns x 2 rows, each item centred in its cell with wide empty gaps, no borders or dividers; every item in the same style.
+- *hero variant:* Format: wide 16:9 illustration, composition weighted to the right with calm empty space on the left for a headline or card, flat untextured background.
+
+**Processing:**
+
+- *sheet:* Split on the grid; background flood-filled from the border (pale low-chroma pixels only, so enclosed cream fills stay opaque); 5x5 darkest-neighbour colour on soft edges (no pale fringe in dark mode); cropped with 16px pad; PNG (quantised) + WebP at max 640px, both <=150 KB; SVG via vtracer (colour, spline, hard alpha) + svgo --multipass.
+- *hero:* Background kept (flat ~#F3EEE6, matches the canvas); WebP + quantised PNG at max 1600px, both <=150 KB; no SVG (too detailed to trace well).
+
+| Sheet | Date | Prompt (subject) | Assets |
+|---|---|---|---|
+| sheet01 (sheet) | 2026-09-28 | Subjects (empty states, each a small scene with one gentle focal object): (1) an open empty folder with one blank sheet drifting out — 'no papers yet'; (2) an empty review tray with a small tick and a cup of tea beside it — 'nothing to review'; (3) a single quiet speech bubble with a tiny leaf sprouting from it — 'no messages'; (4) a magnifying glass over an empty dotted area — 'no results'; (5) a blank desk calendar page with a small sun beside it — 'calendar empty'; (6) a paper airplane landed beside a dashed path that stops abruptly — 'page not found'. | `empty-no-papers`, `empty-nothing-to-review`, `empty-no-messages`, `empty-no-results`, `empty-calendar`, `not-found-404` |
+| sheet02 (sheet) | 2026-09-28 | Subjects: (1) a hand-drawn index-card drawer with one card being lifted out and a small check — 'pick from an indexed database'; (2) a clipboard with a small chain-link symbol and a paper slip being pasted onto it — 'paste a DOI link'; (3) a fountain pen writing lines on a sheet with a small keyboard beside it — 'type details by hand'; (4) a simple three-step podium with a laurel wreath and a small star above — 'leaderboard and honours'; (5) an open notebook with a glowing lightbulb and small constellation dots rising from the pages — 'discover research ideas'; (6) two abstract figures (no faces) jointly placing puzzle pieces into a shared open book — 'collaboration'. | `file-from-index`, `file-paste-doi`, `file-by-hand`, `leaderboard-honours`, `discover-ideas`, `collaboration` |
+| hero01 (hero) | 2026-09-28 | Format: wide 16:9 page-header illustration, composition weighted to the right with calm empty space on the left for a headline, flat untextured background. Subject: 'research scout' — a small friendly paper-kite drone (abstract, no face) gliding over a gentle landscape made of stacked journals and open books, a dotted flight path linking small glowing idea points and a telescope on a hill; conveys an assistant that scouts the literature and brings back promising leads. | `hero-research-scout` |
+| hero02 (hero) | 2026-09-28 | Format: wide 16:9 hero illustration for a sign-in page, composition weighted to the right with calm empty space on the left for a sign-in card, flat untextured background. Subject: a quiet, welcoming college library reading-room at golden hour seen as a simple stylised scene — tall arched window with warm light, a long wooden table with an open journal, a desk lamp, a small potted plant and a neat stack of bound research volumes; a gentle sense of arriving at one's scholarly home. No people. *ChatGPT returned an A/B pair; both kept. More painterly/detailed than the line style.* | `hero-sign-in`, `hero-sign-in-alt` |
+| sheet03 (sheet) | 2026-09-28 | Page-header spot illustrations, each a small still-life with one focal object: (1) a tidy faculty desk seen from the front — open journal, mug, small plant, desk lamp — 'faculty home'; (2) a small college building with a gentle bar-chart garden of growing plants in front — 'head of department overview'; (3) a calm control desk with a ledger, a ring of keys and a small bell — 'administration home'; (4) a magnifying glass resting on an open card-catalogue drawer — 'search'; (5) a neat stack of bound papers tied with a ribbon bookmark and a sprouting plant — 'my papers'; (6) a microscope beside an open notebook with a rising line graph — 'my research'. *Drifted more detailed/painterly than sheets 01-02 (same chat as the library hero); raster only (traces >80 KB).* | `spot-home-faculty`, `spot-home-hod`, `spot-home-admin`, `spot-search`, `spot-my-papers`, `spot-my-research` |
+
+<!-- generated-art:end -->

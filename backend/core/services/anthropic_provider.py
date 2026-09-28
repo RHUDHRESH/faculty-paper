@@ -125,6 +125,27 @@ def _client(timeout: float):
     return anthropic.Anthropic(api_key=api_key(), timeout=timeout, max_retries=2)
 
 
+def _sampling(temperature: float, method: str = "create") -> dict[str, Any]:
+    """`temperature` only where the installed SDK still takes it.
+
+    Newer SDK releases dropped the argument from `messages.create` and
+    `messages.stream`; passing it anyway made every Claude call fail with
+    "unexpected keyword argument" (a 502 on Discover's directions and
+    partners). The model's default sampling is fine for these answers.
+    """
+    import inspect
+
+    try:
+        from anthropic.resources.messages import Messages
+
+        params = inspect.signature(getattr(Messages, method)).parameters
+    except (ImportError, AttributeError, TypeError, ValueError):
+        return {}
+    if "temperature" in params or any(v.kind is v.VAR_KEYWORD for v in params.values()):
+        return {"temperature": temperature}
+    return {}
+
+
 def _scrub(text: str) -> str:
     key = api_key()
     if key:
@@ -198,7 +219,7 @@ def generate(
     kwargs: dict[str, Any] = {
         "model": resolve_model(fast),
         "max_tokens": max(max_tokens, 4000) if fmt else max_tokens,
-        "temperature": temperature,
+        **_sampling(temperature),
         "system": _system(system, fmt, schema_enforced=enforce),
         "messages": [{"role": "user", "content": prompt}],
     }
@@ -236,7 +257,7 @@ def stream(
         with _client(timeout).messages.stream(
             model=resolve_model(fast),
             max_tokens=max(max_tokens, 4000) if fmt else max_tokens,
-            temperature=temperature,
+            **_sampling(temperature, "stream"),
             system=_system(system, fmt, schema_enforced=False),
             messages=[{"role": "user", "content": prompt}],
         ) as events:

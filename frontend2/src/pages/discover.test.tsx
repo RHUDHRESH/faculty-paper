@@ -128,7 +128,7 @@ function asked(prefix: string): boolean {
 }
 
 describe("Discover — the For-you magazine", () => {
-  it("mixes directions, venues, people and papers, each with a why and a counted chip", async () => {
+  it("mixes directions, venues, people and papers, each with a why and no model label on counted cards", async () => {
     mount(NOT_SET_UP)
     expect(await screen.findByText("This week: 1 direction, 1 fresh paper, 1 person near your work.")).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "Speech assessment" })).toBeInTheDocument()
@@ -136,7 +136,7 @@ describe("Discover — the For-you magazine", () => {
     expect(screen.getByText("Pattern Recognition")).toBeInTheDocument()
     expect(screen.getAllByRole("link", { name: /Dr Ravi Kumar/ })[0]).toHaveAttribute("href", "/u/u-ravi")
     expect(screen.getByText("A fresh paper on speech")).toBeInTheDocument()
-    expect(screen.getAllByText("Counted").length).toBeGreaterThanOrEqual(3)
+    expect(screen.queryByText(/Suggested by the model/)).toBeNull()
   })
 
   it("asks what you work on when it knows nothing yet", async () => {

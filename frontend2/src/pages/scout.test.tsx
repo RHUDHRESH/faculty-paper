@@ -49,3 +49,15 @@ describe("Research scout", () => {
     expect(await screen.findByRole("button", { name: /Scout for me/ })).toBeEnabled()
   })
 })
+
+import { sentenceEnd } from "@/pages/scout"
+
+describe("sentenceEnd", () => {
+  it("does not end the lead at a title or an initial", () => {
+    const s = "Mr. S. Joyal Isac's work in microgrids can grow. Next comes federated learning."
+    expect(s.slice(0, sentenceEnd(s))).toBe("Mr. S. Joyal Isac's work in microgrids can grow.")
+  })
+  it("returns -1 for one sentence", () => {
+    expect(sentenceEnd("Just one sentence here.")).toBe(-1)
+  })
+})

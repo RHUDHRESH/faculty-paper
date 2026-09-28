@@ -1,28 +1,40 @@
 import { useEffect } from "react"
-import { BookOpen, ExternalLink, Globe, Lightbulb, RefreshCw, Telescope, UsersRound } from "lucide-react"
+import { BookOpen, ExternalLink, Globe, RefreshCw, Telescope } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
-import { Chip } from "@/ui/chip"
 import { HeroBand } from "@/ui/hero"
 import { Callout, InlineError, SkeletonRows } from "@/ui/state"
-import { Meta, SectionTitle, Sub } from "@/ui/text"
+import { Meta, SectionTitle } from "@/ui/text"
 import { cn } from "@/lib/cn"
-import { STAGGER_CAP } from "@/ui/motion/list"
+import { Avatar, initialsOf } from "@/ui/person"
+import { Picture, topicPicture } from "@/ui/picture"
 import { StreamingText, ThinkingIndicator, useTypewriter } from "@/ui/motion/stream"
 
 type Source = { url: string; title: string }
+type Opportunity = { title: string; kind: string; why: string; deadline: string; url: string }
 type ScoutResult = {
   profile: { name: string; department: string; papers: number; citations: number; h_index: number; topics: string[] }
   web: {
     summary: string
-    opportunities: { title: string; kind: string; why: string; deadline: string; url: string }[]
+    opportunities: Opportunity[]
     directions: { title: string; builds_on: string; why: string; urls: string[] }[]
     external_people: { name: string; affiliation: string; work: string; url: string }[]
   }
   literature: { topic: string; title: string; year: number | null; venue: string; first_author: string; affiliation: string; citations: number; url: string }[]
-  colleagues: { user_id: string; name: string; department: string; papers: number; shared_topics: string[]; their_topics: string[]; why: string; picked: boolean }[]
+  colleagues: {
+    user_id: string
+    name: string
+    initials?: string
+    photo_url?: string | null
+    department: string
+    papers: number
+    shared_topics: string[]
+    their_topics: string[]
+    why: string
+    picked: boolean
+  }[]
   sources: Source[]
   generated_at: string
 }
@@ -52,7 +64,7 @@ function host(url: string) {
 }
 
 function SourceLink({ url }: { url: string }) {
-  if (!url) return <Meta>No link found — check before relying on it</Meta>
+  if (!url) return <Meta>No link found. Check before relying on it.</Meta>
   return (
     <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-accent hover:underline">
       {host(url)}
@@ -62,28 +74,112 @@ function SourceLink({ url }: { url: string }) {
 }
 
 function Origin({ web }: { web: boolean }) {
-  return web ? (
-    <Chip tone="area" icon={Globe}>From the web</Chip>
-  ) : (
-    <Chip tone="neutral" icon={BookOpen}>From our records</Chip>
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm text-fg-subtle">
+      {web ? <Globe aria-hidden className="size-3.5" /> : <BookOpen aria-hidden className="size-3.5" />}
+      {web ? "From the web" : "From our records"}
+    </span>
   )
 }
 
-function Card({ children, i = 0 }: { children: React.ReactNode; i?: number }) {
+function Section({ id, title, web, children }: { id: string; title: string; web?: boolean; children: React.ReactNode }) {
   return (
-    <li
-      className={cn("hover-lift rounded-xl bg-surface p-4 shadow-[inset_0_0_0_1px_var(--color-edge)]", i < STAGGER_CAP && "stagger-in")}
-      style={{ animationDelay: `${Math.min(i, STAGGER_CAP) * 30}ms` }}
-    >
+    <section className="space-y-4 border-t border-(--color-edge) pt-8" aria-labelledby={id}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <SectionTitle><span id={id}>{title}</span></SectionTitle>
+        {web !== undefined && <Origin web={web} />}
+      </div>
       {children}
+    </section>
+  )
+}
+
+const DAY = 86_400_000
+
+/** A deadline the model wrote, as a date; null when it is not one. */
+export function parseDeadline(text: string): Date | null {
+  if (!text) return null
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(text.trim())
+  const d = iso ? new Date(+iso[1], +iso[2] - 1, +iso[3]) : new Date(text)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+/** Open calls in date order: the nearest first, undated after, closed ones apart. */
+export function sortCalls(list: Opportunity[], today = new Date()) {
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const rows = list.map((o) => {
+    const d = parseDeadline(o.deadline)
+    return { o, d, days: d ? Math.round((d.getTime() - start) / DAY) : null }
+  })
+  const open = rows
+    .filter((r) => r.days === null || r.days >= 0)
+    .sort((a, b) => (a.days ?? 1e9) - (b.days ?? 1e9))
+  const closed = rows.filter((r) => r.days !== null && r.days < 0)
+  return { open, closed }
+}
+
+const NOT_AN_END = /(?:^|\s)(?:Mr|Mrs|Ms|Dr|Prof|Er|St|vs|etc|e\.g|i\.e|[A-Z])\.$/
+
+/**
+ * Where the first sentence ends, or -1. A full stop after a title or an
+ * initial ("Mr. S. Joyal Isac") is not the end: splitting there made the
+ * lead read "Mr."
+ */
+export function sentenceEnd(text: string): number {
+  for (const m of text.matchAll(/[.!?](\s+)(?=[A-Z])/g)) {
+    const stop = (m.index ?? 0) + 1
+    if (!NOT_AN_END.test(text.slice(0, stop))) return stop
+  }
+  return -1
+}
+
+function daysLeft(days: number | null) {
+  if (days === null) return null
+  if (days === 0) return "Closes today"
+  if (days === 1) return "1 day left"
+  return `${days} days left`
+}
+
+function CallRow({ o, d, days, closed }: { o: Opportunity; d: Date | null; days: number | null; closed?: boolean }) {
+  return (
+    <li className={cn("grid grid-cols-[4.5rem_1fr] gap-4 py-4 sm:grid-cols-[6rem_1fr]", closed && "opacity-60")}>
+      <div className="text-right">
+        {d ? (
+          <>
+            <p className="font-display text-2xl leading-none text-fg">{d.getDate()}</p>
+            <p className="mt-1 text-sm text-fg-muted">
+              {d.toLocaleDateString(undefined, { month: "short" })} {d.getFullYear()}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-fg-subtle">Rolling</p>
+        )}
+      </div>
+      <div className="min-w-0 space-y-1">
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span className="text-(--area)">{KIND[o.kind] ?? o.kind}</span>
+          {closed ? (
+            <span className="text-fg-subtle">Closed</span>
+          ) : (
+            days !== null && (
+              <span className={cn("font-medium", days <= 14 ? "text-caution" : "text-fg-muted")}>{daysLeft(days)}</span>
+            )
+          )}
+        </p>
+        <p className={cn("font-medium text-fg", closed && "line-through decoration-fg-subtle")}>{o.title}</p>
+        <p className="text-sm text-fg-muted">{o.why}</p>
+        <SourceLink url={o.url} />
+      </div>
     </li>
   )
 }
 
 /**
  * Research scout: Claude searches the web from the person's own record and
- * says what to work on next and with whom. Web findings and our own records
- * are labelled apart; links are only the ones the search actually returned.
+ * says what to work on next and with whom. It reads as a brief: the lead
+ * direction first, then calls by date, directions, people and venues. Web
+ * findings and our own records are labelled apart; links are only the ones
+ * the search actually returned.
  */
 export function Scout() {
   const run = useApi<ScoutRun>(["scout"], "/api/scout", {
@@ -98,16 +194,24 @@ export function Scout() {
   const busy = data?.status === "queued" || data?.status === "running" || start.isPending
   const r = data?.status === "done" ? data.result : undefined
   const left = data?.runs_left ?? 0
-  const typed = useTypewriter(r ? r.web.summary || "Here is what is worth your attention next." : "")
+
+  const summary = r ? r.web.summary || "Here is what is worth your attention next." : ""
+  const cut = sentenceEnd(summary)
+  const lead = cut > 0 ? summary.slice(0, cut) : summary
+  const rest = cut > 0 ? summary.slice(cut).trim() : ""
+  const typed = useTypewriter(lead)
+  const leadPicture = r ? topicPicture(lead, ...r.profile.topics.slice(0, 3)) : null
+  const calls = r ? sortCalls(r.web.opportunities) : { open: [], closed: [] }
+  const venues = r
+    ? [...new Map(r.literature.filter((l) => l.venue).map((l) => [l.venue, r.literature.filter((x) => x.venue === l.venue)])).entries()]
+    : []
 
   const sentence = busy
     ? "Reading your record and searching the web. This takes a minute or two."
-    : r
-      ? <StreamingText text={typed} />
-      : "Next-level problems, open calls, and people to work with — from your papers and the web."
+    : "Next problems, open calls and people to work with, from your papers and the web."
 
   return (
-    <div className="page space-y-6" data-area="research">
+    <div className="page space-y-8" data-area="research">
       <HeroBand spot="hero-research-scout"
         area="research"
         eyebrow="Research"
@@ -119,12 +223,7 @@ export function Scout() {
             {busy ? "Scouting…" : r ? "Scout again" : "Scout for me"}
           </Button>
         }
-      >
-        <p className="mt-3 text-sm text-fg-muted">
-          {left} of {data?.limit ?? 5} runs left today · results are kept for 24 hours
-          {r && ` · last run ${new Date(r.generated_at).toLocaleString()}`}
-        </p>
-      </HeroBand>
+      />
 
       {run.isError && <InlineError message={run.error.message} onRetry={() => void run.refetch()} />}
       {start.isError && <InlineError message={start.error.message} />}
@@ -142,118 +241,151 @@ export function Scout() {
 
       {r && (
         <>
-          <section className="space-y-3" aria-labelledby="opps">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle><span id="opps">Open now</span></SectionTitle>
-              <Origin web />
+          <section aria-label="The direction" className="grid items-center gap-6 md:grid-cols-[1fr_14rem]">
+            <div className="space-y-4">
+              <p className="text-sm text-(--area)">The direction, for {r.profile.name}</p>
+              <p className="font-display text-2xl leading-snug text-fg sm:text-[1.75rem]">
+                <StreamingText text={typed} />
+              </p>
+              {rest && <p className="max-w-prose text-fg-muted">{rest}</p>}
             </div>
-            <ul className="grid gap-3 md:grid-cols-2">
-              {r.web.opportunities.map((o, i) => (
-                <Card key={o.title} i={i}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Chip tone="area">{KIND[o.kind] ?? o.kind}</Chip>
-                    {o.deadline && <Chip tone="caution">Deadline {o.deadline}</Chip>}
-                  </div>
-                  <p className="mt-2 font-medium">{o.title}</p>
-                  <Sub className="mt-1">{o.why}</Sub>
-                  <div className="mt-2"><SourceLink url={o.url} /></div>
-                </Card>
-              ))}
-            </ul>
+            {leadPicture && <Picture name={leadPicture} className="hidden w-56 md:block" />}
           </section>
 
-          <section className="space-y-3" aria-labelledby="dirs">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle><span id="dirs">Where your work can go next</span></SectionTitle>
-              <Origin web />
-            </div>
-            <ul className="space-y-3">
+          <Section id="calls" title="Open calls and deadlines" web>
+            {calls.open.length === 0 && (
+              <Meta className="block">No open call with a date still ahead. Scout again next week.</Meta>
+            )}
+            <ul className="divide-y divide-(--color-edge)">
+              {calls.open.map((c) => <CallRow key={c.o.title} {...c} />)}
+            </ul>
+            {calls.closed.length > 0 && (
+              <details className="text-sm">
+                <summary className="cursor-pointer text-fg-muted">
+                  {calls.closed.length} already closed
+                </summary>
+                <ul className="divide-y divide-(--color-edge)">
+                  {calls.closed.map((c) => <CallRow key={c.o.title} {...c} closed />)}
+                </ul>
+              </details>
+            )}
+          </Section>
+
+          <Section id="dirs" title="Directions to grow into" web>
+            <ol className="space-y-6">
               {r.web.directions.map((d, i) => (
-                <Card key={d.title} i={i}>
-                  <p className="flex items-start gap-2 font-medium">
-                    <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0 text-(--area)" />
-                    {d.title}
-                  </p>
-                  {d.builds_on && <Meta>Builds on: {d.builds_on}</Meta>}
-                  <Sub className="mt-1">{d.why}</Sub>
-                  <div className="mt-2 flex flex-wrap gap-3">
-                    {d.urls.map((u) => <SourceLink key={u} url={u} />)}
+                <li key={d.title} className="grid grid-cols-[2.5rem_1fr] gap-3">
+                  <span className="font-display text-2xl leading-none text-fg-subtle">{String(i + 1).padStart(2, "0")}</span>
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-lg font-medium text-fg">{d.title}</p>
+                    {d.builds_on && <p className="text-sm text-(--area)">Builds on {d.builds_on}</p>}
+                    <p className="max-w-prose text-fg-muted">{d.why}</p>
+                    {d.urls.length > 0 && (
+                      <div className="flex flex-wrap gap-3 pt-1">
+                        {d.urls.map((u) => <SourceLink key={u} url={u} />)}
+                      </div>
+                    )}
                   </div>
-                </Card>
+                </li>
               ))}
-            </ul>
-          </section>
+            </ol>
+          </Section>
 
-          <section className="space-y-3" aria-labelledby="cols">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle><span id="cols">Colleagues in other departments</span></SectionTitle>
-              <Origin web={false} />
-            </div>
-            <ul className="grid gap-3 md:grid-cols-2">
-              {r.colleagues.map((c, i) => (
-                <Card key={c.user_id} i={i}>
-                  <div className="flex items-center justify-between gap-2">
-                    <Link to={`/u/${c.user_id}`} className="font-medium hover:underline">{c.name}</Link>
-                    <Chip tone="neutral" icon={UsersRound}>{c.department || "—"}</Chip>
-                  </div>
-                  <Meta>{c.papers} papers · you share {c.shared_topics.join(", ")}</Meta>
-                  {c.their_topics.length > 0 && <Sub className="mt-1">They bring: {c.their_topics.join(", ")}</Sub>}
-                  {c.why && <p className="mt-2 text-sm">{c.why} <Meta>(suggested by AI)</Meta></p>}
-                </Card>
-              ))}
-              {r.colleagues.length === 0 && <Sub>No colleague in another department shares your topics yet.</Sub>}
-            </ul>
-          </section>
-
-          <section className="space-y-3" aria-labelledby="ext">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle><span id="ext">Researchers outside the college</span></SectionTitle>
-              <Origin web />
-            </div>
-            <ul className="grid gap-3 md:grid-cols-2">
-              {r.web.external_people.map((p, i) => (
-                <Card key={p.name} i={i}>
-                  <p className="font-medium">{p.name}</p>
-                  <Meta>{p.affiliation}</Meta>
-                  <Sub className="mt-1">{p.work}</Sub>
-                  <div className="mt-2"><SourceLink url={p.url} /></div>
-                </Card>
-              ))}
-            </ul>
-          </section>
-
-          {r.literature.length > 0 && (
-            <section className="space-y-3" aria-labelledby="lit">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <SectionTitle><span id="lit">Most-cited recent papers on your topics</span></SectionTitle>
-                <Chip tone="neutral" icon={BookOpen}>From Scopus</Chip>
+          <Section id="people" title="People to work with">
+            <div className="grid gap-8 lg:grid-cols-2">
+              <div className="space-y-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <h3 className="font-medium text-fg">At the college</h3>
+                  <Origin web={false} />
+                </div>
+                <ul className="divide-y divide-(--color-edge)">
+                  {r.colleagues.map((c) => (
+                    <li key={c.user_id} className="flex gap-3 py-3">
+                      <Link to={`/u/${c.user_id}`} aria-hidden tabIndex={-1}>
+                        <Avatar person={{ name: c.name, initials: c.initials || initialsOf(c.name), photo_url: c.photo_url ?? null }} />
+                      </Link>
+                      <div className="min-w-0 space-y-1">
+                        <p>
+                          <Link to={`/u/${c.user_id}`} className="font-medium hover:underline">{c.name}</Link>
+                          <span className="text-sm text-fg-muted"> · {c.department || "No department"} · {c.papers} papers</span>
+                        </p>
+                        <p className="text-sm text-fg-muted">You share {c.shared_topics.join(", ")}</p>
+                        {c.their_topics.length > 0 && <p className="text-sm text-fg-muted">They bring {c.their_topics.slice(0, 3).join(", ")}</p>}
+                        {c.why && <p className="text-sm text-fg">{c.why} <Meta>(suggested by AI)</Meta></p>}
+                      </div>
+                    </li>
+                  ))}
+                  {r.colleagues.length === 0 && (
+                    <li className="py-3 text-sm text-fg-muted">No colleague in another department shares your topics yet.</li>
+                  )}
+                </ul>
               </div>
-              <ul className="divide-y divide-(--color-edge) rounded-xl bg-surface shadow-[inset_0_0_0_1px_var(--color-edge)]">
-                {r.literature.map((l) => (
-                  <li key={l.title} className="p-4">
-                    <a href={l.url || undefined} target="_blank" rel="noreferrer" className="font-medium hover:underline">{l.title}</a>
-                    <Meta className="block">
-                      {l.first_author}{l.affiliation && ` (${l.affiliation})`} · {l.venue} {l.year} · {l.citations} citations
-                    </Meta>
+              <div className="space-y-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <h3 className="font-medium text-fg">Beyond the college</h3>
+                  <Origin web />
+                </div>
+                <ul className="divide-y divide-(--color-edge)">
+                  {r.web.external_people.map((p) => (
+                    <li key={p.name} className="flex gap-3 py-3">
+                      <Avatar person={{ name: p.name, initials: initialsOf(p.name), photo_url: null }} />
+                      <div className="min-w-0 space-y-1">
+                        <p className="font-medium text-fg">{p.name}</p>
+                        <p className="text-sm text-(--area)">{p.affiliation}</p>
+                        <p className="text-sm text-fg-muted">{p.work}</p>
+                        <SourceLink url={p.url} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </Section>
+
+          {venues.length > 0 && (
+            <Section id="venues" title="Venues publishing the most-cited recent work">
+              <Meta className="block">Counted from Scopus on your topics.</Meta>
+              <ul className="divide-y divide-(--color-edge)">
+                {venues.map(([venue, papers]) => (
+                  <li key={venue} className="grid gap-2 py-4 sm:grid-cols-[16rem_1fr] sm:gap-6">
+                    <p className="font-medium text-fg">{venue}</p>
+                    <ul className="space-y-2">
+                      {papers.map((l) => (
+                        <li key={l.title}>
+                          <a href={l.url || undefined} target="_blank" rel="noreferrer" className="text-fg hover:underline">{l.title}</a>
+                          <Meta className="block">
+                            {l.first_author}{l.affiliation && ` (${l.affiliation})`} · {l.year} · {l.citations} citations
+                          </Meta>
+                        </li>
+                      ))}
+                    </ul>
                   </li>
                 ))}
               </ul>
-            </section>
+            </Section>
           )}
 
-          <details className="text-sm text-fg-muted">
-            <summary className="cursor-pointer">All {r.sources.length} web sources the search returned</summary>
-            <ul className="mt-2 space-y-1">
-              {r.sources.map((s) => (
-                <li key={s.url}><a href={s.url} target="_blank" rel="noreferrer" className="hover:underline">{s.title || s.url}</a></li>
-              ))}
-            </ul>
-          </details>
-          <Meta className="block">
-            Web findings are gathered by an AI model with web search and can be wrong — open the source before acting. Colleague matches are counted from the college's publication record.
-          </Meta>
+          <div className="space-y-2 border-t border-(--color-edge) pt-6 text-sm text-fg-muted">
+            <details>
+              <summary className="cursor-pointer">All {r.sources.length} web sources the search returned</summary>
+              <ul className="mt-2 space-y-1">
+                {r.sources.map((s) => (
+                  <li key={s.url}><a href={s.url} target="_blank" rel="noreferrer" className="hover:underline">{s.title || s.url}</a></li>
+                ))}
+              </ul>
+            </details>
+            <Meta className="block">
+              Web findings are gathered by an AI model with web search and can be wrong. Open the source before acting.
+              Colleague matches are counted from the college's publication record.
+            </Meta>
+          </div>
         </>
       )}
+
+      <p className="text-sm text-fg-subtle">
+        {left} of {data?.limit ?? 5} runs left today. Results are kept for 24 hours
+        {r ? `, last run ${new Date(r.generated_at).toLocaleString()}.` : "."}
+      </p>
     </div>
   )
 }

@@ -337,7 +337,7 @@ function AlreadyLoaded({ query }: { query: UseQueryResult<ErpStats, ApiError> })
                     {nf(data[s.key])}
                   </Figure>
                   <Meta className="mt-0.5 block">
-                    {data[s.key] === 0 ? `None — ${s.about.toLowerCase()}` : s.about}
+                    {data[s.key] === 0 ? `None yet. ${s.about}` : s.about}
                   </Meta>
                 </dd>
               </div>
@@ -347,16 +347,12 @@ function AlreadyLoaded({ query }: { query: UseQueryResult<ErpStats, ApiError> })
           <hr className="hairline my-5" />
 
           <Meta className="block">
-            These are counts and nothing else — <code>/api/admin/erp-stats</code>{" "}
-            returns no timestamps, so this screen cannot honestly tell you when
-            each import last ran. The{" "}
-            <Link to="/audit" className="underline underline-offset-2">
-              audit log
-            </Link>{" "}
-            does: every import writes a row there
-            (<code>FACULTY_MASTER_IMPORT</code>,{" "}
-            <code>PRIOR_PAYMENT_IMPORT</code>, <code>ERP_XLSX_IMPORT</code>)
-            with who ran it and when.
+            These are counts only. To see when each import last ran and who ran it, open the{" "}
+            <Link to="/audit?q=IMPORT" className="underline underline-offset-2">
+              imports in the audit log
+            </Link>
+            , or the <Link to="/jobs" className="underline underline-offset-2">jobs</Link> list for
+            imports still running in the background.
           </Meta>
         </div>
       ) : null}
@@ -2307,7 +2303,7 @@ function ScopusProfilesSection() {
           <div className="space-y-2">
             <ColumnLabel className="block">Profiles no account claims</ColumnLabel>
             {data.profiles_without_account.length === 0 ? (
-              <Meta className="block">None — every profile matched an account.</Meta>
+              <Meta className="block">None. Every profile matched an account.</Meta>
             ) : (
               <>
                 <Meta className="block">
@@ -2362,7 +2358,7 @@ function ScopusProfilesSection() {
               Faculty accounts with no Scopus ID ({nf(data.faculty_without_scopus.length)})
             </ColumnLabel>
             {data.faculty_without_scopus.length === 0 ? (
-              <Meta className="block">None — every faculty account carries one.</Meta>
+              <Meta className="block">None. Every faculty account carries one.</Meta>
             ) : (
               <Table
                 rows={data.faculty_without_scopus}

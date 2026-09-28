@@ -169,7 +169,8 @@ def _faults_now() -> dict[str, Any]:
                    found=_probe(no_snip, "ticket_number"), to="/admin/clearing"),
             _fault("duplicate_override", "Duplicate warning overridden",
                    "Paid or cleared despite matching an earlier payment.",
-                   found=_probe(dup_override, "ticket_number"), severity="critical"),
+                   found=_probe(dup_override, "ticket_number"), severity="critical",
+                   to="/duplicates"),
         ],
     })
 

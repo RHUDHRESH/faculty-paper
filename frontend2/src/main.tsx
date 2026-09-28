@@ -383,6 +383,8 @@ function App() {
           <Route path="/audit" element={<Audit />} />
           <Route path="/faults" element={<Faults />} />
           <Route path="/jobs" element={<Jobs />} />
+          {/* Setup is first-run only; a signed-in admin wants the institution settings. */}
+          <Route path="/setup" element={<Navigate to="/settings" replace />} />
           <Route path="/people" element={<People />} />
           <Route path="/people/matches" element={<AuthorMatches />} />
           <Route path="/people/:id" element={<Person />} />

@@ -204,7 +204,7 @@ test.describe("The money chain", () => {
     await expect(sheet).toBeVisible()
     await sheet.getByRole("button", { name: "Approve", exact: true }).click()
 
-    const confirm = page.getByRole("button", { name: /^Approve — ₹/ })
+    const confirm = page.getByRole("button", { name: /^Approve ₹/ })
     // Same live-Scopus exposure as the clearing step above; these ran fast
     // only because that call was already cached by the time they ran.
     await expect(confirm).toBeEnabled({ timeout: 180_000 })

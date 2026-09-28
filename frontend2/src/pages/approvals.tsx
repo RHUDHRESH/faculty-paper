@@ -668,7 +668,7 @@ export function Approvals() {
             </ul>
           </div>
 
-          <TableScroller minWidth="66rem" className="hidden md:block">
+          <TableScroller minWidth="58rem" className="hidden md:block">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr>

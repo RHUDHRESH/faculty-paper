@@ -184,7 +184,7 @@ test.describe("Moving a batch of claims through every desk", () => {
 
     await page.getByRole("button", { name: `Approve ${BATCH} tickets` }).click()
 
-    const confirm = page.getByRole("button", { name: /^Approve — ₹/ })
+    const confirm = page.getByRole("button", { name: /^Approve \d+ for ₹/ })
     await expect(confirm).toBeEnabled()
     totals.approved = amountIn(await confirm.innerText(), "bulk approval")
 

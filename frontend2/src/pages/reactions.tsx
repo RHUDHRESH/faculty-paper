@@ -94,7 +94,7 @@ export function ReactionBar({
     react.mutate({ kind, on })
     if (kind === "COLLABORATE" && on && post.author) {
       // The point of saying it: a message to the author, about this post.
-      navigate(`/messages?to=${post.author.id}&ref=${post.id}`)
+      navigate(`/messages?to=${post.author.id}&ref=${post.id}${post.paper ? `&ctx=paper:${post.paper.id}` : ""}`)
     }
   }
 

@@ -155,7 +155,7 @@ const PRELOADS: [string, Page][] = [
   ["/messages/c/:id", ChatPage],
   ["/messages/office", MessagesOffice],
   ["/messages/o/:id", MessagesOfficeThread],
-  ["/messages/:id", Thread],
+  ["/messages/:id", MessagesOfficeThread],
   ["/u/me/stats", MyStats],
   ["/messages", Messages],
   ["/u/:id", PublicProfile],
@@ -345,7 +345,7 @@ function App() {
           <Route path="/messages/c/:id" element={<ChatPage />} />
           <Route path="/messages/office" element={<MessagesOffice />} />
           <Route path="/messages/o/:id" element={<MessagesOfficeThread />} />
-          <Route path="/messages/:id" element={<Thread />} />
+          <Route path="/messages/:id" element={<MessagesOfficeThread />} />
           <Route path="/u/me/stats" element={<MyStats />} />
           <Route path="/u/:id" element={<PublicProfile />} />
           <Route path="/calendar" element={<Calendar />} />

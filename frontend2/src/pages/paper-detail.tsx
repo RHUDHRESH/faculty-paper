@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, MessageCircle } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { reviewsFlags } from "@/app/nav"
@@ -368,6 +368,15 @@ export function PaperDetail() {
               {claim.journal_title ? ` · ${claim.journal_title}` : ""}
             </Sub>
           </div>
+          {!isOwner && !!me && claim.owner_id && (
+            // Lands in the one-to-one chat with the paper attached as context.
+            <Button kind="default" className="shrink-0 print:hidden" asChild>
+              <Link to={`/messages?to=${claim.owner_id}&ctx=paper:${claim.id}`}>
+                <MessageCircle />
+                Message {claim.owner_name?.split(" ")[0] || "the author"}
+              </Link>
+            </Button>
+          )}
           {isOwner && claim.journal_title && claim.status !== "DRAFT" && (
             <Button kind="quiet" className="shrink-0 print:hidden" asChild>
               <Link to={`/papers/new?copy=${claim.id}`}>File another in this journal</Link>

@@ -44,7 +44,7 @@ import { Avatar, initialsOf } from "@/ui/person"
 import { ClaimFlagsPanel, RaiseFlagDialog, useClaimReview } from "@/pages/claim-review"
 import { recordPosition } from "@/pages/clearing-position"
 import { ClaimOfficeThread } from "@/pages/clearing-thread"
-import { AgeingChips, type AgeBucket, type DeskFields, inBucket, isClean, MonthlyReport, SchemeRules, WatchCallout } from "@/pages/clearing-desk"
+import { AgeingChips, type AgeBucket, type DeskFields, inBucket, isAgeBucket, isClean, MonthlyReport, SchemeRules, WatchCallout } from "@/pages/clearing-desk"
 
 /**
  * The research cell's daily job: every submitted ticket, oldest first, and
@@ -216,7 +216,11 @@ export function Clearing() {
   useSlashToSearch(searchRef)
   const [dept, setDept] = useState("")
   const [check, setCheck] = useState<"" | "passed" | "failed" | "flagged" | "clean">("")
-  const [age, setAge] = useState<AgeBucket | "">("")
+  // Home's ageing split links here as ?age=<bucket>.
+  const [age, setAge] = useState<AgeBucket | "">(() => {
+    const v = new URLSearchParams(window.location.search).get("age")
+    return isAgeBucket(v) ? v : ""
+  })
   const needle = q.trim().toLowerCase()
   const rows = all.filter(
     (c) =>

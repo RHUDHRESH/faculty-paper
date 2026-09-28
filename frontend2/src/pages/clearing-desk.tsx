@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Link } from "react-router-dom"
 
 import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
@@ -73,6 +74,42 @@ export function isClean(c: DeskFields): boolean {
     c.affiliation_ok !== false &&
     !c.journal_watch &&
     c.remuneration != null
+  )
+}
+
+/** How many rows fall in each ageing bucket, in bucket order. */
+export function ageSplit(rows: { waiting_days?: number | null }[]) {
+  return AGE_BUCKETS.map((b) => ({ id: b.id, label: b.label, n: rows.filter((r) => b.test(r.waiting_days ?? 0)).length }))
+}
+
+export function isAgeBucket(v: string | null): v is AgeBucket {
+  return AGE_BUCKETS.some((b) => b.id === v)
+}
+
+/** Home's read-only copy of the queue's ageing chips; each opens the queue filtered. */
+export function AgeingSplit({ rows }: { rows: { waiting_days?: number | null }[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" aria-label="How long tickets have waited">
+      <Meta>Waiting</Meta>
+      {ageSplit(rows).map((b) => (
+        <Link
+          key={b.id}
+          to={`/clearing?age=${b.id}`}
+          className={cn(
+            "rounded-full px-2.5 py-1 text-xs ring-1 ring-inset",
+            b.n === 0
+              ? "bg-surface text-fg-muted ring-line opacity-60"
+              : b.id === "older"
+                ? "bg-critical-wash text-critical ring-line"
+                : b.id === "month"
+                  ? "bg-caution-wash text-caution ring-line"
+                  : "bg-surface text-fg-muted ring-line hover:text-fg"
+          )}
+        >
+          {b.label} <span className="tabular">{b.n}</span>
+        </Link>
+      ))}
+    </div>
   )
 }
 

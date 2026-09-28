@@ -32,7 +32,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from core.models import (
-    Authorship, Budget, PriorPayment, Claim, DuplicateFinding, JournalWatch, PaidLedger, Publication, Role,
+    Authorship, Budget, FormulaConfig, PriorPayment, Claim, DuplicateFinding, JournalWatch, PaidLedger, Publication, Role,
     ScimagoJournal, SnipSource, Team, TeamMember, User,
 )
 
@@ -136,6 +136,15 @@ class Command(BaseCommand):
         Publication.objects.filter(source=TAG).delete()
         PriorPayment.objects.filter(claim_ref__startswith="ERP-YR").delete()
         Team.objects.filter(code__startswith="FYP-YR").delete()
+        # The super admin publishes a policy version in the scenario; put the
+        # one it retired back, so every run prices from the same sheet.
+        if FormulaConfig.objects.filter(updated_by_id__in=ids).exists():
+            FormulaConfig.objects.filter(updated_by_id__in=ids).delete()
+            if not FormulaConfig.objects.filter(active=True).exists():
+                latest = FormulaConfig.objects.order_by("-version", "-created_at").first()
+                if latest is not None:
+                    latest.active = True
+                    latest.save(update_fields=["active"])
         for row in Session.objects.all().iterator():
             try:
                 if str(row.get_decoded().get(SESSION_KEY, "")) in ids:

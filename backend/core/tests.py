@@ -1296,6 +1296,21 @@ class MoneyIntegrityTests(TestCase):
         self.assertEqual(r.json()["version"], 2)
         self.assertEqual(FormulaConfig.objects.filter(active=True).count(), 1)
 
+    def test_the_first_saved_policy_is_v2_after_the_built_in_v1(self):
+        """The editor promises "retires v1, makes v2 active" over the built-in
+        rates and asks for v2 to be typed; the row it saves must be v2."""
+        FormulaConfig.objects.all().delete()
+        self.client.force_login(self.admin)
+        shown = self.client.get("/api/admin/formula").json()
+        self.assertEqual(shown["version"], 1)
+        r = self.client.put(
+            "/api/admin/formula",
+            data=json.dumps(self._formula_payload(qf_q4=8000)),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["version"], 2)
+
     def test_paid_claim_cannot_be_reverified(self):
         claim = Claim.objects.create(
             owner=self.faculty, status=ClaimStatus.PAID,

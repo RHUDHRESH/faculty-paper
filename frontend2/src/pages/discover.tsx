@@ -25,6 +25,7 @@ import { money } from "@/ui/paper"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Meta, SectionTitle, Sub } from "@/ui/text"
+import { TabIndicator } from "@/ui/motion/page"
 import { toast } from "@/ui/toast"
 import { IndustryPartners } from "@/pages/discover-next"
 import { FeedCard, ModelCard, useHidden, type FeedItem, type ForYou } from "@/pages/discover-feed"
@@ -129,12 +130,13 @@ export function Discover() {
             aria-selected={tab === key}
             onClick={() => setParams(key === "for-you" ? {} : { tab: key }, { replace: true })}
             className={cn(
-              "inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-medium transition-colors duration-[var(--dur-1)]",
+              "relative isolate inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-medium transition-colors duration-[var(--dur-1)]",
               tab === key
-                ? "bg-(--area) text-white"
+                ? "text-white"
                 : "bg-surface text-fg-muted shadow-[inset_0_0_0_1px_var(--color-edge)] hover:text-fg"
             )}
           >
+            {tab === key && <TabIndicator group="discover" />}
             <Icon aria-hidden className="size-5" strokeWidth={1.75} />
             {label}
           </button>

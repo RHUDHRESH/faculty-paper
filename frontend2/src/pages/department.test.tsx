@@ -330,16 +330,31 @@ describe("the department on Scopus", () => {
     ],
   }
 
-  it("shows the department's citations and Scopus publications, and each person's", async () => {
-    mount({ "/api/hod/overview": () => withScopus })
-    const region = await screen.findByRole("region", { name: /the department/i })
-    expect(await within(region).findByText(/166 citations/)).toBeInTheDocument()
-    expect(within(region).getByText(/26 Scopus publications/)).toBeInTheDocument()
-    const asha = within(region).getByRole("row", { name: /Asha Physicist/ })
+  const brief = {
+    department: "Physics", year: 2026, as_of: "2026-09-28", elapsed: 0.74,
+    totals: { publications: 3, q1: 0, first_author: 0, faculty: 2, faculty_published: 2, per_teacher: 1.5,
+      last_year_full: 4, last_year_to_date: 3, this_year_to_date: 3, rejected_outright: 0, missing_issn_or_doi: 0 },
+    targets: [], by_year: [], push: [], pairs: [], years: [2026],
+    people: [
+      { id: "u1", name: "Asha Physicist", designation: null, photo_url: null, is_you: false, this_year: 2, last_year: 1,
+        q1_this_year: 0, led_this_year: 0, total: 2, last_year_published: 2026, area: null, target: null, last_reminded_at: null },
+      { id: "u2", name: "Ravi Physicist", designation: null, photo_url: null, is_you: false, this_year: 1, last_year: 1,
+        q1_this_year: 0, led_this_year: 0, total: 1, last_year_published: 2026, area: null, target: null, last_reminded_at: null },
+    ],
+  }
+
+  it("shows the department's citations and Scopus publications, and each person's in the one table", async () => {
+    mount({ "/api/hod/overview": () => withScopus, "/api/hod/brief": () => brief })
+    expect(await screen.findByText(/166 citations/)).toBeInTheDocument()
+    expect(screen.getByText(/26 Scopus publications/)).toBeInTheDocument()
+    const region = await screen.findByRole("region", { name: /at a glance/i })
+    const asha = await within(region).findByRole("row", { name: /Asha Physicist/ })
     expect(within(asha).getByText("166")).toBeInTheDocument()
     // No profile is not zero citations.
     const ravi = within(region).getByRole("row", { name: /Ravi Physicist/ })
     expect(within(ravi).queryByText("0")).toBeNull()
+    // One people table on the page, not two.
+    expect(screen.getAllByRole("table")).toHaveLength(1)
   })
 
   it("says so when no profile is loaded for anybody in the department", async () => {
@@ -352,8 +367,7 @@ describe("the department on Scopus", () => {
         },
       }),
     })
-    const region = await screen.findByRole("region", { name: /the department/i })
-    expect(await within(region).findByText(/no scopus profiles/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no scopus profiles/i)).toBeInTheDocument()
   })
 })
 
@@ -369,25 +383,5 @@ describe("money-blindness", () => {
     await screen.findAllByText("Draft the NAAC criterion 3 narrative")
     expect(document.body.textContent).not.toContain("₹")
     expect(document.body.textContent).not.toMatch(/payout|incentive|amount/i)
-  })
-})
-
-describe("people with nothing on record", () => {
-  it("says so plainly and offers a reminder to that one person", async () => {
-    const user = userEvent.setup()
-    mount({
-      "/api/hod/overview": () => ({
-        ...OVERVIEW,
-        people: [...OVERVIEW.people, person("u9", "New Physicist", 0)],
-      }),
-      "/api/hod/nudge": () => ({ sent: 1, skipped: [] }),
-    })
-    const region = await screen.findByRole("region", { name: /the department/i })
-    expect((await within(region).findAllByText("Nothing on record")).length).toBeGreaterThan(0)
-    await user.click(within(region).getByRole("button", { name: "Send New Physicist a reminder" }))
-    const dialog = await screen.findByRole("dialog")
-    await user.click(within(dialog).getByRole("button", { name: "Send reminder" }))
-    await waitFor(() => expect(callsTo("/api/hod/nudge", "POST")).toHaveLength(1))
-    expect(callsTo("/api/hod/nudge", "POST")[0][1]).toMatchObject({ json: { user_ids: ["u9"] } })
   })
 })

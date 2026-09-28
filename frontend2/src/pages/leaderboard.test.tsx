@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -9,7 +9,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import { api } from "@/lib/api"
 import { navFor } from "@/app/nav"
 import { Leaderboard, rankText, standing, toCsv, type HonoursBoard } from "@/pages/leaderboard"
-import { FACULTY, failing, fakeApi, renderWithProviders } from "@/test/harness"
+import { FACULTY, HOD, failing, fakeApi, renderWithProviders } from "@/test/harness"
 
 function row(id: string, name: string, rank: number | null, value: number, over: Record<string, unknown> = {}) {
   return {
@@ -137,5 +137,19 @@ describe("Leaderboard", () => {
   it("shows a failure as a failure", async () => {
     mount(failing())
     expect(await screen.findByText("Could not load the leaderboard.")).toBeInTheDocument()
+  })
+})
+
+describe("Leaderboard for a head of department", () => {
+  it("opens on their own department, and the whole college is a choice", async () => {
+    vi.mocked(api).mockReset()
+    vi.mocked(api).mockImplementation(
+      fakeApi({ "/api/auth/me": () => HOD, "/api/leaderboard": () => board() })
+    )
+    renderWithProviders(<Leaderboard />)
+    await screen.findByRole("list", { name: "Podium" })
+    expect(asked().some((p) => p.includes("department=Physics"))).toBe(true)
+    fireEvent.change(screen.getByLabelText("Scope"), { target: { value: "" } })
+    await waitFor(() => expect(asked().at(-1)).not.toContain("department="))
   })
 })

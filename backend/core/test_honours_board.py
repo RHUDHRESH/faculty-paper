@@ -141,6 +141,16 @@ class HonoursBoardTests(TestCase):
         self.assertEqual((cse["papers"], cse["faculty"]), (1, 3))
         self.assertEqual(len(ece["trend"]), 5)
 
+    def test_department_scope_still_ranks_every_department_per_teacher(self):
+        # A head opens the board on their own department; the Departments tab
+        # must still compare every department, per teacher.
+        d = self.get(self.head, category="papers", period="academic", department="CSE")
+        by = {x["department"]: x for x in d["departments"]}
+        self.assertEqual(set(by), {"ECE", "CSE"})
+        self.assertEqual((by["ECE"]["per_faculty"], by["ECE"]["rank_per_faculty"]), (1.5, 1))
+        self.assertEqual((by["CSE"]["faculty"], by["CSE"]["rank_per_faculty"]), (3, 2))
+        self.assertEqual(by["ECE"]["active"], 2)
+
     def test_scope_and_filters(self):
         d = self.get(self.asha, category="papers", period="academic", department="cse")
         self.assertEqual({r["person"]["id"] for r in d["rows"]}, {self.mina.id, self.zero.id, self.head.id})

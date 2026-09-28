@@ -1,7 +1,7 @@
 {
   "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
   "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
-  "count": 99,
+  "count": 129,
   "assets": [
     {
       "name": "empty-no-papers",
@@ -1855,6 +1855,576 @@
         "png": 10549
       },
       "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-machine-learning",
+      "category": "topic",
+      "purpose": "Topic: machine learning",
+      "page": "Discover, Research scout, paper cards",
+      "files": {
+        "svg": "/illustrations/generated/topic-machine-learning.svg",
+        "webp": "/illustrations/generated/topic-machine-learning.webp",
+        "png": "/illustrations/generated/topic-machine-learning.png"
+      },
+      "bytes": {
+        "svg": 13767,
+        "webp": 11724,
+        "png": 7705
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-deep-learning",
+      "category": "topic",
+      "purpose": "Topic: deep learning",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-deep-learning.svg",
+        "webp": "/illustrations/generated/topic-deep-learning.webp",
+        "png": "/illustrations/generated/topic-deep-learning.png"
+      },
+      "bytes": {
+        "svg": 42218,
+        "webp": 22540,
+        "png": 16412
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-computer-vision",
+      "category": "topic",
+      "purpose": "Topic: computer vision / image processing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-computer-vision.svg",
+        "webp": "/illustrations/generated/topic-computer-vision.webp",
+        "png": "/illustrations/generated/topic-computer-vision.png"
+      },
+      "bytes": {
+        "svg": 18468,
+        "webp": 13862,
+        "png": 9289
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-nlp",
+      "category": "topic",
+      "purpose": "Topic: natural language processing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-nlp.svg",
+        "webp": "/illustrations/generated/topic-nlp.webp",
+        "png": "/illustrations/generated/topic-nlp.png"
+      },
+      "bytes": {
+        "svg": 19858,
+        "webp": 12032,
+        "png": 13306
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-iot",
+      "category": "topic",
+      "purpose": "Topic: Internet of Things",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-iot.svg",
+        "webp": "/illustrations/generated/topic-iot.webp",
+        "png": "/illustrations/generated/topic-iot.png"
+      },
+      "bytes": {
+        "svg": 26689,
+        "webp": 21880,
+        "png": 13619
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-cybersecurity",
+      "category": "topic",
+      "purpose": "Topic: cybersecurity",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-cybersecurity.svg",
+        "webp": "/illustrations/generated/topic-cybersecurity.webp",
+        "png": "/illustrations/generated/topic-cybersecurity.png"
+      },
+      "bytes": {
+        "svg": 24712,
+        "webp": 14706,
+        "png": 12301
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-blockchain",
+      "category": "topic",
+      "purpose": "Topic: blockchain",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-blockchain.svg",
+        "webp": "/illustrations/generated/topic-blockchain.webp",
+        "png": "/illustrations/generated/topic-blockchain.png"
+      },
+      "bytes": {
+        "svg": 32806,
+        "webp": 13306,
+        "png": 10786
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-cloud-computing",
+      "category": "topic",
+      "purpose": "Topic: cloud computing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-cloud-computing.svg",
+        "webp": "/illustrations/generated/topic-cloud-computing.webp",
+        "png": "/illustrations/generated/topic-cloud-computing.png"
+      },
+      "bytes": {
+        "svg": 16016,
+        "webp": 10764,
+        "png": 8907
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-edge-computing",
+      "category": "topic",
+      "purpose": "Topic: edge / fog computing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-edge-computing.svg",
+        "webp": "/illustrations/generated/topic-edge-computing.webp",
+        "png": "/illustrations/generated/topic-edge-computing.png"
+      },
+      "bytes": {
+        "svg": 19798,
+        "webp": 13646,
+        "png": 11285
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-big-data",
+      "category": "topic",
+      "purpose": "Topic: big data analytics",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-big-data.svg",
+        "webp": "/illustrations/generated/topic-big-data.webp",
+        "png": "/illustrations/generated/topic-big-data.png"
+      },
+      "bytes": {
+        "svg": 22584,
+        "webp": 16196,
+        "png": 12429
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-solar-energy",
+      "category": "topic",
+      "purpose": "Topic: solar / photovoltaics",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-solar-energy.svg",
+        "webp": "/illustrations/generated/topic-solar-energy.webp",
+        "png": "/illustrations/generated/topic-solar-energy.png"
+      },
+      "bytes": {
+        "svg": 32597,
+        "webp": 20026,
+        "png": 14885
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-wind-energy",
+      "category": "topic",
+      "purpose": "Topic: wind energy",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-wind-energy.svg",
+        "webp": "/illustrations/generated/topic-wind-energy.webp",
+        "png": "/illustrations/generated/topic-wind-energy.png"
+      },
+      "bytes": {
+        "svg": 28906,
+        "webp": 15446,
+        "png": 11319
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-power-electronics",
+      "category": "topic",
+      "purpose": "Topic: power electronics",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-power-electronics.svg",
+        "webp": "/illustrations/generated/topic-power-electronics.webp",
+        "png": "/illustrations/generated/topic-power-electronics.png"
+      },
+      "bytes": {
+        "svg": 17679,
+        "webp": 10764,
+        "png": 9051
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-electric-vehicles",
+      "category": "topic",
+      "purpose": "Topic: electric vehicles",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-electric-vehicles.svg",
+        "webp": "/illustrations/generated/topic-electric-vehicles.webp",
+        "png": "/illustrations/generated/topic-electric-vehicles.png"
+      },
+      "bytes": {
+        "svg": 18184,
+        "webp": 12834,
+        "png": 10377
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-smart-grid",
+      "category": "topic",
+      "purpose": "Topic: smart grid",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-smart-grid.svg",
+        "webp": "/illustrations/generated/topic-smart-grid.webp",
+        "png": "/illustrations/generated/topic-smart-grid.png"
+      },
+      "bytes": {
+        "svg": 29186,
+        "webp": 20756,
+        "png": 15395
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-wireless-5g",
+      "category": "topic",
+      "purpose": "Topic: wireless communication / 5G",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-wireless-5g.svg",
+        "webp": "/illustrations/generated/topic-wireless-5g.webp",
+        "png": "/illustrations/generated/topic-wireless-5g.png"
+      },
+      "bytes": {
+        "svg": 18759,
+        "webp": 20488,
+        "png": 12080
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-antennas",
+      "category": "topic",
+      "purpose": "Topic: antennas and microwave",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-antennas.svg",
+        "webp": "/illustrations/generated/topic-antennas.webp",
+        "png": "/illustrations/generated/topic-antennas.png"
+      },
+      "bytes": {
+        "svg": 25992,
+        "webp": 19318,
+        "png": 12295
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-vlsi",
+      "category": "topic",
+      "purpose": "Topic: VLSI design",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-vlsi.svg",
+        "webp": "/illustrations/generated/topic-vlsi.webp",
+        "png": "/illustrations/generated/topic-vlsi.png"
+      },
+      "bytes": {
+        "svg": 18401,
+        "webp": 15858,
+        "png": 13463
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-embedded-systems",
+      "category": "topic",
+      "purpose": "Topic: embedded systems",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-embedded-systems.svg",
+        "webp": "/illustrations/generated/topic-embedded-systems.webp",
+        "png": "/illustrations/generated/topic-embedded-systems.png"
+      },
+      "bytes": {
+        "svg": 37364,
+        "webp": 15368,
+        "png": 14177
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-robotics",
+      "category": "topic",
+      "purpose": "Topic: robotics / automation",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-robotics.svg",
+        "webp": "/illustrations/generated/topic-robotics.webp",
+        "png": "/illustrations/generated/topic-robotics.png"
+      },
+      "bytes": {
+        "svg": 20933,
+        "webp": 17534,
+        "png": 12325
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-control-systems",
+      "category": "topic",
+      "purpose": "Topic: control systems",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-control-systems.svg",
+        "webp": "/illustrations/generated/topic-control-systems.webp",
+        "png": "/illustrations/generated/topic-control-systems.png"
+      },
+      "bytes": {
+        "svg": 33462,
+        "webp": 24414,
+        "png": 17101
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-signal-processing",
+      "category": "topic",
+      "purpose": "Topic: signal processing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-signal-processing.svg",
+        "webp": "/illustrations/generated/topic-signal-processing.webp",
+        "png": "/illustrations/generated/topic-signal-processing.png"
+      },
+      "bytes": {
+        "svg": 21339,
+        "webp": 19440,
+        "png": 10664
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-biomedical-imaging",
+      "category": "topic",
+      "purpose": "Topic: biomedical imaging",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-biomedical-imaging.svg",
+        "webp": "/illustrations/generated/topic-biomedical-imaging.webp",
+        "png": "/illustrations/generated/topic-biomedical-imaging.png"
+      },
+      "bytes": {
+        "svg": 30389,
+        "webp": 21648,
+        "png": 15664
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-healthcare-ai",
+      "category": "topic",
+      "purpose": "Topic: healthcare AI / digital health",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-healthcare-ai.svg",
+        "webp": "/illustrations/generated/topic-healthcare-ai.webp",
+        "png": "/illustrations/generated/topic-healthcare-ai.png"
+      },
+      "bytes": {
+        "svg": 20650,
+        "webp": 16118,
+        "png": 11125
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-biomaterials",
+      "category": "topic",
+      "purpose": "Topic: biomaterials / tissue engineering",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-biomaterials.svg",
+        "webp": "/illustrations/generated/topic-biomaterials.webp",
+        "png": "/illustrations/generated/topic-biomaterials.png"
+      },
+      "bytes": {
+        "svg": 24092,
+        "webp": 18866,
+        "png": 17191
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-nanomaterials",
+      "category": "topic",
+      "purpose": "Topic: nanomaterials",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-nanomaterials.svg",
+        "webp": "/illustrations/generated/topic-nanomaterials.webp",
+        "png": "/illustrations/generated/topic-nanomaterials.png"
+      },
+      "bytes": {
+        "svg": 44913,
+        "webp": 18438,
+        "png": 16806
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-composites",
+      "category": "topic",
+      "purpose": "Topic: composite materials",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-composites.svg",
+        "webp": "/illustrations/generated/topic-composites.webp",
+        "png": "/illustrations/generated/topic-composites.png"
+      },
+      "bytes": {
+        "svg": 59456,
+        "webp": 22660,
+        "png": 21345
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-heat-transfer",
+      "category": "topic",
+      "purpose": "Topic: heat transfer / thermal engineering",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-heat-transfer.svg",
+        "webp": "/illustrations/generated/topic-heat-transfer.webp",
+        "png": "/illustrations/generated/topic-heat-transfer.png"
+      },
+      "bytes": {
+        "svg": 40458,
+        "webp": 19650,
+        "png": 14536
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-cfd",
+      "category": "topic",
+      "purpose": "Topic: fluid dynamics / CFD",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-cfd.svg",
+        "webp": "/illustrations/generated/topic-cfd.webp",
+        "png": "/illustrations/generated/topic-cfd.png"
+      },
+      "bytes": {
+        "svg": 24159,
+        "webp": 26362,
+        "png": 12288
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-additive-manufacturing",
+      "category": "topic",
+      "purpose": "Topic: additive manufacturing / 3D printing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-additive-manufacturing.svg",
+        "webp": "/illustrations/generated/topic-additive-manufacturing.webp",
+        "png": "/illustrations/generated/topic-additive-manufacturing.png"
+      },
+      "bytes": {
+        "svg": 29348,
+        "webp": 12746,
+        "png": 12744
+      },
+      "sheet": "sheet21",
       "date": "2026-09-28",
       "background": "transparent"
     }

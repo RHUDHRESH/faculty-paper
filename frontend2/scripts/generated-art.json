@@ -768,6 +768,232 @@
           "page": "Collaborate, Department fallback"
         }
       ]
+    },
+    {
+      "id": "sheet17",
+      "raw": "sheet17_topics_a.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant: each item is one symbolic object for a research area, in exactly the same construction as the department emblems (single still-life object on a small soft sand ground ellipse, same scale), no letters or code characters. Six research-topic emblems: (1) a small funnel turning scattered dots into a neat line of sorted dots — 'machine learning'; (2) three stacked layers of connected nodes like a layered network — 'deep learning'; (3) an eye shape inside a square camera viewfinder frame with corner brackets — 'computer vision'; (4) a speech bubble containing a tiny tree diagram of branching lines — 'natural language processing'; (5) a small house, a thermometer and a lightbulb each emitting a tiny signal arc toward a central hub — 'internet of things'; (6) a shield with a keyhole and a small circuit trace pattern — 'cybersecurity'.",
+      "assets": [
+        {
+          "name": "topic-machine-learning",
+          "category": "topic",
+          "purpose": "Topic: machine learning",
+          "page": "Discover, Research scout, paper cards"
+        },
+        {
+          "name": "topic-deep-learning",
+          "category": "topic",
+          "purpose": "Topic: deep learning",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-computer-vision",
+          "category": "topic",
+          "purpose": "Topic: computer vision / image processing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-nlp",
+          "category": "topic",
+          "purpose": "Topic: natural language processing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-iot",
+          "category": "topic",
+          "purpose": "Topic: Internet of Things",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-cybersecurity",
+          "category": "topic",
+          "purpose": "Topic: cybersecurity",
+          "page": "Discover, Research scout"
+        }
+      ],
+      "note": "Retrieved from the ChatGPT Library (conversation view did not refresh)."
+    },
+    {
+      "id": "sheet18",
+      "raw": "sheet18_topics_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six research-topic emblems: (1) a short chain of three linked cubes — 'blockchain'; (2) a cloud with three small stacked server blocks inside it — 'cloud computing'; (3) a small device at the edge of a network with a tiny chip and nearby signal arcs — 'edge computing'; (4) a large database cylinder with a magnifying glass and a small bar chart — 'big data analytics'; (5) a solar panel tilted toward a small sun — 'solar energy'; (6) a wind turbine on a small grassy hill — 'wind energy'.",
+      "assets": [
+        {
+          "name": "topic-blockchain",
+          "category": "topic",
+          "purpose": "Topic: blockchain",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-cloud-computing",
+          "category": "topic",
+          "purpose": "Topic: cloud computing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-edge-computing",
+          "category": "topic",
+          "purpose": "Topic: edge / fog computing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-big-data",
+          "category": "topic",
+          "purpose": "Topic: big data analytics",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-solar-energy",
+          "category": "topic",
+          "purpose": "Topic: solar / photovoltaics",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-wind-energy",
+          "category": "topic",
+          "purpose": "Topic: wind energy",
+          "page": "Discover, Research scout"
+        }
+      ]
+    },
+    {
+      "id": "sheet19",
+      "raw": "sheet19_topics_c.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheet: (1) a compact power converter box with a heat sink and a small lightning bolt — 'power electronics'; (2) a small rounded electric car plugged into a charging post — 'electric vehicles'; (3) a pylon linked by dotted lines to a house and a solar panel — 'smart grid'; (4) a slim cell tower with concentric signal arcs — 'wireless communication and 5G'; (5) a small dish antenna and a patch antenna tile with a radiation pattern arc — 'antennas and microwave'; (6) a silicon wafer disc with a grid of tiny chips — 'VLSI design'.",
+      "assets": [
+        {
+          "name": "topic-power-electronics",
+          "category": "topic",
+          "purpose": "Topic: power electronics",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-electric-vehicles",
+          "category": "topic",
+          "purpose": "Topic: electric vehicles",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-smart-grid",
+          "category": "topic",
+          "purpose": "Topic: smart grid",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-wireless-5g",
+          "category": "topic",
+          "purpose": "Topic: wireless communication / 5G",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-antennas",
+          "category": "topic",
+          "purpose": "Topic: antennas and microwave",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-vlsi",
+          "category": "topic",
+          "purpose": "Topic: VLSI design",
+          "page": "Discover, Research scout"
+        }
+      ]
+    },
+    {
+      "id": "sheet20",
+      "raw": "sheet20_topics_d.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheets: (1) a small microcontroller board with pin headers and one LED — 'embedded systems'; (2) a simple articulated robot arm holding a small cube — 'robotics'; (3) a closed feedback loop of arrows around a small dial — 'control systems'; (4) a noisy wave passing through a small box and coming out as a smooth sine wave — 'signal processing'; (5) a stylised scanner ring with a small cross-section image card beside it — 'biomedical imaging'; (6) a medical cross inside a heart shape with a few connected nodes — 'healthcare AI'.",
+      "assets": [
+        {
+          "name": "topic-embedded-systems",
+          "category": "topic",
+          "purpose": "Topic: embedded systems",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-robotics",
+          "category": "topic",
+          "purpose": "Topic: robotics / automation",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-control-systems",
+          "category": "topic",
+          "purpose": "Topic: control systems",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-signal-processing",
+          "category": "topic",
+          "purpose": "Topic: signal processing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-biomedical-imaging",
+          "category": "topic",
+          "purpose": "Topic: biomedical imaging",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-healthcare-ai",
+          "category": "topic",
+          "purpose": "Topic: healthcare AI / digital health",
+          "page": "Discover, Research scout"
+        }
+      ]
+    },
+    {
+      "id": "sheet21",
+      "raw": "sheet21_topics_e.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheets: (1) a petri dish with a small bone-shaped scaffold and a few cells — 'biomaterials'; (2) a hexagonal lattice sheet with a tiny magnifier over it — 'nanomaterials'; (3) layered sheets of different colours bonded in a stack, slightly fanned — 'composite materials'; (4) a metal fin block with wavy heat lines rising and a small thermometer — 'heat transfer and thermal engineering'; (5) an aerofoil wing shape with smooth flowing streamlines around it — 'fluid dynamics and CFD'; (6) a compact 3D printer printing a small cube — 'additive manufacturing'.",
+      "assets": [
+        {
+          "name": "topic-biomaterials",
+          "category": "topic",
+          "purpose": "Topic: biomaterials / tissue engineering",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-nanomaterials",
+          "category": "topic",
+          "purpose": "Topic: nanomaterials",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-composites",
+          "category": "topic",
+          "purpose": "Topic: composite materials",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-heat-transfer",
+          "category": "topic",
+          "purpose": "Topic: heat transfer / thermal engineering",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-cfd",
+          "category": "topic",
+          "purpose": "Topic: fluid dynamics / CFD",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-additive-manufacturing",
+          "category": "topic",
+          "purpose": "Topic: additive manufacturing / 3D printing",
+          "page": "Discover, Research scout"
+        }
+      ]
     }
   ]
 }

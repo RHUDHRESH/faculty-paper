@@ -43,6 +43,20 @@ class JobsViewTests(TestCase):
         self.assertTrue(by["core.tasks.harvest_publications"]["retry_safe"])
         self.assertFalse(by["core.tasks.run_restore"]["retry_safe"])
 
+    def test_running_tasks_are_split_from_queued(self):
+        from django_q.models import OrmQ
+        from django_q.signing import SignedPackage
+
+        now = timezone.now()
+        for tid, func, lock in (("r" * 32, "core.tasks.run_scout", now + timedelta(seconds=60)),
+                                ("q" * 32, "core.tasks.run_stored_backup", now - timedelta(seconds=5))):
+            OrmQ.objects.create(key="default", lock=lock,
+                                payload=SignedPackage.dumps({"id": tid, "name": tid, "func": func}))
+        d = self.c.get("/api/admin/jobs").json()
+        self.assertEqual([r["name"] for r in d["running"]], ["Research scout"])
+        self.assertIn("running_s", d["running"][0])
+        self.assertEqual([q["name"] for q in d["queued"]], ["Backup"])
+
     def test_failed_filter(self):
         d = self.c.get("/api/admin/jobs?failed=true").json()
         self.assertEqual(len(d["jobs"]), 2)

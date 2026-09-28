@@ -8,6 +8,7 @@ import { HOME_DATA } from "@/app/home-data"
 import { NAV, navBadges, navFor } from "@/app/nav"
 import { useApi } from "@/lib/query"
 import { Mark } from "@/ui/art"
+import { initialsOf } from "@/ui/person"
 import type { Area } from "@/ui/chip"
 import { Button } from "@/ui/button"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
@@ -58,7 +59,7 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
         )}
       >
         <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fg text-[11px] font-semibold text-bg">
-          {(me?.name || "?").slice(0, 2).toUpperCase()}
+          {initialsOf(me?.name)}
         </span>
         {!collapsed && (
           <>

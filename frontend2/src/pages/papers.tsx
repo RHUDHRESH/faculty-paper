@@ -31,6 +31,7 @@ import { RecordStrip, type StripMonth } from "@/ui/record-strip"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { TableScroller } from "@/ui/table"
 import { toast } from "@/ui/toast"
+import { topicPicture } from "@/ui/picture"
 
 /**
  * My papers (docs/ux/03): the person's whole publication record from the
@@ -168,7 +169,7 @@ export function Papers() {
   const [params, setParams] = useSearchParams()
   const qc = useQueryClient()
   const status = params.get("status")
-  const tab = ((params.get("tab") ?? (params.get("filter") === "unclaimed" ? "unclaimed" : "all")) as Tab) || "all"
+  const tab = ((params.get("tab") ?? params.get("filter") ?? "all") as Tab) || "all"
   const year = params.get("year") ?? ""
   const q = params.get("q") ?? ""
   const quartile = params.get("quartile") ?? ""
@@ -503,7 +504,7 @@ export function Papers() {
                       </span>
                     </h2>
                   )}
-                  <div className="space-y-3">
+                  <div className="panel divide-y divide-line overflow-hidden p-0">
                     {list.map((p) => (
                       <RecordCard
                         key={p.id}
@@ -646,7 +647,8 @@ function RecordCard({
         </span>
       }
       claim={state === "unclaimed" ? { unclaimed: true, fileTo: `/papers/new?publication=${p.id}` } : undefined}
-      className={cn(state === "unclaimed" && "shadow-[inset_3px_0_0_var(--color-area-honours-fill)]")}
+      picture={topicPicture(p.title, p.venue)}
+      className="rounded-none border-0 bg-transparent shadow-none ring-0 hover:bg-hover/60"
       actions={
         <Menu>
           <MenuTrigger asChild>
@@ -692,7 +694,6 @@ function RecordCard({
         {showMoney && p.claim?.amount != null && (
           <span className="font-medium tabular-nums text-fg">{money(p.claim.amount)}</span>
         )}
-        {state === "unclaimed" && <span className="text-fg-muted">Not claimed yet · eligible ✓</span>}
         {state === "ineligible" && (
           <Chip tone="neutral">Not eligible{p.ineligible_reason ? ` — ${p.ineligible_reason}` : ""}</Chip>
         )}

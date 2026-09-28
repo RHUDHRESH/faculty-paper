@@ -6,6 +6,7 @@ import { Chip } from "@/ui/chip"
 import { StageTrack, type StageInfo } from "@/ui/paper"
 import { JournalCover } from "@/ui/journal-cover"
 import { Avatar, type PersonBrief } from "@/ui/person"
+import { Picture } from "@/ui/picture"
 
 /* ------------------------------------------------------------------------ */
 /* PaperCard                                                                 */
@@ -40,6 +41,8 @@ export type PaperCardProps = {
   authorLine?: React.ReactNode
   /** Extra lines under the card body (claim state, notes). */
   children?: React.ReactNode
+  /** A generated topic picture (public/illustrations/generated) shown in place of the journal cover. */
+  picture?: string | null
   /** Right-hand actions (a menu). */
   actions?: React.ReactNode
 }
@@ -84,6 +87,7 @@ export function PaperCard({
   authorLine: customAuthors,
   children,
   actions,
+  picture,
 }: PaperCardProps) {
   const youAt = authors ? authors.findIndex((a) => a.you) : -1
   const pos = position ?? (authors && youAt >= 0 ? { index: youAt + 1, of: authors.length } : null)
@@ -101,7 +105,9 @@ export function PaperCard({
       className={cn(dense ? "row flex items-start gap-3 px-4 py-2.5" : "panel flex gap-4 p-4", className)}
     >
       {!dense &&
-        (journal ? (
+        (picture ? (
+          <Picture name={picture} className="size-14 shrink-0 rounded-xl bg-hover p-1" />
+        ) : journal ? (
           <JournalCover title={journal} quartile={quartile} size="sm" className="mt-0.5" />
         ) : (
           <FileText aria-hidden className="mt-0.5 size-5 shrink-0 text-(--area)" strokeWidth={1.75} />
@@ -137,14 +143,13 @@ export function PaperCard({
         {children}
       </div>
       {claim && "unclaimed" in claim && (
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          {!dense && <span className="text-xs text-fg-subtle">Not claimed</span>}
+        <div className="flex shrink-0 flex-col items-end gap-1 self-center">
           <Link
             to={claim.fileTo}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-fg shadow-raise hover:bg-accent-hover"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-accent shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-accent-wash"
           >
             <FilePlusCorner aria-hidden className="size-4" strokeWidth={1.75} />
-            File it
+            File
           </Link>
         </div>
       )}

@@ -2,9 +2,9 @@ import { firstName } from "@/lib/names"
 import { Link } from "react-router-dom"
 import {
   ArrowRight,
-  CalendarDays,
+
   Check,
-  CloudDownload,
+
   FilePlus2,
   FilePlusCorner,
   FileSearch,
@@ -12,9 +12,9 @@ import {
   Hourglass,
   IndianRupee,
   Plus,
-  Sparkles,
+
   Upload,
-  UsersRound,
+
   Wallet,
 } from "lucide-react"
 
@@ -37,10 +37,11 @@ import { cn } from "@/lib/cn"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
 import { Celebrations } from "@/ui/celebrations"
-import { ChoiceTile } from "@/ui/choice"
+import { Picture, topicPicture } from "@/ui/picture"
+import type { RecordPaper } from "@/pages/papers"
 import { HeroBand } from "@/ui/hero"
 import { HomeSearch } from "@/ui/big-search"
-import { RecordStrip, type StripMonth } from "@/ui/record-strip"
+import type { StripMonth } from "@/ui/record-strip"
 
 /**
  * What a claimant opens the app to find out: is my money coming, and is
@@ -258,19 +259,17 @@ export function FacultyHome() {
 
       {empty && <FirstSteps />}
 
+      {/* Moments: hidden when there is nothing to celebrate. */}
+      <Celebrations />
+
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <NeedsYouCard own={own} unclaimed={summary.data?.unclaimed ?? null} />
-        {/* Moments: hidden when there is nothing to celebrate. */}
-        <Celebrations />
+        {own.isLoading ? <Skeleton className="h-48 rounded-2xl" /> : <MoneyCard own={own} />}
       </div>
-
-      <NextSteps />
 
       {assigned.data && assigned.data.length > 0 && <AssignedToYou items={assigned.data} />}
 
       <OnTheWay moving={own.moving} />
-
-      {own.isLoading ? <Skeleton className="h-14 rounded-lg" /> : <MoneyRow own={own} />}
 
       <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/90 p-3 backdrop-blur md:hidden print:hidden">
         <Button kind="primary" size="lg" asChild className="h-11 w-full">
@@ -300,14 +299,14 @@ function HomeHero({
   onRetry: () => void
 }) {
   const rank = s?.dept_rank
-  const sub = [department, designation].filter(Boolean).join(" · ")
+  const sub = [designation, department].filter(Boolean).join(", ")
   const unmatched = s != null && s.citations == null && s.papers > 0
   return (
     <HeroBand
       variant="solid"
       area="record"
       title={`${greeting()}${name ? `, ${name}` : ""}`}
-      titleClassName="text-[2rem] leading-[1.15] sm:text-[2.5rem] sm:leading-[3rem]"
+      titleClassName="text-[2.25rem] leading-[1.1] sm:text-[3rem] sm:leading-[1.05] tracking-[-0.01em]"
       sentence={
         failed ? (
           <span role="alert">
@@ -356,13 +355,7 @@ function HomeHero({
           countKey: "home-rank",
         },
       ]}
-      aside={
-        <RecordStrip
-          data={s?.strip ?? []}
-          label="Your papers by month, last ten years"
-          className="max-w-full"
-        />
-      }
+      aside={<Picture name="spot-home-faculty" eager className="-my-4 hidden w-[280px] lg:block xl:w-[320px]" />}
     />
   )
 }
@@ -385,7 +378,7 @@ export function NeedsYouCard({ own, unclaimed }: { own: OwnPapers; unclaimed: nu
     )
   }
   return (
-    <section aria-label="Needs you" className="panel p-4 sm:p-6" data-area="record">
+    <section aria-label="Needs you" className="panel p-5 sm:p-6" data-area="record">
       <h2 className="text-lg font-semibold">
         Needs you <span className="text-fg-muted">({count})</span>
       </h2>
@@ -427,20 +420,7 @@ export function NeedsYouCard({ own, unclaimed }: { own: OwnPapers; unclaimed: nu
             </Button>
           </li>
         ))}
-        {unclaimed ? (
-          <li className="flex flex-wrap items-center justify-between gap-3 py-3">
-            <p className="flex min-w-0 items-center gap-2 font-medium">
-              <FileText aria-hidden className="size-4 shrink-0 text-(--area)" />
-              {unclaimed} {unclaimed === 1 ? "paper" : "papers"} on your record {unclaimed === 1 ? "isn't" : "aren't"} claimed yet
-            </p>
-            <Button asChild>
-              <Link to="/papers?filter=unclaimed">
-                Review them
-                <ArrowRight />
-              </Link>
-            </Button>
-          </li>
-        ) : null}
+        {unclaimed ? <UnfiledPapers count={unclaimed} /> : null}
         {moving.length > 0 && (
           <li className="py-3">
             <Link to="/papers" className="flex items-center gap-2 text-sm text-fg-muted hover:text-fg">
@@ -455,17 +435,82 @@ export function NeedsYouCard({ own, unclaimed }: { own: OwnPapers; unclaimed: nu
   )
 }
 
-/** Four doors out of Home, one per area (docs/ux/01 "Next steps"). */
-function NextSteps() {
+/**
+ * The newest papers on the record that could still be filed, each one click
+ * from its claim. Shares My papers' request, so opening My papers after Home
+ * costs nothing.
+ */
+function UnfiledPapers({ count }: { count: number }) {
+  const q = useApi<{ publications: RecordPaper[] }>(["me-publications", "year"], "/api/me/publications?sort=year")
+  const rows = (q.data?.publications ?? []).filter((p) => !p.claim && p.eligible).slice(0, 3)
   return (
-    <section aria-labelledby="next-steps" className="space-y-3">
-      <SectionTitle id="next-steps">Next steps</SectionTitle>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <ChoiceTile area="record" icon={CloudDownload} title="Claim from your record" description="Pull a paper from Scopus and file it." to="/papers/new" />
-        <ChoiceTile area="research" icon={Sparkles} title="See what you work on" description="Your areas, citations and this year." to="/research" />
-        <ChoiceTile area="people" icon={UsersRound} title="Find a co-author" description="Colleagues who work near you." to="/collaborate" />
-        <ChoiceTile area="time" icon={CalendarDays} title="Deadlines and dates" description="Calls, payout runs and events." to="/calendar" />
-      </div>
+    <li className="py-3">
+      <p className="text-sm text-fg-muted">
+        {count} {count === 1 ? "paper" : "papers"} on your record {count === 1 ? "is" : "are"} not filed yet
+      </p>
+      {rows.length > 0 && (
+        <ul className="mt-3 space-y-1">
+          {rows.map((p) => (
+            <li key={p.id}>
+              <Link
+                to={`/papers/new?publication=${p.id}`}
+                className="group -mx-2 flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-hover"
+              >
+                <Picture
+                  name={topicPicture(p.title, p.venue) ?? "onboard-first-paper"}
+                  className="size-11 shrink-0 rounded-lg bg-hover p-0.5"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="line-clamp-1 font-medium">{p.title}</span>
+                  <span className="block truncate text-sm text-fg-muted">
+                    {[p.venue, p.year].filter(Boolean).join(", ")}
+                  </span>
+                </span>
+                <span className="shrink-0 text-sm font-medium text-accent group-hover:underline">File</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Link to="/papers?filter=unclaimed" className="mt-2 inline-flex items-center gap-1 text-sm text-accent hover:underline">
+        {count > rows.length && rows.length > 0 ? `All ${count} unfiled papers` : "Open My papers"}
+        <ArrowRight aria-hidden className="size-4" />
+      </Link>
+    </li>
+  )
+}
+
+/** The claimant's money on one card: paid to date is the headline, the year and what is moving beneath. */
+export function MoneyCard({ own }: { own: OwnPapers }) {
+  const { thisYear, coming, received, since, paymentCount, lastPaidOn, moving } = own
+  return (
+    <section aria-label="Your money" className="panel relative overflow-hidden p-5 sm:p-6">
+      <Picture name="spot-payouts" className="absolute right-3 top-2 w-28 opacity-95 max-sm:w-20" />
+      <h2 className="text-sm text-fg-muted">Paid to you so far</h2>
+      <p className="figure mt-1 text-[2rem] leading-tight">{money(received)}</p>
+      <p className="mt-1 text-sm text-fg-muted">
+        {paymentCount
+          ? `${paymentCount} payment${paymentCount === 1 ? "" : "s"}${lastPaidOn ? `, latest ${lastPaidOn}` : ""}`
+          : "Nothing paid out yet"}
+      </p>
+      <dl className="mt-5 grid grid-cols-2 gap-4 border-t border-line pt-4 text-sm">
+        <div>
+          <dt className="text-fg-muted">Since 1 June {since.getFullYear()}</dt>
+          <dd className="figure mt-0.5 text-lg">{money(thisYear)}</dd>
+        </div>
+        <div>
+          <dt className="text-fg-muted">On the way</dt>
+          <dd className="figure mt-0.5 text-lg">{money(coming)}</dd>
+          {moving.length > 0 && (
+            <dd className="text-xs text-fg-subtle">
+              {moving.length} paper{moving.length === 1 ? "" : "s"} moving
+            </dd>
+          )}
+        </div>
+      </dl>
+      <Link to="/papers?filter=paid" className="mt-4 inline-flex text-sm text-accent hover:underline">
+        See every payment
+      </Link>
     </section>
   )
 }

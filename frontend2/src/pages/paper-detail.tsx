@@ -1,4 +1,4 @@
-import { paperTitle } from "@/lib/names"
+import { firstName, paperTitle } from "@/lib/names"
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft, Check, MessageCircle, Printer } from "lucide-react"
@@ -427,7 +427,7 @@ export function PaperDetail() {
             <Button kind="default" asChild>
               <Link to={`/messages?to=${claim.owner_id}&ctx=paper:${claim.id}`}>
                 <MessageCircle />
-                Message {claim.owner_name?.split(" ")[0] || "the author"}
+                Message {firstName(claim.owner_name) || "the author"}
               </Link>
             </Button>
           )}

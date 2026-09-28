@@ -211,7 +211,8 @@ def hod_targets(request: HttpRequest, year: Optional[int] = None):
     department = hod.department_of(user)
     year = year or timezone.now().year
 
-    qs = _hod_scope(user).filter(publication_year=year)
+    # Papers the chain rejected outright are not output a target can count.
+    qs = _hod_scope(user).filter(publication_year=year).exclude(rejected_outright=True)
     rows = (
         DepartmentTarget.objects.filter(department__iexact=department, year=year)
         .select_related("person", "set_by")
@@ -382,7 +383,8 @@ def hod_person(request: HttpRequest, user_id: str):
             "metric_label": DepartmentTarget.Metric(t.metric).label,
             "target": t.target,
             "done": _target_progress(
-                claims.filter(publication_year=t.year), t.metric, person.id
+                claims.filter(publication_year=t.year).exclude(rejected_outright=True),
+                t.metric, person.id,
             ),
         }
         for t in DepartmentTarget.objects.filter(

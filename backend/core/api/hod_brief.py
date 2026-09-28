@@ -260,9 +260,9 @@ def build_brief(user: User, year: Optional[int] = None) -> dict[str, Any]:
             "mentor": by_id[match["id"]],
             "area": match["area"],
             "why": (
-                f"{match['name']} has {stats[match['id']]['q1_recent']} Q1 papers since "
-                f"{year - 2} in {match['area']}; {mentee['name']} works in the same area"
-                + (" and has nothing this year." if mentee["this_year"] == 0 else " without a Q1 paper.")
+                f"Both in {match['area']}. {stats[match['id']]['q1_recent']} Q1 papers since "
+                f"{year - 2} against "
+                + ("nothing this year." if mentee["this_year"] == 0 else "no recent Q1.")
             ),
         })
 

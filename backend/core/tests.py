@@ -4458,6 +4458,26 @@ class DuplicateSweepTests(TestCase):
         call_command("find_duplicate_payments", verbosity=0)
         self.assertEqual(DuplicateFinding.objects.count(), 0)
 
+    def test_a_payment_here_and_the_same_one_in_the_erp_is_one_person_paid_twice(self):
+        """Paid in this app, and paid again per the ERP sheet under the same
+        staff id: the same person, not two co-authors."""
+        from django.core.management import call_command
+
+        self.a.staff_id = "SEC0042"
+        self.a.save()
+        self._paid(self.a, "A Paper Paid Twice", 74500, "FP-2026-000001", doi="10.1/x")
+        PriorPayment.objects.create(
+            faculty_name="PERSON A", employee_id="sec0042", paper_title="A Paper Paid Twice",
+            normalized_title=normalize_title("A Paper Paid Twice"), doi="10.1/x",
+            amount_paid=74500, claim_ref="ERP-77", raw_json="{}",
+        )
+        call_command("find_duplicate_payments", verbosity=0)
+        f = DuplicateFinding.objects.get(kind=DuplicateFinding.Kind.SAME_PERSON)
+        self.assertEqual((f.payment_count, f.extra_amount), (2, 74500))
+        self.assertFalse(
+            DuplicateFinding.objects.filter(kind=DuplicateFinding.Kind.CROSS_PERSON).exists()
+        )
+
     def test_a_finding_is_reviewed_and_the_decision_is_recorded(self):
         from django.core.management import call_command
 

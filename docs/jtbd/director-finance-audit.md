@@ -52,3 +52,14 @@ sees the marker; that contradicts the rule and was changed.)
 
 - TDS: not computed (assumption A1).
 - Phones: no horizontal scroll on any page above at 390 px.
+
+## Fixed on `audit/director-finance`
+
+- G1: `/admin/ledger` returns no duplicate markers or open count to the Director and Finance (test: `test_ledger_page`).
+- G2: Paid shows each month's whole total from the ledger beside the page's rows, with a link to the month's statement.
+- G3, G7, G8: new **Monthly statements** page (`/statements`) with the month total from the ledger (checked against `college_totals.payments`), department subtotals, total in words, reconciliation (matched tickets, ERP-import rows, reversals, paid tickets with no ledger row), the A4 PDF statement with a signature block, and the bank/accounts CSV (API `core/api/payout_statements.py`; tests `test_payout_statement`).
+- G4: Budget and Statements show the financial year's spend by month, with the running total against the allocation.
+- G5, G6: Reports reads its "typical" figure from the ledger payments it counts, and labels the month axis "Apr 2024".
+- G9: `manage.py seed_demo`.
+
+Remaining: bank account and IFSC are not held (A2); TDS is not computed (A1).

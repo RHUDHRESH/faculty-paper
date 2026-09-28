@@ -212,7 +212,26 @@ export function Statements() {
 
           <section className="space-y-3">
             <SectionTitle>Every payment in {s.label}</SectionTitle>
-            <div className="overflow-x-auto rounded-xl ring-1 ring-edge">
+            <ul className="space-y-2 md:hidden">
+              {s.rows.map((r, i) => (
+                <li key={r.ledger_id ?? r.claim_id ?? i} className="rounded-lg p-3 ring-1 ring-inset ring-edge">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 break-words">{r.name}</span>
+                    <span className={cn("tabular shrink-0", r.amount < 0 && "text-critical")}>{money(r.amount)}</span>
+                  </div>
+                  <Meta className="block">
+                    {r.staff_id || "No staff id"} · {r.department} · {r.voucher || "No voucher"}
+                  </Meta>
+                  <div className="mt-1 line-clamp-2 text-sm">{r.paper_title || "Title not recorded"}</div>
+                  <Chip tone={r.source === "claim_only" ? "caution" : "neutral"}>{SOURCE[r.source]}</Chip>
+                </li>
+              ))}
+              <li className="flex justify-between px-3 font-semibold">
+                <span>Total</span>
+                <span className="tabular">{money(s.total)}</span>
+              </li>
+            </ul>
+            <div className="hidden overflow-x-auto rounded-xl ring-1 ring-edge md:block">
               <table className="w-full min-w-[40rem] text-sm">
                 <thead className="bg-hover/60 text-left">
                   <tr>
@@ -352,7 +371,8 @@ export function BudgetBurn({ fy }: { fy: FinancialYear }) {
             : `${money(fy.paid)} paid; no college allocation set for this year`}
         </Meta>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img"
+      <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full min-w-[36rem]" role="img"
         aria-label={`Paid each month from April; running total ${money(fy.paid)}${fy.allocation != null ? ` against ${money(alloc)}` : ""}.`}>
         {fy.allocation != null && (
           <g>
@@ -382,6 +402,7 @@ export function BudgetBurn({ fy }: { fy: FinancialYear }) {
         ))}
         <path d={line} fill="none" stroke="var(--color-fg)" strokeWidth={1.5} />
       </svg>
+      </div>
       <Meta>Bars: paid that month. Line: paid so far this year.</Meta>
     </section>
   )

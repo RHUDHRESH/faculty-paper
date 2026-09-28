@@ -438,6 +438,42 @@ function focusField(field: string) {
  * each named with where it came from. Everything the old ERP form lacked —
  * the duplicate check, the autosave, the estimate labelled as one — stays.
  */
+/**
+ * What the live estimate asks `/api/calculate` for.
+ *
+ * `claim_reason` goes too: the server prices a final-year project claim under
+ * its own scheme (a fixed amount per team) and only knows to when told. Left
+ * out, a mentor filing their team's conference paper was shown ₹4,000 — the
+ * faculty formula's conference rate — for a claim that pays ₹15,000.
+ */
+export function calcRequest(
+  form: Pick<
+    FormState,
+    | "selfReportedSnip"
+    | "selfReportedQuartile"
+    | "totalAuthors"
+    | "authorPosition"
+    | "publicationType"
+    | "claimReason"
+    | "indexing"
+  >,
+  engineeringClass: string | null | undefined,
+  referencesPriced: number
+) {
+  return {
+    snip: form.selfReportedSnip.trim() ? Number(form.selfReportedSnip) : undefined,
+    quartile: form.selfReportedQuartile || undefined,
+    total_authors: form.totalAuthors,
+    author_position: form.authorPosition,
+    publication_type: form.publicationType || undefined,
+    is_student_publication: form.claimReason === "COUNT_ONLY",
+    claim_reason: form.claimReason === "INCENTIVE" ? undefined : form.claimReason,
+    indexing_level: form.indexing.join(", ") || undefined,
+    engineering_class: engineeringClass || undefined,
+    sec_reference_count: referencesPriced,
+  }
+}
+
 export function FilePaper() {
   const collegeName = useCollegeName()
   const { id } = useParams<{ id?: string }>()
@@ -1040,17 +1076,7 @@ export function FilePaper() {
     const t = setTimeout(() => {
       void api<CalcResult>("/api/calculate", {
         method: "POST",
-        json: {
-          snip: form.selfReportedSnip.trim() ? Number(form.selfReportedSnip) : undefined,
-          quartile: form.selfReportedQuartile || undefined,
-          total_authors: form.totalAuthors,
-          author_position: form.authorPosition,
-          publication_type: form.publicationType || undefined,
-          is_student_publication: form.claimReason === "COUNT_ONLY",
-          indexing_level: form.indexing.join(", ") || undefined,
-          engineering_class: engineeringClass || undefined,
-          sec_reference_count: referencesPriced,
-        },
+        json: calcRequest(form, engineeringClass, referencesPriced),
       })
         // Guarded on the run number: a slow reply to an earlier keystroke must
         // not overwrite a newer figure.

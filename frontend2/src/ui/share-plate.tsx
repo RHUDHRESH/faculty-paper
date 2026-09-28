@@ -9,10 +9,13 @@ export function SharePlate({
   children,
   className,
   as: Tag = "div",
+  ribbon = "gold",
 }: {
   children: React.ReactNode
   className?: string
   as?: "div" | "article" | "section" | "li"
+  /** Gold for an honour (Q1 on the wall); navy for the rest of the wall. */
+  ribbon?: "gold" | "navy"
 }) {
   return (
     <Tag
@@ -22,7 +25,7 @@ export function SharePlate({
         className
       )}
     >
-      <div aria-hidden className="ribbon absolute inset-x-0 top-0 h-[3px]" />
+      <div aria-hidden className={cn("absolute inset-x-0 top-0 h-[3px]", ribbon === "gold" ? "ribbon" : "bg-brand")} />
       {children}
     </Tag>
   )

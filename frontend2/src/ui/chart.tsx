@@ -846,6 +846,8 @@ export function Distribution({
   height = 160,
   showAmounts,
   gapWhy,
+  mark,
+  markLabel = "You",
   className,
 }: {
   title: string
@@ -858,6 +860,9 @@ export function Distribution({
   showAmounts?: boolean
   /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
   gapWhy?: ReactNode
+  /** The key of one column to mark ("you are here"), drawn in the area colour. */
+  mark?: string
+  markLabel?: string
   className?: string
 }) {
   const [at, setAt] = useState<number | null>(null)
@@ -890,7 +895,7 @@ export function Distribution({
                 <span
                   className={cn(
                     "block w-full rounded-t-sm transition-[height,background-color] duration-500 ease-out",
-                    at === i ? "bg-accent" : "bg-accent/55"
+                    p.key === mark ? "bg-(--area-fill,var(--color-accent))" : at === i ? "bg-accent" : "bg-accent/55"
                   )}
                   style={{ height: `${Math.max(2, (v / ceiling) * 100)}%` }}
                 />
@@ -898,10 +903,15 @@ export function Distribution({
               return (
                 <span
                   key={p.key}
-                  className="flex h-full min-w-0 flex-1 items-end"
                   onPointerEnter={() => setAt(i)}
-                  title={`${name} — ${fullLabel(v, unit)}`}
+                  title={`${name} — ${fullLabel(v, unit)}${p.key === mark ? ` · ${markLabel}` : ""}`}
+                  className={cn("relative flex h-full min-w-0 flex-1 items-end")}
                 >
+                  {p.key === mark && (
+                    <span className="absolute -top-5 inset-x-0 text-center text-xs font-semibold text-(--area,var(--color-accent))">
+                      {markLabel}
+                    </span>
+                  )}
                   {p.to ? (
                     <Link
                       to={p.to}

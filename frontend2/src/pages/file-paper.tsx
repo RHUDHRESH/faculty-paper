@@ -1367,6 +1367,7 @@ export function FilePaper() {
         ticks={ticks ?? {}}
         minReferences={rules.min_sec_references}
         unclaimedLeft={left}
+        firstClaim={!!pull && pull.papers.every((p) => !p.claim_id || p.publication_id === picked?.publication_id)}
       />
     )
   }

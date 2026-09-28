@@ -42,6 +42,7 @@ import { EditClaimFieldsDialog, HoldControl, HoldNote, ReasonActionDialog, useIs
 import { HeaderSpot } from "@/ui/page-header"
 import { Avatar, initialsOf } from "@/ui/person"
 import { ClaimFlagsPanel, RaiseFlagDialog, useClaimReview } from "@/pages/claim-review"
+import { AgeingChips, type AgeBucket, type DeskFields, inBucket, isClean, MonthlyReport, SchemeRules, WatchCallout } from "@/pages/clearing-desk"
 
 /**
  * The research cell's daily job: every submitted ticket, oldest first, and
@@ -141,7 +142,7 @@ type QueueClaim = {
   verification_snapshot_json: string | null
   calc_error: string | null
   waiting_days: number | null
-}
+} & Omit<DeskFields, "publication_year" | "verification_ok" | "duplicate_warning" | "calc_error" | "remuneration" | "waiting_days">
 
 // `status_note` carries the Principal's reason when a ticket is returned to
 // this queue. It is on the claim payload but was not in the queue row type.
@@ -209,15 +210,18 @@ export function Clearing() {
   const searchRef = useRef<HTMLInputElement>(null)
   useSlashToSearch(searchRef)
   const [dept, setDept] = useState("")
-  const [check, setCheck] = useState<"" | "passed" | "failed" | "flagged">("")
+  const [check, setCheck] = useState<"" | "passed" | "failed" | "flagged" | "clean">("")
+  const [age, setAge] = useState<AgeBucket | "">("")
   const needle = q.trim().toLowerCase()
   const rows = all.filter(
     (c) =>
       (!dept || (c.owner_department || "—") === dept) &&
+      inBucket(c.waiting_days, age) &&
       (!check ||
         (check === "passed" && c.verification_ok === true) ||
         (check === "failed" && c.verification_ok === false) ||
-        (check === "flagged" && (c.duplicate_warning || c.contest_forward))) &&
+        (check === "clean" && isClean(c)) ||
+        (check === "flagged" && (c.duplicate_warning || c.contest_forward || !!c.journal_watch))) &&
       (!needle ||
         [c.paper_title, c.ticket_number, c.owner_name, c.journal_title]
           .filter(Boolean)
@@ -406,6 +410,7 @@ export function Clearing() {
               ))}
             </div>
           )}
+          <AgeingChips rows={all} value={age} onChange={setAge} />
           <div className={filterBar}>
             <Input
               ref={searchRef}
@@ -424,10 +429,11 @@ export function Clearing() {
               <option value="">Any verification</option>
               <option value="passed">Verification passed</option>
               <option value="failed">Verification failed</option>
-              <option value="flagged">Duplicate or contested</option>
+              <option value="clean">Ready to clear (nothing to question)</option>
+              <option value="flagged">Duplicate, contested or watched journal</option>
             </select>
-            {(q || dept || check) && (
-              <Button kind="quiet" size="sm" onClick={() => { setQ(""); setDept(""); setCheck("") }}>
+            {(q || dept || check || age) && (
+              <Button kind="quiet" size="sm" onClick={() => { setQ(""); setDept(""); setCheck(""); setAge("") }}>
                 Show all {all.length}
               </Button>
             )}
@@ -594,7 +600,7 @@ export function Clearing() {
                         {issuesOf(c).length > 1 && ` (+${issuesOf(c).length - 1} more)`}
                       </p>
                     )}
-                    {(c.duplicate_warning || c.contest_forward || c.calc_error || c.remuneration_is_estimate) && (
+                    {(c.duplicate_warning || c.contest_forward || c.calc_error || c.remuneration_is_estimate || c.journal_watch || c.quota_applied) && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {c.duplicate_warning && (
                           <RowFlag tone="critical">
@@ -604,6 +610,8 @@ export function Clearing() {
                         {c.contest_forward && (
                           <RowFlag tone="caution">Contested by the claimant</RowFlag>
                         )}
+                        {c.journal_watch && <RowFlag tone="critical">Watched journal</RowFlag>}
+                        {c.quota_applied && <RowFlag tone="caution">Inside research quota</RowFlag>}
                         {c.calc_error && (
                           <RowFlag tone="critical">
                             <AlertTriangle className="size-3" /> Could not calculate
@@ -653,6 +661,8 @@ export function Clearing() {
         </TableScroller>
         </>
       )}
+
+      <MonthlyReport />
 
       <TicketSheet
         openId={openId}
@@ -763,6 +773,8 @@ function QueueCard({
             </RowFlag>
           )}
           {c.contest_forward && <RowFlag tone="caution">Contested by the claimant</RowFlag>}
+          {c.journal_watch && <RowFlag tone="critical">Watched journal</RowFlag>}
+          {c.quota_applied && <RowFlag tone="caution">Inside research quota</RowFlag>}
           {!c.calc_error && c.remuneration_is_estimate && <RowFlag tone="caution">Estimate</RowFlag>}
           <VerifiedBadge ok={c.verification_ok} />
         </span>
@@ -1026,7 +1038,11 @@ function TicketSheet({
                 </div>
               </section>
 
+              {claim.journal_watch && <WatchCallout watch={claim.journal_watch} />}
+
               <ClaimedVsRecord claim={claim} />
+
+              <SchemeRules c={claim} />
 
               <section className="space-y-2">
                 <SectionTitle>What the claimant confirmed</SectionTitle>

@@ -984,6 +984,21 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
                         }
                     )
                     continue
+                # A journal the desk put on its own watch-list is looked at
+                # one ticket at a time, never waved through in a batch.
+                from core.services.journal_watch import watch_for
+
+                if watch_for(claim.issn, claim.journal_title):
+                    skipped.append(
+                        {
+                            "id": claim_id,
+                            "reason": (
+                                f"{claim.ticket_number or claim_id}: the journal is on the "
+                                "watch-list, so open it and clear it on its own"
+                            ),
+                        }
+                    )
+                    continue
                 # Same guard as a single clear, with the stored amount standing
                 # in for the confirmation: a row whose recomputed amount drifted
                 # from what the screen showed is skipped, never silently cleared

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { MessageCircle, Minus, Plus, RotateCcw, UserRound, Waypoints } from "lucide-react"
 import { Avatar, initialsOf } from "@/ui/person"
@@ -63,7 +63,7 @@ export function circleLayout(
   const cx = w / 2
   const cy = h / 2
   const ry = Math.max(60, h / 2 - (opts.compact ? 26 : 40))
-  const rx = Math.max(ry, Math.min(w / 2 - (opts.compact ? 26 : 110), ry * 1.9))
+  const rx = Math.max(60, Math.min(w / 2 - (opts.compact || w < 700 ? 26 : 110), ry * 1.9))
   const maxT = Math.max(1, ...people.map((p) => p.together))
   const radius = (p: CirclePerson) =>
     scale *
@@ -71,7 +71,7 @@ export function circleLayout(
       ? 30
       : p.hop === 2
         ? 7
-        : Math.min(p.is_college_member ? 22 : 16, (p.is_college_member ? 11 : 7) + 3 * Math.sqrt(p.together)))
+        : Math.min(p.is_college_member ? 22 : 16, (p.is_college_member ? 11 : 9) + 3 * Math.sqrt(p.together)))
 
   const out: Placed[] = []
   const me = people.find((p) => p.hop === 0)
@@ -87,12 +87,12 @@ export function circleLayout(
         a.key.localeCompare(b.key)
     )
   const hasOuter = people.some((p) => p.hop === 2)
-  const inner = hasOuter ? 0.62 : 0.78
+  const inner = hasOuter ? 0.86 : 0.98
   ring.forEach((p, i) => {
     const angle = -Math.PI / 2 + (i / Math.max(1, ring.length)) * Math.PI * 2
     // strongest ties sit nearest; alternate a little in and out so a crowded ring breathes
     const pull = 1 - (p.together - 1) / Math.max(1, maxT - 1)
-    const f = inner * (0.72 + 0.28 * pull) + (ring.length > 24 ? (i % 2 ? 0.06 : -0.02) : 0)
+    const f = inner * (0.5 + 0.42 * pull) + (ring.length > 24 ? (i % 2 ? 0.05 : -0.03) : 0)
     out.push({ ...p, x: cx + Math.cos(angle) * rx * f, y: cy + Math.sin(angle) * ry * f, r: radius(p), angle })
   })
 
@@ -110,7 +110,7 @@ export function circleLayout(
       }
     }
     const angle = sx || sy ? Math.atan2(sy, sx) : (i / Math.max(1, outer.length)) * Math.PI * 2
-    out.push({ ...p, x: cx + Math.cos(angle) * rx * 0.95, y: cy + Math.sin(angle) * ry * 0.95, r: radius(p), angle })
+    out.push({ ...p, x: cx + Math.cos(angle) * rx, y: cy + Math.sin(angle) * ry, r: radius(p), angle })
   })
 
   // relax: push touching pairs apart, never move me, stay inside the box
@@ -230,21 +230,29 @@ export function YourCircle({
       .slice(0, compact ? 5 : 10)
     const boxes: { x0: number; x1: number; y0: number; y1: number }[] = []
     const out: { p: Placed; x: number; y: number; anchor: "start" | "end" | "middle"; text: string }[] = []
-    const me = placed.find((p) => p.hop === 0)
     for (const p of top) {
       const text = shortName(p.name, compact ? 14 : 20)
       const c = Math.cos(p.angle)
       const s = Math.sin(p.angle)
-      const anchor = c > 0.35 ? "start" : c < -0.35 ? "end" : "middle"
-      const x = p.x + c * (p.r + 5)
-      const y = p.y + s * (p.r + 5) + (anchor === "middle" ? (s > 0 ? 9 : -3) : 4)
+      const radial = c > 0.35 ? "start" : c < -0.35 ? "end" : "middle"
       const tw = text.length * 6.4
-      const x0 = anchor === "start" ? x : anchor === "end" ? x - tw : x - tw / 2
-      const b = { x0, x1: x0 + tw, y0: y - 11, y1: y + 3 }
-      const hitsMe = me && b.x1 > me.x - me.r && b.x0 < me.x + me.r && b.y1 > me.y - me.r && b.y0 < me.y + me.r
-      if (hitsMe || b.x0 < 0 || b.x1 > w || boxes.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0)) continue
-      boxes.push(b)
-      out.push({ p, x, y, anchor, text })
+      // try outward first, then under, then over the face
+      const tries: { x: number; y: number; anchor: "start" | "end" | "middle" }[] = [
+        { x: p.x + c * (p.r + 5), y: p.y + s * (p.r + 5) + (radial === "middle" ? (s > 0 ? 9 : -3) : 4), anchor: radial },
+        { x: p.x, y: p.y + p.r + 13, anchor: "middle" },
+        { x: p.x, y: p.y - p.r - 5, anchor: "middle" },
+      ]
+      for (const t of tries) {
+        const x0 = t.anchor === "start" ? t.x : t.anchor === "end" ? t.x - tw : t.x - tw / 2
+        const b = { x0, x1: x0 + tw, y0: t.y - 11, y1: t.y + 3 }
+        const hits = placed.some(
+          (o) => o !== p && o.hop !== 2 && b.x1 > o.x - o.r && b.x0 < o.x + o.r && b.y1 > o.y - o.r && b.y0 < o.y + o.r
+        )
+        if (hits || b.x0 < 0 || b.x1 > w || boxes.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0)) continue
+        boxes.push(b)
+        out.push({ p, ...t, text })
+        break
+      }
     }
     return out
   }, [placed, compact, w])
@@ -339,6 +347,8 @@ export function YourCircle({
                   const b = at.get(l.target)!
                   const lit = focus != null && (l.source === focus || l.target === focus)
                   const spoke = a.hop === 0 || b.hop === 0
+                  // co-author to co-author lines only when asked for, or the middle becomes a hairball
+                  if (!lit && !spoke && a.hop !== 2 && b.hop !== 2) return null
                   return (
                     <line
                       key={`${l.source}|${l.target}`}
@@ -348,7 +358,7 @@ export function YourCircle({
                       y2={b.y}
                       stroke={lit ? "var(--area)" : "var(--color-fg-subtle)"}
                       strokeWidth={Math.min(5, 0.8 + l.papers * 0.7) / (compact ? 1.2 : 1)}
-                      strokeOpacity={lit ? 0.85 : focus ? 0.04 : spoke ? 0.22 : 0.1}
+                      strokeOpacity={lit ? 0.85 : focus ? 0.05 : spoke ? 0.2 : 0.12}
                       className="motion-safe:transition-[stroke-opacity] motion-safe:duration-150"
                     />
                   )
@@ -419,7 +429,7 @@ export function YourCircle({
                           fill={face ? "var(--color-accent-wash)" : `hsl(${hue} 32% 90%)`}
                           stroke={face ? "var(--color-accent-line)" : `hsl(${hue} 25% 78%)`}
                         />
-                        {p.r >= 9 && (
+                        {p.r >= 8 && (
                           <text
                             x={p.x}
                             y={p.y}
@@ -534,8 +544,15 @@ function PersonCard({
   onConnect: () => void
 }) {
   const cw = compact ? 220 : 248
-  const below = y < h / 2
-  const left = Math.min(w - cw - 8, Math.max(8, x - cw / 2))
+  // beside the person, on the side away from the middle; above or below when the box is too narrow
+  const rightSide = x + r + 12 + cw <= w - 8
+  const leftSide = x - r - 12 - cw >= 8
+  const side = x >= w / 2 ? (rightSide ? "r" : leftSide ? "l" : null) : leftSide ? "l" : rightSide ? "r" : null
+  const pos: CSSProperties = side
+    ? { left: side === "r" ? x + r + 12 : x - r - 12 - cw, top: Math.min(h - 136, Math.max(8, y - 48)) }
+    : y < h / 2
+      ? { left: 8, right: 8, bottom: 8, width: "auto" }
+      : { left: 8, right: 8, top: 8, width: "auto" }
   const where = p.is_college_member ? p.department && `${p.department}, Saveetha` : p.institution
   const detail =
     p.hop === 0
@@ -550,7 +567,7 @@ function PersonCard({
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       className="absolute z-10 rounded-lg border border-line bg-surface p-3 shadow-(--shadow-pop)"
-      style={{ left, width: cw, ...(below ? { top: Math.min(h - 120, y + r + 8) } : { bottom: Math.min(h - 120, h - y + r + 8) }) }}
+      style={{ width: cw, ...pos }}
     >
       <div className="flex items-center gap-2.5">
         <Avatar person={{ name: p.name, initials: p.initials || initialsOf(p.name), photo_url: p.photo_url ?? null }} size="sm" />

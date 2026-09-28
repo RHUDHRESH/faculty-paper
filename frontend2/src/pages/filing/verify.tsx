@@ -79,7 +79,7 @@ export function VerifyPanel({
         <Callout tone="caution" title="Scopus did not answer, so it could not be checked">
           {result.scopus.message || "The index is unreachable at the moment."} That is a fault at
           their end and says nothing about your paper. Filing is unaffected — try again in a
-          minute, or carry on and let the research cell check it.
+          minute, or carry on and let the college check it.
         </Callout>
       )}
 
@@ -121,7 +121,7 @@ export function VerifyPanel({
                   ) : linked === "fail" && result.scopus.indexed ? (
                     "Merge or link the article to your correct author ID with the Scopus Author Feedback Wizard before you file, or correct the profile link on this claim."
                   ) : linked === "fail" ? (
-                    "There is nothing to link to yet — the row above is the reason. This settles itself when the article is indexed."
+                    "There is nothing to link to yet; the row above is the reason. This settles itself when the article is indexed."
                   ) : null
                 }
               />
@@ -138,7 +138,7 @@ export function VerifyPanel({
                       ? `SJR ${result.scimago.sjr}`
                       : null
                     : result.scimago.message ||
-                      "Declare the quartile yourself — filing is refused without one unless you send a note."
+                      "Declare the quartile yourself. Filing is refused without one unless you send a note."
                 }
               />
               <CheckRow
@@ -182,7 +182,7 @@ export function VerifyPanel({
             }
             detail={
               result.paid.warning
-                ? "One incentive claim per article. Check the matches below — you can still file once you have."
+                ? "One incentive claim per article. Check the matches below. You can still file once you have."
                 : null
             }
           />
@@ -210,7 +210,7 @@ export function VerifyPanel({
           {busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}
           {busy ? "Checking…" : result || error ? "Check again" : "Run the check"}
         </Button>
-        <Meta>Nothing here stops you filing. It is what the research cell checks after you do.</Meta>
+        <Meta>Nothing here stops you filing. It is what the college checks after you do.</Meta>
       </div>
     </div>
   )

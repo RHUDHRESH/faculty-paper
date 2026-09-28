@@ -28,7 +28,7 @@ const REASON_TEXT: Record<FormState["claimReason"], string> = {
 function Part({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5 border-t border-dashed border-edge pt-3 first:border-t-0 first:pt-0">
-      <p className="text-xs font-medium uppercase tracking-[0.04em] text-fg-muted">{title}</p>
+      <p className="text-sm text-fg-muted">{title}</p>
       <dl className="space-y-1.5 text-sm">{children}</dl>
     </div>
   )
@@ -285,14 +285,14 @@ export function EstimateDetail({
   if (!calc) {
     return (
       <p className="text-sm text-fg-muted">
-        {priceable ? "No estimate yet." : "Not enough entered yet — the quartile, the SNIP or the indexing level is what prices a paper."}
+        {priceable ? "No estimate yet." : "Not enough entered yet. The quartile, the SNIP or the indexing level is what prices a paper."}
       </p>
     )
   }
   return (
     <div className="space-y-2">
       {calc.remuneration === 0 && (
-        <Callout tone="critical" title="This estimate is ₹0 — filing it pays nothing">
+        <Callout tone="critical" title="This estimate is ₹0, so filing it pays nothing">
           <p>{zeroReason(calc, problems)}</p>
         </Callout>
       )}
@@ -304,7 +304,7 @@ export function EstimateDetail({
       </dl>
       {calc.note && calc.remuneration !== 0 && <p className="text-sm text-fg-muted">{calc.note}</p>}
       <p className="text-sm text-fg-muted">
-        This is an estimate from the SNIP and quartile on this form. The research cell verifies both
+        This is an estimate from the SNIP and quartile on this form. The college verifies both
         after you file, and the figure can change.
       </p>
     </div>
@@ -351,7 +351,7 @@ export function PriorCheckLine({
           <span className="text-fg-muted">No earlier payment found for this paper.</span>
         ) : !priorCheck ? (
           <span className="text-caution">
-            The check for an earlier payment has not come back. The research cell runs it again after
+            The check for an earlier payment has not come back. The college runs it again after
             filing.
           </span>
         ) : null}
@@ -399,7 +399,7 @@ export function ContestNote({
       {(expected || contestable) && (
         <div className="space-y-1.5" data-field="contest">
           <label htmlFor="contest-note" className="block text-sm font-medium">
-            A note for the research cell
+            A note for the checkers
           </label>
           <Textarea
             id="contest-note"
@@ -410,7 +410,7 @@ export function ContestNote({
           />
           <p className="text-xs text-fg-muted">
             {expected && !contestable
-              ? "Scopus is not connected here, so the research cell confirms indexing by hand and filing asks for a line saying why it should go through. Write it now and it is sent with the paper."
+              ? "Scopus is not connected here, so the college confirms indexing by hand and filing asks for a line saying why it should go through. Write it now and it is sent with the paper."
               : short > 0
                 ? `${short} more character${short === 1 ? "" : "s"} needed.`
                 : "Sent with the paper."}

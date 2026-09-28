@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react"
 import { Link } from "react-router-dom"
-import { ArrowRight, ClipboardPaste, CloudDownload, RefreshCw, Search, type LucideIcon } from "lucide-react"
+import { ArrowRight, RefreshCw, Search } from "lucide-react"
 
 import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { Input } from "@/ui/field"
-import { Illustration } from "@/ui/illustration"
+import { Picture, topicPicture } from "@/ui/picture"
 import { Callout, SkeletonText } from "@/ui/state"
 
 /** One paper from `GET /api/me/scopus-pull` (frontend2/API.md). */
@@ -51,6 +51,7 @@ export function ChooseMethod({
   onSelect,
   onFile,
   paste,
+  onByHand,
 }: {
   method: Method
   onMethod: (m: Method) => void
@@ -64,6 +65,8 @@ export function ChooseMethod({
   onFile?: (p: PulledPaper) => void
   /** The paste box and what it found (the existing finder). */
   paste: React.ReactNode
+  /** Skip finding the paper: type every detail on the form. */
+  onByHand?: () => void
 }) {
   const count = pull?.count ?? 0
   const unclaimed = pull?.unclaimed ?? 0
@@ -78,22 +81,32 @@ export function ChooseMethod({
           : `All ${count} papers on your record are already filed.`
   return (
     <div className="space-y-5" data-area="record">
+      <div className="grid gap-2.5 sm:grid-cols-3">
       <OptionGroup label="How to choose the paper">
         <OptionRow
-          icon={CloudDownload}
+          picture="file-from-index"
           checked={method === "pull"}
           onSelect={() => onMethod("pull")}
           title="Pull from my Scopus record"
           hint={pullHint}
         />
         <OptionRow
-          icon={ClipboardPaste}
+          picture="file-paste-doi"
           checked={method === "paste"}
           onSelect={() => onMethod("paste")}
           title="Paste a DOI or link"
           hint="For a paper that isn't on your record yet."
         />
       </OptionGroup>
+        {onByHand && (
+          <OptionRow
+            picture="file-by-hand"
+            onSelect={onByHand}
+            title="Type it in by hand"
+            hint="No DOI, or not indexed online yet."
+          />
+        )}
+      </div>
 
       {method === "pull" ? (
         <Picker
@@ -127,59 +140,56 @@ function OptionGroup({ label, children }: { label: string; children: React.React
     next.click()
   }
   return (
-    <div role="radiogroup" aria-label={label} onKeyDown={onKeyDown} className="grid gap-2 sm:grid-cols-2">
+    <div role="radiogroup" aria-label={label} onKeyDown={onKeyDown} className="contents">
       {children}
     </div>
   )
 }
 
+/** A method tile: its picture, a title and one line. Radio when `checked` is given, else a plain button. */
 function OptionRow({
-  icon: Icon,
+  picture,
   checked,
   onSelect,
   title,
   hint,
 }: {
-  icon: LucideIcon
-  checked: boolean
+  picture: string
+  checked?: boolean
   onSelect: () => void
   title: string
   hint: string
 }) {
+  const radio = checked !== undefined
   return (
     <button
       type="button"
-      role="radio"
-      aria-checked={checked}
-      tabIndex={checked ? 0 : -1}
+      role={radio ? "radio" : undefined}
+      aria-checked={radio ? checked : undefined}
+      tabIndex={radio ? (checked ? 0 : -1) : undefined}
       onClick={onSelect}
       className={cn(
-        "flex min-h-[72px] w-full items-center gap-3 rounded-xl border bg-surface px-3.5 py-3 text-left",
-        "transition-colors duration-[var(--dur-1)] hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent",
-        checked ? "border-accent/55 bg-accent-wash/45 hover:bg-accent-wash/60" : "border-line"
+        "group flex w-full items-center gap-3 rounded-xl border bg-surface p-3 text-left sm:flex-col sm:items-stretch sm:gap-2 sm:p-4",
+        "transition-colors duration-[var(--dur-1)] hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+        checked ? "border-accent/60 bg-accent-wash/40 hover:bg-accent-wash/55" : "border-line"
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "grid size-9 shrink-0 place-items-center rounded-full",
-          checked ? "bg-accent-wash text-accent" : "bg-sunken text-fg-muted"
-        )}
-      >
-        <Icon className="size-[18px]" strokeWidth={1.75} />
-      </span>
+      <Picture name={picture} className="size-14 shrink-0 sm:h-24 sm:w-full" />
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-fg">{title}</span>
-        <span className="block text-[13px] leading-5 text-fg-muted">{hint}</span>
-      </span>
-      <span
-        aria-hidden
-        className={cn(
-          "grid size-4 shrink-0 place-items-center rounded-full border",
-          checked ? "border-accent" : "border-edge"
-        )}
-      >
-        {checked && <span className="size-2 rounded-full bg-accent" />}
+        <span className="flex items-center gap-2 text-sm font-medium text-fg">
+          <span className="flex-1">{title}</span>
+          {radio ? (
+            <span
+              aria-hidden
+              className={cn("grid size-4 shrink-0 place-items-center rounded-full border", checked ? "border-accent" : "border-edge")}
+            >
+              {checked && <span className="size-2 rounded-full bg-accent" />}
+            </span>
+          ) : (
+            <ArrowRight aria-hidden className="size-4 shrink-0 text-fg-subtle group-hover:text-fg" />
+          )}
+        </span>
+        <span className="mt-0.5 block text-[13px] leading-5 text-fg-muted">{hint}</span>
       </span>
     </button>
   )
@@ -236,9 +246,9 @@ function Picker({
   if (papers.length === 0) {
     return (
       <div className="flex items-center gap-4 rounded-xl border border-line px-4 py-5">
-        <Illustration name="empty-no-papers" width={72} className="max-sm:hidden" />
+        <Picture name="empty-no-papers" className="size-20 shrink-0 max-sm:hidden" />
         <div className="min-w-0 text-sm">
-          <p className="font-medium text-fg">Nothing to pick yet — your record hasn't been matched to Scopus.</p>
+          <p className="font-medium text-fg">Nothing to pick yet. Your record hasn't been matched to Scopus.</p>
           <button type="button" onClick={onPaste} className="mt-1 font-medium text-accent hover:underline">
             Paste a DOI instead
           </button>
@@ -248,18 +258,19 @@ function Picker({
   }
 
   const shown = open.filter(match)
+  const inReview = claimed.filter((p) => p.claim_status && p.claim_status !== "PAID").length
   return (
     <section className="space-y-3" aria-labelledby="pick-heading">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="pick-heading" className="text-sm font-medium text-fg">
-          Your papers <span className="font-normal text-fg-muted">· {open.length} not yet filed</span>
+          Your papers <span className="font-normal text-fg-muted">· {open.length} not yet claimed</span>
         </h2>
         <div className="flex w-full items-center gap-2 sm:w-auto">
           <div className="relative min-w-0 flex-1 sm:w-60">
             <Search aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" />
             <Input
               aria-label="Filter your papers"
-              placeholder="Filter…"
+              placeholder="Filter by title, journal, year"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="h-8 pl-8 text-sm"
@@ -294,30 +305,25 @@ function Picker({
           {shown.map((p) => {
             const on = p.publication_id === selectedId
             return (
-              <li key={p.publication_id} className={cn("flex items-center gap-2 pr-3", on && "bg-accent-wash/45")}>
+              <li key={p.publication_id}>
                 <button
                   type="button"
                   role="radio"
                   aria-checked={on}
                   onClick={() => onSelect(p)}
-                  className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-3.5 text-left transition-colors duration-[var(--dur-1)] hover:bg-hover/60 focus-visible:outline-2 focus-visible:outline-accent"
+                  onDoubleClick={() => onFile?.(p)}
+                  className={cn(
+                    "flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors duration-[var(--dur-1)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent",
+                    on ? "bg-accent-wash/45" : "hover:bg-hover/60"
+                  )}
                 >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border",
-                      on ? "border-accent" : "border-edge"
-                    )}
-                  >
-                    {on && <span className="size-2 rounded-full bg-accent" />}
-                  </span>
+                  <Picture name={topicPicture(p.title, p.venue) ?? "onboard-first-paper"} className="size-12 shrink-0 rounded-lg bg-sunken/60 p-1" />
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-2 text-sm font-medium text-fg">{p.title}</span>
-                    <span className="mt-0.5 block text-[13px] text-fg-muted">
+                    <span className="mt-0.5 line-clamp-1 text-[13px] text-fg-muted">
                       {[
                         p.venue,
                         p.year,
-                        p.citations != null ? `${p.citations} citation${p.citations === 1 ? "" : "s"}` : null,
                         p.author_position && p.total_authors ? `author ${p.author_position} of ${p.total_authors}` : null,
                         p.doi ? null : "no DOI",
                       ]
@@ -325,19 +331,13 @@ function Picker({
                         .join(" · ")}
                     </span>
                   </span>
-                </button>
-                {onFile && (
-                  <Button
-                    kind={on ? "primary" : "quiet"}
-                    size="sm"
-                    type="button"
-                    onClick={() => onFile(p)}
-                    aria-label={`File this: ${p.title}`}
-                    className="shrink-0"
+                  <span
+                    aria-hidden
+                    className={cn("grid size-5 shrink-0 place-items-center rounded-full border", on ? "border-accent" : "border-edge")}
                   >
-                    File this
-                  </Button>
-                )}
+                    {on && <span className="size-2.5 rounded-full bg-accent" />}
+                  </span>
+                </button>
               </li>
             )
           })}
@@ -347,7 +347,10 @@ function Picker({
 
       {claimed.length > 0 && (
         <details className="rounded-xl border border-line px-3.5 py-2.5">
-          <summary className="cursor-pointer text-sm text-fg-muted">Already claimed ({claimed.length})</summary>
+          <summary className="cursor-pointer text-sm text-fg-muted">
+            Already claimed ({claimed.length})
+            {inReview > 0 && <span className="text-fg-subtle"> · {inReview} in review, {claimed.length - inReview} paid</span>}
+          </summary>
           <ul className="mt-2 divide-y divide-line">
             {claimed.filter(match).map((p) => (
               <li key={p.publication_id} className="flex items-start gap-3 py-2">

@@ -315,6 +315,16 @@ export const NAV: NavItem[] = [
     keywords: ["figures", "analysis", "output"],
   },
   {
+    // `/api/reports/brief` is `can_view_reports` (every staff role, not the
+    // head of department, who has their own department page).
+    to: "/reports/brief",
+    label: "Year brief",
+    icon: FileText,
+    roles: ALL_STAFF,
+    group: "Look at",
+    keywords: ["governing council", "naac", "per teacher", "annual", "pdf", "trustees"],
+  },
+  {
     to: "/reports/build",
     label: "Build a report",
     icon: BarChart3,

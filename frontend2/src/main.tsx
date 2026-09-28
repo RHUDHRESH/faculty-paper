@@ -109,6 +109,7 @@ const PaymentsDone = page(() => import("@/pages/payments"), "PaymentsDone")
 const Publications = page(() => import("@/pages/publications"), "Publications")
 const ReportBuilder = page(() => import("@/pages/report-builder"), "ReportBuilder")
 const Reports = page(() => import("@/pages/reports"), "Reports")
+const YearBrief = page(() => import("@/pages/brief"), "YearBrief")
 const Requests = page(() => import("@/pages/requests"), "Requests")
 const Search = page(() => import("@/pages/search"), "Search")
 const People = page(() => import("@/pages/people"), "People")
@@ -170,6 +171,7 @@ const PRELOADS: [string, Page][] = [
   ["/department", Department],
   ["/publications", Publications],
   ["/reports/build", ReportBuilder],
+  ["/reports/brief", YearBrief],
   ["/reports", Reports],
   ["/journals/:title", JournalRecord],
   ["/journals", Journals],
@@ -357,6 +359,7 @@ function App() {
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/department" element={<Department />} />
           <Route path="/publications" element={<Publications />} />
+          <Route path="/reports/brief" element={<YearBrief />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/reports/build" element={<ReportBuilder />} />
           <Route path="/journals" element={<Journals />} />

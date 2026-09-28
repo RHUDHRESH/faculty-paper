@@ -8,6 +8,7 @@ import {
   Building2,
   Copy,
   FileCheck,
+  FileText,
   Plus,
   TriangleAlert,
   Users,
@@ -596,6 +597,7 @@ export function PrincipalHome() {
   const queue = useApi<PrincipalQueue>(HOME_DATA.principalQueue.key, HOME_DATA.principalQueue.path)
   // Totals only: this home prints no list of recent tickets.
   const dashboard = useApi<Dashboard>(HOME_DATA.collegeTotals.key, HOME_DATA.collegeTotals.path)
+  const brief = useApi<{ headline: string }>(["reports-brief", ""], "/reports/brief")
 
   const totals = queue.data?.totals
   const longest = totals?.longest_wait_days ?? null
@@ -664,19 +666,43 @@ export function PrincipalHome() {
         </Waiting>
       )}
 
-      <section className="space-y-2">
+      {/* The Principal's standing question is not "what has ever been paid"
+          but "how did the year go": the brief's one sentence, then the way in. */}
+      <section className="space-y-3">
         <div className="flex items-baseline justify-between gap-3">
-          <SectionTitle>The college</SectionTitle>
-          <Link to="/reports" className="text-sm text-accent underline-offset-4 hover:underline">
-            Reports
+          <SectionTitle>The college this year</SectionTitle>
+          <Link to="/reports/brief" className="text-sm text-accent underline-offset-4 hover:underline">
+            Open the year brief
           </Link>
         </div>
-        <Figure
-          label="Paid to date"
-          value={money(dashboard.data?.ledger_total ?? dashboard.data?.total_paid)}
-          hint={collegeSince(dashboard.data?.ledger_since)}
-          loading={dashboard.isLoading}
-        />
+        {brief.data ? (
+          <p data-testid="principal-brief-headline" className="max-w-3xl font-serif text-lg leading-snug text-fg">
+            {brief.data.headline}
+          </p>
+        ) : brief.isError ? (
+          <Figure
+            label="Paid to date"
+            value={money(dashboard.data?.ledger_total ?? dashboard.data?.total_paid)}
+            hint={collegeSince(dashboard.data?.ledger_since)}
+            loading={dashboard.isLoading}
+          />
+        ) : (
+          <div className="h-14 max-w-3xl animate-pulse rounded bg-sunken" />
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" asChild>
+            <a href="/api/reports/brief/export?fmt=pdf" download>
+              <FileText />
+              Council PDF
+            </a>
+          </Button>
+          <Button size="sm" kind="quiet" asChild>
+            <Link to="/accreditation">NAAC and NIRF tables</Link>
+          </Button>
+          <Button size="sm" kind="quiet" asChild>
+            <Link to="/budget">Budget</Link>
+          </Button>
+        </div>
       </section>
 
       <YourPapers />
@@ -685,7 +711,7 @@ export function PrincipalHome() {
 }
 
 /* ------------------------------------------------------------------------ */
-/* Finance                                                                   */
+/* Finance                                                                 */
 /* ------------------------------------------------------------------------ */
 
 type PayoutsPayload = { total: number; results: Claim[] }

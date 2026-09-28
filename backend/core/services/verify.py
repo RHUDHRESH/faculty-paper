@@ -11,7 +11,6 @@ from django.db.models import Q
 from core.models import Claim, ClaimStatus, PriorPayment, SnipSource
 from core.services.normalize import (
     normalize_doi,
-    normalize_issn,
     normalize_title,
     title_tokens,
     titles_rough_match,
@@ -33,12 +32,8 @@ from core.services.scopus import (
 
 def lookup_snip_dump(issn: str | None, title: str | None = None) -> float | None:
     if issn:
-        variants = []
-        cleaned = normalize_issn(issn)
-        if cleaned:
-            bare = cleaned.replace("-", "")
-            variants = [cleaned, bare]
-        for v in variants:
+        # Every stored spelling, floats included: most SNIP rows hold one.
+        for v in issn_variants(issn):
             row = (
                 SnipSource.objects.filter(print_issn__iexact=v).first()
                 or SnipSource.objects.filter(e_issn__iexact=v).first()
@@ -209,6 +204,54 @@ def check_journal_standing(
     return out
 
 
+def _apply_scimago(out: dict[str, Any], scimago: dict[str, Any] | None, *, aggregation_type: str | None) -> bool:
+    """Put a found SCImago row on the result: quartile, subjects, and the
+    Engineering class they decide. False, and nothing written, when none."""
+    if not (scimago and scimago.get("found")):
+        return False
+    out["scimago"] = {
+        "found": True,
+        "quartile": scimago.get("matched_quartile"),
+        "sjr": scimago.get("sjr"),
+        "categories": scimago.get("categories"),
+        "year": scimago.get("year"),
+        "official_url": scimago.get("official_url"),
+        "message": None,
+    }
+    cats = scimago.get("categories") or []
+    subjects = "; ".join(
+        f"{c.get('category')} ({c.get('quartile')})" if c.get("quartile") else str(c.get("category") or "")
+        for c in cats
+    )
+    out["engineering_class"] = engineering_class(aggregation_type, subjects)
+    out["subjects"] = subjects
+    return True
+
+
+def _rank_from_our_tables(
+    out: dict[str, Any], *, issn: str | None, publication_type: str | None, year: int | None
+) -> None:
+    """The journal's SNIP, quartile and class when Scopus could not be asked.
+
+    Whether the *article* is indexed needs Scopus; how the *journal* is
+    ranked is in our own SNIP and SCImago tables, and they answer whether or
+    not Scopus does. By ISSN only: a title match here would attach another
+    journal's figures to a payout nobody has checked yet. Nothing found means
+    nothing written, so the claim stays unclassified and the quartile
+    incentive stays withheld until the office looks.
+    """
+    out["snip_source"] = None
+    if not issn:
+        return
+    snip = lookup_snip_dump(issn, None)
+    if snip is not None:
+        out["snip"] = snip
+        out["snip_source"] = "SNIP_DUMP"
+    scimago = lookup_scimago(issn=issn, title=None, year=year)
+    if not _apply_scimago(out, scimago, aggregation_type=publication_type):
+        out["scimago"]["official_url"] = scimago_official_search_url(issn=issn)
+
+
 def verify_publication(
     *,
     title: str,
@@ -219,6 +262,9 @@ def verify_publication(
     exclude_claim_id: str | None = None,
     publication_year: int | None = None,
     publication_date: str | None = None,
+    #: The claim's own type ("Journal", ...). Used only when Scopus cannot be
+    #: asked and so cannot say what the source is.
+    publication_type: str | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "ok": True,
@@ -244,6 +290,13 @@ def verify_publication(
         # nothing on it to say so.
         out["paid"] = check_already_paid(
             title=title, doi=None, staff_id=staff_id, exclude_claim_id=exclude_claim_id
+        )
+        # And the same goes for how the journal is ranked. Returning before
+        # this filed every paper, on a server with no Scopus key, with its SNIP
+        # and quartile wiped -- priced as "a Scopus journal with no SNIP".
+        _rank_from_our_tables(out, issn=issn, publication_type=publication_type, year=publication_year)
+        out["standing"] = check_journal_standing(
+            issn=issn, published_on=publication_date, publication_year=publication_year
         )
         return out
 
@@ -285,26 +338,7 @@ def verify_publication(
             # came out, not on today's.
             year=publication_year or paper.get("publication_year"),
         )
-        if scimago and scimago.get("found"):
-            out["scimago"] = {
-                "found": True,
-                "quartile": scimago.get("matched_quartile"),
-                "sjr": scimago.get("sjr"),
-                "categories": scimago.get("categories"),
-                "year": scimago.get("year"),
-                "official_url": scimago.get("official_url"),
-                "message": None,
-            }
-            cats = scimago.get("categories") or []
-            subjects = "; ".join(
-                f"{c.get('category')} ({c.get('quartile')})" if c.get("quartile") else str(c.get("category") or "")
-                for c in cats
-            )
-            out["engineering_class"] = engineering_class(
-                paper.get("aggregation_type"), subjects
-            )
-            out["subjects"] = subjects
-        else:
+        if not _apply_scimago(out, scimago, aggregation_type=paper.get("aggregation_type")):
             out["scimago"] = {
                 "found": False,
                 "quartile": None,

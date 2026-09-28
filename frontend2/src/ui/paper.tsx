@@ -206,8 +206,11 @@ export function StageTrack({ stage, className }: { stage: StageInfo; className?:
  */
 export function money(value: number | null | undefined): string {
   if (value == null) return "—"
-  const hasPaise = Math.round(value * 100) % 100 !== 0
-  return `₹${value.toLocaleString("en-IN", {
+  // Round to paise once and decide from that integer: deciding from the raw
+  // float let 19.1 * 100 = 1909.99… disagree with what toLocaleString printed.
+  const paise = Math.round(value * 100)
+  const hasPaise = paise % 100 !== 0
+  return `₹${(paise / 100).toLocaleString("en-IN", {
     minimumFractionDigits: hasPaise ? 2 : 0,
     maximumFractionDigits: 2,
   })}`
@@ -222,6 +225,9 @@ const CATEGORY_TEXT: Record<string, string> = {
   II: "Category II — a Scopus journal with no SNIP on record",
   III: "Category III — a Scopus conference paper or book chapter, no SNIP",
   IV: "Category IV — in Web of Science (SCIE/ESCI) but not in Scopus",
+  // Not one of the four: the final-year project scheme, which the policy
+  // puts outside the faculty scheme altogether.
+  FYP: "Final-year project scheme — a fixed amount per team for a conference paper",
   "—": "Not eligible for a payment under the scheme",
 }
 
@@ -309,6 +315,21 @@ export function payoutWorking(c: PayoutFacts): WorkingLine[] {
   const base = c.base_amount
   const app = c.author_point
   const paid = c.remuneration
+  // The final-year project scheme has no sum to draw: one fixed amount per
+  // team, not shared out by author position. Said as that one line rather
+  // than left blank, which would read as an import with no workings.
+  if (c.remuneration_category === "FYP") {
+    if (paid == null || paid <= 0) return []
+    return [
+      {
+        op: "start",
+        label: "The final-year project scheme's fixed amount",
+        detail: "Per team, for its conference paper — paid whole, not by author position",
+        value: money(paid),
+        total: true,
+      },
+    ]
+  }
   if (base == null || app == null || paid == null) return []
   // A zero base is a rule, not an arithmetic — "recorded for the publication
   // count only", or too few SEC-affiliated references. `remuneration_note`

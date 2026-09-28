@@ -1,16 +1,26 @@
 #!/usr/bin/env bash
-# Cloud Run entrypoint: migrations, the django-q2 job worker, then gunicorn.
+# Container entrypoint: migrations, gunicorn, and -- once gunicorn is up -- the
+# django-q2 job worker.
 #
 # qcluster shares this container rather than running as a second paid service.
-# Cloud Run throttles CPU outside requests, so the service is deployed with
-# --no-cpu-throttling and --min-instances=1 to keep the worker alive; if it is
-# killed anyway, the ORM broker re-delivers on the next boot and the 5-minute
+# If it is killed, the ORM broker re-delivers on the next boot and the 5-minute
 # recover-stale-batches schedule resumes anything interrupted mid-run.
+#
+# On Render's free plan the container has a tenth of a CPU and is put to sleep
+# when idle, so this script runs on the first request after every nap and the
+# person who sent it waits for all of it. Two things keep that short:
+#
+#   * `migrate --skip-checks`: the system checks run again when gunicorn loads
+#     the app, so running them here as well only doubled the wait. Migrations
+#     still apply before anything is served.
+#   * the job worker starts QCLUSTER_DELAY seconds after gunicorn, not beside
+#     it. Both load all of Django, which on a tenth of a CPU is most of the
+#     boot; loading them one after the other lets the web process answer first.
 set -euo pipefail
 
-python manage.py migrate --noinput
+python manage.py migrate --noinput --skip-checks
 
-python manage.py qcluster &
+( sleep "${QCLUSTER_DELAY:-30}"; exec python manage.py qcluster ) &
 
 # The access log comes from core.log's middleware as one structured JSON
 # line per request -- severity, request id, trace, user, duration -- which

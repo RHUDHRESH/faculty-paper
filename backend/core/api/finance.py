@@ -15,7 +15,7 @@ from core.api.common import require_user
 import csv
 import io
 from typing import Any, Optional
-from django.db.models import F, Sum
+from django.db.models import F, Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -25,11 +25,18 @@ from ninja.errors import HttpError
 from core.models import MonthlyBatch, MonthlyRow, PaidLedger
 from core.services import rbac
 from core.services.monthly_processor import start_batch_async
+from core.services.remuneration import Category
 
 # ---------- finance ledger ----------
 
 
-def _ledger_queryset(month: str | None, department: str | None):
+#: Which scheme a payment was made under. The ledger holds both, and the
+#: final-year project scheme is budgeted apart from faculty remuneration.
+SCHEME_FYP = "FYP"
+SCHEME_FACULTY = "FACULTY"
+
+
+def _ledger_queryset(month: str | None, department: str | None, scheme: str | None = None):
     qs = PaidLedger.objects.select_related("claim").order_by("-payout_month", "department", "faculty_name")
     if month:
         parsed = _parse_payout_month(month)
@@ -37,7 +44,20 @@ def _ledger_queryset(month: str | None, department: str | None):
             qs = qs.filter(payout_month=parsed)
     if department:
         qs = qs.filter(department__iexact=department)
+    fyp = Q(claim__remuneration_category=Category.STUDENT_PROJECT)
+    if (scheme or "").upper() == SCHEME_FYP:
+        qs = qs.filter(fyp)
+    elif (scheme or "").upper() == SCHEME_FACULTY:
+        qs = qs.exclude(fyp)
     return qs
+
+
+def _scheme_of(row: PaidLedger) -> str:
+    """Read off the claim the payment was for. A row with no claim is
+    imported history from before the final-year scheme existed here."""
+    if row.claim_id and row.claim.remuneration_category == Category.STUDENT_PROJECT:
+        return SCHEME_FYP
+    return SCHEME_FACULTY
 
 
 def _ledger_row_dict(row: PaidLedger) -> dict[str, Any]:
@@ -53,6 +73,7 @@ def _ledger_row_dict(row: PaidLedger) -> dict[str, Any]:
         "journal_title": row.journal_title,
         "amount": row.amount,
         "voucher_number": row.voucher_number,
+        "scheme": _scheme_of(row),
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
@@ -64,11 +85,12 @@ def admin_ledger(
     department: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    scheme: Optional[str] = None,
 ):
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
-    qs = _ledger_queryset(month, department)
+    qs = _ledger_queryset(month, department, scheme)
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
     total = qs.count()
@@ -85,12 +107,17 @@ def admin_ledger(
 
 
 @api.get("/admin/ledger/export", auth=session_auth)
-def admin_ledger_export(request: HttpRequest, month: Optional[str] = None, department: Optional[str] = None):
+def admin_ledger_export(
+    request: HttpRequest,
+    month: Optional[str] = None,
+    department: Optional[str] = None,
+    scheme: Optional[str] = None,
+):
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
     rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
-    qs = _ledger_queryset(month, department)
+    qs = _ledger_queryset(month, department, scheme)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(
@@ -105,6 +132,9 @@ def admin_ledger_export(request: HttpRequest, month: Optional[str] = None, depar
             "amount",
             "voucher_number",
             "claim_id",
+            # Last, so a sheet built on the column positions before it still
+            # reads the same columns.
+            "scheme",
         ]
     )
     for r in qs:
@@ -121,6 +151,7 @@ def admin_ledger_export(request: HttpRequest, month: Optional[str] = None, depar
                     r.amount,
                     r.voucher_number,
                     r.claim_id,
+                    _scheme_of(r),
                 ]
             )
         )
@@ -302,8 +333,11 @@ def export_batch(request: HttpRequest, batch_id: str):
 
 
 __all__ = [
+    'SCHEME_FACULTY',
+    'SCHEME_FYP',
     '_ledger_queryset',
     '_ledger_row_dict',
+    '_scheme_of',
     'admin_ledger',
     'admin_ledger_export',
     'create_batch',

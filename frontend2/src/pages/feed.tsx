@@ -7,7 +7,9 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query"
+import { CollegePapers, PeopleToFollow, type Draft } from "@/pages/college-stream"
 import { patchPost, prependPost } from "@/pages/feed-cache"
+import { Picture } from "@/ui/picture"
 import { ForYouList } from "@/pages/for-you"
 import { FollowedFilters, FollowTopicButton } from "@/pages/follow-topics"
 import { ReactionBar, type ReactionKind } from "@/pages/reactions"
@@ -22,6 +24,7 @@ import {
   MessageCircle,
   MoreHorizontal,
   Pencil,
+  PenLine,
   Trash2,
   Users,
   X,
@@ -253,10 +256,11 @@ export function Feed() {
       : []),
   ]
 
+  const [draft, setDraft] = useState<(Draft & { n: number }) | null>(null)
   function focusComposer() {
-    composerRef.current?.focus()
-    composerRef.current?.scrollIntoView({ block: "center", behavior: "smooth" })
+    setDraft({ text: "", people: [], n: Date.now() })
   }
+  const lively = tab === "everyone" && !about.topic && !about.journal
 
   return (
     <div className="page max-w-2xl space-y-6">
@@ -289,6 +293,7 @@ export function Feed() {
         <PostComposer
           tab={tab === "for-you" ? "everyone" : tab}
           textareaRef={composerRef}
+          draft={draft}
           shareId={share}
           onShared={() =>
             setParams((prev) => {
@@ -303,7 +308,7 @@ export function Feed() {
       <div
         role="tablist"
         aria-label="Which posts"
-        className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-md bg-sunken p-0.5"
+        className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-sunken p-1"
       >
         {tabs.map((t) => (
           <button
@@ -320,9 +325,11 @@ export function Feed() {
               })
             }
             className={cn(
-              "h-7 shrink-0 rounded-sm px-3 text-sm font-medium transition-colors",
+              "h-7 shrink-0 rounded-md px-3 text-sm transition-colors",
               "duration-[var(--dur-1)] ease-out",
-              tab === t.key ? "bg-surface text-fg" : "text-fg-muted hover:text-fg"
+              tab === t.key
+                ? "bg-surface font-medium text-fg shadow-[0_1px_2px_rgb(0_0_0/0.06)]"
+                : "text-fg-muted hover:text-fg"
             )}
           >
             {t.label}
@@ -338,6 +345,13 @@ export function Feed() {
         <ForYouList />
       ) : (
         <FeedList tab={tab} onWrite={focusComposer} department={me?.department ?? null} about={about} />
+      )}
+
+      {lively && (
+        <>
+          <PeopleToFollow />
+          <CollegePapers onDraft={(d) => setDraft({ ...d, n: Date.now() })} />
+        </>
       )}
     </div>
   )
@@ -392,6 +406,21 @@ function FeedList({
             </Button>
           }
         />
+      )
+    }
+    if (tab === "everyone") {
+      // The college stream below keeps the page alive; this is one quiet line.
+      return (
+        <div className="flex items-center gap-4 border-y border-line py-4">
+          <Picture name="empty-no-messages" className="hidden size-16 shrink-0 sm:block" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Nobody has posted yet</p>
+            <Meta className="block text-sm">Be the first: congratulate a colleague below, or share your own news.</Meta>
+          </div>
+          <Button kind="default" size="sm" onClick={onWrite} className="shrink-0">
+            Write a post
+          </Button>
+        </div>
       )
     }
     return (
@@ -459,17 +488,38 @@ function PostComposer({
   textareaRef,
   shareId,
   onShared,
+  draft: seed,
 }: {
   tab: Exclude<Tab, "reported" | "for-you">
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   /** `?share=<paper id>`: "Share to the feed" from a paper or a notification. */
   shareId?: string | null
   onShared?: () => void
+  /** Words handed in from elsewhere on the page (Congratulate, Write): opens the box with them. */
+  draft?: (Draft & { n: number }) | null
 }) {
   const { me } = useAuth()
   const qc = useQueryClient()
   const [text, setText] = useState("")
   const [picked, setPicked] = useState<Candidate[]>([])
+  // One quiet line until somebody means to write.
+  const [open, setOpen] = useState(!!shareId)
+  const section = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (!seed) return
+    setOpen(true)
+    if (seed.text) {
+      setText(seed.text)
+      setPicked(seed.people.map((p) => ({ kind: "USER", id: p.id, label: p.name, hint: null })))
+    }
+    requestAnimationFrame(() => {
+      const box = textareaRef.current
+      if (!box) return
+      box.focus()
+      box.setSelectionRange(box.value.length, box.value.length)
+      box.scrollIntoView({ block: "center", behavior: "smooth" })
+    })
+  }, [seed, textareaRef])
   const [visibility, setVisibility] = useState<"EVERYONE" | "DEPARTMENT">("EVERYONE")
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
@@ -493,6 +543,7 @@ function PostComposer({
   useEffect(() => {
     if (!shareId || !draft.data || drafted.current === shareId) return
     drafted.current = shareId
+    setOpen(true)
     const d = draft.data
     setText(d.body)
     setPaper(d.paper)
@@ -603,6 +654,7 @@ function PostComposer({
     setLinkOpen(false)
     setPaper(null)
     setFileError(null)
+    setOpen(false)
   }
 
   function choose(f: File | undefined) {
@@ -617,8 +669,43 @@ function PostComposer({
 
   const department = me?.department
 
+  if (!open) {
+    return (
+      <section aria-label="Write a post" ref={section}>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(true)
+            requestAnimationFrame(() => textareaRef.current?.focus())
+          }}
+          className="flex w-full items-center gap-3 rounded-full border border-line bg-surface py-1.5 pl-1.5 pr-4 text-left text-sm text-fg-subtle transition-colors duration-[var(--dur-1)] ease-out hover:border-line-strong hover:text-fg-muted"
+        >
+          <Avatar person={meAsAuthor(me)} size="sm" />
+          <span className="min-w-0 flex-1 truncate">Share a paper, a seminar or a question</span>
+          <PenLine className="size-4 shrink-0" aria-hidden />
+        </button>
+      </section>
+    )
+  }
+
   return (
-    <section aria-label="Write a post" className="panel space-y-3 px-3 py-3 sm:px-4">
+    <section
+      aria-label="Write a post"
+      ref={section}
+      className="panel space-y-3 px-3 py-3 sm:px-4"
+      onBlur={() => {
+        // Folds back to one line when left empty -- not while a menu of its own is open.
+        setTimeout(() => {
+          const active = document.activeElement
+          if (section.current?.contains(active)) return
+          if (active?.closest("[role=menu],[role=listbox],[role=dialog],[data-radix-popper-content-wrapper]")) return
+          if (!text.trim() && !file && !paper && !link.trim() && !linkOpen && !shareId) setOpen(false)
+        }, 150)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !text.trim() && !file && !paper && !link.trim()) setOpen(false)
+      }}
+    >
       <div className="flex gap-3">
         <Avatar person={meAsAuthor(me)} size="md" className="hidden sm:inline-flex" />
         <Composer

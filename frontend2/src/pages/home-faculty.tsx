@@ -359,7 +359,6 @@ function HomeHero({
       aside={
         <RecordStrip
           data={s?.strip ?? []}
-          tone="solid"
           label="Your papers by month, last ten years"
           className="max-w-full"
         />

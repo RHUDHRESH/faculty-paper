@@ -131,7 +131,8 @@ export function TableScroller({
         // and is not the page's one answer, so none of the elevation steps
         // apply to it. The tone step and the `edge` hairline are the whole
         // treatment.
-        className="group/scroll overflow-auto rounded-lg bg-surface ring-1 ring-inset ring-edge"
+        tabIndex={0}
+        className="group/scroll relative overflow-auto rounded-lg bg-surface ring-1 ring-inset ring-edge"
         data-scrolled={scrolled ? "" : undefined}
         style={{ maxHeight: maxHeight ?? "max(20rem, calc(100vh - 19rem))" }}
       >

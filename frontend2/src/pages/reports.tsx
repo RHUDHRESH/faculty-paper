@@ -585,7 +585,7 @@ function CollegeReports() {
       ) : (
         <>
           <Answer>{collegeAnswer(data, department, year)}</Answer>
-          <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-3">
+          <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
             <Headline
               label="Papers"
               value={data.totals.publications.toLocaleString("en-IN")}
@@ -1238,7 +1238,7 @@ function HodReports() {
             . {data.totals.faculty_who_published} of {data.totals.faculty_in_department} faculty
             contributed.
           </Answer>
-          <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-3">
+          <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
             <Headline
               label="Publications"
               value={data.totals.publications.toLocaleString("en-IN")}

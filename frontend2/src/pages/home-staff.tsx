@@ -858,7 +858,7 @@ export function FinanceHome() {
             onRetry={() => void budget.refetch()}
           />
         ) : (
-        <div className="grid gap-x-10 gap-y-6 sm:grid-cols-4">
+        <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
           <Figure
             label="Allocated"
             value={

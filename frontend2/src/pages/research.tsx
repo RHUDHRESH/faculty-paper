@@ -164,7 +164,7 @@ export function Research() {
           onClick={() => setParams(key === "me" ? {} : { tab: key }, { replace: true })}
           className={cn(
             "inline-flex h-8 items-center gap-1.5 rounded-full px-4 text-sm font-medium transition-colors duration-[var(--dur-1)]",
-            tab === key ? "bg-(--area) text-white" : "text-fg-muted hover:text-fg"
+            tab === key ? "bg-(--area) text-white dark:text-sunken" : "text-fg-muted hover:text-fg"
           )}
         >
           <Icon aria-hidden className="size-4" strokeWidth={1.75} />
@@ -802,7 +802,7 @@ function TopicMap({ topics }: { topics: CollegePicture["topics"] }) {
               style={{ flexGrow: t.papers, flexBasis: `${Math.max(8, share * 26)}rem` }}
               className={cn(
                 "flex min-h-20 flex-col justify-between rounded-lg p-3 text-left transition-colors hover:brightness-95",
-                share > 0.6 ? "bg-(--area) text-white" : share > 0.3 ? "bg-(--area)/70 text-white" : "bg-(--area-wash) text-fg",
+                share > 0.6 ? "bg-(--area) text-white dark:text-sunken" : share > 0.3 ? "bg-(--area)/70 text-white dark:text-sunken" : "bg-(--area-wash) text-fg",
                 t.mine && "shadow-[inset_0_0_0_2px_var(--color-brand)] ring-2 ring-brand ring-offset-1 ring-offset-bg"
               )}
             >

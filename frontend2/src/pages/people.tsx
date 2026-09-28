@@ -727,7 +727,7 @@ function CollegePerson() {
       {manages && (
         <SectionTitle>Publication record</SectionTitle>
       )}
-      <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-3">
+      <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
         <Figure label="Publications" value={String(totals.publications)} />
         <Figure
           label="Paid"

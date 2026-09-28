@@ -86,6 +86,7 @@ class _College:
             "id", "title", "year", "date", "venue", "quartile", "citations", "topics_json", "type", "doi"
         ):
             p["topics"] = _topics(p.pop("topics_json"))
+            p["keys"] = frozenset(_fold(t) for t in p["topics"])
             p["venue"] = clean_venue(p["venue"])
             p["members"] = set()
             self.pubs[p["id"]] = p
@@ -343,7 +344,7 @@ def ideas_for(user: User, college: _College, *, pubs: list[Publication], coautho
     # A rising topic next to mine: shares a paper with one of my topics, grew.
     near: Counter[str] = Counter()
     for p in college.pubs.values():
-        ks = {_fold(t) for t in p["topics"]}
+        ks = p["keys"]
         if ks & mine_keys:
             for k in ks - mine_keys:
                 near[k] += 1
@@ -355,7 +356,7 @@ def ideas_for(user: User, college: _College, *, pubs: list[Publication], coautho
     if rising:
         k = rising[0]
         by_co = sum(1 for p in college.pubs.values()
-                    if k in {_fold(t) for t in p["topics"]} and p["members"] & coauthor_ids)
+                    if k in p["keys"] and p["members"] & coauthor_ids)
         bits = [f"{_plural(now[k], 'paper')} here in the last 12 months"]
         if before.get(k):
             bits.append(f"up from {before[k]}")
@@ -374,7 +375,7 @@ def ideas_for(user: User, college: _College, *, pubs: list[Publication], coautho
         v = _fold(p["venue"])
         if not v or v in my_venues or user.id in p["members"]:
             continue
-        shared = {_fold(t) for t in p["topics"]} & mine_keys
+        shared = p["keys"] & mine_keys
         if not shared:
             continue
         slot = venue_fit.setdefault(v, {"name": p["venue"], "quartile": None, "papers": 0, "people": set(),
@@ -406,7 +407,7 @@ def ideas_for(user: User, college: _College, *, pubs: list[Publication], coautho
                 two_hop.setdefault(m, via)
     cand: dict[str, Counter] = defaultdict(Counter)
     for p in college.pubs.values():
-        ks = {_fold(t) for t in p["topics"]} & mine_keys
+        ks = p["keys"] & mine_keys
         for m in p["members"] - coauthor_ids - {user.id}:
             for k in ks:
                 cand[m][k] += 1
@@ -432,7 +433,7 @@ def ideas_for(user: User, college: _College, *, pubs: list[Publication], coautho
 def _near_label(k: str, college: _College, mine: set[str], spelled: dict[str, str]) -> str:
     co: Counter[str] = Counter()
     for p in college.pubs.values():
-        ks = {_fold(t) for t in p["topics"]}
+        ks = p["keys"]
         if k in ks:
             for m in ks & mine:
                 co[m] += 1
@@ -475,7 +476,7 @@ def college_research(user: User, college: Optional[_College] = None) -> dict[str
     for p in pubs:
         depts = {college.users[m].department for m in p["members"] if m in college.users
                  and college.users[m].department}
-        ks = {_fold(t) for t in p["topics"]}
+        ks = p["keys"]
         for d in depts:
             dept_papers[d].add(p["id"])
             for k in ks & set(top10):
@@ -486,7 +487,7 @@ def college_research(user: User, college: Optional[_College] = None) -> dict[str
     if mine:
         score: dict[str, Counter] = defaultdict(Counter)
         for p in pubs:
-            for k in {_fold(t) for t in p["topics"]} & mine:
+            for k in p["keys"] & mine:
                 for m in p["members"] - {user.id}:
                     score[m][k] += 1
         for m in sorted(score, key=lambda m: -sum(score[m].values()))[:6]:
@@ -542,9 +543,15 @@ def for_you(user: User, next_things: dict[str, Any], college: Optional[_College]
     now, before, spelled = _topic_growth(college, today)
 
     directions: list[dict[str, Any]] = []
+    # One pass: for every topic, how many papers carry it and also touch the
+    # reader's topics. Counting this per topic inside the loop below walked
+    # the whole record once per topic and made the feed take seconds.
+    near: Counter[str] = Counter()
+    for p in college.pubs.values():
+        if p["keys"] & keys:
+            near.update(p["keys"])
     for k in sorted((k for k in now if now[k] >= 2), key=lambda k: -(now[k] - before.get(k, 0))):
-        adjacent = sum(1 for p in college.pubs.values()
-                       if k in {_fold(t) for t in p["topics"]} and ({_fold(t) for t in p["topics"]} & keys))
+        adjacent = near.get(k, 0)
         if keys and not adjacent:
             continue
         mine_n = my_topics.get(k, 0)
@@ -582,7 +589,7 @@ def for_you(user: User, next_things: dict[str, Any], college: Optional[_College]
     papers = []
     fresh = sorted(
         (p for p in college.pubs.values() if user.id not in p["members"] and p["year"]
-         and p["year"] >= today.year - 1 and (not keys or {_fold(t) for t in p["topics"]} & keys)),
+         and p["year"] >= today.year - 1 and (not keys or p["keys"] & keys)),
         key=lambda p: (p["date"] or date(p["year"], 1, 1)),
         reverse=True,
     )[:12]
@@ -625,6 +632,6 @@ def for_you(user: User, next_things: dict[str, Any], college: Optional[_College]
 def _topic_spark(college: _College, k: str, today: date) -> list[int]:
     years = list(range(today.year - 5, today.year + 1))
     c: Counter[int] = Counter(
-        p["year"] for p in college.pubs.values() if p["year"] in years and k in {_fold(t) for t in p["topics"]}
+        p["year"] for p in college.pubs.values() if p["year"] in years and k in p["keys"]
     )
     return [c.get(y, 0) for y in years]

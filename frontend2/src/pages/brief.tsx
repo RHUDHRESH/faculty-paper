@@ -47,6 +47,8 @@ type Dept = {
 }
 export type Brief = {
   year: number
+  /** The year is still running: its figures are to date, not comparable. */
+  partial: boolean
   financial_year: string
   years_available: number[]
   headline: string
@@ -180,7 +182,7 @@ function DeptRanking({ rows, year }: { rows: Dept[]; year: number }) {
 export function YearBrief() {
   const [params, setParams] = useSearchParams()
   const year = params.get("year") ?? ""
-  const q = useApi<Brief>(["reports-brief", year], `/reports/brief${year ? `?year=${year}` : ""}`)
+  const q = useApi<Brief>(["reports-brief", year], `/api/reports/brief${year ? `?year=${year}` : ""}`)
   const b = q.data
   const href = (fmt: "pdf" | "xlsx") => `/api/reports/brief/export?fmt=${fmt}${b ? `&year=${b.year}` : ""}`
 
@@ -232,14 +234,22 @@ export function YearBrief() {
           <Answer>{b.headline}</Answer>
 
           <section className="grid grid-cols-[minmax(0,1fr)] gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            <Figure label={`Papers, ${b.year}`} value={n(b.totals.papers)}>
-              <Delta now={b.totals.papers} before={b.totals.papers_prev} />
+            <Figure label={`Papers, ${b.year}${b.partial ? " to date" : ""}`} value={n(b.totals.papers)}>
+              {b.partial ? (
+                <span className="text-fg-muted">The year is not over; {n(b.totals.papers_prev)} in all of {b.year - 1}</span>
+              ) : (
+                <Delta now={b.totals.papers} before={b.totals.papers_prev} />
+              )}
             </Figure>
             <Figure label="Papers per teacher" value={n(b.totals.per_teacher)}>
-              <Delta now={b.totals.per_teacher} before={b.totals.per_teacher_prev} />
+              {b.partial ? (
+                <span className="text-fg-muted">{n(b.totals.per_teacher_prev)} in all of {b.year - 1}</span>
+              ) : (
+                <Delta now={b.totals.per_teacher} before={b.totals.per_teacher_prev} />
+              )}
             </Figure>
             <Figure label="In Q1 or Q2 journals" value={b.totals.top_quartile_share == null ? "—" : `${b.totals.top_quartile_share}%`}>
-              <Delta now={b.totals.top_quartile_share} before={b.totals.top_quartile_share_prev} unit=" points" />
+              <Delta now={b.totals.top_quartile_share} before={b.totals.top_quartile_share_prev} unit=" pts" />
             </Figure>
             <Figure label={`Paid, FY ${b.financial_year}`} value={money(b.totals.paid)}>
               <span className="text-fg-muted">

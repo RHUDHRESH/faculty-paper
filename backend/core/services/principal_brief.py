@@ -91,7 +91,9 @@ def _quartiles_by_year() -> dict[int, tuple[int, int]]:
 
 def brief(year: Optional[int] = None) -> dict[str, Any]:
     today = date.today()
-    year = year or (today.year - 1 if today.month < 7 else today.year)
+    # The last complete year by default: a year still running compared with a
+    # whole one reads as a fall that has not happened.
+    year = year or today.year - 1
     years = list(range(year - 4, year + 1))
     fy = fy_label(year)
 
@@ -183,6 +185,7 @@ def brief(year: Optional[int] = None) -> dict[str, Any]:
     }
     brief = {
         "year": year,
+        "partial": year >= today.year,
         "financial_year": fy,
         "years_available": sorted({y for y in by_year if y} | {today.year}, reverse=True),
         "totals": totals,
@@ -232,7 +235,7 @@ def _inr(n: Optional[float], sign: str = "₹") -> str:
 def headline(b: dict[str, Any]) -> str:
     t, y = b["totals"], b["year"]
     parts = [f"In {y} the college published {t['papers']} papers"]
-    if t["change"] is not None:
+    if t["change"] is not None and not b.get("partial"):
         word = "up" if t["change"] > 0 else "down" if t["change"] < 0 else "level"
         parts.append(
             f", {word} {abs(t['change']):g}% on {y - 1}" if word != "level" else f", the same as {y - 1}"
@@ -240,6 +243,9 @@ def headline(b: dict[str, Any]) -> str:
     if t["per_teacher"] is not None:
         parts.append(f": {t['per_teacher']:g} per teacher across {t['teachers']} teachers")
     s = "".join(parts) + "."
+    if b.get("partial"):
+        s = f"{y} is not over, so these are figures to date. " + s.replace(
+            f"In {y} the college published", f"So far in {y} the college has published")
     if t["budget"]:
         s += f" It paid {_inr(t['paid'])} in incentives in FY {b['financial_year']}, {t['budget_used']:g}% of the {_inr(t['budget'])} budget."
     else:

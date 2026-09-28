@@ -572,22 +572,21 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
     return {"id": cfg.id, "version": cfg.version, "name": cfg.name}
 
 
-@api.get("/admin/audit", auth=session_auth)
-def admin_audit(
-    request: HttpRequest,
+def _audit_queryset(
+    user,
     q: Optional[str] = None,
     action: Optional[str] = None,
-    limit: int = 100,
-    offset: int = 0,
+    person: Optional[str] = None,
+    claim: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
 ):
-    """Filterable, paginated audit trail.
+    """The rows this reader may see, narrowed by the log's filters.
 
-    The old shape was the last 100 rows with no filters and no detail — the
-    recorded before/after values were stored and never shown anywhere.
+    `person` matches the actor's email or name; `claim` matches a claim id or
+    ticket number (and the flags filed under that claim); `date_from` and
+    `date_to` are inclusive calendar days in the college's time zone.
     """
-    user = require_user(request)
-    if not rbac.can_view_audit(user.role):
-        raise HttpError(403, "Forbidden")
     qs = AuditLog.objects.select_related("actor").order_by("-created_at")
     # The trail of the reader's own papers names every desk and person that
     # handled them; on those they are the claimant, who is told neither. A
@@ -612,6 +611,58 @@ def admin_audit(
             | Q(actor__email__icontains=q)
             | Q(actor__name__icontains=q)
         )
+    if person:
+        qs = qs.filter(Q(actor__email__icontains=person) | Q(actor__name__icontains=person))
+    if claim:
+        ids = list(
+            Claim.objects.filter(Q(id=claim) | Q(ticket_number__iexact=claim)).values_list("id", flat=True)
+        ) or [claim]
+        flag_ids = list(ClaimFlag.objects.filter(claim_id__in=ids).values_list("id", flat=True))
+        qs = qs.filter(
+            Q(entity="Claim", entity_id__in=ids) | Q(entity="ClaimFlag", entity_id__in=flag_ids)
+        )
+    for raw, lookup in ((date_from, "created_at__date__gte"), (date_to, "created_at__date__lte")):
+        if raw:
+            try:
+                day = date.fromisoformat(raw)
+            except ValueError:
+                raise HttpError(400, f"Not a date: {raw}. Use YYYY-MM-DD.")
+            qs = qs.filter(**{lookup: day})
+    if date_from and date_to and date_to < date_from:
+        raise HttpError(400, "The end date is before the start date.")
+    return qs
+
+
+def _audit_row(l: AuditLog) -> dict:
+    return {
+        "id": l.id,
+        "action": l.action,
+        "entity": l.entity,
+        "entity_id": l.entity_id,
+        "actor": l.actor.email if l.actor else None,
+        "actor_name": l.actor.name if l.actor else None,
+        "detail_json": l.detail_json,
+        "created_at": l.created_at.isoformat(),
+    }
+
+
+@api.get("/admin/audit", auth=session_auth)
+def admin_audit(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    action: Optional[str] = None,
+    person: Optional[str] = None,
+    claim: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """Filterable, paginated audit trail: who changed what, and when."""
+    user = require_user(request)
+    if not rbac.can_view_audit(user.role):
+        raise HttpError(403, "Forbidden")
+    qs = _audit_queryset(user, q, action, person, claim, date_from, date_to)
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
     total = qs.count()
@@ -619,19 +670,50 @@ def admin_audit(
         "total": total,
         "limit": limit,
         "offset": offset,
-        "results": [
-            {
-                "id": l.id,
-                "action": l.action,
-                "entity": l.entity,
-                "entity_id": l.entity_id,
-                "actor": l.actor.email if l.actor else None,
-                "detail_json": l.detail_json,
-                "created_at": l.created_at.isoformat(),
-            }
-            for l in qs[offset : offset + limit]
-        ],
+        "results": [_audit_row(l) for l in qs[offset : offset + limit]],
     }
+
+
+AUDIT_CSV_CAP = 50000
+
+
+@api.get("/admin/audit.csv", auth=session_auth)
+def admin_audit_csv(
+    request: HttpRequest,
+    q: Optional[str] = None,
+    action: Optional[str] = None,
+    person: Optional[str] = None,
+    claim: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+):
+    """The same filtered trail as a spreadsheet, for an auditor or an inquiry."""
+    import csv
+    import io
+
+    from django.http import HttpResponse
+
+    user = require_user(request)
+    if not rbac.can_view_audit(user.role):
+        raise HttpError(403, "Forbidden")
+    qs = _audit_queryset(user, q, action, person, claim, date_from, date_to)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["When", "Who", "Email", "Action", "Record", "Record id", "Detail"])
+    for l in qs[:AUDIT_CSV_CAP]:
+        w.writerow([
+            l.created_at.isoformat(),
+            l.actor.name if l.actor else "System",
+            l.actor.email if l.actor else "",
+            l.action,
+            l.entity,
+            l.entity_id or "",
+            l.detail_json or "",
+        ])
+    resp = HttpResponse(buf.getvalue(), content_type="text/csv; charset=utf-8")
+    stamp = timezone.now().strftime("%Y-%m-%d")
+    resp["Content-Disposition"] = f'attachment; filename="audit-log-{stamp}.csv"'
+    return resp
 
 
 @api.get("/admin/audit/origins", auth=session_auth)
@@ -925,3 +1007,81 @@ __all__ = [
     'scimago_stats',
     'scimago_sync',
 ]
+
+
+#: Statuses whose amount is still open to change. Paid, rejected and withdrawn
+#: tickets keep the amount they were settled on; a draft reprices on submit.
+_REPRICEABLE = (
+    ClaimStatus.SUBMITTED,
+    ClaimStatus.CLEARED,
+    ClaimStatus.PRINCIPAL_APPROVED,
+    ClaimStatus.DIRECTOR_APPROVED,
+)
+
+
+@api.post("/admin/formula/preview", auth=session_auth)
+def preview_formula(request: HttpRequest, payload: FormulaIn):
+    """Before/after: what every open claim is worth now, and under this draft.
+
+    Nothing is saved. Paid tickets are not repriced by a new version, so they
+    are not listed; the quota is left out because it does not depend on the
+    policy's rates.
+    """
+    from core.api.common import price_claim
+    from core.services.remuneration import formula_from_model
+
+    user = require_user(request)
+    if not rbac.can_edit_formula(user.role):
+        raise HttpError(403, "Forbidden")
+    live = FormulaConfig.objects.filter(active=True).order_by("-version").first()
+    fields = payload.dict()
+    for k in ("effective_from", "effective_to", "filing_cutoff_day"):
+        fields.pop(k, None)
+    if fields.get("student_project_amount") is None:
+        fields["student_project_amount"] = (
+            live.student_project_amount if live else DEFAULT_STUDENT_PROJECT_AMOUNT
+        )
+    if not fields.get("publication_type_multipliers_json"):
+        fields["publication_type_multipliers_json"] = json.dumps(DEFAULT_PUB_TYPE_MULTIPLIERS)
+    try:
+        json.loads(fields["author_point_json"])
+    except Exception:
+        raise HttpError(400, "Invalid author_point_json")
+    draft = FormulaConfig(**fields)
+    before_cfg = formula_from_model(live) if live else None
+    after_cfg = formula_from_model(draft)
+
+    changed = []
+    count = 0
+    before_total = 0.0
+    after_total = 0.0
+    qs = (
+        Claim.objects.filter(status__in=_REPRICEABLE)
+        .select_related("owner")
+        .order_by("-updated_at")
+    )
+    for c in qs.iterator():
+        count += 1
+        b = price_claim(c, before_cfg).remuneration or 0.0
+        a = price_claim(c, after_cfg).remuneration or 0.0
+        before_total += b
+        after_total += a
+        if round(a, 2) != round(b, 2):
+            changed.append({
+                "id": c.id,
+                "ticket_number": c.ticket_number,
+                "title": c.paper_title,
+                "owner": c.owner.name if c.owner_id else None,
+                "status": c.status,
+                "before": round(b, 2),
+                "after": round(a, 2),
+            })
+    changed.sort(key=lambda r: abs(r["after"] - r["before"]), reverse=True)
+    return {
+        "live_version": live.version if live else None,
+        "open_claims": count,
+        "changed_count": len(changed),
+        "before_total": round(before_total, 2),
+        "after_total": round(after_total, 2),
+        "changed": changed[:200],
+    }

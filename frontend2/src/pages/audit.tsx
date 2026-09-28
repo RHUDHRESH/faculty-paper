@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom"
 import {
   ArrowRight,
   CheckCircle2,
+  Download,
   ExternalLink,
   History,
   Search,
@@ -297,10 +298,6 @@ type AuditPayload = {
 }
 
 const PAGE_SIZE = 50
-// The server caps `limit` at 500 — the ceiling this screen asks for whenever
-// a date range narrows the list, since `created_at` has no server-side
-// filter to hand that work to. See the note near `refining` below.
-const DATE_FETCH_CAP = 500
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", {
@@ -373,12 +370,6 @@ function Origins() {
   )
 }
 
-function withinRange(iso: string, from: string, to: string): boolean {
-  const t = new Date(iso).getTime()
-  if (from && t < new Date(`${from}T00:00:00`).getTime()) return false
-  if (to && t > new Date(`${to}T23:59:59.999`).getTime()) return false
-  return true
-}
 
 /**
  * The record of every consequential action in a system that pays people.
@@ -392,6 +383,8 @@ export function Audit() {
   const action = searchParams.get("action") ?? ""
   const from = searchParams.get("from") ?? ""
   const to = searchParams.get("to") ?? ""
+  const person = searchParams.get("person") ?? ""
+  const claim = searchParams.get("claim") ?? ""
   const page = Math.max(0, Number.parseInt(searchParams.get("page") ?? "0", 10) || 0)
 
   const [searchDraft, setSearchDraft] = useState(q)
@@ -440,40 +433,28 @@ export function Audit() {
     setSearchParams(new URLSearchParams())
   }
 
-  // The server has no `from`/`to` — it only knows `q`, `action`, `limit`
-  // and `offset` (read straight off `admin_audit` in backend/core/api.py).
-  // A date range is therefore applied on whatever the server hands back
-  // rather than by the server, which means fetching more than one page's
-  // worth up front. `refining` picks between the cheap, common path (server
-  // pagination, one page at a time) and the wider one only when a date
-  // range is actually asked for.
-  const refining = Boolean(from || to)
-
-  const listQuery = new URLSearchParams()
-  if (q) listQuery.set("q", q)
-  if (action) listQuery.set("action", action)
-  listQuery.set("limit", String(refining ? DATE_FETCH_CAP : PAGE_SIZE))
-  listQuery.set("offset", String(refining ? 0 : page * PAGE_SIZE))
+  // Every filter is applied by the server, so the total and the CSV agree
+  // with what is on screen whatever the date range.
+  const filterQuery = new URLSearchParams()
+  if (q) filterQuery.set("q", q)
+  if (action) filterQuery.set("action", action)
+  if (person) filterQuery.set("person", person)
+  if (claim) filterQuery.set("claim", claim)
+  if (from) filterQuery.set("date_from", from)
+  if (to) filterQuery.set("date_to", to)
+  const listQuery = new URLSearchParams(filterQuery)
+  listQuery.set("limit", String(PAGE_SIZE))
+  listQuery.set("offset", String(page * PAGE_SIZE))
+  const csvHref = `/api/admin/audit.csv${filterQuery.toString() ? `?${filterQuery.toString()}` : ""}`
 
   const { data, isLoading, isError, error, refetch } = useApi<AuditPayload>(
-    ["audit", q, action, refining, refining ? null : page],
+    ["audit", q, action, person, claim, from, to, page],
     `/api/admin/audit?${listQuery.toString()}`,
     { placeholderData: (prev) => prev }
   )
 
-  const dateFiltered = useMemo(() => {
-    if (!refining || !data) return null
-    return data.results.filter((r) => withinRange(r.created_at, from, to))
-  }, [refining, data, from, to])
-
-  const rows = refining
-    ? (dateFiltered ?? []).slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-    : data?.results ?? []
-  const total = refining ? dateFiltered?.length ?? 0 : data?.total ?? 0
-  // The batch this screen widened to for the date filter is itself capped —
-  // if more rows matched the search and action than that cap, an older
-  // entry inside the chosen range can be missing rather than merely absent.
-  const maybeIncomplete = refining && (data?.total ?? 0) > DATE_FETCH_CAP
+  const rows = data?.results ?? []
+  const total = data?.total ?? 0
 
   useEffect(() => {
     if (!data) return
@@ -482,7 +463,7 @@ export function Audit() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, total])
 
-  const filtered = Boolean(q) || Boolean(action) || Boolean(from) || Boolean(to)
+  const filtered = Boolean(q || action || from || to || person || claim)
   const shown = collapseRuns(rows)
 
   const columns: Column<ShownRow>[] = [
@@ -606,22 +587,44 @@ export function Audit() {
             />
           </label>
         </div>
+        <Input
+          defaultValue={person}
+          key={`p-${person}`}
+          onBlur={(e) => setParam("person", e.target.value.trim())}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") setParam("person", e.currentTarget.value.trim())
+          }}
+          placeholder="Who (name or email)"
+          aria-label="Filter by person"
+          className="w-full max-w-[12rem]"
+        />
+        <Input
+          defaultValue={claim}
+          key={`c-${claim}`}
+          onBlur={(e) => setParam("claim", e.target.value.trim())}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") setParam("claim", e.currentTarget.value.trim())
+          }}
+          placeholder="Claim ticket or ID"
+          aria-label="Filter by claim"
+          className="w-full max-w-[12rem]"
+        />
         {filtered && (
           <Button kind="quiet" size="sm" onClick={clearFilters}>
             Clear filters
           </Button>
         )}
+        <a
+          href={csvHref}
+          download
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-bg-subtle"
+        >
+          <Download className="size-4" aria-hidden />
+          Download CSV{total ? ` (${total.toLocaleString("en-IN")})` : ""}
+        </a>
       </div>
 
       {!filtered && page === 0 && <Origins />}
-
-      {maybeIncomplete && (
-        <p className="text-xs text-caution">
-          More than {DATE_FETCH_CAP} entries match this search and action — an entry older than the most
-          recent {DATE_FETCH_CAP} may fall inside this date range without appearing here. Narrow the
-          search or action to be sure.
-        </p>
-      )}
 
       {isLoading ? (
         <>

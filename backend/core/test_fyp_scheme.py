@@ -23,6 +23,7 @@ from django.core.management import call_command
 from django.test import Client, TestCase
 
 from core.models import AuditLog, Role, Team, TeamMember, User
+from core.tests import CONFIRMED
 
 HEADER = [
     "Department", "Team ID", "Name", "Faculty ID",
@@ -421,6 +422,7 @@ class StudentProjectClaimRuleTests(TestCase):
             "author_position": 3,
             "attachments": [_paper_attachment()],
             "submit": True,
+            "confirmations": CONFIRMED,
         }
         body.update(over)
         return body
@@ -589,7 +591,7 @@ class StudentProjectClaimRuleTests(TestCase):
         )
         self.assertEqual(self.file(paper_title="Instead").status_code, 200)
         refile = self.client.patch(
-            f"/api/claims/{first['id']}", data=json.dumps({"submit": True}),
+            f"/api/claims/{first['id']}", data=json.dumps({"submit": True, "confirmations": CONFIRMED}),
             content_type="application/json",
         )
         self.assertEqual(refile.status_code, 409, refile.content)
@@ -629,7 +631,7 @@ class StudentProjectClaimRuleTests(TestCase):
         draft = self.file(publication_type="", submit=False)
         self.assertEqual(draft.status_code, 200, draft.content)
         filed = self.client.patch(
-            f"/api/claims/{draft.json()['id']}", data=json.dumps({"submit": True}),
+            f"/api/claims/{draft.json()['id']}", data=json.dumps({"submit": True, "confirmations": CONFIRMED}),
             content_type="application/json",
         )
         self.assertEqual(filed.status_code, 400, filed.content)

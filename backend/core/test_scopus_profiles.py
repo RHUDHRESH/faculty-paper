@@ -213,7 +213,20 @@ class ImportProfilesTests(TestCase):
         self.assertEqual(row.total_citations, 200)
         self.assertGreaterEqual(row.imported_at, first)
         self.assertEqual(row.source_sheet, "Mr. S. Joyal Isac")
-        self.assertEqual(len(row.documents), 2)
+
+    def test_the_papers_go_into_the_publication_record_once(self):
+        """The sheet's paper list is not kept on the profile: a linked person's
+        papers land in Publication/Authorship, and a re-import adds none twice."""
+        from core.models import Authorship, Publication
+
+        joyal = _person("joyal@test.edu", "Joyal Isac S", scopus_author_id=JOYAL)
+        first = self._import()
+        self.assertEqual(first["papers_added"], 2)
+        self.assertEqual(Authorship.objects.filter(user=joyal).count(), 2)
+        again = self._import()
+        self.assertEqual((again["papers_added"], again["papers_matched"]), (0, 2))
+        self.assertEqual(Publication.objects.count(), 2)
+        self.assertEqual(Authorship.objects.filter(user=joyal).count(), 2)
 
     def test_the_command_prints_the_counts_and_the_unmatched_ids(self):
         with tempfile.TemporaryDirectory() as tmp:

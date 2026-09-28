@@ -107,8 +107,13 @@ test.describe("A Principal's own paper", () => {
     const page = await asRole(browser, "PRINCIPAL")
     await page.goto("/papers/new")
     await waitForSettled(page)
-    await expect(page.getByRole("heading", { name: "File a paper", level: 1 })).toBeVisible()
-
+    // Filing starts on choosing the paper; by hand is behind "Paste a DOI".
+    await expect(page.getByRole("heading", { name: "Choose the paper", level: 1 })).toBeVisible()
+    await page.getByRole("radio", { name: /Paste a DOI or link/ }).click()
+    await page.getByRole("button", { name: "type the details in by hand" }).click()
+    // The three conditions, each ticked by the Principal as by any claimant.
+    await expect(page.getByRole("heading", { name: "Confirm three things about this paper", level: 1 })).toBeVisible()
+    await expect(page.getByRole("checkbox")).toHaveCount(3)
     for (const box of await page.getByRole("checkbox").all()) await box.check()
     await page.getByRole("button", { name: "Start the claim" }).click()
     await page.getByLabel("Paper title").fill(title)
@@ -142,7 +147,7 @@ test.describe("A Principal's own paper", () => {
     ticket = filed.ticket_number
 
     // It is in their own papers, at the claimant's stage.
-    await page.goto("/papers")
+    await page.goto("/papers/claims")
     await waitForSettled(page)
     await page.getByLabel("Search your papers").fill(ticket)
     const row = page.getByRole("row").filter({ hasText: ticket })

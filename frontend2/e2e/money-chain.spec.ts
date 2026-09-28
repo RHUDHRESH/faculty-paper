@@ -137,7 +137,7 @@ test.describe("The money chain", () => {
 
   test("the claimant sees their filed paper waiting to be checked", async ({ browser }) => {
     const page = await asRole(browser, "FACULTY")
-    await page.goto("/papers")
+    await page.goto("/papers/claims")
     await waitForSettled(page)
 
     await page.getByLabel("Search your papers").fill(seeded.claim!.ticket_number)
@@ -402,7 +402,7 @@ test.describe("Filing a paper", () => {
     await expect(page.getByLabel("Journal title")).toBeVisible()
 
     // And the draft really exists, on the server, as this account's.
-    await page.goto("/papers")
+    await page.goto("/papers/claims")
     await waitForSettled(page)
     await page.getByLabel("Search your papers").fill(title)
     const row = page.getByRole("row").filter({ hasText: title })

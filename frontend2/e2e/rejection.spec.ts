@@ -180,7 +180,7 @@ test.describe("A ticket sent back, and filed again", () => {
     await expect(page.getByRole("link", { name: "Edit" })).toBeVisible()
 
     // The list says the same thing, because that is the screen they land on.
-    await page.goto("/papers")
+    await page.goto("/papers/claims")
     await waitForSettled(page)
     await page.getByLabel("Search your papers").fill(seeded.claim!.ticket_number)
     const row = page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
@@ -204,13 +204,18 @@ test.describe("A ticket sent back, and filed again", () => {
     await expect(page).toHaveURL(new RegExp(`/papers/${seeded.claim!.id}/edit$`))
     await waitForSettled(page)
 
-    // No eligibility gate on the way back in — the three confirmations belong
-    // to starting a claim, and making somebody re-tick them to correct a typo
-    // is how a correction gets abandoned.
+    // docs/ux/04: ticks are never remembered, so a reopened ticket with no
+    // acknowledgement on record for its article shows the three conditions
+    // again, unticked, about *this* article by name — then the form.
     await expect(
-      page.getByRole("heading", { name: "Confirm before you start" }),
-      "the eligibility gate stands in front of an edit"
-    ).toHaveCount(0)
+      page.getByRole("heading", { name: "Confirm three things about this paper", level: 1 })
+    ).toBeVisible()
+    await expect(page.getByText(seeded.claim!.title).first()).toBeVisible()
+    const gate = page.getByRole("checkbox")
+    await expect(gate).toHaveCount(3)
+    for (const box of await gate.all()) await expect(box).not.toBeChecked()
+    for (const box of await gate.all()) await box.check()
+    await page.getByRole("button", { name: "Start the claim" }).click()
 
     // It opened on *their* ticket, not on a blank form. The page title carries
     // the ticket number, which is the one thing on this screen that could not

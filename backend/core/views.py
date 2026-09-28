@@ -100,6 +100,21 @@ def avatar_media(request: HttpRequest, filename: str) -> HttpResponse:
     return _stream(name, filename, kind.content_type)
 
 
+def site_media(request: HttpRequest, filename: str) -> HttpResponse:
+    """A department header imported from the college website, for anyone signed in."""
+    if not request.user.is_authenticated or not getattr(request.user, "active", False):
+        return JsonResponse({"detail": "Unauthorized"}, status=401)
+    if not _SAFE_NAME.match(filename):
+        raise Http404
+    kind = kind_for_stored_name(filename)
+    if kind is None or not kind.content_type.startswith("image/"):
+        raise Http404
+    name = f"site/{filename}"
+    if not default_storage.exists(name):
+        raise Http404
+    return _stream(name, filename, kind.content_type)
+
+
 def feed_media(request: HttpRequest, filename: str) -> HttpResponse:
     """A picture or PDF shared in a post, to whoever may read that post and nobody else.
 

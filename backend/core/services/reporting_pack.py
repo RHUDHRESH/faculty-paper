@@ -100,11 +100,15 @@ def _quartile_of(claim_quartile: str | None) -> str:
 def record_only_publications(*, year: int | None = None, q: str | None = None, owner=None) -> list[dict[str, Any]]:
     """Cached `_record_only_publications`: the same for every college-wide
     reader, and rebuilt as soon as any write moves the aggregate generation."""
-    from core.services.aggregate_cache import cached
+    from core.services.aggregate_cache import shared as cached
 
+    if q and q.strip():
+        # A search is narrow and cheap, and caching every typed term would
+        # hold a few MB per term in a 512 MB process.
+        return _record_only_publications(year=year, q=q, owner=owner)
     return cached(
         "record_only_publications",
-        {"year": year, "q": (q or "").strip(), "owner": getattr(owner, "id", None)},
+        {"year": year, "owner": getattr(owner, "id", None)},
         lambda: _record_only_publications(year=year, q=q, owner=owner),
     )
 

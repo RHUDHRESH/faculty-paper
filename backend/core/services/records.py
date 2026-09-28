@@ -242,7 +242,7 @@ def collect(
     all of them, so it is kept per data generation.
     """
     if users is None:
-        from core.services.aggregate_cache import cached
+        from core.services.aggregate_cache import shared as cached
 
         return cached(
             "records.collect", {"unmatched": include_unmatched},

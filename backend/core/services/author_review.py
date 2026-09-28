@@ -48,7 +48,7 @@ def _groups() -> dict[str, dict[str, Any]]:
     admin home screen asks for it on every load, so it is kept per data
     generation (any write rebuilds it).
     """
-    from core.services.aggregate_cache import cached
+    from core.services.aggregate_cache import shared as cached
 
     def build() -> dict[str, dict[str, Any]]:
         groups: dict[str, dict[str, Any]] = {}

@@ -75,6 +75,64 @@ def cached(name: str, params: dict[str, Any], compute: Callable[[], Any]) -> Any
     return value
 
 
+def _shared_seconds() -> int:
+    return int(getattr(settings, "SHARED_AGGREGATE_SECONDS", 600))
+
+
+def data_version() -> tuple:
+    """A cheap fingerprint of the college record, in one query.
+
+    The generation sees every write made by this process; this sees the ones
+    the job worker makes in its own process (a harvest adds papers, a match
+    links authorships, an import adds ledger rows), which is what the short
+    `cached` expiry was standing in for. Row counts and the newest change of
+    each table the college-wide figures are built from.
+    """
+    from django.db import connection
+
+    sql = (
+        "SELECT "
+        "(SELECT COUNT(*) FROM core_publication),"
+        "(SELECT COALESCE(SUM(citations), 0) FROM core_publication),"
+        "(SELECT COUNT(*) FROM core_authorship),"
+        "(SELECT COUNT(user_id) FROM core_authorship),"
+        "(SELECT COUNT(*) FROM core_paidledger),"
+        "(SELECT MAX(created_at) FROM core_paidledger),"
+        "(SELECT COUNT(*) FROM core_claim),"
+        "(SELECT MAX(updated_at) FROM core_claim),"
+        "(SELECT COUNT(*) FROM core_user),"
+        "(SELECT MAX(updated_at) FROM core_user)"
+    )
+    with connection.cursor() as cur:
+        cur.execute(sql)
+        return tuple(str(v) for v in cur.fetchone())
+
+
+def shared(name: str, params: dict[str, Any], compute: Callable[[], Any]) -> Any:
+    """Like `cached`, for the college-wide figures that take seconds to build.
+
+    Keyed by the generation *and* `data_version()`, so it can be kept for
+    `SHARED_AGGREGATE_SECONDS` (ten minutes) instead of thirty seconds: on a
+    tenth of a CPU the thirty-second expiry meant nearly every visit to
+    /reports rebuilt every college paper from scratch. The same idea as
+    `research_picture.shared_college`, for the reports' figures.
+    """
+    ttl = _shared_seconds()
+    if ttl <= 0 or _seconds() <= 0:
+        return compute()
+    version = hashlib.sha1(repr(data_version()).encode()).hexdigest()[:12]
+    digest = hashlib.sha1(
+        json.dumps(params, sort_keys=True, default=str).encode()
+    ).hexdigest()[:16]
+    key = f"shared:{name}:{generation()}:{version}:{digest}"
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
+    value = compute()
+    cache.set(key, value, ttl)
+    return value
+
+
 class BumpOnWriteMiddleware:
     """A write request of any kind moves the generation once it has run."""
 

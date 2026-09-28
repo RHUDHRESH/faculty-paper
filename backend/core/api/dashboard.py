@@ -26,7 +26,7 @@ from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimReason, ClaimStatus, PAYABLE_STATUSES, PaidLedger, Role, User
 from core.services import rbac
 from core.services import exporters
-from core.services.aggregate_cache import cached
+from core.services.aggregate_cache import shared as cached
 from core.services.remuneration import CATEGORY_LABELS
 from core.services.scopus_profiles import department_totals
 from core.services import college_totals

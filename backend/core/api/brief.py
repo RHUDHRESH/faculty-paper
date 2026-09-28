@@ -13,7 +13,7 @@ from ninja.errors import HttpError
 
 from core.api.common import api, rate_limit, require_user, session_auth
 from core.services import institution, principal_brief, rbac
-from core.services.aggregate_cache import cached
+from core.services.aggregate_cache import shared as cached
 
 
 def _gate(request: HttpRequest):

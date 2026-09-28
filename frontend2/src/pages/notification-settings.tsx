@@ -82,7 +82,7 @@ export function NotificationSettings() {
   const groups = p ? groupKinds(p.kinds) : []
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
+    <div className="page max-w-3xl space-y-8 py-8">
       <div>
         <PageTitle>Notification settings</PageTitle>
         <Sub>

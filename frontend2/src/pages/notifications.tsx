@@ -55,7 +55,7 @@ export function NotificationsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="page max-w-3xl space-y-6 py-8">
       <header className="page-head">
         <div>
           <PageTitle>Notifications</PageTitle>

@@ -45,6 +45,18 @@ class LedgerPageTests(TestCase):
         self.assertEqual(self.get(q="V-77")["total"], 1)
         self.assertEqual(self.get(q="priya antennas")["total"], 0)
 
+    def test_payments_and_people_are_counted_as_reports_counts_them(self):
+        """Four rows: Priya's payment, Arun's payment and its reversal, and a
+        ₹0 research-quota row. One payment stands, to one person."""
+        PaidLedger.objects.create(
+            payout_month=date(2024, 2, 1), amount=0, faculty_name="Quota Person",
+            staff_id="S300", department="CSE", paper_title="Inside the quota",
+        )
+        body = self.get()
+        self.assertEqual(body["total"], 4)  # rows, for paging
+        self.assertEqual(body["payments"], 1)
+        self.assertEqual(body["people"], 1)
+
     def test_totals_by_month_ignore_the_month_filter(self):
         body = self.get(month="2024-02")
         self.assertEqual(body["total"], 2)

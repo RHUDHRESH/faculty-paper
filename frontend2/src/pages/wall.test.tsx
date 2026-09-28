@@ -10,7 +10,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
 import { ImpactCardPage } from "@/pages/impact"
-import { WallOfFame, mayPin, type WallPayload } from "@/pages/wall"
+import { WallBoard, mayPin, type WallPayload } from "@/pages/wall"
+
+const Board = () => <WallBoard department="" month="" onMonth={() => {}} />
 import { FACULTY, HOD, fakeApi, renderWithProviders, type ApiTable } from "@/test/harness"
 
 /**
@@ -62,7 +64,7 @@ function mount(ui: React.ReactElement, me: Me, table: ApiTable) {
 
 describe("WallOfFame", () => {
   it("shows one card per paper, with every college author on it", async () => {
-    mount(<WallOfFame />, HOD, { "/api/wall": () => WALL })
+    mount(<Board />, HOD, { "/api/wall": () => WALL })
     const title = await screen.findByText("Shared paper")
     const card = title.closest("li") as HTMLElement
     expect(within(card).getByText("Asha Menon")).toBeInTheDocument()
@@ -71,15 +73,15 @@ describe("WallOfFame", () => {
     expect(screen.queryByText(/₹/)).toBeNull()
   })
 
-  it("opens on the reader's own department", async () => {
-    mount(<WallOfFame />, HOD, { "/api/wall": () => WALL })
+  it("opens on the whole college", async () => {
+    mount(<Board />, HOD, { "/api/wall": () => WALL })
     await screen.findByText("Shared paper")
-    expect(vi.mocked(api)).toHaveBeenCalledWith("/api/wall?department=Physics")
+    expect(vi.mocked(api)).toHaveBeenCalledWith("/api/wall")
   })
 
   it("lets the department's head choose a paper of the month", async () => {
     const pin = vi.fn(() => ({ ok: true }))
-    mount(<WallOfFame />, HOD, { "/api/wall/pin": pin, "/api/wall": () => WALL })
+    mount(<Board />, HOD, { "/api/wall/pin": pin, "/api/wall": () => WALL })
     await screen.findByText("Shared paper")
     await userEvent.click(screen.getAllByRole("button", { name: "Make paper of the month" })[0])
     await waitFor(() =>
@@ -91,18 +93,20 @@ describe("WallOfFame", () => {
   })
 
   it("offers nobody else the pin", async () => {
-    mount(<WallOfFame />, { ...FACULTY, department: "Physics" }, { "/api/wall": () => WALL })
+    mount(<Board />, { ...FACULTY, department: "Physics" }, { "/api/wall": () => WALL })
     await screen.findByText("Shared paper")
     expect(screen.queryByRole("button", { name: "Make paper of the month" })).toBeNull()
   })
 
   it("puts the paper of the month first, under its own heading", async () => {
     const pinned = { ...WALL.cards[1], pinned: true }
-    mount(<WallOfFame />, HOD, {
+    mount(<Board />, HOD, {
       "/api/wall": () => ({ ...WALL, pinned, cards: [pinned, WALL.cards[0]] }),
     })
-    const lead = await screen.findByRole("region", { name: "Paper of the month" })
-    expect(within(lead).getByText("Second paper")).toBeInTheDocument()
+    await screen.findByText("Second paper")
+    const titles = screen.getAllByText(/paper$/).map((n) => n.textContent)
+    expect(titles.indexOf("Second paper")).toBeLessThan(titles.indexOf("Shared paper"))
+    expect(screen.getAllByText("Paper of the month").length).toBeGreaterThan(0)
   })
 })
 

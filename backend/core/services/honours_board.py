@@ -550,6 +550,7 @@ def for_viewer(payload: dict[str, Any], viewer: User, *, category: str, period: 
     return {
         **payload,
         "me": {
+            "id": uid,
             "rank": mine["rank"],
             "joint": mine["joint"],
             "of": ranked,

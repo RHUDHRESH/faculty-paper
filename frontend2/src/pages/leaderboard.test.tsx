@@ -8,106 +8,61 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import { api } from "@/lib/api"
 import { navFor } from "@/app/nav"
-import { Leaderboard } from "@/pages/leaderboard"
+import { Leaderboard, rankText, standing, toCsv, type HonoursBoard } from "@/pages/leaderboard"
 import { FACULTY, failing, fakeApi, renderWithProviders } from "@/test/harness"
 
-/**
- * The leaderboard is open to every role and never carries money. These pin
- * what a reader checks first: where am I, which way did I move, what does
- * the score mean, and does changing a filter actually ask for that board.
- */
-
-const PERIODS = [
-  { key: "academic", label: "This academic year (2026–27)", from: "2026-06-01", to: "2027-05-31" },
-  { key: "last_academic", label: "Last academic year (2025–26)", from: "2025-06-01", to: "2026-05-31" },
-  { key: "calendar", label: "This calendar year (2026)", from: "2026-01-01", to: "2026-12-31" },
-  { key: "all", label: "All time", from: null, to: null },
-]
-
-const SINCE = { key: "last_academic", label: "2025–26", from: "2025-06-01", to: "2026-05-31" }
-
-const METHOD = {
-  weights: { Q1: 4, Q2: 3, Q3: 2, Q4: 1, other_indexed: 1 },
-  from_claims: 92,
-  from_ledger: 2633,
-  left_out: 282,
-  citations: false,
-  updated: "2026-09-24T06:00:00Z",
-}
-
-function person(id: string, name: string, rank: number, over: Record<string, unknown> = {}) {
+function row(id: string, name: string, rank: number | null, value: number, over: Record<string, unknown> = {}) {
   return {
-    id,
-    name,
-    department: "ECE",
-    designation: "Assistant Professor",
-    rank,
-    joint: false,
-    papers: 5,
-    q1: 2,
-    score: 14,
-    first_author: 1,
-    movement: null,
-    me: false,
+    rank, joint: false,
+    person: { id, name, initials: "XX", photo_url: null, department: "ECE", designation: null },
+    value, papers: value, score: value * 2, q1: 1, first: 1, cited: 3, h_index: 1,
+    breakdown: { Q1: 1 }, spark: [0, 1, 2, 1, value], move: null, new: false,
     ...over,
   }
 }
 
-const PEOPLE = {
-  board: "people",
-  period: { ...PERIODS[0], compared_with: SINCE },
-  periods: PERIODS,
-  sort: "score",
-  department: null,
-  departments: ["CSE", "ECE"],
-  rows: [
-    person("u-ravi", "Dr Ravi Kumar", 1, { score: 20, movement: 2 }),
-    person(FACULTY.id, FACULTY.name, 2, { me: true, score: 14, movement: -1, department: "Mechanical Engineering" }),
-    person("u-mina", "Dr Mina Das", 3, { department: "CSE", score: 0, papers: 0, q1: 0 }),
-  ],
-  me: { rank: 2, of: 3, joint: false, value: 14, movement: -1 },
-  totals: { papers: 11, people: 3, people_with_papers: 2 },
-  method: METHOD,
+const SPAN = { key: "academic", label: "This academic year (2026–27)", from: "2026-06-01", to: "2027-05-31" }
+
+function board(over: Partial<HonoursBoard> = {}): HonoursBoard {
+  const rows = [
+    row("u-ravi", "Dr Ravi Kumar", 1, 9, { move: 2 }),
+    row("u-lila", "Dr Lila Rao", 2, 7),
+    row("u-joe", "Dr Joe Paul", 3, 4),
+    row(FACULTY.id, FACULTY.name, 4, 3, { move: -1 }),
+    row("u-mina", "Dr Mina Das", null, 0),
+  ]
+  return {
+    measure: "papers", label: "Most papers", unit: "papers",
+    period: { ...SPAN, compared_with: null }, periods: [SPAN], scope: null,
+    departments_list: ["CSE", "ECE"], filters: { topic: null, journal: null },
+    podium: rows.slice(0, 3), rows, ranked: 4, population: 5,
+    distribution: [{ bucket: "0", lo: null, hi: 0, count: 1 }, { bucket: "1–9", lo: 1, hi: 9, count: 4 }],
+    departments: [{
+      department: "ECE", faculty: 5, value: 23, per_faculty: 4.6, papers: 23, papers_per_faculty: 4.6,
+      score_per_faculty: 9.2, rank: 1, rank_per_faculty: 1, trend: [{ year: 2026, papers: 23 }],
+    }],
+    college_trend: [{ year: 2025, papers: 10 }, { year: 2026, papers: 23 }],
+    top_topics: [], top_journals: [], topic_options: ["AI"], journal_options: ["IEEE Access"],
+    totals: { papers: 23, people: 5, people_with_papers: 4 }, spark_years: [2022, 2023, 2024, 2025, 2026],
+    method: { weights: { Q1: 4, Q2: 3, Q3: 2, Q4: 1, other: 1 }, source: "publication record", papers_in_record: 40, newcomer_months: 24, updated: "" },
+    me: { id: FACULTY.id, rank: 4, joint: false, of: 4, population: 5, dept_rank: 4, dept_of: 4, department: "ECE", percentile: 100, move: -1, value: 3, alltime_rank: null },
+    ...over,
+  }
 }
 
-const DEPARTMENTS = {
-  board: "departments",
-  period: { ...PERIODS[0], compared_with: SINCE },
-  periods: PERIODS,
-  sort: "score",
-  per_head: false,
-  rows: [
-    {
-      department: "ECE", people: 72, rank: 1, joint: false, papers: 18, q1: 3, score: 54,
-      first_author: 4, per_head: { score: 0.75, papers: 0.25, q1: 0.04, first_author: 0.06 },
-      movement: 0, me: false,
-    },
-    {
-      department: "Mechanical Engineering", people: 28, rank: 2, joint: false, papers: 7, q1: 1,
-      score: 20, first_author: 2, per_head: { score: 0.71, papers: 0.25, q1: 0.04, first_author: 0.07 },
-      movement: 1, me: true,
-    },
-  ],
-  me: { department: "Mechanical Engineering", rank: 2, of: 2, joint: false, movement: 1 },
-  totals: { papers: 25, departments: 2, people: 100 },
-  method: METHOD,
-}
-
-function mount(table: Record<string, (path: string) => unknown> = {}) {
+function mount(data: HonoursBoard | ReturnType<typeof failing> = board(), route = "/leaderboard") {
   vi.mocked(api).mockReset()
   vi.mocked(api).mockImplementation(
     fakeApi({
       "/api/auth/me": () => FACULTY,
-      "/api/leaderboard": (path) => (path.includes("board=departments") ? DEPARTMENTS : PEOPLE),
-      ...table,
+      "/api/leaderboard": typeof data === "function" ? data : () => data,
+      "/api/wall": () => ({ month: "2026-09", months: [], cards: [], departments: [] }),
     })
   )
-  renderWithProviders(<Leaderboard />, { route: "/leaderboard" })
+  renderWithProviders(<Leaderboard />, { route })
 }
 
-function askedFor(): string[] {
-  return vi.mocked(api).mock.calls.map((c) => String(c[0])).filter((p) => p.startsWith("/api/leaderboard"))
-}
+const asked = () => vi.mocked(api).mock.calls.map((c) => String(c[0])).filter((p) => p.includes("/leaderboard"))
 
 describe("Leaderboard", () => {
   it("is in the sidebar for every role", () => {
@@ -116,90 +71,56 @@ describe("Leaderboard", () => {
     }
   })
 
-  it("tells the reader where they stand and which way they moved", async () => {
+  it("shows a podium, the reader's place, and marks their row", async () => {
     mount()
-    expect(await screen.findByText("You're 2nd of 3")).toBeInTheDocument()
-    expect(screen.getByText(/Down 1 place since 2025–26/)).toBeInTheDocument()
+    expect(await screen.findByRole("list", { name: "Podium" })).toBeInTheDocument()
+    expect(screen.getByText(/You: #4 of 4 in the college/)).toBeInTheDocument()
+    const mine = document.querySelector('tr[aria-current="true"]') as HTMLElement
+    expect(within(mine).getByText(/Dr Asha Menon/)).toBeInTheDocument()
   })
 
-  it("marks the reader's own row, and links every name to a profile", async () => {
+  it("never gives a zero a rank", async () => {
     mount()
-    const table = await screen.findByRole("table")
-    const mine = within(table).getByText("You")
-    expect(mine.closest("tr")).toHaveAttribute("aria-current", "true")
-    expect(within(table).getByRole("link", { name: /Dr Ravi Kumar/ })).toHaveAttribute("href", "/u/u-ravi")
+    await screen.findByRole("list", { name: "Podium" })
+    const row = screen.getAllByText("Dr Mina Das")[0].closest("tr")!
+    expect(within(row).getByText("—")).toBeInTheDocument()
+    expect(rankText(null, true)).toBe("—")
+    expect(rankText(4, true)).toBe("=4")
   })
 
-  it("says movement in words as well as with an arrow", async () => {
-    mount()
-    await screen.findByRole("table")
-    expect(screen.getByLabelText("Up 2 places")).toBeInTheDocument()
-    expect(screen.getByLabelText("Down 1 place")).toBeInTheDocument()
+  it("does not contradict the table when the reader has nothing counted", () => {
+    const b = board({ me: { ...board().me!, rank: null, value: 0, percentile: null, alltime_rank: 12 } })
+    expect(standing(b)).toBe("No papers counted for you in this academic year (2026–27) yet — your all-time rank is #12.")
   })
 
-  it("prints the weighting it ranks by and where the papers came from", async () => {
+  it("asks for the chosen category and period", async () => {
     mount()
-    await screen.findByRole("table")
-    expect(screen.getByText(/Q1 = 4, Q2 = 3, Q3 = 2, Q4 = 1/)).toBeInTheDocument()
-    expect(screen.getByText(/2,633 from the payment ledger/)).toBeInTheDocument()
-    expect(screen.getByText(/Citations are not recorded/)).toBeInTheDocument()
+    await screen.findByRole("list", { name: "Podium" })
+    fireEvent.click(screen.getByRole("button", { name: /Q1/ }))
+    fireEvent.change(screen.getByLabelText("Period"), { target: { value: "last12" } })
+    await screen.findByRole("list", { name: "Podium" })
+    expect(asked().some((p) => p.includes("category=q1") && p.includes("period=last12"))).toBe(true)
   })
 
-  it("asks for the period, measure and department the reader picks", async () => {
-    mount()
-    await screen.findByRole("table")
-    fireEvent.change(screen.getByLabelText("Period"), { target: { value: "last_academic" } })
-    fireEvent.change(screen.getByLabelText("Rank by"), { target: { value: "q1" } })
-    fireEvent.change(screen.getByLabelText("Department"), { target: { value: "ECE" } })
-    const last = askedFor().at(-1) ?? ""
-    expect(last).toContain("period=last_academic")
-    expect(last).toContain("sort=q1")
-    expect(last).toContain("department=ECE")
+  it("shows departments per faculty member", async () => {
+    mount(board(), "/leaderboard?view=departments")
+    expect(await screen.findByText(/per faculty member/i, { selector: "h2,h3,figcaption,p,span,div" })).toBeInTheDocument()
   })
 
-  it("shows the department board with a per-person column and the reader's department", async () => {
-    mount()
-    await screen.findByRole("table")
-    fireEvent.click(screen.getByRole("tab", { name: "Departments" }))
-    expect(await screen.findByText("Your department is 2nd of 2")).toBeInTheDocument()
-    expect(screen.getByText("0.71")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("switch", { name: /per person/i }))
-    expect(askedFor().at(-1)).toContain("per_head=true")
+  it("exports CSV without money", () => {
+    const csv = toCsv(board())
+    expect(csv.split("\n")[0]).toContain("Rank,Name,Department")
+    expect(csv).not.toMatch(/₹|amount/i)
   })
 
   it("never prints a rupee figure", async () => {
     mount()
-    await screen.findByRole("table")
+    await screen.findByRole("list", { name: "Podium" })
     expect(document.body.textContent).not.toMatch(/₹/)
   })
 
-  it("says so plainly when the reader has nothing in the period", async () => {
-    mount({
-      "/api/leaderboard": () => ({
-        ...PEOPLE,
-        rows: PEOPLE.rows.map((r) => (r.me ? { ...r, papers: 0, score: 0, q1: 0, rank: 3, joint: true } : r)),
-        me: { rank: 3, of: 3, joint: true, value: 0, movement: null },
-      }),
-    })
-    expect(await screen.findByText(/You have no papers counted in this period yet/)).toBeInTheDocument()
-  })
-
-  it("does not tell somebody with papers they have none because they have no Q1", async () => {
-    // Found in review: "no papers" was decided by the ranked measure.
-    mount({
-      "/api/leaderboard": () => ({
-        ...PEOPLE,
-        sort: "q1",
-        rows: PEOPLE.rows.map((r) => (r.me ? { ...r, papers: 5, q1: 0, rank: 3, joint: true } : r)),
-        me: { rank: 3, of: 3, joint: true, value: 0, movement: null },
-      }),
-    })
-    expect(await screen.findByText("You're joint 3rd of 3")).toBeInTheDocument()
-    expect(screen.queryByText(/You have no papers counted/)).toBeNull()
-  })
-
-  it("shows a failure as a failure, not as an empty board", async () => {
-    mount({ "/api/leaderboard": failing(500) })
-    expect(await screen.findByText("Could not load the leaderboard")).toBeInTheDocument()
+  it("shows a failure as a failure", async () => {
+    mount(failing())
+    expect(await screen.findByText("Could not load the leaderboard.")).toBeInTheDocument()
   })
 })

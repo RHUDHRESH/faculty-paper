@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0053_merge_0052_calendar_events_0052_publication_record'),
+        ('core', '0054_claim_confirmation'),
     ]
 
     operations = [

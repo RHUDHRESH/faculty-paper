@@ -18,6 +18,8 @@ export type CirclePerson = {
   department: string | null
   institution: string | null
   is_college_member: boolean
+  /** An author who wrote as Saveetha but has no account here: counted as Saveetha, like the list. */
+  college_affiliated?: boolean
   hop: 0 | 1 | 2
   papers: number
   together: number
@@ -27,6 +29,10 @@ export type CirclePerson = {
 export type CircleLink = { source: string; target: string; papers: number }
 
 export type Placed = CirclePerson & { x: number; y: number; r: number; angle: number }
+
+/** Saveetha by account, or by the affiliation written on the paper -- the list's rule, so both count 23. */
+const atCollege = (p: { is_college_member: boolean; college_affiliated?: boolean }) =>
+  p.is_college_member || Boolean(p.college_affiliated)
 
 const TITLES = /^(dr|mr|mrs|ms|prof|er)\.?\s*/i
 /** "Dr.G.Venkatesan" -> "G. Venkatesan"; titles off, dots spaced. */
@@ -201,7 +207,7 @@ export function YourCircle({
     const keep = people.filter(
       (p) =>
         p.hop === 0 ||
-        (p.hop === 2 ? filter.two : p.is_college_member ? filter.inside : filter.outside)
+        (p.hop === 2 ? filter.two : atCollege(p) ? filter.inside : filter.outside)
     )
     const hop1 = keep.filter((p) => p.hop === 1).sort((a, b) => b.together - a.together || a.key.localeCompare(b.key))
     const allowed = new Set(hop1.slice(0, cap).map((p) => p.key))
@@ -278,8 +284,8 @@ export function YourCircle({
     })
 
   const chips: { id: keyof Filter; label: string; n: number }[] = [
-    { id: "inside", label: "Saveetha", n: people.filter((p) => p.hop === 1 && p.is_college_member).length },
-    { id: "outside", label: "Outside", n: people.filter((p) => p.hop === 1 && !p.is_college_member).length },
+    { id: "inside", label: "Saveetha", n: people.filter((p) => p.hop === 1 && atCollege(p)).length },
+    { id: "outside", label: "Outside", n: people.filter((p) => p.hop === 1 && !atCollege(p)).length },
     { id: "two", label: "Two steps", n: people.filter((p) => p.hop === 2).length },
   ]
 

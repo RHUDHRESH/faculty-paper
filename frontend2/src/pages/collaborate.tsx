@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { ChevronDown, ExternalLink, Globe, MessageSquare, UserRound, UsersRound, Waypoints } from "lucide-react"
+import { ChevronDown, ExternalLink, Globe, MessageSquare, UserRound, Waypoints } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { useDebounced, useSearchAll, type SearchItem } from "@/app/search-engine"
@@ -57,7 +57,6 @@ type EgoNode = {
   papers: number
   together: number
   degree: number
-  photo_url?: string | null
   initials?: string
 }
 type Ego = { center: string; coauthors: number; capped: boolean; nodes: EgoNode[]; links: { source: string; target: string; papers: number }[] }

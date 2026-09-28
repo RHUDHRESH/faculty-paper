@@ -555,6 +555,11 @@ class FormulaConfig(models.Model):
     )
     student_remuneration_zero = models.BooleanField(default=True)
     qf_only_for_no_snip = models.BooleanField(default=True)
+    #: The Final Year Student Project Reimbursement Scheme: a fixed amount per
+    #: team per conference paper, paid to the team's mentor. A scheme of its
+    #: own -- not the SNIP formula, no author-position split (college decision
+    #: of 2026-09-23, "15k per conference").
+    student_project_amount = models.FloatField(default=15000)
     active = models.BooleanField(default=True)
     notes = models.TextField(blank=True, null=True)
     updated_by = models.ForeignKey(
@@ -1119,6 +1124,15 @@ class Team(models.Model):
     #: Kept as text as well, because the roster carries mentors this system has
     #: no account for and losing the name is worse than not linking it.
     mentor_name = models.CharField(max_length=255, blank=True, null=True)
+    #: The roster's "Faculty ID" exactly as the department wrote it. `mentor`
+    #: is linked by matching it against `User.staff_id`; kept on its own so an
+    #: unmatched mentor can still be found and linked once their account
+    #: exists, rather than the one identifier the roster gave being lost.
+    mentor_staff_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    #: When the office's roster import last wrote this team. Null for a team
+    #: entered by hand. A student-project claim is paid per team, so where the
+    #: team came from is part of why the claim is payable.
+    imported_at = models.DateTimeField(blank=True, null=True)
 
     active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
@@ -1165,6 +1179,48 @@ class TeamMember(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.register_number or 'no register number'})"
+
+
+class ScopusProfile(models.Model):
+    """One author's Scopus profile, as the office's profile workbook has it.
+
+    Academic figures, not money: publications, citations, the h-index and the
+    document list Scopus holds for the author. Imported rather than fetched,
+    because the college's workbook is what it has and the Scopus API key is
+    rationed for verifying claims.
+
+    `user` is the account the profile was linked to when it was imported --
+    by the account's own Scopus id, or through the faculty master's. It is a
+    record of that match, not the only way to find a person's profile: an id
+    corrected on an account afterwards is matched again on the next import,
+    and `core.services.scopus_profiles.profile_for` looks the id up directly.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    #: Digits only. The workbook hands them over as floats ("57527550200.0").
+    scopus_id = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="scopus_profiles"
+    )
+    author_name = models.CharField(max_length=255, blank=True, null=True)
+    affiliation = models.CharField(max_length=512, blank=True, null=True)
+    total_publications = models.PositiveIntegerField(blank=True, null=True)
+    total_citations = models.PositiveIntegerField(blank=True, null=True)
+    h_index = models.PositiveIntegerField(blank=True, null=True)
+    #: Every Metric | Value pair on the sheet, as read, plus the Year |
+    #: Publications table under "Publications by year".
+    metrics = models.JSONField(default=dict, blank=True)
+    # The papers on the sheet go into the publication record (Publication /
+    # Authorship), not here: one list of papers, not two.
+    source_sheet = models.CharField(max_length=255, blank=True, default="")
+    source_file = models.CharField(max_length=255, blank=True, null=True)
+    imported_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["author_name", "scopus_id"]
+
+    def __str__(self) -> str:
+        return f"{self.scopus_id} ({self.source_sheet})"
 
 
 class PaidLedger(models.Model):

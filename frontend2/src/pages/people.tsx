@@ -24,6 +24,7 @@ import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Checkbox, Field, Input, PasswordInput } from "@/ui/field"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
+import { ScopusProfileCard, type ScopusProfile } from "@/ui/scopus"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
@@ -445,6 +446,8 @@ type FacultyReport = {
   by_type: Point[]
   by_position: Point[]
   claims: ReportClaim[]
+  /** From the office's Scopus profile import; null when none is loaded. */
+  scopus_profile?: ScopusProfile | null
 }
 
 /** Every `amount` dropped, `count` left alone — so a chart handed these
@@ -705,6 +708,13 @@ function CollegePerson() {
         />
       </section>
 
+      <section className="space-y-3" aria-labelledby="person-scopus">
+        <SectionTitle>
+          <span id="person-scopus">Scopus profile</span>
+        </SectionTitle>
+        <ScopusProfileCard profile={report.scopus_profile} />
+      </section>
+
       <section className="space-y-10">
         <Trend
           title="Publications over time"
@@ -795,6 +805,8 @@ type HodPersonPayload = {
   by_year: Point[]
   by_quartile: Point[]
   by_journal: Point[]
+  /** Academic figures, not money, so a head is shown them too. */
+  scopus_profile?: ScopusProfile | null
   targets: {
     id: string
     year: number
@@ -897,6 +909,13 @@ function HodPerson() {
           value={data.totals.under_review}
           hint="Filed, not yet finished"
         />
+      </section>
+
+      <section className="space-y-3" aria-labelledby="hod-person-scopus">
+        <SectionTitle>
+          <span id="hod-person-scopus">Scopus profile</span>
+        </SectionTitle>
+        <ScopusProfileCard profile={data.scopus_profile} />
       </section>
 
       {data.targets.length > 0 && (

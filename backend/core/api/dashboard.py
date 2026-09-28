@@ -28,6 +28,7 @@ from core.services import rbac
 from core.services import exporters
 from core.services.aggregate_cache import cached
 from core.services.remuneration import CATEGORY_LABELS
+from core.services.scopus_profiles import department_totals
 
 # ---------- dashboard ----------
 
@@ -528,6 +529,10 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
         # The months the college has actually settled in, so the picker offers
         # real ones rather than a calendar of mostly-empty options.
         "payout_months": _payout_months(user),
+        # What Scopus holds for each department's people, from the office's
+        # profile import. Career totals, so the year filter does not apply;
+        # the department filter does.
+        "scopus_by_department": department_totals(department),
     }
 
 

@@ -36,6 +36,7 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { DateInput, Field, Input, NumberInput, Radio, Textarea } from "@/ui/field"
+import { DepartmentScopusLine, type DepartmentScopus } from "@/ui/scopus"
 import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
@@ -159,6 +160,9 @@ type Opportunities = {
 /** The overview endpoint, for the per-person table. */
 type Overview = {
   department: string
+  /** What Scopus holds for the department's people, from the office's
+   *  profile import. Career totals; absent on a server that predates it. */
+  scopus?: DepartmentScopus
   people: {
     id: string
     name: string
@@ -167,6 +171,10 @@ type Overview = {
     first_author: number
     q1: number
     active: boolean
+    /** Null where no profile is loaded -- not zero. */
+    scopus_publications?: number | null
+    scopus_citations?: number | null
+    scopus_h_index?: number | null
   }[]
 }
 
@@ -845,13 +853,20 @@ function PeopleSection({
   }
 
   const people = (overview?.people ?? []).filter((p) => p.active)
+  const scopus = overview?.scopus
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-3" aria-labelledby="the-department">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <SectionTitle>The department</SectionTitle>
+        <SectionTitle>
+          <span id="the-department">The department</span>
+        </SectionTitle>
         <Meta>{people.length} people</Meta>
       </div>
+
+      {/* Scopus's own count of what they have published, across careers --
+          not the papers filed here, which the table's first columns count. */}
+      {!loading && !failed && scopus ? <DepartmentScopusLine scopus={scopus} /> : null}
 
       {loading ? (
         <SkeletonRows rows={8} rowHeight={40} />
@@ -868,7 +883,7 @@ function PeopleSection({
           Nobody is on the roster for this department.
         </p>
       ) : (
-        <TableScroller minWidth="46rem">
+        <TableScroller minWidth="58rem">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
@@ -883,6 +898,12 @@ function PeopleSection({
                 </th>
                 <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
                   <ColumnLabel>Led</ColumnLabel>
+                </th>
+                <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
+                  <ColumnLabel>On Scopus</ColumnLabel>
+                </th>
+                <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
+                  <ColumnLabel>Citations</ColumnLabel>
                 </th>
                 <th scope="col" className={cn(stickyHeadCell, "w-56")}>
                   <ColumnLabel>Their target</ColumnLabel>
@@ -906,6 +927,12 @@ function PeopleSection({
                     </td>
                     <td className="px-3 py-2 text-right align-middle tabular">
                       {p.first_author || <Meta>—</Meta>}
+                    </td>
+                    <td className="px-3 py-2 text-right align-middle tabular">
+                      {p.scopus_publications ?? <Meta>—</Meta>}
+                    </td>
+                    <td className="px-3 py-2 text-right align-middle tabular">
+                      {p.scopus_citations ?? <Meta>—</Meta>}
                     </td>
                     <td className="px-3 py-2 align-middle">
                       {theirs.length === 0 ? (

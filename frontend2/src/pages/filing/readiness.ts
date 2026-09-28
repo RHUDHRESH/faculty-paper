@@ -8,6 +8,7 @@
  */
 import { doiProblem, issnProblem, yearOf } from "./identifiers"
 import type { AttachmentRow, CalcResult, CarriedEvidence, FilingRules, FormState } from "./types"
+import { isConferencePaper } from "./types"
 
 /**
  * Three kinds of problem, and the difference between the second and the third
@@ -232,6 +233,15 @@ export function readiness(
         "The rules require the paper to sit on your own profile, and the research cell checks it against the same source. Merge or link it with the Scopus Author Feedback Wizard before you file, or correct the profile link above if this is not your ID.",
       step: 2,
     })
+  // The server refuses the final-year project scheme on anything but a conference paper.
+  if (form.claimReason === "STUDENT_PROJECT" && !isConferencePaper(form.publicationType))
+    add({
+      key: "fyp-conference",
+      kind: "missing",
+      label: "The final-year project scheme is for conference papers only",
+      detail: `${rules.why.student_project ?? ""} File a journal article or a book chapter as a faculty publication incentive instead.`.trim(),
+      step: 0,
+    })
   if (!form.totalAuthors || form.totalAuthors < 1)
     add({ key: "authors", kind: "missing", label: "Enter how many authors the paper has", step: 2 })
   else if (form.authorPosition < 1 || form.authorPosition > form.totalAuthors)
@@ -241,7 +251,8 @@ export function readiness(
       label: `Your position must be between 1 and ${form.totalAuthors}`,
       step: 2,
     })
-  else if (form.totalAuthors > rules.max_authors)
+  // The scheme pays a fixed amount per team, so the faculty author ceiling does not apply to it.
+  else if (form.claimReason !== "STUDENT_PROJECT" && form.totalAuthors > rules.max_authors)
     add({
       key: "author-cap",
       kind: "unpaid",
@@ -322,7 +333,11 @@ export function readiness(
   const passesEvidenceGate = refs.length > 0 || Boolean(opts.carried.secProofUrl)
   const passesNumberGate = numbered > 0 || Boolean(opts.carried.secRefs)
 
-  if (!passesEvidenceGate) {
+  const studentProject = form.claimReason === "STUDENT_PROJECT"
+  if (studentProject) {
+    // Nothing to ask: the final-year project scheme's fixed amount is not
+    // gated on SEC-affiliated references, and the server does not ask either.
+  } else if (!passesEvidenceGate) {
     add({
       key: "refs-none",
       kind: "missing",
@@ -370,7 +385,7 @@ export function readiness(
     })
   }
 
-  if (numbered > 0 && numbered < rules.min_sec_references)
+  if (!studentProject && numbered > 0 && numbered < rules.min_sec_references)
     add({
       key: "refs-few",
       kind: refusedKind,

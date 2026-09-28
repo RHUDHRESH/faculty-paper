@@ -89,6 +89,7 @@ from core.services.remuneration import (
     MAX_ELIGIBLE_AUTHORS,
     MIN_SEC_REFERENCES,
     calculate_remuneration,
+    calculate_student_project,
     formula_from_model,
     snapshot_formula,
 )
@@ -506,18 +507,24 @@ def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
             snip = claim.self_reported_snip
         if not quartile:
             quartile = claim.self_reported_quartile
-    result = calculate_remuneration(
-        snip,
-        quartile,
-        claim.total_authors,
-        claim.author_position,
-        cfg,
-        is_student_publication=claim.is_student_publication,
-        publication_type=pub_type,
-        indexing_level=claim.indexing_level,
-        engineering_class=claim.engineering_class,
-        sec_reference_count=sec_refs,
-    )
+    if claim.claim_reason == ClaimReason.STUDENT_PROJECT:
+        # A scheme of its own, outside Step 8: a fixed amount per team per
+        # conference paper. `_quota_state` below leaves it alone too -- the
+        # research quota belongs to the faculty scheme.
+        result = calculate_student_project(pub_type, cfg)
+    else:
+        result = calculate_remuneration(
+            snip,
+            quartile,
+            claim.total_authors,
+            claim.author_position,
+            cfg,
+            is_student_publication=claim.is_student_publication,
+            publication_type=pub_type,
+            indexing_level=claim.indexing_level,
+            engineering_class=claim.engineering_class,
+            sec_reference_count=sec_refs,
+        )
     # The quota zeroes the payable amount and nothing else. base_amount, qf and
     # the author point stay exactly as the policy computed them, so the ticket
     # still shows what the paper was worth and why it came to nothing --
@@ -735,6 +742,10 @@ def _quota_state(claim: Claim) -> tuple[bool, str | None]:
         return False, None
     if claim.claim_reason == ClaimReason.COUNT_ONLY:
         # It asks for no money, so it cannot spend the allowance for money.
+        return False, None
+    if claim.claim_reason == ClaimReason.STUDENT_PROJECT:
+        # Paid under the final-year project scheme, not the faculty one the
+        # quota is part of: neither zeroed by it nor counted against it.
         return False, None
 
     year = claim.publication_year

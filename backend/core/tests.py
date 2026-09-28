@@ -11125,15 +11125,21 @@ class SearchRouteTests(TestCase):
 
 
 class StudentProjectTeamTests(TestCase):
-    """The team behind a student project claim."""
+    """The team behind a student project claim.
+
+    Written by the office. These used to sign in as a faculty member, because
+    anybody could create a team; under the final-year project scheme a team is
+    what a fixed payment is claimed against, so writing one is the office's
+    (see test_fyp_scheme.TeamWritesAreTheOfficesTests for the refusal).
+    """
 
     def setUp(self):
-        self.faculty = User.objects.create_user(
-            email="tm-fac@test.edu", password="pass", name="Team Faculty",
-            role=Role.FACULTY, department="CSE",
+        self.office = User.objects.create_user(
+            email="tm-office@test.edu", password="pass", name="Team Office",
+            role=Role.RESEARCH_CELL, department="CSE",
         )
         self.client = Client()
-        self.client.force_login(self.faculty)
+        self.client.force_login(self.office)
 
     def _make(self, **kw):
         payload = {
@@ -12813,9 +12819,11 @@ class StudentProjectClaimTests(TestCase):
         self.assertEqual(Claim.objects.get(pk=res.json()["id"]).team_id, self.team.id)
 
     def test_an_unknown_code_is_refused_and_says_what_to_do(self):
+        # It used to say "Create the team first". A claimant can no longer
+        # create one: teams come from the office's roster import.
         res = self.create(team_code="NOPE-1")
         self.assertEqual(res.status_code, 404)
-        self.assertIn("Create the team first", res.json()["detail"])
+        self.assertIn("roster", res.json()["detail"])
 
     def test_the_ticket_carries_the_team_and_its_students(self):
         res = self.create(team_code="CSE-24-011")

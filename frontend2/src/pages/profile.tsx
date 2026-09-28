@@ -30,6 +30,7 @@ import { BadgeShelf } from "@/ui/badge-shelf"
 import { Field, Input, Textarea } from "@/ui/field"
 import { GoalRings } from "@/ui/goal-rings"
 import { money } from "@/ui/paper"
+import { ScopusProfileCard, type ScopusProfile } from "@/ui/scopus"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import {
   Callout,
@@ -481,6 +482,10 @@ export function Profile() {
           </Meta>
         )}
       </section>
+
+      {/* ---- scopus -------------------------------------------------------- */}
+
+      {filesOwnPapers && <ScopusSection />}
 
       <PasswordDialog
         forced={forcedPasswordChange}
@@ -1039,6 +1044,49 @@ function Record({
 /* ------------------------------------------------------------------------ */
 
 const MAX_INTERESTS = 20
+
+/**
+ * What Scopus held for this person when the office last imported the profile
+ * workbook. Its own query and its own failure: a Scopus hiccup must not take
+ * the rest of the profile down with it.
+ */
+function ScopusSection() {
+  const q = useApi<{ scopus_ids: string[]; profile: ScopusProfile | null }>(
+    ["profile", "scopus"],
+    "/api/me/scopus"
+  )
+  const ids = q.data?.scopus_ids ?? []
+  return (
+    <section className="space-y-4" aria-labelledby="your-scopus">
+      <div>
+        <SectionTitle>
+          <span id="your-scopus">Your Scopus profile</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          Publications, citations and your h-index, as Scopus had them when the research office
+          last imported the profile workbook.
+        </Sub>
+      </div>
+      {q.isLoading ? (
+        <SkeletonText lines={2} className="max-w-sm" />
+      ) : q.isError ? (
+        <InlineError
+          message="Could not load your Scopus profile. Nothing else on this page is affected."
+          onRetry={() => q.refetch()}
+        />
+      ) : (
+        <ScopusProfileCard
+          profile={q.data?.profile}
+          emptyMessage={
+            ids.length
+              ? `No profile has been imported for Scopus ID ${ids.join(", ")} yet. The research office loads them from the Scopus profile workbook.`
+              : "Your account carries no Scopus ID, so no profile can be matched to it. Ask for the Scopus author ID above to be set."
+          }
+        />
+      )}
+    </section>
+  )
+}
 
 function sameSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false

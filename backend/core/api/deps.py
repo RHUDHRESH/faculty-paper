@@ -24,7 +24,7 @@ from typing import Any
 from django.conf import settings
 from django.http import HttpRequest
 from ninja.errors import HttpError
-from core.models import Claim, ClaimStatus, User
+from core.models import Claim, ClaimReason, ClaimStatus, User
 from core.services import rbac
 from core.services.scimago import lookup_scimago
 from core.services.scopus import author_profile_url
@@ -216,8 +216,10 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "manual_verified_by_name": c.manual_verified_by.name if c.manual_verified_by else None,
         "manual_verification_note": c.manual_verification_note,
         # A draft's amount may be computed from the claimant's own declarations;
-        # anything past submission is verified-values only.
+        # anything past submission is verified-values only. A student-project
+        # amount is fixed by the scheme and depends on neither.
         "remuneration_is_estimate": c.status == ClaimStatus.DRAFT
+        and c.claim_reason != ClaimReason.STUDENT_PROJECT
         and (c.snip is None or not c.quartile),
         "scimago_verified": c.scimago_verified,
         "scimago_sjr": c.scimago_sjr,

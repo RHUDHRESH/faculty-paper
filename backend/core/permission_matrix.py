@@ -297,6 +297,31 @@ CAPABILITIES: list[Capability] = [
     cap("Import prior payments", "POST", "/api/admin/prior/import",
         ADMINS | {PRINCIPAL},
         "Loading historical payment data.", None, "Filing", upload=True),
+    cap("Import the final-year project roster", "POST", "/api/admin/fyp-teams/import",
+        ADMINS,
+        "A team is what a fixed student-project payment is claimed against, "
+        "by its mentor. Loading who mentors which team is the office's job.",
+        None, "Filing", upload=True),
+    cap("Read the final-year project roster", "GET", "/api/admin/fyp-teams",
+        ADMINS,
+        "Which teams are loaded and whose mentor has no account yet -- the "
+        "office's list to act on.",
+        None, "Filing"),
+    cap("Add or correct a team by hand", "POST", "/api/teams",
+        ADMINS,
+        "The roster decides who may claim for a team. A claimant writing a "
+        "team could name themselves its mentor.",
+        {"code": "MATRIX-TEAM", "members": [{"name": "A"}]}, "Filing"),
+    cap("Import Scopus author profiles", "POST", "/api/admin/scopus-profiles/import",
+        ADMINS,
+        "The office's profile workbook, linked to accounts by Scopus id.",
+        None, "Filing", upload=True),
+    cap("Read the Scopus verification list", "GET",
+        "/api/admin/scopus-profiles/verification",
+        ADMINS,
+        "Which profiles match no account and which accounts carry no or a "
+        "different Scopus id -- the office's list to put right.",
+        None, "Reading"),
 ]
 
 

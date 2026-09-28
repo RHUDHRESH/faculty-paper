@@ -46,11 +46,12 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, PAYABLE_STATUSES, PaidLedger, Role, User
+from core.models import AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, Notification, PAYABLE_STATUSES, PaidLedger, Role, Team, User
 from core import visibility
 from core.services import flags as flag_service
 from core.services import notify as notify_service
 from core.services import rbac
+from core.services.student_projects import claim_holding
 from core.services.verify import apply_verify_to_claim, verify_publication
 
 # ---------- the director: authorising what the principal approved ----------
@@ -725,6 +726,19 @@ def override_status(request: HttpRequest, claim_id: str, payload: OverrideStatus
             raise HttpError(400, "A paid ticket cannot be overridden — void the payment first")
         if claim.status == payload.to_status:
             raise HttpError(400, f"The ticket is already {payload.to_status}")
+        if claim.claim_reason == ClaimReason.STUDENT_PROJECT and claim.team_id:
+            # Every status reachable from here holds the team, so the rescue
+            # must not become a way round "once per team": a withdrawn claim
+            # put back while another holds the team would have both paid.
+            team = Team.objects.select_for_update().filter(pk=claim.team_id).first()
+            holder = claim_holding(team, besides=claim) if team else None
+            if holder is not None:
+                raise HttpError(
+                    409,
+                    f"Team {team.code} is already claimed on ticket "
+                    f"{holder.ticket_number or 'without a number yet'}; the scheme "
+                    "pays once per team. Withdraw or reject that claim first.",
+                )
         _transition(claim, user, payload.to_status, "STATUS_OVERRIDE", note)
     return claim_to_dict(claim)
 

@@ -153,7 +153,8 @@ export function Imports() {
         <PageTitle>Imports</PageTitle>
         <Sub className="mt-1">
           The roster, the payment history and the ERP workbook — the three
-          files this system is built out of, and the queue that checks what
+          files this system is built out of — then the final-year project
+          teams and the Scopus author profiles, and the queue that checks what
           they brought in against Scopus.
         </Sub>
       </header>
@@ -162,6 +163,8 @@ export function Imports() {
       <FacultyMasterSection onImported={refreshStats} />
       <PriorPaymentsSection stats={stats.data} onImported={refreshStats} />
       <WorkbookSection onImported={refreshStats} />
+      <FypRosterSection />
+      <ScopusProfilesSection />
       <ProcessQueueSection />
       {me?.role === "SUPER_ADMIN" && <RestoreSection onImported={refreshStats} />}
     </div>
@@ -1578,6 +1581,462 @@ function RestoreSection({ onImported }: { onImported: () => void }) {
         </Button>
       </div>
       {jobId && <JobProgress jobId={jobId} what="Restore" onSettled={onImported} />}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Final-year project teams                                                  */
+/* ------------------------------------------------------------------------ */
+
+/** A team whose roster "Faculty ID" matched no account's staff id. */
+type UnmatchedMentor = {
+  code: string
+  faculty_id: string | null
+  mentor_name: string | null
+  department: string | null
+}
+
+/** `fyp_teams_summary`. */
+type FypSummary = {
+  teams: number
+  imported: number
+  academic_years: string[]
+  last_imported_at: string | null
+  claimed: number
+  mentors_unmatched: UnmatchedMentor[]
+}
+
+/** `import_roster`, as `/api/admin/fyp-teams/import` returns it. */
+type FypImport = {
+  sheet: string
+  academic_year: string | null
+  teams: number
+  created: number
+  updated: number
+  unchanged: number
+  mentors_unmatched: UnmatchedMentor[]
+  skipped: string[]
+}
+
+/** Upload one workbook to one importer, through `api()` so CSRF comes with it. */
+function uploadWorkbook<T>(path: string, file: File): Promise<T> {
+  const body = new FormData()
+  body.append("file", file)
+  // `api()`'s options type has no `body` — every other call it makes is
+  // JSON — so this widens it the way the other upload sections here do.
+  return api<T>(path, { method: "POST", body } as unknown as Parameters<typeof api>[1])
+}
+
+/**
+ * The final-year project roster: one team per row of the department's
+ * workbook, and the mentor who alone may claim the scheme's fixed amount for
+ * it.
+ *
+ * Not behind a confirmation, unlike the faculty master: a team is found again
+ * by its Team ID and changes only where the row says something different, so
+ * loading a corrected copy twice changes nothing the second time. What stays
+ * on the page is the list of teams whose mentor matched no account — those
+ * teams are loaded, and nobody can claim for them until an account carries
+ * that Faculty ID as its staff id.
+ */
+function FypRosterSection() {
+  const summary = useApi<FypSummary>(["admin", "fyp-teams"], "/api/admin/fyp-teams")
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<FypImport | null>(null)
+
+  async function run() {
+    if (!file) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await uploadWorkbook<FypImport>("/api/admin/fyp-teams/import", file)
+      setResult(res)
+      toast.ok(`${nf(res.teams)} teams read from the roster.`)
+      setFile(null)
+      void summary.refetch()
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const unmatched = summary.data?.mentors_unmatched ?? []
+  const columns: Column<UnmatchedMentor>[] = [
+    { key: "code", header: "Team", cell: (m) => m.code },
+    { key: "fid", header: "Faculty ID", cell: (m) => m.faculty_id || "—" },
+    {
+      key: "name",
+      header: "Mentor, as the roster names them",
+      className: "max-w-[16rem]",
+      cell: (m) => <span className="block truncate">{m.mentor_name || "—"}</span>,
+    },
+    { key: "dept", header: "Department", cell: (m) => m.department || "—" },
+  ]
+  const reason = busy ? "Importing." : !file ? "Choose the roster workbook first." : null
+
+  return (
+    <section className="space-y-4" aria-labelledby="fyp-roster">
+      <div>
+        <SectionTitle>
+          <span id="fyp-roster">Final-year project teams</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          The department's roster of project teams. Only a team's mentor may file its
+          student-project claim — a fixed amount per conference paper, once per team — so a
+          team whose mentor has no account here cannot be claimed for.
+        </Sub>
+      </div>
+
+      {summary.isLoading ? (
+        <SkeletonText lines={2} />
+      ) : summary.error ? (
+        <InlineError
+          message="Could not read the roster. The importer below still works, but you will not see the result of it here."
+          onRetry={() => void summary.refetch()}
+        />
+      ) : summary.data ? (
+        <p className="text-sm tabular">
+          {nf(summary.data.teams)} teams loaded
+          {summary.data.academic_years.length
+            ? ` (${summary.data.academic_years.join(", ")})`
+            : ""}
+          . {nf(summary.data.claimed)} claimed so far.
+        </p>
+      ) : null}
+
+      <Callout tone="info" title="Which columns are read">
+        The first sheet with a <code>Team ID</code> column, its header row found wherever it is:{" "}
+        <code>Department</code>, <code>Team ID</code>, <code>Name</code> (the mentor),{" "}
+        <code>Faculty ID</code>, <code>Reg No - 1</code>…<code>Reg No - 4</code> with{" "}
+        <code>Name - 1</code>…<code>Name - 4</code>, and <code>Project Title</code>. The academic
+        year is read off the sheet name (<code>25-26</code> is 2025-26). A row with no Team ID is
+        skipped and said so; a second copy of the file changes nothing.
+      </Callout>
+
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field label="Roster workbook" hint="The .xlsx the department sends, not a CSV export of it.">
+          <FileInput
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            file={file}
+            onPick={setFile}
+            disabled={busy}
+          />
+        </Field>
+        <div className="space-y-1.5">
+          <Button kind="default" disabled={reason !== null} onClick={() => void run()}>
+            <FileSpreadsheet />
+            {busy ? "Importing…" : "Import the teams"}
+          </Button>
+          <WhyDisabled reason={reason} />
+        </div>
+      </div>
+
+      {result ? (
+        <ImportResult>
+          {nf(result.teams)} teams read from sheet {result.sheet}
+          {result.academic_year ? ` (${result.academic_year})` : ""}: {nf(result.created)} created,{" "}
+          {nf(result.updated)} updated, {nf(result.unchanged)} unchanged.{" "}
+          {result.mentors_unmatched.length
+            ? `${nf(result.mentors_unmatched.length)} mentors matched no account — listed below.`
+            : "Every mentor matched an account."}
+          {result.skipped.length ? ` ${result.skipped.join(" ")}` : ""}
+        </ImportResult>
+      ) : null}
+
+      {unmatched.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-sm">
+            <span className="font-medium">Mentors with no account.</span> These teams are
+            loaded, and cannot be claimed for until an account carries the Faculty ID as its staff
+            id. Create or correct the account, then import the roster again.
+          </p>
+          <Table
+            rows={unmatched}
+            columns={columns}
+            getKey={(m) => m.code}
+            caption="Teams whose mentor matched no account"
+            maxHeight="20rem"
+            minWidth="36rem"
+          />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Scopus author profiles                                                    */
+/* ------------------------------------------------------------------------ */
+
+/** `import_profiles`, as `/api/admin/scopus-profiles/import` returns it. */
+type ScopusImport = {
+  sheets: number
+  created: number
+  updated: number
+  linked: number
+  unmatched: { scopus_id: string; sheet: string; author_name: string | null }[]
+  ambiguous: { scopus_id: string; sheet: string; accounts: string[] }[]
+  warnings: string[]
+}
+
+type ProfileRow = {
+  scopus_id: string
+  url: string | null
+  sheet: string
+  author_name: string | null
+  publications: number | null
+  citations: number | null
+}
+
+type PersonRow = {
+  user_id: string
+  name: string
+  email: string
+  department: string | null
+  staff_id: string | null
+}
+
+/** `verification_report`. */
+type ScopusVerification = {
+  profiles: number
+  last_imported_at: string | null
+  profiles_without_account: ProfileRow[]
+  ambiguous: (ProfileRow & { accounts: PersonRow[] })[]
+  faculty_without_scopus: (PersonRow & { faculty_master_scopus_id: string | null })[]
+  name_mismatches: (PersonRow & {
+    stored_scopus_id: string | null
+    sheet_scopus_id: string
+    sheet: string
+    sheet_url: string | null
+  })[]
+}
+
+function ScopusLink({ id, url }: { id: string; url: string | null }) {
+  return url ? (
+    <a href={url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+      {id}
+    </a>
+  ) : (
+    <>{id}</>
+  )
+}
+
+function PersonLink({ person }: { person: PersonRow }) {
+  return (
+    <Link to={`/people/${person.user_id}`} className="underline underline-offset-2">
+      {person.name}
+    </Link>
+  )
+}
+
+/**
+ * The Scopus profile workbook, and the three lists the office works through
+ * after loading it.
+ *
+ * Profiles are matched to accounts by Scopus id and never by name, so what
+ * the import cannot do on its own is said here as work to do: a profile no
+ * account claims, a faculty account carrying no id at all, and an account
+ * whose stored id is not the one on the sheet named after them. Each list
+ * says what fixes it.
+ */
+function ScopusProfilesSection() {
+  const report = useApi<ScopusVerification>(
+    ["admin", "scopus-verification"],
+    "/api/admin/scopus-profiles/verification"
+  )
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<ScopusImport | null>(null)
+
+  async function run() {
+    if (!file) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await uploadWorkbook<ScopusImport>("/api/admin/scopus-profiles/import", file)
+      setResult(res)
+      toast.ok(`${nf(res.sheets)} profiles read.`)
+      setFile(null)
+      void report.refetch()
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const data = report.data
+  const reason = busy ? "Importing." : !file ? "Choose the profile workbook first." : null
+
+  const orphanColumns: Column<ProfileRow>[] = [
+    { key: "id", header: "Scopus ID", cell: (p) => <ScopusLink id={p.scopus_id} url={p.url} /> },
+    { key: "sheet", header: "Sheet", cell: (p) => p.sheet || "—" },
+    { key: "pubs", header: "Publications", align: "right", cell: (p) => (p.publications ?? "—").toString() },
+    { key: "cites", header: "Citations", align: "right", cell: (p) => (p.citations ?? "—").toString() },
+  ]
+  const bareColumns: Column<ScopusVerification["faculty_without_scopus"][number]>[] = [
+    { key: "name", header: "Faculty member", cell: (p) => <PersonLink person={p} /> },
+    { key: "dept", header: "Department", cell: (p) => p.department || "—" },
+    { key: "staff", header: "Staff ID", cell: (p) => p.staff_id || "—" },
+    {
+      key: "hint",
+      header: "Faculty master says",
+      cell: (p) =>
+        p.faculty_master_scopus_id ? `Scopus ID ${p.faculty_master_scopus_id}` : "Nothing either",
+    },
+  ]
+  const mismatchColumns: Column<ScopusVerification["name_mismatches"][number]>[] = [
+    { key: "name", header: "Account", cell: (p) => <PersonLink person={p} /> },
+    { key: "stored", header: "Stored Scopus ID", cell: (p) => p.stored_scopus_id || "None" },
+    {
+      key: "sheet-id",
+      header: "On the sheet named for them",
+      cell: (p) => <ScopusLink id={p.sheet_scopus_id} url={p.sheet_url} />,
+    },
+    { key: "sheet", header: "Sheet", cell: (p) => p.sheet },
+  ]
+
+  return (
+    <section className="space-y-4" aria-labelledby="scopus-profiles">
+      <div>
+        <SectionTitle>
+          <span id="scopus-profiles">Scopus author profiles</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          One sheet per author: publications, citations, h-index and the document list. Each
+          profile is matched to an account by its Scopus ID — the account's own, or the faculty
+          master's for that staff id — and shown on the person's profile, their record, and the
+          department and report screens.
+        </Sub>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field
+          label="Profile workbook"
+          hint="The .xlsx with a sheet per author and a Scopus ID at the top of each."
+        >
+          <FileInput
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            file={file}
+            onPick={setFile}
+            disabled={busy}
+          />
+        </Field>
+        <div className="space-y-1.5">
+          <Button kind="default" disabled={reason !== null} onClick={() => void run()}>
+            <Upload />
+            {busy ? "Importing…" : "Import the profiles"}
+          </Button>
+          <WhyDisabled reason={reason} />
+        </div>
+      </div>
+
+      {result ? (
+        <ImportResult>
+          {nf(result.sheets)} profile sheets read: {nf(result.created)} created,{" "}
+          {nf(result.updated)} updated, {nf(result.linked)} linked to an account.{" "}
+          {result.unmatched.length
+            ? `No account carries ${result.unmatched.map((u) => u.scopus_id).join(", ")}.`
+            : "Every profile matched an account."}
+          {result.ambiguous.length
+            ? ` ${result.ambiguous.map((a) => `${a.scopus_id} is on ${a.accounts.join(" and ")}`).join("; ")} — linked to neither.`
+            : ""}
+          {result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}
+        </ImportResult>
+      ) : null}
+
+      {report.isLoading ? (
+        <SkeletonRows rows={4} rowHeight={40} />
+      ) : report.error ? (
+        <InlineError
+          message="Could not work out what needs putting right. The importer above still works."
+          onRetry={() => void report.refetch()}
+        />
+      ) : data ? (
+        <div className="space-y-6">
+          <p className="text-sm tabular">
+            {nf(data.profiles)} profiles held
+            {data.last_imported_at
+              ? `, last imported ${new Date(data.last_imported_at).toLocaleDateString("en-IN")}`
+              : ""}
+            .
+          </p>
+
+          <div className="space-y-2">
+            <ColumnLabel className="block">Profiles no account claims</ColumnLabel>
+            {data.profiles_without_account.length === 0 ? (
+              <Meta className="block">None — every profile matched an account.</Meta>
+            ) : (
+              <>
+                <Meta className="block">
+                  Set this Scopus ID on the right person's account (People, then the account), and
+                  the profile shows on their record straight away.
+                </Meta>
+                <Table
+                  rows={data.profiles_without_account}
+                  columns={orphanColumns}
+                  getKey={(p) => p.scopus_id}
+                  caption="Profiles whose Scopus ID matches no account"
+                  maxHeight="18rem"
+                  minWidth="32rem"
+                />
+              </>
+            )}
+            {data.ambiguous.length > 0 ? (
+              <Meta className="block">
+                On more than one account, so linked to none:{" "}
+                {data.ambiguous
+                  .map((a) => `${a.scopus_id} (${a.accounts.map((p) => p.name).join(", ")})`)
+                  .join("; ")}
+                .
+              </Meta>
+            ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <ColumnLabel className="block">Stored Scopus ID differs from the sheet named for them</ColumnLabel>
+            {data.name_mismatches.length === 0 ? (
+              <Meta className="block">None found.</Meta>
+            ) : (
+              <>
+                <Meta className="block">
+                  The sheet carries this person's name and a different ID from the one on their
+                  account. One of the two is wrong — check the Scopus link before changing either.
+                </Meta>
+                <Table
+                  rows={data.name_mismatches}
+                  columns={mismatchColumns}
+                  getKey={(p) => `${p.user_id}-${p.sheet_scopus_id}`}
+                  caption="Accounts whose Scopus ID differs from their sheet"
+                  maxHeight="18rem"
+                  minWidth="36rem"
+                />
+              </>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <ColumnLabel className="block">
+              Faculty accounts with no Scopus ID ({nf(data.faculty_without_scopus.length)})
+            </ColumnLabel>
+            {data.faculty_without_scopus.length === 0 ? (
+              <Meta className="block">None — every faculty account carries one.</Meta>
+            ) : (
+              <Table
+                rows={data.faculty_without_scopus}
+                columns={bareColumns}
+                getKey={(p) => p.user_id}
+                caption="Faculty accounts with no Scopus ID"
+                maxHeight="20rem"
+                minWidth="36rem"
+              />
+            )}
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

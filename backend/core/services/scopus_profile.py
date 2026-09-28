@@ -73,30 +73,48 @@ def import_workbook(path: str) -> dict[str, Any]:
         report["sheets"].append(entry)
         if user is None:
             continue
-        for row in sheet["rows"]:
-            doi = normalize_doi(_text(row.get("DOI")))
-            eid = _text(row.get("EID"))
-            eid = eid if eid.startswith("2-s2.0-") else ""
-            title = " ".join(_text(row.get("Title")).split())
-            key = normalize_title(title)[:512]
-            pid = index.find(doi, eid, key)
-            if pid:
-                pub = Publication.objects.get(id=pid)
-                entry["matched_existing"] += 1
-                if eid and not pub.eid:
-                    pub.eid = eid
-                    pub.save(update_fields=["eid"])
-            else:
-                year = row.get("Year")
-                cites = row.get("Citations")
-                pub = Publication.objects.create(
-                    doi=doi, eid=eid or None, title=title, normalized_title=key,
-                    year=int(year) if isinstance(year, (int, float)) else None,
-                    venue=_text(row.get("Journal"))[:512], issn=_text(row.get("ISSN"))[:64],
-                    type=_text(row.get("Document Type"))[:64], source="scopus_sheet",
-                    citations=int(cites) if isinstance(cites, (int, float)) else 0,
-                )
-                index.add(pub.id, pub.doi, pub.eid, key)
-                entry["created"] += 1
-            ensure_user_authorship(pub, user, method="scopus_sheet", confidence=0.95)
+        counts = record_rows(user, sheet["rows"], index)
+        entry["matched_existing"] += counts["matched_existing"]
+        entry["created"] += counts["created"]
     return report
+
+
+def record_rows(user: User, rows: list[dict], index: _Index | None = None) -> dict[str, int]:
+    """Put one member's Scopus-listed papers into the publication record.
+
+    Each row (headed Year / Title / Journal / Document Type / Citations / DOI
+    / EID / ISSN) is matched to a Publication by DOI, then EID, then title,
+    or becomes one; the member is put on it. Shared by the profile workbook
+    import on the Imports screen so the record is the one list of papers.
+    """
+    index = index or _Index()
+    out = {"matched_existing": 0, "created": 0}
+    for row in rows:
+        doi = normalize_doi(_text(row.get("DOI")))
+        eid = _text(row.get("EID"))
+        eid = eid if eid.startswith("2-s2.0-") else ""
+        title = " ".join(_text(row.get("Title")).split())
+        if not title:
+            continue
+        key = normalize_title(title)[:512]
+        pid = index.find(doi, eid, key)
+        if pid:
+            pub = Publication.objects.get(id=pid)
+            out["matched_existing"] += 1
+            if eid and not pub.eid:
+                pub.eid = eid
+                pub.save(update_fields=["eid"])
+        else:
+            year = row.get("Year")
+            cites = row.get("Citations")
+            pub = Publication.objects.create(
+                doi=doi, eid=eid or None, title=title, normalized_title=key,
+                year=int(year) if isinstance(year, (int, float)) else None,
+                venue=_text(row.get("Journal"))[:512], issn=_text(row.get("ISSN"))[:64],
+                type=_text(row.get("Document Type"))[:64], source="scopus_sheet",
+                citations=int(cites) if isinstance(cites, (int, float)) else 0,
+            )
+            index.add(pub.id, pub.doi, pub.eid, key)
+            out["created"] += 1
+        ensure_user_authorship(pub, user, method="scopus_sheet", confidence=0.95)
+    return out

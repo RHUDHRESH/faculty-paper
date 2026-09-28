@@ -26,6 +26,7 @@ from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, DepartmentTarget, Role, User
 from core import hod
 from core.services import rbac
+from core.services.scopus_profiles import department_totals, linked_profiles, profile_dict, profile_for
 
 # ---------- head of department ----------
 
@@ -96,6 +97,26 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
         for part in [p.strip() for p in (raw or "").split(",") if p.strip()] or ["Not stated"]:
             indexing[part] = indexing.get(part, 0) + 1
 
+    # What Scopus holds for the department's people, from the office's profile
+    # import: career totals, not this year's, so they ignore the year filter.
+    # The totals are the department's current faculty, counted by the same
+    # function the college report uses, so the two screens agree.
+    staff = list(people)
+    staff_ids = {s.id for s in staff}
+    profiles = {u.id: p for u, p in linked_profiles() if u.id in staff_ids}
+    counted = department_totals(hod.department_of(user))
+    scopus = {
+        "people_with_profile": counted[0]["people_with_profile"] if counted else 0,
+        "publications": counted[0]["publications"] if counted else 0,
+        "citations": counted[0]["citations"] if counted else 0,
+        "highest_h_index": counted[0]["highest_h_index"] if counted else None,
+        "last_imported_at": max(
+            (p.imported_at for p in profiles.values()), default=None
+        ),
+    }
+    if scopus["last_imported_at"]:
+        scopus["last_imported_at"] = scopus["last_imported_at"].isoformat()
+
     return hod.without_money({
         "department": hod.department_of(user),
         "years_on_record": sorted(
@@ -113,6 +134,7 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
                 status__in=(ClaimStatus.SUBMITTED, ClaimStatus.CLEARED)
             ).count(),
         },
+        "scopus": scopus,
         "by_year": by_year,
         "by_quartile": bucket("quartile", "Not recorded"),
         "by_type": bucket("aggregation_type", "Not stated"),
@@ -131,8 +153,18 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
                 "first_author": first_author.get(p.id, 0),
                 "q1": q1.get(p.id, 0),
                 "active": p.active,
+                # None, not 0, where no profile is loaded: "not imported" and
+                # "never cited" are different answers.
+                "scopus_id": profiles[p.id].scopus_id if p.id in profiles else None,
+                "scopus_publications": (
+                    profiles[p.id].total_publications if p.id in profiles else None
+                ),
+                "scopus_citations": (
+                    profiles[p.id].total_citations if p.id in profiles else None
+                ),
+                "scopus_h_index": profiles[p.id].h_index if p.id in profiles else None,
             }
-            for p in people
+            for p in staff
         ],
     })
 
@@ -388,6 +420,8 @@ def hod_person(request: HttpRequest, user_id: str):
         "by_year": by_year,
         "by_quartile": bucket("quartile", "Not recorded"),
         "by_journal": bucket("journal_title", "Not recorded")[:10],
+        # Academic figures, not money, so a head sees them too.
+        "scopus_profile": profile_dict(profile_for(person)),
         "targets": targets,
         "papers": [
             {

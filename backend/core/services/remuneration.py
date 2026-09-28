@@ -61,6 +61,11 @@ class Category:
     JOURNAL_NO_SNIP = "II"
     OTHER_NO_SNIP = "III"
     WEB_OF_SCIENCE = "IV"
+    #: Not one of Step 8's categories: the Final Year Student Project
+    #: Reimbursement Scheme, which the policy puts outside the faculty
+    #: publication remuneration scheme altogether. Its own code so reports and
+    #: the ledger can keep the two schemes' money apart.
+    STUDENT_PROJECT = "FYP"
     NONE = "—"
 
 
@@ -69,8 +74,14 @@ CATEGORY_LABELS = {
     Category.JOURNAL_NO_SNIP: "Category II — Scopus journal without SNIP",
     Category.OTHER_NO_SNIP: "Category III — Scopus conference or book chapter without SNIP",
     Category.WEB_OF_SCIENCE: "Category IV — Web of Science (SCIE/ESCI), not in Scopus",
+    Category.STUDENT_PROJECT: (
+        "Final-year project scheme — a fixed amount per team for a conference paper"
+    ),
     Category.NONE: "Not eligible for remuneration",
 }
+
+#: What the college set when it decided the scheme (2026-09-23).
+DEFAULT_STUDENT_PROJECT_AMOUNT = 15000.0
 
 
 @dataclass
@@ -101,6 +112,9 @@ class FormulaConfigInput:
         default_factory=lambda: dict(DEFAULT_PUB_TYPE_MULTIPLIERS)
     )
     student_remuneration_zero: bool = True
+    #: The final-year project scheme's fixed amount, per team per conference
+    #: paper. See `calculate_student_project`.
+    student_project_amount: float = DEFAULT_STUDENT_PROJECT_AMOUNT
     #: Dead. The calculator has never read it, so the formula editor's checkbox
     #: changed nothing while looking like a money control. Kept only so saved
     #: versions deserialise; the editor no longer offers it.
@@ -292,6 +306,57 @@ def _is_conference_or_book(publication_type: str | None) -> bool:
 def _is_journal(publication_type: str | None) -> bool:
     types = _labels(publication_type)
     return any("journal" in t for t in types) or not types
+
+
+def is_conference_paper(publication_type: str | None) -> bool:
+    """Whether any of the types given is a conference paper or proceeding.
+
+    Narrower than `_is_conference_or_book`: a book chapter is not a
+    conference paper, and the final-year project scheme pays on the latter
+    only.
+    """
+    return any(
+        "conference" in t or "proceeding" in t for t in _labels(publication_type)
+    )
+
+
+def calculate_student_project(
+    publication_type: str | None, cfg: FormulaConfigInput | None = None
+) -> CalcResult:
+    """The Final Year Student Project Reimbursement Scheme, for one claim.
+
+    A fixed amount per team per conference paper. The policy document says
+    these publications "shall not receive publication remuneration under
+    [the faculty] scheme, though they shall continue to be counted as
+    institutional publications", so none of Step 8 applies: no SNIP, no
+    quartile incentive, no author-position weightage, and no SEC-reference
+    minimum. The amount is the whole payment, not a share of one, which is
+    why `point` is None rather than 1.
+    """
+    cfg = cfg or FormulaConfigInput()
+    amount = round2(float(cfg.student_project_amount))
+    if not is_conference_paper(publication_type):
+        return CalcResult(
+            0.0,
+            None,
+            0.0,
+            0.0,
+            None,
+            Category.STUDENT_PROJECT,
+            "The final-year project scheme pays on conference papers only, so "
+            "this publication carries nothing under it.",
+        )
+    return CalcResult(
+        amount,
+        None,
+        amount,
+        0.0,
+        None,
+        Category.STUDENT_PROJECT,
+        f"Final-year project scheme: a fixed {format_inr(amount)} for the team's "
+        "conference paper, paid to its mentor. Not the faculty publication "
+        "formula, and not split by author position.",
+    )
 
 
 def _no_snip_floor(publication_type: str | None, cfg: FormulaConfigInput) -> float:
@@ -549,6 +614,13 @@ def formula_from_model(obj) -> FormulaConfigInput:
         author_points=points,
         publication_type_multipliers={k: float(v) for k, v in (pub_m or {}).items()},
         student_remuneration_zero=bool(getattr(obj, "student_remuneration_zero", True)),
+        # Zero is a real setting (the scheme suspended), so only a missing
+        # value falls back to the default.
+        student_project_amount=float(
+            getattr(obj, "student_project_amount", None)
+            if getattr(obj, "student_project_amount", None) is not None
+            else DEFAULT_STUDENT_PROJECT_AMOUNT
+        ),
         qf_only_for_no_snip=bool(getattr(obj, "qf_only_for_no_snip", True)),
         name=getattr(obj, "name", None) or "Policy v1",
         version=int(getattr(obj, "version", 1) or 1),
@@ -576,6 +648,7 @@ def snapshot_formula(cfg: FormulaConfigInput) -> dict[str, Any]:
         "author_points": cfg.author_points,
         "publication_type_multipliers": cfg.publication_type_multipliers,
         "student_remuneration_zero": cfg.student_remuneration_zero,
+        "student_project_amount": cfg.student_project_amount,
         "qf_only_for_no_snip": cfg.qf_only_for_no_snip,
     }
 

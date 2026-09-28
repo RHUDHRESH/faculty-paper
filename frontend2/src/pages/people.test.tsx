@@ -373,3 +373,54 @@ describe("People — the list", () => {
     )
   })
 })
+
+/* ------------------------------------------------------------------------ */
+/* What Scopus holds for the person                                          */
+/* ------------------------------------------------------------------------ */
+
+const SCOPUS_PROFILE = {
+  scopus_id: "57983494200",
+  url: "https://www.scopus.com/authid/detail.uri?authorId=57983494200",
+  author_name: null,
+  affiliation: null,
+  publications: 26,
+  citations: 166,
+  h_index: 8,
+  publications_by_year: {},
+  documents_listed: 26,
+  source_sheet: "Mr. S. Joyal Isac",
+  imported_at: "2026-09-23T08:00:00Z",
+}
+
+function mountRecord(scopus_profile: unknown) {
+  vi.mocked(api).mockImplementation(
+    fakeApi({
+      "/api/auth/me": () => CELL,
+      "/api/faculty/u-2/report": () => ({ ...REPORT, scopus_profile }),
+    })
+  )
+  return renderWithProviders(
+    <Routes>
+      <Route path="/people/:id" element={<Person />} />
+    </Routes>,
+    { route: "/people/u-2" }
+  )
+}
+
+describe("a person's record, seen by the office, carries their Scopus profile", () => {
+  it("shows their Scopus figures and links the id to Scopus", async () => {
+    mountRecord(SCOPUS_PROFILE)
+    const region = await screen.findByRole("region", { name: /scopus profile/i })
+    expect(within(region).getByRole("link", { name: /57983494200/ })).toHaveAttribute(
+      "href",
+      SCOPUS_PROFILE.url
+    )
+    expect(within(region).getByText("166")).toBeInTheDocument()
+  })
+
+  it("says when no profile has been imported", async () => {
+    mountRecord(null)
+    const region = await screen.findByRole("region", { name: /scopus profile/i })
+    expect(within(region).getByText(/no scopus profile has been imported/i)).toBeInTheDocument()
+  })
+})

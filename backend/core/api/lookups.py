@@ -20,10 +20,10 @@ from django.db.models import Count, Q
 from django.http import HttpRequest
 from ninja import File, UploadedFile
 from ninja.errors import HttpError
-from core.models import Claim, ClaimAttachment, ClaimStatus, FormulaConfig
+from core.models import Claim, ClaimAttachment, ClaimReason, ClaimStatus, FormulaConfig
 from core.services import rbac
 from core.services.normalize import normalize_doi, normalize_issn
-from core.services.remuneration import CATEGORY_LABELS, calculate_remuneration, formula_from_model, snapshot_formula
+from core.services.remuneration import CATEGORY_LABELS, calculate_remuneration, calculate_student_project, formula_from_model, snapshot_formula
 from core.services.scimago import lookup_scimago
 from core.services.scopus import ScopusError, extract_author_id, lookup_paper_by_doi, lookup_serial_by_issn, search_by_title, search_candidates
 from core.services.search import papers as search_papers
@@ -467,18 +467,23 @@ def calculate(request: HttpRequest, payload: CalcIn):
     require_user(request)
     cfg_obj = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
     cfg = formula_from_model(cfg_obj) if cfg_obj else None
-    result = calculate_remuneration(
-        payload.snip,
-        payload.quartile,
-        payload.total_authors,
-        payload.author_position,
-        cfg,
-        is_student_publication=payload.is_student_publication,
-        publication_type=payload.publication_type,
-        indexing_level=payload.indexing_level,
-        engineering_class=payload.engineering_class,
-        sec_reference_count=payload.sec_reference_count,
-    )
+    if payload.claim_reason == ClaimReason.STUDENT_PROJECT:
+        # The same function `_apply_calc` prices the claim with, so the form's
+        # estimate and the ticket's amount cannot disagree.
+        result = calculate_student_project(payload.publication_type, cfg)
+    else:
+        result = calculate_remuneration(
+            payload.snip,
+            payload.quartile,
+            payload.total_authors,
+            payload.author_position,
+            cfg,
+            is_student_publication=payload.is_student_publication,
+            publication_type=payload.publication_type,
+            indexing_level=payload.indexing_level,
+            engineering_class=payload.engineering_class,
+            sec_reference_count=payload.sec_reference_count,
+        )
     return {
         "base": result.base,
         "point": result.point,

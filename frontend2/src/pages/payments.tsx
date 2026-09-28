@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
-import { ApiError } from "@/lib/api"
+import { api, ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
@@ -29,6 +29,7 @@ import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
+import { Avatar } from "@/ui/person"
 import { Pagination } from "@/ui/pagination"
 import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
@@ -60,6 +61,9 @@ type PayoutClaim = {
   journal_title: string | null
   owner_name: string
   owner_department: string | null
+  owner_photo_url?: string | null
+  payout_month?: string | null
+  director_approved_at?: string | null
   remuneration: number | null
   calc_error: string | null
   voucher_number: string | null
@@ -133,12 +137,100 @@ function parseRecomputedAmount(message: string | undefined | null): number | nul
 // reader who cannot act on a row still deserves to know why, not just that
 // the button is missing.
 function secondApprovalReason(c: PayoutClaim): string {
-  if (c.duplicate_warning && c.override_duplicate) {
-    const who = c.override_by_name || "somebody"
-    return `The payment-history warning on this ticket was set aside by ${who}. A second approver, different from the person who cleared it, must confirm before it can be paid.`
-  }
+  // Never names the cause beyond "high value": the other cause is a review
+  // flag, and Finance never sees flags.
   const clearedBy = c.cleared_by_name || "the person who cleared it"
-  return `High-value claim — a second approver, different from ${clearedBy}, must approve before this can be paid.`
+  return `A second approver, different from ${clearedBy}, must approve before this can be paid.`
+}
+
+/** "2026-09" for grouping: the payout month the Director set, else the month
+ *  it was paid or authorised. */
+function monthKey(c: PayoutClaim): string {
+  if (c.payout_month) return c.payout_month.slice(0, 7)
+  const iso = c.paid_at || c.director_approved_at
+  return iso ? iso.slice(0, 7) : "none"
+}
+
+function monthLabel(key: string): string {
+  if (key === "none") return "No payout month"
+  const [y, m] = key.split("-").map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" })
+}
+
+type MonthGroup = { key: string; label: string; rows: PayoutClaim[]; total: number }
+
+function groupByMonth(rows: PayoutClaim[]): MonthGroup[] {
+  const map = new Map<string, PayoutClaim[]>()
+  for (const c of rows) {
+    const k = monthKey(c)
+    map.set(k, [...(map.get(k) ?? []), c])
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => (a === "none" ? 1 : b === "none" ? -1 : b.localeCompare(a)))
+    .map(([key, rs]) => ({
+      key,
+      label: monthLabel(key),
+      rows: rs,
+      total: rs.reduce((sum, c) => sum + (c.remuneration || 0), 0),
+    }))
+}
+
+function monthsOf(rows: PayoutClaim[]): string {
+  return [...new Set(rows.map((c) => monthLabel(monthKey(c))))].join(", ")
+}
+
+function MonthRow({ group, colSpan, amountSpan }: { group: MonthGroup; colSpan: number; amountSpan: number }) {
+  return (
+    <tr className="border-b border-line bg-sunken">
+      <th scope="rowgroup" colSpan={colSpan} className="px-3 py-2 text-left text-sm font-semibold">
+        {group.label}
+        <span className="ml-2 font-normal text-fg-muted">
+          {group.rows.length} {group.rows.length === 1 ? "claim" : "claims"}
+        </span>
+      </th>
+      <td className="px-3 py-2 text-right text-sm font-semibold tabular">{money(group.total)}</td>
+      {amountSpan > 0 && <td colSpan={amountSpan} />}
+    </tr>
+  )
+}
+
+function Claimant({ c }: { c: PayoutClaim }) {
+  return (
+    <div className="flex items-start gap-2">
+      <Avatar
+        size="sm"
+        person={{ name: c.owner_name, initials: initialsOf(c.owner_name), photo_url: c.owner_photo_url ?? null }}
+      />
+      <div className="min-w-0">
+        <span className="block">{c.owner_name}</span>
+        <Meta className="block">
+          {[c.staff_id ? `Staff id ${c.staff_id}` : null, c.owner_department].filter(Boolean).join(" · ") || "No staff id"}
+        </Meta>
+      </div>
+    </div>
+  )
+}
+
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter((w) => /^[A-Za-z]/.test(w))
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("")
+}
+
+function csvCell(v: unknown): string {
+  return `"${String(v ?? "").replace(/"/g, '""')}"`
+}
+
+function downloadCsv(name: string, lines: string[]) {
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" })
+  const a = document.createElement("a")
+  a.href = URL.createObjectURL(blob)
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(a.href)
 }
 
 function readVouchers(): Record<string, string> {
@@ -294,7 +386,7 @@ export function Payments() {
               Clear selection
             </Button>
             <Button kind="primary" size="sm" onClick={() => setBulkOpen(true)}>
-              Pay {selected.size} {selected.size === 1 ? "claim" : "claims"}
+              Mark {selected.size} paid
             </Button>
           </div>
         </div>
@@ -345,23 +437,24 @@ export function Payments() {
                   <th scope="col" className={stickyHeadCell}>
                     <ColumnLabel>Paper</ColumnLabel>
                   </th>
-                  <th scope="col" className={cn(stickyHeadCell, "w-44")}>
+                  <th scope="col" className={cn(stickyHeadCell, "w-64")}>
                     <ColumnLabel>Claimant</ColumnLabel>
-                  </th>
-                  <th scope="col" className={cn(stickyHeadCell, "w-52")}>
-                    <ColumnLabel>Journal</ColumnLabel>
                   </th>
                   <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
                     <ColumnLabel>Waiting</ColumnLabel>
                   </th>
-                  <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
+                  <th scope="col" className={cn(stickyHeadCell, "w-36 text-right")}>
                     <ColumnLabel>Amount</ColumnLabel>
                   </th>
-                  <th scope="col" className={cn(stickyHeadCell, "w-24")} />
+                  <th scope="col" className={cn(stickyHeadCell, "w-24")}>
+                    <span className="sr-only">Action</span>
+                  </th>
                 </tr>
               </thead>
-              <tbody>
-                {rows.map((c) => {
+              {groupByMonth(rows).map((g) => (
+              <tbody key={g.key}>
+                <MonthRow group={g} colSpan={4} amountSpan={1} />
+                {g.rows.map((c) => {
                   const payable = isPayable(c)
                   return (
                     <tr key={c.id} aria-selected={selected.has(c.id)} className={cn("row border-b border-line last:border-b-0", selected.has(c.id) && "bg-selected")}>
@@ -375,7 +468,10 @@ export function Payments() {
                       </td>
                       <td className="px-3 py-3 align-top">
                         <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
-                        <Meta className="mt-0.5 block">{c.ticket_number || "Not yet ticketed"}</Meta>
+                        <Meta className="mt-0.5 block">
+                          {c.ticket_number || "Not yet ticketed"}
+                          {c.journal_title ? ` · ${c.journal_title}` : ""}
+                        </Meta>
                         {c.needs_second_approval && (
                           <div className="mt-1.5 flex flex-wrap gap-1.5">
                             <RowFlag>
@@ -395,10 +491,8 @@ export function Payments() {
                         )}
                       </td>
                       <td className="px-3 py-3 align-top">
-                        <span className="block">{c.owner_name}</span>
-                        {c.owner_department && <Meta className="block">{c.owner_department}</Meta>}
+                        <Claimant c={c} />
                       </td>
-                      <td className="px-3 py-3 align-top text-sm text-fg-muted">{c.journal_title || "—"}</td>
                       <td className="px-3 py-3 align-top text-right">
                         <span className={cn("tabular", (c.waiting_days ?? 0) > 7 && "font-medium text-caution")}>
                           {waitingLabel(c.waiting_days)}
@@ -425,6 +519,7 @@ export function Payments() {
                   )
                 })}
               </tbody>
+              ))}
             </table>
           </TableScroller>
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
@@ -495,7 +590,7 @@ function SinglePayDialog({
   onPaid: (id: string) => void
 }) {
   const [voucher, setVoucher] = useState("")
-  const [phase, setPhase] = useState<"ready" | "changed">("ready")
+  const [phase, setPhase] = useState<"ready" | "changed" | "already">("ready")
   const [confirmedAmount, setConfirmedAmount] = useState<number | null>(null)
   const [changedMessage, setChangedMessage] = useState<string | null>(null)
   const [changedAmount, setChangedAmount] = useState<number | null>(null)
@@ -526,6 +621,10 @@ function SinglePayDialog({
         setChangedMessage(err.message)
         setChangedAmount(parseRecomputedAmount(err.message))
         setPhase("changed")
+      } else if (err instanceof ApiError && err.status === 400 && /invalid status/i.test(err.message)) {
+        // The server refuses anything no longer Director-authorised; from
+        // this screen that means somebody has already paid it.
+        setPhase("already")
       } else {
         toast.fail(err)
       }
@@ -548,10 +647,22 @@ function SinglePayDialog({
           {phase === "ready" && (
             <>
               <p className="text-2xl font-semibold tabular">{money(amount)}</p>
+              <Meta className="block">
+                {[claim.staff_id ? `Staff id ${claim.staff_id}` : null, claim.ticket_number, monthLabel(monthKey(claim))]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Meta>
               <Field label="Voucher number (optional)">
                 <Input value={voucher} onChange={(e) => setVoucher(e.target.value)} />
               </Field>
             </>
+          )}
+
+          {phase === "already" && (
+            <Callout tone="caution" title="Already paid">
+              This claim has already been paid, and a claim is paid once. Nothing
+              was paid again. It is listed under Already paid.
+            </Callout>
           )}
 
           {phase === "changed" && (
@@ -585,7 +696,7 @@ function SinglePayDialog({
             >
               {pay.isPending ? "Paying…" : `Confirm — ${changedAmount != null ? money(changedAmount) : "…"}`}
             </Button>
-          ) : (
+          ) : phase === "already" ? null : (
             <Button
               kind="primary"
               disabled={amount == null || pay.isPending}
@@ -668,7 +779,7 @@ function BulkPayDialog({
       writeVouchers(next)
       onDone(r.paid_ids)
       if (r.skipped.length === 0) {
-        toast.ok(`Paid — ${r.paid} ${r.paid === 1 ? "claim" : "claims"}`)
+        toast.ok(`Marked paid — ${r.paid} ${r.paid === 1 ? "claim" : "claims"}`)
         onOpenChange(false)
       }
     } catch (err) {
@@ -696,21 +807,14 @@ function BulkPayDialog({
 
   /** The batch as a list for the bank or payroll: who, staff id, voucher, amount. */
   function downloadList() {
-    const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
-    const lines = [
-      ["Staff id", "Name", "Department", "Ticket", "Voucher", "Amount (INR)"].map(cell).join(","),
+    downloadCsv(`payment-list-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ["Staff id", "Name", "Department", "Ticket", "Payout month", "Voucher", "Amount (INR)"].map(csvCell).join(","),
       ...rows.map((c) =>
-        [c.staff_id, c.owner_name, c.owner_department, c.ticket_number, vouchers[c.id] || "", c.remuneration ?? ""]
-          .map(cell)
+        [c.staff_id, c.owner_name, c.owner_department, c.ticket_number, monthLabel(monthKey(c)), vouchers[c.id] || "", c.remuneration ?? ""]
+          .map(csvCell)
           .join(",")
       ),
-    ]
-    const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" })
-    const a = document.createElement("a")
-    a.href = URL.createObjectURL(blob)
-    a.download = `payment-list-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(a.href)
+    ])
   }
 
   return (
@@ -718,18 +822,34 @@ function BulkPayDialog({
       <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>
-            {result ? `Paid ${result.paid} of ${rows.length}` : `Pay ${rows.length} ${rows.length === 1 ? "claim" : "claims"}?`}
+            {result ? `Paid ${result.paid} of ${rows.length}` : `Mark ${rows.length} ${rows.length === 1 ? "claim" : "claims"} paid?`}
           </DialogTitle>
           <DialogDescription>
             {result
               ? result.skipped.length === 0
                 ? "Every claim in this batch was paid."
                 : "The rest were skipped — each for its own reason, below. Nothing was paid at a wrong figure."
-              : `${money(total)} total. Each row is re-checked against its stored figures as it pays — a row whose amount has moved is skipped, not paid at the wrong number.`}
+              : "Each row is re-checked against its stored figures as it pays. A row whose amount has moved is skipped, not paid at the wrong number."}
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="space-y-4">
+          {!result && (
+            <dl className="grid grid-cols-[minmax(0,1fr)] gap-3 rounded-md bg-accent-wash p-3 sm:grid-cols-3">
+              <div>
+                <dt className="text-xs text-fg-muted">Claims</dt>
+                <dd className="text-lg font-semibold tabular">{rows.length}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-fg-muted">Total</dt>
+                <dd className="text-lg font-semibold tabular">{money(total)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-fg-muted">Payout month</dt>
+                <dd className="text-lg font-semibold">{monthsOf(rows)}</dd>
+              </div>
+            </dl>
+          )}
           {!result && (
             <div className="flex flex-wrap items-end gap-2 rounded-md bg-sunken p-3">
               <Field label="Voucher prefix" className="w-40">
@@ -801,7 +921,7 @@ function BulkPayDialog({
           </Button>
           {!result && (
             <Button kind="primary" disabled={bulkPay.isPending || rows.length === 0} onClick={() => void confirm()}>
-              {bulkPay.isPending ? "Paying…" : `Pay ${rows.length} — ${money(total)}`}
+              {bulkPay.isPending ? "Paying…" : `Mark ${rows.length} paid — ${money(total)}`}
             </Button>
           )}
         </DialogFooter>
@@ -836,8 +956,46 @@ export function PaymentsDone() {
     { enabled: allowed, placeholderData: (prev) => prev }
   )
 
-  const rows = data?.results ?? []
+  const allRows = data?.results ?? []
   const total = data?.total ?? 0
+  const [q, setQ] = useState("")
+  const needle = q.trim().toLowerCase()
+  const rows = needle
+    ? allRows.filter((c) =>
+        [c.paper_title, c.owner_name, c.staff_id, c.ticket_number, c.voucher_number, c.owner_department]
+          .some((v) => v?.toLowerCase().includes(needle))
+      )
+    : allRows
+  const [exporting, setExporting] = useState(false)
+  const isSuper = me?.role === "SUPER_ADMIN"
+
+  /** Every paid row, not just this page, fetched 200 at a time. */
+  async function exportCsv() {
+    setExporting(true)
+    try {
+      const all: PayoutClaim[] = []
+      for (let off = 0; ; off += 200) {
+        const p = await api<PayoutsPage>(`/api/admin/payouts?status=PAID&limit=200&offset=${off}`)
+        all.push(...p.results)
+        if (p.results.length === 0 || all.length >= p.total) break
+      }
+      downloadCsv(`payments-done-${new Date().toISOString().slice(0, 10)}.csv`, [
+        ["Payout month", "Paid on", "Voucher", "Ticket", "Staff id", "Name", "Department", "Paper", "Amount (INR)"]
+          .map(csvCell)
+          .join(","),
+        ...all.map((c) =>
+          [monthLabel(monthKey(c)), c.paid_at?.slice(0, 10), c.voucher_number, c.ticket_number, c.staff_id, c.owner_name, c.owner_department, c.paper_title, c.remuneration ?? ""]
+            .map(csvCell)
+            .join(",")
+        ),
+      ])
+      toast.ok(`Exported ${all.length} ${all.length === 1 ? "payment" : "payments"}`)
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setExporting(false)
+    }
+  }
   const [voidId, setVoidId] = useState<string | null>(null)
   const voidClaim = voidId ? rows.find((c) => c.id === voidId) ?? null : null
 
@@ -864,12 +1022,15 @@ export function PaymentsDone() {
           </Button>
           <PageTitle>Paid</PageTitle>
           <Sub className="mt-1">
-            Every payment on record, most recent first. Nothing here is ever
-            deleted; a payment made in error is reversed by a super admin, which
+            Every payment on record, by payout month. Nothing here is ever
+            deleted. A payment made in error is undone by a super admin, which
             writes a balancing ledger row.
           </Sub>
         </div>
-        <div className="flex items-center gap-2 print:hidden">
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <Button kind="quiet" size="sm" onClick={() => void exportCsv()} disabled={exporting || total === 0}>
+            {exporting ? "Exporting…" : "Export CSV"}
+          </Button>
           <Button kind="quiet" size="sm" onClick={() => window.print()}>
             Print register
           </Button>
@@ -881,6 +1042,28 @@ export function PaymentsDone() {
         <HeaderSpot name="spot-payouts" />
       </header>
 
+      {total > 0 && (
+        <div className="flex flex-wrap items-end gap-3 print:hidden">
+          <Field label="Search" className="w-full max-w-sm">
+            <Input
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Name, staff id, ticket or voucher"
+            />
+          </Field>
+          {total > PAGE_SIZE && <Meta>Searches the {allRows.length} payments on this page.</Meta>}
+        </div>
+      )}
+
+      {!isSuper && total > 0 && (
+        <Callout tone="info" title="Finance cannot undo a payment">
+          A payment is made once. If one went out in error, ask a super admin to
+          undo it; that keeps the person who paid and the person who reverses it
+          apart.
+        </Callout>
+      )}
+
       {isLoading ? (
         <SkeletonRows rows={8} rowHeight={52} />
       ) : isError ? (
@@ -889,8 +1072,10 @@ export function PaymentsDone() {
           message="The server did not answer. Nothing has been changed."
           onRetry={() => refetch()}
         />
-      ) : rows.length === 0 ? (
+      ) : total === 0 ? (
         <EmptyState icon={Receipt} title="Nothing paid yet" message="Once Finance pays a claim, it appears here with its voucher and date." />
+      ) : rows.length === 0 ? (
+        <EmptyState icon={Receipt} title="No payment matches" message={`Nothing on this page matches "${q.trim()}".`} />
       ) : (
         <>
           <TableScroller minWidth="58rem">
@@ -900,49 +1085,54 @@ export function PaymentsDone() {
                   <th scope="col" className={stickyHeadCell}>
                     <ColumnLabel>Paper</ColumnLabel>
                   </th>
-                  <th scope="col" className={cn(stickyHeadCell, "w-44")}>
+                  <th scope="col" className={cn(stickyHeadCell, "w-64")}>
                     <ColumnLabel>Claimant</ColumnLabel>
                   </th>
                   <th scope="col" className={cn(stickyHeadCell, "w-32")}>
                     <ColumnLabel>Voucher</ColumnLabel>
                   </th>
                   <th scope="col" className={cn(stickyHeadCell, "w-40")}>
-                    <ColumnLabel>Paid</ColumnLabel>
+                    <ColumnLabel>Paid on</ColumnLabel>
                   </th>
-                  <th scope="col" className={cn(stickyHeadCell, "w-28 text-right")}>
+                  <th scope="col" className={cn(stickyHeadCell, "w-36 text-right")}>
                     <ColumnLabel>Amount</ColumnLabel>
                   </th>
-                  <th scope="col" className={cn(stickyHeadCell, "w-20")} />
+                  {isSuper && (
+                    <th scope="col" className={cn(stickyHeadCell, "w-24")}>
+                      <span className="sr-only">Action</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
-              <tbody>
-                {rows.map((c) => (
+              {groupByMonth(rows).map((g) => (
+              <tbody key={g.key}>
+                <MonthRow group={g} colSpan={4} amountSpan={isSuper ? 1 : 0} />
+                {g.rows.map((c) => (
                   <tr key={c.id} className="row border-b border-line last:border-b-0">
                     <td className="px-3 py-3 align-top">
                       <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
                       <Meta className="mt-0.5 block">{c.ticket_number || "Not yet ticketed"}</Meta>
                     </td>
                     <td className="px-3 py-3 align-top">
-                      <span className="block">{c.owner_name}</span>
-                      {c.owner_department && <Meta className="block">{c.owner_department}</Meta>}
+                      <Claimant c={c} />
                     </td>
-                    <td className="px-3 py-3 align-top text-sm">{c.voucher_number || "—"}</td>
+                    <td className="px-3 py-3 align-top text-sm tabular">{c.voucher_number || "None"}</td>
                     <td className="px-3 py-3 align-top text-sm text-fg-muted">{formatDateTime(c.paid_at)}</td>
                     <td className="px-3 py-3 align-top text-right tabular">{money(c.remuneration)}</td>
-                    <td className="px-3 py-3 align-top text-right">
-                      {/* The college's rule: Finance pays and does not undo. A
-                          reversal is a super admin's decision (the server
-                          refuses anyone else). */}
-                      {me?.role === "SUPER_ADMIN" && (
+                    {/* Finance pays and does not undo; the server refuses
+                        anyone but a super admin, and the callout says why. */}
+                    {isSuper && (
+                      <td className="px-3 py-3 align-top text-right">
                         <Button kind="quiet" size="sm" onClick={() => setVoidId(c.id)}>
                           <Undo2 className="size-3.5" />
-                          Void
+                          Undo
                         </Button>
-                      )}
-                    </td>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
+              ))}
             </table>
           </TableScroller>
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
@@ -994,7 +1184,7 @@ function VoidDialog({
   async function submit() {
     try {
       await voidPayment.mutateAsync({ note: trimmed })
-      toast.ok(`Voided — ${claim.ticket_number || "the payment"} is back with the Principal's queue`)
+      toast.ok(`Undone — ${claim.ticket_number || "the payment"} is back with the Principal's queue`)
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)
@@ -1005,7 +1195,7 @@ function VoidDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Void this payment?</DialogTitle>
+          <DialogTitle>Undo this payment?</DialogTitle>
           <DialogDescription>
             {claim.owner_name} · {claim.paper_title}
           </DialogDescription>
@@ -1035,7 +1225,7 @@ function VoidDialog({
             Cancel
           </Button>
           <Button kind="danger" disabled={!canSubmit || voidPayment.isPending} onClick={() => void submit()}>
-            {voidPayment.isPending ? "Voiding…" : "Void payment"}
+            {voidPayment.isPending ? "Undoing…" : "Undo payment"}
           </Button>
         </DialogFooter>
       </DialogContent>

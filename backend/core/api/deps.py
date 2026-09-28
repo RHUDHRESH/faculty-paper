@@ -109,6 +109,7 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "owner_name": c.owner.name,
         "owner_email": c.owner.email,
         "owner_department": c.owner.department,
+        "owner_photo_url": f"{settings.MEDIA_URL}{c.owner.photo}" if c.owner.photo else None,
         "status": c.status,
         "status_note": c.status_note,
         # Paused at its desk, not moved: `status` still says where it is.

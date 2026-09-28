@@ -253,7 +253,7 @@ test.describe("Moving a batch of claims through every desk", () => {
     }
     await expect(page.getByText(`${BATCH} selected`, { exact: false })).toBeVisible()
 
-    await page.getByRole("button", { name: `Pay ${BATCH} claims` }).click()
+    await page.getByRole("button", { name: `Mark ${BATCH} paid` }).click()
 
     // The review table is the point of this dialog: one row per claim, its own
     // voucher box, its own amount. A batch that showed a single total and no
@@ -272,7 +272,7 @@ test.describe("Moving a batch of claims through every desk", () => {
       await vouchers.nth(i).fill(`E2E-BULK-${Date.now()}-${i}`)
     }
 
-    const confirm = dialog.getByRole("button", { name: /^Pay \d+ — ₹/ })
+    const confirm = dialog.getByRole("button", { name: /^Mark \d+ paid — ₹/ })
     await expect(confirm).toBeEnabled()
     totals.paid = amountIn(await confirm.innerText(), "bulk payment")
 

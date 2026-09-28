@@ -1,4 +1,5 @@
-import { Link, useLocation } from "react-router-dom"
+import { useState } from "react"
+import { Link, useLocation, useNavigate } from "react-router-dom"
 
 import { useAuth } from "@/app/auth"
 import { NAV, navFor } from "@/app/nav"
@@ -29,6 +30,8 @@ import { Meta, PageTitle, Sub } from "@/ui/text"
 export function NotFound() {
   const { me } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
+  const [query, setQuery] = useState("")
 
   const path = location.pathname
   // Matched against every declared destination, not just this role's — that
@@ -48,7 +51,7 @@ export function NotFound() {
             belongs to somebody else gets the college's own portico with a
             bar across it; an address that is nothing at all gets a signpost
             with nothing written on it. */}
-        <Illustration name={forbidden ? "error-access-denied" : "not-found-404"} width={180} className="mx-auto" eager />
+        <Illustration name={forbidden ? "error-access-denied" : "not-found-404"} width={240} className="mx-auto w-full max-w-[240px]" eager />
 
         <div>
           <PageTitle>{forbidden ? "Not open to this account" : "No page at this address"}</PageTitle>
@@ -57,7 +60,7 @@ export function NotFound() {
               <>
                 <span className="font-medium text-fg">{declared?.label}</span> is a real page, but
                 it is not one this account may open. Nothing is broken and nothing has been
-                lost — ask the research cell if you think it should be yours.
+                lost. Ask the research cell if you think it should be yours.
               </>
             ) : (
               <>
@@ -72,13 +75,40 @@ export function NotFound() {
             to somebody and ask what happened. */}
         <Meta className="block break-all rounded-md bg-sunken px-3 py-1.5 font-mono">{path}</Meta>
 
-        <div className="flex justify-center gap-2 pt-2">
+        {me && (
+          <form
+            role="search"
+            className="flex gap-2 pt-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const q = query.trim()
+              navigate(q ? "/search?q=" + encodeURIComponent(q) : "/search")
+            }}
+          >
+            <label htmlFor="nf-search" className="sr-only">
+              Search papers, journals and people
+            </label>
+            <input
+              id="nf-search"
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search papers, journals, people"
+              className="h-10 min-w-0 flex-1 rounded-lg bg-surface px-3 text-base ring-1 ring-inset ring-field outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+            <Button kind="default" type="submit" className="h-10">
+              Search
+            </Button>
+          </form>
+        )}
+
+        <div className="flex flex-wrap justify-center gap-2 pt-2">
           <Button kind="primary" asChild>
             <Link to="/">Go to {home}</Link>
           </Button>
         </div>
 
-        <Meta className="block pt-2">Ctrl-K searches every page you can open.</Meta>
+        {me && <Meta className="block pt-2">Ctrl-K opens every page you can reach.</Meta>}
       </div>
     </div>
   )
@@ -108,7 +138,7 @@ export function NotBuilt({
     <div className="page py-16">
       <div className="mx-auto max-w-lg space-y-4 text-center">
         <PageTitle>{name}</PageTitle>
-        <Sub>Not built yet — and not simply waiting its turn.</Sub>
+        <Sub>Not built yet, and not simply waiting its turn.</Sub>
         <p className="text-base text-fg-muted">{needs}</p>
         {meanwhile && <p className="text-base">{meanwhile}</p>}
         <div className="flex justify-center gap-2 pt-2">

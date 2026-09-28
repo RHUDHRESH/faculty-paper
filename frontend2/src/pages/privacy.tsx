@@ -17,8 +17,9 @@ export function Privacy() {
         <Mark className="size-9" />
         <span className="font-semibold">Faculty Publications · {college}</span>
       </Link>
-      <h1 className="display text-xl">Privacy</h1>
-      <div className="mt-6 space-y-5 text-base leading-7 text-fg-muted [&_h2]:mt-8 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-fg">
+      <h1 className="display text-2xl">Privacy</h1>
+      <p className="mt-2 text-sm text-fg-muted">What this system holds about you, who sees it, and how to correct it.</p>
+      <div className="mt-8 max-w-[65ch] space-y-4 text-base leading-7 text-fg [&_h2]:mt-10 [&_h2]:border-t [&_h2]:border-line [&_h2]:pt-6 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-fg">
         <p>
           This system is run by {college} to record the research its staff publish and to pay the
           publication incentive the college's policy provides. It is used only by the college's
@@ -61,6 +62,11 @@ export function Privacy() {
           )}
         </p>
       </div>
+      <p className="mt-12 border-t border-line pt-6 text-sm">
+        <Link to="/" className="rounded-sm text-accent underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          Back to Faculty Publications
+        </Link>
+      </p>
     </main>
   )
 }

@@ -58,7 +58,7 @@ export function SignIn() {
     try {
       await signIn(email.trim(), password)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not sign in")
+      setError(explainSignInError(err instanceof Error ? err.message : ""))
       setBusy(false)
     }
   }
@@ -73,7 +73,8 @@ export function SignIn() {
     <div className="grid min-h-svh bg-bg lg:grid-cols-[minmax(0,6fr)_minmax(0,5fr)]">
       <BrandPanel collegeName={collegeName} stats={stats} />
 
-      <main className="grid place-items-center px-5 py-12">
+      {/* On a phone the form comes first: people are here to get in. */}
+      <main className="order-first grid place-items-center px-5 py-10 lg:order-none lg:py-12">
         {/* CSS rather than the animation library: this is the first page most
             people load, and the library was a third of its JavaScript. */}
         <div className="frame-rise w-full max-w-[24rem]">
@@ -120,7 +121,8 @@ export function SignIn() {
                   type="button"
                   onClick={() => setForgot((v) => !v)}
                   aria-expanded={forgot}
-                  className="text-sm text-accent hover:underline"
+                  aria-controls="forgot-help"
+                  className="rounded-sm text-sm text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   Forgot your password?
                 </button>
@@ -140,11 +142,10 @@ export function SignIn() {
                 />
                 <button
                   type="button"
-                  tabIndex={-1}
                   onClick={() => setShown((v) => !v)}
                   aria-label={shown ? "Hide password" : "Show password"}
                   aria-pressed={shown}
-                  className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-sm text-fg-subtle hover:text-fg"
+                  className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-sm text-fg-subtle outline-none hover:text-fg focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   {shown ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
@@ -155,7 +156,7 @@ export function SignIn() {
                 </p>
               )}
               {forgot && (
-                <p role="status" className="rounded-md bg-sunken px-3 py-2 text-sm text-fg-muted">
+                <p id="forgot-help" role="status" className="rounded-md bg-sunken px-3 py-2 text-sm text-fg-muted">
                   Passwords are reset by the research cell, not by an email link.{" "}
                   {institution.support_email ? (
                     <>
@@ -166,10 +167,10 @@ export function SignIn() {
                       >
                         {institution.support_email}
                       </a>{" "}
-                      for a new one; you will change it on first sign-in.
+                      for a new one; you will choose your own the first time you sign in with it.
                     </>
                   ) : (
-                    "Ask them for a new one; you will change it on first sign-in."
+                    "Ask them for a new one; you will choose your own the first time you sign in with it."
                   )}
                 </p>
               )}
@@ -247,7 +248,7 @@ function StatsLine({ stats, className }: { stats: PublicStats; className?: strin
     <p className={cn("text-sm tabular", className)}>
       <span className="font-semibold">{n(stats.papers)}</span> papers ·{" "}
       <span className="font-semibold">{n(stats.faculty)}</span> faculty ·{" "}
-      <span className="font-semibold">{n(stats.departments)}</span> departments — and counting
+      <span className="font-semibold">{n(stats.departments)}</span> departments on the record
     </p>
   )
 }
@@ -340,11 +341,11 @@ function GoogleButton({
           callback: ({ credential }) => {
             onError(null)
             void signInWithGoogle(credential).catch((err: unknown) =>
-              onError(
+              onError(explainSignInError(
                 err instanceof Error
                   ? err.message
-                  : "Could not sign in with that Google account."
-              )
+                  : ""
+              ))
             )
           },
         })
@@ -372,7 +373,7 @@ function GoogleButton({
       <div ref={slot} className="grid min-h-10 place-items-center" />
       <p className="mt-3 text-xs text-fg-subtle">
         Use the Google account for the email on your account, or one you have
-        linked. Not linked yet? Sign in with your email and password below,
+        linked. Not linked yet? Sign in with your email and password above,
         then link Google from your profile.
       </p>
     </div>
@@ -518,7 +519,7 @@ function ClerkButton({
         {busy ? "Signing in…" : "Continue with Clerk"}
       </Button>
       <p className="mt-3 text-xs text-fg-subtle">
-        Signs you in to an account that already exists here — it does not
+        Signs you in to an account that already exists here. It does not
         create one.
       </p>
     </div>
@@ -534,4 +535,23 @@ type ClerkClient = {
       session: { getToken: () => Promise<string | null> } | null
     }) => void
   ) => (() => void) | undefined
+}
+
+/**
+ * The server's refusal, said as what happened and what to do next. Known
+ * refusals are rephrased; anything else is shown as the server wrote it.
+ */
+export function explainSignInError(raw: string): string {
+  const m = raw.trim()
+  if (!m) return "Could not sign in. Check your connection and try again."
+  if (/^invalid credentials/i.test(m))
+    return /research cell/i.test(m)
+      ? "That email and password do not match. A few more wrong tries will lock the account for a while; the research cell can reset your password."
+      : "That email and password do not match. Check the email, and whether caps lock is on."
+  if (/too many failed/i.test(m)) return m.replace(" — locked", ". Locked")
+  if (/inactive account/i.test(m))
+    return "This account is switched off. Ask the research cell to turn it back on."
+  if (/not linked/i.test(m))
+    return "This Google account is not linked to an account here. Sign in with your email and password, then link Google from your profile."
+  return m
 }

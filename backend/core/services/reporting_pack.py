@@ -98,6 +98,18 @@ def _quartile_of(claim_quartile: str | None) -> str:
 
 
 def record_only_publications(*, year: int | None = None, q: str | None = None, owner=None) -> list[dict[str, Any]]:
+    """Cached `_record_only_publications`: the same for every college-wide
+    reader, and rebuilt as soon as any write moves the aggregate generation."""
+    from core.services.aggregate_cache import cached
+
+    return cached(
+        "record_only_publications",
+        {"year": year, "q": (q or "").strip(), "owner": getattr(owner, "id", None)},
+        lambda: _record_only_publications(year=year, q=q, owner=owner),
+    )
+
+
+def _record_only_publications(*, year: int | None = None, q: str | None = None, owner=None) -> list[dict[str, Any]]:
     """Papers on the college's publication record that no claim covers.
 
     The accreditation tables were built from claims alone, so a paper nobody
@@ -124,34 +136,42 @@ def record_only_publications(*, year: int | None = None, q: str | None = None, o
             Q(title__icontains=t) | Q(venue__icontains=t) | Q(issn__icontains=t)
             | Q(authorships__user__name__icontains=t)
         ).distinct()
-    pubs = list(pubs.order_by("-year", "title")[:5000])
+    # Plain values, not model instances: this reads up to five thousand
+    # papers and building a full `Publication` (and a full `User` per author)
+    # for each one cost ~4 s on the real record for five columns.
+    pubs = list(
+        pubs.order_by("-year", "title").values("id", "title", "venue", "year", "issn", "doi", "oa_url")[:5000]
+    )
     authors: dict[str, list] = {}
     for a in (
-        Authorship.objects.filter(publication__in=pubs, is_college=True, user__isnull=False)
-        .select_related("user")
+        Authorship.objects.filter(
+            publication_id__in=[p["id"] for p in pubs], is_college=True, user__isnull=False
+        )
         .order_by("publication_id", "position")
+        .values("publication_id", "user_id", "user__name", "user__department")
     ):
-        authors.setdefault(a.publication_id, []).append(a.user)
+        authors.setdefault(a["publication_id"], []).append(a)
     rows = []
     for p in pubs:
         # One row per college author, as NAAC 3.4.3 counts per teacher.
         seen = set()
-        for u in authors.get(p.id, []):
-            if u.id in seen or (owner is not None and u.id != owner.id):
+        for u in authors.get(p["id"], []):
+            uid = u["user_id"]
+            if uid in seen or (owner is not None and uid != owner.id):
                 continue
-            seen.add(u.id)
+            seen.add(uid)
             rows.append({
-                "id": f"{p.id}:{u.id}",
-                "publication_id": p.id,
-                "paper_title": p.title or "",
-                "owner_id": u.id,
-                "owner_name": u.name,
-                "owner_department": u.department or "",
-                "journal_title": p.venue or "",
-                "publication_year": p.year or "",
-                "issn": normalize_issn(p.issn) or "",
-                "doi": p.doi or "",
-                "link": f"https://doi.org/{p.doi}" if p.doi else (p.oa_url or ""),
+                "id": f"{p['id']}:{uid}",
+                "publication_id": p["id"],
+                "paper_title": p["title"] or "",
+                "owner_id": uid,
+                "owner_name": u["user__name"],
+                "owner_department": u["user__department"] or "",
+                "journal_title": p["venue"] or "",
+                "publication_year": p["year"] or "",
+                "issn": normalize_issn(p["issn"]) or "",
+                "doi": p["doi"] or "",
+                "link": f"https://doi.org/{p['doi']}" if p["doi"] else (p["oa_url"] or ""),
             })
     return rows
 

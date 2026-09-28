@@ -6,6 +6,7 @@
 @source not "../src/**/*.md";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/fraunces";
+@import "@fontsource-variable/source-serif-4";
 
 /* dark: follows the app's own theme choice (account menu), not only the OS. */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
@@ -57,7 +58,7 @@
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
   /* Page titles — see `.display` below. Kept as a token so a title face can
      be swapped in one place. */
-  --font-display: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Source Serif 4 Variable", "Fraunces Variable", ui-serif, Georgia, serif;
 
   /* A scale with only the steps this app uses. Every extra step is one more
      chance for two things that mean the same to look different. */
@@ -86,9 +87,9 @@
      was. The accent is for things you can act on and things that carry
      state; everything structural is grey, so colour reads as meaning rather
      than as decoration. */
-  --color-fg: #1f2023;
-  --color-fg-muted: #6b6f76;
-  --color-fg-subtle: #9096a0;
+  --color-fg: #2b2a27;
+  --color-fg-muted: #6b6862;
+  --color-fg-subtle: #9a968e;
 
   /* Surfaces, as a stack, and the order is the whole point: sunken is below
      the ground, the ground is below a panel.
@@ -107,59 +108,59 @@
      where two of them regularly meet at an edge and have to be tellable
      apart, and wider at the bottom, because "the pointer is down on this"
      should not be a subtle claim. */
-  --color-surface: #ffffff;  /* L* 100.0 — a panel, a card, a row, a control */
-  --color-bg: #f8f9fb;       /* L*  97.9 — the page */
-  --color-sunken: #f3f4f8;   /* L*  96.2 — a well, a sidebar, a table head */
-  --color-hover: #eef0f5;    /* L*  94.8 — the pointer is on this */
-  --color-active: #e4e7ee;   /* L*  91.6 — the pointer is down on this */
+  --color-surface: #fdfcfa;  /* L* 100.0 — a panel, a card, a row, a control */
+  --color-bg: #faf9f5;       /* L*  97.9 — the page */
+  --color-sunken: #f3f1ea;   /* L*  96.2 — a well, a sidebar, a table head */
+  --color-hover: #efece4;    /* L*  94.8 — the pointer is on this */
+  --color-active: #e6e2d8;   /* L*  91.6 — the pointer is down on this */
 
   /* Selected is not a darker grey, it is the accent at its palest — because
      "the pointer is here" and "this one is chosen" are different facts and a
      reader has to be able to see both at once on the same row. Pulled a step
      off `accent-wash` so it still separates from `hover`, which is now close
      to it in lightness and differs from it only in hue. */
-  --color-selected: #e4eafc;  /* L* 93.2 */
+  --color-selected: #ebe7de;  /* L* 93.2 */
 
   /* Rules. `line` separates rows; `edge` bounds a region. Two weights only. */
-  --color-line: #ebedf0;
-  --color-edge: #dee0e6;
-  --color-field: #ced2da;
+  --color-line: #ece8df;
+  --color-edge: #e2ddd2;
+  --color-field: #d6d0c4;
 
   /* One accent. Indigo rather than violet — it stays legible at small sizes
      and against white, which the old purple did not at 13px. */
-  --color-accent: #2b398f;
-  --color-accent-hover: #212c72;
+  --color-accent: #c96a4a;
+  --color-accent-hover: #b25a3c;
   --color-accent-fg: #ffffff;
-  --color-accent-wash: #eef2fd;
-  --color-accent-line: #c8d3f7;
+  --color-accent-wash: #f8ece6;
+  --color-accent-line: #ecc9ba;
 
   /* The brand ground: the one large field of colour (sign-in panel). Not
      the accent, because the accent lightens in dark mode to stay legible as
      text, and a lightened field reads as washed out. Saveetha's colour goes
      here when the college supplies it. */
-  --color-brand: #2b398f;
-  --color-brand-fg: #ffffff;
+  --color-brand: #2b2a27;
+  --color-brand-fg: #faf9f5;
 
   /* State. Held to 4.5:1 as text, because all three are rendered as words
      and not only as fills. */
-  --color-positive: #15803d;
-  --color-positive-wash: #f0fdf4;
-  --color-caution: #a16207;
-  --color-caution-wash: #fefce8;
-  --color-critical: #b91c1c;
-  --color-critical-wash: #fef2f2;
+  --color-positive: #3f7a4a;
+  --color-positive-wash: #eef4ec;
+  --color-caution: #9a6a14;
+  --color-caution-wash: #faf3e2;
+  --color-critical: #b23b2e;
+  --color-critical-wash: #fbecea;
 
   /* Area: time (sky) -- the Calendar. docs/ux/00-design-language.md §1. */
-  --area-time: #1b6fa3;
-  --area-time-wash: #e8f3fb;
-  --area-time-line: #b9dbf1;
+  --area-time: #4d6f86;
+  --area-time-wash: #eef2f3;
+  --area-time-line: #cfdbe1;
 
   /* ---- shape ----------------------------------------------------------
      Small. A 12px radius turns a panel into a lozenge; 6px reads as paper. */
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 0.875rem;
 
   /* ---- elevation ------------------------------------------------------
      Six steps, and each one is a sentence about where a thing is rather than
@@ -174,31 +175,29 @@
      token, so the edge stays part of the palette. */
 
   /* Content sits *in* this. A text field; a well holding a control. */
-  --shadow-well: inset 0 1px 2px rgb(16 17 20 / 0.05);
+  --shadow-well: none;
 
   /* You can press this. A filled or bordered control, and nothing else —
      the shadow is the affordance, so putting it on something inert is a lie
      about what happens when you click. */
-  --shadow-raise: 0 1px 1px rgb(16 17 20 / 0.05), 0 1px 2px rgb(16 17 20 / 0.04);
+  --shadow-raise: none;
 
   /* This is the object that answers the page's question. At most one per
      view. Deliberately weak — it has no competition, so it does not need to
      shout in order to win. */
-  --shadow-lift: 0 1px 2px rgb(16 17 20 / 0.04), 0 4px 12px -4px rgb(16 17 20 / 0.08);
+  --shadow-lift: none;
 
   /* Content passes beneath this. A pinned table head, a sticky action bar.
      Directional and asymmetric, because it describes an occlusion and not a
      height, and it is only ever shown while something is actually underneath
      — a permanent one is a drop shadow wearing a hat. */
-  --shadow-under: 0 4px 8px -6px rgb(16 17 20 / 0.28);
+  --shadow-under: 0 1px 0 rgb(43 42 39 / 0.06);
 
   /* This left the page: menu, popover, toast. */
-  --shadow-pop: 0 1px 2px rgb(16 17 20 / 0.04), 0 8px 24px -6px rgb(16 17 20 / 0.12),
-    0 0 0 1px rgb(16 17 20 / 0.05);
+  --shadow-pop: 0 4px 20px -6px rgb(43 42 39 / 0.10), 0 0 0 1px rgb(43 42 39 / 0.06);
 
   /* This took the page: dialog, palette. */
-  --shadow-modal: 0 2px 4px rgb(16 17 20 / 0.04), 0 24px 48px -12px rgb(16 17 20 / 0.18),
-    0 0 0 1px rgb(16 17 20 / 0.05);
+  --shadow-modal: 0 16px 40px -12px rgb(43 42 39 / 0.16), 0 0 0 1px rgb(43 42 39 / 0.06);
 
   /* ---- motion ---------------------------------------------------------
      Fast enough to feel like a response, not an animation. Linear's numbers:
@@ -217,28 +216,28 @@
      that take an `area` prop set `data-area`, which maps the generic
      `--area`, `--area-wash`, `--area-line` (below the dark block) to that
      area — use them as text-(--area), bg-(--area-wash). */
-  --color-area-record: #2b398f;
-  --color-area-record-wash: #eef2fd;
-  --color-area-record-line: #c8d3f7;
-  --color-area-research: #0b6e67;
-  --color-area-research-wash: #e8f6f4;
-  --color-area-research-line: #b5e2dc;
-  --color-area-people: #b04a2f;
-  --color-area-people-wash: #fcefe9;
-  --color-area-people-line: #f3cbbd;
-  --color-area-honours: #8a6410;
-  --color-area-honours-fill: #e0a82e;
-  --color-area-honours-wash: #fdf6e3;
-  --color-area-honours-line: #f1dca3;
-  --color-area-time: #1b6fa3;
-  --color-area-time-wash: #e8f3fb;
-  --color-area-time-line: #b9dbf1;
+  --color-area-record: #8a5a44;
+  --color-area-record-wash: #f5eee8;
+  --color-area-record-line: #e5d5ca;
+  --color-area-research: #4f7466;
+  --color-area-research-wash: #edf2ee;
+  --color-area-research-line: #cddbd2;
+  --color-area-people: #b0603f;
+  --color-area-people-wash: #f8ece6;
+  --color-area-people-line: #ecc9ba;
+  --color-area-honours: #8a6a2a;
+  --color-area-honours-fill: #c9a15a;
+  --color-area-honours-wash: #f7f0e0;
+  --color-area-honours-line: #e6d6b0;
+  --color-area-time: #4d6f86;
+  --color-area-time-wash: #eef2f3;
+  --color-area-time-line: #cfdbe1;
   /* Certificate surfaces only: impact plate, Wall of fame, "you were cited". */
   --color-paper: #fbf8f1;
-  --color-gold: #e0a82e;
+  --color-gold: #c9a15a;
 
   /* Honour face. Fraunces, and only on honour moments (display-honour). */
-  --font-honour: "Fraunces Variable", ui-serif, Georgia, serif;
+  --font-honour: "Source Serif 4 Variable", "Fraunces Variable", ui-serif, Georgia, serif;
 
   /* Convocation type scale: text-honour (44/48, with .honour for the face),
      text-display (32/38), text-figure-xl (56/56), text-figure (28/32). */
@@ -252,16 +251,16 @@
   --text-figure--line-height: 2rem;
 
   --radius-2xl: 1rem;
-  --radius-3xl: 1.5rem;
+  --radius-3xl: 1.25rem;
 
   /* ---- layout ---------------------------------------------------------- */
-  --sidebar-w: 15rem;
-  --page-max: 76rem;
+  --sidebar-w: 16rem;
+  --page-max: 68.75rem;
 
   /* ---- area: people (docs/ux/00 section 1) ---------------------------- */
-  --area-people: #b04a2f;
-  --area-people-wash: #fcefe9;
-  --area-people-line: #f3cbbd;
+  --area-people: #b0603f;
+  --area-people-wash: #f8ece6;
+  --area-people-line: #ecc9ba;
 }
 
 @layer base {
@@ -411,7 +410,7 @@
      step does the work; the hairline only finishes the edge. */
   .panel {
     background-color: var(--color-surface);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     box-shadow: inset 0 0 0 1px var(--color-line);
   }
 
@@ -424,13 +423,8 @@
      entire justification for it existing. A second one cancels the first. */
   .panel-lead {
     background-color: var(--color-surface);
-    background-image: linear-gradient(
-      to bottom,
-      var(--color-accent-wash) 0,
-      var(--color-surface) 5.5rem
-    );
-    border-radius: var(--radius-lg);
-    box-shadow: inset 0 0 0 1px var(--color-accent-line), var(--shadow-lift);
+    border-radius: var(--radius-xl);
+    box-shadow: inset 0 0 0 1px var(--color-edge);
   }
 
   /* A well: a ground that something sits *in* rather than *on* — a toolbar
@@ -464,8 +458,8 @@
      the place you are standing in is never mistaken for bold body text. */
   .display {
     font-family: var(--font-display);
-    font-weight: 660;
-    letter-spacing: -0.028em;
+    font-weight: 500;
+    letter-spacing: -0.015em;
   }
 
   /* A figure that is the answer to something.
@@ -586,58 +580,58 @@
  * ------------------------------------------------------------------------ */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --area-time: #6cc0f5;
-  --area-time-wash: #0f2230;
-  --color-fg: #e7e9ee;
-  --color-fg-muted: #a0a7b4;
-  --color-fg-subtle: #6f7686;
-  --color-surface: #171b23;
-  --color-bg: #0f1218;
-  --color-sunken: #13161d;
-  --color-hover: #1d222c;
-  --color-active: #262c38;
-  --color-selected: #1d2849;
-  --color-line: #232833;
-  --color-edge: #2f3644;
-  --color-field: #3b4354;
-  --color-accent: #7b96ff;
-  --color-accent-hover: #9bb0ff;
-  --color-accent-fg: #0b1020;
-  --color-accent-wash: #1a2341;
-  --color-accent-line: #2e3f78;
-  --color-brand: #1f2a6b;
-  --color-brand-fg: #ffffff;
-  --color-positive: #4ade80;
-  --color-positive-wash: #0f2619;
-  --color-caution: #facc15;
-  --color-caution-wash: #29230d;
-  --color-critical: #f87171;
-  --color-critical-wash: #2c1515;
-  --color-area-record: #8fa5ff;
-  --color-area-record-wash: #1a2341;
-  --color-area-record-line: #2e3f78;
-  --color-area-research: #4fd1c1;
-  --color-area-research-wash: #0e2826;
-  --color-area-research-line: #1d4d48;
-  --color-area-people: #ff9a7a;
-  --color-area-people-wash: #2e1911;
-  --color-area-people-line: #5a3022;
-  --color-area-honours: #f5c451;
-  --color-area-honours-fill: #e0a82e;
-  --color-area-honours-wash: #2a220c;
-  --color-area-honours-line: #57461a;
-  --color-area-time: #6cc0f5;
-  --color-area-time-wash: #0f2230;
-  --color-area-time-line: #1f4560;
-  --color-paper: #1b1a16;
-  --shadow-well: inset 0 1px 2px rgb(0 0 0 / 0.35);
-  --shadow-raise: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.4), 0 6px 16px -6px rgb(0 0 0 / 0.5);
-  --shadow-under: 0 4px 8px -6px rgb(0 0 0 / 0.7);
-  --shadow-pop: 0 8px 24px -6px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.06);
-  --shadow-modal: 0 24px 48px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.08);
-  --area-people: #ff9a7a;
-  --area-people-wash: #2e1911;
+  --area-time: #9bb8cc;
+  --area-time-wash: #27302f;
+  --color-fg: #ece9e2;
+  --color-fg-muted: #a8a49b;
+  --color-fg-subtle: #7a766e;
+  --color-surface: #2c2c2a;
+  --color-bg: #262624;
+  --color-sunken: #1f1e1d;
+  --color-hover: #33322f;
+  --color-active: #3b3a37;
+  --color-selected: #3a3531;
+  --color-line: #353431;
+  --color-edge: #3e3d39;
+  --color-field: #4a4843;
+  --color-accent: #d97757;
+  --color-accent-hover: #e48a6b;
+  --color-accent-fg: #1f1e1d;
+  --color-accent-wash: #3a2c26;
+  --color-accent-line: #5a3d31;
+  --color-brand: #1f1e1d;
+  --color-brand-fg: #ece9e2;
+  --color-positive: #8fc39a;
+  --color-positive-wash: #263028;
+  --color-caution: #e0b86a;
+  --color-caution-wash: #332c1f;
+  --color-critical: #e8897b;
+  --color-critical-wash: #382522;
+  --color-area-record: #d9a88f;
+  --color-area-record-wash: #332b27;
+  --color-area-record-line: #4d3d34;
+  --color-area-research: #9cc2b0;
+  --color-area-research-wash: #26302b;
+  --color-area-research-line: #3a4a42;
+  --color-area-people: #e3a283;
+  --color-area-people-wash: #3a2c26;
+  --color-area-people-line: #5a3d31;
+  --color-area-honours: #e0c07e;
+  --color-area-honours-fill: #c9a15a;
+  --color-area-honours-wash: #332c1f;
+  --color-area-honours-line: #51452c;
+  --color-area-time: #9bb8cc;
+  --color-area-time-wash: #27302f;
+  --color-area-time-line: #3b4a50;
+  --color-paper: #2a2825;
+  --shadow-well: none;
+  --shadow-raise: none;
+  --shadow-lift: none;
+  --shadow-under: 0 1px 0 rgb(0 0 0 / 0.3);
+  --shadow-pop: 0 8px 24px -8px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --shadow-modal: 0 20px 48px -12px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.07);
+  --area-people: #e3a283;
+  --area-people-wash: #3a2c26;
 }
 
 /* The current area. `data-area` on any component root (HeroBand, StatTile,
@@ -683,11 +677,11 @@
 @layer utilities {
   /* Hero gradient per area. The record hero on Home/Landing is solid navy. */
   .hero-wash {
-    background-image: linear-gradient(135deg, var(--area-wash) 0%, var(--color-bg) 70%);
+    background-image: none;
   }
   /* Gold ribbon: a 3px top border on honour surfaces and nowhere else. */
   .ribbon {
-    background-image: linear-gradient(90deg, #e0a82e, #f5d27a 50%, #e0a82e);
+    background-image: linear-gradient(90deg, var(--color-gold), var(--color-gold));
   }
   /* display-honour: pair with text-honour. Honour moments only. */
   .honour {

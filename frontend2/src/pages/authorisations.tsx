@@ -7,6 +7,8 @@ import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
+import { ComingUp } from "@/ui/coming-up"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
   Dialog,
@@ -23,6 +25,7 @@ import { Pagination } from "@/ui/pagination"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
 
 /**
  * The Director's queue: everything the Principal has approved and nobody has
@@ -159,6 +162,7 @@ export function Authorisations() {
           Approved by the Principal and waiting on you. Finance cannot pay any of these until
           they carry your authorisation.
         </Sub>
+        <OwnPapersNote className="mt-1" />
       </header>
 
       {/* Three states, not two. Without `loading` these read "—", "—", "—"
@@ -198,7 +202,7 @@ export function Authorisations() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className={filterBar}>
         <Combobox
           value={department}
           onChange={(next) => setParam("department", next)}
@@ -219,18 +223,22 @@ export function Authorisations() {
           aria-label="Sort"
           className="w-52"
         />
-        {selectedRows.length > 0 && (
-          <div className="ml-auto flex items-center gap-3">
-            <Meta className="tabular">
-              {selectedRows.length} selected · {money(selectedTotal)}
-            </Meta>
-            <Button kind="primary" size="md" onClick={() => setBulkOpen(true)}>
-              <Stamp />
-              Authorise {selectedRows.length}
-            </Button>
-          </div>
-        )}
       </div>
+
+      {selectedRows.length > 0 && (
+        // Its own bar, pinned under the header while the list scrolls: on a
+        // phone the tickets being ticked are a screen below where the button was.
+        <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
+          <p className="text-sm tabular">
+            <span className="font-semibold">{selectedRows.length}</span> selected ·{" "}
+            <span className="font-semibold">{money(selectedTotal)}</span>
+          </p>
+          <Button kind="primary" size="md" onClick={() => setBulkOpen(true)}>
+            <Stamp />
+            Authorise {selectedRows.length}
+          </Button>
+        </div>
+      )}
 
       {isLoading && !data ? (
         <SkeletonRows rows={8} rowHeight={72} />
@@ -265,7 +273,9 @@ export function Authorisations() {
               <Button kind="default" size="sm" onClick={() => setParam("department", "")}>
                 See every department
               </Button>
-            ) : undefined
+            ) : (
+              <ComingUp desk="director" />
+            )
           }
         />
       ) : (

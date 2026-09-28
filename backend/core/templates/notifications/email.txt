@@ -1,0 +1,17 @@
+{% autoescape off %}{{ college }}
+
+{{ title }}
+{% if paper_title %}
+{{ paper_title }}
+{% endif %}{% if body %}
+{{ body }}
+{% endif %}{% if text_sections %}
+{{ text_sections }}
+{% endif %}{% if action_url %}
+{{ action_label }}: {{ action_url }}
+{% endif %}
+--
+You are getting this because "{{ kind_label }}" is set to email in your notification settings.
+Stop these emails: {{ unsubscribe_url }}
+All notification settings: {{ settings_url }}
+{% endautoescape %}

@@ -44,10 +44,14 @@ services:
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
       GOOGLE_HOSTED_DOMAIN: ${GOOGLE_HOSTED_DOMAIN:-}
       SCOPUS_API_KEY: ${SCOPUS_API_KEY:-}
-      # The AI features answer 503 while no model service is configured,
-      # which is the correct resting state for a first install. Point this at
-      # a harness (harness/README.md) or an Ollama daemon to switch them on.
-      AI_PROVIDER: ollama
+      # With nothing set the AI panels say "not set up" and show their counted
+      # versions -- the correct resting state for a first install. Set the
+      # three AI_* values for a hosted model (DEPLOY.md, section E), or
+      # AI_PROVIDER=harness / ollama for one the college runs.
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
       LOG_FORMAT: json
     volumes:
       - media:/app/media

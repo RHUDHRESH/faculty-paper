@@ -1,9 +1,11 @@
-import { toast as sonnerToast } from "sonner"
-
 /**
  * A thin wrapper over `sonner`, so a toast in this app can only say three
  * things: something worked, something failed, or something to note in
  * passing. `<Toaster />` is already mounted once in `main.tsx`.
+ *
+ * `sonner` is fetched the first time it is needed rather than with the first
+ * screen: nothing toasts before somebody has pressed something, and by then
+ * the Toaster `main.tsx` mounts after the first paint has brought it in.
  *
  * A toast is the wrong place for anything the reader must act on — it reads
  * for a few seconds and is gone, so a rejection reason, a validation list or
@@ -19,7 +21,7 @@ export const toast = {
    * they get.
    */
   ok(message: string) {
-    sonnerToast.success(message)
+    void sonner().then((s) => s.toast.success(message))
   },
 
   /**
@@ -30,14 +32,20 @@ export const toast = {
    * non-2xx response.
    */
   fail(error: unknown, fallback = "Something went wrong. Please try again.") {
-    sonnerToast.error(readableMessage(error, fallback))
+    const message = readableMessage(error, fallback)
+    void sonner().then((s) => s.toast.error(message))
   },
 
   /** A fact worth noting that is neither a success nor a failure — a
    *  background sync finished, a filter was cleared for you. */
   info(message: string) {
-    sonnerToast(message)
+    void sonner().then((s) => s.toast(message))
   },
+}
+
+let loading: Promise<typeof import("sonner")> | null = null
+function sonner() {
+  return (loading ??= import("sonner"))
 }
 
 function readableMessage(error: unknown, fallback: string): string {

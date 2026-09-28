@@ -18,14 +18,15 @@ import json
 import re
 import time
 from typing import Any, Optional
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Min, Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from django.conf import settings
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimReason, ClaimStatus, PAYABLE_STATUSES, User
+from core.models import AuditLog, Claim, ClaimReason, ClaimStatus, PAYABLE_STATUSES, PaidLedger, Role, User
 from core.services import rbac
 from core.services import exporters
+from core.services.aggregate_cache import cached
 from core.services.remuneration import CATEGORY_LABELS
 from core.services.scopus_profiles import department_totals
 
@@ -33,7 +34,13 @@ from core.services.scopus_profiles import department_totals
 
 
 @api.get("/dashboard", auth=session_auth)
-def dashboard(request: HttpRequest):
+def dashboard(request: HttpRequest, recent: int = 10):
+    """Counts by stage, the latest `recent` tickets, and what has been paid.
+
+    `recent=0` is for the homes that print the totals and not the list (the
+    Principal's, the Director's): ten serialised tickets were a third of this
+    response and most of its work, thrown away on arrival.
+    """
     user = require_user(request)
     # Returns total_paid and a remuneration on every recent row. /claims and
     # /claims/{id} both refuse a head here and this one did not, which held
@@ -43,11 +50,23 @@ def dashboard(request: HttpRequest):
     qs = _claims_queryset(user)
     counts = {row["status"]: row["n"] for row in qs.values("status").annotate(n=Count("id"))}
     by_status = {s: counts.get(s, 0) for s in ClaimStatus.values}
-    recent = [claim_to_dict(c) for c in qs.order_by("-updated_at")[:10]]
+    n = max(0, min(int(recent), 50))
+    recent = [claim_to_dict(c) for c in qs.order_by("-updated_at")[:n]] if n else []
     total_paid = (
         qs.filter(status=ClaimStatus.PAID).aggregate(total=Sum("remuneration"))["total"] or 0
     )
-    return {"by_status": by_status, "recent": recent, "total_paid": total_paid}
+    out = {"by_status": by_status, "recent": recent, "total_paid": total_paid}
+    # The college-wide figure the office homes print. Claims carry money only
+    # for what this app processed; the ledger also holds every payment made
+    # before it, which is the number a principal means by "paid to date".
+    if user.role in LEDGER_ROLES:
+        agg = PaidLedger.objects.aggregate(total=Sum("amount"), since=Min("payout_month"))
+        out["ledger_total"] = round(agg["total"] or 0, 2)
+        out["ledger_since"] = _format_payout_month(agg["since"])
+    return out
+
+
+LEDGER_ROLES = {Role.RESEARCH_CELL, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE, Role.SUPER_ADMIN}
 
 
 def _reports_queryset(
@@ -364,7 +383,20 @@ def reports(
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
+    if month:
+        _reports_queryset(user, None, None, month)  # a malformed month is a 400, cached or not
+    # The same figures for every role allowed to read them (none of them files
+    # claims, so none has drafts of their own to add), so they are shared
+    # until something is written (core/services/aggregate_cache.py).
+    return cached(
+        "reports",
+        # Lower-cased because the filter is `iexact`; not stripped, because it is not.
+        {"year": year, "department": (department or "").lower(), "month": month},
+        lambda: _report(user, year, department, month),
+    )
 
+
+def _report(user: User, year: Optional[int], department: Optional[str], month: Optional[str]):
     qs = _reports_queryset(user, year, department, month)
     paid = qs.filter(status=ClaimStatus.PAID)
     payable = qs.filter(status__in=PAYABLE_STATUSES)
@@ -834,10 +866,10 @@ def reports_areas(
 ):
     """What the college researches, by subject area.
 
-    Nothing else in the system answers this. `subject_category` is a column
-    that exists and is empty on every one of the 3,226 filed claims; the real
-    answer lives in `subjects_json`, which Scimago fills in for a journal we
-    recognise.
+    Nothing else in the system answers this. The answer lives in
+    `subjects_json`, which Scimago fills in for a journal we recognise, and --
+    for a claim brought across from the ERP -- in `subject_category`, where the
+    import keeps the workbook's own "Subject Area" in the same form.
 
     Which is exactly why `coverage` is returned and must be shown. Subjects
     are only known for a paper whose journal we could match, so an area chart
@@ -852,12 +884,17 @@ def reports_areas(
         raise HttpError(403, "Forbidden")
 
     qs = _reports_queryset(user, year, department)
-    rows = list(qs.values_list("subjects_json", "remuneration", "publication_year"))
+    rows = list(
+        qs.values_list("subjects_json", "subject_category", "remuneration", "publication_year")
+    )
 
     areas: dict[str, dict[str, Any]] = {}
     classified = 0
-    for raw, amount, _pub_year in rows:
-        parsed = _split_subjects(raw)
+    for raw, erp_area, amount, _pub_year in rows:
+        # Scimago's classification where it matched the journal; otherwise the
+        # ERP workbook's own "Subject Area", which the import keeps in
+        # `subject_category` in the same "Area (Q1); Area (Q2)" form.
+        parsed = _split_subjects(raw) or _split_subjects(erp_area)
         if not parsed:
             continue
         classified += 1

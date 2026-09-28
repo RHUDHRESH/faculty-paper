@@ -56,6 +56,13 @@ class AttachmentIn(Schema):
     content_hash: Optional[str] = None
 
 
+class ConfirmationIn(Schema):
+    """One eligibility condition ticked for this article (services/filing_conditions)."""
+    id: str
+    text_version: str
+    ticked_at: str
+
+
 class ClaimIn(Schema):
     owner_id: Optional[str] = None
     doi: Optional[str] = None
@@ -109,6 +116,9 @@ class ClaimIn(Schema):
     engineering_class: Optional[str] = None
     contest_forward: bool = False
     contest_note: Optional[str] = None
+    #: Required when ``submit`` is true: the three conditions, each ticked by
+    #: the person filing, for this article. Recorded as the legal acceptance.
+    confirmations: Optional[list[ConfirmationIn]] = None
     submit: bool = False
 
 
@@ -566,6 +576,9 @@ class FormulaIn(Schema):
     #: would reset a changed amount every time a client that does not send it
     #: saved the policy, which is the defect noted above for the fixed rates.
     student_project_amount: Optional[float] = None
+    #: Day of the month filing closes for that month's run, 1-28, or null for
+    #: none. Left out of a request, the previous version's value is kept.
+    filing_cutoff_day: Optional[int] = None
 
 
 class MonthlyCreateIn(Schema):
@@ -584,6 +597,7 @@ __all__ = [
     'CandidateSearchIn',
     'ChangePasswordIn',
     'ClaimIn',
+    'ConfirmationIn',
     'FormulaIn',
     'LoginIn',
     'ManualVerifyIn',

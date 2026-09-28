@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from core.api.common import api, session_auth
 from core.api.deps import _user_dict, impersonator_of
-from core.api.common import IMPERSONATOR_KEY, require_user
+from core.api.common import IMPERSONATOR_KEY, _refuse_own_claim, require_user
 
 import json
 from typing import Any
@@ -70,6 +70,7 @@ def admin_edit_claim(request: HttpRequest, claim_id: str, payload: ClaimEditIn):
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(actor, claim)
 
         before, after = {}, {}
         for key, value in (payload.fields or {}).items():
@@ -167,10 +168,15 @@ def admin_reassign_claim(request: HttpRequest, claim_id: str, payload: ReassignI
     if not new_owner:
         raise HttpError(404, "No account with that email")
     if new_owner.role not in rbac.CLAIMANT_ROLES:
-        raise HttpError(400, "Claims belong to faculty accounts (a head of department is one)")
+        raise HttpError(
+            400,
+            "Claims belong to the staff who file them: faculty, a head of "
+            "department, or an officer filing their own paper -- not the super admin",
+        )
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(actor, claim)
         previous = claim.owner
         if previous.id == new_owner.id:
             return {"ok": True, "note": "already owned by that account"}

@@ -21,6 +21,7 @@ from django.db.models import Q
 from django.http import HttpRequest
 from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
+from core.services import filing_conditions
 from core.models import AttachmentKind, AuditLog, Claim, FacultyMaster, FormulaConfig, Role, Team, TeamMember, User
 from core.services import rbac
 from core.services.fyp_roster import RosterError, import_roster, read_roster
@@ -384,6 +385,13 @@ def filing_rules(request: HttpRequest):
             "SEC_REFERENCE": ATTACHMENT_LIMITS[AttachmentKind.SEC_REFERENCE],
         },
         "max_upload_bytes": MAX_UPLOAD_BYTES,
+        # The three conditions ticked before filing, and the version the
+        # filing must quote back (services/filing_conditions).
+        "conditions_version": filing_conditions.CONDITIONS_VERSION,
+        "conditions": [
+            {"id": cid, "text": text}
+            for cid, text in filing_conditions.condition_texts(min_sec).items()
+        ],
         # Said in the words the form will repeat, so the sentence a claimant
         # reads before filing is the same one the calculator would have told
         # them afterwards.

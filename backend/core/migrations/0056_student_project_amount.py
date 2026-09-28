@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0042_team_roster_import'),
+        ('core', '0055_team_roster_import'),
     ]
 
     operations = [

@@ -1,7 +1,25 @@
+import { firstName } from "@/lib/names"
 import { Link } from "react-router-dom"
-import { ArrowRight, FilePlus2, FileSearch, Plus, Upload, Wallet } from "lucide-react"
+import {
+  ArrowRight,
+  CalendarDays,
+  Check,
+  CloudDownload,
+  FilePlus2,
+  FilePlusCorner,
+  FileSearch,
+  FileText,
+  Hourglass,
+  IndianRupee,
+  Plus,
+  Sparkles,
+  Upload,
+  UsersRound,
+  Wallet,
+} from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { HOME_DATA } from "@/app/home-data"
 import { useApi, useApiMutation } from "@/lib/query"
 import {
   KindBadge,
@@ -12,12 +30,16 @@ import {
 } from "@/pages/assignment-parts"
 import { Button } from "@/ui/button"
 import { ErrorState, Skeleton } from "@/ui/state"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Meta, SectionTitle } from "@/ui/text"
 import { money } from "@/ui/paper"
 import { Journey, facultyStage } from "@/ui/journey"
 import { cn } from "@/lib/cn"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
+import { Celebrations } from "@/ui/celebrations"
+import { ChoiceTile } from "@/ui/choice"
+import { HeroBand } from "@/ui/hero"
+import { RecordStrip, type StripMonth } from "@/ui/record-strip"
 
 /**
  * What a claimant opens the app to find out: is my money coming, and is
@@ -55,6 +77,33 @@ type Claim = {
 
 type Payload = { results: Claim[]; total: number }
 
+/** The ledger's view of what this person has been paid (`/api/me/payments`). */
+export type Payment = {
+  id: number
+  claim_id: string | null
+  payout_month: string | null
+  paper_title: string | null
+  journal_title: string | null
+  amount: number
+  voucher_number: string | null
+}
+type MyPayments = {
+  total: number
+  this_year: number
+  since: string
+  count: number
+  latest_month: string | null
+  rows: Payment[]
+}
+
+/** "2025-03" -> "Mar 2025". */
+export function monthLabel(ym: string | null | undefined): string | null {
+  if (!ym) return null
+  const [y, m] = ym.split("-").map(Number)
+  if (!y || !m) return ym
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+}
+
 const MOVING = new Set(["Submitted", "Under review", "Approved for payment"])
 
 /** The Indian academic year this date falls in starts on 1 June. */
@@ -80,15 +129,20 @@ function daysOf(c: Claim): number | null {
 
 /**
  * The signed-in claimant's own papers, and the money on them, worked out once
- * for whichever home draws them: a faculty member's, or a head of
- * department's -- who is a faculty member too, and files their own.
+ * for whichever home draws them: a faculty member's, a head of department's,
+ * or an officer's -- the Principal, the research cell, the Director, Finance
+ * -- who is an academic too, and files their own.
  *
- * `/api/claims` is "my claims" for both, and the amounts on it are theirs:
- * the server strips a figure from anything that is not the viewer's own
- * before it leaves (`hod.for_head`).
+ * `mine=1`, because for an officer `/api/claims` is the college's papers;
+ * for a faculty member or a head it changes nothing. The amounts are theirs:
+ * the server strips a figure from anything a head does not own
+ * (`hod.for_head`), and shapes the viewer's own papers as the claimant's.
  */
 export function useOwnPapers() {
-  const query = useApi<Payload>(["my-claims"], "/api/claims?limit=200")
+  const query = useApi<Payload>(HOME_DATA.ownClaims.key, HOME_DATA.ownClaims.path)
+  // Money comes from the ledger, which also holds everything paid before this
+  // app existed. Claims alone told people with years of payments "₹0".
+  const ledger = useApi<MyPayments>(HOME_DATA.myPayments.key, HOME_DATA.myPayments.path)
 
   const claims = query.data?.results || []
   const paid = claims.filter((c) => c.status === "PAID")
@@ -103,15 +157,16 @@ export function useOwnPapers() {
     .filter((c) => c.paid_at && new Date(c.paid_at) >= since)
     .reduce((s, c) => s + (c.remuneration || 0), 0)
   const coming = moving.reduce((s, c) => s + (c.remuneration || 0), 0)
-  const lastPaidOn = onDate(
+  const fromClaims = onDate(
     paid
       .map((c) => c.paid_at)
       .filter((d): d is string => Boolean(d))
       .sort()
       .pop()
   )
+  const pay = ledger.data
   return {
-    isLoading: query.isLoading,
+    isLoading: query.isLoading || ledger.isLoading,
     isError: query.isError,
     refetch: query.refetch,
     claims,
@@ -119,78 +174,326 @@ export function useOwnPapers() {
     moving,
     sentBack,
     drafts,
-    received,
+    received: pay ? pay.total : received,
     since,
-    thisYear,
+    thisYear: pay ? pay.this_year : thisYear,
     coming,
-    lastPaidOn,
+    lastPaidOn: pay ? monthLabel(pay.latest_month) : fromClaims,
+    paymentCount: pay ? pay.count : paid.filter((c) => (c.remuneration || 0) > 0).length,
+    payments: pay?.rows || [],
   }
 }
 
 export type OwnPapers = ReturnType<typeof useOwnPapers>
 
+/** `/api/me/summary`: the hero in one call (docs/ux/01). */
+export type MySummary = {
+  papers: number
+  papers_source: "record" | "claims"
+  citations: number | null
+  h_index: number | null
+  dept_rank: { rank: number | null; of: number; dept: string; delta: number | null } | null
+  strip: StripMonth[]
+  /** null until the publication record exists: the row is hidden, never "0". */
+  unclaimed: number | null
+  returned: number
+  drafts: number
+  on_the_way: number
+  money: { this_year: number; on_the_way: number; to_date: number }
+}
+
+/** "Good morning" before 12:00 IST, "Good afternoon" before 17:00, else "Good evening". */
+export function greeting(now = new Date()): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: "Asia/Kolkata" }).format(now)
+  )
+  return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
+}
+
+/**
+ * Where do I stand, what needs me, what is new -- in that order
+ * (docs/ux/01). The hero answers the first from `/api/me/summary`; the rest
+ * reads the claimant's own papers as before. Money is one row near the foot
+ * and never the first thing on the page.
+ */
 export function FacultyHome() {
   const { me } = useAuth()
   const own = useOwnPapers()
-  const { claims, paid, moving, sentBack, drafts, isLoading, isError, refetch } = own
-  // Secondary to the money, so a failure here draws nothing rather than a
+  const summary = useApi<MySummary>(HOME_DATA.mySummary.key, HOME_DATA.mySummary.path)
+  // Secondary to the record, so a failure here draws nothing rather than a
   // second error box on the page every claimant lands on.
-  const assigned = useApi<MyAssignment[]>(["my-assignments"], "/api/me/assignments")
-
-  const firstName = (me?.name || "").replace(/^(Dr|Mr|Ms|Mrs|Prof)\.?\s*/i, "").split(" ")[0]
+  const assigned = useApi<MyAssignment[]>(HOME_DATA.myAssignments.key, HOME_DATA.myAssignments.path)
 
   // A failed request is not an empty record: telling somebody with a year of
   // payments behind them that they have "₹0" is the worst thing this page
   // could do with a dropped request.
-  if (isError) {
+  if (own.isError) {
     return (
       <div className="page py-8">
         <ErrorState
           title="Could not load your record"
           message="The server did not answer. Nothing has been lost — your papers and payments are safe."
-          onRetry={() => void refetch()}
+          onRetry={() => void own.refetch()}
         />
       </div>
     )
   }
 
+  const first = firstName(me?.name)
+  const empty = !own.isLoading && own.claims.length === 0 && summary.data?.papers === 0
+
   return (
-    <div className="page space-y-10">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <PageTitle>{firstName ? `Hello, ${firstName}` : "Your papers"}</PageTitle>
-          <Sub className="mt-1">
-            {isLoading
-              ? "Loading your record…"
-              : `${claims.length} paper${claims.length === 1 ? "" : "s"} on record`}
-          </Sub>
-        </div>
-        <Button kind="primary" size="lg" asChild>
-          <Link to="/papers/new">
-            <Plus />
-            File a paper
-          </Link>
-        </Button>
-      </header>
+    <div className="page space-y-8 pb-24 md:pb-0">
+      <HomeHero
+        name={first}
+        department={me?.department ?? null}
+        designation={me?.designation ?? null}
+        summary={summary.data}
+        failed={summary.isError}
+        onRetry={() => void summary.refetch()}
+      />
 
-      {isLoading ? <MoneySkeleton /> : <MoneyStrip own={own} />}
+      {empty && <FirstSteps />}
 
-      {!isLoading && claims.length === 0 && <FirstSteps />}
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <NeedsYouCard own={own} unclaimed={summary.data?.unclaimed ?? null} />
+        {/* Moments: hidden when there is nothing to celebrate. */}
+        <Celebrations />
+      </div>
 
-      <NeedsYou sentBack={sentBack} drafts={drafts} />
+      <NextSteps />
 
       {assigned.data && assigned.data.length > 0 && <AssignedToYou items={assigned.data} />}
 
-      <OnTheWay moving={moving} />
+      <OnTheWay moving={own.moving} />
 
-      <PaidList paid={paid} />
+      {own.isLoading ? <Skeleton className="h-14 rounded-lg" /> : <MoneyRow own={own} />}
+
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/90 p-3 backdrop-blur md:hidden print:hidden">
+        <Button kind="primary" size="lg" asChild className="h-11 w-full">
+          <Link to="/papers/new">
+            <FilePlusCorner />
+            File a paper
+          </Link>
+        </Button>
+      </div>
     </div>
+  )
+}
+
+function HomeHero({
+  name,
+  department,
+  designation,
+  summary: s,
+  failed,
+  onRetry,
+}: {
+  name: string | null | undefined
+  department: string | null
+  designation: string | null
+  summary: MySummary | undefined
+  failed: boolean
+  onRetry: () => void
+}) {
+  const rank = s?.dept_rank
+  const sub = [department, designation].filter(Boolean).join(" · ")
+  const unmatched = s != null && s.citations == null && s.papers > 0
+  return (
+    <HeroBand
+      variant="solid"
+      area="record"
+      title={`${greeting()}${name ? `, ${name}` : ""}`}
+      titleClassName="honour text-[2rem] leading-[1.15] sm:text-honour"
+      sentence={
+        failed ? (
+          <span role="alert">
+            Could not load your record. Nothing has been lost — your papers and payments are safe.{" "}
+            <button type="button" onClick={onRetry} className="font-medium underline underline-offset-2">
+              Try again
+            </button>
+          </span>
+        ) : (
+          <>
+            {sub}
+            {unmatched && (
+              <span className="mt-1 block text-sm">
+                We are still matching you to your Scopus profile — figures may be low.{" "}
+                <Link to="/me" className="font-medium underline underline-offset-2">
+                  Check my profile
+                </Link>
+              </span>
+            )}
+          </>
+        )
+      }
+      actions={
+        <Link
+          to="/papers/new"
+          className="hidden h-10 items-center gap-2 rounded-md bg-area-honours-fill px-4 text-sm font-semibold text-[#1b1f33] shadow-raise hover:brightness-105 md:inline-flex"
+        >
+          <FilePlusCorner aria-hidden className="size-5" strokeWidth={1.75} />
+          File a paper
+        </Link>
+      }
+      figures={[
+        { value: s?.papers, label: s?.papers === 1 ? "paper" : "papers", to: "/papers", countKey: "home-papers" },
+        { value: s?.citations, label: "citations", to: "/research#citations", countKey: "home-citations" },
+        { value: s?.h_index, label: "h-index", to: "/research#metrics", countKey: "home-h" },
+        {
+          value: rank?.rank,
+          prefix: "#",
+          label: rank ? `in ${rank.dept}` : "department rank",
+          to: "/leaderboard?dept=mine",
+          srLabel: rank?.rank ? `Rank ${rank.rank} of ${rank.of} in ${rank.dept}` : "Department rank not known yet",
+          note:
+            rank?.delta != null && rank.delta !== 0
+              ? `${rank.delta > 0 ? "↑" : "↓"}${Math.abs(rank.delta)} this academic year`
+              : undefined,
+          countKey: "home-rank",
+        },
+      ]}
+      aside={
+        <RecordStrip
+          data={s?.strip ?? []}
+          tone="solid"
+          label="Your papers by month, last ten years"
+          className="max-w-full"
+        />
+      }
+    />
+  )
+}
+
+/**
+ * Returned claims, then drafts, then papers on the record not yet claimed,
+ * then what is on the way. One line when there is nothing.
+ */
+export function NeedsYouCard({ own, unclaimed }: { own: OwnPapers; unclaimed: number | null }) {
+  const { sentBack, drafts, moving, isLoading } = own
+  const longest = moving.reduce((m, c) => Math.max(m, daysOf(c) ?? 0), 0)
+  const count = sentBack.length + drafts.length + (unclaimed ? 1 : 0) + (moving.length ? 1 : 0)
+  if (isLoading) return <Skeleton className="h-32 rounded-lg" />
+  if (count === 0) {
+    return (
+      <section aria-label="Needs you" className="panel flex items-center gap-2 px-4 py-3 text-sm text-fg-muted">
+        <Check aria-hidden className="size-4 text-positive" />
+        Nothing needs you.
+      </section>
+    )
+  }
+  return (
+    <section aria-label="Needs you" className="panel p-4 sm:p-6" data-area="record">
+      <h2 className="text-lg font-semibold">
+        Needs you <span className="text-fg-muted">({count})</span>
+      </h2>
+      <ul className="mt-3 divide-y divide-line">
+        {sentBack.map((c) => (
+          <li key={c.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-caution">Sent back to you</p>
+              <p className="mt-0.5 truncate font-medium">{c.paper_title}</p>
+              {c.status_note && (
+                <p className="mt-1 text-sm text-fg-muted">
+                  <span className="text-fg">Why: </span>
+                  {c.status_note}
+                </p>
+              )}
+            </div>
+            <Button kind="primary" asChild>
+              <Link to={`/papers/${c.id}/edit`}>
+                Fix and send again
+                <ArrowRight />
+              </Link>
+            </Button>
+          </li>
+        ))}
+        {drafts.map((c) => (
+          <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div className="flex min-w-0 flex-1 items-start gap-2">
+              <FileText aria-hidden className="mt-0.5 size-4 shrink-0 text-(--area)" />
+              <div className="min-w-0">
+                <p className="text-sm text-fg-muted">
+                  Draft{c.updated_at ? <> · last edited <When iso={c.updated_at} /></> : ""}
+                </p>
+                <p className="truncate font-medium">{c.paper_title || (c.doi ? `DOI ${c.doi}` : "Untitled paper")}</p>
+                {!c.remuneration && <p className="text-sm text-fg-muted">Amount not worked out yet</p>}
+              </div>
+            </div>
+            <Button asChild>
+              <Link to={`/papers/${c.id}/edit`}>Carry on</Link>
+            </Button>
+          </li>
+        ))}
+        {unclaimed ? (
+          <li className="flex flex-wrap items-center justify-between gap-3 py-3">
+            <p className="flex min-w-0 items-center gap-2 font-medium">
+              <FileText aria-hidden className="size-4 shrink-0 text-(--area)" />
+              {unclaimed} {unclaimed === 1 ? "paper" : "papers"} on your record {unclaimed === 1 ? "isn't" : "aren't"} claimed yet
+            </p>
+            <Button asChild>
+              <Link to="/papers?filter=unclaimed">
+                Review them
+                <ArrowRight />
+              </Link>
+            </Button>
+          </li>
+        ) : null}
+        {moving.length > 0 && (
+          <li className="py-3">
+            <Link to="/papers" className="flex items-center gap-2 text-sm text-fg-muted hover:text-fg">
+              <Hourglass aria-hidden className="size-4 shrink-0 text-(--area)" />
+              {moving.length} {moving.length === 1 ? "paper" : "papers"} on the way
+              {longest > 0 && ` · longest ${longest} days`}
+            </Link>
+          </li>
+        )}
+      </ul>
+    </section>
+  )
+}
+
+/** Four doors out of Home, one per area (docs/ux/01 "Next steps"). */
+function NextSteps() {
+  return (
+    <section aria-labelledby="next-steps" className="space-y-3">
+      <SectionTitle id="next-steps">Next steps</SectionTitle>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <ChoiceTile area="record" icon={CloudDownload} title="Claim from your record" description="Pull a paper from Scopus and file it." to="/papers/new" />
+        <ChoiceTile area="research" icon={Sparkles} title="See what you work on" description="Your areas, citations and this year." to="/research" />
+        <ChoiceTile area="people" icon={UsersRound} title="Find a co-author" description="Colleagues who work near you." to="/collaborate" />
+        <ChoiceTile area="time" icon={CalendarDays} title="Deadlines and dates" description="Calls, payout runs and events." to="/calendar" />
+      </div>
+    </section>
+  )
+}
+
+/** Money, compact: one row, linking to My papers. */
+export function MoneyRow({ own }: { own: OwnPapers }) {
+  const { thisYear, coming, received } = own
+  return (
+    <section aria-label="Your money" className="panel flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-sm">
+      <IndianRupee aria-hidden className="size-4 text-fg-subtle" />
+      <span>
+        <span className="figure">{money(thisYear)}</span> <span className="text-fg-muted">received this year</span>
+      </span>
+      <span>
+        <span className="figure">{money(coming)}</span> <span className="text-fg-muted">on the way</span>
+      </span>
+      <span>
+        <span className="figure">{money(received)}</span> <span className="text-fg-muted">to date</span>
+      </span>
+      <Link to="/papers" className="ml-auto inline-flex items-center gap-1 text-accent hover:underline">
+        My papers
+        <ArrowRight aria-hidden className="size-4" />
+      </Link>
+    </section>
   )
 }
 
 /** Received this year, received to date, and on the way -- all the claimant's own. */
 export function MoneyStrip({ own }: { own: OwnPapers }) {
-  const { claims, paid, moving, received, since, thisYear, coming, lastPaidOn } = own
+  const { claims, paymentCount, moving, received, since, thisYear, coming, lastPaidOn } = own
   return (
     <section
       aria-label="Your money"
@@ -205,8 +508,8 @@ export function MoneyStrip({ own }: { own: OwnPapers }) {
         label="Received to date"
         value={money(received)}
         hint={
-          paid.length
-            ? `${paid.length} payment${paid.length === 1 ? "" : "s"}${lastPaidOn ? `, latest on ${lastPaidOn}` : ""}`
+          paymentCount
+            ? `${paymentCount} payment${paymentCount === 1 ? "" : "s"}${lastPaidOn ? `, latest ${lastPaidOn}` : ""}`
             : claims.length
               ? "Nothing paid out yet"
               : "New account — nothing filed yet"
@@ -294,7 +597,7 @@ export function OnTheWay({ moving }: { moving: Claim[] }) {
       </div>
       <ul className="grid gap-3 md:grid-cols-2">
         {moving.map((c) => (
-          <li key={c.id}>
+          <li key={c.id} className="min-w-0">
             <Link
               to={`/papers/${c.id}`}
               className="panel block p-4 transition-colors hover:bg-hover"
@@ -318,38 +621,50 @@ export function OnTheWay({ moving }: { moving: Claim[] }) {
   )
 }
 
-/** The six most recent payments. */
-export function PaidList({ paid }: { paid: Claim[] }) {
-  if (paid.length === 0) return null
+/** The most recent payments from the ledger. */
+export function PaidList({ payments }: { payments: Payment[] }) {
+  if (payments.length === 0) return null
   return (
     <section className="space-y-3">
       <div className="flex items-baseline justify-between gap-3">
         <SectionTitle>Paid</SectionTitle>
-        {paid.length > 6 && (
-          <Link to="/papers?stage=paid" className="text-sm text-accent hover:underline">
-            See all {paid.length}
-          </Link>
-        )}
+        <Meta>From the college ledger, newest first</Meta>
       </div>
       <ul className="divide-y divide-line rounded-lg ring-1 ring-line">
-        {paid
-          .slice()
-          .sort((a, b) => (b.paid_at || "").localeCompare(a.paid_at || ""))
-          .slice(0, 6)
-          .map((c) => (
-            <li key={c.id}>
-              <Link
-                to={`/papers/${c.id}`}
-                className="row flex items-center gap-4 px-4 py-3"
-              >
-                <Wallet className="size-4 shrink-0 text-positive" aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{c.paper_title}</span>
-                <When iso={c.paid_at} className="hidden text-sm text-fg-muted sm:block" />
-                <Amount claim={c} />
-              </Link>
+        {payments.slice(0, 8).map((p) => {
+          const body = (
+            <>
+              <Wallet className="size-4 shrink-0 text-positive" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{p.paper_title || "Payment"}</span>
+                {p.journal_title && (
+                  <span className="block truncate text-sm text-fg-muted">{p.journal_title}</span>
+                )}
+              </span>
+              <span className="hidden shrink-0 text-sm text-fg-muted sm:block">
+                {monthLabel(p.payout_month)}
+              </span>
+              <span className="shrink-0 font-medium tabular-nums">{money(p.amount)}</span>
+            </>
+          )
+          return (
+            <li key={p.id}>
+              {p.claim_id ? (
+                <Link to={`/papers/${p.claim_id}`} className="row flex items-center gap-4 px-4 py-3">
+                  {body}
+                </Link>
+              ) : (
+                <div className="flex items-center gap-4 px-4 py-3">{body}</div>
+              )}
             </li>
-          ))}
+          )
+        })}
       </ul>
+      {payments.length > 8 && (
+        <Meta className="block">
+          {payments.length - 8} earlier payment{payments.length - 8 === 1 ? "" : "s"} not shown.
+        </Meta>
+      )}
     </section>
   )
 }
@@ -485,7 +800,7 @@ export function MoneySkeleton() {
 
 function Amount({ claim }: { claim: Claim }) {
   if (claim.remuneration == null) {
-    return <span className="shrink-0 text-sm text-fg-subtle">Not worked out yet</span>
+    return <span className="w-24 shrink-0 text-right text-sm leading-snug text-fg-subtle">Not worked out yet</span>
   }
   return (
     <span className={cn("figure shrink-0 text-base", claim.status === "PAID" && "text-positive")}>

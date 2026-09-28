@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0043_student_project_amount'),
+        ('core', '0056_student_project_amount'),
     ]
 
     operations = [
@@ -24,7 +24,6 @@ class Migration(migrations.Migration):
                 ('total_citations', models.PositiveIntegerField(blank=True, null=True)),
                 ('h_index', models.PositiveIntegerField(blank=True, null=True)),
                 ('metrics', models.JSONField(blank=True, default=dict)),
-                ('documents', models.JSONField(blank=True, default=list)),
                 ('source_sheet', models.CharField(blank=True, default='', max_length=255)),
                 ('source_file', models.CharField(blank=True, max_length=255, null=True)),
                 ('imported_at', models.DateTimeField()),

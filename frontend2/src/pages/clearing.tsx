@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
   CheckCircle2,
@@ -10,10 +10,12 @@ import {
 } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
+import { openShortcuts } from "@/app/shortcuts"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
 import { Combobox } from "@/ui/combobox"
 import {
   ConfirmDialog,
@@ -33,7 +35,9 @@ import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText }
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
+import { useSlashToSearch } from "@/ui/queue-keys"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
 
 /**
  * The research cell's daily job: every submitted ticket, oldest first, and
@@ -185,6 +189,8 @@ export function Clearing() {
   // and is never re-sorted here. Keyboard moves and "select all shown" work
   // on what is on screen.
   const [q, setQ] = useState("")
+  const searchRef = useRef<HTMLInputElement>(null)
+  useSlashToSearch(searchRef)
   const [dept, setDept] = useState("")
   const [check, setCheck] = useState<"" | "passed" | "failed" | "flagged">("")
   const needle = q.trim().toLowerCase()
@@ -202,6 +208,7 @@ export function Clearing() {
   )
   const byDept = [...all.reduce((m, c) => m.set(c.owner_department || "—", (m.get(c.owner_department || "—") || 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])
   const queueTotal = all.reduce((s, c) => s + (c.remuneration || 0), 0)
+  const priced = all.filter((c) => c.remuneration != null).length
   const oldest = all.reduce((m, c) => Math.max(m, c.waiting_days ?? 0), 0)
 
   // Whole rows, not just ids — the same shape `payments.tsx` uses. A row that
@@ -338,6 +345,7 @@ export function Clearing() {
           <Sub className="mt-1">
             Submitted tickets, oldest first — the one that has waited longest is next.
           </Sub>
+          <OwnPapersNote className="mt-1" />
         </div>
         <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
           <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
@@ -349,7 +357,15 @@ export function Clearing() {
         <section aria-label="The queue at a glance" className="space-y-3">
           <p className="text-sm text-fg-muted">
             <span className="font-semibold text-fg">{all.length}</span> waiting ·{" "}
-            <span className="tabular font-semibold text-fg">{money(queueTotal)}</span> in all · oldest{" "}
+            {priced === 0 ? (
+              "amounts not worked out yet"
+            ) : (
+              <>
+                <span className="tabular font-semibold text-fg">{money(queueTotal)}</span>{" "}
+                {priced < all.length ? `across the ${priced} priced` : "in all"}
+              </>
+            )}{" "}
+            · oldest{" "}
             <span className={cn("font-semibold", oldest > 14 ? "text-critical" : oldest > 7 ? "text-caution" : "text-fg")}>
               {waitingLabel(oldest).toLowerCase()}
             </span>
@@ -372,8 +388,9 @@ export function Clearing() {
               ))}
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={filterBar}>
             <Input
+              ref={searchRef}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Filter by title, ticket, claimant or journal"
@@ -407,11 +424,15 @@ export function Clearing() {
         <kbd className="rounded border border-edge px-1 text-[10px]">j</kbd>/
         <kbd className="rounded border border-edge px-1 text-[10px]">k</kbd> or arrows to move ·{" "}
         <kbd className="rounded border border-edge px-1 text-[10px]">x</kbd> to select ·{" "}
-        <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open
+        <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open ·{" "}
+        <kbd className="rounded border border-edge px-1 text-[10px]">/</kbd> to search ·{" "}
+        <button type="button" onClick={openShortcuts} className="underline underline-offset-2">
+          all shortcuts
+        </button>
       </Meta>
 
       {anySelected && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
+        <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
           <p className="text-sm">
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>

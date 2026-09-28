@@ -1,33 +1,24 @@
 import { Fragment, Suspense, useEffect, useState } from "react"
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import * as RadixDialog from "@radix-ui/react-dialog"
-import { AnimatePresence, motion } from "motion/react"
 import { Check, ChevronsUpDown, Command, Monitor, Moon, PanelLeft, PanelLeftClose, Search, Sun } from "lucide-react"
 
 import { useAuth, type Role } from "@/app/auth"
-import { NAV, navFor } from "@/app/nav"
+import { HOME_DATA } from "@/app/home-data"
+import { NAV, navBadges, navFor } from "@/app/nav"
+import { useApi } from "@/lib/query"
 import { Mark } from "@/ui/art"
+import { AREA_DOT, AREA_TEXT, type Area } from "@/ui/chip"
 import { Button } from "@/ui/button"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { useTheme, type ThemeChoice } from "@/app/theme"
 import { NotificationBell } from "@/app/notifications"
+import { useUnreadMessages } from "@/app/unread"
 import { cn } from "@/lib/cn"
 import { api, forgetCsrf } from "@/lib/api"
 import { toast } from "@/ui/toast"
 import { useCollegeName } from "@/app/institution"
-
-//: The same wording the people screen uses, so an account reads the same
-//: name for its own role as the office reads for it.
-const ROLE_LABEL: Record<Role, string> = {
-  FACULTY: "Faculty",
-  HOD: "Head of department",
-  PRINCIPAL: "Principal",
-  DIRECTOR: "Director",
-  FINANCE: "Finance",
-  RESEARCH_CELL: "Research cell",
-  RESEARCH_COORDINATOR: "Research coordinator",
-  SUPER_ADMIN: "Super admin",
-}
+import { ROLE_LABEL } from "@/app/account"
 
 /**
  * Who you are signed in as, and the two things you can do about it.
@@ -116,10 +107,14 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
  * same page existed in three files and drifted apart; here the list is data
  * and the frame renders whatever this account is allowed to reach.
  *
- * The active item is marked with a shared `layoutId`, so moving between pages
- * slides one indicator rather than extinguishing one box and lighting
- * another. It is the cheapest possible signal that this is one place rather
- * than a set of screens.
+ * The frame animates with CSS, not `motion/react`: it is on screen before any
+ * page, so whatever moves it is on the path to the first paint, and the
+ * animation library was ~120 KB of that path for a sidebar width, a highlight
+ * and a drawer. Pages that animate load the library with their own code.
+ *
+ * Pointing at or focusing a link starts loading that page's code
+ * (`onPreload`), so by the time the click lands the page is usually already
+ * here and only its data is left to fetch.
  *
  * The mobile drawer is a Radix dialog. It was a bare `motion.aside` behind a
  * click-to-dismiss overlay, which meant no focus trap, no Escape, nothing
@@ -131,7 +126,14 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
  * the wrong edge; the dialog primitive underneath it is used directly here
  * and the behaviour is the same.
  */
-export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
+export function Shell({
+  onOpenPalette,
+  onPreload,
+}: {
+  onOpenPalette: () => void
+  /** Start fetching the code behind a destination the reader is about to open. */
+  onPreload?: (to: string) => void
+}) {
   const collegeName = useCollegeName()
   const { me } = useAuth()
   const { pathname } = useLocation()
@@ -171,18 +173,32 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
   }, [pathname])
 
   const items = navFor(me?.role)
+  const listed = items.filter((i) => !i.pinned)
+  const pinned = items.filter((i) => i.pinned)
   const seen = new Set<string>()
+  const preload = (to: string) => () => onPreload?.(to)
+  // What is waiting at this desk, beside its entry: the same counts the home
+  // screens read, so the two can never disagree. Refreshed every minute.
+  const stageCounts = useApi<{ counts: Record<string, number> }>(
+    HOME_DATA.stageCounts.key,
+    HOME_DATA.stageCounts.path,
+    { enabled: !!me, refetchInterval: 60_000 }
+  )
+  // Conversations with a message not yet read sit on Messages, for everybody.
+  const unread = useUnreadMessages()
+  const badges: Record<string, number> = {
+    ...navBadges(me?.role, stageCounts.data?.counts),
+    ...(unread.data?.conversations ? { "/messages": unread.data.conversations } : {}),
+  }
 
   return (
     <RadixDialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
       <div className="flex min-h-svh bg-bg">
-        <motion.aside
-          initial={false}
-          animate={{ width: collapsed ? 56 : 240 }}
-          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        <aside
+          style={{ width: collapsed ? 56 : 240 }}
           className={cn(
             "sticky top-0 hidden h-svh shrink-0 flex-col border-r border-line",
-            "bg-sunken md:flex print:hidden"
+            "bg-sunken transition-[width] duration-[var(--dur-3)] ease-[var(--ease-out)] md:flex print:hidden"
           )}
         >
           <div className="flex h-12 items-center gap-2 px-3">
@@ -210,14 +226,18 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
           </div>
 
           <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="Main">
-            {items.map((item) => {
+            {listed.map((item) => {
               const heading = item.group && !seen.has(item.group) ? item.group : null
               if (item.group) seen.add(item.group)
               const Icon = item.icon
               return (
                 <Fragment key={item.to}>
                   {heading && !collapsed ? (
-                    <p className="px-2 pb-1 pt-4 text-xs font-medium text-fg-subtle">
+                    <p
+                      data-area={item.area}
+                      className="caps flex items-center gap-1.5 px-2 pb-1 pt-4 font-medium text-fg-subtle"
+                    >
+                      {item.area && <span aria-hidden className={cn("size-1.5 rounded-full", AREA_DOT[item.area])} />}
                       {heading}
                     </p>
                   ) : null}
@@ -227,35 +247,43 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
                   <NavLink
                     to={item.to}
                     end={item.end}
+                    data-area={item.area}
                     title={collapsed ? item.label : undefined}
-                    className={({ isActive }) =>
-                      cn(
-                        "relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sm",
-                        "transition-colors duration-[var(--dur-1)]",
-                        isActive
-                          ? "font-medium text-fg"
-                          : "text-fg-muted hover:bg-hover hover:text-fg"
-                      )
-                    }
+                    onPointerEnter={preload(item.to)}
+                    onFocus={preload(item.to)}
+                    className={({ isActive }) => navClass(isActive, item.area)}
                   >
-                    {({ isActive }) => (
-                      <>
-                        {isActive && (
-                          <motion.span
-                            layoutId="nav-active"
-                            className="absolute inset-0 -z-10 rounded-md bg-active"
-                            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                          />
-                        )}
-                        <Icon className="size-4 shrink-0" />
-                        {!collapsed && <span className="truncate">{item.label}</span>}
-                      </>
-                    )}
+                    <Icon className="size-4 shrink-0" />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    <NavBadge n={badges[item.to]} compact={collapsed} label={badgeLabel(item.to, badges[item.to])} />
+
                   </NavLink>
                 </Fragment>
               )
             })}
           </nav>
+
+          {pinned.length > 0 && (
+            <div className="px-2 pb-2">
+              {pinned.map((item) => {
+                const Icon = item.icon
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    data-area={item.area}
+                    title={collapsed ? item.label : undefined}
+                    onPointerEnter={preload(item.to)}
+                    onFocus={preload(item.to)}
+                    className={({ isActive }) => navClass(isActive, item.area)}
+                  >
+                    <Icon className={cn("size-4 shrink-0", item.area && AREA_TEXT[item.area])} />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </NavLink>
+                )
+              })}
+            </div>
+          )}
 
           <div className="border-t border-line p-2">
             <button
@@ -284,7 +312,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
               <AccountMenu collapsed={collapsed} />
             </div>
           </div>
-        </motion.aside>
+        </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/85 px-3 backdrop-blur md:hidden print:hidden">
@@ -318,67 +346,95 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
       </div>
 
       {/* Portalled, so it is last in the document however early it is written
-          here, and `AnimatePresence` rather than Radix decides when it leaves
-          the tree, the same arrangement as `ui/dialog.tsx`. */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <RadixDialog.Portal forceMount>
-            <RadixDialog.Overlay asChild forceMount>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-40 bg-black/25 md:hidden"
-              />
-            </RadixDialog.Overlay>
-            <RadixDialog.Content asChild forceMount aria-describedby={undefined}>
-              <motion.aside
-                initial={{ x: -260 }}
-                animate={{ x: 0 }}
-                exit={{ x: -260 }}
-                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                className={cn(
-                  "fixed inset-y-0 left-0 z-50 flex w-64 flex-col overflow-hidden",
-                  "border-r border-line bg-sunken p-2 md:hidden"
-                )}
-              >
-                <RadixDialog.Title className="sr-only">Menu</RadixDialog.Title>
-                {/* The drawer covers the header it was opened from, so
-                    without this it is a list of links belonging to nothing. */}
-                <div className="mb-2 flex h-9 shrink-0 items-center gap-2 px-2">
-                  <Mark className="size-5 text-accent" />
-                  <span className="text-sm font-semibold">Publications</span>
-                </div>
-                <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Main">
-                  {items.map((item) => {
-                    const Icon = item.icon
-                    return (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        end={item.end}
-                        className={({ isActive }) =>
-                          cn(
-                            "flex h-9 items-center gap-2.5 rounded-md px-2 text-sm",
-                            isActive ? "bg-active font-medium" : "text-fg-muted"
-                          )
-                        }
-                      >
-                        <Icon className="size-4" />
-                        {item.label}
-                      </NavLink>
-                    )
-                  })}
-                </nav>
-                <div className="mt-2 shrink-0 border-t border-line pt-2">
-                  <AccountMenu />
-                </div>
-              </motion.aside>
-            </RadixDialog.Content>
-          </RadixDialog.Portal>
-        )}
-      </AnimatePresence>
+          here. Radix keeps it mounted until the closing keyframes end (see
+          `frame-drawer` in styles.css). */}
+      <RadixDialog.Portal>
+        <RadixDialog.Overlay className="frame-overlay fixed inset-0 z-40 bg-black/25 md:hidden" />
+        <RadixDialog.Content asChild aria-describedby={undefined}>
+          <aside
+            className={cn(
+              "frame-drawer fixed inset-y-0 left-0 z-50 flex w-64 flex-col overflow-hidden",
+              "border-r border-line bg-sunken p-2 md:hidden"
+            )}
+          >
+            <RadixDialog.Title className="sr-only">Menu</RadixDialog.Title>
+            {/* The drawer covers the header it was opened from, so
+                without this it is a list of links belonging to nothing. */}
+            <div className="mb-2 flex h-9 shrink-0 items-center gap-2 px-2">
+              <Mark className="size-5 text-accent" />
+              <span className="text-sm font-semibold">Publications</span>
+            </div>
+            <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Main">
+              {[...listed, ...pinned].map((item) => {
+                const Icon = item.icon
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    data-area={item.area}
+                    onTouchStart={preload(item.to)}
+                    onFocus={preload(item.to)}
+                    className={({ isActive }) => cn(navClass(isActive, item.area), "h-9")}
+                  >
+                    <Icon className="size-4" />
+                    {item.label}
+                    <NavBadge n={badges[item.to]} label={badgeLabel(item.to, badges[item.to])} />
+                  </NavLink>
+                )
+              })}
+            </nav>
+            <div className="mt-2 shrink-0 border-t border-line pt-2">
+              <AccountMenu />
+            </div>
+          </aside>
+        </RadixDialog.Content>
+      </RadixDialog.Portal>
     </RadixDialog.Root>
+  )
+}
+
+/** What a badge says aloud: work waiting at a desk, or conversations with news. */
+/** A sidebar link. Active takes its area's wash (docs/ux/00 §9), not `selected`. */
+function navClass(isActive: boolean, area: Area | undefined): string {
+  return cn(
+    "relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sm",
+    "transition-colors duration-[var(--dur-1)]",
+    isActive
+      ? area
+        ? "bg-(--area-wash) font-medium text-(--area)"
+        : "bg-active font-medium text-fg"
+      : "text-fg-muted hover:bg-hover hover:text-fg"
+  )
+}
+
+function badgeLabel(to: string, n: number | undefined): string | undefined {
+  if (!n || to !== "/messages") return undefined
+  return `${n} conversation${n === 1 ? "" : "s"} with new messages`
+}
+
+/** How many are waiting at this entry's desk (or, on Messages, how many
+ *  conversations have news). A dot when the sidebar is collapsed; nothing at
+ *  all for an empty queue. */
+function NavBadge({ n, compact = false, label: said }: { n: number | undefined; compact?: boolean; label?: string }) {
+  if (!n) return null
+  const label = said ?? `${n} waiting`
+  if (compact) {
+    return (
+      <span
+        className="absolute right-1 top-1 size-2 rounded-full bg-accent"
+        aria-label={label}
+        role="status"
+      />
+    )
+  }
+  return (
+    <span
+      className="ml-auto min-w-5 rounded-full bg-accent-wash px-1.5 text-center text-[11px] font-semibold leading-5 text-accent tabular"
+      aria-label={label}
+    >
+      {n > 99 ? "99+" : n}
+    </span>
   )
 }
 
@@ -408,8 +464,8 @@ function ViewingAs({ name, role }: { name: string; role: Role }) {
       className="sticky top-0 z-40 flex flex-wrap items-center gap-3 bg-caution-wash px-4 py-2 text-sm text-caution ring-1 ring-inset ring-caution/30 print:hidden"
     >
       <span className="flex-1">
-        You are viewing the app as <strong>{name}</strong> ({ROLE_LABEL[role]}). Anything you do here
-        is done as them.
+        You are viewing the app as <strong>{name}</strong> ({ROLE_LABEL[role]}). You can look around;
+        nothing can be changed while viewing.
       </span>
       <Button
         kind="default"

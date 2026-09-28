@@ -284,15 +284,16 @@ CAPABILITIES: list[Capability] = [
     # do). `test_head_of_department` pins that, endpoint by endpoint.
 
     # ---- filing ----------------------------------------------------------
-    cap("File a claim", "POST", "/api/claims",
-        {FACULTY, HOD} | ADMINS,
-        "A claimant files their own -- a head of department is one, since the "
-        "college's 2026-09-23 decision -- and the research cell files on their "
-        "behalf.",
-        {"paper_title": "Matrix probe", "journal_title": "J"}, "Filing"),
-    cap("Upload evidence", "POST", "/api/claims/upload",
-        {FACULTY, HOD} | ADMINS,
-        "Whoever may file may attach the proof.", None, "Filing", upload=True),
+    # "File a claim" (POST /api/claims) and "Upload evidence" (POST
+    # /api/claims/upload) were lines here, closed to the Principal and
+    # Finance. Since the owner's rule that an officer who publishes "must be
+    # able to do both" -- their own research and the office's -- every staff
+    # role but the super admin files its own papers, and the super admin
+    # files on a claimant's behalf: both doors are open to every role, which
+    # is not a line this grid can draw. What is drawn instead is what nobody
+    # may do with their *own* paper once it is filed -- decide it, at any desk
+    # -- and `test_dual_roles` pins that, desk by desk.
+
     cap("Import prior payments", "POST", "/api/admin/prior/import",
         ADMINS | {PRINCIPAL},
         "Loading historical payment data.", None, "Filing", upload=True),

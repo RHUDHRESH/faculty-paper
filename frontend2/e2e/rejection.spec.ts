@@ -168,16 +168,16 @@ test.describe("A ticket sent back, and filed again", () => {
       callout,
       "the callout does not carry the reason the research cell wrote"
     ).toContainText(REASON)
-    // Who said it and when, so it is a person's decision rather than the
-    // system's.
-    await expect(callout).toContainText("E2E Research Cell")
+    // Never who said it: a claimant does not learn which desk or person holds
+    // their paper (core/visibility.py). The reason is theirs; the name is not.
+    await expect(callout).not.toContainText("E2E Research Cell")
 
     // And again in the history, which is the durable record of it.
     await expect(page.getByText(`sent it back — ${REASON}`)).toBeVisible()
 
     // And the tracker agrees, in the claimant's own vocabulary.
-    await expect(page.getByText("Sent back", { exact: true }).first()).toBeVisible()
-    await expect(page.getByText("Edit the details and file it again.")).toBeVisible()
+    await expect(page.getByLabel("Stage: Sent back to you")).toBeVisible()
+    await expect(page.getByRole("link", { name: "Edit" })).toBeVisible()
 
     // The list says the same thing, because that is the screen they land on.
     await page.goto("/papers")
@@ -320,9 +320,9 @@ test.describe("A ticket sent back, and filed again", () => {
     await faculty.goto(`/papers/${seeded.claim!.id}`)
     await waitForSettled(faculty)
     // The journey is back on the road at its first stage, named for the
-    // claimant ("Stage: Submitted"). It never says whose desk it is on --
+    // claimant ("Stage: Under review"). It never says whose desk it is on --
     // the college's rule -- so the old desk sentence must be gone.
-    await expect(faculty.getByLabel("Stage: Submitted")).toBeVisible()
+    await expect(faculty.getByLabel("Stage: Under review")).toBeVisible()
     await expect(faculty.getByText("With the research cell.")).toHaveCount(0)
     // And the sent-back callout is gone, because it no longer describes
     // anything the claimant has to do.

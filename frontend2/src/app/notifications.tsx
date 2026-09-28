@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Bell } from "lucide-react"
 
 import { cn } from "@/lib/cn"
@@ -38,13 +38,46 @@ import { Meta } from "@/ui/text"
  *   review, because whichever mount you are looking at is the one that works.
  */
 
-type Notification = {
+export type Notification = {
   id: string
   title: string
   body: string | null
   href: string | null
   read: boolean
   created_at: string
+  /** The kind of alert (core.services.notify.KINDS) and the tab it sits under. */
+  kind?: string
+  section?: string
+  /** How many things one grouped line stands for: "Asha and 2 others ...". */
+  count?: number
+  /** Set on "Approved for payment" and "Paid" for your own paper: offer to share it. */
+  share_paper_id?: string | null
+}
+
+/** The filter tabs, shared by the bell and the notifications screen. */
+export const SECTION_TABS: { key: string; label: string }[] = [
+  { key: "", label: "All" },
+  { key: "papers", label: "Papers" },
+  { key: "people", label: "People" },
+  { key: "work", label: "Work" },
+  { key: "updates", label: "Updates" },
+]
+
+export function listPath(section: string): string {
+  return section ? `/api/notifications?section=${section}` : "/api/notifications"
+}
+
+/** The number a grouped line stands for, beside its title. */
+export function GroupCount({ count }: { count?: number }) {
+  if (!count || count < 2) return null
+  return (
+    <span
+      title={`${count} in this line`}
+      className="shrink-0 rounded-full bg-sunken px-1.5 text-xs font-medium tabular-nums text-fg-muted"
+    >
+      {count}
+    </span>
+  )
 }
 
 /** How often the unread count is refetched while the app is open. */
@@ -64,7 +97,7 @@ const DESTINATIONS: Record<string, string> = {
   "/admin": "/",
 }
 
-function destinationFor(href: string | null): string | null {
+export function destinationFor(href: string | null): string | null {
   if (!href) return null
   const [path, query] = href.split("?")
   // Walk up the path so an unlisted child of a section that moved lands on the
@@ -86,7 +119,7 @@ function destinationFor(href: string | null): string | null {
   return query ? `${to}?${query}` : to
 }
 
-function relative(iso: string): string {
+export function relative(iso: string): string {
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) return ""
   const seconds = Math.round((Date.now() - then) / 1000)
@@ -102,6 +135,7 @@ function relative(iso: string): string {
 
 export function NotificationBell({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
+  const [section, setSection] = useState("")
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const bellRef = useRef<HTMLButtonElement>(null)
@@ -120,7 +154,7 @@ export function NotificationBell({ className }: { className?: string }) {
   // actually opened: polling fifty rows every forty-five seconds to render one
   // number is fifty rows nobody looked at. While it is open it polls alongside
   // the count, so the badge and the rows beneath it cannot disagree.
-  const listQuery = useApi<Notification[]>(["notifications", "list"], "/api/notifications", {
+  const listQuery = useApi<Notification[]>(["notifications", "list", section], listPath(section), {
     enabled: open,
     refetchInterval: open ? POLL_MS : false,
     refetchOnMount: "always",
@@ -279,6 +313,29 @@ export function NotificationBell({ className }: { className?: string }) {
             )}
           </div>
 
+          <div
+            role="tablist"
+            aria-label="Which notifications"
+            className="flex gap-0.5 overflow-x-auto border-b border-line px-2 py-1.5"
+          >
+            {SECTION_TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={section === t.key}
+                onClick={() => setSection(t.key)}
+                className={cn(
+                  "h-6 shrink-0 rounded-sm px-2 text-xs font-medium transition-colors",
+                  "duration-[var(--dur-1)] ease-out",
+                  section === t.key ? "bg-sunken text-fg" : "text-fg-muted hover:text-fg"
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
           <div className="max-h-96 overflow-y-auto">
             {listQuery.isLoading ? (
               <p className="px-3 py-8 text-center text-sm text-fg-muted">Loading…</p>
@@ -288,7 +345,7 @@ export function NotificationBell({ className }: { className?: string }) {
               </p>
             ) : items.length === 0 ? (
               <p className="px-3 py-8 text-center text-sm text-fg-muted">
-                Nothing yet. You will hear when a ticket needs you.
+                {section ? "Nothing here." : "Nothing yet. You will hear when a ticket needs you."}
               </p>
             ) : (
               <>
@@ -319,6 +376,7 @@ export function NotificationBell({ className }: { className?: string }) {
                         >
                           {item.title}
                         </span>
+                        <GroupCount count={item.count} />
                         <Meta className="shrink-0 text-xs">{relative(item.created_at)}</Meta>
                       </span>
                       {item.body && (
@@ -327,6 +385,23 @@ export function NotificationBell({ className }: { className?: string }) {
                         </span>
                       )}
                     </button>
+                    {item.share_paper_id && (
+                      // Outside the row's button: a control inside a control is
+                      // two targets a screen reader announces as one.
+                      <div className="px-3 pb-2">
+                        <Button
+                          kind="default"
+                          size="sm"
+                          onClick={() => {
+                            if (!item.read) void markRead(item.id)
+                            close(false)
+                            navigate(`/discussions?share=${item.share_paper_id}`)
+                          }}
+                        >
+                          Share to the feed
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -334,6 +409,22 @@ export function NotificationBell({ className }: { className?: string }) {
               ))}
               </>
             )}
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-2 text-sm">
+            <Link
+              to="/notifications"
+              onClick={() => close(false)}
+              className="text-fg-muted underline-offset-2 hover:text-fg hover:underline"
+            >
+              See all
+            </Link>
+            <Link
+              to="/settings/notifications"
+              onClick={() => close(false)}
+              className="text-fg-muted underline-offset-2 hover:text-fg hover:underline"
+            >
+              Settings
+            </Link>
           </div>
         </div>
       )}

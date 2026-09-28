@@ -14,6 +14,7 @@ import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { ComingUp } from "@/ui/coming-up"
 import {
   Dialog,
   DialogBody,
@@ -30,6 +31,7 @@ import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
 
 /**
  * Where money actually leaves the college — the queue of tickets the
@@ -257,10 +259,10 @@ export function Payments() {
         <div>
           <PageTitle>Payments</PageTitle>
           <Sub className="mt-1">
-            Authorised by the Director, waiting on Finance. Every figure here is
-            recomputed from stored, verified values at the moment of payment —
-            never from Scopus, so an outage never blocks a payout.
+            Authorised by the Director and ready to pay. Each amount is worked out
+            again from the checked figures when you pay it.
           </Sub>
+          <OwnPapersNote className="mt-1" />
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button kind="quiet" size="sm" asChild>
@@ -274,7 +276,7 @@ export function Payments() {
       </header>
 
       {anySelected && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3">
+        <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
           <p className="text-sm">
             <span className="font-semibold">{selected.size}</span> selected ·{" "}
             <span className="font-semibold tabular">{money(selectedTotal)}</span>
@@ -310,6 +312,7 @@ export function Payments() {
           icon={Banknote}
           title="Nothing waiting on Finance"
           message="Every ticket the Director has authorised has already been paid."
+          action={<ComingUp desk="finance" />}
         />
       ) : (
         <>
@@ -854,7 +857,7 @@ export function PaymentsDone() {
           <Button kind="quiet" size="sm" asChild className="-ml-2 mb-1">
             <Link to="/payments">
               <ArrowLeft />
-              Payment orders
+              Payments
             </Link>
           </Button>
           <PageTitle>Paid</PageTitle>

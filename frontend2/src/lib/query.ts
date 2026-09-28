@@ -67,4 +67,6 @@ export const CHAIN: unknown[][] = [
   ["payouts"],
   ["dashboard"],
   ["my-claims"],
+  // The per-stage counts behind the sidebar badges and the homes.
+  ["claims", "counts"],
 ]

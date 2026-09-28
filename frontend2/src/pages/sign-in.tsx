@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { motion, useReducedMotion } from "motion/react"
 import { Eye, EyeOff, LoaderCircle } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { loadGoogleIdentity, type GoogleConfig } from "@/app/google"
 import { useInstitution } from "@/app/institution"
 import { Mark } from "@/ui/art"
-import { JOURNEY } from "@/ui/journey"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
 
@@ -44,7 +43,7 @@ export function SignIn() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [forgot, setForgot] = useState(false)
-  const still = useReducedMotion()
+  const stats = usePublicStats()
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -70,16 +69,13 @@ export function SignIn() {
   )
 
   return (
-    <div className="grid min-h-svh bg-bg lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-      <BrandPanel collegeName={collegeName} still={Boolean(still)} />
+    <div className="grid min-h-svh bg-bg lg:grid-cols-[minmax(0,6fr)_minmax(0,5fr)]">
+      <BrandPanel collegeName={collegeName} stats={stats} />
 
       <main className="grid place-items-center px-5 py-12">
-        <motion.div
-          initial={still ? false : { opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-          className="w-full max-w-[24rem]"
-        >
+        {/* CSS rather than the animation library: this is the first page most
+            people load, and the library was a third of its JavaScript. */}
+        <div className="frame-rise w-full max-w-[24rem]">
           {/* On a phone the brand panel is not drawn, so the page names the
               college itself. */}
           {/* The college's full wordmark, on the white side where its navy,
@@ -189,14 +185,12 @@ export function SignIn() {
             </label>
 
             {error && (
-              <motion.p
-                initial={still ? false : { opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
+              <p
                 role="alert"
-                className="rounded-md bg-critical-wash px-3 py-2 text-sm text-critical"
+                className="frame-overlay rounded-md bg-critical-wash px-3 py-2 text-sm text-critical"
               >
                 {error}
-              </motion.p>
+              </p>
             )}
 
             <Button kind="primary" size="lg" type="submit" disabled={busy} className="h-11 w-full">
@@ -207,26 +201,67 @@ export function SignIn() {
 
           <OtherWaysIn onError={setError} />
 
+          {stats && <StatsLine stats={stats} className="mt-8 text-fg-muted lg:hidden" />}
+
           {institution.sign_in_note && (
             <p className="mt-8 border-t border-line pt-4 text-sm text-fg-muted">
               {institution.sign_in_note}
             </p>
           )}
-        </motion.div>
+        </div>
       </main>
     </div>
   )
 }
 
+export type PublicStats = { papers: number; faculty: number; departments: number }
+
 /**
- * The half of the page that is not the form: whose system this is, and what
- * happens to a paper filed in it. Drawn in the brand colour so the page has a
- * front, and hidden below `lg`, where the form is the whole job.
+ * Whole-college counts for the stats line (`/api/public/stats`, anonymous,
+ * cached an hour). Anything but three numbers -- a failed request, an old
+ * server -- hides the line rather than printing "0 papers".
  */
-function BrandPanel({ collegeName, still }: { collegeName: string; still: boolean }) {
+function usePublicStats(): PublicStats | null {
+  const [stats, setStats] = useState<PublicStats | null>(null)
+  useEffect(() => {
+    let live = true
+    void fetch("/api/public/stats")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => {
+        const ok =
+          b && [b.papers, b.faculty, b.departments].every((n) => typeof n === "number") && b.papers > 0
+        if (live && ok) setStats({ papers: b.papers, faculty: b.faculty, departments: b.departments })
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+  return stats
+}
+
+function StatsLine({ stats, className }: { stats: PublicStats; className?: string }) {
+  const n = (x: number) => x.toLocaleString("en-IN")
   return (
-    <aside className="relative hidden overflow-hidden bg-brand text-brand-fg lg:flex lg:flex-col lg:justify-between lg:p-12">
-      <Mark className="pointer-events-none absolute -bottom-24 -right-20 size-[26rem] opacity-[0.07] grayscale" />
+    <p className={cn("text-sm tabular", className)}>
+      <span className="font-semibold">{n(stats.papers)}</span> papers ·{" "}
+      <span className="font-semibold">{n(stats.faculty)}</span> faculty ·{" "}
+      <span className="font-semibold">{n(stats.departments)}</span> departments — and counting
+    </p>
+  )
+}
+
+/**
+ * The half of the page that is not the form (docs/ux/01): whose system this
+ * is and what it is for you, in the honour face, over the house illustration
+ * and the live stats line. Solid navy with the gold ribbon. On a phone it
+ * shrinks to a 280px band above the form.
+ */
+function BrandPanel({ collegeName, stats }: { collegeName: string; stats: PublicStats | null }) {
+  return (
+    <aside className="relative flex flex-col overflow-hidden bg-brand px-5 pt-8 pb-6 text-brand-fg lg:justify-between lg:p-12">
+      <div aria-hidden className="ribbon absolute inset-x-0 top-0 h-[3px]" />
+      <Mark className="pointer-events-none absolute -right-20 -bottom-24 size-[26rem] opacity-5 grayscale" />
 
       <div className="relative flex items-center gap-3">
         <Mark className="size-9" />
@@ -236,35 +271,26 @@ function BrandPanel({ collegeName, still }: { collegeName: string; still: boolea
         </div>
       </div>
 
-      <motion.div
-        initial={still ? false : { opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.32, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
-        className="relative max-w-md"
-      >
-        <p className="text-[2.5rem] font-semibold leading-[1.1] tracking-[-0.03em] [text-wrap:balance]">
-          File the paper once. See where it is. Get paid.
+      <div className="frame-rise relative mt-6 max-w-xl [animation-delay:50ms] lg:mt-0">
+        <p className="honour text-[2rem] leading-[1.1] [text-wrap:balance] lg:text-honour">
+          Your research, on the record.
         </p>
-        <p className="mt-4 text-base opacity-80">
-          Paste a DOI and most of the claim fills itself in. After that it
-          moves through four stages, and you can always see which one.
+        <p className="mt-3 hidden max-w-md text-base opacity-85 sm:block">
+          Every paper you have published, where each claim stands, and who you could write with next.
         </p>
+        <img
+          src="/illustrations/hero-landing.svg"
+          alt=""
+          aria-hidden
+          width={320}
+          height={200}
+          draggable={false}
+          className="-mb-2 mt-4 h-auto w-full max-w-[200px] select-none lg:mt-10 lg:max-w-[480px]"
+        />
+        {stats && <StatsLine stats={stats} className="mt-6 hidden text-area-honours-fill lg:block" />}
+      </div>
 
-        <ol className="mt-10 grid grid-cols-4 gap-2">
-          {JOURNEY.map((stage, i) => (
-            <li key={stage}>
-              <span
-                aria-hidden
-                className="block h-1.5 rounded-full bg-brand-fg"
-                style={{ opacity: 0.35 + i * 0.2 }}
-              />
-              <span className="mt-2 block text-sm font-medium">{stage}</span>
-            </li>
-          ))}
-        </ol>
-      </motion.div>
-
-      <p className="relative text-sm opacity-70">
+      <p className="relative mt-6 hidden text-sm opacity-70 lg:block">
         Signing in never creates an account. Every account here was made by the
         research cell.{" "}
         <a href="/privacy" className="underline underline-offset-2">
@@ -273,12 +299,6 @@ function BrandPanel({ collegeName, still }: { collegeName: string; still: boolea
       </p>
     </aside>
   )
-}
-
-type GoogleConfig = {
-  enabled: boolean
-  client_id: string | null
-  hosted_domain: string | null
 }
 
 /**
@@ -294,71 +314,58 @@ type GoogleConfig = {
  * and this college does not is refused, and the refusal says so plainly —
  * these accounts carry staff ids and decide who gets paid, so a free signup
  * form is not a thing that can be allowed to mint one.
+ *
+ * No domain hint is passed to Google. A Google account linked from the
+ * profile page may be a personal Gmail, and Google's `hd` option would hide
+ * it from the account chooser; the server enforces the college domain for
+ * anyone who has not linked one.
  */
-function GoogleButton({ onError }: { onError: (message: string | null) => void }) {
+function GoogleButton({
+  config,
+  onError,
+}: {
+  config: GoogleConfig | null
+  onError: (message: string | null) => void
+}) {
   const { signInWithGoogle } = useAuth()
-  const [config, setConfig] = useState<GoogleConfig | null>(null)
-  const [ready, setReady] = useState(false)
   const slot = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    let live = true
-    // A failure here is not shown. Not being able to tell whether Google
-    // sign-in is on is not something the person in front of the screen can
-    // act on, and the password form below works either way.
-    fetch("/api/auth/google/config")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((c: GoogleConfig | null) => live && setConfig(c))
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [])
 
   // Google's script is loaded only once we know there is a client id to give
   // it, so a college that does not use this never fetches it at all.
   useEffect(() => {
-    if (!config?.enabled) return
-    const existing = document.getElementById("gsi-script")
-    if (existing) {
-      setReady(true)
-      return
+    const clientId = config?.enabled ? config.client_id : null
+    if (!clientId) return
+    let live = true
+    loadGoogleIdentity()
+      .then((google) => {
+        if (!live || !slot.current) return
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: ({ credential }) => {
+            onError(null)
+            void signInWithGoogle(credential).catch((err: unknown) =>
+              onError(
+                err instanceof Error
+                  ? err.message
+                  : "Could not sign in with that Google account."
+              )
+            )
+          },
+        })
+        google.accounts.id.renderButton(slot.current, {
+          theme: "outline",
+          size: "large",
+          width: 336,
+          text: "continue_with",
+        })
+      })
+      // Not shown: the password form above works either way, and a script
+      // that did not load is not something the person can act on.
+      .catch(() => {})
+    return () => {
+      live = false
     }
-    const el = document.createElement("script")
-    el.id = "gsi-script"
-    el.src = "https://accounts.google.com/gsi/client"
-    el.async = true
-    el.defer = true
-    el.onload = () => setReady(true)
-    document.head.appendChild(el)
-  }, [config?.enabled])
-
-  useEffect(() => {
-    if (!ready || !config?.client_id || !slot.current) return
-    const google = (window as unknown as { google?: GoogleIdentity }).google
-    if (!google) return
-
-    google.accounts.id.initialize({
-      client_id: config.client_id,
-      hosted_domain: config.hosted_domain || undefined,
-      callback: ({ credential }) => {
-        onError(null)
-        void signInWithGoogle(credential).catch((err: unknown) =>
-          onError(
-            err instanceof Error
-              ? err.message
-              : "Could not sign in with that Google account."
-          )
-        )
-      },
-    })
-    google.accounts.id.renderButton(slot.current, {
-      theme: "outline",
-      size: "large",
-      width: 336,
-      text: "continue_with",
-    })
-  }, [ready, config, signInWithGoogle, onError])
+  }, [config, signInWithGoogle, onError])
 
   if (!config?.enabled) return null
 
@@ -368,28 +375,12 @@ function GoogleButton({ onError }: { onError: (message: string | null) => void }
           form does not jump when it arrives. */}
       <div ref={slot} className="grid min-h-10 place-items-center" />
       <p className="mt-3 text-xs text-fg-subtle">
-        Use the Google account the college gave you. This signs you in to an
-        account that already exists — it does not create one.
+        Use the Google account for the email on your account, or one you have
+        linked. Not linked yet? Sign in with your email and password below,
+        then link Google from your profile.
       </p>
     </div>
   )
-}
-
-/** The slice of Google Identity Services this page uses. */
-type GoogleIdentity = {
-  accounts: {
-    id: {
-      initialize: (options: {
-        client_id: string
-        hosted_domain?: string
-        callback: (response: { credential: string }) => void
-      }) => void
-      renderButton: (
-        parent: HTMLElement,
-        options: { theme: string; size: string; width: number; text: string }
-      ) => void
-    }
-  }
 }
 
 
@@ -403,8 +394,10 @@ type GoogleIdentity = {
  * the password form is the only way in.
  */
 function OtherWaysIn({ onError }: { onError: (message: string | null) => void }) {
-  const [google, setGoogle] = useState<{ enabled: boolean } | null>(null)
-  const [clerk, setClerk] = useState<{ enabled: boolean } | null>(null)
+  // Asked once, here, and handed to each button: every button used to ask
+  // again for itself, a second round trip on the page everybody opens first.
+  const [google, setGoogle] = useState<GoogleConfig | null>(null)
+  const [clerk, setClerk] = useState<ClerkConfig | null>(null)
 
   useEffect(() => {
     let live = true
@@ -433,8 +426,8 @@ function OtherWaysIn({ onError }: { onError: (message: string | null) => void })
         <span className="text-xs text-fg-subtle">or</span>
         <span className="h-px flex-1 bg-line" />
       </div>
-      <GoogleButton onError={onError} />
-      <ClerkButton onError={onError} />
+      <GoogleButton config={google} onError={onError} />
+      <ClerkButton config={clerk} onError={onError} />
     </div>
   )
 }
@@ -453,22 +446,16 @@ type ClerkConfig = { enabled: boolean; publishable_key: string | null }
  * downloads it. Signing in this way never creates an account — an address
  * Clerk knows and this college does not is refused, and says so.
  */
-function ClerkButton({ onError }: { onError: (message: string | null) => void }) {
+function ClerkButton({
+  config,
+  onError,
+}: {
+  config: ClerkConfig | null
+  onError: (message: string | null) => void
+}) {
   const { signInWithClerk } = useAuth()
-  const [config, setConfig] = useState<ClerkConfig | null>(null)
   const [busy, setBusy] = useState(false)
   const client = useRef<ClerkClient | null>(null)
-
-  useEffect(() => {
-    let live = true
-    void fetch("/api/auth/clerk/config")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((c: ClerkConfig | null) => live && setConfig(c))
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [])
 
   async function start() {
     if (!config?.publishable_key) return

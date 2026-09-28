@@ -93,7 +93,7 @@ from core.services.remuneration import (
     formula_from_model,
     snapshot_formula,
 )
-from core.services.notify_email import send_optional_email
+from core.services.notify import notify
 from core.services.scimago import lookup_scimago
 from core.services.scimago_sync import (
     SCIMAGO_RANK_URL,
@@ -151,6 +151,10 @@ api = NinjaAPI(
 session_auth = SessionAuth()
 
 IMPERSONATOR_KEY = "impersonator_id"
+
+#: POSTs a viewer may still make: leaving the view, and the payout
+#: calculator, which works a figure out and stores nothing.
+_WRITES_ALLOWED_WHILE_VIEWING = {"/api/admin/stop-impersonating", "/api/calculate"}
 
 _PASSWORD_CHANGE_EXEMPT = {"/api/auth/change-password", "/api/auth/me"}
 
@@ -363,30 +367,60 @@ def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
 
 
 def _notify_admin_users(
-    title: str, body: str, href: str, *, super_admin_only: bool = False
+    title: str,
+    body: str,
+    href: str,
+    *,
+    super_admin_only: bool = False,
+    claim_id: str | None = None,
 ) -> None:
-    """An admin notification that is not about a particular ticket."""
+    """An admin notification, about one ticket when `claim_id` says which."""
     roles = (Role.SUPER_ADMIN,) if super_admin_only else rbac.ADMIN_ROLES
-    for u in User.objects.filter(role__in=roles, active=True):
-        Notification.objects.create(user=u, title=title, body=body, href=href)
-        send_optional_email(u.email, title, body)
+    people = User.objects.filter(role__in=roles, active=True)
+    if claim_id:
+        # About one paper: never its owner, who is its claimant.
+        people = people.exclude(claims__pk=claim_id)
+    for u in people:
+        notify(u, "desk", title, body, href, claim_id=claim_id)
+
+
+#: What anybody is told who tries to decide their own paper. The queue pages
+#: say the same sentence, so the refusal is never a surprise.
+OWN_PAPER = "Your own paper — another officer or the super admin decides it."
+
+
+def _refuse_own_claim(user: User, claim: Claim) -> None:
+    """Nobody decides their own paper, at any desk (`rbac.is_own_claim`).
+
+    Called by every action that moves, holds, prices, flags or rescues a
+    paper, after the role check and before anything is read or written.
+    """
+    if rbac.is_own_claim(user, claim):
+        raise HttpError(403, OWN_PAPER)
+
+
+def _desk_people(claim: Claim, roles):
+    """Who is told a paper is waiting at a desk: whoever holds it but the owner.
+
+    A Principal who files a paper is its claimant, not its approver, so the
+    paper goes to another Principal -- and, when there is none, to the super
+    admin, who stands in at every desk and may decide anybody's paper but
+    their own.
+    """
+    people = User.objects.filter(role__in=roles, active=True).exclude(pk=claim.owner_id)
+    if not people.exists():
+        people = User.objects.filter(role=Role.SUPER_ADMIN, active=True).exclude(
+            pk=claim.owner_id
+        )
+    return people
 
 
 def _notify_admins(claim: Claim, title: str, body: str) -> None:
     """A submitted ticket waits on admin clearing, so admins are who hear about it."""
-    for u in User.objects.filter(
-        role__in=rbac.ADMIN_ROLES, active=True
-    ):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            # /admin is the overview, which ignores ?claim — the clearing queue
-            # is the page that actually opens the ticket.
-            href=f"/admin/clearing?claim={claim.id}",
-            claim_id=claim.id,
-        )
-        send_optional_email(u.email, title, body)
+    for u in _desk_people(claim, rbac.ADMIN_ROLES):
+        # /admin is the overview, which ignores ?claim — the clearing queue
+        # is the page that actually opens the ticket.
+        notify(u, "desk", title, body, f"/admin/clearing?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_principal(claim: Claim, title: str, body: str) -> None:
@@ -397,38 +431,19 @@ def _notify_principal(claim: Claim, title: str, body: str) -> None:
     being told about money it could not release, and the person who actually
     had to act was not told at all.
     """
-    for u in User.objects.filter(role=Role.PRINCIPAL, active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/principal?claim={claim.id}",
-            claim_id=claim.id,
-        )
-        send_optional_email(u.email, title, body)
+    for u in _desk_people(claim, (Role.PRINCIPAL,)):
+        notify(u, "desk", title, body, f"/principal?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_director(claim: Claim, title: str, body: str) -> None:
     """Everyone who can authorise: the Director, and a super admin standing in."""
-    for u in User.objects.filter(role__in=(Role.DIRECTOR, Role.SUPER_ADMIN), active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/authorisations?claim={claim.id}",
-            claim_id=claim.id,
-        )
+    for u in _desk_people(claim, (Role.DIRECTOR, Role.SUPER_ADMIN)):
+        notify(u, "desk", title, body, f"/authorisations?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_finance(claim: Claim, title: str, body: str) -> None:
-    for u in User.objects.filter(role=Role.FINANCE, active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/finance?claim={claim.id}",
-            claim_id=claim.id,
-        )
+    for u in _desk_people(claim, (Role.FINANCE,)):
+        notify(u, "desk", title, body, f"/finance?claim={claim.id}", claim_id=claim.id)
 
 
 
@@ -650,7 +665,10 @@ __all__ = [
     '_notify_director',
     '_notify_finance',
     '_notify_principal',
+    'OWN_PAPER',
+    '_desk_people',
     '_parse_payout_month',
+    '_refuse_own_claim',
     '_require_admin_ops',
     '_require_may_see_money',
     '_verification_issues',
@@ -671,7 +689,14 @@ def require_user(request: HttpRequest) -> User:
         raise HttpError(403, "Inactive")
     # must_change_password used to be advertised in the profile payload and
     # enforced only by the frontend, so an API client could ignore it entirely.
-    if user.must_change_password and request.path not in _PASSWORD_CHANGE_EXEMPT:
+    # A super admin viewing as somebody is not that person, and cannot change
+    # their password anyway (impersonation is read-only below): holding the
+    # view hostage to it made every account nobody had signed in to yet blank.
+    if (
+        user.must_change_password
+        and not request.session.get(IMPERSONATOR_KEY)
+        and request.path not in _PASSWORD_CHANGE_EXEMPT
+    ):
         raise HttpError(403, "Set a new password before continuing")
     # Impersonation is for seeing, not for doing. Enforced here rather than on
     # each route, because "we forgot to guard that one endpoint" is exactly how
@@ -679,7 +704,7 @@ def require_user(request: HttpRequest) -> User:
     if request.session.get(IMPERSONATOR_KEY) and request.method not in (
         "GET", "HEAD", "OPTIONS",
     ):
-        if request.path != "/api/admin/stop-impersonating":
+        if request.path not in _WRITES_ALLOWED_WHILE_VIEWING:
             raise HttpError(
                 403,
                 "You are viewing as another user. Stop impersonating before making "

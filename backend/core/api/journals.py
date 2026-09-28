@@ -8,10 +8,12 @@ order and must not be casually reordered.
 from __future__ import annotations
 
 from core.api.common import (
+    OWN_PAPER,
     _apply_calc,
     _notify_admins,
     _notify_director,
     _notify_principal,
+    _refuse_own_claim,
     _verification_issues,
     api,
     logger,
@@ -21,6 +23,7 @@ from core.api.schemas import ActionIn, ClaimIn, RecalcIn, _apply_faculty_payload
 from core.api.deps import claim_to_dict
 from core.api.common import require_user
 from core.api.teams import _min_sec_references, _numbered_sec_references
+from core.services import filing_conditions
 from core.api.claims import _assign_quota_position, _claims_queryset, _refuse_hod_unless_own, _release_quota_position
 
 import json
@@ -36,8 +39,9 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Notification, Role, ScimagoJournal, SnipSource, Team, User
-from core.services import rbac
+from core.services import achievements, rbac
 from core.services.normalize import normalize_issn
+from core.services.record_dates import claim_record
 from core.services.student_projects import StudentProjectRefusal, check_student_project
 from core.services.notify_email import send_optional_email
 from core.services.tickets import assign_ticket_number
@@ -192,6 +196,10 @@ def get_claim(request: HttpRequest, claim_id: str):
     ]
     data = claim_to_dict(claim)
     data["actions"] = actions
+    # What the history can truthfully say: an imported ticket carries the
+    # import's moment as its filing and payment time (services/record_dates).
+    data["record"] = claim_record(claim, has_actions=bool(actions))
+    data["confirmations"] = filing_conditions.for_claim(claim)
     return data
 
 
@@ -207,15 +215,20 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
         owner = get_object_or_404(
             User, pk=payload.owner_id, role__in=rbac.CLAIMANT_ROLES, active=True
         )
-        admin_proxy = True
-    elif not rbac.can_issue_claims(user.role):
+        # Naming yourself is filing your own paper, not filing on a behalf.
+        admin_proxy = owner.pk != user.pk
+    elif not rbac.can_file_own_papers(user.role):
+        # Somebody who does not publish here -- the super admin -- files only
+        # for somebody who does.
+        if rbac.can_clear_claims(user.role):
+            raise HttpError(400, "Select a faculty member to submit on their behalf")
         raise HttpError(403, "Only faculty can create tickets")
-    elif rbac.can_clear_claims(user.role) and not payload.owner_id:
-        raise HttpError(400, "Select a faculty member to submit on their behalf")
 
     # Validate before any write, so a rejected attachment set cannot leave a
     # half-created claim behind.
     attachments = _validated_attachments(payload)
+    # Before any write: filing without the three conditions is refused.
+    ticked = filing_conditions.validate(payload.confirmations) if payload.submit else None
 
     claim = Claim(owner=owner)
     _apply_faculty_payload(claim, payload)
@@ -238,6 +251,7 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
 
     if payload.submit:
         _submit_claim(claim, user, contest=bool(payload.contest_forward), contest_note=payload.contest_note)
+        filing_conditions.record(request, claim, user, ticked, _min_sec_references())
     else:
         ClaimAction.objects.create(
             claim=claim,
@@ -374,6 +388,9 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
         # it was still a recognised journal then.
         publication_year=claim.publication_year,
         publication_date=claim.publication_date,
+        # What the source is, for when Scopus cannot say: an unknown type
+        # classifies every journal as Engineering.
+        publication_type=claim.publication_type,
     )
     apply_verify_to_claim(claim, result)
     _apply_calc(claim)
@@ -465,6 +482,12 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
     )
     headline = f"{'Needs review: ' if claim.contest_forward else ''}{claim.paper_title}"
     _notify_admins(claim, f"To clear · {claim.ticket_number}", headline)
+    # Read the files now the claim says what it will say. Queued, and never
+    # able to undo or refuse the filing: a paper that does not match its
+    # files is flagged for the desk, not bounced back to the claimant.
+    from core.services.content_check import enqueue_file_check
+
+    enqueue_file_check(claim.id)
 
 
 @api.patch("/claims/{claim_id}", auth=session_auth)
@@ -479,6 +502,7 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
             "This paper was not accepted, so it cannot be edited or filed again.",
         )
     attachments = _validated_attachments(payload)
+    ticked = filing_conditions.validate(payload.confirmations) if payload.submit else None
     _apply_faculty_payload(claim, payload)
     _bind_identity_from_user(claim, user, payload)
     paid_check = check_already_paid(
@@ -504,6 +528,7 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
             contest=bool(payload.contest_forward),
             contest_note=payload.contest_note,
         )
+        filing_conditions.record(request, claim, user, ticked, _min_sec_references())
         if from_status == ClaimStatus.REJECTED:
             ClaimAction.objects.create(
                 claim=claim,
@@ -523,8 +548,14 @@ def _faculty_status_copy(
     outright: bool = False,
     from_status: str | None = None,
     ticket_number: str | None = None,
+    amount: float | None = None,
 ) -> tuple[str, str]:
     """What the claimant is told when their paper reaches `to_status`.
+
+    "Paid" names the amount: it is the claimant's own money, and "has been
+    paid" without a figure sends them to the app to find out how much. A paper
+    paid at nothing (count-only, or inside a research quota) says so rather
+    than announcing a payment of nought.
 
     Written in terms of the claimant's stage (core.visibility.faculty_stage),
     never the desk: it used to say "with the Principal", "the Director has
@@ -548,7 +579,9 @@ def _faculty_status_copy(
             "Your paper has been approved for payment. You will be told when it is paid.",
         )
     if stage == "Paid":
-        return ("Paid", "The incentive for your paper has been paid.")
+        if amount and amount > 0:
+            return ("Paid", f"₹{amount:,.0f} for your paper has been paid.")
+        return ("Paid", "Your paper is marked as paid. No amount was due on it.")
     if stage == "Withdrawn":
         return (
             "Withdrawn",
@@ -565,17 +598,31 @@ def _faculty_status_copy(
     return ("Under review", "Your paper is under review.")
 
 
-def _notify_claimant(claim: Claim, title: str, body: str) -> None:
-    """Tell the person who filed the paper, in the app and by mail."""
-    full_title = f"{claim.ticket_number or 'Ticket'} · {title}"
-    Notification.objects.create(
-        user=claim.owner,
-        title=full_title,
-        body=body,
-        href=f"/faculty?claim={claim.id}",
+#: The claimant's stage, as core.visibility.faculty_stage names it, to the
+#: kind of alert it is (core.services.notify.KINDS). Anything else is an
+#: "other change": held, resumed, withdrawn, back to draft, reversed.
+_STAGE_KINDS = {
+    "Approved for payment": "claim_approved",
+    "Paid": "claim_paid",
+    "Sent back to you": "claim_sent_back",
+    "Not accepted": "claim_not_accepted",
+}
+
+
+def _notify_claimant(claim: Claim, title: str, body: str, kind: str = "claim_status") -> None:
+    """Tell the person who filed the paper -- in the app, and by email or
+    WhatsApp when they asked for this kind that way."""
+    from core.services.notify import notify
+
+    notify(
+        claim.owner,
+        kind,
+        f"{claim.ticket_number or 'Ticket'} · {title}",
+        body,
+        f"/papers/{claim.id}",
         claim_id=claim.id,
+        email_context={"paper_title": claim.paper_title or "", "action_label": "Open your paper"},
     )
-    send_optional_email(claim.owner.email, full_title, body)
 
 
 def _refuse_if_held(claim: Claim) -> None:
@@ -697,8 +744,11 @@ def _transition(claim: Claim, user: User, to_status: str, action: str, note: str
         title, body = _faculty_status_copy(
             to_status, note, outright=claim.rejected_outright,
             from_status=from_status, ticket_number=claim.ticket_number,
+            amount=claim.remuneration,
         )
-        _notify_claimant(claim, title, body)
+        _notify_claimant(claim, title, body, _STAGE_KINDS.get(stage_after, "claim_status"))
+    # Badges and department milestones, after commit; never blocks this move.
+    achievements.on_claim_moved(claim, from_status, to_status)
 
 
 #: Display-path cache for the second-approval threshold, so serializing a
@@ -809,6 +859,7 @@ def recalculate_claim(request: HttpRequest, claim_id: str, payload: Optional[Rec
     if not (rbac.can_clear_claims(user.role) or rbac.can_approve_as_finance(user.role)):
         raise HttpError(403, "Forbidden")
     claim = get_object_or_404(Claim, pk=claim_id)
+    _refuse_own_claim(user, claim)
     if claim.status == ClaimStatus.PAID:
         raise HttpError(400, "Claim is already paid — re-verifying would change a settled amount")
     previous = claim.remuneration
@@ -841,6 +892,7 @@ def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         raise HttpError(403, "Forbidden")
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.SUBMITTED:
             raise HttpError(400, "Only a submitted ticket can be cleared")
         _refuse_if_held(claim)
@@ -893,6 +945,11 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
                 claim = Claim.objects.select_for_update().filter(pk=claim_id).first()
                 if claim is None:
                     skipped.append({"id": claim_id, "reason": "Not found"})
+                    continue
+                if rbac.is_own_claim(user, claim):
+                    skipped.append(
+                        {"id": claim_id, "reason": f"{claim.ticket_number or claim_id}: {OWN_PAPER}"}
+                    )
                     continue
                 if claim.status != ClaimStatus.SUBMITTED:
                     skipped.append(
@@ -994,6 +1051,7 @@ def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.CLEARED:
             raise HttpError(
                 400,
@@ -1054,6 +1112,9 @@ def principal_queue(
 
     qs = (
         Claim.objects.filter(status=ClaimStatus.CLEARED)
+        # Never the approver's own paper: another Principal, or the super
+        # admin, decides that one (`rbac.is_own_claim`).
+        .exclude(owner=user)
         .select_related("owner", "cleared_by", "override_by", "held_by")
         .prefetch_related("attachments")
     )
@@ -1141,6 +1202,12 @@ def principal_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
             claim = Claim.objects.select_for_update().filter(pk=claim_id).first()
             if claim is None:
                 skipped.append({"id": claim_id, "reason": "Not found"})
+                continue
+            if rbac.is_own_claim(user, claim):
+                skipped.append({
+                    "id": claim_id,
+                    "reason": f"{claim.ticket_number or claim_id}: {OWN_PAPER}",
+                })
                 continue
             if claim.status != ClaimStatus.CLEARED:
                 skipped.append({

@@ -136,6 +136,15 @@ from core.services.tickets import next_ticket_number
 from core.services.remuneration import DEFAULT_AUTHOR_POINTS
 import json
 
+from core.services.filing_conditions import CONDITION_IDS as _CONDITION_IDS, CONDITIONS_VERSION as _CONDITIONS_VERSION
+
+#: The three eligibility conditions, ticked -- a filing without them is refused.
+CONFIRMED = [
+    {"id": _cid, "text_version": _CONDITIONS_VERSION, "ticked_at": "2026-09-24T14:02:11+05:30"}
+    for _cid in _CONDITION_IDS
+]
+
+
 
 User = get_user_model()
 
@@ -781,6 +790,7 @@ class ClaimSubmissionRuleTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
             "contest_forward": True,
             "contest_note": "Submitting with faculty-provided journal details.",
         }
@@ -1395,6 +1405,7 @@ class TrustBoundaryTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
             "contest_forward": True,
             "contest_note": "Submitting with faculty-provided journal details.",
         }
@@ -2509,6 +2520,29 @@ class SuperAdminPowersTests(TestCase):
         self.assertEqual(blocked.status_code, 403)
         self.assertIn("Stop impersonating", blocked.json()["detail"])
 
+    def test_viewing_as_somebody_who_owes_a_password_change_still_shows_their_record(self):
+        # Every imported account starts owing one; the view must not go blank.
+        self.alice.must_change_password = True
+        self.alice.save()
+        self.client.force_login(self.admin)
+        self.post(f"/api/admin/impersonate/{self.alice.id}", {})
+        self.assertEqual(self.client.get("/api/claims").status_code, 200)
+        # Alice herself is still held to it.
+        own = Client()
+        own.force_login(self.alice)
+        self.assertEqual(own.get("/api/claims").status_code, 403)
+
+    def test_stopping_works_after_viewing_somebody_who_owes_a_password_change(self):
+        self.alice.must_change_password = True
+        self.alice.save()
+        self.client.force_login(self.admin)
+        self.post(f"/api/admin/impersonate/{self.alice.id}", {})
+        self.client.get("/api/claims")
+        r = self.post("/api/admin/stop-impersonating", {})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(self.client.get("/api/auth/me").json()["email"], "power-admin@test.edu")
+
+
     def test_stopping_returns_the_admin_to_themselves(self):
         self.client.force_login(self.admin)
         self.post(f"/api/admin/impersonate/{self.alice.id}", {})
@@ -3277,13 +3311,21 @@ class IdentityBoundaryTests(TestCase):
         self.assertIsNone(self.faculty.scopus_author_url)
 
     def test_an_unknown_field_cannot_be_requested(self):
+        # The role used to be the example here. It is requestable now -- to a
+        # super admin only, see AccountChangeRequestTests -- so these are the
+        # fields that are still not a request's business at all.
         self.client.force_login(self.faculty)
-        r = self.client.post(
-            "/api/auth/profile/correction",
-            data=json.dumps({"field": "role", "proposed": "SUPER_ADMIN"}),
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 400, r.content)
+        for field, proposed in (
+            ("is_staff", "true"), ("active", "true"), ("email", "x@test.edu"),
+            ("google_sub", "123"), ("password", "hunter22"),
+        ):
+            r = self.client.post(
+                "/api/auth/profile/correction",
+                data=json.dumps({"field": field, "proposed": proposed}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 400, (field, r.content))
+        self.assertFalse(ProfileChangeRequest.objects.exists())
 
     def test_a_super_admin_editing_a_profile_is_audited(self):
         from core.models import AuditLog
@@ -3642,6 +3684,7 @@ class RetractionFlagTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
         }
         payload.update(overrides)
         return self.client.post(
@@ -3776,6 +3819,7 @@ class DuplicateOverrideGuardTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
         }
         payload.update(overrides)
         return self.client.post(
@@ -6255,7 +6299,10 @@ class FourRoleModelTests(TestCase):
         )
         self.assertTrue(rbac.can_view_reports(Role.PRINCIPAL))
         self.assertFalse(rbac.can_clear_claims(Role.PRINCIPAL))
-        self.assertFalse(rbac.can_issue_claims(Role.PRINCIPAL))
+        # Files their own papers, as an academic (the owner's rule on dual
+        # roles) -- which is not acting on anybody else's, and never at a
+        # desk on their own (`test_dual_roles`).
+        self.assertTrue(rbac.can_file_own_papers(Role.PRINCIPAL))
         self.assertFalse(rbac.can_approve_as_finance(Role.PRINCIPAL))
         self.client.force_login(principal)
         self.assertEqual(self.client.get("/api/reports/search").status_code, 200)
@@ -7838,6 +7885,226 @@ class ProfileCorrectionTests(TestCase):
         self.assertEqual(self.fc.get("/api/admin/profile-requests").status_code, 403)
 
 
+class SelfServiceDetailsTests(TestCase):
+    """The few details that are nobody's business but the person's own.
+
+    Everything that decides who gets paid stays behind a request. What is left
+    -- a phone number -- is edited directly, because making somebody ask a
+    super admin to change their own phone number is the kind of process that
+    guarantees it is never kept up to date.
+    """
+
+    def setUp(self):
+        self.person = User.objects.create_user(
+            email="ss-person@test.edu", password="pass", name="SS Person",
+            role=Role.FACULTY, department="CSE", staff_id="STF-SS",
+        )
+        self.client = Client()
+        self.client.force_login(self.person)
+
+    def patch_self(self, body, client=None):
+        return (client or self.client).patch(
+            "/api/auth/profile/self",
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+    def test_a_person_can_set_their_own_phone(self):
+        r = self.patch_self({"phone": " +91 98400 12345 "})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["phone"], "+91 98400 12345")
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.phone, "+91 98400 12345")
+        self.assertEqual(self.client.get("/api/auth/me").json()["phone"], "+91 98400 12345")
+
+    def test_the_change_is_audited_without_the_number_itself(self):
+        self.patch_self({"phone": "044-2680 1234"})
+        log = AuditLog.objects.get(action="PROFILE_SELF_UPDATE", entity_id=self.person.id)
+        self.assertEqual(json.loads(log.detail_json)["fields"], ["phone"])
+        self.assertNotIn("2680", log.detail_json)
+
+    def test_saving_what_it_already_says_writes_no_audit_row(self):
+        self.patch_self({"phone": "9840012345"})
+        self.patch_self({"phone": "9840012345"})
+        self.assertEqual(AuditLog.objects.filter(action="PROFILE_SELF_UPDATE").count(), 1)
+
+    def test_a_phone_can_be_cleared(self):
+        self.patch_self({"phone": "9840012345"})
+        r = self.patch_self({"phone": ""})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertFalse(self.person.phone)
+
+    def test_something_that_is_not_a_phone_number_is_refused(self):
+        for bad in ("call me", "12345", "+91 98400 12345 12345 12345", "98400<script>"):
+            r = self.patch_self({"phone": bad})
+            self.assertEqual(r.status_code, 400, (bad, r.content))
+        self.person.refresh_from_db()
+        self.assertFalse(self.person.phone)
+
+    def test_identity_cannot_ride_along_with_a_phone_number(self):
+        r = self.patch_self({"phone": "9840012345", "staff_id": "STF-SELF", "role": "SUPER_ADMIN"})
+        self.assertIn(r.status_code, (400, 422), r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.staff_id, "STF-SS")
+        self.assertEqual(self.person.role, Role.FACULTY)
+        self.assertFalse(self.person.phone)
+
+    def test_the_identity_route_is_still_closed(self):
+        r = self.client.patch(
+            "/api/auth/profile",
+            data=json.dumps({"name": "Somebody Else"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 403, r.content)
+
+    def test_it_needs_a_session(self):
+        self.assertEqual(self.patch_self({"phone": "9840012345"}, client=Client()).status_code, 401)
+
+
+class AccountChangeRequestTests(TestCase):
+    """Role, head of department, faculty type and quota: asked for, not typed.
+
+    These were admin-only with no way to ask. Being wrongly marked research
+    faculty zeroes papers, so a person needs a route to say so -- and the route
+    goes to a super admin, with the same checks the account editor applies,
+    because approving a role from a queue must not be a way round them.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="acr-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.cell = User.objects.create_user(
+            email="acr-cell@test.edu", password="pass", name="Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.person = User.objects.create_user(
+            email="acr-fac@test.edu", password="pass", name="ACR Person",
+            role=Role.FACULTY, department="ECE",
+            faculty_type="RESEARCH", research_quota=4,
+        )
+        self.fc = Client()
+        self.fc.force_login(self.person)
+        self.ac = Client()
+        self.ac.force_login(self.admin)
+
+    def ask(self, field, proposed, client=None):
+        return (client or self.fc).post(
+            "/api/auth/profile/correction",
+            data=json.dumps({"field": field, "proposed": proposed, "note": "changed post"}),
+            content_type="application/json",
+        )
+
+    def decide(self, approve=True, note="checked", client=None):
+        rid = ProfileChangeRequest.objects.get(status="PENDING").id
+        return (client or self.ac).post(
+            f"/api/admin/profile-requests/{rid}",
+            data=json.dumps({"approve": approve, "note": note}),
+            content_type="application/json",
+        )
+
+    def test_a_role_change_is_listed_for_a_super_admin_and_applied_on_approval(self):
+        self.assertEqual(self.ask("role", "HOD").status_code, 200)
+        row = self.ac.get("/api/admin/profile-requests").json()["results"][0]
+        self.assertEqual((row["field"], row["label"]), ("role", "Role"))
+        self.assertEqual((row["current_value"], row["proposed_value"]), ("FACULTY", "HOD"))
+        self.assertTrue(row["identity"])
+        r = self.decide()
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.role, Role.HOD)
+
+    def test_a_role_nothing_recognises_cannot_be_asked_for(self):
+        self.assertEqual(self.ask("role", "EMPEROR").status_code, 400)
+        self.assertFalse(ProfileChangeRequest.objects.exists())
+
+    def test_a_role_request_goes_only_to_a_super_admin(self):
+        self.ask("role", "HOD")
+        told = set(
+            Notification.objects.filter(title__startswith="Profile correction")
+            .values_list("user__email", flat=True)
+        )
+        self.assertEqual(told, {self.admin.email})
+        cc = Client()
+        cc.force_login(self.cell)
+        self.assertEqual(self.decide(client=cc).status_code, 403)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.role, Role.FACULTY)
+
+    def test_approving_a_second_head_is_refused_and_the_request_stays_open(self):
+        User.objects.create_user(
+            email="acr-head@test.edu", password="pass", name="Head In Post",
+            role=Role.HOD, department="ECE",
+        )
+        self.ask("role", "HOD")
+        r = self.decide()
+        self.assertEqual(r.status_code, 409, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.role, Role.FACULTY)
+        self.assertEqual(ProfileChangeRequest.objects.get().status, "PENDING")
+
+    def test_a_head_moving_department_is_held_to_one_head_per_department(self):
+        """The account editor checks this on a department change; approving
+        the same change from the queue must not skip it."""
+        User.objects.create_user(
+            email="acr-head-cse@test.edu", password="pass", name="CSE Head",
+            role=Role.HOD, department="CSE",
+        )
+        self.person.role = Role.HOD
+        self.person.save()
+        self.assertEqual(self.ask("department", "CSE").status_code, 200)
+        r = self.decide()
+        self.assertEqual(r.status_code, 409, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.department, "ECE")
+        self.assertEqual(ProfileChangeRequest.objects.get().status, "PENDING")
+
+    def test_a_super_admin_cannot_approve_their_own_role(self):
+        self.ask("role", "FACULTY", client=self.ac)
+        r = self.decide()
+        self.assertEqual(r.status_code, 400, r.content)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.role, Role.SUPER_ADMIN)
+
+    def test_regular_faculty_on_approval_drops_the_quota(self):
+        self.assertEqual(self.ask("faculty_type", "REGULAR").status_code, 200)
+        self.assertEqual(self.decide().status_code, 200)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.faculty_type, "REGULAR")
+        self.assertIsNone(self.person.research_quota)
+
+    def test_a_faculty_type_must_be_regular_or_research(self):
+        self.assertEqual(self.ask("faculty_type", "VISITING").status_code, 400)
+
+    def test_a_quota_change_is_applied_as_a_number(self):
+        self.assertEqual(self.ask("research_quota", " 2 ").status_code, 200)
+        self.assertEqual(self.decide().status_code, 200)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.research_quota, 2)
+
+    def test_a_quota_must_be_a_whole_number(self):
+        for bad in ("two", "-1", "2.5"):
+            self.assertEqual(self.ask("research_quota", bad).status_code, 400, bad)
+
+    def test_a_quota_is_not_applied_to_a_regular_post(self):
+        self.person.faculty_type = "REGULAR"
+        self.person.research_quota = None
+        self.person.save()
+        self.ask("research_quota", "3")
+        r = self.decide()
+        self.assertEqual(r.status_code, 400, r.content)
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.research_quota)
+
+    def test_the_person_sees_what_came_of_it(self):
+        self.ask("faculty_type", "REGULAR")
+        self.decide(approve=False, note="the post is a research post")
+        mine = self.fc.get("/api/auth/profile/corrections").json()["results"]
+        self.assertEqual((mine[0]["field"], mine[0]["status"]), ("faculty_type", "DECLINED"))
+
+
 class CollaborationGraphTests(TestCase):
     """Who has written with whom, inferred rather than entered.
 
@@ -9234,28 +9501,56 @@ class ProgrammeTests(TestCase):
 
         self.client.force_login(self.me)
         body = self.client.get("/api/programme/me").json()
-
         self.assertEqual(
             {a["key"] for a in body["areas"]}, {"Signal Processing", "Computer Science"}
         )
-        self.assertEqual([c["name"] for c in body["colleagues"]], ["Programme Other"])
+
+        # Who else is nearby is the college's picture, not "my research".
+        around = self.client.get("/api/programme/around").json()
+        self.assertEqual([c["name"] for c in around["colleagues"]], ["Programme Other"])
         # Matched on the shared area only -- their marine biology paper is not
         # what makes them a colleague.
-        self.assertEqual(body["colleagues"][0]["areas"], ["Computer Science"])
+        self.assertEqual(around["colleagues"][0]["areas"], ["Computer Science"])
+
+    def test_my_research_is_only_my_own_work(self):
+        """The owner's rule: "X's research" shows X's work and nobody else's."""
+        self._paper(self.me, "PG-6", "Computer Science")
+        self._paper(self.other, "PG-7", "Computer Science")
+
+        self.client.force_login(self.me)
+        body = self.client.get("/api/programme/me").json()
+        raw = json.dumps(body)
+        self.assertNotIn("Programme Other", raw)
+        self.assertNotIn("PG PG-7", raw)
+        self.assertNotIn("colleagues", body)
+        self.assertNotIn("live", body)
+        self.assertEqual([p["title"] for p in body["papers"]], ["PG PG-6"])
+        self.assertEqual(body["counts"]["papers"], 1)
+
+    def test_a_refused_paper_is_not_counted_as_their_work(self):
+        self._paper(self.me, "PG-8", "Computer Science")
+        refused = self._paper(self.me, "PG-9", "Marine Biology")
+        Claim.objects.filter(pk=refused.pk).update(status=ClaimStatus.REJECTED)
+
+        self.client.force_login(self.me)
+        body = self.client.get("/api/programme/me").json()
+        self.assertEqual(body["totals"]["my_papers"], 1)
+        self.assertEqual([a["key"] for a in body["areas"]], ["Computer Science"])
 
     def test_it_carries_no_money_at_all(self):
         """A claimant sees their own amounts and nobody else's.
 
-        This page is entirely about other people, so an amount anywhere in the
-        payload is a colleague's payout leaking through the back door.
+        The college half is entirely about other people, so an amount anywhere
+        in either payload is a colleague's payout leaking through the back door.
         """
         self._paper(self.me, "PG-4", "Computer Science")
         self._paper(self.other, "PG-5", "Computer Science")
 
         self.client.force_login(self.me)
-        raw = self.client.get("/api/programme/me").content.decode()
-        for word in ("remuneration", "payout", "amount"):
-            self.assertNotIn(word, raw, f"{word!r} must not appear in the programme payload")
+        for path in ("/api/programme/me", "/api/programme/around"):
+            raw = self.client.get(path).content.decode()
+            for word in ("remuneration", "payout", "amount", "50000"):
+                self.assertNotIn(word, raw, f"{word!r} must not appear in {path}")
 
     def test_somebody_with_no_papers_gets_an_empty_picture_not_an_error(self):
         self.client.force_login(self.me)
@@ -9263,8 +9558,10 @@ class ProgrammeTests(TestCase):
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertEqual(body["areas"], [])
-        self.assertEqual(body["colleagues"], [])
+        self.assertEqual(body["papers"], [])
         self.assertEqual(body["totals"]["my_papers"], 0)
+        around = self.client.get("/api/programme/around").json()
+        self.assertEqual(around["colleagues"], [])
 
 
 class HodTargetsTests(TestCase):
@@ -10322,8 +10619,14 @@ class CalendarTests(TestCase):
         self.assertEqual(r.status_code, 400, r.content)
 
     def test_an_event_follows_the_same_visibility_rule_as_a_thread(self):
-        self._add(self.faculty, title="A CSE-only date", visibility="DEPARTMENT",
-                  department="CSE")
+        # Faculty add only private reminders now; a head tells the department.
+        head = User.objects.create_user(
+            email="cal-head@test.edu", password="pass", name="Cal Head",
+            role=Role.HOD, department="CSE",
+        )
+        r = self._add(head, title="A CSE-only date", visibility="DEPARTMENT",
+                      department="CSE")
+        self.assertEqual(r.status_code, 200, r.content)
         other = User.objects.create_user(
             email="cal-other@test.edu", password="pass", name="Other Dept",
             role=Role.FACULTY, department="MECH",
@@ -11072,6 +11375,7 @@ class WalkthroughTest(TestCase):
                  "ref_title": "SEC thermal imaging study"},
             ],
             "submit": True,
+            "confirmations": CONFIRMED,
             # Scopus has not indexed it yet and the reference tables in a test
             # database are empty, so auto-confirmation fails -- which is the
             # ordinary case for a recent paper. The claimant sends it anyway
@@ -11989,7 +12293,7 @@ class LocalInferenceTests(TestCase):
     def test_the_provider_is_local_by_default(self):
         self.assertEqual(ai.provider_name(), "ollama")
 
-    @override_settings(AI_PROVIDER="openai")
+    @override_settings(AI_PROVIDER="olama")
     def test_an_unknown_provider_is_refused_rather_than_resolved(self):
         """A typo in a deployment variable must stop the feature, not quietly
         change where a faculty member's unpublished abstract is sent."""
@@ -12669,7 +12973,7 @@ class GoogleSignInTests(TestCase):
                     content_type="application/json",
                 )
         self.assertEqual(r.status_code, 403, r.content)
-        self.assertIn("no account", r.json()["detail"].lower())
+        self.assertIn("not linked", r.json()["detail"].lower())
         self.assertFalse(User.objects.filter(email="a-stranger@gmail.com").exists())
 
     def test_a_known_address_signs_into_the_account_that_already_has_it(self):
@@ -12711,8 +13015,8 @@ class GoogleSignInTests(TestCase):
                 )
         self.assertEqual(r.status_code, 403)
 
-    def test_a_hosted_domain_can_be_required(self):
-        claims = {"email": "gs-person@test.edu", "email_verified": True, "hd": "elsewhere.com"}
+    def test_an_address_nobody_here_has_is_refused_whatever_the_domain(self):
+        claims = {"email": "gs-other@elsewhere.com", "email_verified": True, "hd": "elsewhere.com"}
         with override_settings(
             GOOGLE_OAUTH_CLIENT_ID="test-client-id", GOOGLE_HOSTED_DOMAIN="saveetha.ac.in"
         ):
@@ -12723,7 +13027,216 @@ class GoogleSignInTests(TestCase):
                     content_type="application/json",
                 )
         self.assertEqual(r.status_code, 403)
-        self.assertIn("saveetha.ac.in", r.json()["detail"])
+        self.assertIn("email and password", r.json()["detail"])
+
+
+@override_settings(GOOGLE_OAUTH_CLIENT_ID="test-client-id", GOOGLE_HOSTED_DOMAIN="college.edu")
+class GoogleLinkTests(TestCase):
+    """Linking a Google account from a session that already signed in by password.
+
+    Every account has an email and a password; Google is something a person
+    adds afterwards. About fourteen staff have only a personal Gmail, so the
+    hosted-domain rule that guards sign-in by email does not apply to a link:
+    the person proved who they are with their password before choosing it.
+    """
+
+    SUB = "google-sub-1001"
+
+    def setUp(self):
+        self.person = User.objects.create_user(
+            email="gl-person@college.edu", password="pass", name="GL Person",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.other = User.objects.create_user(
+            email="gl-other@college.edu", password="pass", name="GL Other",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.client = Client()
+        self.client.force_login(self.person)
+
+    def claims(self, **over):
+        return {
+            "sub": self.SUB,
+            "email": "gl.person.personal@gmail.com",
+            "email_verified": True,
+            **over,
+        }
+
+    def link(self, claims=None, client=None):
+        with patch(
+            "google.oauth2.id_token.verify_oauth2_token",
+            return_value=claims if claims is not None else self.claims(),
+        ):
+            return (client or self.client).post(
+                "/api/auth/google/link",
+                data=json.dumps({"credential": "x"}),
+                content_type="application/json",
+            )
+
+    def sign_in_with_google(self, claims):
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=claims):
+            return Client().post(
+                "/api/auth/google",
+                data=json.dumps({"credential": "x"}),
+                content_type="application/json",
+            )
+
+    # ---- linking ------------------------------------------------------
+
+    def test_a_personal_gmail_can_be_linked_without_the_hosted_domain(self):
+        r = self.link()
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.google_sub, self.SUB)
+        self.assertEqual(self.person.google_email, "gl.person.personal@gmail.com")
+        self.assertIsNotNone(self.person.google_linked_at)
+        self.assertEqual(r.json()["google"]["email"], "gl.person.personal@gmail.com")
+        log = AuditLog.objects.get(action="GOOGLE_LINKED", entity_id=self.person.id)
+        self.assertEqual(json.loads(log.detail_json)["google_email"], "gl.person.personal@gmail.com")
+
+    def test_me_carries_the_link_or_says_there_is_none(self):
+        self.assertIsNone(self.client.get("/api/auth/me").json()["google"])
+        self.link()
+        google = self.client.get("/api/auth/me").json()["google"]
+        self.assertEqual(google["email"], "gl.person.personal@gmail.com")
+        self.assertTrue(google["linked_at"])
+
+    def test_a_google_account_linked_to_somebody_else_is_refused(self):
+        self.other.google_sub = self.SUB
+        self.other.google_email = "shared@gmail.com"
+        self.other.save()
+        r = self.link()
+        self.assertEqual(r.status_code, 409, r.content)
+        # Says it is taken, never by whom.
+        self.assertNotIn("gl-other", r.json()["detail"])
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
+        self.assertFalse(AuditLog.objects.filter(action="GOOGLE_LINKED").exists())
+
+    def test_somebody_else_s_college_address_cannot_be_linked(self):
+        """Otherwise that colleague pressing "Continue with Google" with their
+        own college account would land in this one."""
+        r = self.link(self.claims(email="gl-other@college.edu", hd="college.edu"))
+        self.assertEqual(r.status_code, 409, r.content)
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
+
+    def test_an_unverified_google_email_cannot_be_linked(self):
+        r = self.link(self.claims(email_verified=False))
+        self.assertEqual(r.status_code, 403, r.content)
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
+
+    def test_a_token_that_fails_to_verify_is_refused_without_saying_why(self):
+        with patch(
+            "google.oauth2.id_token.verify_oauth2_token",
+            side_effect=ValueError("Token has wrong audience other-app"),
+        ):
+            r = self.client.post(
+                "/api/auth/google/link",
+                data=json.dumps({"credential": "x"}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 401, r.content)
+        self.assertNotIn("audience", r.json()["detail"].lower())
+
+    def test_linking_needs_a_session(self):
+        r = self.link(client=Client())
+        self.assertEqual(r.status_code, 401, r.content)
+
+    def test_linking_is_refused_while_off(self):
+        with override_settings(GOOGLE_OAUTH_CLIENT_ID=""):
+            r = self.link()
+        self.assertEqual(r.status_code, 503, r.content)
+
+    # ---- unlinking ----------------------------------------------------
+
+    def test_unlinking_clears_the_link_and_is_audited(self):
+        self.link()
+        r = self.client.delete("/api/auth/google/link")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertIsNone(r.json()["google"])
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
+        self.assertIsNone(self.person.google_email)
+        self.assertIsNone(self.person.google_linked_at)
+        log = AuditLog.objects.get(action="GOOGLE_UNLINKED", entity_id=self.person.id)
+        self.assertEqual(json.loads(log.detail_json)["google_email"], "gl.person.personal@gmail.com")
+        self.assertIsNone(self.client.get("/api/auth/me").json()["google"])
+
+    def test_an_unlinked_google_account_no_longer_signs_in(self):
+        self.link()
+        self.client.delete("/api/auth/google/link")
+        r = self.sign_in_with_google(self.claims())
+        self.assertEqual(r.status_code, 403, r.content)
+
+    # ---- signing in ---------------------------------------------------
+
+    def test_a_linked_personal_gmail_signs_in_despite_the_hosted_domain(self):
+        self.link()
+        r = self.sign_in_with_google(self.claims())
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["email"], "gl-person@college.edu")
+        self.assertTrue(
+            AuditLog.objects.filter(action="LOGIN_GOOGLE", entity_id=self.person.id).exists()
+        )
+
+    def test_the_first_sign_in_by_address_links_the_account(self):
+        # The address on record is the link: the first Google sign-in with it
+        # records the Google account, so later sign-ins go by its id.
+        r = self.sign_in_with_google(
+            {"sub": "first-time", "email": "gl-person@college.edu", "email_verified": True}
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.google_sub, "first-time")
+        self.assertEqual(r.json()["google"]["email"], "gl-person@college.edu")
+
+    def test_a_personal_gmail_on_record_signs_in_and_links(self):
+        self.person.email = "gl.person@gmail.com"
+        self.person.save()
+        r = self.sign_in_with_google(
+            {"sub": "gmail-sub", "email": "gl.person@gmail.com", "email_verified": True}
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.google_sub, "gmail-sub")
+
+    def test_an_unknown_gmail_is_told_to_sign_in_with_a_password_and_link(self):
+        r = self.sign_in_with_google(
+            {"sub": "nobody", "email": "someone-else@gmail.com", "email_verified": True}
+        )
+        self.assertEqual(r.status_code, 403, r.content)
+        self.assertIn("link google from your profile", r.json()["detail"].lower())
+
+    def test_the_college_account_still_signs_in_by_email(self):
+        r = self.sign_in_with_google({
+            "sub": "college-sub", "email": "gl-person@college.edu",
+            "email_verified": True, "hd": "college.edu",
+        })
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["email"], "gl-person@college.edu")
+
+    def test_a_linked_account_that_is_switched_off_cannot_sign_in(self):
+        self.link()
+        self.person.active = False
+        self.person.save()
+        r = self.sign_in_with_google(self.claims())
+        self.assertEqual(r.status_code, 403, r.content)
+
+    def test_a_viewer_impersonating_cannot_link_their_google_to_the_account(self):
+        admin = User.objects.create_user(
+            email="gl-admin@college.edu", password="pass", name="GL Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        ac = Client()
+        ac.force_login(admin)
+        ac.post(f"/api/admin/impersonate/{self.person.id}", data="{}",
+                content_type="application/json")
+        r = self.link(client=ac)
+        self.assertEqual(r.status_code, 403, r.content)
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
 
 
 # --------------------------------------------------------------------------- #

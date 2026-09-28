@@ -773,7 +773,11 @@ export function Trend({
                 />
 
                 {points.map((p, i) =>
-                  i % every === 0 || i === points.length - 1 ? (
+                  // The last label is right-aligned and always drawn, so the
+                  // step label before it gives way unless it is a step and a
+                  // half clear -- otherwise "19 Sept" and "24 Sept" overprint.
+                  (i % every === 0 && points.length - 1 - i >= Math.ceil(every * 1.5)) ||
+                  i === points.length - 1 ? (
                     <text
                       key={p.key}
                       x={x(i)}
@@ -937,5 +941,46 @@ export function Distribution({
         </div>
       )}
     </Figure>
+  )
+}
+
+/**
+ * A 48×16 line for a stat tile (docs/ux/00 §8). Decorative next to its
+ * figure, so hidden from assistive tech unless given a `label`. Coloured
+ * with the current area (`--area`), never a rainbow.
+ */
+export function Sparkline({
+  values,
+  width = 48,
+  height = 16,
+  label,
+  className,
+}: {
+  values: number[]
+  width?: number
+  height?: number
+  label?: string
+  className?: string
+}) {
+  if (values.length < 2) return null
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const span = max - min || 1
+  const step = width / (values.length - 1)
+  const d = values
+    .map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - 1 - ((v - min) / span) * (height - 2)).toFixed(1)}`)
+    .join(" ")
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role={label ? "img" : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
+      className={cn("shrink-0 overflow-visible text-(--area)", className)}
+    >
+      <path d={d} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }

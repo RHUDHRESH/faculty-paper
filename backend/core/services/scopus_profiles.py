@@ -31,9 +31,11 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.management.commands.import_erp_excel import _id, _s
-from core.models import AuditLog, FacultyMaster, Role, ScopusProfile, User
+from core.models import AuditLog, Authorship, FacultyMaster, Role, ScopusProfile, User
 from core.services.fyp_roster import staff_key
 from core.services.normalize import normalize_issn
+from core.services.publications import _Index
+from core.services.scopus_profile import record_rows
 from core.services.scopus import author_profile_url, extract_author_id
 
 #: The roles whose accounts are expected to carry a Scopus id.
@@ -347,7 +349,10 @@ def profile_dict(profile: ScopusProfile | None) -> dict[str, Any] | None:
         "citations": profile.total_citations,
         "h_index": profile.h_index,
         "publications_by_year": (profile.metrics or {}).get("Publications by year") or {},
-        "documents_listed": len(profile.documents or []),
+        # The papers themselves live in the publication record, not here.
+        "documents_listed": (
+            Authorship.objects.filter(user_id=profile.user_id).count() if profile.user_id else 0
+        ),
         "source_sheet": profile.source_sheet,
         "imported_at": profile.imported_at.isoformat() if profile.imported_at else None,
     }
@@ -362,7 +367,7 @@ def linked_profiles() -> list[tuple[User, ScopusProfile]]:
     """
     index = account_index()
     out = []
-    for profile in ScopusProfile.objects.defer("documents", "metrics"):
+    for profile in ScopusProfile.objects.defer("metrics"):
         users = index.get(profile.scopus_id, [])
         if len(users) == 1:
             out.append((users[0], profile))
@@ -411,6 +416,8 @@ def import_profiles(
     ambiguous: list[dict[str, Any]] = []
     warnings: list[str] = [w for p in profiles for w in p.warnings]
 
+    record_index = _Index()
+    papers_matched = papers_added = 0
     with transaction.atomic():
         for p in profiles:
             users = index.get(p.scopus_id, [])
@@ -432,7 +439,6 @@ def import_profiles(
                     "total_citations": p.total_citations,
                     "h_index": p.h_index,
                     "metrics": p.metrics,
-                    "documents": p.documents,
                     "source_sheet": p.sheet[:255],
                     "source_file": (source_file or "")[:255] or None,
                     "imported_at": now,
@@ -440,12 +446,18 @@ def import_profiles(
             )
             created += was_created
             updated += not was_created
+            if user is not None and p.documents:
+                record = record_rows(user, p.documents, record_index)
+                papers_matched += record["matched_existing"]
+                papers_added += record["created"]
 
         result = {
             "sheets": len(profiles),
             "created": created,
             "updated": updated,
             "linked": linked,
+            "papers_matched": papers_matched,
+            "papers_added": papers_added,
             "unmatched": unmatched,
             "ambiguous": ambiguous,
             "warnings": warnings,

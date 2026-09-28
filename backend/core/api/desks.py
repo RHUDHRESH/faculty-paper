@@ -23,7 +23,7 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 
-from core.api.common import api, logger, require_user, session_auth
+from core.api.common import _refuse_own_claim, api, logger, require_user, session_auth
 from core.api.deps import claim_to_dict
 from core.api.journals import _lift_hold, _notify_claimant, _require_own_desk
 from core.models import AuditLog, Claim, ClaimAction, User
@@ -62,6 +62,7 @@ def _locked_at_own_desk(user: User, claim_id: str) -> Claim:
             "or resume a paper.",
         )
     claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+    _refuse_own_claim(user, claim)
     desk = rbac.desk_for_status(claim.status)
     if desk is None:
         raise HttpError(

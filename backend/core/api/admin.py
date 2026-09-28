@@ -11,7 +11,7 @@ from core.api.common import api, session_auth
 from core.api.schemas import FormulaIn, ResetPasswordByEmailIn, ResetPasswordIn, UserCreateIn, UserUpdateIn
 from core.api.deps import _user_dict, claim_to_dict
 from core.api.common import require_user
-from core.api.auth import FIELD_LABELS, IDENTITY_FIELDS, clear_login_lockout
+from core.api.auth import FIELD_LABELS, IDENTITY_FIELDS, clear_login_lockout, may_set_field
 from core.api.claims import _CLAIM_SORTS
 from core.api.common import _invalidate_threshold_cache
 
@@ -27,7 +27,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
+from core.models import AuditLog, Claim, ClaimFlag, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
 from core import visibility
 from core.services import heads, rbac
 from core.services.normalize import normalize_doi, normalize_title
@@ -278,7 +278,7 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
     # the same mistake one desk over: the research cell processes the claims
     # these fields decide the outcome of, so it cannot also set them.
     if actor.role != Role.SUPER_ADMIN:
-        blocked = sorted(set(data) & IDENTITY_FIELDS)
+        blocked = sorted(f for f in set(data) & IDENTITY_FIELDS if not may_set_field(actor.role, f))
         if blocked:
             raise HttpError(
                 403,
@@ -399,6 +399,7 @@ def get_formula(request: HttpRequest):
             "max_authors": MAX_ELIGIBLE_AUTHORS,
             "min_sec_references": MIN_SEC_REFERENCES,
             "student_project_amount": DEFAULT_STUDENT_PROJECT_AMOUNT,
+            "filing_cutoff_day": None,
         }
     return {
         "id": cfg.id,
@@ -426,6 +427,7 @@ def get_formula(request: HttpRequest):
         "max_authors": cfg.max_authors,
         "min_sec_references": cfg.min_sec_references,
         "student_project_amount": cfg.student_project_amount,
+        "filing_cutoff_day": cfg.filing_cutoff_day,
         "notes": cfg.notes,
     }
 
@@ -509,6 +511,11 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
     ):
         if amount < 0:
             raise HttpError(400, f"{label} cannot be negative")
+    cutoff_given = "filing_cutoff_day" in payload.model_fields_set
+    if payload.filing_cutoff_day is not None and not 1 <= payload.filing_cutoff_day <= 28:
+        raise HttpError(
+            400, "The filing cutoff is a day of the month from 1 to 28, so every month has it"
+        )
 
     with transaction.atomic():
         prev = FormulaConfig.objects.filter(active=True).order_by("-version").first()
@@ -518,6 +525,9 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
             if payload.student_project_amount is not None
             else (prev.student_project_amount if prev else DEFAULT_STUDENT_PROJECT_AMOUNT)
         )
+        # A client that does not know about the cutoff (an older screen, a
+        # script) must not clear it by saving the rest of the policy.
+        cutoff = payload.filing_cutoff_day if cutoff_given else (prev.filing_cutoff_day if prev else None)
         FormulaConfig.objects.filter(active=True).update(active=False)
         cfg = FormulaConfig.objects.create(
             name=payload.name or f"Policy v{next_version}",
@@ -544,6 +554,7 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
             max_authors=payload.max_authors,
             min_sec_references=payload.min_sec_references,
             student_project_amount=student_project_amount,
+            filing_cutoff_day=cutoff,
             notes=payload.notes,
             updated_by=user,
             active=True,
@@ -576,6 +587,16 @@ def admin_audit(
     if not rbac.can_view_audit(user.role):
         raise HttpError(403, "Forbidden")
     qs = AuditLog.objects.select_related("actor").order_by("-created_at")
+    # The trail of the reader's own papers names every desk and person that
+    # handled them; on those they are the claimant, who is told neither. A
+    # flag's rows are filed under the flag, so they are left out by the flag.
+    qs = qs.exclude(
+        entity="Claim",
+        entity_id__in=Claim.objects.filter(owner=user).values_list("id", flat=True),
+    ).exclude(
+        entity="ClaimFlag",
+        entity_id__in=ClaimFlag.objects.filter(claim__owner=user).values_list("id", flat=True),
+    )
     if visibility.is_contest_blind(user.role):
         # Dropped from the query rather than from the page, so the total does
         # not count rows the reader is not shown.
@@ -611,6 +632,85 @@ def admin_audit(
     }
 
 
+@api.get("/admin/audit/origins", auth=session_auth)
+def admin_audit_origins(request: HttpRequest):
+    """Where the record came from: the imports and restores that built it.
+
+    The college's history arrived by import, and the ERP import wrote no
+    audit rows, so the log's first screen was a column of identical automatic
+    entries and nothing about the claims and payments behind them. These are
+    worked out from the rows themselves -- the payment-history batches, the
+    ERP tickets by sheet and day, accounts created in bulk -- plus any restore
+    or upload the log did record. Newest first. A reader who is not shown
+    flags (the Director, Finance) is not shown the check that raised them.
+    """
+    from django.db.models import Count, Min
+    from django.db.models.functions import TruncDate
+
+    user = require_user(request)
+    if not rbac.can_view_audit(user.role):
+        raise HttpError(403, "Forbidden")
+    events: list[dict] = []
+
+    def add(at, title, detail, by=None):
+        events.append({
+            "at": at.isoformat() if at else None,
+            "title": title,
+            "detail": detail,
+            "by": by,
+        })
+
+    for log in AuditLog.objects.select_related("actor").filter(
+        Q(action__icontains="RESTORE") | Q(action__icontains="IMPORT")
+    ).order_by("-created_at")[:20]:
+        add(log.created_at, log.action.replace("_", " ").capitalize(), "",
+            log.actor.name if log.actor else None)
+
+    for batch in PriorImport.objects.select_related("imported_by").order_by("-created_at")[:20]:
+        add(batch.created_at, "Payment history loaded",
+            f"{batch.row_count:,} payments from {batch.filename}",
+            batch.imported_by.name if batch.imported_by_id else None)
+
+    sheets: dict = {}
+    for row in (
+        Claim.objects.filter(ticket_number__startswith="ERP-")
+        .annotate(day=TruncDate("created_at"))
+        .values("day", "ticket_number")
+    ):
+        tag = row["ticket_number"].split("-")[1] if row["ticket_number"].count("-") >= 2 else ""
+        per_day = sheets.setdefault(row["day"], {})
+        per_day[tag] = per_day.get(tag, 0) + 1
+    firsts = dict(
+        Claim.objects.filter(ticket_number__startswith="ERP-")
+        .annotate(day=TruncDate("created_at")).values("day")
+        .annotate(first=Min("created_at")).values_list("day", "first")
+    )
+    names = {"PROCESSED": "the Processed sheet", "RAW": "Raw_Data (the Google Form's sheet)"}
+    for day, tags in sheets.items():
+        parts = [f"{n} from {names.get(t, t.title() + ' sheet')}" for t, n in sorted(tags.items())]
+        add(firsts.get(day), "Claims brought across from the ERP workbook", ", ".join(parts))
+
+    for row in (
+        User.objects.annotate(day=TruncDate("created_at")).values("day")
+        .annotate(n=Count("id"), faculty=Count("id", filter=Q(role=Role.FACULTY)), first=Min("created_at"))
+        .filter(n__gte=25)
+    ):
+        add(row["first"], "Accounts created from the roster",
+            f"{row['n']:,} accounts, {row['faculty']:,} of them faculty")
+
+    if not visibility.is_contest_blind(user.role):
+        for row in (
+            AuditLog.objects.filter(action="CLAIM_FLAG_RAISE", actor__isnull=True)
+            .annotate(day=TruncDate("created_at")).values("day")
+            .annotate(n=Count("id"), first=Min("created_at"))
+        ):
+            add(row["first"], "The import check raised flags",
+                f"{row['n']:,} flags on imported claims — listed below, and on the Flags page")
+
+    events.sort(key=lambda e: e["at"] or "", reverse=True)
+    return {"events": events}
+
+
 @api.get("/admin/payouts", auth=session_auth)
 def admin_payouts(
     request: HttpRequest,
@@ -622,9 +722,15 @@ def admin_payouts(
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
-    qs = Claim.objects.select_related(
-        "owner", "cleared_by", "second_approved_by", "principal_approved_by", "override_by"
-    ).prefetch_related("attachments")
+    qs = (
+        Claim.objects.select_related(
+            "owner", "cleared_by", "second_approved_by", "principal_approved_by", "override_by"
+        )
+        .prefetch_related("attachments")
+        # Finance's desk never carries the officer's own paper
+        # (`rbac.is_own_claim`); another officer, or the super admin, pays it.
+        .exclude(owner=user)
+    )
     if status == "PAID":
         qs = qs.filter(status=ClaimStatus.PAID)
         default_order = "-paid_at"
@@ -778,7 +884,13 @@ def admin_clearing_queue(request: HttpRequest, status: Optional[str] = None):
     user = require_user(request)
     if not rbac.can_clear_claims(user.role):
         raise HttpError(403, "Forbidden")
-    qs = Claim.objects.select_related("owner").prefetch_related("attachments")
+    qs = (
+        Claim.objects.select_related("owner")
+        .prefetch_related("attachments")
+        # Never the clearer's own paper: another officer at the desk, or the
+        # super admin, clears it (`rbac.is_own_claim`).
+        .exclude(owner=user)
+    )
     if status and status != "ALL":
         qs = qs.filter(status=status)
     else:

@@ -176,7 +176,8 @@ def _bio(row: dict) -> str:
     areas = [a for a in row.get("research_areas") or [] if a]
     if areas:
         parts.append("Areas of specialisation: " + ", ".join(areas[:8]) + ".")
-    return " ".join(parts).strip()
+    # The profile editor holds a bio to 600 characters; an imported one must fit it.
+    return " ".join(parts).strip()[:600]
 
 
 def _store(folder: str, content: bytes, ext: str) -> str:

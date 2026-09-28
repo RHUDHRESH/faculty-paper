@@ -39,6 +39,7 @@ import { Due, When } from "@/ui/when"
 import { Celebrations } from "@/ui/celebrations"
 import { ChoiceTile } from "@/ui/choice"
 import { HeroBand } from "@/ui/hero"
+import { HomeSearch } from "@/ui/big-search"
 import { RecordStrip, type StripMonth } from "@/ui/record-strip"
 
 /**
@@ -253,6 +254,8 @@ export function FacultyHome() {
         onRetry={() => void summary.refetch()}
       />
 
+      <HomeSearch />
+
       {empty && <FirstSteps />}
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -304,7 +307,7 @@ function HomeHero({
       variant="solid"
       area="record"
       title={`${greeting()}${name ? `, ${name}` : ""}`}
-      titleClassName="honour text-[2rem] leading-[1.15] sm:text-honour"
+      titleClassName="text-[2rem] leading-[1.15] sm:text-[2.5rem] sm:leading-[3rem]"
       sentence={
         failed ? (
           <span role="alert">
@@ -330,7 +333,7 @@ function HomeHero({
       actions={
         <Link
           to="/papers/new"
-          className="hidden h-10 items-center gap-2 rounded-md bg-area-honours-fill px-4 text-sm font-semibold text-[#1b1f33] shadow-raise hover:brightness-105 md:inline-flex"
+          className="hidden h-10 items-center gap-2 rounded-lg bg-accent px-4 text-sm font-medium text-accent-fg hover:bg-accent-hover md:inline-flex"
         >
           <FilePlusCorner aria-hidden className="size-5" strokeWidth={1.75} />
           File a paper

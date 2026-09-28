@@ -63,7 +63,7 @@ export function SignIn() {
   }
 
   const field = cn(
-    "h-11 w-full rounded-md bg-surface px-3 text-base",
+    "h-11 w-full rounded-lg bg-surface px-3 text-base",
     "ring-1 ring-inset ring-field outline-none",
     "focus-visible:ring-2 focus-visible:ring-accent"
   )
@@ -259,23 +259,21 @@ function StatsLine({ stats, className }: { stats: PublicStats; className?: strin
  */
 function BrandPanel({ collegeName, stats }: { collegeName: string; stats: PublicStats | null }) {
   return (
-    <aside className="relative flex flex-col overflow-hidden bg-brand px-5 pt-8 pb-6 text-brand-fg lg:justify-between lg:p-12">
-      <div aria-hidden className="ribbon absolute inset-x-0 top-0 h-[3px]" />
-      <Mark className="pointer-events-none absolute -right-20 -bottom-24 size-[26rem] opacity-5 grayscale" />
+    <aside className="relative flex flex-col overflow-hidden border-line bg-sunken px-5 pt-8 pb-6 text-fg lg:justify-between lg:border-r lg:p-12">
 
       <div className="relative flex items-center gap-3">
         <Mark className="size-9" />
         <div className="leading-tight">
-          <p className="font-semibold">Faculty Publications</p>
-          <p className="text-sm opacity-80">{collegeName}</p>
+          <p className="display text-lg">Faculty Publications</p>
+          <p className="text-sm text-fg-muted">{collegeName}</p>
         </div>
       </div>
 
       <div className="frame-rise relative mt-6 max-w-xl [animation-delay:50ms] lg:mt-0">
-        <p className="honour text-[2rem] leading-[1.1] [text-wrap:balance] lg:text-honour">
+        <p className="display text-[2rem] leading-[1.1] [text-wrap:balance] lg:text-honour">
           Your research, on the record.
         </p>
-        <p className="mt-3 hidden max-w-md text-base opacity-85 sm:block">
+        <p className="mt-3 hidden max-w-md text-base text-fg-muted sm:block">
           Every paper you have published, where each claim stands, and who you could write with next.
         </p>
         <img
@@ -287,10 +285,10 @@ function BrandPanel({ collegeName, stats }: { collegeName: string; stats: Public
           draggable={false}
           className="-mb-2 mt-4 h-auto w-full max-w-[200px] select-none lg:mt-10 lg:max-w-[480px]"
         />
-        {stats && <StatsLine stats={stats} className="mt-6 hidden text-area-honours-fill lg:block" />}
+        {stats && <StatsLine stats={stats} className="mt-6 hidden text-fg-muted lg:block" />}
       </div>
 
-      <p className="relative mt-6 hidden text-sm opacity-70 lg:block">
+      <p className="relative mt-6 hidden text-sm text-fg-subtle lg:block">
         Signing in never creates an account. Every account here was made by the
         research cell.{" "}
         <a href="/privacy" className="underline underline-offset-2">

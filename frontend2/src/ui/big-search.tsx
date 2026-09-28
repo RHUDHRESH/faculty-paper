@@ -1,5 +1,6 @@
 import { Search } from "lucide-react"
-import { forwardRef } from "react"
+import { forwardRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
 
@@ -106,3 +107,20 @@ export const BigSearch = forwardRef<
     </div>
   )
 })
+
+/** Home's centred composer-style search (Claude-like): type, press Enter, land on Search. */
+export function HomeSearch({ className }: { className?: string }) {
+  const [q, setQ] = useState("")
+  const nav = useNavigate()
+  return (
+    <div className={cn("mx-auto w-full max-w-2xl", className)}>
+      <BigSearch
+        value={q}
+        onChange={setQ}
+        hideScopes
+        label="Search the college's research"
+        onSubmit={(v) => nav(v.trim() ? `/search?q=${encodeURIComponent(v.trim())}` : "/search")}
+      />
+    </div>
+  )
+}

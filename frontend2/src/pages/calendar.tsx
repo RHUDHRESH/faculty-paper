@@ -145,11 +145,10 @@ export function Calendar() {
     <div className="page space-y-4">
       {/* Hero band, area = time. */}
       <section
-        className="relative overflow-hidden rounded-2xl border-t-[3px] border-[var(--area-time)] px-4 py-4 ring-1 ring-line sm:px-6"
-        style={{ background: "linear-gradient(135deg, var(--area-time-wash) 0%, var(--color-bg) 70%)" }}
+        className="relative pb-2"
       >
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-          <h1 className="text-xl font-semibold tracking-tight">Calendar</h1>
+          <h1 className="display text-[1.75rem] leading-9">Calendar</h1>
           <div className="flex items-center gap-1">
             <Button kind="quiet" size="icon" aria-label={view === "week" ? "Previous week" : "Previous month"} onClick={() => step(-1)}>
               <ChevronLeft />

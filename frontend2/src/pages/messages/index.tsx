@@ -133,7 +133,7 @@ function InboxPane({ onNew }: { onNew: () => void }) {
   return (
     <>
       <header className="flex items-center justify-between gap-2 px-4 pb-2 pt-1 md:pt-4">
-        <h1 className="text-xl font-semibold tracking-tight">Messages</h1>
+        <h1 className="display text-[1.75rem] leading-9">Messages</h1>
         <Button kind="primary" size="sm" onClick={onNew} className="hidden md:inline-flex">
           <PenLine />
           New

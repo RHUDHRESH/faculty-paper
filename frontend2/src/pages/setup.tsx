@@ -59,7 +59,7 @@ export function Setup() {
       <Frame>
         <Card>
           <CheckCircle2 className="size-10 text-ok" />
-          <h1 className="mt-4 text-xl font-semibold">Already set up</h1>
+          <h1 className="display mt-4 text-[1.75rem] leading-9">Already set up</h1>
           <p className="mt-2 text-base text-fg-muted">
             This system has accounts in it, so setup is finished. Sign in as one
             of them — the college's name can be changed afterwards under
@@ -78,7 +78,7 @@ export function Setup() {
       <Frame>
         <Card>
           <CheckCircle2 className="size-10 text-ok" />
-          <h1 className="mt-4 text-xl font-semibold">{collegeName.trim()} is set up</h1>
+          <h1 className="display mt-4 text-[1.75rem] leading-9">{collegeName.trim()} is set up</h1>
           <p className="mt-2 text-base text-fg-muted">
             The administrator account <strong>{adminEmail.trim()}</strong> is
             ready. Sign in with the password you just chose — everything else
@@ -129,7 +129,7 @@ export function Setup() {
   return (
     <Frame>
       <Card>
-        <h1 className="text-xl font-semibold">Set up your college</h1>
+        <h1 className="display text-[1.75rem] leading-9">Set up your college</h1>
         <ol className="mt-2 flex gap-1.5" aria-label="Progress">
           {[0, 1, 2].map((i) => (
             <li

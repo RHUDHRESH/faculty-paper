@@ -57,9 +57,46 @@ def _metrics(user: User) -> dict:
     }
 
 
+def _claim_authors(claim) -> list[dict]:
+    try:
+        rows = json.loads(getattr(claim, "authors_json", None) or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def claim_facts(claim) -> dict:
+    """What a filed claim says about the paper, for a record that lacks it:
+    document type, Scopus indexing, the owner's author order, corresponding."""
+    from core.services.remuneration import is_scopus_indexed
+    if claim is None:
+        return {}
+    position = claim.author_position if (claim.author_position or 0) >= 1 else None
+    corresponding = None
+    rows = _claim_authors(claim)
+    if position and rows:
+        row = next((r for r in rows if r.get("position") == position), None)
+        if row is not None and "corresponding" in row:
+            corresponding = bool(row.get("corresponding"))
+    return {
+        "type": (claim.publication_type or "").split(",")[0].strip() or None,
+        "scopus_indexed": is_scopus_indexed(claim.indexing_level) or bool(claim.eid),
+        "author_position": position,
+        "total_authors": claim.total_authors if (claim.total_authors or 0) >= 1 else None,
+        "corresponding": corresponding,
+    }
+
+
 def _pub_dict(p: Publication, user: User) -> dict:
     authors = sorted(p.authorships.all(), key=lambda a: (a.position is None, a.position or 0))
     mine = next((a for a in authors if a.user_id == user.id), None)
+    own_claims = [c for c in p.claims.all() if c.owner_id == user.id]
+    facts = claim_facts(own_claims[0]) if own_claims else {}
+    counted = sum(1 for a in authors if a.position is not None)
+    position = mine.position if mine and mine.position else facts.get("author_position")
+    corresponding = (True if mine and mine.is_corresponding
+                     else facts.get("corresponding") if facts.get("corresponding") is not None
+                     else (False if any(a.is_corresponding for a in authors) else None))
     return {
         "id": p.id,
         "title": p.title,
@@ -67,7 +104,7 @@ def _pub_dict(p: Publication, user: User) -> dict:
         "date": p.date.isoformat() if p.date else None,
         "venue": p.venue,
         "issn": p.issn,
-        "type": p.type,
+        "type": p.type or facts.get("type") or "",
         "quartile": p.quartile or None,
         "doi": p.doi,
         "eid": p.eid,
@@ -77,9 +114,10 @@ def _pub_dict(p: Publication, user: User) -> dict:
         "oa_url": p.oa_url or None,
         "topics": json.loads(p.topics_json or "[]"),
         "source": p.source,
-        "scopus_indexed": bool(getattr(p, "scopus_indexed", False)),
-        "author_position": mine.position if mine else None,
-        "total_authors": sum(1 for a in authors if a.position is not None) or len(authors),
+        "scopus_indexed": bool(getattr(p, "scopus_indexed", False)) or bool(facts.get("scopus_indexed")),
+        "author_position": position,
+        "total_authors": counted or facts.get("total_authors") or len(authors),
+        "corresponding_author": corresponding,
         "match_confidence": mine.match_confidence if mine else None,
         "authors": [
             {
@@ -91,10 +129,11 @@ def _pub_dict(p: Publication, user: User) -> dict:
                 "institution": a.institution_name or None,
                 "country": a.institution_country or None,
                 "orcid": a.orcid or None,
+                "corresponding": bool(a.is_corresponding),
             }
             for a in authors
         ],
-        "claim_ids": [c.id for c in p.claims.all() if c.owner_id == user.id],
+        "claim_ids": [c.id for c in own_claims],
     }
 
 
@@ -127,9 +166,10 @@ def _claims_only(user: User, *, year=None, year_from=None, year_to=None, type=No
     `person_record` count Home and the Impact card use -- as record entries."""
     from core.services.person_record import papers_for
     out = []
-    for p in papers_for(user):
-        if p.source != "claims":
-            continue
+    papers = [p for p in papers_for(user) if p.source == "claims"]
+    claims = Claim.objects.in_bulk([p.claim_id for p in papers if p.claim_id])
+    for p in papers:
+        facts = claim_facts(claims.get(p.claim_id)) if p.claim_id else {}
         if (year and p.year != year) or (year_from and (p.year or 0) < year_from) \
                 or (year_to and (p.year or 9999) > year_to) or type \
                 or (quartile and (p.quartile or "").lower() != quartile.lower()) \
@@ -137,10 +177,13 @@ def _claims_only(user: User, *, year=None, year_from=None, year_to=None, type=No
             continue
         out.append({
             "id": f"claim-{len(out) + 1}", "title": p.title, "year": p.year, "date": p.on.isoformat() if p.on else None,
-            "venue": p.venue or None, "issn": None, "type": None, "quartile": p.quartile, "doi": None,
-            "eid": None, "openalex_id": None, "citations": p.citations, "citations_refreshed_at": None,
-            "oa_url": None, "topics": [], "source": "claim", "author_position": p.position,
-            "total_authors": 0, "match_confidence": None, "authors": [], "claim_ids": [],
+            "venue": p.venue or None, "issn": None, "type": facts.get("type"), "quartile": p.quartile,
+            "doi": p.doi, "eid": None, "openalex_id": None, "citations": p.citations, "citations_refreshed_at": None,
+            "oa_url": None, "topics": [], "source": "claim",
+            "scopus_indexed": bool(facts.get("scopus_indexed")),
+            "author_position": p.position or facts.get("author_position"),
+            "total_authors": facts.get("total_authors") or 0, "corresponding_author": facts.get("corresponding"),
+            "match_confidence": None, "authors": [], "claim_ids": [p.claim_id] if p.claim_id else [],
         })
     return out
 
@@ -257,6 +300,26 @@ def unclaimed_count(user: User) -> int:
                if (s := claim_state(p, index, ledger))["claim"] is None and s["eligible"])
 
 
+def _fill_from_claim(p: dict, claim) -> None:
+    """A paper matched to my claim by DOI, EID or title takes what the record
+    lacks (type, Scopus indexing, author order, corresponding) from the claim."""
+    facts = claim_facts(claim)
+    if not facts:
+        return
+    if not p.get("type") and facts["type"]:
+        p["type"] = facts["type"]
+    if facts["scopus_indexed"]:
+        p["scopus_indexed"] = True
+    if not p.get("author_position") and facts["author_position"]:
+        p["author_position"] = facts["author_position"]
+        if facts["total_authors"]:
+            p["total_authors"] = max(facts["total_authors"], facts["author_position"])
+    elif not p.get("total_authors") and facts["total_authors"]:
+        p["total_authors"] = facts["total_authors"]
+    if p.get("corresponding_author") is None and facts["corresponding"] is not None:
+        p["corresponding_author"] = facts["corresponding"]
+
+
 @api.get("/me/publications", auth=session_auth)
 def my_publications(request: HttpRequest, year: Optional[int] = None, year_from: Optional[int] = None,
                     year_to: Optional[int] = None, type: Optional[str] = None, quartile: Optional[str] = None,
@@ -271,6 +334,7 @@ def my_publications(request: HttpRequest, year: Optional[int] = None, year_from:
     index, ledger = _ClaimIndex(user), _LedgerIndex(user)
     for p in out["publications"]:
         p.update(claim_state(p, index, ledger))
+        _fill_from_claim(p, index.find(p))
         if p["source"] == "claim":
             # Known only from a recognised claim or the paid ledger: filed, never "unclaimed".
             p["eligible"], p["ineligible_reason"] = True, None

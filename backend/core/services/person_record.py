@@ -43,6 +43,9 @@ class Paper:
     #: "record" (a Publication) or "claims" (a claim/ledger row only).
     source: str
     publication_id: Optional[str] = None
+    #: The claim behind a claims-only paper, and its DOI.
+    claim_id: Optional[str] = None
+    doi: Optional[str] = None
 
     @property
     def points(self) -> int:
@@ -112,6 +115,7 @@ def papers_of(users: Iterable[User]) -> dict[str, list[Paper]]:
             out.setdefault(uid, []).append(Paper(
                 title=r.title, venue=clean_venue(r.journal), quartile=r.quartile, year=r.year, on=r.filed_on,
                 position=r.author_position, citations=r.citations, source="claims",
+                claim_id=r.claim_id, doi=r.doi,
             ))
             if r.key:
                 titles[uid].add(r.key[:512])

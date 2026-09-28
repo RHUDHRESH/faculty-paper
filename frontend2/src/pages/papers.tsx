@@ -62,6 +62,8 @@ export type RecordPaper = {
   citations: number | null
   source: string | null
   scopus_indexed?: boolean
+  /** True or false only when a source (OpenAlex, the claim) says; null when unknown. */
+  corresponding_author?: boolean | null
   author_position: number | null
   total_authors: number
   match_confidence: number | null

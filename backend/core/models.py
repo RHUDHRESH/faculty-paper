@@ -2717,6 +2717,8 @@ class Authorship(models.Model):
     author_key = models.CharField(max_length=160, db_index=True)
     #: The raw affiliation names the college, or a college record put them here.
     is_college = models.BooleanField(default=False, db_index=True)
+    #: OpenAlex's `is_corresponding` flag (or the claim's author list); false when no source says so.
+    is_corresponding = models.BooleanField(default=False)
     user = models.ForeignKey(
         "User", null=True, blank=True, on_delete=models.SET_NULL, related_name="authorships"
     )

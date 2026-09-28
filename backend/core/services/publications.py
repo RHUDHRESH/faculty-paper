@@ -187,6 +187,7 @@ def _authorship_rows(work: dict) -> list[dict]:
             "institution_country": (inst.get("country_code") or (a.get("countries") or [""])[0] or "")[:8],
             "author_key": _author_key(oa_author, name),
             "is_college": college,
+            "is_corresponding": bool(a.get("is_corresponding")),
         })
     return rows
 

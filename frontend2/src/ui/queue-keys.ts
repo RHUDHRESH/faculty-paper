@@ -21,3 +21,27 @@ export function useSlashToSearch(search: RefObject<HTMLInputElement | null>) {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [search])
 }
+
+/**
+ * Single-letter keys for working down a queue (j/k to move, a letter to act).
+ * Ignored while typing, with a modifier held, or while a dialog is open, so a
+ * letter in a note is only ever a letter. Pass a stable (memoised) map.
+ */
+export function useQueueKeys(handlers: Record<string, () => void>, enabled = true) {
+  useEffect(() => {
+    if (!enabled) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return
+      if (document.querySelector('[role="dialog"]')) return
+      const run = handlers[e.key]
+      if (!run) return
+      e.preventDefault()
+      run()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [handlers, enabled])
+}

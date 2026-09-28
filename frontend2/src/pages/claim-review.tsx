@@ -205,14 +205,28 @@ export function FlagRow({
   flag,
   onResolve,
   claimLink,
+  selected,
+  onSelect,
 }: {
   flag: ClaimFlag
   onResolve?: () => void
+  /** In a keyboard-worked queue: this is the row j/k landed on. */
+  selected?: boolean
+  onSelect?: () => void
   /** The claim it is on, when the list is not already one claim's. */
   claimLink?: React.ReactNode
 }) {
   return (
-    <li className="space-y-2 py-3">
+    <li
+      className={cn(
+        "space-y-2 py-3",
+        onSelect && "-mx-2 rounded-md px-2",
+        selected && "bg-sunken/60",
+        onSelect && !flag.open && "text-fg-muted"
+      )}
+      aria-current={selected || undefined}
+      onClick={onSelect}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1 space-y-1">
           <p className="flex flex-wrap items-center gap-2">

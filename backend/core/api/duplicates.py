@@ -60,11 +60,16 @@ def list_duplicate_findings(
     if kind:
         qs = qs.filter(kind=kind)
     if status:
-        qs = qs.filter(status=status)
+        # "CONFIRMED,DISMISSED,RECOVERED" is the history: everything decided.
+        qs = qs.filter(status__in=[x for x in status.split(",") if x])
 
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
     total = qs.count()
+
+    page = list(qs[offset : offset + limit])
+    rows_of = {f.id: json.loads(f.rows_json or "[]") for f in page}
+    _add_faces(page, rows_of)
 
     everything = DuplicateFinding.objects.filter(kind=kind or "SAME_PERSON")
     return {
@@ -82,13 +87,14 @@ def list_duplicate_findings(
                 "payment_count": f.payment_count,
                 "total_amount": f.total_amount,
                 "extra_amount": f.extra_amount,
-                "rows": json.loads(f.rows_json or "[]"),
+                "rows": rows_of[f.id],
+                "faculty_photo_url": getattr(f, "_photo_url", None),
                 "note": f.note,
                 "recovered_amount": f.recovered_amount,
                 "reviewed_by_name": f.reviewed_by.name if f.reviewed_by_id else None,
                 "reviewed_at": f.reviewed_at.isoformat() if f.reviewed_at else None,
             }
-            for f in qs[offset : offset + limit]
+            for f in page
         ],
         "summary": {
             "open": everything.filter(status=DuplicateFinding.Status.OPEN).count(),
@@ -110,6 +116,41 @@ def list_duplicate_findings(
             ),
         },
     }
+
+
+def _add_faces(findings, rows_of) -> None:
+    """A photo for each payment's person: the claimant's account for a claim,
+    and an exact name match for an imported ERP row (which has no account)."""
+    from django.conf import settings
+    from core.models import User
+
+    ids, names = set(), set()
+    for f in findings:
+        names.add((f.faculty_name or "").strip().lower())
+        for r in rows_of[f.id]:
+            if r.get("source") == "claim" and r.get("person_key"):
+                ids.add(r["person_key"])
+            names.add((r.get("person") or "").strip().lower())
+    names.discard("")
+    by_id, by_name = {}, {}
+    for uid, name, photo in User.objects.filter(id__in=ids).values_list("id", "name", "photo"):
+        by_id[uid] = photo
+    if names:
+        from django.db.models.functions import Lower
+        for name, photo in (User.objects.annotate(n=Lower("name")).filter(n__in=names)
+                            .exclude(photo="").exclude(photo__isnull=True)
+                            .values_list("n", "photo")):
+            by_name.setdefault(name, photo)
+
+    def url(p):
+        return f"{settings.MEDIA_URL}{p}" if p else None
+
+    for f in findings:
+        for r in rows_of[f.id]:
+            photo = by_id.get(r.get("person_key")) if r.get("source") == "claim" else None
+            r["photo_url"] = url(photo or by_name.get((r.get("person") or "").strip().lower()))
+        f._photo_url = url(by_name.get((f.faculty_name or "").strip().lower())) or next(
+            (r["photo_url"] for r in rows_of[f.id] if r["photo_url"]), None)
 
 
 @api.post("/admin/duplicate-findings/{finding_id}", auth=session_auth)

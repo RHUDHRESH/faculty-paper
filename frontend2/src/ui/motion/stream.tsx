@@ -96,7 +96,8 @@ export function useStickToBottom<T extends HTMLElement>(dep: unknown, slack = 48
     }
     el.addEventListener("scroll", onScroll, { passive: true })
     return () => el.removeEventListener("scroll", onScroll)
-  }, [slack])
+    // `dep` too: the container may only mount once data has loaded.
+  }, [slack, dep])
   useLayoutEffect(() => {
     const el = ref.current
     if (el && pinned.current) el.scrollTop = el.scrollHeight

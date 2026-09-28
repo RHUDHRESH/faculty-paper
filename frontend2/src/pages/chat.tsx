@@ -25,6 +25,23 @@ import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Tooltip, TooltipProvider } from "@/ui/tooltip"
 import { Ago } from "@/ui/when"
+import { StreamingText, ThinkingIndicator, useStickToBottom, useTypewriter } from "@/ui/motion/stream"
+
+/** An assistant reply arrived in the last 20s: reveal it as if streamed, once. */
+function isFresh(iso: string) {
+  return Date.now() - new Date(iso).getTime() < 20_000
+}
+
+/** The last message is mine, asks @agent, is recent, and nothing has answered yet. */
+function awaitingAgent(messages: { kind: string; mine?: boolean; body: string; created_at: string }[]) {
+  const last = messages[messages.length - 1]
+  return !!last && last.mine && last.kind === "HUMAN" && /@agent\b/i.test(last.body) && Date.now() - new Date(last.created_at).getTime() < 120_000
+}
+
+function AgentReveal({ body }: { body: string }) {
+  const typed = useTypewriter(body)
+  return typed.length < body.length ? <StreamingText text={typed} /> : <>{linkify(body)}</>
+}
 
 /**
  * Direct messages: one-to-one and small-group chats.
@@ -296,9 +313,8 @@ export function ChatPage() {
   })
 
   const count = convo.data?.messages.length ?? 0
-  useEffect(() => {
-    if (count) bottom.current?.scrollIntoView({ block: "end" })
-  }, [count])
+  // Follows new messages unless the reader has scrolled up to read history.
+  const scroller = useStickToBottom<HTMLDivElement>(count)
 
   useEffect(() => {
     if (text) box.current?.focus()
@@ -450,7 +466,7 @@ export function ChatPage() {
         {privacy}
       </p>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {c.context && <ContextCard context={c.context} className="mx-auto mb-4 max-w-lg" />}
         <ol className="space-y-2" aria-label="Messages" aria-live="polite">
           {c.messages.length === 0 && (
@@ -461,6 +477,11 @@ export function ChatPage() {
           {[...c.messages, ...unsent].map((m) => (
             <MessageRow key={m.id} m={m} group={c.is_group} conversationId={c.id} onRetry={retry} />
           ))}
+          {awaitingAgent(c.messages) && (
+            <li className="flex justify-start pl-10">
+              <ThinkingIndicator label="The assistant is thinking" />
+            </li>
+          )}
         </ol>
         {lastMine && (
           <Meta className="mt-1 block text-right text-xs" aria-live="polite">
@@ -628,7 +649,13 @@ function MessageRow({
               m.failed && "bg-sunken text-fg ring-1 ring-inset ring-critical"
             )}
           >
-            {m.deleted ? <span className="italic opacity-75">This message was removed.</span> : linkify(m.body)}
+            {m.deleted ? (
+              <span className="italic opacity-75">This message was removed.</span>
+            ) : m.kind === "AGENT" && isFresh(m.created_at) ? (
+              <AgentReveal body={m.body} />
+            ) : (
+              linkify(m.body)
+            )}
           </div>
         )}
         {m.collab && <CollabCard collab={m.collab} conversationId={conversationId} />}

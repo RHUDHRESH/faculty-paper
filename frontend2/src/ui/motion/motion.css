@@ -1,9 +1,9 @@
 /* Motion-only CSS (no colours, no typography). Imported once from main.tsx. See docs/ux/16-motion.md. */
 @keyframes stream-word-in { from { opacity: 0; filter: blur(2px) } to { opacity: 1; filter: none } }
-.stream-word { animation: stream-word-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.stream-word { animation: stream-word-in 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
 
 @keyframes stagger-in { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: none } }
-.stagger-in { animation: stagger-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.stagger-in { animation: stagger-in 200ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
 
 @keyframes thinking-dot { 0%, 80%, 100% { opacity: .25; transform: scale(.8) } 40% { opacity: 1; transform: scale(1) } }
 .thinking-dots { display: inline-flex; gap: 3px }
@@ -29,4 +29,39 @@ button:not(:disabled):active { transform: scale(0.98); }
   .stream-word, .stagger-in, .thinking-dots i, .thinking-shimmer { animation: none !important; }
   .thinking-shimmer { -webkit-text-fill-color: currentColor; background: none; }
   button:active, .hover-lift:hover { transform: none !important; }
+}
+
+/* ---------------------------------------------------------------------------
+ * App-wide, zero-wiring motion. Scoped to the page area (`main`) so menus,
+ * the sidebar and portalled surfaces are untouched. CSS animations run only
+ * when an element is inserted, never on re-render, so polling does not replay
+ * them; a row that genuinely arrives fades in, which is the point.
+ * ------------------------------------------------------------------------- */
+
+/* Lists and card grids: the first 8 items stagger in; the rest appear at once. */
+main :is(ul, ol) > li:nth-child(-n + 8),
+main [class*="grid-cols"] > :nth-child(-n + 8) {
+  animation: stagger-in 200ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+main :is(ul, ol) > li:nth-child(2), main [class*="grid-cols"] > :nth-child(2) { animation-delay: 25ms }
+main :is(ul, ol) > li:nth-child(3), main [class*="grid-cols"] > :nth-child(3) { animation-delay: 50ms }
+main :is(ul, ol) > li:nth-child(4), main [class*="grid-cols"] > :nth-child(4) { animation-delay: 75ms }
+main :is(ul, ol) > li:nth-child(5), main [class*="grid-cols"] > :nth-child(5) { animation-delay: 100ms }
+main :is(ul, ol) > li:nth-child(6), main [class*="grid-cols"] > :nth-child(6) { animation-delay: 125ms }
+main :is(ul, ol) > li:nth-child(7), main [class*="grid-cols"] > :nth-child(7) { animation-delay: 150ms }
+main :is(ul, ol) > li:nth-child(8), main [class*="grid-cols"] > :nth-child(8) { animation-delay: 175ms }
+
+/* Table rows: opacity only (transform on <tr> is unreliable), first 12 rows. */
+@keyframes row-in { from { opacity: 0 } to { opacity: 1 } }
+main tbody > tr:nth-child(-n + 12) { animation: row-in 180ms ease-out backwards; }
+
+/* Link cards lift a hair on hover. */
+@media (hover: hover) {
+  main a.panel, main a.panel-lead { transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1); }
+  main a.panel:hover, main a.panel-lead:hover { transform: translateY(-2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  main :is(ul, ol) > li, main [class*="grid-cols"] > *, main tbody > tr { animation: none !important; }
+  main a.panel:hover, main a.panel-lead:hover { transform: none !important; }
 }

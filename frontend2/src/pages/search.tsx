@@ -1,9 +1,10 @@
-import { BookOpen, Building2, FilePlusCorner, RotateCw, UsersRound, X } from "lucide-react"
+import { BookOpen, Building2, FilePlusCorner, MessageCircle, RotateCw, UsersRound, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom"
 
 import { useAuth } from "@/app/auth"
 import {
+  ConnectionLine,
   DOI_PATTERN,
   GROUP_LABEL,
   ResultRow,
@@ -16,23 +17,23 @@ import {
   useSearchAll,
   type Row,
   type RowGroup,
-  type SearchItem,
 } from "@/app/search-engine"
-import { cn } from "@/lib/cn"
+import { RowLead, subtitleOf } from "@/app/search-row"
 import { useApi } from "@/lib/query"
 import { BigSearch, SEARCH_SCOPES, type SearchScope } from "@/ui/big-search"
 import { Chip } from "@/ui/chip"
 import { ChoiceTile } from "@/ui/choice"
-import { ConnectionPath, type Hop } from "@/ui/connection"
-import { JournalCard, PaperCard, PersonCard } from "@/ui/entity"
-import { initialsOf } from "@/ui/person"
+import { PersonCard } from "@/ui/entity"
+import { Avatar } from "@/ui/person"
+import { Picture } from "@/ui/picture"
 import { Skeleton } from "@/ui/state"
 
 /**
  * /search — "Find anything" (docs/ux/02-search.md). One big box over the
  * college's own data (/api/search/all), pages and actions, with the old
- * Colleagues directory as the People scope with no query. The query lives in
- * the URL (`?q=&scope=`), so Back restores it.
+ * Colleagues directory as the People scope with no query. Results arrive as
+ * you type; the rows are the same ones the Ctrl-K palette shows, only roomier.
+ * The query lives in the URL (`?q=&scope=`), so Back restores it.
  */
 
 const TRY = ["10.1109/ACCESS.2024.", "Kanagamalliga", "IEEE Access", "federated learning"]
@@ -85,17 +86,33 @@ export function Search() {
   const searching = term.length >= 2
   const directory = scope === "people" && !term
 
+  function scrollTo(n: number) {
+    document.getElementById(`search-row-${n}`)?.scrollIntoView({ block: "nearest" })
+  }
+  function pick(row: Row) {
+    pushRecent(term)
+    openRow(row, navigate)
+  }
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault()
-      setActive((i) => Math.min(i + 1, flat.length - 1))
+      const n = Math.min(active + 1, flat.length - 1)
+      setActive(n)
+      scrollTo(n)
     } else if (e.key === "ArrowUp") {
       e.preventDefault()
-      setActive((i) => Math.max(i - 1, -1))
-    } else if (e.key === "Enter" && active >= 0 && flat[active]) {
+      const n = Math.max(active - 1, -1)
+      setActive(n)
+      scrollTo(n)
+    } else if (e.key === "Enter" && flat.length > 0 && searching) {
+      // Enter opens the highlighted row, or the best match when none is.
       e.preventDefault()
-      pushRecent(term)
-      openRow(flat[active], navigate)
+      pick(flat[Math.max(active, 0)])
+    } else if (e.key === "Escape" && q) {
+      e.preventDefault()
+      e.stopPropagation()
+      setQ("")
+      setUrl({ q: "" })
     }
   }
 
@@ -125,7 +142,7 @@ export function Search() {
   return (
     <div className="page" onKeyDownCapture={(e) => e.target === inputRef.current && onKeyDown(e as React.KeyboardEvent<HTMLInputElement>)}>
       {!searching && !directory ? (
-        <Idle box={box} onTry={(t) => setQ(t)} />
+        <Idle box={box} onTry={(t) => setQ(t)} meId={me?.id} department={me?.department ?? ""} />
       ) : (
         <>
           <h1 className="sr-only">Find anything</h1>
@@ -143,11 +160,9 @@ export function Search() {
               active={active}
               activeRow={activeRow}
               onActive={setActive}
-              onPick={(row) => {
-                pushRecent(term)
-                openRow(row, navigate)
-              }}
+              onPick={pick}
               onScope={(s) => setUrl({ scope: s })}
+              onTry={(t) => setQ(t)}
               meId={me?.id}
             />
           )}
@@ -159,23 +174,88 @@ export function Search() {
 
 /* ------------------------------------------------------------------ idle */
 
-function Idle({ box, onTry }: { box: React.ReactNode; onTry: (t: string) => void }) {
+type Card = { id: string; name: string; initials: string; photo_url: string | null; department: string | null; designation: string | null; papers: number }
+
+const pill = "h-8 rounded-full px-3 text-sm shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-hover focus-visible:ring-2 focus-visible:ring-(--color-accent) outline-none"
+
+function Idle({ box, onTry, meId, department }: { box: React.ReactNode; onTry: (t: string) => void; meId?: string; department: string }) {
   const [recent, setRecent] = useState(readRecent)
+  const suggested = useApi<{ total: number; results: Card[] }>(
+    ["people-suggested", department],
+    `/api/people?limit=7${department ? `&department=${encodeURIComponent(department)}` : ""}`
+  )
+  const people = (suggested.data?.results ?? []).filter((p) => p.id !== meId).slice(0, 6)
   return (
-    <div className="mx-auto max-w-4xl pt-[120px] max-sm:pt-10">
+    <div className="mx-auto max-w-4xl pt-[96px] max-sm:pt-8">
       <h1 className="mb-6 display text-center text-[2rem] leading-[2.5rem] text-fg">Find anything</h1>
       {box}
-      <p className="mt-3 text-sm text-fg-muted">Paste a DOI to check whether a paper exists and who has claimed it.</p>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <span className="text-sm text-fg-subtle">Try:</span>
-        {TRY.map((t) => (
-          <button key={t} type="button" onClick={() => onTry(t)} className="h-7 rounded-full bg-sunken px-3 text-sm text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-hover">
-            “{t}”
-          </button>
-        ))}
-      </div>
+      <p className="mt-3 text-sm text-fg-muted">Results appear as you type. Paste a DOI to see whether a paper is already in the record and who has claimed it.</p>
+
+      {recent.length > 0 ? (
+        <section aria-label="Recent searches" className="mt-8">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-medium text-fg">Recent searches</h2>
+            <button
+              type="button"
+              onClick={() => {
+                clearRecent()
+                setRecent([])
+              }}
+              className="rounded text-sm text-fg-muted outline-none hover:text-fg focus-visible:ring-2 focus-visible:ring-(--color-accent)"
+            >
+              Clear recent searches
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {recent.map((r) => (
+              <button key={r} type="button" onClick={() => onTry(r)} className={`${pill} bg-surface text-fg`}>
+                {r}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <div className="mt-6 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-fg-subtle">Try</span>
+          {TRY.map((t) => (
+            <button key={t} type="button" onClick={() => onTry(t)} className={`${pill} bg-sunken text-fg-muted`}>
+              “{t}”
+            </button>
+          ))}
+        </div>
+      )}
+
+      {people.length > 0 && (
+        <section aria-label="People you might look for" className="mt-10">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-medium text-fg">{department ? `People in ${department}` : "People at the college"}</h2>
+            <Link to="/search?scope=people" className="rounded text-sm text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--color-accent)">
+              Browse everyone
+            </Link>
+          </div>
+          <ul className="grid gap-x-6 sm:grid-cols-2">
+            {people.map((p) => (
+              <li key={p.id} className="border-b border-line last:border-0 sm:[&:nth-last-child(2):nth-child(odd)]:border-0">
+                <Link to={`/people/${p.id}`} className="flex items-center gap-4 rounded-xl px-2 py-3 outline-none hover:bg-hover/60 focus-visible:ring-2 focus-visible:ring-(--color-accent)">
+                  <Avatar person={p} size="lg" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-medium text-fg">{p.name}</span>
+                    <span className="block truncate text-sm text-fg-muted">{[p.designation, p.papers ? `${p.papers} papers` : null].filter(Boolean).join(" · ")}</span>
+                    {meId && (
+                      <span className="mt-1 flex">
+                        <ConnectionLine meId={meId} to={p.id} />
+                      </span>
+                    )}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section aria-label="Jump to" className="mt-10">
-        <h2 className="mb-3 text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">Jump to</h2>
+        <h2 className="mb-3 text-sm font-medium text-fg">Jump to</h2>
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <ChoiceTile to="/papers/new" area="record" icon={FilePlusCorner} title="File a paper" description="Claim a published paper." />
           <ChoiceTile to="/search?scope=people" area="people" icon={UsersRound} title="Browse people" description="Everyone at the college." />
@@ -183,30 +263,6 @@ function Idle({ box, onTry }: { box: React.ReactNode; onTry: (t: string) => void
           <ChoiceTile to="/search?scope=departments&q=eng" area="people" icon={Building2} title="Departments" description="Who works where." />
         </div>
       </section>
-      {recent.length > 0 && (
-        <section aria-label="Recent searches" className="mt-8">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">Recent searches</h2>
-            <button
-              type="button"
-              onClick={() => {
-                clearRecent()
-                setRecent([])
-              }}
-              className="text-sm text-fg-muted hover:text-fg"
-            >
-              Clear
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {recent.map((r) => (
-              <button key={r} type="button" onClick={() => onTry(r)} className="h-8 rounded-full bg-surface px-3 text-sm text-fg shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-hover">
-                {r}
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   )
 }
@@ -225,6 +281,7 @@ function Results({
   onActive,
   onPick,
   onScope,
+  onTry,
   meId,
 }: {
   q: string
@@ -238,67 +295,93 @@ function Results({
   onActive: (i: number) => void
   onPick: (row: Row) => void
   onScope: (s: SearchScope) => void
+  onTry: (t: string) => void
   meId?: string
 }) {
   const total = groups.reduce((n, g) => n + (g.kind === "exact" ? 0 : g.total), 0)
   if (loading)
     return (
       <div className="mt-6 space-y-3" aria-busy="true">
-        {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-20 w-full rounded-xl" />
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-4 px-3 py-3">
+            <Skeleton className="size-16 rounded-full" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-3 w-1/3" />
+            </div>
+          </div>
         ))}
       </div>
     )
   if (failed && groups.length === 0)
     return (
       <div role="alert" className="mt-6 flex items-center gap-3 rounded-xl bg-caution-wash px-4 py-3 text-sm text-caution">
-        Search did not answer — nothing was lost.
+        Search did not answer. Nothing was lost.
         <button type="button" onClick={onRetry} className="inline-flex items-center gap-1 font-medium underline">
           <RotateCw aria-hidden className="size-4" /> Retry
         </button>
       </div>
     )
-  if (groups.length === 0) return <NoResults q={q} onScope={onScope} />
+  if (groups.length === 0) return <NoResults q={q} scope={scope} onScope={onScope} onTry={onTry} />
 
   let i = -1
   return (
-    <div className="mt-4 grid gap-6 lg:grid-cols-12">
+    <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-12">
       <div id="search-results" role="listbox" aria-label={`${total} results`} className="min-w-0 space-y-8 lg:col-span-8">
-        <p className="text-sm text-fg-muted">
-          {total} {total === 1 ? "result" : "results"} for “{q}”
+        <p className="text-sm text-fg-muted" aria-live="polite">
+          {total} {total === 1 ? "result" : "results"} for “{q}” <span className="text-fg-subtle max-sm:hidden">· ↑↓ to move, Enter to open, Esc to clear</span>
         </p>
         {groups.map((g) => (
           <section key={g.kind} aria-label={GROUP_LABEL[g.kind]}>
-            <header className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">
-                {GROUP_LABEL[g.kind]} {g.kind !== "exact" && `(${g.total})`}
+            <header className="mb-1 flex items-baseline justify-between border-b border-line pb-2">
+              <h2 className="text-sm font-medium text-fg">
+                {GROUP_LABEL[g.kind]}
+                {g.kind !== "exact" && <span className="ml-1.5 font-normal text-fg-subtle">{g.total}</span>}
               </h2>
               {g.total > g.rows.length && scopeOf(g.kind) !== scope && (
-                <button type="button" onClick={() => onScope(scopeOf(g.kind))} className="text-sm text-accent hover:underline">
-                  See all →
+                <button type="button" onClick={() => onScope(scopeOf(g.kind))} className="rounded text-sm text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--color-accent)">
+                  See all {g.total} {GROUP_LABEL[g.kind].toLowerCase()}
                 </button>
               )}
             </header>
             {g.status === "error" && (
-              <Chip tone="caution" className="mb-2">
-                This part of search is slow right now — showing what answered. <button type="button" onClick={onRetry} className="ml-1 underline">Retry</button>
+              <Chip tone="caution" className="my-2">
+                This part of search is slow right now, so this shows what answered.{" "}
+                <button type="button" onClick={onRetry} className="ml-1 underline">
+                  Retry
+                </button>
               </Chip>
             )}
-            <div className={cn(g.kind === "person" || g.kind === "journal" ? "grid gap-3 sm:grid-cols-2" : "space-y-2")}>
+            <div className="space-y-0.5">
               {g.rows.map((row) => {
                 i += 1
                 const n = i
+                const m = row.item?.meta ?? {}
+                const messageTo = row.kind === "person" && !m.external && m.connect !== meId ? `/messages?to=${row.item!.id}` : null
                 return (
-                  <div
+                  <ResultRow
                     key={row.key}
+                    row={row}
                     id={`search-row-${n}`}
-                    role="option"
-                    aria-selected={n === active}
-                    onMouseEnter={() => onActive(n)}
-                    className={cn("rounded-xl", n === active && "ring-2 ring-(--color-accent) ring-offset-2 ring-offset-bg")}
-                  >
-                    <Entity row={row} meId={meId} onPick={() => onPick(row)} index={n} />
-                  </div>
+                    active={n === active}
+                    onHover={() => onActive(n)}
+                    onPick={() => onPick(row)}
+                    roomy
+                    meId={meId}
+                    trailing={
+                      messageTo ? (
+                        <Link
+                          to={messageTo}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Message ${row.title}`}
+                          className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)] outline-none hover:bg-surface hover:text-fg focus-visible:ring-2 focus-visible:ring-(--color-accent) max-sm:w-9 max-sm:justify-center max-sm:px-0"
+                        >
+                          <MessageCircle aria-hidden className="size-4" />
+                          <span className="max-sm:sr-only">Message</span>
+                        </Link>
+                      ) : undefined
+                    }
+                  />
                 )
               })}
             </div>
@@ -306,7 +389,7 @@ function Results({
         ))}
       </div>
       <aside aria-label="Preview" className="max-lg:hidden lg:col-span-4">
-        <div className="sticky top-28">{activeRow && <Preview row={activeRow} meId={meId} />}</div>
+        <div className="sticky top-28">{activeRow && <Preview row={activeRow} meId={meId} onOpen={() => onPick(activeRow)} />}</div>
       </aside>
     </div>
   )
@@ -316,138 +399,96 @@ function scopeOf(kind: string): SearchScope {
   return ({ person: "people", paper: "papers", claim: "papers", journal: "journals", topic: "topics", department: "departments", page: "pages", action: "pages" } as Record<string, SearchScope>)[kind] ?? "all"
 }
 
-function Entity({ row, meId, onPick, index }: { row: Row; meId?: string; onPick: () => void; index: number }) {
+function Preview({ row, meId, onOpen }: { row: Row; meId?: string; onOpen: () => void }) {
   const it = row.item
   const m = it?.meta ?? {}
-  if (row.kind === "person" && it) {
-    const ext = !!m.external
-    return (
-      <PersonCard
-        person={{ name: it.title, initials: initialsOf(it.title), photo_url: ext ? null : ((m.photo_url as string | null | undefined) ?? null), department: ext ? null : m.department, designation: ext ? null : m.designation }}
-        to={it.url || undefined}
-        affiliation={ext ? it.chips[0] ?? "External" : "Saveetha"}
-        context={personContext(it)}
-        messageTo={ext ? undefined : `/messages?to=${it.id}`}
-        path={meId && index < 8 ? <PersonConnection meId={meId} to={m.connect} /> : undefined}
-      />
-    )
-  }
-  if (row.kind === "paper" && it) {
-    const authors = (m.authors ?? []).map((a: { name: string; you: boolean }) => ({ name: a.name, you: a.you }))
-    return (
-      <PaperCard
-        title={it.title}
-        to={it.url && !/^https?:/.test(it.url) ? it.url : undefined}
-        journal={m.venue}
-        year={m.year}
-        quartile={m.quartile}
-        authors={authors}
-        sources={[...(m.mine ? ["Yours"] : []), m.claimed ? "Claimed" : null, m.citations ? `${m.citations} citations` : null].filter(Boolean) as string[]}
-        claim={m.mine && !m.claimed ? { unclaimed: true, fileTo: "/papers/new?method=scopus" } : undefined}
-      />
-    )
-  }
-  if (row.kind === "journal" && it) {
-    return <JournalCard name={it.title} to={it.url} quartile={m.quartile} snip={m.snip} colleagues={m.colleagues} subjects={m.subject ? [m.subject] : []} />
-  }
+  const isPerson = row.kind === "person"
+  const authors = (row.kind === "paper" ? (m.authors ?? []) : []) as { name: string; you: boolean; photo_url?: string | null; initials?: string }[]
+  const college = (m.college_coauthors ?? []) as { name: string; papers_together: number }[]
+  const openLabel = row.run ? row.title : isPerson ? (m.external ? null : "Open profile") : row.kind === "paper" ? (row.url && /^https?:/.test(row.url) ? "Open at publisher" : "Open paper") : "Open"
   return (
-    <div className="panel p-1">
-      <ResultRow row={row} id={`search-inner-${row.key}`} active={false} onPick={onPick} />
-    </div>
-  )
-}
-
-function personContext(it: SearchItem) {
-  const m = it.meta ?? {}
-  if (m.external) {
-    const with_ = (m.college_coauthors ?? []) as { name: string; papers_together: number }[]
-    return with_.length
-      ? `${m.papers} papers · wrote with ${with_.map((c) => c.name).slice(0, 2).join(", ")}`
-      : `${m.papers} papers`
-  }
-  return m.papers ? `${m.papers} papers` : undefined
-}
-
-type ConnectionBody = {
-  hops: number | null
-  paths: { people: { key: string; user_id: string | null; name: string; via: { id: string }[] }[] }[]
-}
-
-/** "You → X → Y" from /api/people/{me}/connection, or "Not connected yet". */
-function PersonConnection({ meId, to }: { meId: string; to: string }) {
-  const self = to === meId
-  const { data, isLoading } = useApi<ConnectionBody>(["connection", meId, to], `/api/people/${meId}/connection?to=${encodeURIComponent(to)}`, {
-    enabled: !!to && !self,
-    retry: false,
-    staleTime: 5 * 60_000,
-  })
-  if (self || !to) return null
-  if (isLoading) return <Skeleton className="h-8 w-48" />
-  if (!data || !data.paths.length || data.hops == null || data.hops > 2)
-    return <p className="text-sm text-fg-subtle">Not connected yet</p>
-  const paths: Hop[][] = data.paths.slice(0, 2).map((p) =>
-    p.people.map((h) => ({
-      person: { id: h.user_id ?? undefined, name: h.name, initials: initialsOf(h.name), photo_url: null },
-      evidence: h.via?.length ? `${h.via.length} ${h.via.length === 1 ? "paper" : "papers"}` : undefined,
-    }))
-  )
-  return <ConnectionPath paths={paths} />
-}
-
-function Preview({ row, meId }: { row: Row; meId?: string }) {
-  const it = row.item
-  const m = it?.meta ?? {}
-  return (
-    <div className="panel space-y-3 p-5">
-      <p className="text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">{GROUP_LABEL[row.kind]}</p>
-      <h3 className="text-lg font-semibold text-fg">{row.title}</h3>
-      {row.subtitle && <p className="text-sm text-fg-muted">{row.subtitle}</p>}
-      {row.chips.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {row.chips.map((c) => (
-            <Chip key={c}>{c}</Chip>
-          ))}
+    <div className="rounded-2xl bg-surface p-6 shadow-[inset_0_0_0_1px_var(--color-line)]">
+      <div className="flex flex-col items-start gap-4">
+        <RowLead row={row} roomy />
+        <div className="min-w-0">
+          <p className="text-xs text-fg-subtle">{GROUP_LABEL[row.kind].replace(/s$/, "")}</p>
+          <h3 className="mt-0.5 text-lg leading-snug font-semibold text-fg">{row.title}</h3>
+          {subtitleOf(row) && <p className="mt-1 text-sm text-fg-muted">{subtitleOf(row)}</p>}
+        </div>
+      </div>
+      {isPerson && meId && m.connect && !m.external && (
+        <div className="mt-4 border-t border-line pt-3">
+          <ConnectionLine meId={meId} to={m.connect} />
         </div>
       )}
-      {row.kind === "person" && meId && m.connect && <PersonConnection meId={meId} to={m.connect} />}
-      {row.kind === "person" && m.external && (m.college_coauthors ?? []).length > 0 && (
-        <p className="text-sm text-fg-muted">
-          {(m.college_coauthors as { name: string; papers_together: number }[])
-            .map((c) => `${c.papers_together} ${c.papers_together === 1 ? "paper" : "papers"} with ${c.name}`)
-            .join("; ")}
+      {isPerson && m.external && (
+        <p className="mt-4 border-t border-line pt-3 text-sm text-fg-muted">
+          {college.length
+            ? college.map((c) => `${c.papers_together} ${c.papers_together === 1 ? "paper" : "papers"} with ${c.name}`).join("; ")
+            : "Outside the college. Not yet a co-author of anyone here."}
         </p>
       )}
-      {row.kind === "paper" && m.doi && <p className="text-sm break-all text-fg-muted">DOI {m.doi}</p>}
+      {authors.length > 0 && (
+        <ul className="mt-4 space-y-1.5 border-t border-line pt-3">
+          {authors.slice(0, 4).map((a) => (
+            <li key={a.name} className="flex items-center gap-2 text-sm text-fg">
+              <Avatar person={{ name: a.name, initials: a.initials ?? a.name.slice(0, 2).toUpperCase(), photo_url: a.photo_url ?? null }} size="xs" />
+              <span className="truncate">{a.you ? `${a.name} (you)` : a.name}</span>
+            </li>
+          ))}
+          {authors.length > 4 && <li className="text-xs text-fg-subtle">and {authors.length - 4} more</li>}
+        </ul>
+      )}
+      {row.kind === "paper" && m.doi && <p className="mt-3 text-sm break-all text-fg-muted">DOI {m.doi}</p>}
+      {row.kind === "journal" && (m.snip || m.colleagues) && (
+        <p className="mt-3 text-sm text-fg-muted">{[m.snip ? `SNIP ${m.snip}` : null, m.colleagues ? `${m.colleagues} colleagues published here` : null].filter(Boolean).join(" · ")}</p>
+      )}
+      {openLabel && (row.url || row.run) && (
+        <button type="button" onClick={onOpen} className="mt-5 inline-flex h-9 items-center rounded-full bg-accent px-4 text-sm font-medium text-accent-fg outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-(--color-accent) focus-visible:ring-offset-2">
+          {openLabel}
+        </button>
+      )}
     </div>
   )
 }
 
-function NoResults({ q, onScope }: { q: string; onScope: (s: SearchScope) => void }) {
+/** Fixes worth trying: a shorter word, a wider scope, a DOI. */
+function NoResults({ q, scope, onScope, onTry }: { q: string; scope: SearchScope; onScope: (s: SearchScope) => void; onTry: (t: string) => void }) {
+  const words = q.split(/\s+/).filter((w) => w.length >= 3)
+  const longest = [...words].sort((a, b) => b.length - a.length)[0] ?? q
+  const shorter = longest.length > 4 ? longest.slice(0, Math.max(4, longest.length - 1)) : null
+  const fix = "rounded text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-(--color-accent)"
   return (
     <div className="mx-auto mt-10 flex max-w-md flex-col items-center text-center">
-      <div data-area="record" className="rounded-3xl bg-(--area-wash) p-4">
-        <img src="/illustrations/empty-search.svg" alt="" width={200} height={125} />
-      </div>
+      <Picture name="empty-no-results" className="h-40 w-64" />
       <h2 className="mt-5 text-lg font-semibold text-fg">Nothing called “{q}” here or in the literature.</h2>
-      <p className="mt-2 text-sm text-fg-muted">
-        Check the spelling, try a DOI, or search only{" "}
-        <button type="button" className="text-accent underline" onClick={() => onScope("people")}>
-          People
-        </button>{" "}
-        /{" "}
-        <button type="button" className="text-accent underline" onClick={() => onScope("papers")}>
-          Papers
-        </button>
-        .
-      </p>
-      {DOI_PATTERN.test(q) && <p className="mt-2 text-sm text-fg-muted">This DOI is not in the college's record yet.</p>}
+      <ul className="mt-3 space-y-1.5 text-sm text-fg-muted">
+        {shorter && (
+          <li>
+            Try a shorter spelling:{" "}
+            <button type="button" className={fix} onClick={() => onTry(shorter)}>
+              {shorter}
+            </button>
+          </li>
+        )}
+        {scope !== "all" && (
+          <li>
+            <button type="button" className={fix} onClick={() => onScope("all")}>
+              Search everything
+            </button>{" "}
+            instead of only {SEARCH_SCOPES.find((s) => s.id === scope)?.label.toLowerCase()}
+          </li>
+        )}
+        <li>Names work without titles: “Kumar”, not “Dr. Kumar”.</li>
+        <li>For a paper, paste its DOI.</li>
+      </ul>
+      {DOI_PATTERN.test(q) && <p className="mt-3 text-sm text-fg-muted">This DOI is not in the college's record yet. You can file it as a paper.</p>}
     </div>
   )
 }
 
 /* ------------------------------------------------------------- directory */
 
-type Card = { id: string; name: string; initials: string; photo_url: string | null; department: string | null; designation: string | null; papers: number }
 
 /** The People scope with no query: the old Colleagues directory. */
 function Directory({ dept, onDept }: { dept: string; onDept: (d: string) => void }) {

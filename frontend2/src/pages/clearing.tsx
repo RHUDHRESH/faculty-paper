@@ -998,7 +998,7 @@ function TicketSheet({
                   explanation, and the reader had to guess what had been
                   wrong with it. */}
               <HoldNote claim={claim} />
-              {claim.status_note && (
+              {claim.status_note && !/^Imported from/i.test(claim.status_note) && (
                 <Callout tone="caution" title="Sent back to you">
                   <p>{claim.status_note}</p>
                 </Callout>

@@ -331,8 +331,13 @@ function PastRow({ row }: { row: Row }) {
               </Meta>
             </span>
             <span className="shrink-0 text-right">
-              <span className="block tabular text-sm font-medium">{money(row.remuneration)}</span>
-              {paid && row.paid_at && <Meta className="block">Paid {formatDate(row.paid_at)}</Meta>}
+              {row.origin && !row.remuneration ? (
+                <Meta className="block">Amount not on record</Meta>
+              ) : (
+                <span className="block tabular text-sm font-medium">{money(row.remuneration)}</span>
+              )}
+              {/* An imported claim's paid date is the day it was imported, not a payment. */}
+              {paid && row.paid_at && !row.origin && <Meta className="block">Paid {formatDate(row.paid_at)}</Meta>}
             </span>
           </span>
           <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">

@@ -761,19 +761,36 @@ def run_harvest(
     fetch: Fetch = openalex_get, log: Callable[[str], None] = logger.info,
 ) -> dict[str, Any]:
     """Harvest -> link records -> match -> harvest matched authors' other
-    works -> match again -> metrics. Safe to repeat."""
-    out: dict[str, Any] = {}
-    out["college"] = harvest_college(since=since, limit=limit, fetch=fetch)
-    log(f"college works: {out['college']}")
-    out["orcid"] = harvest_orcids(fetch=fetch)
-    out["record_dois"] = harvest_record_dois(fetch=fetch)
-    log(f"record DOIs: {out['record_dois']}")
+    works -> match again -> metrics. Safe to repeat.
+
+    Each OpenAlex stage is allowed to fail on its own. OpenAlex answers a long
+    run with 429 once it has had enough for the day, and before this a refusal
+    at paper 4,200 of 5,100 threw away the matching step -- so the 4,200 papers
+    already stored were attributed to nobody. Now what was fetched is kept,
+    linked and matched, `partial` says so, and running it again tomorrow
+    (an idempotent upsert) fills in the rest.
+    """
+    out: dict[str, Any] = {"partial": False, "errors": {}}
+
+    def fetch_stage(name: str, fn: Callable[[], Any]) -> Any:
+        try:
+            result = fn()
+        except Exception as exc:  # the HTTP layer has already retried
+            out["partial"] = True
+            out["errors"][name] = str(exc)[:300]
+            log(f"{name}: stopped early -- {exc}")
+            return None
+        log(f"{name}: {result}")
+        return result
+
+    out["college"] = fetch_stage("college", lambda: harvest_college(since=since, limit=limit, fetch=fetch))
+    out["orcid"] = fetch_stage("orcid", lambda: harvest_orcids(fetch=fetch))
+    out["record_dois"] = fetch_stage("record_dois", lambda: harvest_record_dois(fetch=fetch))
     out["records"] = link_records()
     log(f"records linked: {out['records']}")
     match = match_authors()
-    if expand:
-        out["authors"] = harvest_author_ids(matched_author_ids(), fetch=fetch)
-        log(f"matched authors' works: {out['authors']}")
+    if expand and not out["partial"]:
+        out["authors"] = fetch_stage("authors", lambda: harvest_author_ids(matched_author_ids(), fetch=fetch))
         out["records_again"] = link_records()
         match = match_authors()
     out["match"] = {k: v for k, v in match.items() if k != "ambiguous"}

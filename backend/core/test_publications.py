@@ -188,6 +188,25 @@ class HarvestTests(_Base):
         self.assertEqual(counts, (Publication.objects.count(), Authorship.objects.count(),
                                   Authorship.objects.filter(user__isnull=False).count()))
 
+    def test_a_refusal_midway_keeps_what_was_fetched_and_still_matches(self):
+        # OpenAlex answers a long run with 429s; what came in must still be
+        # attributed, and the run must say it stopped early.
+        calls = []
+
+        def refusing(path, params):
+            calls.append(params)
+            if len(calls) > 1:
+                raise RuntimeError("Client error '429 Too Many Requests'")
+            return self.fake(path, params)
+
+        out = P.run_harvest(fetch=refusing, log=lambda m: None)
+        self.assertTrue(out["partial"])
+        self.assertIn("429", out["errors"]["college"])
+        self.assertTrue(Publication.objects.filter(openalex_id="W1").exists())
+        self.assertTrue(Authorship.objects.filter(user=self.joyal).exists())
+        self.assertIn("match", out)
+
+
     def test_matching(self):
         out = self.harvest()
         mine = Authorship.objects.filter(user=self.joyal)

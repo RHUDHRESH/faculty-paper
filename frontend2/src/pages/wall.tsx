@@ -1,12 +1,16 @@
-import { useState } from "react"
-import { ChevronLeft, ChevronRight, Pin, PinOff, Star } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
+import { Award, Gem, HandHeart, Monitor, Pin, PinOff, Star, X } from "lucide-react"
 
 import { useAuth, type Me } from "@/app/auth"
-import { useApi, useApiMutation } from "@/lib/query"
+import { useCollegeName } from "@/app/institution"
 import { cn } from "@/lib/cn"
+import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
-import { EmptyState, InlineError, Skeleton } from "@/ui/state"
-import { Meta, PageTitle, Sub } from "@/ui/text"
+import { Chip } from "@/ui/chip"
+import { Avatar, initialsOf } from "@/ui/person"
+import { Illustration, SharePlate } from "@/ui/share-plate"
+import { InlineError, Skeleton } from "@/ui/state"
 import { toast } from "@/ui/toast"
 
 type Author = { id: string | null; name: string; department: string }
@@ -18,6 +22,12 @@ export type WallCard = {
   year: number | null
   authors: Author[]
   pinned: boolean
+  departments?: string[]
+  featured?: boolean
+  reaction_count?: number
+  me_reacted?: boolean
+  doi?: string | null
+  claim_id?: string | null
 }
 export type WallPayload = {
   department: string
@@ -35,6 +45,12 @@ export function monthName(ym: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" })
 }
 
+function shortMonth(ym: string): string {
+  const [y, m] = ym.split("-").map(Number)
+  if (!y || !m) return ym
+  return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "2-digit" })
+}
+
 /** Who may choose the paper of the month on this wall. Mirrors `_may_pin`. */
 export function mayPin(me: Me | null, department: string): boolean {
   if (!me) return false
@@ -43,130 +59,147 @@ export function mayPin(me: Me | null, department: string): boolean {
   return me.role === "HOD" && (me.department || "").toLowerCase() === department.toLowerCase()
 }
 
-/**
- * A month of the college's new publications, one card per paper.
- *
- * A paper several colleagues wrote is one card with all their names on it,
- * not one card each: the wall celebrates papers, and three copies of the
- * same title would read as three papers. It sits in the month the college
- * first recognised it, and its head of department can make it the paper of
- * the month. Past months are one press away.
- *
- * Title, authors, journal and quartile. Nothing about money, and nothing
- * about where a paper is in the chain -- only recognised papers are here.
- */
-export function WallOfFame() {
-  const { me } = useAuth()
-  // Null until the reader picks one: until then the wall follows whoever is
-  // signed in -- a claimant's own department, the college for everybody else.
-  const [picked, setDepartment] = useState<string | null>(null)
-  const department =
-    picked ?? (me?.role === "FACULTY" || me?.role === "HOD" ? me.department || "" : "")
-  const [month, setMonth] = useState<string>("")
+/** "{Month Year} — {n} new papers, {q} in Q1 journals." */
+export function monthTitle(data: Pick<WallPayload, "month" | "cards">): string {
+  const n = data.cards.length
+  const q = data.cards.filter((c) => c.quartile === "Q1").length
+  return `${monthName(data.month)} — ${n} new paper${n === 1 ? "" : "s"}, ${q} in Q1 journal${q === 1 ? "" : "s"}.`
+}
 
+function paperHref(card: WallCard): string | null {
+  if (card.claim_id) return `/papers/${card.claim_id}`
+  if (card.doi) return `https://doi.org/${card.doi}`
+  return null
+}
+
+function useWall(department: string, month: string) {
   const params = new URLSearchParams()
   if (department) params.set("department", department)
   if (month) params.set("month", month)
-  const query = useApi<WallPayload>(["wall", department, month], `/api/wall?${params}`)
-  const data = query.data
+  const qs = params.toString()
+  return useApi<WallPayload>(["wall", department, month], `/api/wall${qs ? `?${qs}` : ""}`)
+}
 
-  const months = data?.months ?? []
-  const at = data ? months.findIndex((m) => m.month === data.month) : -1
-  const older = at >= 0 ? months[at + 1]?.month : undefined
-  const newer = at > 0 ? months[at - 1]?.month : undefined
+/**
+ * The wall of fame (docs/ux/14): a month of new papers as certificate tiles,
+ * Q1 papers double-width with a gold ribbon. A paper several colleagues
+ * wrote is one tile with all their faces on it. Congratulate once per
+ * person. Lives as the Leaderboard's `?view=wall` tab; `department` and
+ * `month` are URL state owned by the caller.
+ *
+ * Title, authors, journal and quartile. Nothing about money.
+ */
+export function WallBoard({
+  department,
+  month,
+  onMonth,
+  onDepartment,
+}: {
+  department: string
+  month: string
+  onMonth: (m: string) => void
+  onDepartment?: (d: string) => void
+}) {
+  const { me } = useAuth()
+  const query = useWall(department, month)
+  const data = query.data
+  const [, setParams] = useSearchParams()
 
   return (
-    <div className="page space-y-8">
-      <header className="space-y-1">
-        <PageTitle>Wall of fame</PageTitle>
-        <Sub>
-          {department ? `${department}: ` : "The whole college: "}
-          new publications, a month at a time.
-        </Sub>
-      </header>
-
-      <div className="well flex flex-wrap items-center gap-3 p-3">
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-fg-muted">Department</span>
-          <select
-            value={department}
-            onChange={(e) => {
-              setDepartment(e.target.value)
-              setMonth("")
-            }}
-            className="h-8 max-w-[14rem] rounded-md bg-surface px-2 text-sm text-fg ring-1 ring-inset ring-field outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <option value="">Whole college</option>
-            {(data?.departments ?? (department ? [department] : [])).map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="flex items-center gap-1 sm:ml-auto">
+    <section aria-labelledby="wall-title" className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-medium text-area-honours">
+            <Award aria-hidden className="size-4" strokeWidth={1.75} />
+            Wall of fame · {department || "Whole college"}
+          </p>
+          <h2 id="wall-title" className="honour mt-1 text-2xl text-pretty sm:text-3xl">
+            {data ? monthTitle(data) : " "}
+          </h2>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          {onDepartment && (
+            <select
+              aria-label="Wall department"
+              value={department}
+              onChange={(e) => onDepartment(e.target.value)}
+              className="h-8 max-w-[14rem] rounded-md bg-surface px-2 text-sm text-fg ring-1 ring-inset ring-field outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <option value="">Whole college</option>
+              {(data?.departments ?? (department ? [department] : [])).map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          )}
           <Button
-            kind="quiet"
-            size="icon"
-            aria-label="Older month"
-            disabled={!older}
-            onClick={() => older && setMonth(older)}
+            onClick={() =>
+              setParams((p) => {
+                const n = new URLSearchParams(p)
+                n.set("display", "1")
+                return n
+              })
+            }
           >
-            <ChevronLeft />
-          </Button>
-          <select
-            aria-label="Month"
-            value={data?.month ?? ""}
-            onChange={(e) => setMonth(e.target.value)}
-            className="h-8 rounded-md bg-surface px-2 text-sm text-fg ring-1 ring-inset ring-field outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            {data && months.every((m) => m.month !== data.month) && (
-              <option value={data.month}>{monthName(data.month)}</option>
-            )}
-            {months.map((m) => (
-              <option key={m.month} value={m.month}>
-                {monthName(m.month)} ({m.count})
-              </option>
-            ))}
-          </select>
-          <Button
-            kind="quiet"
-            size="icon"
-            aria-label="Newer month"
-            disabled={!newer}
-            onClick={() => newer && setMonth(newer)}
-          >
-            <ChevronRight />
+            <Monitor aria-hidden />
+            Display on a screen
           </Button>
         </div>
       </div>
 
+      {data && data.months.length > 0 && (
+        <nav aria-label="Months" className="-mx-1 overflow-x-auto pb-1">
+          <ul className="flex w-max gap-2 px-1">
+            {data.months.map((m) => {
+              const on = m.month === data.month
+              return (
+                <li key={m.month}>
+                  <button
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => onMonth(m.month)}
+                    className={cn(
+                      "inline-flex h-8 items-center gap-2 rounded-full px-3 text-sm whitespace-nowrap",
+                      on
+                        ? "bg-area-honours-wash font-semibold text-area-honours shadow-[inset_0_0_0_1px_var(--color-area-honours-line)]"
+                        : "text-fg-muted hover:bg-hover hover:text-fg"
+                    )}
+                  >
+                    {shortMonth(m.month)}
+                    <span className="tabular text-xs opacity-80">{m.count}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
+      )}
+
       {query.isError ? (
-        <InlineError message="Could not load the wall." onRetry={() => void query.refetch()} />
+        <InlineError message="Could not load the wall. Nothing has changed." onRetry={() => void query.refetch()} />
       ) : query.isLoading || !data ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2" aria-busy="true">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3" aria-busy="true">
           {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-36 rounded-lg" />
+            <Skeleton key={i} className={cn("h-44 rounded-2xl", i === 0 && "md:col-span-2")} />
           ))}
         </div>
       ) : data.cards.length === 0 ? (
-        <EmptyState
-          art="nothing-filed"
-          title={`Nothing new in ${monthName(data.month)}`}
-          message="Papers appear here in the month the college recognises them."
-        />
+        <div className="flex flex-col items-center gap-3 py-10 text-center">
+          <Illustration name="celebrate" area="honours" />
+          <p className="font-semibold">No new papers yet this month</p>
+          <p className="text-sm text-fg-muted">The first one filed will lead the wall.</p>
+        </div>
       ) : (
-        <Board data={data} canPin={mayPin(me, data.department)} />
+        <Tiles data={data} canPin={mayPin(me, data.department)} />
       )}
-    </div>
+    </section>
   )
 }
 
-function Board({ data, canPin }: { data: WallPayload; canPin: boolean }) {
+function Tiles({ data, canPin }: { data: WallPayload; canPin: boolean }) {
   const invalidates = [["wall"]]
-  const pin = useApiMutation<{ department: string; month: string; key: string }>("/api/wall/pin", {
-    invalidates,
-  })
+  const pin = useApiMutation<{ department: string; month: string; key: string }>("/api/wall/pin", { invalidates })
   const unpin = useApiMutation<void>(
     () =>
       `/api/wall/pin?month=${data.month}${data.department ? `&department=${encodeURIComponent(data.department)}` : ""}`,
@@ -174,7 +207,7 @@ function Board({ data, canPin }: { data: WallPayload; canPin: boolean }) {
   )
   const busy = pin.isPending || unpin.isPending
 
-  async function choose(card: WallCard) {
+  async function feature(card: WallCard) {
     try {
       await pin.mutateAsync({ department: data.department, month: data.month, key: card.key })
       toast.ok(`“${card.title}” is the paper of the month`)
@@ -190,82 +223,218 @@ function Board({ data, canPin }: { data: WallPayload; canPin: boolean }) {
     }
   }
 
-  const rest = data.cards.filter((c) => !c.pinned)
+  // The featured paper leads; the server already sorts Q1 before the rest.
+  const cards = [...data.cards].sort((a, b) => Number(b.pinned) - Number(a.pinned))
   return (
-    <div className="space-y-6">
-      {data.pinned && (
-        <section aria-label="Paper of the month" className="panel-lead p-5 sm:p-7">
-          <p className="flex items-center gap-2 text-sm font-medium text-accent">
-            <Star className="size-4" aria-hidden />
-            Paper of the month
-          </p>
-          <CardBody card={data.pinned} lead />
-          {canPin && (
-            <Button kind="quiet" size="sm" className="mt-4" disabled={busy} onClick={() => void clear()}>
-              <PinOff />
-              Unpin
-            </Button>
-          )}
-        </section>
-      )}
-      <p className="text-sm text-fg-muted">
-        {data.cards.length} paper{data.cards.length === 1 ? "" : "s"} in {monthName(data.month)}
-      </p>
-      {/* grid-cols-1 rather than the implicit column: an implicit track sizes
-          to max-content, and a long journal name on one line then pushes the
-          whole list off a phone screen. */}
-      <ul className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {rest.map((card) => (
-          <li key={card.key} className="panel flex min-w-0 flex-col p-4 sm:p-5">
-            <CardBody card={card} />
+    <ul className="grid grid-flow-row-dense grid-cols-1 gap-4 md:grid-cols-3">
+      {cards.map((card) => {
+        const wide = card.quartile === "Q1" || card.pinned
+        return (
+          <SharePlate
+            key={card.key}
+            as="li"
+            ribbon={card.quartile === "Q1" ? "gold" : "navy"}
+            className={cn("flex min-w-0 flex-col p-5", wide && "md:col-span-2")}
+          >
+            <Tile card={card} wide={wide} />
             {canPin && (
-              <Button
-                kind="quiet"
-                size="sm"
-                className="mt-3 self-start"
-                disabled={busy}
-                onClick={() => void choose(card)}
-              >
-                <Pin />
-                Make paper of the month
-              </Button>
+              <div className="mt-3 print:hidden">
+                {card.pinned ? (
+                  <Button kind="quiet" size="sm" disabled={busy} onClick={() => void clear()}>
+                    <PinOff />
+                    Unpin
+                  </Button>
+                ) : (
+                  <Button kind="quiet" size="sm" disabled={busy} onClick={() => void feature(card)}>
+                    <Pin />
+                    Make paper of the month
+                  </Button>
+                )}
+              </div>
             )}
-          </li>
-        ))}
-      </ul>
+          </SharePlate>
+        )
+      })}
+    </ul>
+  )
+}
+
+function Tile({ card, wide, anonymous = false }: { card: WallCard; wide: boolean; anonymous?: boolean }) {
+  const href = paperHref(card)
+  const members = card.authors.filter((a) => a.id)
+  const depts = card.departments ?? Array.from(new Set(card.authors.map((a) => a.department).filter(Boolean)))
+  const title = (
+    <span className={cn("line-clamp-3 text-pretty", wide ? "honour text-xl" : "text-base font-semibold")}>
+      {card.title}
+    </span>
+  )
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {card.pinned && (
+          <Chip tone="gold" icon={Star}>
+            Paper of the month
+          </Chip>
+        )}
+        {card.quartile === "Q1" && (
+          <Chip tone="gold" icon={Gem}>
+            Q1
+          </Chip>
+        )}
+        {!anonymous && members.length > 0 && (
+          <span className="flex -space-x-2">
+            {members.slice(0, 5).map((a) => (
+              <Link key={a.id} to={`/u/${a.id}`} aria-label={a.name} className="rounded-full ring-2 ring-paper">
+                <Avatar size="sm" person={{ name: a.name, initials: initialsOf(a.name), photo_url: null }} />
+              </Link>
+            ))}
+          </span>
+        )}
+      </div>
+      {href ? (
+        href.startsWith("http") ? (
+          <a href={href} target="_blank" rel="noreferrer" className="hover:underline">
+            {title}
+          </a>
+        ) : (
+          <Link to={href} className="hover:underline">
+            {title}
+          </Link>
+        )
+      ) : (
+        <p>{title}</p>
+      )}
+      <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-sm text-fg-muted">
+        <span className="min-w-0 truncate">{card.journal || "Journal not recorded"}</span>
+        {card.quartile && card.quartile !== "Q1" && <span>· {card.quartile}</span>}
+        {card.year && <span className="tabular">· {card.year}</span>}
+      </p>
+      {anonymous ? (
+        <p className="text-sm text-fg-muted">
+          {card.authors.length} author{card.authors.length === 1 ? "" : "s"} from {depts.join(" · ") || "the college"}
+        </p>
+      ) : (
+        <p className="text-sm">
+          {card.authors.map((a, i) => (
+            <span key={`${a.id ?? a.name}-${i}`}>
+              {i > 0 && ", "}
+              {a.id ? (
+                <Link to={`/u/${a.id}`} className="font-medium hover:underline">
+                  {a.name}
+                </Link>
+              ) : (
+                <span>{a.name}</span>
+              )}
+            </span>
+          ))}
+          {depts.length > 0 && <span className="text-fg-muted"> · {depts.join(" · ")}</span>}
+        </p>
+      )}
+      {!anonymous && <Congratulate card={card} />}
     </div>
   )
 }
 
-function CardBody({ card, lead = false }: { card: WallCard; lead?: boolean }) {
+function Congratulate({ card }: { card: WallCard }) {
+  const invalidates = [["wall"]]
+  const add = useApiMutation<{ key: string }>("/api/wall/cheer", { invalidates })
+  const remove = useApiMutation<void>(() => `/api/wall/cheer?key=${encodeURIComponent(card.key)}`, {
+    method: "DELETE",
+    invalidates,
+  })
+  const count = card.reaction_count ?? 0
+  const mine = card.me_reacted ?? false
   return (
-    <div className="min-w-0 flex-1">
-      <p className={cn("font-semibold text-pretty", lead ? "mt-2 text-xl" : "text-base")}>{card.title}</p>
-      <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted">
-        {card.quartile && (
-          <span
-            className={cn(
-              "rounded-sm px-1.5 py-0.5 text-xs font-semibold",
-              card.quartile === "Q1" ? "bg-positive-wash text-positive" : "bg-sunken text-fg-muted"
-            )}
-          >
-            {card.quartile}
-          </span>
-        )}
-        {/* The year before the journal: a long journal name truncates, and
-            anything after it would wrap onto a line of its own. */}
-        {card.year && <span className="tabular">{card.year} ·</span>}
-        <span className="min-w-0 flex-1 truncate">{card.journal || "Journal not recorded"}</span>
-      </p>
-      <Meta className="mt-2 block">
-        {card.authors.map((a, i) => (
-          <span key={`${a.id ?? a.name}-${i}`}>
-            {i > 0 && ", "}
-            <span className="text-fg">{a.name}</span>
-            {a.department && <span> ({a.department})</span>}
-          </span>
-        ))}
-      </Meta>
+    <div className="mt-auto pt-1 print:hidden">
+      <Button
+        size="sm"
+        kind={mine ? "default" : "quiet"}
+        aria-pressed={mine}
+        aria-label={`Congratulate the authors of ${card.title}`}
+        disabled={add.isPending || remove.isPending}
+        onClick={() => void (mine ? remove.mutateAsync(undefined) : add.mutateAsync({ key: card.key })).catch(toast.fail)}
+        className={cn(mine && "text-area-honours")}
+      >
+        <HandHeart aria-hidden />
+        {mine ? "Congratulated" : "Congratulate"}
+        <span className="tabular">{count}</span>
+      </Button>
     </div>
   )
 }
+
+/**
+ * Kiosk mode for the lobby TV (`/wall?display=1`): full screen, no chrome,
+ * one tile at a time every 8 seconds, cycling through the month. It shows
+ * no one's name: the college has no per-person consent for a public screen
+ * yet, so a tile says how many authors and which departments. Esc exits.
+ */
+export function WallKiosk({ department, month }: { department: string; month: string }) {
+  const query = useWall(department, month)
+  const college = useCollegeName()
+  const navigate = useNavigate()
+  const [at, setAt] = useState(0)
+  const cards = query.data?.cards ?? []
+
+  useEffect(() => {
+    if (cards.length < 2) return
+    const t = window.setInterval(() => setAt((i) => (i + 1) % cards.length), 8000)
+    return () => window.clearInterval(t)
+  }, [cards.length])
+  useEffect(() => {
+    const exit = (e: KeyboardEvent) => {
+      if (e.key === "Escape") navigate("/leaderboard?view=wall")
+    }
+    window.addEventListener("keydown", exit)
+    return () => window.removeEventListener("keydown", exit)
+  }, [navigate])
+
+  const card = cards.length ? cards[at % cards.length] : null
+  return (
+    <div role="dialog" aria-label="Wall of fame display" className="fixed inset-0 z-[100] flex flex-col bg-paper p-8 text-fg sm:p-14">
+      <div aria-hidden className="ribbon absolute inset-x-0 top-0 h-[6px]" />
+      <header className="flex items-start justify-between gap-6">
+        <div>
+          <p className="text-lg font-medium text-area-honours">{college} · Wall of fame</p>
+          <h1 className="honour text-honour mt-2">{query.data ? monthTitle(query.data) : " "}</h1>
+        </div>
+        <Button kind="quiet" size="icon" aria-label="Leave display mode" onClick={() => navigate("/leaderboard?view=wall")}>
+          <X />
+        </Button>
+      </header>
+      <div className="flex flex-1 items-center justify-center py-8">
+        {card ? (
+          <SharePlate ribbon={card.quartile === "Q1" ? "gold" : "navy"} className="aspect-video w-full max-w-5xl p-10 sm:p-14">
+            <div className="flex h-full flex-col justify-center [&_.honour]:text-4xl [&_p]:text-xl">
+              <Tile card={card} wide anonymous />
+            </div>
+          </SharePlate>
+        ) : (
+          <p className="text-2xl text-fg-muted">No new papers yet this month — the first one filed will lead the wall.</p>
+        )}
+      </div>
+      {cards.length > 1 && (
+        <p className="text-center text-sm text-fg-muted tabular">
+          {(at % cards.length) + 1} of {cards.length}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * `/wall`: kiosk when `?display=1`, otherwise the Leaderboard's wall tab.
+ * Deep links keep their month and department.
+ */
+export function WallOfFame() {
+  const [params] = useSearchParams()
+  const department = params.get("department") ?? params.get("dept") ?? ""
+  const month = params.get("month") ?? ""
+  if (params.get("display") === "1") return <WallKiosk department={department} month={month} />
+  const next = new URLSearchParams({ view: "wall" })
+  if (department) next.set("dept", department)
+  if (month) next.set("month", month)
+  return <Navigate replace to={`/leaderboard?${next}`} />
+}
+
+export default WallOfFame

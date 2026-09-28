@@ -1,107 +1,155 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { keepPreviousData } from "@tanstack/react-query"
-import { ArrowDown, ArrowUp, Minus, Trophy } from "lucide-react"
+import {
+  ArrowDown,
+  ArrowUp,
+  Download,
+  FileText,
+  Gem,
+  Globe2,
+  Info,
+  Minus,
+  Network,
+  PenLine,
+  Printer,
+  Quote,
+  Sprout,
+  Trophy,
+  TrendingUp,
+  UsersRound,
+  Sigma,
+  type LucideIcon,
+} from "lucide-react"
 
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
-import { Switch } from "@/ui/field"
-import { ErrorState, SkeletonRows, SkeletonText } from "@/ui/state"
-import { Table, type Column } from "@/ui/table"
-import { Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Distribution, RankedBars, Sparkline, Trend } from "@/ui/chart"
+import { HeroBand } from "@/ui/hero"
+import { Avatar, type PersonBrief } from "@/ui/person"
+import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/ui/sheet"
+import { ErrorState, SkeletonRows } from "@/ui/state"
+import { Meta, SectionTitle, Sub } from "@/ui/text"
+import { WallBoard } from "@/pages/wall"
 
 /**
- * Who published, and which department, over a period — ranked.
- *
- * Open to every role and never carrying money: a leaderboard of amounts
- * would be a leaderboard of other people's pay, so the server builds these
- * boards without reading an amount at all. The page's job is the question a
- * reader brings to any ranking — where am I, which way did I move, and what
- * is the number I am being ranked by — so the reader's own place leads, and
- * the weighting is printed rather than left for them to guess.
+ * The leaderboard (docs/ux/07): report-grade, counted from the publication
+ * record, many categories and four views, all in the URL. Wall of fame is a
+ * tab (docs/ux/14). No money anywhere: the server builds these boards
+ * without reading an amount, and nothing here would show one.
  */
 
-type Period = { key: string; label: string; from: string | null; to: string | null }
+export type Measure =
+  | "score" | "papers" | "q1" | "first" | "cited" | "h_index"
+  | "rising" | "collab" | "cross_dept" | "international" | "newcomer"
 
-type Method = {
-  weights: Record<string, number>
-  from_claims: number
-  from_ledger: number
-  left_out: number
-  citations: boolean
-  updated: string
-}
+type Span = { key: string; label: string; from: string | null; to: string | null }
 
-type Tally = { papers: number; q1: number; score: number; first_author: number }
-type Sort = keyof Tally
-
-type PersonRow = Tally & {
-  id: string
-  name: string
-  department: string | null
-  designation: string | null
-  rank: number
+export type BoardRow = {
+  rank: number | null
   joint: boolean
-  movement: number | null
-  me: boolean
+  person: PersonBrief
+  value: number
+  papers: number
+  score: number
+  q1: number
+  first: number
+  cited: number
+  h_index: number
+  breakdown: Record<string, number>
+  spark: number[]
+  move: number | null
+  new: boolean
 }
 
-type DepartmentRow = Tally & {
+type DeptRow = {
   department: string
-  people: number
-  rank: number
-  joint: boolean
-  per_head: Tally
-  movement: number | null
-  me: boolean
+  faculty: number
+  value: number
+  per_faculty: number
+  papers: number
+  papers_per_faculty: number
+  score_per_faculty: number
+  rank: number | null
+  rank_per_faculty: number | null
+  trend: { year: number; papers: number }[]
 }
 
-type BoardBase = {
-  period: Period & { compared_with: Period | null }
-  periods: Period[]
-  sort: Sort
-  method: Method
-}
-
-type PeopleBoard = BoardBase & {
-  board: "people"
-  department: string | null
-  departments: string[]
-  rows: PersonRow[]
-  me: { rank: number; of: number; joint: boolean; value: number; movement: number | null } | null
+export type HonoursBoard = {
+  measure: Measure
+  label: string
+  unit: string
+  period: Span & { compared_with: Span | null }
+  periods: Span[]
+  scope: string | null
+  departments_list: string[]
+  filters: { topic: string | null; journal: string | null }
+  podium: BoardRow[]
+  rows: BoardRow[]
+  ranked: number
+  population: number
+  distribution: { bucket: string; count: number; lo: number | null; hi: number }[]
+  departments: DeptRow[]
+  college_trend: { year: number; papers: number }[]
+  top_topics: { topic: string; papers: number }[]
+  top_journals: { journal: string; papers: number }[]
+  topic_options: string[]
+  journal_options: string[]
   totals: { papers: number; people: number; people_with_papers: number }
+  spark_years: number[]
+  method: { weights: Record<string, number>; source: string; papers_in_record: number; newcomer_months: number; updated: string }
+  me: {
+    id: string
+    rank: number | null
+    joint: boolean
+    of: number
+    population: number
+    dept_rank: number | null
+    dept_of: number
+    department: string | null
+    percentile: number | null
+    move: number | null
+    value: number
+    alltime_rank: number | null
+  } | null
 }
 
-type DepartmentBoard = BoardBase & {
-  board: "departments"
-  per_head: boolean
-  rows: DepartmentRow[]
-  me: { department: string; rank: number; of: number; joint: boolean; movement: number | null } | null
-  totals: { papers: number; departments: number; people: number }
+export const MEASURES: { key: Measure; label: string; icon: LucideIcon }[] = [
+  { key: "score", label: "Overall", icon: Trophy },
+  { key: "papers", label: "Papers", icon: FileText },
+  { key: "q1", label: "Q1", icon: Gem },
+  { key: "first", label: "First author", icon: PenLine },
+  { key: "cited", label: "Cited", icon: Quote },
+  { key: "h_index", label: "h-index", icon: Sigma },
+  { key: "rising", label: "Most improved", icon: TrendingUp },
+  { key: "collab", label: "Collaborative", icon: UsersRound },
+  { key: "cross_dept", label: "Cross-department", icon: Network },
+  { key: "international", label: "International", icon: Globe2 },
+  { key: "newcomer", label: "Newcomers", icon: Sprout },
+]
+
+const PERIOD_LABELS: Record<string, string> = {
+  academic: "This academic year",
+  last_academic: "Last academic year",
+  calendar: "This calendar year",
+  last12: "Last 12 months",
+  all: "All time",
 }
 
-type Board = PeopleBoard | DepartmentBoard
+const VIEWS = [
+  { key: "people", label: "Ranked" },
+  { key: "departments", label: "Departments" },
+  { key: "trend", label: "Trend" },
+  { key: "chart", label: "Distribution" },
+  { key: "wall", label: "Wall of fame" },
+] as const
+type View = (typeof VIEWS)[number]["key"]
 
-const PERIODS: Period[] = [
-  { key: "academic", label: "This academic year", from: null, to: null },
-  { key: "last_academic", label: "Last academic year", from: null, to: null },
-  { key: "calendar", label: "This calendar year", from: null, to: null },
-  { key: "all", label: "All time", from: null, to: null },
-]
-
-const SORTS: { value: Sort; label: string }[] = [
-  { value: "score", label: "Score" },
-  { value: "papers", label: "Papers" },
-  { value: "q1", label: "Q1 papers" },
-  { value: "first_author", label: "First-author papers" },
-]
-
-/** How many rows show before "Show all" — the reader's own row always does. */
 const TOP = 50
 
 const selectClass =
-  "h-8 rounded-md border-0 bg-surface px-2 text-sm text-fg shadow-well ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent"
+  "h-8 max-w-[14rem] rounded-md border-0 bg-surface px-2 text-sm text-fg shadow-well ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent"
 
 export function ordinal(n: number): string {
   const teen = n % 100
@@ -109,493 +157,517 @@ export function ordinal(n: number): string {
   return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] ?? "th"}`
 }
 
+/** "=4" for a tie, "4" otherwise, "—" for somebody with nothing counted. */
+export function rankText(rank: number | null, joint: boolean): string {
+  if (rank == null) return "—"
+  return joint ? `=${rank}` : String(rank)
+}
+
 function count(n: number): string {
   return n.toLocaleString("en-IN")
 }
 
-function places(n: number): string {
-  return `${n} place${n === 1 ? "" : "s"}`
+/** The hero sentence. Never says "none" to someone the table ranks. */
+export function standing(b: Pick<HonoursBoard, "me" | "period" | "scope">): string {
+  const me = b.me
+  if (!me) return "You are not on this board — it ranks active faculty members."
+  const where = b.scope ?? "the college"
+  if (me.rank == null) {
+    const period = b.period.label.toLowerCase()
+    const all = me.alltime_rank != null ? ` — your all-time rank is #${me.alltime_rank}` : ""
+    return `No papers counted for you in ${period} yet${all}.`
+  }
+  const parts = [`You: #${rankText(me.rank, me.joint)} of ${count(me.of)} in ${where}`]
+  if (!b.scope && me.dept_rank != null && me.department) parts.push(`#${me.dept_rank} in ${me.department}`)
+  if (me.percentile != null) parts.push(`top ${me.percentile}%`)
+  if (me.move) parts.push(`${me.move > 0 ? "↑" : "↓"}${Math.abs(me.move)} since the last period`)
+  return parts.join(" · ")
+}
+
+function csvCell(v: unknown): string {
+  const s = v == null ? "" : String(v)
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+export function toCsv(b: HonoursBoard): string {
+  const head = ["Rank", "Name", "Department", b.label, "Score", "Papers", "Q1", "First author", "Citations", "h-index"]
+  const lines = b.rows.map((r) =>
+    [rankText(r.rank, r.joint), r.person.name, r.person.department, r.value, r.score, r.papers, r.q1, r.first, r.cited, r.h_index]
+      .map(csvCell)
+      .join(",")
+  )
+  return [head.join(","), ...lines].join("\n")
+}
+
+function downloadCsv(b: HonoursBoard) {
+  const blob = new Blob([toCsv(b)], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `leaderboard-${b.measure}-${b.period.key}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 export function Leaderboard() {
   const [params, setParams] = useSearchParams()
-  const board = params.get("board") === "departments" ? "departments" : "people"
-  const period = params.get("period") || "academic"
-  const sort = (params.get("sort") as Sort | null) || "score"
-  const department = params.get("department") || ""
-  const perHead = params.get("per_head") === "true"
-  const [showAll, setShowAll] = useState(false)
+  const measure = (MEASURES.some((m) => m.key === params.get("category")) ? params.get("category") : "score") as Measure
+  const period = params.get("period") && PERIOD_LABELS[params.get("period")!] ? params.get("period")! : "academic"
+  const view = (VIEWS.some((v) => v.key === params.get("view")) ? params.get("view") : "people") as View
+  const department = params.get("department") ?? ""
+  const topic = params.get("topic") ?? ""
+  const journal = params.get("journal") ?? ""
 
-  function set(patch: Record<string, string>) {
-    const next = new URLSearchParams(params)
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) next.set(k, v)
-      else next.delete(k)
-    }
-    setParams(next, { replace: true })
-    setShowAll(false)
+  const set = (key: string, value: string) => {
+    setParams(
+      (prev) => {
+        const n = new URLSearchParams(prev)
+        if (value) n.set(key, value)
+        else n.delete(key)
+        return n
+      },
+      { replace: true }
+    )
   }
 
-  const query = new URLSearchParams({ board, period, sort })
-  if (board === "people" && department) query.set("department", department)
-  if (board === "departments" && perHead) query.set("per_head", "true")
-
-  const q = useApi<Board>(["leaderboard", board, period, sort, department, perHead], `/api/leaderboard?${query}`, {
-    // The previous board stays on screen while the next one loads, so a
-    // filter change reads as the numbers changing rather than the page
-    // blanking out and redrawing.
+  const qs = new URLSearchParams({ category: measure, period })
+  if (department) qs.set("department", department)
+  if (topic) qs.set("topic", topic)
+  if (journal) qs.set("journal", journal)
+  const query = useApi<HonoursBoard>(["leaderboard", "honours", measure, period, department, topic, journal], `/api/leaderboard?${qs}`, {
     placeholderData: keepPreviousData,
+    enabled: view !== "wall",
   })
-  const data = q.data && q.data.board === board ? q.data : undefined
-  const periods = data?.periods ?? PERIODS
+  const b = query.data
 
   return (
-    <div className="page space-y-6">
-      <header>
-        <PageTitle>Leaderboard</PageTitle>
-        <Sub className="mt-1">
-          Papers by people and departments here, counted from filed papers and the payment
-          ledger's history. No money is shown.
-        </Sub>
-      </header>
+    <div className="page space-y-5">
+      <style>{"@media print { @page { size: A4 landscape; margin: 12mm } }"}</style>
+      <HeroBand
+        area="honours"
+        eyebrow="Honours"
+        title="Leaderboard"
+        sentence={view === "wall" ? "New papers, month by month." : b ? standing(b) : "Counting the publication record…"}
+        actions={
+          view === "wall" ? null : (
+            <div className="flex flex-wrap gap-2 print:hidden">
+              <Button kind="quiet" size="sm" onClick={() => window.print()} disabled={!b}>
+                <Printer aria-hidden className="size-4" /> Print / PDF
+              </Button>
+              <Button kind="quiet" size="sm" onClick={() => b && downloadCsv(b)} disabled={!b}>
+                <Download aria-hidden className="size-4" /> CSV
+              </Button>
+              <HowCounted board={b} />
+            </div>
+          )
+        }
+      />
 
-      <div
-        role="tablist"
-        aria-label="Board"
-        className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-md bg-sunken p-0.5"
-      >
-        {(["people", "departments"] as const).map((b) => (
+      {/* Print-only report header. */}
+      {b ? (
+        <div className="hidden print:block">
+          <p className="font-display text-xl">Saveetha Engineering College · Research leaderboard</p>
+          <p className="text-sm">
+            {b.label} · {b.period.label} · {b.scope ?? "Whole college"} · generated {new Date().toLocaleDateString("en-IN")}
+          </p>
+        </div>
+      ) : null}
+
+      <nav aria-label="Views" className="flex gap-1 overflow-x-auto border-b border-line print:hidden">
+        {VIEWS.map((v) => (
           <button
-            key={b}
+            key={v.key}
             type="button"
-            role="tab"
-            aria-selected={board === b}
-            onClick={() => set({ board: b === "people" ? "" : b, department: "", per_head: "" })}
+            aria-current={view === v.key ? "page" : undefined}
+            onClick={() => set("view", v.key === "people" ? "" : v.key)}
             className={cn(
-              "h-7 shrink-0 rounded-sm px-3 text-sm font-medium transition-colors",
-              "duration-[var(--dur-1)] ease-out",
-              board === b ? "bg-surface text-fg" : "text-fg-muted hover:text-fg"
+              "shrink-0 border-b-2 px-3 py-2 text-sm",
+              view === v.key ? "border-gold font-semibold text-fg" : "border-transparent text-fg-muted hover:text-fg"
             )}
           >
-            {b === "people" ? "People" : "Departments"}
+            {v.label}
           </button>
         ))}
-      </div>
+      </nav>
 
-      <div className="well flex flex-wrap items-end gap-x-4 gap-y-3 rounded-lg px-3 py-3">
-        <label className="flex flex-col gap-1 text-xs font-medium text-fg-muted">
-          Period
-          <select
-            aria-label="Period"
-            value={period}
-            onChange={(e) => set({ period: e.target.value === "academic" ? "" : e.target.value })}
-            className={selectClass}
-          >
-            {periods.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-fg-muted">
-          Rank by
-          <select
-            aria-label="Rank by"
-            value={sort}
-            onChange={(e) => set({ sort: e.target.value === "score" ? "" : e.target.value })}
-            className={selectClass}
-          >
-            {SORTS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {board === "people" ? (
-          <label className="flex flex-col gap-1 text-xs font-medium text-fg-muted">
-            Department
-            <select
-              aria-label="Department"
-              value={department}
-              onChange={(e) => set({ department: e.target.value })}
-              className={cn(selectClass, "max-w-[14rem]")}
-            >
-              <option value="">All departments</option>
-              {(data?.board === "people" ? data.departments : []).map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <div className="pb-1.5">
-            <Switch
-              checked={perHead}
-              onCheckedChange={(on) => set({ per_head: on ? "true" : "" })}
-              label="Rank per person"
-            />
-          </div>
-        )}
-      </div>
-
-      {q.isLoading ? (
-        <div className="space-y-4">
-          <SkeletonText lines={2} className="max-w-sm" />
-          <SkeletonRows rows={8} rowHeight={40} />
-        </div>
-      ) : q.isError ? (
-        <ErrorState
-          title="Could not load the leaderboard"
-          message={q.error.message}
-          onRetry={() => void q.refetch()}
+      {view === "wall" ? (
+        <WallBoard
+          department={params.get("dept") ?? ""}
+          month={params.get("month") ?? ""}
+          onMonth={(m) => set("month", m)}
+          onDepartment={(d) => set("dept", d)}
         />
-      ) : data ? (
+      ) : (
         <>
-          <Standing data={data} />
-          {data.board === "people" ? (
-            <PeopleTable data={data} showAll={showAll} onShowAll={() => setShowAll(true)} />
+          <div role="group" aria-label="Category" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 print:hidden sm:flex-wrap">
+            {MEASURES.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                aria-pressed={measure === m.key}
+                onClick={() => set("category", m.key === "score" ? "" : m.key)}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm ring-1 ring-inset",
+                  measure === m.key ? "bg-gold/15 font-semibold text-fg ring-gold" : "bg-surface text-fg-muted ring-line hover:text-fg"
+                )}
+              >
+                <m.icon aria-hidden className="size-4" /> {m.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 print:hidden">
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-fg-muted">Period</span>
+              <select className={selectClass} value={period} onChange={(e) => set("period", e.target.value === "academic" ? "" : e.target.value)}>
+                {Object.entries(PERIOD_LABELS).map(([k, l]) => (
+                  <option key={k} value={k}>{l}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-fg-muted">Scope</span>
+              <select className={selectClass} value={department} onChange={(e) => set("department", e.target.value)}>
+                <option value="">Whole college</option>
+                {(b?.departments_list ?? []).map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-fg-muted">Topic</span>
+              <select className={selectClass} value={topic} onChange={(e) => set("topic", e.target.value)}>
+                <option value="">Any topic</option>
+                {(b?.topic_options ?? []).map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-fg-muted">Journal</span>
+              <select className={selectClass} value={journal} onChange={(e) => set("journal", e.target.value)}>
+                <option value="">Any journal</option>
+                {(b?.journal_options ?? []).map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {query.isError ? (
+            <ErrorState title="Could not load the leaderboard." message="Nothing has changed." onRetry={() => void query.refetch()} />
+          ) : !b ? (
+            <SkeletonRows rows={8} />
+          ) : view === "people" ? (
+            <PeopleView board={b} />
+          ) : view === "departments" ? (
+            <DepartmentsView board={b} />
+          ) : view === "trend" ? (
+            <TrendView board={b} />
           ) : (
-            <DepartmentTable data={data} />
+            <ChartView board={b} />
           )}
-          <HowCounted data={data} />
+          <Meta className="block">
+            Counted from the college's publication record ({count(b?.method.papers_in_record ?? 0)} papers). No money is shown.
+          </Meta>
         </>
-      ) : null}
+      )}
     </div>
   )
 }
 
-/* ------------------------------------------------------------------------ */
-/* Where the reader stands                                                  */
-/* ------------------------------------------------------------------------ */
-
-function movementSentence(movement: number | null, since: Period | null): string | null {
-  if (movement === null || !since) return null
-  if (movement > 0) return `Up ${places(movement)} since ${since.label}.`
-  if (movement < 0) return `Down ${places(-movement)} since ${since.label}.`
-  return `The same place as in ${since.label}.`
-}
-
-/**
- * The reader's place, first, in words.
- *
- * Four hundred rows is a list nobody reads to find one name. "You're 14th of
- * 399" is the answer to the question they opened the page with; the table
- * under it is for everything else.
- */
-function Standing({ data }: { data: Board }) {
-  const since = data.period.compared_with
-  const sortLabel = SORTS.find((s) => s.value === data.sort)?.label.toLowerCase() ?? "score"
-
-  if (data.board === "people") {
-    const me = data.me
-    if (!me) {
-      return (
-        <p className="text-base text-fg-muted">
-          {count(data.totals.papers)} papers by {count(data.totals.people_with_papers)} of{" "}
-          {count(data.totals.people)} people in {data.period.label.toLowerCase()}.
-        </p>
-      )
-    }
-    const moved = movementSentence(me.movement, since)
-    // Papers, not the ranked measure: somebody ranked by Q1 with five papers
-    // and no Q1 has papers, and is simply joint last on that measure.
-    const papers = data.rows.find((r) => r.me)?.papers ?? 0
+function Move({ row }: { row: Pick<BoardRow, "move" | "new" | "rank"> }) {
+  if (row.rank == null) return null
+  if (row.new) return <span className="text-xs text-fg-muted">new</span>
+  if (row.move == null) return null
+  if (row.move === 0)
     return (
-      <section className="panel-lead rounded-lg px-4 py-4 sm:px-5" aria-label="Your place">
-        {papers === 0 ? (
-          <>
-            <p className="text-lg font-semibold text-fg">You have no papers counted in this period yet.</p>
-            <Meta className="mt-1 block">
-              {data.period.label}. A paper counts in the period it was published, once it is
-              filed.
-            </Meta>
-          </>
-        ) : (
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-lg font-semibold text-fg">
-                {me.joint ? `You're joint ${ordinal(me.rank)} of ${count(me.of)}` : `You're ${ordinal(me.rank)} of ${count(me.of)}`}
-              </p>
-              <Meta className="mt-1 block">
-                {data.period.label}
-                {data.department ? `, in ${data.department}` : ""}.{moved ? ` ${moved}` : ""}
-              </Meta>
-            </div>
-            <div className="text-right">
-              <Figure className="text-3xl">{count(me.value)}</Figure>
-              <Meta className="block">{sortLabel}</Meta>
-            </div>
-          </div>
-        )}
-      </section>
-    )
-  }
-
-  const me = data.me
-  if (!me) {
-    return (
-      <p className="text-base text-fg-muted">
-        {count(data.totals.papers)} papers across {count(data.totals.departments)} departments in{" "}
-        {data.period.label.toLowerCase()}.
-      </p>
-    )
-  }
-  const moved = movementSentence(me.movement, since)
-  return (
-    <section className="panel-lead rounded-lg px-4 py-4 sm:px-5" aria-label="Your department's place">
-      <p className="text-lg font-semibold text-fg">
-        {me.joint
-          ? `Your department is joint ${ordinal(me.rank)} of ${count(me.of)}`
-          : `Your department is ${ordinal(me.rank)} of ${count(me.of)}`}
-      </p>
-      <Meta className="mt-1 block">
-        {me.department}, {data.period.label.toLowerCase()}
-        {data.per_head ? ", per person" : ""}.{moved ? ` ${moved}` : ""}
-      </Meta>
-    </section>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* The tables                                                               */
-/* ------------------------------------------------------------------------ */
-
-/** Up, down or level — said in words for anybody not reading the colour. */
-function Movement({ value }: { value: number | null }) {
-  if (value === null) {
-    return (
-      <span className="text-fg-subtle" aria-label="No comparison">
-        —
+      <span className="inline-flex items-center text-fg-muted" title="No change">
+        <Minus aria-hidden className="size-3" /><span className="sr-only">no change</span>
       </span>
     )
-  }
-  if (value === 0) {
-    return (
-      <span className="inline-flex items-center justify-end gap-0.5 text-fg-muted" aria-label="No change">
-        <Minus className="size-3.5" aria-hidden />
-      </span>
-    )
-  }
-  const up = value > 0
-  const n = Math.abs(value)
+  const up = row.move > 0
+  const Icon = up ? ArrowUp : ArrowDown
   return (
-    <span
-      className={cn("inline-flex items-center justify-end gap-0.5", up ? "text-positive" : "text-critical")}
-      aria-label={`${up ? "Up" : "Down"} ${places(n)}`}
-    >
-      {up ? <ArrowUp className="size-3.5" aria-hidden /> : <ArrowDown className="size-3.5" aria-hidden />}
-      <span aria-hidden>{n}</span>
+    <span className={cn("inline-flex items-center gap-0.5 text-xs tabular-nums", up ? "text-positive" : "text-critical")}>
+      <Icon aria-hidden className="size-3" />
+      {Math.abs(row.move)}
+      <span className="sr-only">{up ? " places up" : " places down"}</span>
     </span>
   )
 }
 
-function Place({ rank, joint }: { rank: number; joint: boolean }) {
+function breakdownText(r: BoardRow): string {
+  const parts = Object.entries(r.breakdown)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${n}×${k}`)
+  return `${r.papers} paper${r.papers === 1 ? "" : "s"}${parts.length ? `: ${parts.join(", ")}` : ""}`
+}
+
+const MEDAL = ["bg-gold", "bg-[#b4b8bf]", "bg-[#c08a5a]"]
+
+function Podium({ board }: { board: HonoursBoard }) {
+  if (!board.podium.length) return null
+  // Visual order 2 · 1 · 3 on wide screens; 1 first on phones.
+  const order = [1, 0, 2].filter((i) => board.podium[i])
   return (
-    <span className="tabular text-fg-muted" title={joint ? `Joint ${ordinal(rank)}` : undefined}>
-      {joint ? "=" : ""}
-      {rank}
-    </span>
-  )
-}
-
-function YouPill({ children = "You" }: { children?: string }) {
-  return (
-    <span className="ml-2 rounded-sm bg-accent px-1.5 py-0.5 text-xs font-medium text-accent-fg">{children}</span>
-  )
-}
-
-const WIDE = "hidden sm:table-cell"
-
-const TALLY_HEADERS: Record<Sort, string> = {
-  score: "Score",
-  papers: "Papers",
-  q1: "Q1",
-  first_author: "First author",
-}
-
-/**
- * One column per measure. On a phone only the measure being ranked by is
- * shown: four numbers beside a name did not fit 390px, and the one that
- * decides the order is the one the reader needs.
- */
-function tallyColumns<T extends Tally>(sort: Sort): Column<T>[] {
-  return (Object.keys(TALLY_HEADERS) as Sort[]).map((key) => ({
-    key,
-    header: TALLY_HEADERS[key],
-    align: "right" as const,
-    className: key === sort ? undefined : WIDE,
-    headerClassName: key === sort ? undefined : WIDE,
-    cell: (r: T) => count(r[key]),
-  }))
-}
-
-function PeopleTable({
-  data,
-  showAll,
-  onShowAll,
-}: {
-  data: PeopleBoard
-  showAll: boolean
-  onShowAll: () => void
-}) {
-  const shown = showAll
-    ? data.rows
-    : data.rows.filter((r, i) => i < TOP || r.me)
-  const region = useRef<HTMLElement>(null)
-  const myRank = data.me?.rank
-
-  // Bring the reader's own row into the table's view on load — found in the
-  // browser: at joint 11th it sat just under the fold of the table's own
-  // scroll box. Only that box is scrolled, never the page under the reader.
-  useEffect(() => {
-    const row = region.current?.querySelector<HTMLElement>('tr[aria-current="true"]')
-    const box = row?.closest<HTMLElement>(".overflow-auto")
-    if (!row || !box) return
-    const top = row.offsetTop - box.clientHeight / 2 + row.offsetHeight / 2
-    if (row.offsetTop + row.offsetHeight > box.clientHeight) box.scrollTop = Math.max(0, top)
-  }, [myRank, data.sort, data.period.key, data.department])
-
-  const columns: Column<PersonRow>[] = [
-    { key: "rank", header: "#", className: "w-10", cell: (r) => <Place rank={r.rank} joint={r.joint} /> },
-    {
-      key: "name",
-      header: "Name",
-      // Wraps rather than truncating: on a phone a no-wrap name column is
-      // what pushed the score and the movement off the side of the table.
-      className: "min-w-[9rem] whitespace-normal",
-      cell: (r) => (
-        <div className="min-w-0">
-          <Link
-            to={`/u/${r.id}`}
-            className="font-medium text-fg underline-offset-4 hover:text-accent hover:underline"
-          >
-            {r.name}
-          </Link>
-          {r.me && <YouPill />}
-          <Meta className="block text-xs">
-            {[r.department, r.designation].filter(Boolean).join(" · ") || "—"}
-          </Meta>
-        </div>
-      ),
-    },
-    ...tallyColumns<PersonRow>(data.sort),
-    { key: "movement", header: "Move", align: "right", cell: (r) => <Movement value={r.movement} /> },
-  ]
-
-  return (
-    <section ref={region} className="space-y-2" aria-label="People">
-      <Table
-        rows={shown}
-        columns={columns}
-        getKey={(r) => r.id}
-        isCurrent={(r) => r.me}
-        caption={`People ranked by ${data.sort}`}
-        empty="Nobody in this department is on the roster."
-      />
-      {!showAll && data.rows.length > shown.length && (
-        <Button kind="quiet" size="sm" onClick={onShowAll}>
-          Show all {count(data.rows.length)}
-        </Button>
-      )}
-    </section>
-  )
-}
-
-function DepartmentTable({ data }: { data: DepartmentBoard }) {
-  // On a phone, one number beside the department: whichever decides the
-  // order. The total and the per-person figure are both visible from `sm` up.
-  const totals = tallyColumns<DepartmentRow>(data.sort).map((c) =>
-    data.per_head && c.key === data.sort ? { ...c, className: WIDE, headerClassName: WIDE } : c
-  )
-  const perPerson = data.per_head ? undefined : WIDE
-  const columns: Column<DepartmentRow>[] = [
-    { key: "rank", header: "#", className: "w-10", cell: (r) => <Place rank={r.rank} joint={r.joint} /> },
-    {
-      key: "department",
-      header: "Department",
-      cell: (r) => (
-        <span>
-          <span className="font-medium text-fg">{r.department}</span>
-          {r.me && <YouPill>Yours</YouPill>}
-        </span>
-      ),
-    },
-    { key: "people", header: "People", align: "right", className: WIDE, headerClassName: WIDE, cell: (r) => count(r.people) },
-    ...totals,
-    {
-      key: "per_head",
-      header: "Per person",
-      align: "right",
-      className: perPerson,
-      headerClassName: perPerson,
-      cell: (r) => r.per_head[data.sort].toFixed(2),
-    },
-    { key: "movement", header: "Move", align: "right", cell: (r) => <Movement value={r.movement} /> },
-  ]
-  return (
-    <section aria-label="Departments">
-      <Table
-        rows={data.rows}
-        columns={columns}
-        getKey={(r) => r.department}
-        isCurrent={(r) => r.me}
-        caption={`Departments ranked by ${data.sort}${data.per_head ? " per person" : ""}`}
-        empty="No department has anybody on the roster."
-      />
-    </section>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* How it is counted                                                        */
-/* ------------------------------------------------------------------------ */
-
-/**
- * The rules, printed. A ranking whose arithmetic the reader cannot see is a
- * ranking they argue with; one that says "Q1 = 4" is one they can check.
- */
-function HowCounted({ data }: { data: Board }) {
-  const m = data.method
-  const w = m.weights
-  return (
-    <section className="space-y-2 border-t border-line pt-6" aria-label="How this is counted">
-      <SectionTitle className="flex items-center gap-2">
-        <Trophy className="size-4 text-fg-muted" aria-hidden />
-        How this is counted
-      </SectionTitle>
-      <ul className="max-w-3xl list-disc space-y-1.5 pl-5 text-sm text-fg-muted">
-        <li>
-          Score: Q1 = {w.Q1}, Q2 = {w.Q2}, Q3 = {w.Q3}, Q4 = {w.Q4}, any other indexed paper ={" "}
-          {w.other_indexed}, a paper that is not indexed = 0.
-        </li>
-        <li>
-          Papers that are filed, under review, approved or paid count; drafts and rejected claims do
-          not. A paper is counted once however many rows describe it.
-        </li>
-        <li>
-          {count(m.from_claims)} from filed papers and {count(m.from_ledger)} from the payment ledger's
-          history. Ledger papers use the quartile recorded on their own row.
-          {m.left_out > 0
-            ? ` ${count(m.left_out)} rows by people no longer on the roster are left out.`
-            : ""}
-        </li>
-        <li>
-          A paper counts in the period it was published. Where only the year is known, it counts from
-          1 January. The academic year starts on 1 June.
-        </li>
-        <li>First-author counts come from filed papers only; the ledger does not record author order.</li>
-        {!m.citations && <li>Citations are not recorded here, so they are not ranked.</li>}
-        {data.board === "departments" && (
-          <li>
-            A department counts each paper once, however many of its people wrote it. Per person
-            divides by the department's current faculty.
+    <ol aria-label="Podium" className="grid grid-cols-3 items-end gap-2 sm:gap-4">
+      {order.map((i) => {
+        const r = board.podium[i]
+        const first = i === 0
+        return (
+          <li key={r.person.id} className={cn("min-w-0", first ? "order-2" : i === 1 ? "order-1" : "order-3")}>
+            <Link
+              to={`/people/${r.person.id}`}
+              className={cn(
+                "flex flex-col items-center gap-1 rounded-xl bg-paper px-2 text-center shadow-raise ring-1 ring-line",
+                first ? "pb-4 pt-5 sm:pb-6 sm:pt-7" : "pb-3 pt-4"
+              )}
+            >
+              <span className={cn("h-1.5 w-10 rounded-full", MEDAL[i])} aria-hidden />
+              <Avatar person={r.person} size={first ? "xl" : "lg"} />
+              <span className="text-xs text-fg-muted">{r.joint ? `joint ${r.rank}` : `#${r.rank}`}</span>
+              <span className="line-clamp-2 text-sm font-semibold">{r.person.name}</span>
+              <span className="hidden truncate text-xs text-fg-muted sm:block">{r.person.department}</span>
+              <span className="font-display text-2xl tabular-nums" title={breakdownText(r)}>
+                {count(r.value)}
+              </span>
+              <Sparkline values={r.spark} label={`Papers per year, ${board.spark_years[0]}–${board.spark_years.at(-1)}`} className="hidden sm:block" />
+            </Link>
           </li>
-        )}
-        <li>Faculty and heads of department are ranked. Figures refresh every five minutes.</li>
-      </ul>
-    </section>
+        )
+      })}
+    </ol>
   )
 }
+
+function PeopleView({ board }: { board: HonoursBoard }) {
+  const [all, setAll] = useState(false)
+  const shown = all ? board.rows : board.rows.filter((r, i) => i < TOP || isMe(board, r))
+  const myRef = useRef<HTMLTableRowElement | null>(null)
+  const [offscreen, setOffscreen] = useState(false)
+  useEffect(() => {
+    const el = myRef.current
+    if (!el || typeof IntersectionObserver === "undefined") return
+    const io = new IntersectionObserver(([e]) => setOffscreen(!e.isIntersecting))
+    io.observe(el)
+    return () => io.disconnect()
+  }, [shown.length])
+
+  if (board.measure === "rising" && !board.ranked)
+    return <Sub>Nobody has risen yet this period — it starts counting once two periods have papers.</Sub>
+
+  return (
+    <div className="space-y-5">
+      <Podium board={board} />
+      <p className="text-sm text-fg-muted">
+        {count(board.ranked)} of {count(board.population)} people ranked by {board.label.toLowerCase()} ({board.unit}). People with nothing counted are listed without a rank.
+      </p>
+
+      {/* Desktop table */}
+      <div className="hidden overflow-clip rounded-xl ring-1 ring-line sm:block print:block">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-fg-muted">
+              {["#", "Name / department", board.label, "Score", "Papers", "Q1", "First", "Cited", "Trend", "Move"].map((h, i) => (
+                <th key={h} scope="col" className={cn("sticky top-0 z-10 bg-sunken px-3 py-2 font-medium print:static", i >= 2 && i <= 7 && "text-right")}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => {
+              const me = isMe(board, r)
+              return (
+                <tr
+                  key={r.person.id}
+                  ref={me ? myRef : undefined}
+                  aria-current={me ? "true" : undefined}
+                  className={cn("border-t border-line", me && "bg-accent-wash", r.rank == null && "text-fg-muted")}
+                >
+                  <td className="px-3 py-2 tabular-nums">{rankText(r.rank, r.joint)}</td>
+                  <td className="px-3 py-2">
+                    <Link to={`/people/${r.person.id}`} className="flex items-center gap-2 hover:underline">
+                      <Avatar person={r.person} size="sm" className="print:hidden" />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-fg">{r.person.name}{me ? " (you)" : ""}</span>
+                        <span className="block truncate text-xs text-fg-muted">{r.person.department}</span>
+                      </span>
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums" title={breakdownText(r)}>{count(r.value)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.score}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.papers}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.q1}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.first}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.cited}</td>
+                  <td className="px-3 py-2"><Sparkline values={r.spark} /></td>
+                  <td className="px-3 py-2"><Move row={r} /></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Phone list */}
+      <ol className="divide-y divide-line rounded-xl ring-1 ring-line sm:hidden print:hidden">
+        {shown.map((r) => (
+          <li key={r.person.id} className={cn(isMe(board, r) && "bg-accent-wash")}>
+            <Link to={`/people/${r.person.id}`} className="flex items-center gap-3 px-3 py-2">
+              <span className="w-8 shrink-0 text-sm tabular-nums text-fg-muted">{rankText(r.rank, r.joint)}</span>
+              <Avatar person={r.person} size="sm" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{r.person.name}</span>
+                <span className="block truncate text-xs text-fg-muted">{r.person.department}</span>
+              </span>
+              <span className="text-right">
+                <span className="block font-semibold tabular-nums">{count(r.value)}</span>
+                <Move row={r} />
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ol>
+
+      {!all && board.rows.length > TOP ? (
+        <Button kind="quiet" size="sm" onClick={() => setAll(true)} className="print:hidden">
+          Show all {count(board.rows.length)}
+        </Button>
+      ) : null}
+
+      {board.me && offscreen ? <PinnedMe board={board} /> : null}
+    </div>
+  )
+}
+
+function isMe(board: HonoursBoard, r: BoardRow): boolean {
+  return !!board.me && r.person.id === board.me.id
+}
+
+function PinnedMe({ board }: { board: HonoursBoard }) {
+  const me = board.me!
+  return (
+    <div
+      role="status"
+      className="sticky bottom-3 z-20 flex items-center gap-3 rounded-xl bg-brand px-4 py-2 text-sm text-brand-fg shadow-float print:hidden"
+    >
+      <span className="font-semibold tabular-nums">{rankText(me.rank, me.joint)}</span>
+      <span className="flex-1">Your place</span>
+      <span className="tabular-nums">{count(me.value)} {board.unit}</span>
+    </div>
+  )
+}
+
+function DepartmentsView({ board }: { board: HonoursBoard }) {
+  const [perFaculty, setPerFaculty] = useState(true)
+  const points = board.departments.map((d) => ({ key: d.department, count: perFaculty ? d.per_faculty : d.value }))
+  return (
+    <div className="space-y-5">
+      <div className="flex gap-2 print:hidden" role="group" aria-label="Normalise">
+        <Button size="sm" kind={perFaculty ? "primary" : "quiet"} onClick={() => setPerFaculty(true)}>Per faculty member</Button>
+        <Button size="sm" kind={!perFaculty ? "primary" : "quiet"} onClick={() => setPerFaculty(false)}>Total</Button>
+      </div>
+      <RankedBars
+        title={`${board.label} by department${perFaculty ? ", per faculty member" : ""}`}
+        caption={perFaculty ? "Divided by each department's head-count, so small departments compare fairly." : undefined}
+        dimension="Department"
+        points={points}
+        limit={20}
+        showAmounts={false}
+      />
+      <div className="overflow-x-auto rounded-xl ring-1 ring-line">
+        <table className="w-full min-w-[34rem] text-sm">
+          <thead>
+            <tr className="text-left text-xs text-fg-muted">
+              {["#", "Department", "Faculty", board.label, "Per faculty", "Papers", "Papers / faculty", "5 years"].map((h) => (
+                <th key={h} scope="col" className="sticky top-0 bg-sunken px-3 py-2 font-medium">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[...board.departments].sort((a, b) => (perFaculty ? b.per_faculty - a.per_faculty : b.value - a.value)).map((d) => (
+              <tr key={d.department} className="border-t border-line">
+                <td className="px-3 py-2 tabular-nums">{perFaculty ? d.rank_per_faculty ?? "—" : d.rank ?? "—"}</td>
+                <td className="px-3 py-2 font-medium">{d.department}</td>
+                <td className="px-3 py-2 tabular-nums">{d.faculty}</td>
+                <td className="px-3 py-2 tabular-nums">{count(d.value)}</td>
+                <td className="px-3 py-2 tabular-nums">{d.per_faculty}</td>
+                <td className="px-3 py-2 tabular-nums">{d.papers}</td>
+                <td className="px-3 py-2 tabular-nums">{d.papers_per_faculty}</td>
+                <td className="px-3 py-2"><Sparkline values={d.trend.map((t) => t.papers)} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function TrendView({ board }: { board: HonoursBoard }) {
+  return (
+    <div className="grid gap-5 lg:grid-cols-2">
+      <Trend
+        title={`Papers by year · ${board.scope ?? "whole college"}`}
+        dimension="Year"
+        points={board.college_trend.map((t) => ({ key: String(t.year), count: t.papers }))}
+        showAmounts={false}
+        className="lg:col-span-2"
+      />
+      <RankedBars title="Top topics this period" dimension="Topic" points={board.top_topics.map((t) => ({ key: t.topic, count: t.papers }))} showAmounts={false} />
+      <RankedBars title="Top journals this period" dimension="Journal" points={board.top_journals.map((t) => ({ key: t.journal, count: t.papers }))} showAmounts={false} />
+    </div>
+  )
+}
+
+function ChartView({ board }: { board: HonoursBoard }) {
+  const me = board.me
+  const mark = me ? board.distribution.find((d) => (me.value <= 0 ? d.bucket === "0" : d.lo != null && me.value >= d.lo && me.value <= d.hi))?.bucket : undefined
+  return (
+    <div className="space-y-3">
+      <Distribution
+        title={`How ${board.label.toLowerCase()} is spread`}
+        caption={me?.percentile != null ? `You're in the top ${me.percentile}% of ${board.scope ?? "the college"}.` : undefined}
+        dimension={board.unit}
+        points={board.distribution.map((d) => ({ key: d.bucket, count: d.count }))}
+        mark={mark}
+        showAmounts={false}
+      />
+    </div>
+  )
+}
+
+function HowCounted({ board }: { board: HonoursBoard | undefined }) {
+  const w = board?.method.weights
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <Button kind="quiet" size="sm"><Info aria-hidden className="size-4" /> How it's counted</Button>
+      </SheetTrigger>
+      <SheetContent>
+        <SheetHeader>
+          <SheetTitle>How it's counted</SheetTitle>
+          <SheetDescription>From the college's publication record — the same papers as Home and My papers.</SheetDescription>
+        </SheetHeader>
+        <SheetBody className="space-y-3 text-sm">
+          <SectionTitle>Score</SectionTitle>
+          <p>{w ? `Q1 = ${w.Q1}, Q2 = ${w.Q2}, Q3 = ${w.Q3}, Q4 = ${w.Q4}, any other indexed paper = ${w.other}.` : "Q1 = 4, Q2 = 3, Q3 = 2, Q4 = 1, other = 1."}</p>
+          <SectionTitle>Categories</SectionTitle>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>Most improved: score this period minus the period before.</li>
+            <li>Collaborative: distinct co-authors. Cross-department: papers with a colleague from another department. International: papers with a co-author abroad.</li>
+            <li>Newcomers: first paper within the last {board?.method.newcomer_months ?? 24} months.</li>
+            <li>h-index and citations use the citation counts in the record.</li>
+          </ul>
+          <SectionTitle>Ties and zeros</SectionTitle>
+          <p>Equal figures share a rank, shown as “=4”. People with nothing counted in the period are listed without a rank, so zeros never make a tie.</p>
+          <p className="text-fg-muted">No money is shown on any leaderboard.</p>
+        </SheetBody>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+export default Leaderboard

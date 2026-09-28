@@ -44,6 +44,7 @@ from core.models import (
     ResearchGoal,
     Role,
     User,
+    WallCheer,
     WallPin,
 )
 from core.services import achievements, impact_card, records
@@ -496,15 +497,35 @@ def _card(key: str, group: list[records.PaperRecord], pinned_key: Optional[str])
     for r in group:
         who = r.user_id or f"name:{r.author_name.lower()}"
         authors.setdefault(who, {"id": r.user_id, "name": r.author_name, "department": r.department})
+    departments = sorted({(r.department or "").strip() for r in group if (r.department or "").strip()}, key=str.lower)
     return {
         "key": key,
         "title": lead.title,
         "journal": lead.journal,
         "quartile": min(quartiles) if quartiles else None,
         "year": lead.year,
+        "doi": lead.doi,
+        "claim_id": lead.claim_id,
         "authors": sorted(authors.values(), key=lambda a: a["name"].lower()),
+        "departments": departments,
         "pinned": key == pinned_key,
+        "featured": key == pinned_key,
     }
+
+
+def _with_cheers(board: dict[str, Any], viewer: User) -> dict[str, Any]:
+    """Each card's congratulations: how many, and whether the reader gave one."""
+    keys = [c["key"] for c in board["cards"]]
+    counts: dict[str, int] = defaultdict(int)
+    mine: set[str] = set()
+    for key, uid in WallCheer.objects.filter(paper_key__in=keys).values_list("paper_key", "user_id"):
+        counts[key] += 1
+        if uid == viewer.id:
+            mine.add(key)
+    for c in board["cards"]:
+        c["reaction_count"] = counts[c["key"]]
+        c["me_reacted"] = c["key"] in mine
+    return board
 
 
 def _wall(department: str, month: Optional[date]) -> dict[str, Any]:
@@ -547,8 +568,37 @@ def _departments() -> list[str]:
 @api.get("/wall", auth=session_auth)
 def wall(request: HttpRequest, department: str = "", month: Optional[str] = None):
     """A month of new publications, for one department or the whole college."""
-    require_user(request)
-    return {**_wall(department, _month(month)), "departments": _departments()}
+    user = require_user(request)
+    board = _with_cheers(_wall(department, _month(month)), user)
+    return hod.without_money({**board, "departments": _departments()})
+
+
+class CheerIn(Schema):
+    key: str
+
+
+def _cheer_state(key: str, viewer: User) -> dict[str, Any]:
+    rows = WallCheer.objects.filter(paper_key=key)
+    return {"key": key, "reaction_count": rows.count(), "me_reacted": rows.filter(user=viewer).exists()}
+
+
+@api.post("/wall/cheer", auth=session_auth)
+def cheer_paper(request: HttpRequest, payload: CheerIn):
+    """Congratulate the authors of a wall paper. Once per person; again is a no-op."""
+    user = require_user(request)
+    key = (payload.key or "").strip()
+    if not key or key not in _papers():
+        raise HttpError(404, "That paper is not on the wall.")
+    rate_limit_for(user, "wall_cheer", 300, "hour", what="congratulating")
+    WallCheer.objects.get_or_create(paper_key=key, user=user)
+    return _cheer_state(key, user)
+
+
+@api.delete("/wall/cheer", auth=session_auth)
+def uncheer_paper(request: HttpRequest, key: str):
+    user = require_user(request)
+    WallCheer.objects.filter(paper_key=key.strip(), user=user).delete()
+    return _cheer_state(key.strip(), user)
 
 
 def _may_pin(user: User, department: str) -> bool:
@@ -614,5 +664,7 @@ __all__ = [
     "shared_impact_page",
     "wall",
     "pin_paper",
+    "cheer_paper",
+    "uncheer_paper",
     "unpin_paper",
 ]

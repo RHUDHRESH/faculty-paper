@@ -39,7 +39,7 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AttachmentKind, AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, FormulaConfig, Notification, Role, ScimagoJournal, SnipSource, Team, User
-from core.services import achievements, rbac
+from core.services import achievements, rbac, validation
 from core.services.normalize import normalize_issn
 from core.services.record_dates import claim_record
 from core.services.student_projects import StudentProjectRefusal, check_student_project
@@ -232,6 +232,7 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
 
     claim = Claim(owner=owner)
     _apply_faculty_payload(claim, payload)
+    validation.as_http(validation.check_claim, claim)
     _bind_identity_from_user(claim, owner, payload)
 
     paid_check = check_already_paid(
@@ -504,6 +505,7 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
     attachments = _validated_attachments(payload)
     ticked = filing_conditions.validate(payload.confirmations) if payload.submit else None
     _apply_faculty_payload(claim, payload)
+    validation.as_http(validation.check_claim, claim)
     _bind_identity_from_user(claim, user, payload)
     paid_check = check_already_paid(
         title=claim.paper_title,

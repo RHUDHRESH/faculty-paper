@@ -3,6 +3,7 @@ import uuid
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -224,6 +225,20 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["name"]
 
+    class Meta:
+        constraints = [
+            # Sign-in lowercases what is typed; two accounts differing only in
+            # case would make one of them unreachable (migration 0062).
+            models.UniqueConstraint(Lower("email"), name="user_email_ci_unique"),
+            # One staff id, one person: the ledger and the ERP import attribute
+            # money by it.
+            models.UniqueConstraint(
+                fields=["staff_id"],
+                condition=models.Q(staff_id__isnull=False) & ~models.Q(staff_id=""),
+                name="user_staff_id_unique",
+            ),
+        ]
+
     def __str__(self):
         return self.email
 
@@ -256,7 +271,8 @@ class Budget(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["financial_year", "department"], name="one_budget_per_slice"
-            )
+            ),
+            models.CheckConstraint(condition=models.Q(amount__gte=0), name="budget_amount_non_negative"),
         ]
         ordering = ["-financial_year", "department"]
 
@@ -568,6 +584,22 @@ class FormulaConfig(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            # The calculator reads "the" active formula; two would make which
+            # one priced a claim an accident of ordering.
+            models.UniqueConstraint(
+                fields=["active"], condition=models.Q(active=True), name="one_active_formula"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(snip_multiplier__gte=0, snip_cap__gte=0, qf_q1__gte=0, qf_q2__gte=0,
+                                   qf_q3__gte=0, qf_q4__gte=0, fixed_journal_no_snip__gte=0,
+                                   fixed_other_no_snip__gte=0, fixed_web_of_science__gte=0,
+                                   high_value_threshold__gte=0, student_project_amount__gte=0),
+                name="formula_amounts_non_negative",
+            ),
+        ]
+
 
 class PriorImport(models.Model):
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
@@ -834,6 +866,15 @@ class Claim(models.Model):
             models.UniqueConstraint(
                 fields=["owner", "publication_year", "quota_position"],
                 name="uniq_claim_quota_slot_per_owner_year",
+            ),
+            # Money and author counts that cannot be (migration 0062).
+            models.CheckConstraint(
+                condition=models.Q(remuneration__isnull=True) | models.Q(remuneration__gte=0),
+                name="claim_remuneration_non_negative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(total_authors__gte=1) & models.Q(author_position__gte=1),
+                name="claim_author_counts_positive",
             ),
         ]
 
@@ -2678,6 +2719,9 @@ class Authorship(models.Model):
 
     class Meta:
         ordering = ["publication_id", "position"]
+        # (user, publication, position) was tried in 0062 and dropped: it saved
+        # 0.6 ms on a person's papers and made the external-author search 3x
+        # slower on SQLite (ordered walk over scattered rows).
         indexes = [models.Index(fields=["user", "publication"], name="authorship_user_pub")]
 
     def __str__(self):

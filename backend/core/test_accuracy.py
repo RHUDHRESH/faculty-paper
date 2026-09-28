@@ -207,3 +207,34 @@ class ScopusSyncTests(TestCase):
         self.assertEqual(Authorship.objects.filter(user=u).count(), 26)
         P.match_authors()
         self.assertEqual(Authorship.objects.filter(user=u).count(), 26)
+
+
+class MergedNamesakeTests(TestCase):
+    """OpenAlex filed a TNAU "R. Subhashini" under the same author id as ours."""
+
+    def setUp(self):
+        self.u = mk("Dr. R. Subhashini")
+        self.ours = pub("Our college paper on graph labelling methods")
+        self.theirs = pub("Soil microbiology paper from an agricultural college")
+        self.theirs_row = Authorship.objects.create(
+            publication=self.theirs, position=1, display_name="R. Subhashini", author_key="A7",
+            openalex_author_id="A7", raw_affiliation="Agricultural College and Research Institute, TNAU")
+
+    def test_name_only_match_does_not_carry_outside_the_college(self):
+        Authorship.objects.create(publication=self.ours, position=1, display_name="R. Subhashini", author_key="A7",
+                                  openalex_author_id="A7", is_college=True)
+        P.match_authors()
+        self.assertEqual(Authorship.objects.get(publication=self.ours).user, self.u)
+        self.theirs_row.refresh_from_db()
+        self.assertIsNone(self.theirs_row.user)
+
+    def test_scopus_synced_member_keeps_only_confirmed_outside_papers(self):
+        from django.utils import timezone
+
+        Authorship.objects.create(publication=self.ours, position=1, display_name="R. Subhashini", author_key="A7",
+                                  openalex_author_id="A7", is_college=True, user=self.u,
+                                  match_method="scopus", match_confidence=0.97)
+        User.objects.filter(id=self.u.id).update(scopus_synced_at=timezone.now())
+        P.match_authors()
+        self.theirs_row.refresh_from_db()
+        self.assertIsNone(self.theirs_row.user)

@@ -543,7 +543,7 @@ INFERRED = ("orcid", "alias", "author_id", "name", "name_dept")
 
 
 def _people() -> list[User]:
-    return list(User.objects.filter(active=True).only("id", "name", "department", "orcid_id"))
+    return list(User.objects.filter(active=True).only("id", "name", "department", "orcid_id", "scopus_synced_at"))
 
 
 class _NameIndex:
@@ -670,25 +670,43 @@ def match_authors() -> dict[str, Any]:
                 if u:
                     Authorship.objects.filter(id=row.id).update(user=u, match_confidence=0.9, match_method="alias")
 
+        #: Evidence strong enough to carry an OpenAlex author id onto papers
+        #: outside the college. OpenAlex merges namesakes ("R. Subhashini" at
+        #: TNAU and at SEC under one id), so a name-only match may label only
+        #: college rows, and a member whose Scopus list has been synced keeps
+        #: only the outside papers Scopus confirms.
+        strong_methods = ("orcid", "record", "scopus", "scopus_id", "scopus_sheet", "manual", "alias")
+        scopus_pubs: dict[str, set[str]] = {}
+        for pid, uid in Authorship.objects.filter(match_method="scopus", user__isnull=False).values_list(
+            "publication_id", "user_id"
+        ):
+            scopus_pubs.setdefault(uid, set()).add(pid)
+
         def propagate() -> int:
             owners: dict[str, set[str]] = {}
-            for aid, uid in (
+            strong: dict[str, set[str]] = {}
+            for aid, uid, method in (
                 Authorship.objects.filter(user__isnull=False, match_confidence__gte=0.75)
-                .exclude(openalex_author_id="").values_list("openalex_author_id", "user_id")
+                .exclude(openalex_author_id="").values_list("openalex_author_id", "user_id", "match_method")
             ):
                 owners.setdefault(aid, set()).add(uid)
+                if method in strong_methods:
+                    strong.setdefault(aid, set()).add(uid)
             done = 0
             for row in (
                 Authorship.objects.filter(user__isnull=True, match_locked=False, openalex_author_id__in=list(owners))
-                .only("id", "openalex_author_id", "display_name")
+                .only("id", "openalex_author_id", "display_name", "is_college", "publication_id")
             ):
-                uids = owners[row.openalex_author_id]
-                if len(uids) != 1:
+                uids = owners[row.openalex_author_id] if row.is_college else strong.get(row.openalex_author_id, set())
+                if len(uids) != 1 or len(owners[row.openalex_author_id]) != 1:
                     continue
                 u = by_id.get(next(iter(uids)))
-                if u and name_score(row.display_name, u.name) >= 0.85:
-                    Authorship.objects.filter(id=row.id).update(user=u, match_confidence=0.9, match_method="author_id")
-                    done += 1
+                if not u or name_score(row.display_name, u.name) < 0.85:
+                    continue
+                if not row.is_college and u.scopus_synced_at and row.publication_id not in scopus_pubs.get(u.id, ()):
+                    continue
+                Authorship.objects.filter(id=row.id).update(user=u, match_confidence=0.9, match_method="author_id")
+                done += 1
             return done
 
         propagated = propagate()

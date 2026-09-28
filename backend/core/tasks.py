@@ -247,3 +247,19 @@ def run_restore(saved_path: str, actor_id: str | None = None) -> dict:
         actor=actor, action="RESTORE_DONE", entity="Export", detail_json=str(counts)[:2000]
     )
     return {"ok": True, **counts}
+
+
+def run_integrity_audit() -> dict:
+    """Nightly: the data-health audit, kept for GET /api/admin/data-health."""
+    from core.services import integrity
+
+    report = integrity.run_and_store()
+    return {"ok": True, "problems": report["problems"], "seconds": report["seconds"]}
+
+
+def run_stored_backup(kind: str = "auto") -> dict:
+    """Weekly, and on demand from the data-health page: a full backup kept in
+    the database's own file store (the newest four)."""
+    from core.services import backup
+
+    return backup.store_weekly(kind)

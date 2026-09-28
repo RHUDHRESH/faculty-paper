@@ -73,6 +73,7 @@ const Faults = page(() => import("@/pages/audit"), "Faults")
 const Authorisations = page(() => import("@/pages/authorisations"), "Authorisations")
 const Clearing = page(() => import("@/pages/clearing"), "Clearing")
 const Data = page(() => import("@/pages/data"), "Data")
+const DataHealth = page(() => import("@/pages/data-health"), "DataHealth")
 const Department = page(() => import("@/pages/department"), "Department")
 const Collaborate = page(() => import("@/pages/collaborate"), "Collaborate")
 const Discover = page(() => import("@/pages/discover"), "Discover")
@@ -189,6 +190,7 @@ const PRELOADS: [string, Page][] = [
   ["/imports", Imports],
   ["/batches/:id", Batch],
   ["/batches", Batches],
+  ["/data/health", DataHealth],
   ["/data", Data],
   ["/me", Profile],
 ]
@@ -377,6 +379,7 @@ function App() {
           <Route path="/imports" element={<Imports />} />
           <Route path="/batches" element={<Batches />} />
           <Route path="/batches/:id" element={<Batch />} />
+          <Route path="/data/health" element={<DataHealth />} />
           <Route path="/data" element={<Data />} />
           <Route path="/me" element={<Profile />} />
           <Route path="/wall" element={<WallOfFame />} />

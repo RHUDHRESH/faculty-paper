@@ -53,6 +53,7 @@ import {
   type CarriedEvidence,
   type FilingRules,
   type FormState,
+  type PaperEvidence,
   type PatchForm,
   type PriorCheckResult,
   type VerifyResult,
@@ -518,6 +519,12 @@ export function FilePaper() {
   )
   const [method, setMethod] = useState<Method | null>(null)
   const [picked, setPicked] = useState<PulledPaper | null>(null)
+  // What the record says about the picked paper, for the three conditions.
+  const { data: paperEvidence } = useApi<PaperEvidence>(
+    ["me", "publication-evidence", picked?.publication_id],
+    `/api/me/publications/${picked?.publication_id}/evidence`,
+    { enabled: !!picked?.publication_id, retry: false }
+  )
 
   // The draft id is read from the ref by the autosave timer and the save
   // handler; the state half only re-renders once when the draft gets an id.
@@ -1400,11 +1407,37 @@ export function FilePaper() {
     const eid = picked?.eid || (lookupRes?.ok ? lookupRes.paper?.eid : null) || null
     const position = picked?.author_position && picked.total_authors ? `author ${picked.author_position} of ${picked.total_authors}` : null
     const priorHit = priorCheck?.warning ? priorCheck.matches[0] : null
+    const ev = paperEvidence && paperEvidence.publication_id === picked?.publication_id ? paperEvidence : null
+    const rival = ev?.existing_claim && ev.existing_claim.id !== claimIdRef.current ? ev.existing_claim : null
+    const ledgerPaid = ev?.paid_ledger ?? null
+    const affiliation = ev
+      ? ev.affiliation_found
+        ? " Your affiliation on it reads as this college."
+        : " We could not find this college in your affiliation on it."
+      : ""
     const evidence: Record<string, ConditionEvidence> = {
       indexed: eid
-        ? { tone: "positive", text: `✓ Scopus EID ${eid} lists this article${position ? ` (you are ${position})` : ""}.` }
-        : { tone: "neutral", text: "We could not confirm it from here. Check your Scopus Author Profile before ticking." },
-      "no-duplicate": priorHit
+        ? {
+            tone: "positive",
+            text: `✓ Scopus EID ${eid} lists this article${position ? ` (you are ${position})` : ""}.${affiliation}`,
+          }
+        : ev
+          ? {
+              tone: "neutral",
+              text: `${ev.openalex_id ? "OpenAlex lists you on this article" : "Your record lists you on this article"}${ev.my_position ? ` (author ${ev.my_position} of ${ev.total_authors})` : ""}, but no Scopus EID is on file. Check your Scopus Author Profile before ticking.${affiliation}`,
+            }
+          : { tone: "neutral", text: "We could not confirm it from here. Check your Scopus Author Profile before ticking." },
+      "no-duplicate": rival
+        ? {
+            tone: "critical",
+            text: `A claim for this article was filed${rival.owner ? ` by ${rival.is_mine ? "you" : rival.owner}` : ""} on ${new Date(rival.filed_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}${rival.ticket_number ? `, ${rival.ticket_number}` : ""}.`,
+          }
+        : ledgerPaid
+          ? {
+              tone: "critical",
+              text: `This article is on the paid ledger${ledgerPaid.paid_month ? ` (paid ${ledgerPaid.paid_month})` : ""}.`,
+            }
+          : priorHit
         ? {
             tone: "critical",
             text: `A claim for this article is on record${priorHit.who ? ` by ${priorHit.who}` : ""}${priorHit.when ? ` (${priorHit.when})` : ""}${priorHit.reference ? `, ${priorHit.reference}` : ""}.`,
@@ -1443,7 +1476,32 @@ export function FilePaper() {
           }
           evidence={evidence}
           blocked={
-            priorHit ? (
+            rival ? (
+              <>
+                <p className="font-medium">This article already has a claim — open it instead.</p>
+                <p className="mt-1 text-sm text-fg-muted">
+                  One claim per article.{" "}
+                  <Link to={`/papers/${rival.id}`} className="font-medium text-accent underline underline-offset-2">
+                    Open {rival.ticket_number ?? "the claim"}
+                  </Link>
+                </p>
+              </>
+            ) : ledgerPaid ? (
+              <>
+                <p className="font-medium">This article has already been paid.</p>
+                <p className="mt-1 text-sm text-fg-muted">
+                  It is on the paid ledger{ledgerPaid.paid_month ? ` for ${ledgerPaid.paid_month}` : ""}, so it cannot be claimed again.
+                  {ledgerPaid.claim_id && (
+                    <>
+                      {" "}
+                      <Link to={`/papers/${ledgerPaid.claim_id}`} className="font-medium text-accent underline underline-offset-2">
+                        Open the claim
+                      </Link>
+                    </>
+                  )}
+                </p>
+              </>
+            ) : priorHit ? (
               <>
                 <p className="font-medium">This article already has a claim — open it instead.</p>
                 <p className="mt-1 text-sm text-fg-muted">

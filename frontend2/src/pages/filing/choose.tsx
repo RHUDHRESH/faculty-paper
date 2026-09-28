@@ -28,6 +28,9 @@ export type PulledPaper = {
   already_claimed: boolean
   claim_id: string | null
   claim_status: string | null
+  /** Paid through the ledger (often before this app), with or without a claim. */
+  on_paid_ledger?: boolean
+  paid_month?: string | null
 }
 
 export type ScopusPull = { count: number; unclaimed: number; papers: PulledPaper[] }
@@ -252,6 +255,11 @@ function Picker({
                       <span className="line-clamp-1 text-sm">{p.title}</span>
                       <span className="text-xs text-fg-muted">{[p.venue, p.year].filter(Boolean).join(" · ")}</span>
                     </span>
+                    {p.on_paid_ledger && !p.claim_id && (
+                      <span className="shrink-0 text-xs text-fg-muted">
+                        Paid{p.paid_month ? ` ${p.paid_month}` : ""} · on the ledger
+                      </span>
+                    )}
                     {p.claim_id && (
                       <Link to={`/papers/${p.claim_id}`} className="shrink-0 text-sm font-medium text-accent hover:underline">
                         View claim

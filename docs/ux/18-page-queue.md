@@ -51,10 +51,10 @@ own worktree, reviewed on screen by the orchestrator before merge.
 |---|---|---|---|
 | 1 | Research scout + Discover | /scout /discover | done |
 | 2 | Leaderboard + Calendar | /leaderboard /wall /calendar | done |
-| 3 | Messages + Discussions | /messages/* /discussions/* | done (composer follow-up in flight) |
+| 3 | Messages + Discussions + composer | /messages/* /discussions/* | done |
 | 4 | Who to work with | /collaborate | done |
 | 5 | Your circle (map) | /collaborate?view=map | done |
-| 6 | File a paper, every step + receipt + edit | /papers/new /papers/:id/edit | in flight |
+| 6 | File a paper, every step + receipt + edit | /papers/new /papers/:id/edit | done |
 | 7 | Flows check, every role end to end | all | done (quota + FYP e2e later) |
 | 8 | Paper detail + claims list | /papers/:id /papers/claims | done |
 | 9 | My papers | /papers | done |
@@ -63,12 +63,12 @@ own worktree, reviewed on screen by the orchestrator before merge.
 | 12 | Profile (public + own) | /u/:id /me | done |
 | 13 | Search | /search | done |
 | 14 | Notifications + notification settings | /notifications /settings/notifications | done |
-| 15 | Sign in, password, privacy, 404 | * /privacy | in flight |
+| 15 | Sign in, password, privacy, 404 | * /privacy | done |
 | 16 | Clearing queue + claim review | /clearing | in flight |
 | 17 | Approvals (Principal) | /approvals | in flight |
 | 18 | Authorisations (Director) | /authorisations | in flight |
 | 19 | Payments + done | /payments /payments/done | in flight |
-| 20 | Department (HOD) | /department | queued |
+| 20 | Department (HOD) | /department | in flight |
 | 21 | People + person + author matches | /people /people/:id /people/matches | queued |
 | 22 | Reports + report builder | /reports /reports/build | queued |
 | 23 | Ledger | /ledger | queued |

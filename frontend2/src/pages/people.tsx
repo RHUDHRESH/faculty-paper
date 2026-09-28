@@ -1575,7 +1575,7 @@ function AccountForm({
               View the app as {firstName(data.name) || "them"}
             </Button>
           )}
-          {isSuperAdmin && (
+          {(
             <Button type="button" kind="quiet" size="sm" asChild>
               <Link to="/people/matches?tab=duplicates">
                 <Users />

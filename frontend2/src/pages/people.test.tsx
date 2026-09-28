@@ -209,6 +209,24 @@ describe("AccountEditor — the role", () => {
   })
 })
 
+describe("AccountEditor — who may appoint what", () => {
+  it("offers the office no role that decides whether money moves", async () => {
+    mountPerson(CELL)
+    const { user, dialog } = await openEditor()
+    await user.click(within(dialog).getByLabelText("Role"))
+    expect(screen.queryByRole("option", { name: "Finance" })).toBeNull()
+    expect(screen.queryByRole("option", { name: "Super admin" })).toBeNull()
+    expect(screen.getByRole("option", { name: "Research coordinator" })).toBeInTheDocument()
+  })
+
+  it("offers a super admin every role", async () => {
+    mountPerson(SUPER_ADMIN)
+    const { user, dialog } = await openEditor()
+    await user.click(within(dialog).getByLabelText("Role"))
+    expect(screen.getByRole("option", { name: "Finance" })).toBeInTheDocument()
+  })
+})
+
 describe("AccountEditor — switching a head off", () => {
   it("is never held up by the one-head rule: an account switched off holds no post", async () => {
     mountPerson(SUPER_ADMIN, account({ role: "HOD", department: "" }))

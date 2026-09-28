@@ -70,4 +70,30 @@ describe("Author matches", () => {
       expect(vi.mocked(api)).toHaveBeenCalledWith("/api/admin/author-matches/rerun", { method: "POST", json: {} })
     )
   })
+
+  it("accepts the first suggestion from the keyboard", async () => {
+    const user = mount()
+    const row = await screen.findByRole("listitem", { name: /G. Lavanya, 7 papers/ })
+    row.focus()
+    await user.keyboard("a")
+    await waitFor(() =>
+      expect(vi.mocked(api)).toHaveBeenCalledWith("/api/admin/author-matches/decide", {
+        method: "POST",
+        json: { key: "g lavanya", status: "MATCHED", user_id: "u-l" },
+      })
+    )
+  })
+
+  it("rejects with r", async () => {
+    const user = mount()
+    const row = await screen.findByRole("listitem", { name: /G. Lavanya/ })
+    row.focus()
+    await user.keyboard("r")
+    await waitFor(() =>
+      expect(vi.mocked(api)).toHaveBeenCalledWith("/api/admin/author-matches/decide", {
+        method: "POST",
+        json: { key: "g lavanya", status: "NOT_ROSTER" },
+      })
+    )
+  })
 })

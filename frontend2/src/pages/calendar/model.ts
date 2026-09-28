@@ -40,7 +40,7 @@ export type EventRow = {
 /** A date the record already holds. Never editable here. */
 export type RecordRow = {
   id: string
-  kind: "PAID" | "PUBLISHED" | "FILED" | "CUTOFF" | "PAYOUT" | "COLLEAGUE" | "SCOUT"
+  kind: "PAID" | "PUBLISHED" | "FILED" | "CUTOFF" | "PAYOUT" | "COLLEAGUE" | "SCOUT" | "DEPT"
   kind_label: string
   title: string
   starts_on: string
@@ -116,7 +116,7 @@ export function toItems(data: CalendarPayload | undefined): CalItem[] {
     end: r.starts_on,
     startTime: null,
     endTime: null,
-    layer: r.kind === "CUTOFF" || r.kind === "PAYOUT" ? "college" : r.kind === "COLLEAGUE" ? "colleagues" : "papers",
+    layer: r.kind === "CUTOFF" || r.kind === "PAYOUT" || r.kind === "DEPT" ? "college" : r.kind === "COLLEAGUE" ? "colleagues" : "papers",
     record: r,
   }))
   return [...events, ...record].sort(
@@ -146,6 +146,7 @@ export const KIND_STYLE: Record<string, KindStyle> = {
   PAYOUT: { icon: IndianRupee, colour: "var(--color-positive)" },
   COLLEAGUE: { icon: Sparkles, colour: PEOPLE },
   SCOUT: { icon: Telescope, colour: "var(--color-gold, #b8860b)" },
+  DEPT: { icon: AlarmClock, colour: "var(--area-time)" },
   PUBLISHED: { icon: FileText, colour: RECORD },
   FILED: { icon: FileText, colour: RECORD },
   REMINDER: { icon: Bell, colour: "var(--color-fg-muted)" },

@@ -11,6 +11,7 @@ import {
 
 import { can, useAuth } from "@/app/auth"
 import { useApi } from "@/lib/query"
+import { Avatar, initialsOf } from "@/ui/person"
 import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
@@ -72,6 +73,7 @@ type SearchRow = {
   status: string
   owner_name: string
   owner_department: string | null
+  owner_photo_url?: string | null
   quartile: string | null
   remuneration: number | null
   remuneration_is_estimate: boolean
@@ -303,9 +305,15 @@ function GeneralQuery() {
       header: "Faculty",
       className: "max-w-[14rem]",
       cell: (r) => (
-        <span className="block truncate text-sm">
-          {r.owner_name}
-          {r.owner_department && <Meta className="ml-1.5">{r.owner_department}</Meta>}
+        <span className="flex min-w-0 items-center gap-2 text-sm">
+          <Avatar
+            person={{ name: r.owner_name, initials: initialsOf(r.owner_name), photo_url: r.owner_photo_url ?? null }}
+            size="xs"
+          />
+          <span className="min-w-0 truncate">
+            {r.owner_name}
+            {r.owner_department && <Meta className="ml-1.5">{r.owner_department}</Meta>}
+          </span>
         </span>
       ),
     },
@@ -558,9 +566,15 @@ function SearchCard({ row, seeMoney }: { row: SearchRow; seeMoney: boolean }) {
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
             <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
-            <Meta className="mt-0.5 block truncate">
-              {[row.owner_name, row.owner_department, row.ticket_number].filter(Boolean).join(" · ")}
-            </Meta>
+            <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
+              <Avatar
+                person={{ name: row.owner_name, initials: initialsOf(row.owner_name), photo_url: row.owner_photo_url ?? null }}
+                size="xs"
+              />
+              <Meta className="block truncate">
+                {[row.owner_name, row.owner_department, row.ticket_number].filter(Boolean).join(" · ")}
+              </Meta>
+            </span>
           </span>
           {seeMoney && (
             <span className="shrink-0 text-right">

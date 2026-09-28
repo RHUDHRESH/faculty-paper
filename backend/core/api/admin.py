@@ -21,7 +21,7 @@ import json
 from datetime import date
 from typing import Optional
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, Sum, Value, When
+from django.db.models import Max, Case, IntegerField, Q, Sum, Value, When
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -521,7 +521,13 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
 
     with transaction.atomic():
         prev = FormulaConfig.objects.filter(active=True).order_by("-version").first()
-        next_version = (prev.version + 1) if prev else 1
+        # With no stored row the college is priced from the built-in rates,
+        # which every screen calls v1 -- the editor says "retires v1, makes v2
+        # active" and asks the admin to type v2. Saving that as version 1 gave
+        # two different policies the same number. Never reuse a number either:
+        # count on from the highest version ever stored.
+        highest = FormulaConfig.objects.aggregate(m=Max("version"))["m"] or 0
+        next_version = max(highest, prev.version if prev else 1) + 1
         student_project_amount = (
             payload.student_project_amount
             if payload.student_project_amount is not None
@@ -699,6 +705,13 @@ def admin_audit_csv(
     qs = _audit_queryset(user, q, action, person, claim, date_from, date_to)
     buf = io.StringIO()
     w = csv.writer(buf)
+    total = qs.count()
+    truncated = total > AUDIT_CSV_CAP
+    if truncated:
+        w.writerow([
+            f"Truncated: this file holds the newest {AUDIT_CSV_CAP:,} of {total:,} "
+            "matching rows. Narrow the dates to export the rest."
+        ])
     w.writerow(["When", "Who", "Email", "Action", "Record", "Record id", "Detail"])
     for l in qs[:AUDIT_CSV_CAP]:
         w.writerow([
@@ -713,6 +726,8 @@ def admin_audit_csv(
     resp = HttpResponse(buf.getvalue(), content_type="text/csv; charset=utf-8")
     stamp = timezone.now().strftime("%Y-%m-%d")
     resp["Content-Disposition"] = f'attachment; filename="audit-log-{stamp}.csv"'
+    resp["X-Total-Rows"] = str(total)
+    resp["X-Truncated"] = "true" if truncated else "false"
     return resp
 
 
@@ -1024,10 +1039,12 @@ def preview_formula(request: HttpRequest, payload: FormulaIn):
     """Before/after: what every open claim is worth now, and under this draft.
 
     Nothing is saved. Paid tickets are not repriced by a new version, so they
-    are not listed; the quota is left out because it does not depend on the
-    policy's rates.
+    are not listed. A research faculty member's paper inside their yearly
+    quota pays nothing under either version, so its payable amount is zero on
+    both sides; the rate change it would otherwise carry is reported per
+    person under `quota`, so the admin sees what the quota absorbs.
     """
-    from core.api.common import price_claim
+    from core.api.common import _quota_state, price_claim
     from core.services.remuneration import formula_from_model
 
     user = require_user(request)
@@ -1060,10 +1077,28 @@ def preview_formula(request: HttpRequest, payload: FormulaIn):
         .select_related("owner")
         .order_by("-updated_at")
     )
+    quota_people: dict = {}
     for c in qs.iterator():
         count += 1
         b = price_claim(c, before_cfg).remuneration or 0.0
         a = price_claim(c, after_cfg).remuneration or 0.0
+        inside, _why = _quota_state(c)
+        if inside:
+            o = c.owner
+            row = quota_people.setdefault(o.id, {
+                "user_id": o.id,
+                "name": o.name,
+                "quota": o.research_quota,
+                "papers_inside": 0,
+                "absorbed_before": 0.0,
+                "absorbed_after": 0.0,
+                "tickets": [],
+            })
+            row["papers_inside"] += 1
+            row["absorbed_before"] = round(row["absorbed_before"] + b, 2)
+            row["absorbed_after"] = round(row["absorbed_after"] + a, 2)
+            row["tickets"].append(c.ticket_number)
+            b = a = 0.0
         before_total += b
         after_total += a
         if round(a, 2) != round(b, 2):
@@ -1084,4 +1119,6 @@ def preview_formula(request: HttpRequest, payload: FormulaIn):
         "before_total": round(before_total, 2),
         "after_total": round(after_total, 2),
         "changed": changed[:200],
+        "quota": sorted(quota_people.values(), key=lambda r: r["name"] or ""),
+        "quota_papers": sum(r["papers_inside"] for r in quota_people.values()),
     }

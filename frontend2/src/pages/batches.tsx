@@ -15,6 +15,7 @@ import {
 } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { Avatar, initialsOf } from "@/ui/person"
 
 /**
  * The monthly Scopus run.
@@ -37,6 +38,7 @@ type Batch = {
   name: string
   status: string
   created_by: string
+  by?: { user_id: string; name: string; initials: string; photo_url: string | null }
   row_count: number
   created_at: string
   error_message: string | null
@@ -67,9 +69,12 @@ export function Batches() {
       cell: (b) => (
         <Link to={`/batches/${b.id}`} className="block">
           <span className="block truncate text-base">{b.name}</span>
-          <Meta className="mt-0.5 block">
-            {b.created_by} · {new Date(b.created_at).toLocaleDateString()}
-          </Meta>
+          <span className="mt-0.5 flex items-center gap-1.5">
+            <Avatar person={b.by ?? { name: b.created_by, initials: initialsOf(b.created_by), photo_url: null }} size="xs" />
+            <Meta>
+              {b.created_by}, {new Date(b.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+            </Meta>
+          </span>
         </Link>
       ),
     },

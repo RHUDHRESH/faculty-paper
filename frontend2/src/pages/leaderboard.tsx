@@ -23,6 +23,7 @@ import {
   Sigma,
   type LucideIcon,
 } from "lucide-react"
+import { useAuth } from "@/app/auth"
 
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
@@ -175,11 +176,14 @@ function count(n: number): string {
 /** The hero sentence. Never says "none" to someone the table ranks. */
 export function standing(b: Pick<HonoursBoard, "me" | "period" | "scope">): string {
   const me = b.me
-  if (!me) return "You are not on this board — it ranks active faculty members."
+  // Filtered to a department you are not in: say so, rather than suggest you
+  // are not counted at all.
+  if (!me && b.scope) return `Showing ${b.scope}. You are not in this list.`
+  if (!me) return "You are not on this board. It ranks active faculty members."
   const where = b.scope ?? "the college"
   if (me.rank == null) {
     const period = b.period.label.toLowerCase()
-    const all = me.alltime_rank != null ? ` — your all-time rank is #${me.alltime_rank}` : ""
+    const all = me.alltime_rank != null ? `. Your all-time rank is #${me.alltime_rank}` : ""
     return `No papers counted for you in ${period} yet${all}.`
   }
   const parts = [`You: ${me.joint ? "joint " : ""}#${me.rank} of ${count(me.of)} in ${where}`]
@@ -216,7 +220,12 @@ export function Leaderboard() {
   const measure = (MEASURES.some((m) => m.key === params.get("category")) ? params.get("category") : "score") as Measure
   const period = params.get("period") && PERIOD_LABELS[params.get("period")!] ? params.get("period")! : "academic"
   const view = (VIEWS.some((v) => v.key === params.get("view")) ? params.get("view") : "people") as View
-  const department = params.get("department") ?? ""
+  // A head of department opens on their own department; "all" is the whole
+  // college, chosen on purpose. Everybody else opens on the whole college.
+  const { me } = useAuth()
+  const home = me?.role === "HOD" ? (me.department ?? "") : ""
+  const rawDepartment = params.get("department")
+  const department = rawDepartment === null ? home : rawDepartment === "all" ? "" : rawDepartment
   const topic = params.get("topic") ?? ""
   const journal = params.get("journal") ?? ""
 
@@ -311,7 +320,7 @@ export function Leaderboard() {
             topic={topic}
             journal={journal}
             board={b}
-            set={set}
+            set={(key, value) => set(key, key === "department" && !value && home ? "all" : value)}
           />
 
           {query.isError ? (
@@ -358,6 +367,10 @@ function Controls({
 }) {
   const active = [department, topic, journal].filter(Boolean).length
   const [open, setOpen] = useState(active > 0)
+  // A head's own department arrives once the account has loaded: show it.
+  useEffect(() => {
+    if (active) setOpen(true)
+  }, [active])
   const more = MEASURES.filter((m) => !PRIMARY.includes(m.key))
   const chosenMore = more.find((m) => m.key === measure)
   const pick = (m: Measure) => set("category", m === "score" ? "" : m)

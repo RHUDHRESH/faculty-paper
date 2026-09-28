@@ -62,9 +62,31 @@ class StatementTests(TestCase):
         self.assertEqual(st["total"], expected)
         self.assertEqual(st["total"], 40000 + 15000 + 5000)
         self.assertEqual(st["ledger_total"], st["total"])
-        self.assertEqual(st["count"], 5)
+        # Counted the way Reports counts payments: the void's reversing row
+        # cancels the payment it reverses (40,000 + 15,000 + 5,000 = three).
+        self.assertEqual(st["count"], 3)
         dept = {d["department"]: d["amount"] for d in st["by_department"]}
         self.assertEqual(dept, {"CSE": 45000, "ECE": 15000})
+
+    def test_a_zero_rupee_quota_paper_is_not_a_payment(self):
+        """Settled at ₹0 inside a research quota: on the statement's list, but
+        not a payment -- the bank file leaves it out and Reports does not count
+        it, so the headline must not either."""
+        quota = User.objects.create_user(email="ps-q@t.edu", password="p", name="Quota Person",
+                                         role=Role.FACULTY, department="CSE", staff_id="S9")
+        z = Claim.objects.create(owner=quota, status=ClaimStatus.PAID, remuneration=0,
+                                 payout_month=date(2026, 8, 1), ticket_number="FP-2026-000009")
+        PaidLedger.objects.create(claim=z, payout_month=date(2026, 8, 1), amount=0, department="CSE",
+                                  faculty_name="Quota Person", staff_id="S9", voucher_number="V9")
+        self.client.force_login(self.fin)
+        st = self.client.get("/api/payouts/statement", {"month": "2026-08"}).json()
+        reports = self.client.get("/api/reports", {"month": "2026-08"}).json()
+        self.assertEqual(st["count"], reports["totals"]["paid_claims"])
+        self.assertNotIn("FP-2026-000009", self.client.get(
+            "/api/payouts/statement.csv", {"month": "2026-08"}).content.decode())
+        # Nobody was paid anything, so they are not one of the people paid.
+        self.assertEqual(st["people"], 2)
+        self.assertIn("FP-2026-000009", [r["ticket"] for r in st["rows"]])
 
     def test_reconciliation(self):
         self.client.force_login(self.dir)

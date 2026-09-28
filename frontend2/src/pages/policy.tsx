@@ -27,6 +27,7 @@ import {
   Textarea,
 } from "@/ui/field"
 import { money } from "@/ui/paper"
+import { Avatar } from "@/ui/person"
 import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -125,6 +126,17 @@ type CalcResult = {
 /* ------------------------------------------------------------------------ */
 /* Page                                                                      */
 /* ------------------------------------------------------------------------ */
+
+/**
+ * How the quartile amounts are paid, as `core/services/remuneration.py` pays
+ * them: [(SNIP × rate) + QFA] × APP. The page used to read this off
+ * `qf_only_for_no_snip` and say "used only when no SNIP is held — a paper with
+ * a SNIP is priced from it, not from its quartile", which is the opposite of
+ * the arithmetic on every claim. That flag has never been read by the
+ * calculator, so it is no longer offered or described.
+ */
+export const QUARTILE_BLURB =
+  "Added on top of the SNIP amount, for a journal classified as Engineering. A paper with no SNIP is paid the fixed amount instead."
 
 export function Policy() {
   const { me } = useAuth()
@@ -226,11 +238,7 @@ export function Policy() {
 
           <Section
             title="The quartile amounts"
-            blurb={
-              data.qf_only_for_no_snip
-                ? "Used only when no SNIP is held for the journal — a paper with a SNIP is priced from it, not from its quartile."
-                : "Added to the SNIP amount, not only used in its place. That is unusual — check it is meant."
-            }
+            blurb={QUARTILE_BLURB}
           >
             <Row label="Q1" value={money(data.qf_q1)} />
             <Row label="Q2" value={money(data.qf_q2)} />
@@ -1425,11 +1433,6 @@ function EditDialog({
                 onCheckedChange={(v) => set("student_remuneration_zero", v === true)}
                 label="A student author's share is zero"
               />
-              <Checkbox
-                checked={form.qf_only_for_no_snip}
-                onCheckedChange={(v) => set("qf_only_for_no_snip", v === true)}
-                label="Quartile amounts apply only when no SNIP is held"
-              />
             </div>
 
             <AuthorPointsEditor value={points} onChange={setPoints} error={authorPointsError} />
@@ -2147,6 +2150,20 @@ type Impact = {
     before: number
     after: number
   }[]
+  /** Research faculty whose papers fall inside their yearly quota: zero on
+   *  both sides, with the amount the quota absorbs. */
+  quota?: {
+    user_id: string
+    name: string
+    initials: string
+    photo_url: string | null
+    quota: number
+    papers_inside: number
+    absorbed_before: number
+    absorbed_after: number
+    tickets: (string | null)[]
+  }[]
+  quota_papers?: number
 }
 
 /** Before/after for every unpaid claim, priced by the server under the live
@@ -2211,6 +2228,35 @@ export function ImpactPreview({
             </li>
           ))}
         </ul>
+      )}
+      {(d.quota?.length ?? 0) > 0 && (
+        <div className="space-y-1 border-t border-border pt-2">
+          <p className="font-medium">
+            {d.quota_papers} {d.quota_papers === 1 ? "paper sits" : "papers sit"} inside a research quota and pay
+            nothing under either version.
+          </p>
+          <p className="text-fg-muted">
+            The totals above already leave them out. Without the quota they would move from these amounts:
+          </p>
+          <ul className="space-y-1">
+            {d.quota!.map((p) => (
+              <li key={p.user_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Avatar person={p} size="sm" />
+                  <Link to={`/people/${p.user_id}`} className="truncate underline-offset-2 hover:underline">
+                    {p.name}
+                  </Link>
+                  <span className="text-fg-muted">
+                    {p.papers_inside} of a {p.quota}-paper quota
+                  </span>
+                </span>
+                <span className="tabular text-fg-muted">
+                  {money(p.absorbed_before)} to {money(p.absorbed_after)}, paid ₹0
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   )

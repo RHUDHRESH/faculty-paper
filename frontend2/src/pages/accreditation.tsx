@@ -23,6 +23,7 @@ import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { HeaderSpot } from "@/ui/page-header"
+import { Avatar, initialsOf } from "@/ui/person"
 
 /**
  * The NAAC / NIRF submission, and — the part that makes it a screen rather
@@ -64,6 +65,9 @@ type PackRow = {
   link: string
   /** "Yes" | "No" | "Not checked" — the last when no UGC-CARE list is loaded. */
   ugc_care: string
+  /** "claim" (editable here) or "record": a paper on the publication record nobody claimed. */
+  source?: "claim" | "record"
+  owner_photo_url?: string | null
   /** Human labels for what this row is missing. Empty means it is complete. */
   gaps: string[]
 }
@@ -451,7 +455,7 @@ function PackTable({
                 // shown in their words, in the critical colour, in place of
                 // the empty string.
                 const gap = gapFor(c.field, row)
-                const canEdit = mayEdit && Boolean(editable[editableFieldFor(c.field)])
+                const canEdit = mayEdit && row.source !== "record" && Boolean(editable[editableFieldFor(c.field)])
 
                 return (
                   <td key={c.field} className="max-w-[24rem] px-3 py-2 align-middle">
@@ -477,8 +481,21 @@ function PackTable({
                           >
                             {value}
                           </span>
+                        ) : c.field === "owner_name" && value ? (
+                          <span className="flex min-w-0 items-center gap-2">
+                            <Avatar
+                              person={{ name: value, initials: initialsOf(value), photo_url: row.owner_photo_url ?? null }}
+                              size="xs"
+                            />
+                            <span className="truncate">{value}</span>
+                          </span>
+                        ) : c.field === "paper_title" && row.source === "record" ? (
+                          <span title="On the college publication record; nobody has filed a claim for it">
+                            {value}
+                            <Meta className="ml-1.5">not claimed</Meta>
+                          </span>
                         ) : (
-                          value || "—"
+                          value || "Not recorded"
                         )}
                       </span>
                       {canEdit && (

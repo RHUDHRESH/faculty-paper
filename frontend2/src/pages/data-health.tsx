@@ -48,7 +48,8 @@ const SEVERITY: Record<Finding["severity"], string> = {
   warning: "bg-caution-wash text-caution",
   info: "bg-sunken text-fg-muted",
 }
-const mb = (n: number) => `${(n / (1024 * 1024)).toFixed(1)} MB`
+const mb = (n: number) =>
+  n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / (1024 * 1024)).toFixed(1)} MB`
 const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
 
 export function DataHealth() {

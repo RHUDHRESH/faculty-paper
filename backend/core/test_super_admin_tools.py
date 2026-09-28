@@ -50,6 +50,20 @@ class AuditSearchTests(TestCase):
         self.assertEqual(len(lines), 2)
         self.assertIn("MARK_PAID", lines[1])
 
+    def test_csv_says_when_truncated(self):
+        from unittest import mock
+
+        with mock.patch("core.api.admin.AUDIT_CSV_CAP", 1):
+            r = self.c.get("/api/admin/audit.csv")
+        self.assertEqual(r["X-Truncated"], "true")
+        self.assertEqual(r["X-Total-Rows"], "2")
+        first = r.content.decode().splitlines()[0]
+        self.assertIn("Truncated", first)
+        self.assertIn("1 of 2", first)
+        r = self.c.get("/api/admin/audit.csv")
+        self.assertEqual(r["X-Truncated"], "false")
+        self.assertTrue(r.content.decode().startswith("When,"))
+
     def test_csv_refused_to_faculty(self):
         c = Client()
         c.force_login(self.fac)
@@ -95,6 +109,26 @@ class PolicyPreviewTests(TestCase):
         body = dict(self.body, snip_multiplier=55000)
         d = self.c.post("/api/admin/formula/preview", body, content_type="application/json").json()
         self.assertEqual(d["changed_count"], 0)
+
+    def test_quota_papers_pay_nothing_and_are_reported_per_person(self):
+        res = User.objects.create_user(
+            email="r@x.edu", password=None, name="Dr Research", role=Role.FACULTY,
+            faculty_type="RESEARCH", research_quota=1,
+        )
+        c = Claim.objects.create(
+            owner=res, status=ClaimStatus.CLEARED, ticket_number="Q-1", paper_title="In quota",
+            snip=1.0, quartile="Q1", total_authors=1, author_position=1,
+            publication_type="Journal", indexing_level="Scopus", publication_year=2025,
+        )
+        Claim.objects.filter(pk=c.pk).update(quota_position=1)
+        d = self.c.post("/api/admin/formula/preview", self.body, content_type="application/json").json()
+        self.assertNotIn("Q-1", [x["ticket_number"] for x in d["changed"]])
+        self.assertEqual(d["quota_papers"], 1)
+        [row] = d["quota"]
+        self.assertEqual(row["name"], "Dr Research")
+        self.assertEqual(row["quota"], 1)
+        self.assertEqual(row["tickets"], ["Q-1"])
+        self.assertGreater(row["absorbed_after"], row["absorbed_before"])
 
     def test_faculty_refused(self):
         c = Client()

@@ -118,3 +118,25 @@ describe("HodHome", () => {
     expect(within(mine).queryByText("₹0")).toBeNull()
   })
 })
+
+describe("HodHome leads with this year", () => {
+  it("shows pace against target and the push list before any all-years figure", async () => {
+    const who = { id: "p1", name: "Asha Quiet", designation: null, photo_url: null, is_you: false,
+      this_year: 0, last_year: 2, q1_this_year: 0, led_this_year: 0, total: 5,
+      last_year_published: 2025, area: null, target: null, last_reminded_at: null }
+    mount([], {
+      "/api/hod/brief": () => ({
+        department: "Physics", year: 2026, as_of: "2026-09-28", elapsed: 0.74,
+        totals: { publications: 6, q1: 3, first_author: 4, faculty: 2, faculty_published: 1, per_teacher: 3,
+          last_year_full: 9, last_year_to_date: 7, this_year_to_date: 6, rejected_outright: 0, missing_issn_or_doi: 0 },
+        targets: [{ metric: "PUBLICATIONS", label: "Publications", target: 20, done: 6, expected_by_now: 14.8, verdict: "behind", due_date: null }],
+        by_year: [], people: [who], push: [{ person: who, reasons: ["Nothing in 2026"] }], pairs: [], years: [2026],
+      }),
+    })
+    expect(await screen.findByText("2026 so far")).toBeInTheDocument()
+    expect(screen.getByText("Behind")).toBeInTheDocument()
+    expect(screen.getByText("Who needs a push")).toBeInTheDocument()
+    expect(screen.getByText("Asha Quiet")).toBeInTheDocument()
+    expect(screen.queryByText("Who has published")).not.toBeInTheDocument()
+  })
+})

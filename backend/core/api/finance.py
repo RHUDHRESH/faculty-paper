@@ -185,7 +185,13 @@ def admin_ledger(
             {"department": d["department"] or None, "amount": round(d["s"] or 0, 2), "count": d["n"]}
             for d in by_dept
         ],
-        "people": qs.exclude(staff_id__isnull=True).exclude(staff_id="").values("staff_id").distinct().count(),
+        # Payments and people the way Reports, the statement and the bank file
+        # count them: a ₹0 quota row is settled but pays nobody, and a void's
+        # reversing row cancels the payment it reverses. `total` stays the row
+        # count, because it pages the table.
+        "payments": qs.filter(amount__gt=0).count() - qs.filter(amount__lt=0).count(),
+        "people": qs.exclude(staff_id__isnull=True).exclude(staff_id="").values("staff_id")
+        .annotate(net=Sum("amount")).filter(net__gt=0).count(),
         "duplicates_open": 0 if blind else DuplicateFinding.objects.filter(kind="SAME_PERSON", status="OPEN").count(),
         "total": total,
         "limit": limit,
@@ -267,7 +273,8 @@ def list_batches(request: HttpRequest):
             "id": b.id,
             "name": b.name,
             "status": b.status,
-            "created_by": b.created_by.email,
+            "created_by": b.created_by.name or b.created_by.email,
+            "by": {"user_id": b.created_by_id, "name": b.created_by.name or b.created_by.email},
             "row_count": b.rows.count(),
             "created_at": b.created_at.isoformat(),
             "error_message": b.error_message,

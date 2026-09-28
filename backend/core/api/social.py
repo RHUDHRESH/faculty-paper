@@ -99,9 +99,9 @@ def _forget(name: Optional[str]) -> None:
             pass
 
 
-def _notify(user_id: str, kind: str, title: str, body: str | None, href: str) -> None:
+def _notify(user_id: str, kind: str, title: str, body: str | None, href: str, actor: User | None = None) -> None:
     """Through the one door, so the person's switch for this kind is always honoured."""
-    social_notify.notify(user_id, kind, title, body, href)
+    social_notify.notify(user_id, kind, title, body, href, actor=actor)
 
 
 def _tell(user_id: str, title: str, body: str | None, href: str) -> None:
@@ -589,7 +589,7 @@ def follow_person(request: HttpRequest, user_id: str):
         raise HttpError(400, "You already see everything you post.")
     _, created = Follow.objects.get_or_create(follower=viewer, person=person)
     if created:
-        _notify(person.id, "follow", f"{viewer.name} started following you", None, f"/u/{viewer.id}")
+        _notify(person.id, "follow", f"{viewer.name} started following you", None, f"/u/{viewer.id}", actor=viewer)
     return {"following": True, "followers": _follow_counts(person)}
 
 
@@ -689,7 +689,7 @@ def _notify_mentions(post: FeedPost, mentions_json: str, actor: User, *, where: 
         # them a notification that leads to a 404 -- or tell them it exists.
         if not social.may_read_post(person, post):
             continue
-        _notify(person.id, "mention", f"{actor.name} mentioned you in {where}", _excerpt(text), _post_href(post.id))
+        _notify(person.id, "mention", f"{actor.name} mentioned you in {where}", _excerpt(text), _post_href(post.id), actor=actor)
         told.add(person.id)
     return told
 
@@ -942,7 +942,7 @@ def add_comment(request: HttpRequest, post_id: str, payload: CommentIn):
 
     told = _notify_mentions(post, mentions, viewer, where="a comment", text=body)
     if post.author_id != viewer.id and post.author_id not in told and post.author.active:
-        _notify(post.author_id, "comment", f"{viewer.name} commented on your post", _excerpt(body), _post_href(post.id))
+        _notify(post.author_id, "comment", f"{viewer.name} commented on your post", _excerpt(body), _post_href(post.id), actor=viewer)
     comment.author = viewer
     return _comment_dict(comment, viewer, post.author_id)
 

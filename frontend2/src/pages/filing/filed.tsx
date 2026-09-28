@@ -147,3 +147,17 @@ export function FiledReceipt({
     </div>
   )
 }
+
+/**
+ * The figure the receipt shows: the server's, once it has priced the claim.
+ *
+ * Filing re-reads the journal's SNIP and quartile from the college's own
+ * tables, so the filed claim can be worth far more (or less) than the form's
+ * estimate. The receipt used to show the form's number — ₹2,500 on a claim
+ * the server had priced at ₹74,500 — and the claimant's first sight of the
+ * amount disagreed with every page after it.
+ */
+export function receiptAmount(server: number | null | undefined, estimate: number | null | undefined): number | null {
+  if (typeof server === "number" && server > 0) return server
+  return estimate ?? (typeof server === "number" ? server : null)
+}

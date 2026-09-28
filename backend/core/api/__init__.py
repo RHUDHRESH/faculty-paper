@@ -34,6 +34,7 @@ from core.api.collaborate import *  # noqa: F401,F403
 from core.api.discover import *  # noqa: F401,F403
 from core.api.hod import *  # noqa: F401,F403
 from core.api.hod_planning import *  # noqa: F401,F403
+from core.api.hod_brief import *  # noqa: F401,F403
 from core.api.data_explorer import *  # noqa: F401,F403
 from core.api.budget import *  # noqa: F401,F403
 from core.api.duplicates import *  # noqa: F401,F403
@@ -67,3 +68,4 @@ from core.api.scout import *  # noqa: F401,F403
 from core.api.college_site import *  # noqa: F401,F403
 from core.api.research_cell import *  # noqa: F401,F403
 from core.api.attention import *  # noqa: F401,F403
+from core.api.jobs import *  # noqa: F401,F403

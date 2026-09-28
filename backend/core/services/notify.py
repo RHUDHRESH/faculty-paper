@@ -301,11 +301,18 @@ def in_section(qs, section: str):
     return qs.filter(kind__in=keys)
 
 
+def _plain(text: str | None) -> str | None:
+    from core.social_notify import plain  # social_notify imports this module
+
+    return plain(text) if text else text
+
+
 def serialize(n: Notification) -> dict[str, Any]:
     return {
         "id": n.id,
         "title": n.title,
-        "body": n.body,
+        # Rows written before mention codes were flattened still read cleanly.
+        "body": _plain(n.body),
         "href": n.href,
         "read": n.read,
         "created_at": n.created_at.isoformat(),

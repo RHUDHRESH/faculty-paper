@@ -151,7 +151,7 @@ def _notify_thread(thread: Thread, post: Post, actor: User) -> None:
         social_notify.notify(
             uid, "mention" if uid in mentioned else "comment",
             f"{actor.name} in “{thread.title[:80]}”", excerpt,
-            f"/discussions/{thread.id}",
+            f"/discussions/{thread.id}", actor=actor,
         )
 
 

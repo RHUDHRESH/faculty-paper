@@ -67,6 +67,24 @@ function mount() {
   return renderWithProviders(<Policy />, { route: "/policy" })
 }
 
+describe("the quartile amounts", () => {
+  // FORMULA carries qf_only_for_no_snip: true, the dead flag that made this
+  // page say quartile amounts replace the SNIP amount. The calculator adds them.
+  it("says they are added to the SNIP amount, as the calculator pays them", async () => {
+    mount()
+    expect(await screen.findByText(/Added on top of the SNIP amount/)).toBeInTheDocument()
+    expect(screen.queryByText(/Used only when no SNIP is held/)).toBeNull()
+  })
+
+  it("no longer offers the switch the calculator never read", async () => {
+    const user = userEvent.setup({ delay: null })
+    mount()
+    await user.click(await screen.findByRole("button", { name: "Publish a new version" }))
+    await screen.findByRole("dialog")
+    expect(screen.queryByRole("checkbox", { name: /apply only when no SNIP/ })).toBeNull()
+  })
+})
+
 describe("the final-year project scheme on the policy sheet", () => {
   it("shows the fixed amount per team per conference paper", async () => {
     mount()

@@ -570,7 +570,7 @@ export function JournalRecord() {
             The claims filed here were verified against a SNIP of{" "}
             <span className="tabular">{metric(journal.snip_on_record)}</span>
             {journal.snip_year_on_record ? ` (${journal.snip_year_on_record})` : ""} at the time
-            of filing — which can differ from the current figure above, since a journal's SNIP
+            of filing. That can differ from the current figure above, because a journal's SNIP
             moves year to year.
           </p>
         )}

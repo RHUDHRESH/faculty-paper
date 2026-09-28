@@ -6167,7 +6167,7 @@ class ReportsAndBulkClearTests(TestCase):
         self.client.force_login(self.admin)
         body = self.client.get("/api/reports").json()
         t = body["totals"]
-        self.assertEqual(t["publications"], 3)  # the draft is excluded
+        self.assertEqual(t["publications"], 1)  # only the recognised (paid) one; drafts and submitted are not papers yet
         self.assertEqual(t["paid_claims"], 1)
         self.assertEqual(t["paid_amount"], 250.0)
         # Submitted-but-not-cleared is neither paid nor committed.
@@ -6177,7 +6177,9 @@ class ReportsAndBulkClearTests(TestCase):
         self.client.force_login(self.admin)
         body = self.client.get("/api/reports").json()
         depts = {r["key"]: r["count"] for r in body["by_department"]}
-        self.assertEqual(depts, {"CSE": 2, "ECE": 1})
+        # Papers are the record plus recognised claims; two SUBMITTED claims are
+        # not papers of the college yet (core/services/college_totals.py).
+        self.assertEqual(depts, {"ECE": 1})
         cats = {r["key"]: r["count"] for r in body["by_category"]}
         self.assertEqual(cats["I"], 2)
         self.assertTrue(
@@ -6188,7 +6190,7 @@ class ReportsAndBulkClearTests(TestCase):
     def test_filters_narrow_the_figures(self):
         self.client.force_login(self.admin)
         body = self.client.get("/api/reports?department=CSE").json()
-        self.assertEqual(body["totals"]["publications"], 2)
+        self.assertEqual(body["totals"]["publications"], 0)  # submitted, not yet recognised
         self.assertEqual(body["totals"]["paid_amount"], 0)
 
     def test_export_is_one_row_per_publication(self):

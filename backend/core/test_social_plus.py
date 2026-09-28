@@ -188,6 +188,20 @@ class ReactionTests(Base):
         self._json("post", self.meera, path)
         self.assertEqual(Notification.objects.filter(user=self.asha).count(), 1)
 
+    def test_a_record_paper_not_yet_filed_is_shared_as_a_card(self):
+        from core.models import Authorship, Publication
+        pub = Publication.objects.create(title="Neural nets", venue="J AI", year=2025, quartile="Q2", doi="10.1/nn")
+        Authorship.objects.create(publication=pub, display_name="Asha", user=self.asha, author_key="n:a", position=1)
+        Authorship.objects.create(publication=pub, display_name="Ravi", user=self.ravi, author_key="n:r", position=2)
+        post = self._post(self.asha, "Out now", publication_id=pub.id)
+        card = post["paper"]
+        self.assertEqual((card["title"], card["journal_title"], card["publication_year"]), ("Neural nets", "J AI", 2025))
+        self.assertTrue(card["from_record"])
+        self.assertEqual([c["name"] for c in card["coauthors"]], ["Ravi Kumar"])
+        # Somebody else's record paper is refused.
+        r = self._as(self.meera).post("/api/feed/posts", data={"body": "x", "publication_id": pub.id})
+        self.assertEqual(r.status_code, 400)
+
     def test_reaction_notifications_can_be_switched_off(self):
         self._json("put", self.asha, "/api/people/me/social-settings", {"muted": ["reaction"]})
         post = self._post(self.asha)

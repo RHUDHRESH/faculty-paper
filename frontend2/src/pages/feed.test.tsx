@@ -8,7 +8,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 })
 
 import { api } from "@/lib/api"
-import { Feed } from "@/pages/feed"
+import { Feed, PaperCard, recordAsPaper } from "@/pages/feed"
 import { fakeApi, FACULTY, renderWithProviders, type ApiTable } from "@/test/harness"
 
 /**
@@ -75,6 +75,38 @@ function sent(path: string) {
 }
 
 describe("Feed", () => {
+  it("lists public discussion threads under a Threads tab", async () => {
+    const user = mount([], {
+      "/api/threads": () => ({
+        results: [
+          { id: "t1", title: "Which journals turn papers around fastest?", visibility: "PUBLIC", department: null,
+            topic: null, last_post_at: "2026-09-01", post_count: 4, resolved: false },
+          { id: "t2", title: "A private chat", visibility: "DIRECT", department: null,
+            topic: null, last_post_at: "2026-09-01", post_count: 1, resolved: false },
+        ],
+      }),
+    })
+    await user.click(await screen.findByRole("tab", { name: "Threads" }))
+    const link = await screen.findByRole("link", { name: /Which journals turn papers around fastest/ })
+    expect(link).toHaveAttribute("href", "/discussions/t1")
+    expect(screen.queryByText("A private chat")).toBeNull()
+  })
+
+  it("shares a record paper that is not filed yet as a paper card", () => {
+    expect(recordAsPaper({ id: "pub1", title: "T", venue: "J", year: 2025, doi: "10.1/x" })).toMatchObject({
+      id: "pub1", journal_title: "J", publication_year: 2025, from_record: true, doi: "10.1/x",
+    })
+    expect(recordAsPaper({ id: "claim-1", title: "T", venue: null, year: null, doi: null })).toBeNull()
+  })
+
+  it("shows a record paper card with its topic picture", () => {
+    renderWithProviders(
+      <PaperCard paper={{ id: "p", title: "Deep learning for crops", journal_title: "J AI", publication_year: 2025, quartile: null, doi: null }} />
+    )
+    expect(screen.getByText("Deep learning for crops")).toBeInTheDocument()
+    expect(screen.getByText("J AI · 2025")).toBeInTheDocument()
+  })
+
   it("invites the first post when nobody has posted yet", async () => {
     mount([])
     expect(await screen.findByText("Nobody has posted yet")).toBeInTheDocument()

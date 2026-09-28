@@ -2044,6 +2044,11 @@ class FeedPost(models.Model):
     paper = models.ForeignKey(
         "Claim", null=True, blank=True, on_delete=models.SET_NULL, related_name="feed_posts"
     )
+    #: A paper on the author's publication record that is not filed as a
+    #: claim yet, shown as the same card.
+    publication = models.ForeignKey(
+        "Publication", null=True, blank=True, on_delete=models.SET_NULL, related_name="feed_posts"
+    )
     #: Resolved @mentions, as written. Resolved once, when the post is saved,
     #: for the reason `Mention` gives: a name must not quietly re-point later.
     mentions_json = models.TextField(default="[]")

@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-query"
 import { CollegePapers, PeopleToFollow, type Draft } from "@/pages/college-stream"
 import { patchPost, prependPost } from "@/pages/feed-cache"
-import { Picture } from "@/ui/picture"
+import { Picture, topicPicture } from "@/ui/picture"
 import { ForYouList } from "@/pages/for-you"
 import { FollowedFilters, FollowTopicButton } from "@/pages/follow-topics"
 import { ReactionBar, type ReactionKind } from "@/pages/reactions"
@@ -148,9 +148,12 @@ type PaperOption = {
   journal_title: string | null
   publication_year: number | null
   quartile: string | null
+  /** A paper on the publication record, not filed yet: posted as `publication_id`. */
+  from_record?: boolean
+  doi?: string | null
 }
 
-type Tab = "everyone" | "for-you" | "following" | "department" | "reported"
+type Tab = "everyone" | "for-you" | "following" | "department" | "threads" | "reported"
 
 /** A filter to one subject area or journal (`?topic=` / `?journal=`). */
 export type About = { topic?: string | null; journal?: string | null }
@@ -169,7 +172,8 @@ const POLL_MS = 60_000
 const MAX_BYTES = 10 * 1024 * 1024
 
 function readTab(value: string | null): Tab {
-  return value === "following" || value === "department" || value === "reported" || value === "for-you"
+  return value === "following" || value === "department" || value === "reported" || value === "for-you" ||
+    value === "threads"
     ? value
     : "everyone"
 }
@@ -185,7 +189,7 @@ function feedPath(tab: string, cursor: string | null, author?: string, about?: A
 
 /** The feed, or one author's posts. `author` is how a profile lists more;
  *  `about` narrows it to one followed subject area or journal. */
-export function useFeed(tab: Exclude<Tab, "reported" | "for-you">, author?: string, about?: About) {
+export function useFeed(tab: Exclude<Tab, "reported" | "for-you" | "threads">, author?: string, about?: About) {
   return useInfiniteQuery<FeedPage, ApiError, InfiniteData<FeedPage>, readonly unknown[], string | null>({
     queryKey: ["feed", tab, author ?? null, about?.topic ?? null, about?.journal ?? null],
     queryFn: ({ pageParam }) => api<FeedPage>(feedPath(tab, pageParam, author, about)),
@@ -247,6 +251,7 @@ export function Feed() {
     { key: "for-you", label: "For you" },
     { key: "following", label: "Following" },
     ...(me?.department ? [{ key: "department" as Tab, label: "My department" }] : []),
+    { key: "threads", label: "Threads" },
     ...(moderator
       ? [
           {
@@ -290,7 +295,7 @@ export function Feed() {
         <HeaderSpot name="spot-discussions" />
       </header>
 
-      {tab !== "reported" && (
+      {tab !== "reported" && tab !== "threads" && (
         <PostComposer
           tab={tab === "for-you" ? "everyone" : tab}
           textareaRef={composerRef}
@@ -338,10 +343,12 @@ export function Feed() {
         ))}
       </div>
 
-      {tab !== "reported" && tab !== "for-you" && <FollowedFilters about={about} />}
+      {tab !== "reported" && tab !== "for-you" && tab !== "threads" && <FollowedFilters about={about} />}
 
       {tab === "reported" ? (
         <ReportsQueue query={reports} />
+      ) : tab === "threads" ? (
+        <ThreadList />
       ) : tab === "for-you" ? (
         <ForYouList />
       ) : (
@@ -358,13 +365,70 @@ export function Feed() {
   )
 }
 
+type ThreadBrief = {
+  id: string
+  title: string
+  visibility: "PUBLIC" | "DEPARTMENT" | "OFFICE" | "DIRECT"
+  department: string | null
+  topic: string | null
+  last_post_at: string
+  post_count: number
+  resolved: boolean
+}
+
+/** The open discussion threads (a question to everybody, a department's
+ *  thread), reachable from the feed rather than only from a notification. */
+export function ThreadList() {
+  const q = useApi<{ results: ThreadBrief[] }>(["threads", "feed-tab"], "/api/threads?limit=50")
+  if (q.isPending) return <SkeletonRows rows={4} rowHeight={56} />
+  if (q.isError) {
+    return (
+      <ErrorState
+        title="Could not load the threads"
+        message="The server did not answer. Try again in a moment."
+        onRetry={() => void q.refetch()}
+      />
+    )
+  }
+  const rows = (q.data?.results ?? []).filter((t) => t.visibility !== "DIRECT")
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        icon={MessageCircle}
+        title="No open threads yet"
+        message="Ask a question in a post, and colleagues answer it in the comments."
+      />
+    )
+  }
+  return (
+    <ul aria-label="Discussion threads" className="divide-y divide-line/60 border-y border-line">
+      {rows.map((t) => (
+        <li key={t.id}>
+          <Link to={`/discussions/${t.id}`} className="block px-1 py-3 hover:bg-hover/50">
+            <span className="block font-medium text-fg break-words">{t.title}</span>
+            <Meta className="block text-xs">
+              {[
+                t.visibility === "PUBLIC" ? "Everybody" : t.visibility === "DEPARTMENT" ? t.department ?? "One department" : "The research office",
+                `${t.post_count} ${t.post_count === 1 ? "reply" : "replies"}`,
+                t.resolved ? "Answered" : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </Meta>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function FeedList({
   tab,
   onWrite,
   department,
   about,
 }: {
-  tab: Exclude<Tab, "reported" | "for-you">
+  tab: Exclude<Tab, "reported" | "for-you" | "threads">
   onWrite: () => void
   department: string | null
   about: About
@@ -491,7 +555,7 @@ function PostComposer({
   onShared,
   draft: seed,
 }: {
-  tab: Exclude<Tab, "reported" | "for-you">
+  tab: Exclude<Tab, "reported" | "for-you" | "threads">
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   /** `?share=<paper id>`: "Share to the feed" from a paper or a notification. */
   shareId?: string | null
@@ -620,7 +684,7 @@ function PostComposer({
     form.set("body", body)
     form.set("visibility", visibility)
     if (link.trim()) form.set("link_url", link.trim())
-    if (paper) form.set("paper_id", paper.id)
+    if (paper) form.set(paper.from_record ? "publication_id" : "paper_id", paper.id)
     for (const id of mentionIds(body, picked)) form.append("mention_ids", id)
     if (file) form.set("file", file)
 
@@ -632,7 +696,7 @@ function PostComposer({
       visibility,
       department: me.department ?? null,
       link_url: link.trim() || null,
-      paper: paper ? { ...paper, doi: null } : null,
+      paper: paper ? { ...paper, doi: paper.doi ?? null } : null,
       attachment: file
         ? { url: preview ?? "", kind: file.type.startsWith("image/") ? "image" : "file", name: file.name, size: file.size }
         : null,
@@ -771,7 +835,9 @@ function PostComposer({
                 onPickRecord={(r) => {
                   const where = [r.venue, r.year].filter(Boolean).join(", ")
                   setText((t) => t.trim() || `New paper out: “${r.title}”${where ? ` (${where})` : ""}.`)
-                  if (r.doi) {
+                  const card = recordAsPaper(r)
+                  if (card) setPaper(card)
+                  else if (r.doi) {
                     setLink(`https://doi.org/${r.doi}`)
                     setLinkOpen(true)
                   }
@@ -810,7 +876,7 @@ function PostComposer({
           )}
           {paper && (
             <div className="flex items-center gap-3 rounded-md bg-sunken p-2">
-              <FileText className="size-5 shrink-0 text-accent" aria-hidden />
+              <Picture name={topicPicture(paper.title, paper.journal_title) ?? "onboard-first-paper"} className="size-10 shrink-0 rounded-md" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm">{paper.title}</span>
                 <Meta className="block truncate text-xs">
@@ -871,7 +937,23 @@ function Audience({
 }
 
 /** A paper on the person's publication record (OpenAlex/Scopus), filed or not. */
-export type RecordOption = { id: string; title: string; venue: string | null; year: number | null; doi: string | null }
+export type RecordOption = {
+  id: string
+  title: string
+  venue: string | null
+  year: number | null
+  doi: string | null
+  quartile?: string | null
+}
+
+/** A record paper as the composer's card; null for one known only from a claim row (no record id). */
+export function recordAsPaper(r: RecordOption): PaperOption | null {
+  if (r.id.startsWith("claim-")) return null
+  return {
+    id: r.id, title: r.title, journal_title: r.venue, publication_year: r.year,
+    quartile: r.quartile ?? null, doi: r.doi, from_record: true,
+  }
+}
 
 /**
  * Papers to share. Filed papers attach as a card; a paper that is only on the
@@ -1200,7 +1282,10 @@ export function PaperCard({ paper }: { paper: NonNullable<FeedPost["paper"]> }) 
   const coauthors = paper.coauthors ?? []
   return (
     <div className="flex items-start gap-3 rounded-md bg-sunken px-3 py-2.5">
-      <FileText className="mt-0.5 size-4 shrink-0 text-accent" aria-hidden />
+      <Picture
+        name={topicPicture(paper.title, paper.journal_title) ?? "onboard-first-paper"}
+        className="size-14 shrink-0 rounded-md bg-surface/60 p-1"
+      />
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium">{paper.title}</span>
         <Meta className="block text-xs">

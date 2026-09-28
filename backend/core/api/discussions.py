@@ -169,6 +169,7 @@ def list_threads(
     visibility: Optional[str] = None,
     mine: bool = False,
     unresolved: bool = False,
+    claim: Optional[str] = None,
     limit: int = 30,
     offset: int = 0,
 ):
@@ -186,6 +187,9 @@ def list_threads(
         qs = qs.filter(
             Q(created_by=user) | Q(subscriptions__user=user) | Q(posts__author=user)
         ).distinct()
+    if claim:
+        # A clearing ticket opens the claimant's office thread about it.
+        qs = qs.filter(claim_id=claim)
     if unresolved:
         qs = qs.filter(resolved=False)
 

@@ -20,7 +20,7 @@ from core.api.common import (
     session_auth,
 )
 from core.api.schemas import ActionIn, ClaimIn, RecalcIn, _apply_faculty_payload, _bind_identity_from_user, _persist_attachments, _validated_attachments
-from core.api.deps import claim_to_dict
+from core.api.deps import claim_to_dict, record_authorship
 from core.api.common import require_user
 from core.api.teams import _min_sec_references, _numbered_sec_references
 from core.services import filing_conditions
@@ -195,6 +195,7 @@ def get_claim(request: HttpRequest, claim_id: str):
         for a in claim.actions.select_related("actor").order_by("created_at")
     ]
     data = claim_to_dict(claim)
+    data.update(record_authorship(claim))
     data["actions"] = actions
     # What the history can truthfully say: an imported ticket carries the
     # import's moment as its filing and payment time (services/record_dates).

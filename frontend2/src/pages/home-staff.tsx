@@ -29,6 +29,7 @@ import { GlanceSummary } from "@/pages/department-glance"
 import { Button } from "@/ui/button"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Picture } from "@/ui/picture"
+import { AgeingSplit } from "@/pages/clearing-desk"
 import { Celebrations } from "@/ui/celebrations"
 import { ComingUp } from "@/ui/coming-up"
 import { money, Stage, stageOf } from "@/ui/paper"
@@ -421,6 +422,7 @@ export function OfficeHome() {
             Open the clearing queue{waiting ? ` (${waiting.toLocaleString("en-IN")})` : ""}
           </Link>
         </div>
+        {queueRows.length > 0 && <AgeingSplit rows={queueRows} />}
         {clearing.isLoading ? (
           <ul className="divide-y divide-line border-y border-line">
             {Array.from({ length: 4 }).map((_, i) => (

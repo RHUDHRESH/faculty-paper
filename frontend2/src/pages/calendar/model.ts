@@ -238,6 +238,23 @@ export function overlaps(item: CalItem, from: string, to: string): boolean {
 }
 
 /**
+ * The days the agenda lists. On the current month it starts today and runs at
+ * least to `horizon` (the hero's "Next" window), so whatever "Next" names is
+ * also listed below it; the empty check must use this same window, or a month
+ * whose dates are all past draws an empty list instead of the quiet state.
+ */
+export function agendaWindow(
+  from: string,
+  to: string,
+  today: string,
+  horizon: string,
+  currentMonth: boolean
+): [string, string] {
+  if (!currentMonth) return [from, to]
+  return [from < today ? today : from, to > horizon ? to : horizon]
+}
+
+/**
  * Lanes for a row of days: each item takes the first lane free across its
  * span, longest first, so a window reads as one bar and never as broken bits.
  */

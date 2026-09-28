@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from core.api.common import api, session_auth
 from core.api.schemas import FormulaIn, ResetPasswordByEmailIn, ResetPasswordIn, UserCreateIn, UserUpdateIn
-from core.api.deps import _user_dict, claim_to_dict
+from core.api.deps import _user_dict, claim_to_dict, record_authorship
 from core.api.common import require_user
 from core.api.auth import FIELD_LABELS, IDENTITY_FIELDS, clear_login_lockout, may_set_field
 from core.api.claims import _CLAIM_SORTS
@@ -995,7 +995,7 @@ def admin_clearing_queue(request: HttpRequest, status: Optional[str] = None):
     else:
         qs = qs.filter(status=ClaimStatus.SUBMITTED)
     # Oldest first: the ticket that has waited longest is the one to clear next.
-    return [claim_to_dict(c) for c in qs.order_by("submitted_at", "created_at")[:200]]
+    return [{**claim_to_dict(c), **record_authorship(c)} for c in qs.order_by("submitted_at", "created_at")[:200]]
 
 
 

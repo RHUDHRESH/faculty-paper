@@ -23,6 +23,7 @@ import { AuthorList } from "./filing/authors"
 import { ChooseFooter, ChooseMethod, type Method, type PulledPaper, type ScopusPull } from "./filing/choose"
 import { SourceTag } from "./filing/bits"
 import { EstimateBar, EstimatePanel } from "./filing/estimate"
+import { FiledReceipt } from "./filing/filed"
 import {
   CHECK_TARGET,
   FoundCard,
@@ -1055,6 +1056,7 @@ export function FilePaper() {
   const [fileBusy, setFileBusy] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [contestNote, setContestNote] = useState("")
+  const [filed, setFiled] = useState<ClaimDetail | null>(null)
 
   // No Scopus here: the server cannot confirm indexing on its own and will
   // ask for a note, so the note is asked for first.
@@ -1085,12 +1087,10 @@ export function FilePaper() {
         ? await api<ClaimDetail>(`/api/claims/${claimIdRef.current}`, { method: "PATCH", json: payload })
         : await api<ClaimDetail>("/api/claims", { method: "POST", json: payload })
       dirtyRef.current = false
-      toast.ok(
-        result.ticket_number
-          ? `Filed — ticket ${result.ticket_number}. It has gone to the research cell to be checked.`
-          : "Filed. It has gone to the research cell to be checked."
-      )
-      navigate(`/papers/${result.id}`)
+      // Step 7: the receipt, not a jump to the paper's page.
+      setFiled(result)
+      window.scrollTo({ top: 0 })
+      void refetchPull()
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.message : "Could not file this paper. Try again.")
       setPendingFocus({ field: "contest", nonce: Date.now() })
@@ -1348,6 +1348,20 @@ export function FilePaper() {
       </HeroBand>
     </div>
   )
+
+  if (filed) {
+    const left = pull ? pull.papers.filter((p) => !p.already_claimed && p.publication_id !== picked?.publication_id).length : null
+    return (
+      <FiledReceipt
+        claim={filed}
+        estimate={calc?.remuneration ?? null}
+        countOnly={countOnly}
+        ticks={ticks ?? {}}
+        minReferences={rules.min_sec_references}
+        unclaimedLeft={left}
+      />
+    )
+  }
 
   if (phase === "choose") {
     return (

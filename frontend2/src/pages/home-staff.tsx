@@ -398,8 +398,6 @@ export function OfficeHome() {
   const isAdmin = me?.role === "SUPER_ADMIN"
   const queueRows = clearing.data ?? []
 
-  const healthKnown = faults.data && duplicates.data
-  const unhealthy = (faults.data?.urgent ?? 0) + (duplicates.data?.summary.open ?? 0)
 
   return (
     <div className="page space-y-10">
@@ -413,28 +411,7 @@ export function OfficeHome() {
         }
       />
 
-      {isAdmin && healthKnown && (
-        unhealthy === 0 ? (
-          <Callout tone="positive" title="Everything is healthy">
-            No urgent faults and no unreviewed duplicate payments.
-            {faults.data?.checked_at ? " Checked just now." : ""}
-          </Callout>
-        ) : (
-          <Callout tone="caution" title="Something needs a look">
-            {[
-              faults.data?.urgent
-                ? `${faults.data.urgent} urgent ${faults.data.urgent === 1 ? "fault" : "faults"}`
-                : null,
-              duplicates.data?.summary.open
-                ? `${duplicates.data.summary.open} possible duplicate ${duplicates.data.summary.open === 1 ? "payment" : "payments"}`
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" and ")}
-            . The rows below open each one.
-          </Callout>
-        )
-      )}
+      {isAdmin && <AttentionPanel />}
 
       <Waiting>
         <div className="flex items-baseline justify-between gap-3">
@@ -1295,5 +1272,78 @@ function SilentList({
         </Button>
       )}
     </div>
+  )
+}
+
+type Attention = {
+  checked_at: string
+  items: {
+    key: string
+    job: "people" | "data" | "money" | "running"
+    severity: "critical" | "warning" | "info"
+    title: string
+    why: string
+    to: string
+    count: number | null
+  }[]
+  ok: string[]
+}
+
+const JOB_LABEL: Record<Attention["items"][number]["job"], string> = {
+  people: "People",
+  data: "Data",
+  money: "Money",
+  running: "Running",
+}
+
+/** The super admin's one answer to "is everything all right?": each thing
+ *  that needs a look, why it matters, and where to fix it. */
+function AttentionPanel() {
+  const q = useApi<Attention>(["admin", "attention"], "/api/admin/attention")
+  if (q.isLoading) return <div className="h-24 animate-pulse rounded-md bg-sunken" />
+  if (q.isError || !q.data)
+    return <InlineError message="Could not check the system's health." onRetry={() => void q.refetch()} />
+  const { items, ok } = q.data
+  if (items.length === 0)
+    return (
+      <Callout tone="positive" title="Everything is healthy">
+        {ok.join(". ")}.
+      </Callout>
+    )
+  return (
+    <section aria-labelledby="attention-title" className="space-y-3">
+      <SectionTitle id="attention-title">
+        {items.length === 1 ? "One thing needs attention" : `${items.length} things need attention`}
+      </SectionTitle>
+      <ul className="divide-y divide-line border-y border-line">
+        {items.map((i) => (
+          <li key={i.key}>
+            <Link
+              to={i.to}
+              className="flex items-start gap-3 py-3 underline-offset-4 hover:bg-sunken/50"
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-1.5 size-2 shrink-0 rounded-full",
+                  i.severity === "critical" ? "bg-critical" : i.severity === "warning" ? "bg-caution" : "bg-fg-subtle"
+                )}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">
+                  {i.title}
+                  <span className="sr-only">
+                    {i.severity === "critical" ? " (urgent)" : ""}
+                  </span>
+                </span>
+                <span className="block text-sm text-fg-muted">{i.why}</span>
+              </span>
+              <span className="shrink-0 text-xs text-fg-subtle">{JOB_LABEL[i.job]}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {ok.length > 0 && <p className="text-xs text-fg-subtle">Fine: {ok.join(", ").toLowerCase()}.</p>}
+    </section>
   )
 }

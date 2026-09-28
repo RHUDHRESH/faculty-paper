@@ -101,3 +101,28 @@ class PolicyPreviewTests(TestCase):
         c.force_login(Claim.objects.first().owner)
         r = c.post("/api/admin/formula/preview", self.body, content_type="application/json")
         self.assertEqual(r.status_code, 403)
+
+
+class AttentionTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="sa3@x.edu", password="p", name="Sys Admin", role=Role.SUPER_ADMIN
+        )
+        self.c = Client()
+        self.c.force_login(self.admin)
+
+    def test_empty_system_says_why_each_item_matters(self):
+        r = self.c.get("/api/admin/attention")
+        self.assertEqual(r.status_code, 200, r.content)
+        keys = {i["key"]: i for i in r.json()["items"]}
+        self.assertIn("no_policy", keys)
+        self.assertIn("backup_none", keys)
+        self.assertEqual(keys["no_policy"]["severity"], "critical")
+        self.assertTrue(all(i["why"] and i["to"] for i in keys.values()))
+        self.assertEqual(r.json()["items"][0]["severity"], "critical")
+
+    def test_only_super_admin(self):
+        fin = User.objects.create_user(email="f3@x.edu", password=None, name="F", role=Role.FINANCE)
+        c = Client()
+        c.force_login(fin)
+        self.assertEqual(c.get("/api/admin/attention").status_code, 403)

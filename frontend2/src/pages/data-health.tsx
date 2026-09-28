@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { queryClient } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { ConfirmDialog } from "@/ui/dialog"
 import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -54,6 +55,7 @@ export function DataHealth() {
   const { data, isLoading, error, refetch } = useApi<Health>(KEY, "/api/admin/data-health")
   const [running, setRunning] = useState(false)
   const [fixing, setFixing] = useState<string | null>(null)
+  const [asking, setAsking] = useState<{ key: string; label: string } | null>(null)
   const [backingUp, setBackingUp] = useState(false)
   const [badging, setBadging] = useState(false)
 
@@ -83,7 +85,6 @@ export function DataHealth() {
   }
 
   async function fix(key: string, label: string) {
-    if (!window.confirm(`${label}? This changes data and is recorded in the audit log.`)) return
     setFixing(key)
     try {
       const out = await api<{ changed: number }>(`/api/admin/data-health/fix/${key}`, { method: "POST" })
@@ -127,6 +128,17 @@ export function DataHealth() {
   return (
     <Frame>
       <div className="page-head">
+      <ConfirmDialog
+        open={asking !== null}
+        onOpenChange={(o) => !o && setAsking(null)}
+        danger
+        title={asking ? `${asking.label}?` : ""}
+        description="This changes stored records. Each change is written to the audit log with your name."
+        confirmLabel={asking?.label ?? "Run fix"}
+        onConfirm={async () => {
+          if (asking) await fix(asking.key, asking.label)
+        }}
+      />
         <div>
           <PageTitle>Data health</PageTitle>
           <Sub>
@@ -164,7 +176,7 @@ export function DataHealth() {
                 f={f}
                 fixLabel={f.fix ? data?.fixes[f.fix] : undefined}
                 busy={fixing === f.fix}
-                onFix={() => f.fix && void fix(f.fix, data?.fixes[f.fix] ?? f.fix)}
+                onFix={() => f.fix && setAsking({ key: f.fix, label: data?.fixes[f.fix] ?? f.fix })}
               />
             ))}
           </ul>

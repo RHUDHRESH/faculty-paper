@@ -430,12 +430,16 @@ def _board(*, category: str, period: str, department: str, topic: str, journal: 
     ranked = [r for r in rows if r["rank"] is not None]
 
     # Departments: each paper once per department.
-    heads: Counter = Counter(dept_of[u] for u in population if dept_of[u])
+    # Across the whole college whatever the scope: a head looking at their own
+    # department still compares it with the others, per teacher.
+    everyone = set(rec.people)
+    active_now = {m for p in papers if _holds(now, p.when) for m in p.members}
+    heads: Counter = Counter(dept_of[u] for u in everyone if dept_of[u])
     dept_now: dict[str, list[Paper]] = defaultdict(list)
     dept_then: dict[str, list[Paper]] = defaultdict(list)
     dept_year: dict[str, Counter] = defaultdict(Counter)
     for p in papers:
-        ds = {dept_of[m] for m in p.members if m in population and dept_of.get(m)}
+        ds = {dept_of[m] for m in p.members if m in everyone and dept_of.get(m)}
         for d in ds:
             dept_year[d][p.year] += 1
             if _holds(now, p.when):
@@ -460,7 +464,7 @@ def _board(*, category: str, period: str, department: str, topic: str, journal: 
             "papers": t["papers"], "score": t["score"], "q1": t["q1"], "cited": t["cited"],
             "papers_per_faculty": round(t["papers"] / n, 2) if n else 0,
             "score_per_faculty": round(t["score"] / n, 2) if n else 0,
-            "active": sum(1 for u in population if dept_of[u] == d and by_person_now.get(u)),
+            "active": sum(1 for u in everyone if dept_of[u] == d and u in active_now),
             "trend": [{"year": y, "papers": dept_year[d][y]} for y in years],
         })
     d_ranks = _ranks({x["department"]: x["value"] for x in departments})

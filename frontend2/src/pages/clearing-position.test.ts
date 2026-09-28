@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { recordPosition } from "./clearing-position"
+import { officeThreadLink } from "./clearing-thread"
+
+describe("officeThreadLink", () => {
+  it("opens the office thread for the claim", () => {
+    expect(officeThreadLink([{ id: "t1", title: "x", post_count: 3 }]).to).toBe("/messages/o/t1")
+  })
+  it("falls back to the office inbox", () => {
+    expect(officeThreadLink([]).to).toBe("/messages/office")
+  })
+})
 
 describe("recordPosition", () => {
   it("says matches when the record agrees", () => {

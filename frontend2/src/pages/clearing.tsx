@@ -43,6 +43,7 @@ import { HeaderSpot } from "@/ui/page-header"
 import { Avatar, initialsOf } from "@/ui/person"
 import { ClaimFlagsPanel, RaiseFlagDialog, useClaimReview } from "@/pages/claim-review"
 import { recordPosition } from "@/pages/clearing-position"
+import { ClaimOfficeThread } from "@/pages/clearing-thread"
 import { AgeingChips, type AgeBucket, type DeskFields, inBucket, isClean, MonthlyReport, SchemeRules, WatchCallout } from "@/pages/clearing-desk"
 
 /**
@@ -1045,6 +1046,8 @@ function TicketSheet({
               {claim.journal_watch && <WatchCallout watch={claim.journal_watch} />}
 
               <ClaimedVsRecord claim={claim} />
+
+              <ClaimOfficeThread claimId={claim.id} />
 
               <SchemeRules c={claim} />
 

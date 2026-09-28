@@ -38,6 +38,16 @@ class ClearingPositionTests(TestCase):
         detail = self.c.get(f"/api/claims/{claim.id}").json()
         self.assertEqual(detail["record_author_position"], 2)
 
+    def test_threads_filter_by_claim_finds_the_office_thread(self):
+        from core.models import Thread
+
+        claim = self.claim(1)
+        other = self.claim(2, doi="10.1/other")
+        t = Thread.objects.create(title="About my claim", visibility=Thread.Visibility.OFFICE, claim=claim, created_by=self.me)
+        Thread.objects.create(title="Other", visibility=Thread.Visibility.OFFICE, claim=other, created_by=self.me)
+        r = self.c.get(f"/api/threads?visibility=OFFICE&claim={claim.id}").json()
+        self.assertEqual([x["id"] for x in r["results"]], [t.id])
+
     def test_no_publication_means_no_record(self):
         r = self.row(self.claim(1, doi="10.1/none"))
         self.assertIsNone(r["record_author_position"])

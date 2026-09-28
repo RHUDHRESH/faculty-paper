@@ -20,6 +20,7 @@ import { api, forgetCsrf } from "@/lib/api"
 import { toast } from "@/ui/toast"
 import { useCollegeName } from "@/app/institution"
 import { ROLE_LABEL } from "@/app/account"
+import { Welcome } from "@/app/welcome"
 import { motion, useReducedMotion } from "motion/react"
 import { PageTransition, sidebarSpring } from "@/ui/motion/page"
 
@@ -75,6 +76,7 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
         </div>
         <MenuSeparator />
         <MenuItem onSelect={() => nav("/me")}>Your profile</MenuItem>
+        <MenuItem onSelect={() => nav("/help")}>Help and guides</MenuItem>
         <MenuSeparator />
         <MenuLabel>Appearance</MenuLabel>
         {THEMES.map(({ value, label, icon: Icon }) => (
@@ -339,6 +341,7 @@ export function Shell({
           </header>
 
           {me?.impersonated_by && <ViewingAs name={me.name} role={me.role} />}
+          {me && <Welcome key={me.id} />}
 
           <main className="min-w-0 flex-1 py-10">
             <Suspense fallback={<PageLoading />}>

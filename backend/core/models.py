@@ -217,6 +217,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     #: Shown back on the profile so the person can see which account it is.
     google_email = models.EmailField(blank=True, null=True)
     google_linked_at = models.DateTimeField(blank=True, null=True)
+    #: When they closed the first-sign-in welcome. Kept on the server so it is
+    #: never shown twice, whichever device they sign in from next.
+    welcome_seen_at = models.DateTimeField(blank=True, null=True)
 
     active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)

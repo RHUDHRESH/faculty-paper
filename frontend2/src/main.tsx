@@ -72,6 +72,7 @@ const Calendar = page(() => import("@/pages/calendar"), "Calendar")
 const Audit = page(() => import("@/pages/audit"), "Audit")
 const Faults = page(() => import("@/pages/audit"), "Faults")
 const Jobs = page(() => import("@/pages/jobs"), "Jobs")
+const Help = page(() => import("@/pages/help"), "Help")
 const Authorisations = page(() => import("@/pages/authorisations"), "Authorisations")
 const Clearing = page(() => import("@/pages/clearing"), "Clearing")
 const Data = page(() => import("@/pages/data"), "Data")
@@ -190,6 +191,7 @@ const PRELOADS: [string, Page][] = [
   ["/audit", Audit],
   ["/faults", Faults],
   ["/jobs", Jobs],
+  ["/help", Help],
   ["/people/matches", AuthorMatches],
   ["/people/:id", Person],
   ["/people", People],
@@ -383,6 +385,7 @@ function App() {
           <Route path="/audit" element={<Audit />} />
           <Route path="/faults" element={<Faults />} />
           <Route path="/jobs" element={<Jobs />} />
+          <Route path="/help" element={<Help />} />
           {/* Setup is first-run only; a signed-in admin wants the institution settings. */}
           <Route path="/setup" element={<Navigate to="/settings" replace />} />
           <Route path="/people" element={<People />} />

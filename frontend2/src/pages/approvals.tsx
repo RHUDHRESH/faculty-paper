@@ -628,6 +628,7 @@ export function Approvals() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          guide="approve-claims"
           art="empty-queue"
           icon={Inbox}
           title={filtered ? "Nothing matches these filters" : "Nothing waiting"}

@@ -890,7 +890,23 @@ each person lists the paper(s) linking them to the previous person — render
 GET /api/search/people-external?q=&limit=20
     -> { q, results[{ key, name, institutions[], countries[], papers,
          college_affiliated, college_coauthors[{user_id,name,department,papers_together}] }] }
+GET /api/external-person?key=<external author key>
+    -> { key, name, institutions[], countries[], orcid, openalex_id, college_affiliated,
+         papers_count, papers[{id,title,year,venue,quartile,doi,citations,college_authors[{user_id,name}]}],
+         college_coauthors[{user_id,name,department,papers_together}] }      (404: unknown key)
+GET /api/people/{user_id|me}/ego?limit=60
+    -> { center, coauthors, capped, nodes[{ key, user_id, name, department, is_college_member,
+         institution, hop(0|1|2), papers, together, degree }], links[{source,target,papers}] }
+GET /api/people/{user_id|me}/why?of=<user id | external key>
+    -> { for, about, papers, your_papers, reasons[{ kind: together|shared_venue|topic|complement|q1|common_coauthors,
+         text, refs[] }] }
 ```
+
+`external-person` is the profile-like view of somebody off the roster.
+`ego` is the Map on Who to work with: the member, co-authors, then their
+co-authors, capped at 60 people -- never the whole college. `why` is counted
+from the record for the signed-in viewer (no model); `of` defaults to the
+path's member.
 
 Authors not matched to a member, by name (2+ characters), with who in the
 college wrote with them. `college_affiliated: true` is someone whose

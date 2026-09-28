@@ -243,6 +243,40 @@ def search_people_external(request: HttpRequest, q: str = "", limit: int = 20):
     return {"q": q, "results": graph.search_external(q, limit=max(1, min(limit, 50)))}
 
 
+def _viewer_or(request: HttpRequest, user_id: str) -> User:
+    user = require_user(request)
+    return user if user_id == "me" else _person(user_id)
+
+
+@api.get("/people/{user_id}/ego", auth=session_auth)
+def person_ego(request: HttpRequest, user_id: str, limit: int = graph.EGO_MAX):
+    """This member, their co-authors and their co-authors' co-authors: at most
+    60 people, for the Map on Who to work with. Never the whole college."""
+    return hod.without_money(graph.ego(_viewer_or(request, user_id), limit=limit))
+
+
+@api.get("/people/{user_id}/why", auth=session_auth)
+def person_why(request: HttpRequest, user_id: str, of: Optional[str] = None):
+    """Why `of` (a user id or external author key; default: this member)
+    might matter to the signed-in viewer -- counted from the record."""
+    viewer = require_user(request)
+    target = graph.resolve_node(of or user_id)
+    if target is None:
+        raise HttpError(404, "Nobody in the publication record has that id or author key.")
+    return {"for": f"u:{viewer.id}", "about": target, **graph.why(target, f"u:{viewer.id}")}
+
+
+@api.get("/external-person", auth=session_auth)
+def external_person(request: HttpRequest, key: str):
+    """An author outside the roster: name, institution, their papers with
+    college authors, and who at the college connects to them."""
+    require_user(request)
+    body = graph.external_person(key)
+    if body is None:
+        raise HttpError(404, "Nobody outside the roster has that author key.")
+    return hod.without_money(body)
+
+
 class DisputeIn(Schema):
     reason: str
     duplicate_of: Optional[str] = None

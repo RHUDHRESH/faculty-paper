@@ -1,19 +1,30 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Camera,
   ExternalLink,
   FileText,
+  Gem,
   Handshake,
   Mail,
   Pencil,
+  Quote,
   Search,
-  Share2,
+  TrendingUp,
   UserCheck,
   UserPlus,
   Users,
+  UsersRound,
+  Waypoints,
 } from "lucide-react"
+
+import { firstName, HowConnected, WhyTheyMatter } from "@/pages/person-context"
+import { Chip } from "@/ui/chip"
+import { HeroBand } from "@/ui/hero"
+import { initialsOf } from "@/ui/person"
+import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
+import { StatRow, StatTile } from "@/ui/stat"
 
 import { CollabDialog } from "@/pages/chat"
 import {
@@ -131,8 +142,6 @@ type Directory = { total: number; limit: number; offset: number; results: Person
 /** How many papers show before "Show all". */
 const PAPERS_SHOWN = 8
 
-/** The network drawing loads only when a profile is opened, not with the page. */
-const PersonGraph = lazy(() => import("@/pages/network").then((m) => ({ default: m.PersonGraph })))
 
 /* ------------------------------------------------------------------------ */
 /* The profile                                                               */
@@ -180,14 +189,50 @@ export function PublicProfile() {
   return <ProfileView data={query.data} routeId={id} />
 }
 
+type Metrics = {
+  total_publications: number
+  total_citations: number | null
+  h_index: number | null
+  i10_index: number | null
+}
+type RecordPaper = { id: string; year: number | null; citations: number | null; title: string }
+type Coauthor = {
+  key: string
+  user_id: string | null
+  name: string
+  department: string | null
+  papers_together: number
+  institutions: string[]
+  is_college_member: boolean
+}
+type CoauthorsBody = { inside?: Coauthor[]; outside?: Coauthor[] }
+
+type ProfileTab = "papers" | "research" | "activity"
+
 function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
   const { person } = data
+  const viewerId = useAuth().me?.id ?? ""
   const [editing, setEditing] = useState(false)
   const [pinning, setPinning] = useState(false)
   const [addingSkill, setAddingSkill] = useState(false)
   const [proposing, setProposing] = useState(false)
+  const [finishing, setFinishing] = useState(false)
+  const [tab, setTab] = useState<ProfileTab>("papers")
+
+  const metrics = useApi<Metrics>(["publication-metrics", person.id], `/api/people/${person.id}/publication-metrics`, {
+    retry: false,
+  })
+  const record = useApi<{ publications?: RecordPaper[] }>(
+    ["person-publications", person.id],
+    `/api/people/${person.id}/publications?sort=year`,
+    { retry: false, staleTime: 5 * 60_000 }
+  )
+  const coauthors = useApi<CoauthorsBody>(["coauthors", person.id], `/api/people/${person.id}/coauthors`, {
+    retry: false,
+  })
 
   function act(action: string) {
+    setFinishing(false)
     if (action === "edit") setEditing(true)
     else if (action === "pins") setPinning(true)
     else if (action === "skills") {
@@ -196,139 +241,361 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
     }
   }
 
+  const m = metrics.data && typeof metrics.data.total_publications === "number" ? metrics.data : null
+  const cites = record.data?.publications ? citationsByYear(record.data.publications) : null
+  const tabs: { id: ProfileTab; label: string }[] = [
+    { id: "papers", label: "Papers" },
+    { id: "research", label: "Research" },
+    { id: "activity", label: "Activity" },
+  ]
+
   return (
-    <div className="page max-w-3xl space-y-10">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <Avatar person={person} size="xl" className="shrink-0" />
-        <div className="min-w-0 flex-1 space-y-2">
-          <div>
-            <PageTitle>{person.name}</PageTitle>
-            <Sub className="mt-1">
-              {[person.designation, person.department].filter(Boolean).join(" · ") || person.role_label}
-            </Sub>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {person.research_faculty && (
-              <span className="inline-flex items-center rounded-sm bg-accent-wash px-1.5 py-0.5 text-xs font-medium text-fg">
-                Research faculty
-              </span>
-            )}
-            {person.orcid_url && (
-              <a
-                href={person.orcid_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-accent underline-offset-4 hover:underline"
+    <div data-area="people" className="page space-y-6">
+      <HeroBand
+        area="people"
+        eyebrow={[person.designation, person.department, "Saveetha Engineering College"].filter(Boolean).join(" · ") || person.role_label}
+        title={person.name}
+        titleClassName="honour text-[2rem] leading-[1.15] sm:text-honour"
+        sentence={person.bio ? <span className="whitespace-pre-wrap">{person.bio}</span> : undefined}
+        aside={<Avatar person={person} size="xl" className="max-lg:hidden" />}
+      >
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+          {person.research_faculty && (
+            <span className="inline-flex items-center rounded-sm bg-accent-wash px-1.5 py-0.5 text-xs font-medium text-fg">
+              Research faculty
+            </span>
+          )}
+          {person.orcid_url && (
+            <a
+              href={person.orcid_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-accent underline-offset-4 hover:underline"
+            >
+              ORCID {person.orcid_id}
+              <ExternalLink className="size-3" aria-hidden />
+            </a>
+          )}
+          {person.scopus_url && (
+            <a
+              href={person.scopus_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-sm text-accent underline-offset-4 hover:underline"
+            >
+              Scopus profile
+              <ExternalLink className="size-3" aria-hidden />
+            </a>
+          )}
+        </div>
+        {person.interests.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1">
+            {person.interests.map((i) => (
+              <Link
+                key={i}
+                to={`/search?scope=people&q=${encodeURIComponent(i)}`}
+                className="rounded-sm bg-surface/70 px-1.5 py-0.5 text-xs text-fg-muted hover:bg-hover hover:text-fg"
               >
-                ORCID {person.orcid_id}
-                <ExternalLink className="size-3" aria-hidden />
-              </a>
-            )}
-            {person.scopus_url && (
-              <a
-                href={person.scopus_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-accent underline-offset-4 hover:underline"
-              >
-                Scopus profile
-                <ExternalLink className="size-3" aria-hidden />
-              </a>
-            )}
+                {i}
+              </Link>
+            ))}
           </div>
-          {person.bio && <p className="max-w-prose whitespace-pre-wrap text-base">{person.bio}</p>}
-          {person.interests.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {person.interests.map((i) => (
-                <Link
-                  key={i}
-                  to={`/u?interest=${encodeURIComponent(i)}`}
-                  className="rounded-sm bg-sunken px-1.5 py-0.5 text-xs text-fg-muted hover:bg-hover hover:text-fg"
-                >
-                  {i}
-                </Link>
-              ))}
+        )}
+        <FollowBar data={data} routeId={routeId} onEdit={() => setEditing(true)} onPropose={() => setProposing(true)} />
+      </HeroBand>
+
+      {data.completeness && data.completeness.score < 100 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sunken px-4 py-2 text-sm">
+          <span className="text-fg-muted">
+            <span className="font-medium text-fg">Profile {data.completeness.score}%</span> · add a photo and ORCID to
+            show up in search.
+          </span>
+          <button type="button" onClick={() => setFinishing(true)} className="font-medium text-accent hover:underline">
+            Finish profile →
+          </button>
+        </div>
+      )}
+
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-6">
+          <StatRow className="grid-cols-2 sm:grid-cols-4">
+            <StatTile icon={FileText} area="people" figure={m ? m.total_publications : data.counts.papers} label="Papers" />
+            <StatTile icon={Quote} area="people" figure={m ? (m.total_citations ?? "—") : null} label="Citations" />
+            <StatTile icon={TrendingUp} area="people" figure={m ? (m.h_index ?? "—") : null} label="h-index" />
+            <StatTile icon={Gem} area="people" figure={m ? (m.i10_index ?? "—") : null} label="i10-index" />
+          </StatRow>
+
+          {data.research_post && (
+            <ResearchPostPanel personId={person.id} routeId={routeId} post={data.research_post} isMe={data.is_me} />
+          )}
+
+          <div role="tablist" aria-label="Profile" className="flex gap-1 border-b border-line">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  "-mb-px border-b-2 px-3 pb-2.5 pt-1 text-sm",
+                  tab === t.id ? "border-(--area) font-medium text-fg" : "border-transparent text-fg-muted hover:text-fg"
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "papers" && (
+            <div className="space-y-8">
+              <PinnedPapers pinned={data.pinned ?? []} isMe={data.is_me} onChoose={() => setPinning(true)} />
+              <Papers papers={data.papers} isMe={data.is_me} name={person.name} />
             </div>
           )}
-          <FollowBar
-            data={data}
-            routeId={routeId}
-            onEdit={() => setEditing(true)}
-            onPropose={() => setProposing(true)}
-          />
+          {tab === "research" && (
+            <div className="space-y-8">
+              <Counts counts={data.counts} />
+              {data.areas.length > 0 && (
+                <section className="space-y-3">
+                  <SectionTitle>Topics</SectionTitle>
+                  <ul className="space-y-2">
+                    {data.areas.map((a) => (
+                      <li key={a.key} className="flex items-center gap-3 text-sm">
+                        <span className="w-48 shrink-0 truncate text-fg">{a.key}</span>
+                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
+                          <span
+                            className="block h-full rounded-full bg-(--area-fill,var(--area))"
+                            style={{ width: `${(a.count / Math.max(1, ...data.areas.map((x) => x.count))) * 100}%` }}
+                          />
+                        </span>
+                        <span className="w-8 text-right tabular text-fg-muted">{a.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              <BadgeShelf userId={person.id} own={data.is_me} />
+              <Collaborations
+                collaborations={data.collaborations ?? []}
+                routeId={routeId}
+                onPropose={data.is_me ? undefined : () => setProposing(true)}
+              />
+            </div>
+          )}
+          {tab === "activity" && <Posts data={data} />}
         </div>
-      </header>
 
-      {data.completeness && <CompletenessMeter completeness={data.completeness} onAction={act} />}
-      {data.stats && <StatsCard stats={data.stats} />}
-
-      {data.research_post && (
-        <ResearchPostPanel personId={person.id} routeId={routeId} post={data.research_post} isMe={data.is_me} />
-      )}
-
-      <Counts counts={data.counts} />
-
-      <BadgeShelf userId={person.id} own={data.is_me} />
-
-      <PinnedPapers pinned={data.pinned ?? []} isMe={data.is_me} onChoose={() => setPinning(true)} />
-
-      <div id="skills">
-        <Skills
-          skills={data.skills ?? []}
-          isMe={data.is_me}
-          name={person.name}
-          routeId={routeId}
-          adding={addingSkill}
-          onAdding={setAddingSkill}
-        />
+        <aside className="flex min-w-0 flex-col gap-6">
+          {!data.is_me && viewerId && (
+            <RailCard title="How you're connected" icon={Waypoints}>
+              <HowConnected meId={viewerId} target={person.id} name={person.name} messageTo={`/messages?to=${person.id}`} />
+              <details className="group mt-3">
+                <summary className="cursor-pointer text-sm text-accent">Why {firstName(person.name)} matters to you</summary>
+                <div className="mt-2">
+                  <WhyTheyMatter target={person.id} name={person.name} />
+                </div>
+              </details>
+            </RailCard>
+          )}
+          <RailCard title="Co-authors" icon={UsersRound}>
+            <CoauthorRail query={coauthors} fallback={data.coauthors} />
+          </RailCard>
+          <RailCard title="Citations per year" icon={Quote} className="lg:order-first">
+            {record.isLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : cites && cites.length > 0 ? (
+              <CitationBars rows={cites} />
+            ) : (
+              <p className="text-sm text-fg-muted">No citations on {firstName(person.name)}'s record yet.</p>
+            )}
+          </RailCard>
+          <div id="skills">
+            <Skills
+              skills={data.skills ?? []}
+              isMe={data.is_me}
+              name={person.name}
+              routeId={routeId}
+              adding={addingSkill}
+              onAdding={setAddingSkill}
+            />
+          </div>
+          {data.stats && (
+            <details className="panel px-4 py-3">
+              <summary className="cursor-pointer text-sm font-medium text-fg">Only you see this</summary>
+              <div className="mt-3">
+                <StatsCard stats={data.stats} />
+              </div>
+            </details>
+          )}
+        </aside>
       </div>
 
-      <Collaborations
-        collaborations={data.collaborations ?? []}
-        routeId={routeId}
-        onPropose={data.is_me ? undefined : () => setProposing(true)}
-      />
-
-      <Papers papers={data.papers} isMe={data.is_me} name={person.name} />
-
-      {data.coauthors.length > 0 && (
-        <section className="space-y-3">
-          <SectionTitle>Written with, from this college</SectionTitle>
-          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {data.coauthors.map((c) => (
-              <li key={c.id} className="flex items-center gap-3">
-                <Avatar person={c} size="sm" />
-                <span className="min-w-0 flex-1">
-                  <PersonLink id={c.id} name={c.name} className="block truncate text-sm" />
-                  <Meta className="block truncate text-xs">
-                    {[c.department, `${c.together} paper${c.together === 1 ? "" : "s"} together`]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </Meta>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+      {finishing && data.completeness && (
+        <Sheet open onOpenChange={(v) => !v && setFinishing(false)}>
+          <SheetContent>
+            <SheetHeader>
+              <SheetTitle>Finish your profile</SheetTitle>
+              <SheetDescription>Complete profiles come first in people search and suggestions.</SheetDescription>
+            </SheetHeader>
+            <SheetBody className="overflow-y-auto">
+              <CompletenessMeter completeness={data.completeness} onAction={act} />
+            </SheetBody>
+          </SheetContent>
+        </Sheet>
       )}
-
-      <section className="space-y-3">
-        <SectionTitle>
-          <Share2 className="mr-1 inline size-4 align-[-2px] text-accent" aria-hidden />
-          {data.is_me ? "Your network in the college" : "Their network in the college"}
-        </SectionTitle>
-        <Suspense fallback={<Skeleton className="h-80 w-full" />}>
-          <PersonGraph personId={person.id} name={person.name} />
-        </Suspense>
-      </section>
-
-      <Posts data={data} />
-
       {editing && <EditProfile data={data} routeId={routeId} onClose={() => setEditing(false)} />}
       {pinning && (
         <PinDialog papers={data.papers} pinned={data.pinned ?? []} routeId={routeId} onClose={() => setPinning(false)} />
       )}
       {proposing && <CollabDialog person={person} onClose={() => setProposing(false)} />}
+    </div>
+  )
+}
+
+function RailCard({
+  title,
+  icon: Icon,
+  children,
+  className,
+}: {
+  title: string
+  icon: typeof Quote
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <section className={cn("panel space-y-3 p-4", className)}>
+      <h2 className="flex items-center gap-1.5 text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">
+        <Icon aria-hidden className="size-4 text-(--area)" strokeWidth={1.75} />
+        {title}
+      </h2>
+      {children}
+    </section>
+  )
+}
+
+/** Citations earned by the papers published in each year (OpenAlex gives current counts, not a history). */
+function citationsByYear(papers: RecordPaper[]) {
+  const by = new Map<number, { year: number; citations: number; papers: RecordPaper[] }>()
+  for (const p of papers) {
+    if (!p.year) continue
+    const row = by.get(p.year) ?? { year: p.year, citations: 0, papers: [] }
+    row.citations += p.citations ?? 0
+    row.papers.push(p)
+    by.set(p.year, row)
+  }
+  return [...by.values()].sort((a, b) => a.year - b.year).slice(-10)
+}
+
+function CitationBars({ rows }: { rows: ReturnType<typeof citationsByYear> }) {
+  const [open, setOpen] = useState<number | null>(null)
+  const top = Math.max(1, ...rows.map((r) => r.citations))
+  const picked = rows.find((r) => r.year === open)
+  return (
+    <div>
+      <div className="flex h-24 items-end gap-1" role="list" aria-label="Citations to papers published each year">
+        {rows.map((r) => (
+          <button
+            key={r.year}
+            type="button"
+            role="listitem"
+            aria-label={`${r.year}: ${r.citations} citations`}
+            aria-pressed={open === r.year}
+            onClick={() => setOpen(open === r.year ? null : r.year)}
+            className="flex h-full flex-1 flex-col justify-end"
+            title={`${r.year} · ${r.citations} citations`}
+          >
+            <span
+              className={cn("block w-full rounded-t-sm", open === r.year ? "bg-(--area)" : "bg-(--area-line)")}
+              style={{ height: `${Math.max(3, (r.citations / top) * 100)}%` }}
+            />
+          </button>
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between text-[11px] tabular text-fg-subtle">
+        <span>{rows[0]?.year}</span>
+        <span>{rows.at(-1)?.year}</span>
+      </div>
+      {picked && (
+        <div className="mt-2 rounded-md bg-sunken p-2 text-xs">
+          <p className="font-medium text-fg">
+            {picked.year} · {picked.citations} citations
+          </p>
+          <ul className="mt-1 space-y-0.5 text-fg-muted">
+            {picked.papers
+              .sort((a, b) => (b.citations ?? 0) - (a.citations ?? 0))
+              .slice(0, 5)
+              .map((p) => (
+                <li key={p.id} className="line-clamp-1">
+                  {p.citations ?? 0} · {p.title}
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CoauthorRail({
+  query,
+  fallback,
+}: {
+  query: ReturnType<typeof useApi<CoauthorsBody>>
+  fallback: Profile["coauthors"]
+}) {
+  if (query.isLoading) return <SkeletonRows rows={3} rowHeight={32} />
+  const inside = Array.isArray(query.data?.inside) ? query.data!.inside : null
+  const outside = Array.isArray(query.data?.outside) ? query.data!.outside : []
+  const rows: { key: string; name: string; to: string | null; papers: number; inside: boolean; where: string | null }[] =
+    inside
+      ? [...inside.map((c) => ({ ...c, inside: true })), ...outside.map((c) => ({ ...c, inside: false }))]
+          .sort((a, b) => b.papers_together - a.papers_together)
+          .map((c) => ({
+            key: c.key,
+            name: c.name,
+            to: c.user_id ? `/u/${c.user_id}` : null,
+            papers: c.papers_together,
+            inside: c.inside,
+            where: c.inside ? c.department : (c.institutions[0] ?? null),
+          }))
+      : fallback.map((c) => ({ key: c.id, name: c.name, to: `/u/${c.id}`, papers: c.together, inside: true, where: c.department ?? null }))
+  if (!rows.length) return <p className="text-sm text-fg-muted">Nobody on the record yet.</p>
+  return (
+    <div className="space-y-2">
+      {inside && (
+        <p className="text-xs text-fg-muted">
+          {inside.length} at Saveetha · {outside.length} outside
+        </p>
+      )}
+      <ul className="space-y-2">
+        {rows.slice(0, 8).map((c) => (
+          <li key={c.key} className="flex items-center gap-2">
+            <Avatar person={{ name: c.name, initials: initialsOf(c.name), photo_url: null }} size="sm" />
+            <span className="min-w-0 flex-1">
+              {c.to ? (
+                <Link to={c.to} className="block truncate text-sm text-fg hover:underline hover:underline-offset-4">
+                  {c.name}
+                </Link>
+              ) : (
+                <Link
+                  to={`/collaborate?person=${encodeURIComponent(c.key)}`}
+                  className="block truncate text-sm text-fg hover:underline hover:underline-offset-4"
+                >
+                  {c.name}
+                </Link>
+              )}
+              <span className="block truncate text-xs text-fg-muted">
+                {[c.where, `${c.papers} paper${c.papers === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
+              </span>
+            </span>
+            <Chip tone={c.inside ? "area" : "neutral"} area="people">
+              {c.inside ? "Saveetha" : "Outside"}
+            </Chip>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

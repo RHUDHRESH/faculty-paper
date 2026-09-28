@@ -121,7 +121,7 @@ export function Faces({ people }: { people: PersonBrief[] }) {
 /* ------------------------------------------------------------------------ */
 
 /** `/messages?to=<id>[&ref=<post id>]`: straight to the one-to-one chat, opened if new. */
-export function OpenChat({ to, refPost }: { to: string; refPost?: string | null }) {
+export function OpenChat({ to, refPost, draft: given }: { to: string; refPost?: string | null; /** A prefilled, unsent draft (e.g. an intro request). */ draft?: string | null }) {
   const navigate = useNavigate()
   const [failed, setFailed] = useState<string | null>(null)
   const started = useRef(false)
@@ -137,7 +137,7 @@ export function OpenChat({ to, refPost }: { to: string; refPost?: string | null 
         })
       })
       .catch((err: ApiError) => setFailed(err.message))
-  }, [to, refPost, navigate])
+  }, [to, refPost, given, navigate])
   if (failed) {
     return (
       <div className="page max-w-2xl">

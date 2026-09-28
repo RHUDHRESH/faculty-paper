@@ -386,7 +386,11 @@ describe("your own profile", () => {
   }
 
   it("shows how complete it is, with the next step for each missing part", async () => {
+    const user = userEvent.setup()
     mountProfile(me())
+    // A slim banner first; the full checklist opens in a sheet.
+    expect(await screen.findByText("Profile 29%")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: /Finish profile/ }))
     expect(await screen.findByText("Your profile is 29% complete")).toBeInTheDocument()
     expect(screen.getByRole("progressbar", { name: "Profile completeness" })).toHaveAttribute("aria-valuenow", "29")
     expect(screen.getByText(/Say what you work on/)).toBeInTheDocument()
@@ -406,14 +410,14 @@ describe("your own profile", () => {
   it("shows nobody else a completeness meter or stats", async () => {
     mountProfile(me({ is_me: false, completeness: null, stats: null }), {}, "/u/u-ravi")
     await screen.findByRole("heading", { name: FACULTY.name })
-    expect(screen.queryByText(/% complete/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/% complete|Profile d+%/)).not.toBeInTheDocument()
     expect(screen.queryByRole("region", { name: "Your stats" })).not.toBeInTheDocument()
   })
 
-  it("keeps the profile up when the network drawing gets an answer it cannot draw", async () => {
+  it("keeps the profile up when the graph endpoint answers with nothing (the map lives on /collaborate now)", async () => {
     mountProfile(me(), { "/api/people/u-faculty/graph": () => ({}) })
     expect(await screen.findByRole("heading", { name: FACULTY.name })).toBeInTheDocument()
-    expect(await screen.findByText("No network here yet")).toBeInTheDocument()
+    expect(screen.queryByText("No network here yet")).not.toBeInTheDocument()
   })
 
   it("lets a colleague endorse a skill at once", async () => {

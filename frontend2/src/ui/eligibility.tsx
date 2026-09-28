@@ -469,7 +469,6 @@ export function ClaimEligibilityGate({
           size="lg"
           type="button"
           onClick={start}
-          aria-disabled={!allTicked || undefined}
           disabled={!!blocked}
           aria-describedby={showStuck && !allTicked ? alertId : undefined}
         >

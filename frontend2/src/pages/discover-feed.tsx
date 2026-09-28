@@ -37,28 +37,29 @@ export type ForYou = {
   grounded_on: { papers: number; followed: number }
 }
 
-/* ---- "Not interested", kept on this device ---------------------------- */
+/* ---- "Not interested", kept on the server (POST /api/discover/dismiss) -- */
 
-const HIDDEN_KEY = "discover:hidden"
-
-function readHidden(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? "[]") as string[]
-  } catch {
-    return []
-  }
-}
+type DismissBody = { kind: string; id: string; undo?: boolean }
 
 export function useHidden() {
-  const [hidden, setHidden] = useState<string[]>(readHidden)
-  const hide = (id: string) => {
-    const next = [...new Set([...hidden, id])]
-    setHidden(next)
-    try {
-      localStorage.setItem(HIDDEN_KEY, JSON.stringify(next))
-    } catch {
-      /* private mode: hidden for this visit only */
-    }
+  const [hidden, setHidden] = useState<string[]>([])
+  const dismiss = useApiMutation<DismissBody>("/api/discover/dismiss", { invalidates: [["discover"]] })
+  const hide = (item: Pick<FeedItem, "kind" | "id" | "title">) => {
+    setHidden((h) => [...new Set([...h, item.id])])
+    dismiss.mutate(
+      { kind: item.kind, id: item.id },
+      {
+        onSuccess: () =>
+          toast.undoable(`Hid ${item.title}`, () => {
+            setHidden((h) => h.filter((x) => x !== item.id))
+            dismiss.mutate({ kind: item.kind, id: item.id, undo: true }, { onError: (e) => toast.fail(e) })
+          }),
+        onError: (e) => {
+          setHidden((h) => h.filter((x) => x !== item.id))
+          toast.fail(e)
+        },
+      }
+    )
   }
   return { hidden: new Set(hidden), hide }
 }

@@ -195,7 +195,15 @@ type Metrics = {
   h_index: number | null
   i10_index: number | null
 }
-type RecordPaper = { id: string; year: number | null; citations: number | null; title: string }
+type RecordPaper = {
+  id: string
+  year: number | null
+  citations: number | null
+  title: string
+  venue?: string | null
+  quartile?: string | null
+  doi?: string | null
+}
 type Coauthor = {
   key: string
   user_id: string | null
@@ -350,7 +358,13 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
           {tab === "papers" && (
             <div className="space-y-8">
               <PinnedPapers pinned={data.pinned ?? []} isMe={data.is_me} onChoose={() => setPinning(true)} />
-              <Papers papers={data.papers} isMe={data.is_me} name={person.name} />
+              {record.isLoading ? (
+                <SkeletonRows rows={5} />
+              ) : record.data?.publications?.length ? (
+                <PublishedWork papers={record.data.publications} />
+              ) : (
+                <Papers papers={data.papers} isMe={data.is_me} name={person.name} />
+              )}
             </div>
           )}
           {tab === "research" && (
@@ -717,6 +731,64 @@ function Counts({ counts }: { counts: Profile["counts"] }) {
         </span>
       ))}
     </div>
+  )
+}
+
+const RECORD_STEP = 10
+
+/**
+ * The full publication record (GET /api/people/{id}/publications), newest
+ * year first, grouped by year: 10 at a time, then "Show more". Never money.
+ */
+export function PublishedWork({ papers }: { papers: RecordPaper[] }) {
+  const [shown, setShown] = useState(RECORD_STEP)
+  const groups: { year: string; rows: RecordPaper[] }[] = []
+  for (const p of papers.slice(0, shown)) {
+    const year = p.year ? String(p.year) : "Undated"
+    const last = groups[groups.length - 1]
+    if (last && last.year === year) last.rows.push(p)
+    else groups.push({ year, rows: [p] })
+  }
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline gap-3">
+        <SectionTitle>Published work</SectionTitle>
+        <Meta>{papers.length === 1 ? "1 paper" : `${papers.length} papers`}</Meta>
+      </div>
+      {groups.map((g) => (
+        <div key={g.year} className="space-y-1">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg-subtle">{g.year}</h3>
+          <ul className="divide-y divide-line border-y border-line">
+            {g.rows.map((p) => (
+              <li key={p.id} className="min-w-0 space-y-0.5 py-3">
+                <p className="text-base break-words">
+                  {p.doi ? (
+                    <a
+                      href={`https://doi.org/${p.doi}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline-offset-4 hover:underline"
+                    >
+                      {p.title}
+                    </a>
+                  ) : (
+                    p.title
+                  )}
+                </p>
+                <Meta className="block">
+                  {[p.venue, p.quartile, p.citations ? `${p.citations} citations` : null].filter(Boolean).join(" · ")}
+                </Meta>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {papers.length > shown && (
+        <Button kind="quiet" size="sm" onClick={() => setShown((n) => n + RECORD_STEP)}>
+          Show more ({papers.length - shown} left)
+        </Button>
+      )}
+    </section>
   )
 }
 

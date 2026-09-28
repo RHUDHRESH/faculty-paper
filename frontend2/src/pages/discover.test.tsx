@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react"
+import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -154,12 +154,14 @@ describe("Discover — the For-you magazine", () => {
   })
 
   it("hides a card marked Not interested", async () => {
-    localStorage.clear()
-    mount(NOT_SET_UP)
+    mount(NOT_SET_UP, { "/api/discover/dismiss": () => ({ dismissed: true }) })
     await screen.findByText("A fresh paper on speech")
     fireEvent.pointerDown(screen.getByRole("button", { name: "More about A fresh paper on speech" }), { button: 0, ctrlKey: false })
     fireEvent.click(await screen.findByRole("menuitem", { name: "Not interested" }))
     expect(screen.queryByText("A fresh paper on speech")).toBeNull()
+    await waitFor(() => expect(asked("/api/discover/dismiss")).toBe(true))
+    const call = vi.mocked(api).mock.calls.find((c) => String(c[0]) === "/api/discover/dismiss")
+    expect(call?.[1]).toMatchObject({ method: "POST", json: { kind: "paper" } })
   })
 })
 

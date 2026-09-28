@@ -222,7 +222,7 @@ function TellUs({ onChoose }: { onChoose: () => void }) {
 }
 
 /** The magazine: feature first (2/3 width) beside a venue, then a row of three. */
-function ForYouGrid({ items, hide, ai }: { items: FeedItem[]; hide: (id: string) => void; ai: boolean }) {
+function ForYouGrid({ items, hide, ai }: { items: FeedItem[]; hide: (item: FeedItem) => void; ai: boolean }) {
   if (!items.length && !ai)
     return (
       <EmptyState
@@ -238,11 +238,11 @@ function ForYouGrid({ items, hide, ai }: { items: FeedItem[]; hide: (id: string)
     <div className="grid gap-4 md:grid-cols-3">
       {feature && (
         <div className="md:col-span-2">
-          <FeedCard item={feature} feature onHide={() => hide(feature.id)} />
+          <FeedCard item={feature} feature onHide={() => hide(feature)} />
         </div>
       )}
       {body.map((item) => (
-        <FeedCard key={item.id} item={item} feature={false} onHide={() => hide(item.id)} />
+        <FeedCard key={item.id} item={item} feature={false} onHide={() => hide(item)} />
       ))}
       {ai && <ModelCard />}
     </div>
@@ -257,7 +257,7 @@ function KindList({
 }: {
   items: FeedItem[]
   kind: FeedItem["kind"]
-  hide: (id: string) => void
+  hide: (item: FeedItem) => void
   empty: string
 }) {
   const list = items.filter((i) => i.kind === kind)
@@ -265,7 +265,7 @@ function KindList({
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {list.map((item) => (
-        <FeedCard key={item.id} item={item} onHide={() => hide(item.id)} />
+        <FeedCard key={item.id} item={item} onHide={() => hide(item)} />
       ))}
     </div>
   )

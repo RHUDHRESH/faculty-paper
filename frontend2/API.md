@@ -897,7 +897,8 @@ GET /api/external-person?key=<external author key>
 GET /api/people/{user_id|me}/ego?limit=60
     -> { center, coauthors, capped, nodes[{ key, user_id, name, department, is_college_member,
          institution, hop(0|1|2), papers, together, degree }], links[{source,target,papers}] }
-GET /api/people/{user_id|me}/why?of=<user id | external key>
+GET /api/people/{user_id|me}/why?of=<user id | external key>&for=<me | user id>
+    (`for` defaults to the signed-in viewer; another user id is office roles only, else 403)
     -> { for, about, papers, your_papers, reasons[{ kind: together|shared_venue|topic|complement|q1|common_coauthors,
          text, refs[] }] }
 ```
@@ -946,6 +947,9 @@ GET /api/college/research -> { totals, papers_by_year[], topics[{id,label,papers
                                departments[], dept_topic[{dept,topic,papers}], near_me[], my_topics[] }
 GET /api/discover/for-you -> { items[{kind:direction|venue|person|paper,id,title,why,source,payload}],
                                counts, tuned_to[], my_topics[], grounded_on }
+POST /api/discover/dismiss {kind, id, undo?} -> { id, dismissed }
+    ("Not interested", per user on the server; for-you and /discover/next leave dismissed ids out;
+     undo:true brings the item back)
 ```
 
 From the publication record. `citations_by_year` is citations earned by the

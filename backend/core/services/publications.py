@@ -96,10 +96,18 @@ def _params(extra: dict[str, Any]) -> dict[str, Any]:
 
 
 def openalex_get(path: str, params: dict[str, Any]) -> dict[str, Any]:
-    """One throttled GET against OpenAlex, retried on failure (3 tries)."""
+    """One throttled GET against OpenAlex, retried with growing waits.
+
+    A harvest makes thousands of calls, and OpenAlex answers a burst with 429
+    for a while rather than for a second -- three quick retries lost most of
+    a local run to one of those. Six tries waiting 5, 10, 20, 40, 60 s ride
+    it out; anything longer is a daily limit, and the harvest (an idempotent
+    upsert) is simply run again the next day.
+    """
     from core.services.search import upstream
 
-    for attempt in range(3):
+    tries = 6
+    for attempt in range(tries):
         with _lock:
             wait = MIN_INTERVAL - (time.monotonic() - _last_call[0])
             if wait > 0:
@@ -108,9 +116,9 @@ def openalex_get(path: str, params: dict[str, Any]) -> dict[str, Any]:
         try:
             return upstream.get_json(f"{OPENALEX}/{path}", _params(params), read_timeout=30.0) or {}
         except Exception:
-            if attempt == 2:
+            if attempt == tries - 1:
                 raise
-            time.sleep(2 ** attempt * 2)
+            time.sleep(min(60, 5 * 2 ** attempt))
     return {}
 
 

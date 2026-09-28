@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
-import { Check, LoaderCircle } from "lucide-react";
+import { Check, LoaderCircle, type LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { Button } from "@/ui/button";
@@ -25,6 +25,8 @@ export type Step = {
    * whether "optional" means "may be blank" or "may be filled in later".
    */
   optional?: boolean;
+  /** An icon-lg (32px) mark beside the step heading. */
+  icon?: LucideIcon;
 };
 
 type RailState = "done" | "current" | "upcoming";
@@ -49,10 +51,16 @@ function railStateOf(index: number, current: number): RailState {
  */
 export const WizardStepHeading = forwardRef<
   HTMLHeadingElement,
-  { title: string; hint?: string; optional?: boolean; className?: string }
->(function WizardStepHeading({ title, hint, optional, className }, ref) {
+  { title: string; hint?: string; optional?: boolean; icon?: LucideIcon; className?: string }
+>(function WizardStepHeading({ title, hint, optional, icon: Icon, className }, ref) {
   return (
-    <div className={cn("mb-6", className)}>
+    <div className={cn("mb-6", Icon && "flex items-start gap-4", className)}>
+      {Icon && (
+        <span aria-hidden className="inline-flex size-14 shrink-0 items-center justify-center rounded-2xl bg-(--area-wash) text-(--area)" data-area="record">
+          <Icon className="size-8" strokeWidth={1.5} />
+        </span>
+      )}
+      <div className="min-w-0">
       <h2 ref={ref} tabIndex={-1} className="text-lg font-semibold">
         {title}
         {optional && (
@@ -62,6 +70,7 @@ export const WizardStepHeading = forwardRef<
         )}
       </h2>
       {hint && <p className="mt-1 text-base text-fg-muted">{hint}</p>}
+      </div>
     </div>
   );
 });
@@ -322,6 +331,7 @@ export function Wizard({
                 title={activeStep.title}
                 hint={activeStep.hint}
                 optional={activeStep.optional}
+                icon={activeStep.icon}
               />
             )}
             {children}

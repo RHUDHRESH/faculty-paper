@@ -105,6 +105,8 @@ export type FilingRules = {
   max_upload_bytes: number
   why: { max_authors: string; min_sec_references: string }
   policy_version: number | null
+  /** The version of the three conditions a filing must quote back. */
+  conditions_version?: string
 }
 
 /** Used only until the real rules arrive, and matching the server's own

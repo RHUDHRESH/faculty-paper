@@ -1,7 +1,7 @@
 {
   "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
   "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
-  "count": 21,
+  "count": 45,
   "assets": [
     {
       "name": "empty-no-papers",
@@ -381,6 +381,458 @@
         "png": 34875
       },
       "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-who-to-work-with",
+      "category": "page-spot",
+      "purpose": "Who to work with header",
+      "page": "Who to work with",
+      "files": {
+        "webp": "/illustrations/generated/spot-who-to-work-with.webp",
+        "png": "/illustrations/generated/spot-who-to-work-with.png"
+      },
+      "bytes": {
+        "webp": 40246,
+        "png": 35719
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-profile",
+      "category": "page-spot",
+      "purpose": "Profile header",
+      "page": "Profiles",
+      "files": {
+        "svg": "/illustrations/generated/spot-profile.svg",
+        "webp": "/illustrations/generated/spot-profile.webp",
+        "png": "/illustrations/generated/spot-profile.png"
+      },
+      "bytes": {
+        "svg": 47137,
+        "webp": 18272,
+        "png": 17133
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-messages",
+      "category": "page-spot",
+      "purpose": "Messages header",
+      "page": "Messages",
+      "files": {
+        "svg": "/illustrations/generated/spot-messages.svg",
+        "webp": "/illustrations/generated/spot-messages.webp",
+        "png": "/illustrations/generated/spot-messages.png"
+      },
+      "bytes": {
+        "svg": 39575,
+        "webp": 20596,
+        "png": 18255
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-discussions",
+      "category": "page-spot",
+      "purpose": "Discussions header",
+      "page": "Discussions",
+      "files": {
+        "webp": "/illustrations/generated/spot-discussions.webp",
+        "png": "/illustrations/generated/spot-discussions.png"
+      },
+      "bytes": {
+        "webp": 36906,
+        "png": 33149
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-wall-of-fame",
+      "category": "page-spot",
+      "purpose": "Wall of fame header",
+      "page": "Wall of fame",
+      "files": {
+        "svg": "/illustrations/generated/spot-wall-of-fame.svg",
+        "webp": "/illustrations/generated/spot-wall-of-fame.webp",
+        "png": "/illustrations/generated/spot-wall-of-fame.png"
+      },
+      "bytes": {
+        "svg": 70575,
+        "webp": 29124,
+        "png": 30247
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-calendar",
+      "category": "page-spot",
+      "purpose": "Calendar header",
+      "page": "Calendar",
+      "files": {
+        "svg": "/illustrations/generated/spot-calendar.svg",
+        "webp": "/illustrations/generated/spot-calendar.webp",
+        "png": "/illustrations/generated/spot-calendar.png"
+      },
+      "bytes": {
+        "svg": 70471,
+        "webp": 24440,
+        "png": 22735
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-notifications",
+      "category": "page-spot",
+      "purpose": "Notifications header",
+      "page": "Notifications",
+      "files": {
+        "svg": "/illustrations/generated/spot-notifications.svg",
+        "webp": "/illustrations/generated/spot-notifications.webp",
+        "png": "/illustrations/generated/spot-notifications.png"
+      },
+      "bytes": {
+        "svg": 15222,
+        "webp": 12960,
+        "png": 10895
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-settings",
+      "category": "page-spot",
+      "purpose": "Settings header",
+      "page": "Settings",
+      "files": {
+        "svg": "/illustrations/generated/spot-settings.svg",
+        "webp": "/illustrations/generated/spot-settings.webp",
+        "png": "/illustrations/generated/spot-settings.png"
+      },
+      "bytes": {
+        "svg": 38905,
+        "webp": 19492,
+        "png": 15448
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-approvals",
+      "category": "page-spot",
+      "purpose": "Clearing / approvals header",
+      "page": "Clearing, Approvals",
+      "files": {
+        "svg": "/illustrations/generated/spot-approvals.svg",
+        "webp": "/illustrations/generated/spot-approvals.webp",
+        "png": "/illustrations/generated/spot-approvals.png"
+      },
+      "bytes": {
+        "svg": 35075,
+        "webp": 18322,
+        "png": 14564
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-authorisations",
+      "category": "page-spot",
+      "purpose": "Authorisations header",
+      "page": "Authorisations",
+      "files": {
+        "svg": "/illustrations/generated/spot-authorisations.svg",
+        "webp": "/illustrations/generated/spot-authorisations.webp",
+        "png": "/illustrations/generated/spot-authorisations.png"
+      },
+      "bytes": {
+        "svg": 42139,
+        "webp": 21774,
+        "png": 17817
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-payouts",
+      "category": "page-spot",
+      "purpose": "Payouts / payments header",
+      "page": "Payments, Payouts",
+      "files": {
+        "svg": "/illustrations/generated/spot-payouts.svg",
+        "webp": "/illustrations/generated/spot-payouts.webp",
+        "png": "/illustrations/generated/spot-payouts.png"
+      },
+      "bytes": {
+        "svg": 29911,
+        "webp": 17942,
+        "png": 14259
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-people",
+      "category": "page-spot",
+      "purpose": "People directory header",
+      "page": "People",
+      "files": {
+        "svg": "/illustrations/generated/spot-people.svg",
+        "webp": "/illustrations/generated/spot-people.webp",
+        "png": "/illustrations/generated/spot-people.png"
+      },
+      "bytes": {
+        "svg": 30645,
+        "webp": 16332,
+        "png": 12021
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-imports",
+      "category": "page-spot",
+      "purpose": "Imports header",
+      "page": "Imports",
+      "files": {
+        "svg": "/illustrations/generated/spot-imports.svg",
+        "webp": "/illustrations/generated/spot-imports.webp",
+        "png": "/illustrations/generated/spot-imports.png"
+      },
+      "bytes": {
+        "svg": 32841,
+        "webp": 21000,
+        "png": 15716
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-flags",
+      "category": "page-spot",
+      "purpose": "Flags / follow-ups header",
+      "page": "Flags",
+      "files": {
+        "svg": "/illustrations/generated/spot-flags.svg",
+        "webp": "/illustrations/generated/spot-flags.webp",
+        "png": "/illustrations/generated/spot-flags.png"
+      },
+      "bytes": {
+        "svg": 18915,
+        "webp": 13284,
+        "png": 8707
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-archive",
+      "category": "page-spot",
+      "purpose": "Archive header",
+      "page": "Archive",
+      "files": {
+        "svg": "/illustrations/generated/spot-archive.svg",
+        "webp": "/illustrations/generated/spot-archive.webp",
+        "png": "/illustrations/generated/spot-archive.png"
+      },
+      "bytes": {
+        "svg": 40687,
+        "webp": 18384,
+        "png": 16387
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-audit",
+      "category": "page-spot",
+      "purpose": "Audit trail header",
+      "page": "Audit",
+      "files": {
+        "svg": "/illustrations/generated/spot-audit.svg",
+        "webp": "/illustrations/generated/spot-audit.webp",
+        "png": "/illustrations/generated/spot-audit.png"
+      },
+      "bytes": {
+        "svg": 44885,
+        "webp": 21010,
+        "png": 20452
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-reports",
+      "category": "page-spot",
+      "purpose": "Reports header",
+      "page": "Reports",
+      "files": {
+        "svg": "/illustrations/generated/spot-reports.svg",
+        "webp": "/illustrations/generated/spot-reports.webp",
+        "png": "/illustrations/generated/spot-reports.png"
+      },
+      "bytes": {
+        "svg": 25280,
+        "webp": 8870,
+        "png": 8251
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-accreditation",
+      "category": "page-spot",
+      "purpose": "Accreditation header",
+      "page": "Accreditation",
+      "files": {
+        "svg": "/illustrations/generated/spot-accreditation.svg",
+        "webp": "/illustrations/generated/spot-accreditation.webp",
+        "png": "/illustrations/generated/spot-accreditation.png"
+      },
+      "bytes": {
+        "svg": 30068,
+        "webp": 13602,
+        "png": 10590
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-budget",
+      "category": "page-spot",
+      "purpose": "Budget header",
+      "page": "Budget",
+      "files": {
+        "svg": "/illustrations/generated/spot-budget.svg",
+        "webp": "/illustrations/generated/spot-budget.webp",
+        "png": "/illustrations/generated/spot-budget.png"
+      },
+      "bytes": {
+        "svg": 48221,
+        "webp": 22586,
+        "png": 20296
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-policy",
+      "category": "page-spot",
+      "purpose": "Policy header",
+      "page": "Policy",
+      "files": {
+        "svg": "/illustrations/generated/spot-policy.svg",
+        "webp": "/illustrations/generated/spot-policy.webp",
+        "png": "/illustrations/generated/spot-policy.png"
+      },
+      "bytes": {
+        "svg": 54203,
+        "webp": 26540,
+        "png": 20939
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-setup",
+      "category": "page-spot",
+      "purpose": "Setup / first-run configuration header",
+      "page": "Setup",
+      "files": {
+        "svg": "/illustrations/generated/spot-setup.svg",
+        "webp": "/illustrations/generated/spot-setup.webp",
+        "png": "/illustrations/generated/spot-setup.png"
+      },
+      "bytes": {
+        "svg": 46715,
+        "webp": 20494,
+        "png": 17634
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-privacy",
+      "category": "page-spot",
+      "purpose": "Privacy header",
+      "page": "Privacy",
+      "files": {
+        "svg": "/illustrations/generated/spot-privacy.svg",
+        "webp": "/illustrations/generated/spot-privacy.webp",
+        "png": "/illustrations/generated/spot-privacy.png"
+      },
+      "bytes": {
+        "svg": 34289,
+        "webp": 21166,
+        "png": 16220
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-server",
+      "category": "error-state",
+      "purpose": "Server error (500) — unplugged cable",
+      "page": "500 / error boundary",
+      "files": {
+        "svg": "/illustrations/generated/error-server.svg",
+        "webp": "/illustrations/generated/error-server.webp",
+        "png": "/illustrations/generated/error-server.png"
+      },
+      "bytes": {
+        "svg": 23612,
+        "webp": 13126,
+        "png": 9255
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-offline",
+      "category": "error-state",
+      "purpose": "Offline / connection lost (renders as a cracked laptop screen under a cloud; use with clear copy)",
+      "page": "Offline banner / network error",
+      "files": {
+        "svg": "/illustrations/generated/error-offline.svg",
+        "webp": "/illustrations/generated/error-offline.webp",
+        "png": "/illustrations/generated/error-offline.png"
+      },
+      "bytes": {
+        "svg": 24742,
+        "webp": 12752,
+        "png": 9596
+      },
+      "sheet": "sheet07",
       "date": "2026-09-28",
       "background": "transparent"
     }

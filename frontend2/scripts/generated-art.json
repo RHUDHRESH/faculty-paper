@@ -182,6 +182,186 @@
         }
       ],
       "note": "Drifted more detailed/painterly than sheets 01-02 (same chat as the library hero); raster only (traces >80 KB)."
+    },
+    {
+      "id": "sheet04",
+      "raw": "sheet04_page_spots_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Page-header spot illustrations, each a small still-life with one focal object: (1) two empty chairs pulled up to a small round table with one shared open notebook and two pens — 'who to work with'; (2) an identity card with an abstract faceless portrait silhouette and a small laurel sprig — 'profile'; (3) two overlapping speech bubbles beside a sealed envelope — 'messages'; (4) a round table seen from above with several small speech bubbles rising from it — 'discussions'; (5) a gallery wall of three simple frames holding a medal, a ribbon and a star — 'wall of fame'; (6) a wall calendar with one date circled and a small flag pin — 'calendar and deadlines'.",
+      "assets": [
+        {
+          "name": "spot-who-to-work-with",
+          "category": "page-spot",
+          "purpose": "Who to work with header",
+          "page": "Who to work with"
+        },
+        {
+          "name": "spot-profile",
+          "category": "page-spot",
+          "purpose": "Profile header",
+          "page": "Profiles"
+        },
+        {
+          "name": "spot-messages",
+          "category": "page-spot",
+          "purpose": "Messages header",
+          "page": "Messages"
+        },
+        {
+          "name": "spot-discussions",
+          "category": "page-spot",
+          "purpose": "Discussions header",
+          "page": "Discussions"
+        },
+        {
+          "name": "spot-wall-of-fame",
+          "category": "page-spot",
+          "purpose": "Wall of fame header",
+          "page": "Wall of fame"
+        },
+        {
+          "name": "spot-calendar",
+          "category": "page-spot",
+          "purpose": "Calendar header",
+          "page": "Calendar"
+        }
+      ]
+    },
+    {
+      "id": "sheet05",
+      "raw": "sheet05_page_spots_c.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Keep each item simple and minimal — few details, clear dark outlines, flat fills, no shading, no gradients, no paper texture. Page-header spot illustrations, one focal object each: (1) a small desk bell with a tiny leaf and two soft chime lines — 'notifications'; (2) two interlocking gears with a small potted sprout between them — 'settings'; (3) a rubber stamp resting beside a document with a tick mark — 'clearing and approvals'; (4) an old brass key lying across a signed document with a wax seal — 'authorisations'; (5) a sealed envelope with a plain round coin and a folded receipt, no currency symbols — 'payouts and payments'; (6) a row of four simple abstract faceless figures of different heights in palette colours — 'people directory'.",
+      "assets": [
+        {
+          "name": "spot-notifications",
+          "category": "page-spot",
+          "purpose": "Notifications header",
+          "page": "Notifications"
+        },
+        {
+          "name": "spot-settings",
+          "category": "page-spot",
+          "purpose": "Settings header",
+          "page": "Settings"
+        },
+        {
+          "name": "spot-approvals",
+          "category": "page-spot",
+          "purpose": "Clearing / approvals header",
+          "page": "Clearing, Approvals"
+        },
+        {
+          "name": "spot-authorisations",
+          "category": "page-spot",
+          "purpose": "Authorisations header",
+          "page": "Authorisations"
+        },
+        {
+          "name": "spot-payouts",
+          "category": "page-spot",
+          "purpose": "Payouts / payments header",
+          "page": "Payments, Payouts"
+        },
+        {
+          "name": "spot-people",
+          "category": "page-spot",
+          "purpose": "People directory header",
+          "page": "People"
+        }
+      ]
+    },
+    {
+      "id": "sheet06",
+      "raw": "sheet06_page_spots_d.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Keep each item simple and minimal (same clause as sheet05). Page-header spot illustrations, one focal object each: (1) an open cardboard box with sheets of paper flowing into it along a curved arrow — 'imports'; (2) a small pennant flag planted on the corner of a document — 'flags and follow-ups'; (3) two stacked archive boxes with round pull-holes and a small plant — 'archive'; (4) a magnifying glass over an open ledger with a column of tick marks — 'audit trail'; (5) a clipboard holding a simple bar chart and a pie chart — 'reports'; (6) a rosette ribbon seal on a blank certificate scroll — 'accreditation'.",
+      "assets": [
+        {
+          "name": "spot-imports",
+          "category": "page-spot",
+          "purpose": "Imports header",
+          "page": "Imports"
+        },
+        {
+          "name": "spot-flags",
+          "category": "page-spot",
+          "purpose": "Flags / follow-ups header",
+          "page": "Flags"
+        },
+        {
+          "name": "spot-archive",
+          "category": "page-spot",
+          "purpose": "Archive header",
+          "page": "Archive"
+        },
+        {
+          "name": "spot-audit",
+          "category": "page-spot",
+          "purpose": "Audit trail header",
+          "page": "Audit"
+        },
+        {
+          "name": "spot-reports",
+          "category": "page-spot",
+          "purpose": "Reports header",
+          "page": "Reports"
+        },
+        {
+          "name": "spot-accreditation",
+          "category": "page-spot",
+          "purpose": "Accreditation header",
+          "page": "Accreditation"
+        }
+      ]
+    },
+    {
+      "id": "sheet07",
+      "raw": "sheet07_page_spots_e.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Keep each item simple and minimal (same clause as sheet05). Page-header and error spot illustrations, one focal object each: (1) a glass jar of plain round coins beside a simple pie chart card, no currency symbols — 'budget'; (2) an open rule book with a ribbon bookmark and a small balance scale — 'policy'; (3) an open toolbox with a checklist card and a pencil — 'setup'; (4) a padlock inside a leaf-shaped shield — 'privacy'; (5) a friendly unplugged power cable with its plug lying loose and a small spark, calm not alarming — 'server error'; (6) a small cloud with a dotted line to a laptop broken in the middle — 'offline'.",
+      "assets": [
+        {
+          "name": "spot-budget",
+          "category": "page-spot",
+          "purpose": "Budget header",
+          "page": "Budget"
+        },
+        {
+          "name": "spot-policy",
+          "category": "page-spot",
+          "purpose": "Policy header",
+          "page": "Policy"
+        },
+        {
+          "name": "spot-setup",
+          "category": "page-spot",
+          "purpose": "Setup / first-run configuration header",
+          "page": "Setup"
+        },
+        {
+          "name": "spot-privacy",
+          "category": "page-spot",
+          "purpose": "Privacy header",
+          "page": "Privacy"
+        },
+        {
+          "name": "error-server",
+          "category": "error-state",
+          "purpose": "Server error (500) — unplugged cable",
+          "page": "500 / error boundary"
+        },
+        {
+          "name": "error-offline",
+          "category": "error-state",
+          "purpose": "Offline / connection lost (renders as a cracked laptop screen under a cloud; use with clear copy)",
+          "page": "Offline banner / network error"
+        }
+      ]
     }
   ]
 }

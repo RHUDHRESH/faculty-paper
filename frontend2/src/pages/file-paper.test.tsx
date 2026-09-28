@@ -245,6 +245,9 @@ describe("filing a paper", { timeout: 20_000 }, () => {
     expect(screen.getByLabelText("Paper title")).toHaveValue("A paper typed by hand")
     // Still the same job: a paper being filed, not "edit your draft".
     expect(screen.getByRole("heading", { level: 1, name: "Add the details" })).toBeInTheDocument()
+    // The address moves without a router navigation, which the shell's
+    // pathname-keyed page transition would turn into a remount.
+    expect(window.location.pathname).toBe("/papers/c1/edit")
   })
 
   it("remembers whose paper it is after the first save, when filing for someone", async () => {

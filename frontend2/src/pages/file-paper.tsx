@@ -647,9 +647,14 @@ export function FilePaper() {
         hydratedRef.current = true
         setTicketNumber(result.ticket_number)
         // Replace, not push: Back from here lands on the list they came from.
-        navigate(
-          `/papers/${result.id}/edit${filingForId ? `?for=${encodeURIComponent(filingForId)}` : ""}`,
-          { replace: true }
+        // Through the history API, not the router: the shell's page
+        // transition is keyed on the pathname, so a router navigation here
+        // remounted this page mid-filing and threw away the ticked
+        // conditions and the step. A reload still lands on the draft.
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `/papers/${result.id}/edit${filingForId ? `?for=${encodeURIComponent(filingForId)}` : ""}`
         )
       }
       setCarried(carriedFrom(result))

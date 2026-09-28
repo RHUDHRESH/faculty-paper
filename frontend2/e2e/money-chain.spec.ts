@@ -492,7 +492,7 @@ test.describe("Filing a paper", () => {
 
     // With no Scopus connection the server confirms nothing on its own and
     // asks for a note; the form asks for it first. With one, it may not ask.
-    const note = page.getByLabel("A note for the research cell")
+    const note = page.getByLabel("A note for the checkers")
     const noteText = "E2E filing: the DOI resolves and the paper names the college."
     if (await note.isVisible()) await note.fill(noteText)
 
@@ -510,7 +510,7 @@ test.describe("Filing a paper", () => {
       await page.getByRole("button", { name: "Send it with this note" }).click()
       await filed
     }
-    await expect(page.getByText("Filed. It's with the research cell.")).toBeVisible()
+    await expect(page.getByText("Filed. Your claim is on its way.")).toBeVisible()
     await expect(page.getByTestId("filed-ticket")).not.toBeEmpty()
     await expect(receiptPlate).toContainText(title)
     await expect(receiptPlate.locator("[data-condition]")).toHaveCount(3)

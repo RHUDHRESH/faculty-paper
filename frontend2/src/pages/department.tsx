@@ -45,6 +45,7 @@ import { Due, When } from "@/ui/when"
 import { HeaderSpot } from "@/ui/page-header"
 import { Illustration, departmentArt } from "@/ui/illustration"
 import { Avatar, initialsOf } from "@/ui/person"
+import { DepartmentGlance } from "@/pages/department-glance"
 
 /**
  * A head of department's own screen: where the department stands, what it has
@@ -249,7 +250,11 @@ export function Department() {
   const isHod = can(me?.role).seeDepartment
 
   const [searchParams, setSearchParams] = useSearchParams()
-  const year = searchParams.get("year") ?? ""
+  // The current year unless the head asks otherwise: every job on this page
+  // is about this year, and an all-years default hid a department gone quiet.
+  const thisYear = new Date().getFullYear()
+  const chosen = searchParams.get("year") ?? String(thisYear)
+  const year = chosen === "all" ? "" : chosen
   const [editing, setEditing] = useState<{ target: Target | null; person: Person | null } | null>(
     null
   )
@@ -287,8 +292,8 @@ export function Department() {
   }
 
   const yearOptions: ComboboxOption[] = [
-    { value: "", label: "All years on record" },
-    ...(standing.data?.years ?? []).map((y) => ({ value: String(y), label: String(y) })),
+    { value: "all", label: "All years on record" },
+    ...Array.from(new Set([thisYear, ...(standing.data?.years ?? [])])).map((y) => ({ value: String(y), label: String(y) })),
   ]
 
   return (
@@ -309,9 +314,11 @@ export function Department() {
           </div>
         </div>
         <Combobox
-          value={year}
+          value={chosen}
           onChange={(v) =>
-            setSearchParams(v ? new URLSearchParams({ year: v }) : new URLSearchParams())
+            setSearchParams(
+              v === String(thisYear) ? new URLSearchParams() : new URLSearchParams({ year: v })
+            )
           }
           options={yearOptions}
           aria-label="Publication year"
@@ -319,6 +326,8 @@ export function Department() {
         />
         <HeaderSpot name="spot-home-hod" />
       </header>
+
+      <DepartmentGlance year={year ? Number(year) : thisYear} />
 
       <DepartmentSiteProfile code={me?.department ?? null} />
 

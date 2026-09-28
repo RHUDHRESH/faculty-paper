@@ -313,6 +313,12 @@ def serialize(n: Notification) -> dict[str, Any]:
         "section": kind_of(n.kind).section,
         "count": n.group_count,
         "actors": [a.get("name") for a in (n.actors or []) if a.get("name")][:3],
+        # The face beside the line: the latest actor, filled with photo_url by
+        # core.faces on the way out.
+        "actor": next(
+            ({"user_id": str(a["id"]), "name": a["name"]} for a in (n.actors or []) if a.get("id") and a.get("name")),
+            None,
+        ),
         "emailed": n.emailed_at is not None,
     }
 

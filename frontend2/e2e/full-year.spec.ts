@@ -8,7 +8,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 
 import { expect, test, type Page } from "@playwright/test"
 
-import { textPdf } from "./fixtures/claim-api"
+import { csrfToken, textPdf } from "./fixtures/claim-api"
 import { as, close, manage, seedYear, type Year } from "./fixtures/year"
 
 const OUT = "e2e/.artifacts/year"
@@ -546,8 +546,20 @@ test.describe("A year at the college", () => {
     await expect(ask.getByText("+ ₹8,000")).toBeVisible()
     await ask.getByRole("textbox", { name: "Notes" }).fill("Q4 incentive raised to 8,000 from April 2027 by council resolution.")
     await ask.getByRole("button", { name: "Publish…" }).click()
-    await page.waitForTimeout(800)
-    await snap(page, "14-policy-confirm")
+    const confirm = page.getByRole("dialog", { name: "Make v2 the active policy?" })
+    // The one unpaid Q4 claim, the watch-listed one still with the research cell.
+    await expect(confirm.getByRole("region", { name: "What this changes" })).toContainText(tickets.anand_watched)
+    await expect(confirm).toContainText("₹17,400 to ₹18,000")
+    await confirm.getByRole("textbox", { name: "Type v2 to confirm" }).fill("v2")
+    await Promise.all([
+      page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith("/admin/formula") && r.ok()),
+      confirm.getByRole("button", { name: "Publish v2" }).click(),
+    ])
+    await expect(page.getByText("Policy 2026-27").first()).toBeVisible()
+    await page.goto("/audit")
+    const first = page.getByRole("table").getByRole("row").nth(1)
+    await expect(first).toContainText("admin@year.invalid")
+    await expect(first).toContainText(/polic|formula/i)
     await close(page)
   })
 
@@ -602,6 +614,86 @@ test.describe("A year at the college", () => {
     }
     await page.getByRole("button", { name: "Start the claim" }).click()
     await expect(page.getByRole("radio", { name: /Final-year project conference incentive/ })).toBeDisabled()
+    await close(page)
+  })
+
+  test("the final-year claim goes through every desk and is paid at ₹15,000", async ({ browser }) => {
+    let page = await as(browser, "cell")
+    await page.goto("/clearing")
+    const row = page.getByRole("row").filter({ hasText: tickets.fyp })
+    await expect(row).toContainText("₹15,000")
+    await row.getByText(FYP_TITLE).first().click()
+    await page.getByRole("dialog").getByRole("button", { name: "Clear", exact: true }).click()
+    const clear = page.getByRole("button", { name: /^Clear — ₹/ })
+    await expect(clear).toBeEnabled()
+    expect(amountIn(await clear.innerText())).toBe("₹15,000")
+    await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith("/clear") && r.ok()),
+      clear.click(),
+    ])
+    await close(page)
+
+    page = await as(browser, "principal")
+    await page.goto("/approvals")
+    const prow = page.getByRole("row").filter({ hasText: tickets.fyp })
+    await expect(prow).toContainText("₹15,000")
+    await prow.getByText(FYP_TITLE).first().click()
+    await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click()
+    await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith("/principal-approve") && r.ok()),
+      page.getByRole("dialog", { name: "Approve this spend?" }).getByRole("button", { name: "Approve ₹15,000" }).click(),
+    ])
+    await close(page)
+
+    page = await as(browser, "director")
+    await page.goto("/authorisations")
+    await page.getByRole("checkbox", { name: /^Select all 1/ }).check()
+    await page.getByRole("button", { name: "Review and authorise 1" }).click()
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/director/bulk-approve") && r.ok()),
+      page.getByRole("dialog").getByRole("button", { name: "Authorise ₹15,000" }).click(),
+    ])
+    await close(page)
+
+    page = await as(browser, "finance")
+    await page.goto("/payments")
+    await page.getByRole("checkbox", { name: "Select all payable rows" }).check()
+    await page.getByRole("button", { name: "Mark 1 paid" }).click()
+    const pay = page.getByRole("dialog")
+    await pay.getByRole("button", { name: "Number the empty ones" }).click()
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("bulk-mark-paid") && r.ok()),
+      pay.getByRole("button", { name: "Mark 1 paid — ₹15,000" }).click(),
+    ])
+    await page.goto("/ledger")
+    const totals = page.getByRole("region", { name: "Totals" })
+    await expect(totals).toContainText("₹1,91,800")
+    await expect(totals).toContainText("4 payments to 2 people")
+    await close(page)
+
+    page = await as(browser, "anand")
+    await page.goto("/papers/statement")
+    await expect(page.getByRole("row", { name: "Total ₹1,47,100" })).toBeVisible()
+    await close(page)
+  })
+
+  test("nobody acts on their own claim: the research cell files its own paper", async ({ browser }) => {
+    const page = await as(browser, "cell")
+    tickets.cell_own = await fileFromRecord(page, year.papers.cell_own, "own")
+    await page.goto("/clearing")
+    await expect(page.getByRole("heading", { name: "Clearing queue" })).toBeVisible()
+    await expect(page.getByRole("row").filter({ hasText: tickets.cell_own })).toHaveCount(0)
+    // And the server refuses it even if asked directly.
+    const mine = await page.request.get(`/api/claims?limit=50`)
+    const claim = ((await mine.json()).results ?? (await mine.json())).find(
+      (c: { ticket_number: string }) => c.ticket_number === tickets.cell_own
+    )
+    const res = await page.request.post(`/api/claims/${claim.id}/clear`, {
+      headers: { "X-CSRFToken": await csrfToken(page) },
+      data: { expected_amount: 1 },
+    })
+    expect([400, 403]).toContain(res.status())
+    expect(await res.text()).toMatch(/own/i)
     await close(page)
   })
 })

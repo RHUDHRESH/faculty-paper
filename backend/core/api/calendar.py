@@ -32,6 +32,7 @@ from core.models import (
     PaidLedger,
     Post,
     Role,
+    ScoutRun,
     Thread,
     User,
 )
@@ -184,6 +185,9 @@ RECORD_KINDS = {
     "PUBLISHED": "Published",
     "FILED": "Filed",
     "CUTOFF": "Filing cutoff",
+    "PAYOUT": "Payout run",
+    "COLLEAGUE": "Colleague published",
+    "SCOUT": "Research scout deadline",
 }
 
 
@@ -224,8 +228,40 @@ def _record_entry(kind: str, key: str, starts_on: date, title: str, **extra) -> 
         "titles": extra.get("titles", []),
         # A month's payments, or a month gathered for the college, is a month
         # and not its first day.
-        "whole_month": extra.get("whole_month", kind == "PAID"),
+        "whole_month": extra.get("whole_month", kind in ("PAID", "PAYOUT")),
+        "person": extra.get("person"),
+        "url": extra.get("url"),
     }
+
+
+def _scout_deadlines(user: User, first: date, last: date) -> list[dict[str, Any]]:
+    """Deadlines the person's latest finished Research scout run found: calls,
+    special issues and conferences with a stated date. Only a real ISO date
+    counts; the scout is told to leave the field empty when unsure."""
+    import json
+
+    run = ScoutRun.objects.filter(user=user, status=ScoutRun.Status.DONE).order_by("-created_at").first()
+    if not run:
+        return []
+    try:
+        result = json.loads(run.result_json or "{}")
+    except ValueError:
+        return []
+    ops = result.get("opportunities") if isinstance(result, dict) else None
+    out = []
+    for i, op in enumerate(ops if isinstance(ops, list) else []):
+        if not isinstance(op, dict) or not op.get("title"):
+            continue
+        try:
+            day = date.fromisoformat(str(op.get("deadline") or "")[:10])
+        except ValueError:
+            continue
+        if first <= day <= last:
+            out.append(_record_entry(
+                "SCOUT", f"{run.id}-{i}", day, f"Deadline: {str(op['title'])[:200]}",
+                whole_month=False, url=op.get("url") or None,
+            ))
+    return out
 
 
 def _record(user: User, first: date, last: date) -> list[dict[str, Any]]:
@@ -315,6 +351,34 @@ def _record(user: User, first: date, last: date) -> list[dict[str, Any]]:
             filed.setdefault(day, []).append((claim_id, title or "Untitled paper"))
     _gathered(out, "FILED", filed, college or head, "filed", link=not head)
 
+    # ---- the college's payout runs, for a claimant: the month, no figures ----
+    if not college:
+        for month in sorted({
+            m for m, raw in ledger.values_list("payout_month", "raw_json") if ledger_month_recorded(raw)
+        }):
+            out.append(_record_entry("PAYOUT", month.strftime("%Y-%m"), month, "College payout run"))
+
+    # ---- colleagues' papers published, for a faculty member ----
+    if not college and not head and department:
+        rows = (
+            Claim.objects.filter(owner__department__iexact=department, owner__active=True)
+            .exclude(owner=user)
+            .exclude(status__in=[ClaimStatus.DRAFT, ClaimStatus.REJECTED])
+            .filter(publication_date__gte=first.isoformat(), publication_date__lte=last.isoformat() + "~")
+            .values_list("id", "paper_title", "publication_date", "owner_id", "owner__name")
+        )
+        for claim_id, title, raw_day, owner_id, owner_name in rows:
+            try:
+                day = date.fromisoformat((raw_day or "")[:10])
+            except ValueError:
+                continue
+            if first <= day <= last:
+                out.append(_record_entry(
+                    "COLLEAGUE", claim_id, day, f"{owner_name} published {title or 'a paper'}",
+                    whole_month=False, person={"user_id": owner_id, "name": owner_name},
+                ))
+
+    out.extend(_scout_deadlines(user, first, last))
     out.extend(_cutoffs(first, last))
     out.sort(key=lambda e: (e["starts_on"], e["kind"]))
     return out

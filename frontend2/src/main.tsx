@@ -338,6 +338,7 @@ function App() {
             <Route key={from} path={from} element={<Navigate to={to} replace />} />
           ))}
           <Route path="/discover" element={<Discover />} />
+          <Route path="/scout" element={<Scout />} />
           <Route path="/collaborate" element={<Collaborate />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/discussions" element={<Feed />} />

@@ -294,6 +294,10 @@ def mention_candidates(user: User, query: str, kind: str | None, limit: int = 8)
                 "id": u.id,
                 "label": u.name or u.email,
                 "hint": " · ".join(x for x in (u.department, u.designation) if x) or u.email,
+                # A face in the @ menu: faces.fill adds photo_url/initials to
+                # any dict carrying a user_id and a name.
+                "user_id": str(u.id),
+                "name": u.name or u.email,
             })
 
     if not want or want == Mention.Kind.DEPARTMENT:

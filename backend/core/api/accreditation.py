@@ -123,6 +123,21 @@ def pack_rows(
     # have no ISSN" is the number somebody plans an afternoon around, and a
     # per-page count would understate it by two orders of magnitude.
     rows = [_pack_row(c, listed_for(c)) for c in claims]
+    for row in rows:
+        row["source"] = "claim"
+    # Papers on the publication record that nobody claimed are still papers
+    # the college published; NAAC asks for every one of them.
+    if rbac.can_view_college_wide(user.role):
+        from core.services.reporting_pack import record_only_publications
+
+        for r in record_only_publications(year=year, q=q):
+            listed = "Not checked"
+            if have_ugc:
+                hit = next((ugc[v] for v in _issn_variants(r["issn"]) if v in ugc), None)
+                listed = "Yes" if hit else "No"
+            r.update({"ticket_number": None, "scopus_url": "", "ugc_care": listed, "source": "record"})
+            r["gaps"] = [label for field, label in PACK_REQUIRED.items() if not r.get(field)]
+            rows.append(r)
     gap_counts: dict[str, int] = {}
     for row in rows:
         for gap in row["gaps"]:

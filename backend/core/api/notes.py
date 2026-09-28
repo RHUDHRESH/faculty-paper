@@ -306,7 +306,10 @@ def reports_pack(request: HttpRequest, year: Optional[int] = None, fmt: str = "x
         raise HttpError(403, "Forbidden")
 
     rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
-    pack = build_pack(year=year, scope=_claims_queryset(user))
+    pack = build_pack(
+        year=year, scope=_claims_queryset(user),
+        include_record=rbac.can_view_college_wide(user.role),
+    )
     # "preview" is the on-screen view: the same tables, capped, so the page
     # can show what it is about to hand over. A pack that could only be
     # downloaded had to be opened in Excel before anyone could tell whether

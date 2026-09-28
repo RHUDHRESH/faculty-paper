@@ -74,6 +74,18 @@ class SocialAuditTests(TestCase):
         self.assertIn("not switched on", r.json()["detail"])
         self.assertFalse(ScoutRun.objects.exists())
 
+    def test_a_run_nobody_picked_up_stops_spinning(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from core.models import ScoutRun
+
+        run = ScoutRun.objects.create(user=self.a)
+        ScoutRun.objects.filter(pk=run.pk).update(created_at=timezone.now() - timedelta(hours=1))
+        self.c.force_login(self.a)
+        self.assertEqual(self.c.get("/api/scout").json()["status"], "failed")
+
     def test_faculty_can_open_a_colleague_profile(self):
         self.c.force_login(self.a)
         self.assertEqual(self.c.get(f"/api/people/{self.b.id}").status_code, 200)

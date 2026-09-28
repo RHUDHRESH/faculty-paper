@@ -26,11 +26,24 @@ class ScoutIn(Schema):
     refresh: bool = False
 
 
+def _latest(user) -> ScoutRun | None:
+    """The newest run, with one that no worker ever picked up marked failed.
+
+    Without this, a run queued while the worker was down kept the page on
+    "Scouting..." forever.
+    """
+    run = ScoutRun.objects.filter(user=user).first()
+    if run and run.status == ScoutRun.Status.QUEUED and run.created_at < timezone.now() - STUCK_AFTER:
+        run.status, run.error, run.error_code = ScoutRun.Status.FAILED, "The scout did not start. Try again.", "stuck"
+        run.finished_at = timezone.now()
+        run.save()
+    return run
+
+
 @api.get("/scout", auth=session_auth)
 def scout_latest(request: HttpRequest):
     user = require_user(request)
-    run = ScoutRun.objects.filter(user=user).first()
-    return hod.without_money(scout.as_payload(run, user))
+    return hod.without_money(scout.as_payload(_latest(user), user))
 
 
 @api.post("/scout", auth=session_auth)
@@ -40,12 +53,7 @@ def scout_start(request: HttpRequest, payload: ScoutIn | None = None):
     # leave the page on "Scouting..." -- and spend one of today's runs doing it.
     if scout.ai.provider_name() != "anthropic" or scout.anthropic_provider.missing_settings():
         raise HttpError(503, "The research scout is not switched on here yet. The research office can turn it on.")
-    latest = ScoutRun.objects.filter(user=user).first()
-    if latest and latest.status == ScoutRun.Status.QUEUED and latest.created_at < timezone.now() - STUCK_AFTER:
-        # Nothing picked it up; let the person try again instead of waiting forever.
-        latest.status, latest.error, latest.error_code = ScoutRun.Status.FAILED, "The scout did not start.", "stuck"
-        latest.finished_at = timezone.now()
-        latest.save()
+    latest = _latest(user)
     if latest and latest.status in (ScoutRun.Status.QUEUED, ScoutRun.Status.RUNNING):
         return scout.as_payload(latest, user)
     fresh = scout.fresh_run(user)

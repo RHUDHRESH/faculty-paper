@@ -674,6 +674,7 @@ function PostComposer({
       <section aria-label="Write a post" ref={section}>
         <button
           type="button"
+          aria-label="Start a post"
           onClick={() => {
             setOpen(true)
             requestAnimationFrame(() => textareaRef.current?.focus())

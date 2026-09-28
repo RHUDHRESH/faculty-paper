@@ -388,6 +388,8 @@ AI_DEFAULT_PROVIDER = "ollama" if DEBUG else "none"
 # the price of AI on a free 512 MB instance, and said on screen. DEPLOY.md
 # has the values to paste for the free tiers.
 AI_API_KEY = (os.getenv("AI_API_KEY") or "").strip()
+# Claude via the official SDK (core/services/anthropic_provider.py).
+ANTHROPIC_API_KEY = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
 AI_BASE_URL = (os.getenv("AI_BASE_URL") or "").strip()
 AI_MODEL = (os.getenv("AI_MODEL") or "").strip()
 # Optional quicker model for the one interactive caller (the thread

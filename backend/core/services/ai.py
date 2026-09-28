@@ -45,13 +45,13 @@ from typing import Any, Callable, Iterator
 
 from django.conf import settings
 
-from core.services import harness, ollama, openai_compat
+from core.services import anthropic_provider, harness, ollama, openai_compat
 
 logger = logging.getLogger(__name__)
 
 #: The providers this understands. ``none`` is a provider in the sense that
 #: it is a configured answer -- "not set up" -- rather than an unknown name.
-PROVIDERS = ("ollama", "harness", "openai", "none")
+PROVIDERS = ("ollama", "harness", "openai", "anthropic", "none")
 
 #: Said wherever nothing is configured. One sentence, no remedy for a reader
 #: who cannot apply one: the operator's remedy is in DEPLOY.md.
@@ -179,6 +179,8 @@ def provider_name() -> str:
         return configured
     if (getattr(settings, "AI_API_KEY", "") or "").strip():
         return "openai"
+    if anthropic_provider.api_key():
+        return "anthropic"
     return (getattr(settings, "AI_DEFAULT_PROVIDER", "") or "ollama").strip().lower()
 
 
@@ -194,6 +196,8 @@ def _backend():
         return harness
     if name == "openai":
         return openai_compat
+    if name == "anthropic":
+        return anthropic_provider
     return ollama
 
 
@@ -210,12 +214,14 @@ def model_name(fast: bool = False) -> str:
         return ollama.resolve_model(fast)
     if name == "openai":
         return openai_compat.resolve_model(fast)
+    if name == "anthropic":
+        return anthropic_provider.resolve_model(fast)
     return ""
 
 
 def is_hosted() -> bool:
     """Whether a question leaves hardware the college runs."""
-    return provider_name() == "openai"
+    return provider_name() in ("openai", "anthropic")
 
 
 def _off(code: str, detail: str) -> dict[str, Any]:
@@ -261,12 +267,15 @@ def health() -> dict[str, Any]:
             "See DEPLOY.md for the values.",
         )
 
+    if name == "anthropic" and anthropic_provider.missing_settings():
+        return _off("misconfigured", "The Claude provider needs ANTHROPIC_API_KEY set.")
+
     backend = _backend()
     state = backend.health()
     out = state.as_dict()
     out["provider"] = name
-    out["hosted"] = name == "openai"
-    out["host"] = openai_compat.host() if name == "openai" else ""
+    out["hosted"] = name in ("openai", "anthropic")
+    out["host"] = _backend().host() if out["hosted"] else ""
     failure = getattr(state, "failure", None)
     if failure in ("rejected", "rate_limited"):
         # A refused key and a spent allowance are not a service that is
@@ -437,6 +446,9 @@ def ask_json(
             code="misconfigured",
         )
 
+    if name == "anthropic" and anthropic_provider.missing_settings():
+        raise AIError("The Claude provider needs ANTHROPIC_API_KEY set.", code="misconfigured")
+
     backend = _backend()
     sink = _SINK.get()
     seconds = int(timeout or backend.DEFAULT_TIMEOUT)
@@ -460,7 +472,12 @@ def ask_json(
                 fmt=schema or "json",
                 fast=fast,
             )
-    except (ollama.OllamaError, harness.HarnessError, openai_compat.OpenAIError) as exc:
+    except (
+        ollama.OllamaError,
+        harness.HarnessError,
+        openai_compat.OpenAIError,
+        anthropic_provider.AnthropicError,
+    ) as exc:
         # Mapped rather than re-raised, so the endpoints answer the same
         # statuses they always did and a screen written against the old codes
         # keeps working. Every provider raises errors with the same
@@ -531,7 +548,7 @@ def _generate_watched(
                     chars=chars,
                     seconds=round(now - started, 1),
                 )
-    except (ollama.Stopped, harness.Stopped, openai_compat.Stopped) as exc:
+    except (ollama.Stopped, harness.Stopped, openai_compat.Stopped, anthropic_provider.Stopped) as exc:
         raise Cancelled() from exc
 
     sink.note(

@@ -2723,3 +2723,31 @@ class AuthorAlias(models.Model):
     decided_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class ScoutRun(models.Model):
+    """One research-scout answer for one person (core.services.scout).
+
+    Kept so a result is shown again for 24 hours without asking Claude again,
+    and so the per-person daily limit is counted from rows. ``usage_json``
+    holds token counts for operators; it never leaves the API.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "QUEUED"
+        RUNNING = "RUNNING"
+        DONE = "DONE"
+        FAILED = "FAILED"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="scout_runs")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
+    result_json = models.TextField(blank=True, default="")
+    usage_json = models.TextField(blank=True, default="")
+    error = models.TextField(blank=True, default="")
+    error_code = models.CharField(max_length=32, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]

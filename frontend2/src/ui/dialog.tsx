@@ -70,8 +70,13 @@ export function DialogContent({
   className,
   size = "md",
   children,
+  dismissible = true,
   ...props
-}: React.ComponentProps<typeof RadixDialog.Content> & { size?: keyof typeof WIDTH }) {
+}: React.ComponentProps<typeof RadixDialog.Content> & {
+  size?: keyof typeof WIDTH
+  /** false for a dialog that must be completed (the forced password change): no close button. */
+  dismissible?: boolean
+}) {
   const open = useContext(OpenContext)
   const overlay = useMotionVariants(overlayVariants)
   const surface = useMotionVariants(dialogVariants)
@@ -103,7 +108,7 @@ export function DialogContent({
                 )}
               >
                 {children}
-                <RadixDialog.Close
+                {dismissible && <RadixDialog.Close
                   aria-label="Close"
                   className={cn(
                     "absolute right-3 top-3 grid size-7 place-items-center rounded-sm",
@@ -111,7 +116,7 @@ export function DialogContent({
                   )}
                 >
                   <X className="size-4" aria-hidden />
-                </RadixDialog.Close>
+                </RadixDialog.Close>}
               </motion.div>
             </RadixDialog.Content>
           </div>

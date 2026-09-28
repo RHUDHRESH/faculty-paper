@@ -188,6 +188,7 @@ export function PasswordDialog({
     <Dialog open={open} onOpenChange={attemptClose}>
       <DialogContent
         size="sm"
+        dismissible={!forced}
         onEscapeKeyDown={(e) => forced && e.preventDefault()}
         onPointerDownOutside={(e) => forced && e.preventDefault()}
         onInteractOutside={(e) => forced && e.preventDefault()}

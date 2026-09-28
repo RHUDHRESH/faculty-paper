@@ -34,6 +34,7 @@ import { Pagination } from "@/ui/pagination"
 import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { HeaderSpot } from "@/ui/page-header"
+import type { StatementMonth } from "@/pages/statements"
 
 /**
  * Where money actually leaves the college — the queue of tickets the
@@ -179,14 +180,40 @@ function monthsOf(rows: PayoutClaim[]): string {
   return [...new Set(rows.map((c) => monthLabel(monthKey(c))))].join(", ")
 }
 
-function MonthRow({ group, colSpan, amountSpan }: { group: MonthGroup; colSpan: number; amountSpan: number }) {
+/** The whole month, from the ledger: a page of fifty rows is not a month. */
+function MonthWhole({ month, whole }: { month: string; whole?: StatementMonth }) {
+  if (!whole || month === "none") return null
+  return (
+    <span className="ml-2 font-normal text-fg-muted print:hidden">
+      · the month on the ledger: {money(whole.amount)} in {whole.count}{" "}
+      {whole.count === 1 ? "payment" : "payments"} ·{" "}
+      <Link className="underline underline-offset-2" to={`/statements?month=${month}`}>
+        Statement
+      </Link>
+    </span>
+  )
+}
+
+function MonthRow({
+  group,
+  colSpan,
+  amountSpan,
+  whole,
+}: {
+  group: MonthGroup
+  colSpan: number
+  amountSpan: number
+  whole?: StatementMonth
+}) {
   return (
     <tr className="border-b border-line bg-sunken">
       <th scope="rowgroup" colSpan={colSpan} className="px-3 py-2 text-left text-sm font-semibold">
         {group.label}
         <span className="ml-2 font-normal text-fg-muted">
           {group.rows.length} {group.rows.length === 1 ? "claim" : "claims"}
+          {whole ? " on this page" : ""}
         </span>
+        <MonthWhole month={group.key} whole={whole} />
       </th>
       <td className="px-3 py-2 text-right text-sm font-semibold tabular">{money(group.total)}</td>
       {amountSpan > 0 && <td colSpan={amountSpan} />}
@@ -1006,6 +1033,10 @@ export function PaymentsDone() {
 
   const allRows = data?.results ?? []
   const total = data?.total ?? 0
+  const ledgerMonths = useApi<{ months: StatementMonth[] }>(["payouts", "months"], "/api/payouts/months", {
+    enabled: allowed,
+  })
+  const wholeMonth = new Map((ledgerMonths.data?.months ?? []).map((m) => [m.month, m]))
   const [q, setQ] = useState("")
   const needle = q.trim().toLowerCase()
   const rows = needle
@@ -1082,6 +1113,9 @@ export function PaymentsDone() {
           <Button kind="quiet" size="sm" onClick={() => window.print()}>
             Print register
           </Button>
+          <Button kind="quiet" size="sm" asChild>
+            <Link to="/statements">Monthly statements</Link>
+          </Button>
           <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
             <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
             Refresh
@@ -1131,7 +1165,8 @@ export function PaymentsDone() {
               <section key={g.key} aria-label={g.label} className="space-y-2">
                 <h2 className="flex items-baseline justify-between gap-2 text-sm font-semibold">
                   <span>
-                    {g.label} <span className="font-normal text-fg-muted">{g.rows.length} {g.rows.length === 1 ? "claim" : "claims"}</span>
+                    {g.label} <span className="font-normal text-fg-muted">{g.rows.length} {g.rows.length === 1 ? "claim" : "claims"} on this page</span>
+                    <MonthWhole month={g.key} whole={wholeMonth.get(g.key)} />
                   </span>
                   <span className="tabular">{money(g.total)}</span>
                 </h2>
@@ -1188,7 +1223,7 @@ export function PaymentsDone() {
               </thead>
               {groupByMonth(rows).map((g) => (
               <tbody key={g.key}>
-                <MonthRow group={g} colSpan={4} amountSpan={isSuper ? 1 : 0} />
+                <MonthRow group={g} colSpan={4} amountSpan={isSuper ? 1 : 0} whole={wholeMonth.get(g.key)} />
                 {g.rows.map((c) => (
                   <tr key={c.id} className="row border-b border-line last:border-b-0">
                     <td className="px-3 py-3 align-top">

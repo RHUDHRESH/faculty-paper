@@ -210,9 +210,10 @@ def _per_paper(paid_qs) -> dict[str, Any]:
     times what it pays a Q4 one, so the average sits above almost every actual
     payment. The median is the figure that describes a typical claim.
     """
-    amounts = sorted(
-        a for a in paid_qs.values_list("remuneration", flat=True) if a is not None
-    )
+    # A queryset of claims, or plain amounts (the ledger's payments), so the
+    # "typical" figure can be read from the same rows as the count beside it.
+    values = paid_qs.values_list("remuneration", flat=True) if hasattr(paid_qs, "values_list") else paid_qs
+    amounts = sorted(a for a in values if a is not None)
     if not amounts:
         return {"count": 0, "mean": 0, "median": 0, "min": 0, "max": 0}
     mid = len(amounts) // 2
@@ -554,7 +555,9 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
         "top_by_amount": _capped(
             sorted(_people_rows(paid), key=lambda r: -r["amount"]), 15
         ),
-        "per_paper": _per_paper(paid),
+        # Over the ledger's payments, which is what `paid_claims` counts; the
+        # median of app claims alone sat beside a count of every payment.
+        "per_paper": _per_paper([p["amount"] for p in pays if p["amount"] > 0]),
         "pipeline": _pipeline_stages(qs),
         "years": sorted(
             {

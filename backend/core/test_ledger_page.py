@@ -66,9 +66,26 @@ class LedgerPageTests(TestCase):
     def test_rows_carry_a_face_and_markers(self):
         rows = {r["amount"]: r for r in self.get()["results"]}
         self.assertTrue(rows[5000]["photo_url"].endswith("faces/priya.jpg"))
-        self.assertIn("DUPLICATE", rows[5000]["markers"])
         self.assertIn("REVERSAL", rows[-3000]["markers"])
         self.assertIsNone(rows[3000]["photo_url"])
+
+    def test_duplicate_findings_reach_the_office_but_never_director_or_finance(self):
+        admin = User.objects.create_user(
+            email="lp-sa@test.edu", password="pass", name="Lp Sa", role=Role.SUPER_ADMIN
+        )
+        director = User.objects.create_user(
+            email="lp-dir@test.edu", password="pass", name="Lp Dir", role=Role.DIRECTOR
+        )
+        self.client.force_login(admin)
+        body = self.client.get("/api/admin/ledger").json()
+        rows = {r["amount"]: r for r in body["results"]}
+        self.assertIn("DUPLICATE", rows[5000]["markers"])
+        self.assertEqual(body["duplicates_open"], 1)
+        for blind in (self.finance, director):
+            self.client.force_login(blind)
+            body = self.client.get("/api/admin/ledger").json()
+            self.assertEqual(body["duplicates_open"], 0)
+            self.assertFalse(any("DUPLICATE" in r["markers"] for r in body["results"]))
 
     def test_export_follows_the_search(self):
         self.client.force_login(self.finance)

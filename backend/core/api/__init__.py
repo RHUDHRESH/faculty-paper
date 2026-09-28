@@ -42,6 +42,7 @@ from core.api.operations import *  # noqa: F401,F403
 from core.api.admin import *  # noqa: F401,F403
 from core.api.masters import *  # noqa: F401,F403
 from core.api.finance import *  # noqa: F401,F403
+from core.api.payout_statements import *  # noqa: F401,F403
 from core.api.institution import *  # noqa: F401,F403
 from core.api.restore import *  # noqa: F401,F403
 from core.api.data_health import *  # noqa: F401,F403

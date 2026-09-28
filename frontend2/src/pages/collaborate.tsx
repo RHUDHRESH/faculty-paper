@@ -235,6 +235,7 @@ function PeopleSearch({ onPick }: { onPick: (id: string) => void }) {
 function CoauthorList({ query, onPick }: { query: ReturnType<typeof useApi<Coauthors>>; onPick: (id: string) => void }) {
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<"papers" | "recent">("papers")
+  const [shown, setShown] = useState(40)
   if (query.isLoading) return <SkeletonRows rows={5} rowHeight={96} />
   if (query.isError)
     return (
@@ -292,12 +293,17 @@ function CoauthorList({ query, onPick }: { query: ReturnType<typeof useApi<Coaut
         </label>
       </div>
       <ul className="grid gap-3 sm:grid-cols-2">
-        {rows.map((c) => (
+        {rows.slice(0, shown).map((c) => (
           <li key={c.key}>
             <CoauthorCard c={c} inside={c.inside} onPick={onPick} />
           </li>
         ))}
       </ul>
+      {rows.length > shown && (
+        <button type="button" onClick={() => setShown((n) => n + 40)} className="mt-4 text-sm font-medium text-accent hover:underline">
+          Show more ({rows.length - shown} left)
+        </button>
+      )}
     </section>
   )
 }

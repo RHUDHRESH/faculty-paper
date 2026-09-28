@@ -14,15 +14,18 @@ from core.api.common import require_user
 
 import csv
 import io
+import re
 from typing import Any, Optional
-from django.db.models import F, Q, Sum
+from django.db.models import Count, F, Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import File, Form, UploadedFile
 from django.conf import settings
 from ninja.errors import HttpError
-from core.models import MonthlyBatch, MonthlyRow, PaidLedger
+from core.models import DuplicateFinding, MonthlyBatch, MonthlyRow, PaidLedger, User
+from core.services.record_dates import ledger_month_recorded
+from core.social import photo_url
 from core.services import rbac
 from core.services.monthly_processor import start_batch_async
 from core.services.remuneration import Category
@@ -36,8 +39,21 @@ SCHEME_FYP = "FYP"
 SCHEME_FACULTY = "FACULTY"
 
 
-def _ledger_queryset(month: str | None, department: str | None, scheme: str | None = None):
+def _ledger_queryset(
+    month: str | None, department: str | None, scheme: str | None = None, q: str | None = None
+):
     qs = PaidLedger.objects.select_related("claim").order_by("-payout_month", "department", "faculty_name")
+    for word in (q or "").split()[:6]:
+        # Every word must match somewhere: a name, a staff id, a voucher.
+        qs = qs.filter(
+            Q(faculty_name__icontains=word)
+            | Q(staff_id__icontains=word)
+            | Q(biometric_id__icontains=word)
+            | Q(paper_title__icontains=word)
+            | Q(journal_title__icontains=word)
+            | Q(voucher_number__icontains=word)
+            | Q(department__icontains=word)
+        )
     if month:
         parsed = _parse_payout_month(month)
         if parsed:
@@ -60,8 +76,41 @@ def _scheme_of(row: PaidLedger) -> str:
     return SCHEME_FACULTY
 
 
-def _ledger_row_dict(row: PaidLedger) -> dict[str, Any]:
+def _title_key(title: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (title or "").lower())[:200]
+
+
+def _duplicate_keys() -> set[str]:
+    """Titles on the same-person duplicates list nobody has dismissed. They
+    are reviewed on /duplicates; the ledger only marks the rows."""
     return {
+        _title_key(t)
+        for t in DuplicateFinding.objects.filter(kind="SAME_PERSON")
+        .exclude(status="DISMISSED")
+        .values_list("paper_title", flat=True)
+        if t
+    }
+
+
+def _ledger_markers(row: PaidLedger, dup_keys: set[str]) -> list[str]:
+    out: list[str] = []
+    if (row.amount or 0) < 0:
+        out.append("REVERSAL")
+    if not ledger_month_recorded(row.raw_json):
+        out.append("MONTH_NOT_RECORDED")
+    if dup_keys and _title_key(row.paper_title) in dup_keys:
+        out.append("DUPLICATE")
+    return out
+
+
+def _ledger_row_dict(
+    row: PaidLedger,
+    dup_keys: set[str] | None = None,
+    photos: dict[str, str | None] | None = None,
+) -> dict[str, Any]:
+    return {
+        "photo_url": (photos or {}).get((row.staff_id or "").strip()),
+        "markers": _ledger_markers(row, dup_keys or set()),
         "id": row.id,
         "claim_id": row.claim_id,
         "payout_month": _format_payout_month(row.payout_month),
@@ -86,15 +135,54 @@ def admin_ledger(
     limit: int = 50,
     offset: int = 0,
     scheme: Optional[str] = None,
+    q: Optional[str] = None,
 ):
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
-    qs = _ledger_queryset(month, department, scheme)
+    qs = _ledger_queryset(month, department, scheme, q)
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
     total = qs.count()
+    page = list(qs[offset : offset + limit])
+    staff_ids = {(r.staff_id or "").strip() for r in page} - {""}
+    photos = {
+        u.staff_id: photo_url(u)
+        for u in User.objects.filter(staff_id__in=staff_ids).only("staff_id", "photo")
+    }
+    dup_keys = _duplicate_keys()
+    # The month chart ignores the month filter, so choosing a month lights
+    # its bar instead of collapsing the chart to a single bar.
+    # A row whose month is only the import's default is not charted in that
+    # month; it is counted apart, so the bar is not inflated by a guess.
+    months: dict[Any, list[float]] = {}
+    no_month = [0.0, 0]
+    for pm, raw, amt in (
+        _ledger_queryset(None, department, scheme, q).order_by().values_list("payout_month", "raw_json", "amount")
+    ):
+        if ledger_month_recorded(raw):
+            m = months.setdefault(pm, [0.0, 0])
+            m[0] += amt or 0
+            m[1] += 1
+        else:
+            no_month[0] += amt or 0
+            no_month[1] += 1
+    by_month = [{"payout_month": k, "s": v[0], "n": v[1]} for k, v in sorted(months.items())]
+    by_dept = (
+        qs.order_by().values("department").annotate(s=Sum("amount"), n=Count("id")).order_by("-s")
+    )
     return {
+        "by_month": [
+            {"month": _format_payout_month(m["payout_month"]), "amount": round(m["s"] or 0, 2), "count": m["n"]}
+            for m in by_month
+        ],
+        "no_month": {"amount": round(no_month[0], 2), "count": no_month[1]},
+        "by_department": [
+            {"department": d["department"] or None, "amount": round(d["s"] or 0, 2), "count": d["n"]}
+            for d in by_dept
+        ],
+        "people": qs.exclude(staff_id__isnull=True).exclude(staff_id="").values("staff_id").distinct().count(),
+        "duplicates_open": DuplicateFinding.objects.filter(kind="SAME_PERSON", status="OPEN").count(),
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -102,7 +190,7 @@ def admin_ledger(
         # showed one page's worth beside an Export button that wrote all of
         # them, so the page and the file disagreed about the same filter.
         "total_amount": qs.aggregate(s=Sum("amount"))["s"] or 0,
-        "results": [_ledger_row_dict(r) for r in qs[offset : offset + limit]],
+        "results": [_ledger_row_dict(r, dup_keys, photos) for r in page],
     }
 
 
@@ -112,12 +200,13 @@ def admin_ledger_export(
     month: Optional[str] = None,
     department: Optional[str] = None,
     scheme: Optional[str] = None,
+    q: Optional[str] = None,
 ):
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
     rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
-    qs = _ledger_queryset(month, department, scheme)
+    qs = _ledger_queryset(month, department, scheme, q)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(

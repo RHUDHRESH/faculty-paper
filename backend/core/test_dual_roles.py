@@ -40,6 +40,15 @@ from core.models import (
 from core.services import rbac
 from core.test_chain_rules import ChainBase
 
+from core.services.filing_conditions import CONDITION_IDS as _CONDITION_IDS, CONDITIONS_VERSION as _CONDITIONS_VERSION
+
+#: The three eligibility conditions, ticked -- a filing without them is refused.
+CONFIRMED = [
+    {"id": _cid, "text_version": _CONDITIONS_VERSION, "ticked_at": "2026-09-24T14:02:11+05:30"}
+    for _cid in _CONDITION_IDS
+]
+
+
 #: The message every refusal carries. The screens show the same sentence.
 OWN = "your own paper"
 
@@ -72,6 +81,7 @@ def _fileable(title: str, seed: str) -> dict:
              "size_bytes": 10, "ref_number": "15"},
         ],
         "submit": True,
+        "confirmations": CONFIRMED,
         "contest_forward": True,
         "contest_note": "Filed with my own journal details, please check them.",
     }

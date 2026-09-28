@@ -26,6 +26,7 @@ import { Input } from "@/ui/field"
 import { HeroBand } from "@/ui/hero"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { money, stageOf } from "@/ui/paper"
+import { stageCode } from "@/ui/journey"
 import { Avatar, initialsOf } from "@/ui/person"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { toast } from "@/ui/toast"
@@ -92,7 +93,7 @@ export const TABS = [
 type Tab = (typeof TABS)[number]["id"]
 
 export function tabOf(p: RecordPaper): Exclude<Tab, "all"> {
-  if (p.claim) return p.claim.stage === "PAID" ? "paid" : "progress"
+  if (p.claim) return stageCode(p.claim.stage) === "PAID" ? "paid" : "progress"
   return p.eligible ? "unclaimed" : "ineligible"
 }
 
@@ -115,7 +116,7 @@ export function toCsv(rows: RecordPaper[]): string {
       p.author_position ? `${p.author_position} of ${p.total_authors}` : "",
       p.authors.map((a) => a.name).join("; "),
       p.citations,
-      p.claim ? stageOf(p.claim.stage).label : tabOf(p) === "unclaimed" ? "Not claimed" : "Not eligible",
+      p.claim ? stageOf(stageCode(p.claim.stage)).label : tabOf(p) === "unclaimed" ? "Not claimed" : "Not eligible",
     ]
       .map(csvCell)
       .join(",")
@@ -800,8 +801,8 @@ function RecordCard({
       </div>
     )
   const state = tabOf(p)
-  const stage = p.claim ? stageOf(p.claim.stage) : null
-  const paid = p.claim?.stage === "PAID"
+  const stage = p.claim ? stageOf(stageCode(p.claim.stage)) : null
+  const paid = (p.claim ? stageCode(p.claim.stage) === "PAID" : false)
   const open = p.doi ? `https://doi.org/${p.doi}` : p.openalex_id ? `https://openalex.org/${p.openalex_id}` : null
   const paidLabel = `Paid${p.claim?.paid_month ? ` ${monthName(p.claim.paid_month)}` : ""}`
   return (

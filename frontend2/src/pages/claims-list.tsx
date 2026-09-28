@@ -13,7 +13,7 @@ import { toast } from "@/ui/toast"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 import { money, stageOf } from "@/ui/paper"
-import { Journey, facultyStage } from "@/ui/journey"
+import { Journey, claimStatus, facultyStage } from "@/ui/journey"
 import { Pagination } from "@/ui/pagination"
 
 /**
@@ -236,7 +236,7 @@ export function ClaimsList() {
         <span className="block">
           <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
           <Meta className="mt-0.5 block truncate">
-            {c.ticket_number || (c.status === "DRAFT" ? "Not filed yet" : "No ticket number")}
+            {c.ticket_number || (claimStatus(c) === "DRAFT" ? "Not filed yet" : "No ticket number")}
           </Meta>
         </span>
       ),
@@ -245,7 +245,7 @@ export function ClaimsList() {
       key: "stage",
       header: "Stage",
       className: "w-36",
-      cell: (c) => <StageWord status={c.status} stage={c.faculty_stage} />,
+      cell: (c) => <StageWord status={claimStatus(c)} stage={c.faculty_stage} />,
     },
     {
       key: "journal",
@@ -501,7 +501,7 @@ function AmountCell({ claim }: { claim: Claim }) {
       )}
       {claim.remuneration === 0 && !claim.remuneration_is_estimate && (
         <span className="text-xs font-normal leading-tight text-fg-muted">
-          {claim.status === "PAID" ? "Amount not on record" : "No payment due"}
+          {claimStatus(claim) === "PAID" ? "Amount not on record" : "No payment due"}
         </span>
       )}
     </span>
@@ -535,21 +535,21 @@ function StageWord({ status, stage, className }: { status: string; stage?: strin
 }
 
 function WaitingCell({ claim, className }: { claim: Claim; className?: string }) {
-  const stage = stageOf(claim.status)
-  const desk = DESK[claim.status]
+  const stage = stageOf(claimStatus(claim))
+  const desk = DESK[claimStatus(claim)]
   const days = claim.waiting_days
 
   let value = "—"
   let under: string | null = null
   let late = false
 
-  if (claim.status === "DRAFT") {
+  if (claimStatus(claim) === "DRAFT") {
     value = "With you"
     under = "not filed yet"
-  } else if (claim.status === "REJECTED") {
+  } else if (claimStatus(claim) === "REJECTED") {
     value = "With you"
     under = "sent back for changes"
-  } else if (claim.status === "PAID") {
+  } else if (claimStatus(claim) === "PAID") {
     value = "Settled"
     under = onDate(claim.paid_at)
   } else if (desk) {
@@ -591,7 +591,7 @@ function PaperCard({ claim }: { claim: Claim }) {
           <span className="min-w-0 flex-1">
             <span className="block truncate text-base">{paperTitle(claim.paper_title)}</span>
             <Meta className="mt-0.5 block truncate">
-              {[claim.journal_title, claim.publication_year, claim.ticket_number || (claim.status === "DRAFT" ? "Not filed yet" : null)]
+              {[claim.journal_title, claim.publication_year, claim.ticket_number || (claimStatus(claim) === "DRAFT" ? "Not filed yet" : null)]
                 .filter(Boolean)
                 .join(" · ")}
             </Meta>
@@ -603,7 +603,7 @@ function PaperCard({ claim }: { claim: Claim }) {
           </span>
         </div>
         <div className="mt-2 flex items-end justify-between gap-3">
-          <StageWord status={claim.status} stage={claim.faculty_stage} className="w-[8rem]" />
+          <StageWord status={claimStatus(claim)} stage={claim.faculty_stage} className="w-[8rem]" />
           <WaitingCell claim={claim} className="text-sm" />
         </div>
       </Link>
@@ -619,7 +619,7 @@ async function downloadMine() {
   const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
   const head = ["Ticket", "Paper", "Journal", "Year", "DOI", "Stage", "Amount (INR)", "Paid on"]
   const rows = res.results.map((c) =>
-    [c.ticket_number, c.paper_title, c.journal_title, c.publication_year, c.doi, c.faculty_stage || facultyStage(c.status), c.remuneration, c.paid_at ? String(c.paid_at).slice(0, 10) : ""]
+    [c.ticket_number, c.paper_title, c.journal_title, c.publication_year, c.doi, c.faculty_stage || facultyStage(claimStatus(c)), c.remuneration, c.paid_at ? String(c.paid_at).slice(0, 10) : ""]
       .map(cell)
       .join(",")
   )

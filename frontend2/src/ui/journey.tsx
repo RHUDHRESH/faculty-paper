@@ -112,7 +112,7 @@ export function Journey({
  * The claimant's stage for a raw status, for payloads that predate the
  * server's `faculty_stage`. Prefer the server's value when it is present.
  */
-export function facultyStage(status: string): string {
+export function facultyStage(status: string | null | undefined): string {
   switch (status) {
     case "DRAFT":
       return "Draft"
@@ -138,5 +138,35 @@ export function facultyStage(status: string): string {
       return "Withdrawn"
     default:
       return "Under review"
+  }
+}
+
+/**
+ * A coarse status code for a claim, whoever is looking. A claimant's copy of
+ * their own claim carries no raw `status` (it would name the desk,
+ * core/visibility.py), only `faculty_stage`; this maps that back to the
+ * codes the screens branch on. Every in-review stage reads as SUBMITTED.
+ */
+export function claimStatus(c: { status?: string | null; faculty_stage?: string | null }): string {
+  if (c.status) return c.status
+  return stageCode(c.faculty_stage)
+}
+
+/** The status code a faculty-facing stage stands for. */
+export function stageCode(stage: string | null | undefined): string {
+  switch (stage) {
+    case "Draft":
+    case "Withdrawn":
+      return "DRAFT"
+    case "Sent back to you":
+    case "Sent back":
+    case "Not accepted":
+      return "REJECTED"
+    case "Approved for payment":
+      return "DIRECTOR_APPROVED"
+    case "Paid":
+      return "PAID"
+    default:
+      return "SUBMITTED"
   }
 }

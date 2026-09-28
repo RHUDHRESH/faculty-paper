@@ -671,7 +671,7 @@ function DepartmentsView({ board }: { board: HonoursBoard }) {
                 <p className="text-xs text-fg-muted">{i === 0 ? "Leading department" : ordinal(i + 1)}</p>
                 <p className="truncate font-display text-xl">{d.department}</p>
                 <p className="text-sm text-fg-muted tabular-nums">
-                  {perFaculty ? `${d.per_faculty} per faculty member` : `${count(d.value)} ${board.unit}`} · {d.faculty} faculty
+                  {perFaculty ? `${d.per_faculty} per head` : `${count(d.value)} ${board.unit}`} · {d.faculty} faculty
                 </p>
               </div>
             </li>

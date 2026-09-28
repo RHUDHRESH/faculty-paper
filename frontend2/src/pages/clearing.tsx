@@ -38,6 +38,7 @@ import { money } from "@/ui/paper"
 import { useSlashToSearch } from "@/ui/queue-keys"
 import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
+import { EditClaimFieldsDialog, HoldControl, HoldNote, ReasonActionDialog, useIsOwnClaim } from "@/ui/desk-actions"
 
 /**
  * The research cell's daily job: every submitted ticket, oldest first, and
@@ -145,6 +146,8 @@ type ClaimDetail = QueueClaim & {
   //: queue row this type was widened from simply does not carry them.
   needs_second_approval?: boolean
   cleared_by_name?: string | null
+  on_hold?: boolean | null
+  hold_reason?: string | null
 }
 
 type RecalcResult = {
@@ -892,6 +895,10 @@ function TicketSheet({
 
   const [clearOpen, setClearOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
+  const [outrightOpen, setOutrightOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  // Nobody acts on their own claim — the server refuses it too.
+  const own = useIsOwnClaim(claim ?? {})
   const [verifyOpen, setVerifyOpen] = useState(false)
   const [secondOpen, setSecondOpen] = useState(false)
   const [overrideOpen, setOverrideOpen] = useState(false)
@@ -944,6 +951,7 @@ function TicketSheet({
                   the ticket simply reappeared in this queue with no
                   explanation, and the reader had to guess what had been
                   wrong with it. */}
+              <HoldNote claim={claim} />
               {claim.status_note && (
                 <Callout tone="caution" title="Sent back to you">
                   <p>{claim.status_note}</p>
@@ -1107,8 +1115,19 @@ function TicketSheet({
                 </Button>
               )}
 
-              {claim.status === "SUBMITTED" && (
+              {isSuperAdmin && !own && (
+                <Button kind="quiet" onClick={() => setEditOpen(true)}>
+                  Edit fields (with reason)
+                </Button>
+              )}
+
+              {claim.status === "SUBMITTED" && <HoldControl claim={claim} />}
+
+              {claim.status === "SUBMITTED" && !own && (
                 <>
+                  <Button kind="danger" onClick={() => setOutrightOpen(true)}>
+                    Reject — cannot be refiled
+                  </Button>
                   <Button kind="danger" onClick={() => setRejectOpen(true)}>
                     Send it back
                   </Button>
@@ -1127,6 +1146,24 @@ function TicketSheet({
               onCleared={onFinished}
             />
             <RejectDialog claim={claim} open={rejectOpen} onOpenChange={setRejectOpen} onRejected={onFinished} />
+            <ReasonActionDialog
+              claim={claim}
+              open={outrightOpen}
+              onOpenChange={setOutrightOpen}
+              onDone={onFinished}
+              path={`/api/claims/${claim.id}/reject-outright`}
+              title="Reject this ticket outright?"
+              hint="Final: the claimant cannot edit or refile it. They see this reason."
+              confirmLabel="Reject outright"
+              doneToast="Rejected outright"
+            />
+            {isSuperAdmin && (
+              <EditClaimFieldsDialog
+                claim={claim as ClaimDetail & Record<string, unknown>}
+                open={editOpen}
+                onOpenChange={setEditOpen}
+              />
+            )}
             <ManualVerifyDialog claim={claim} open={verifyOpen} onOpenChange={setVerifyOpen} />
             <SecondSignatureDialog
               claim={claim}

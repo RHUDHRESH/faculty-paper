@@ -199,14 +199,11 @@ export function toCsv(b: HonoursBoard): string {
   return [head.join(","), ...lines].join("\n")
 }
 
-function downloadCsv(b: HonoursBoard) {
-  const blob = new Blob([toCsv(b)], { type: "text/csv;charset=utf-8" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = `leaderboard-${b.measure}-${b.period.key}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
+/** The board's own query string plus `fmt=csv`. */
+export function csvQuery(qs: URLSearchParams): string {
+  const q = new URLSearchParams(qs)
+  q.set("fmt", "csv")
+  return q.toString()
 }
 
 export function Leaderboard() {
@@ -254,8 +251,11 @@ export function Leaderboard() {
               <Button kind="quiet" size="sm" onClick={() => window.print()} disabled={!b}>
                 <Printer aria-hidden className="size-4" /> Print / PDF
               </Button>
-              <Button kind="quiet" size="sm" onClick={() => b && downloadCsv(b)} disabled={!b}>
-                <Download aria-hidden className="size-4" /> CSV
+              {/* The server's CSV, with the same filters as the board on screen. */}
+              <Button kind="quiet" size="sm" asChild>
+                <a href={`/api/leaderboard?${csvQuery(qs)}`} download>
+                  <Download aria-hidden className="size-4" /> Download CSV
+                </a>
               </Button>
               <HowCounted board={b} />
             </div>

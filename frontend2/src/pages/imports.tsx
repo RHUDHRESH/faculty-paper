@@ -168,8 +168,93 @@ export function Imports() {
       <ScopusProfilesSection />
       <CollegeSiteSection />
       <ProcessQueueSection />
+      {me?.role === "SUPER_ADMIN" && <PublicationHarvestSection />}
       {me?.role === "SUPER_ADMIN" && <RestoreSection onImported={refreshStats} />}
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Publication harvest (super admin)                                         */
+/* ------------------------------------------------------------------------ */
+
+type PublicationStatus = {
+  publications: number
+  authorships: number
+  college_authorships: number
+  college_matched: number
+  users_with_publications: number
+  unmatched_college_names: string[]
+  last_run: { action: string; at: string | null; detail: Record<string, unknown> } | null
+}
+
+/**
+ * The OpenAlex harvest and the Scopus author sync. Both run as queued jobs
+ * (production has no shell); this shows what the record holds and the last
+ * run, and refreshes itself while a job is fresh.
+ */
+function PublicationHarvestSection() {
+  const [queuedAt, setQueuedAt] = useState<number | null>(null)
+  const status = useApi<PublicationStatus>(["admin", "publications", "status"], "/api/admin/publications/status", {
+    refetchInterval: queuedAt && Date.now() - queuedAt < 10 * 60_000 ? 15_000 : false,
+  })
+  const harvest = useApiMutation<Record<string, never>, { job_id?: string }>("/api/admin/publications/harvest", {
+    invalidates: [["admin", "publications", "status"]],
+  })
+  const scopus = useApiMutation<Record<string, never>, { job_id?: string }>("/api/admin/publications/scopus-sync", {
+    invalidates: [["admin", "publications", "status"]],
+  })
+
+  async function queue(which: "harvest" | "scopus") {
+    try {
+      const res = await (which === "harvest" ? harvest : scopus).mutateAsync({})
+      setQueuedAt(Date.now())
+      toast.ok(`Queued${res.job_id ? ` — job ${String(res.job_id).slice(0, 8)}` : ""}. It runs in the background.`)
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  const s = status.data
+  return (
+    <section className="space-y-4" aria-labelledby="harvest">
+      <div>
+        <SectionTitle>
+          <span id="harvest">Publication record</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          Refresh the college's papers from OpenAlex, or sync each member's Scopus author profile. Both
+          run in the background; the status below updates when they finish.
+        </Sub>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button kind="default" disabled={harvest.isPending} onClick={() => void queue("harvest")}>
+          <RefreshCw /> {harvest.isPending ? "Queuing…" : "Refresh from OpenAlex"}
+        </Button>
+        <Button kind="default" disabled={scopus.isPending} onClick={() => void queue("scopus")}>
+          <RefreshCw /> {scopus.isPending ? "Queuing…" : "Sync Scopus"}
+        </Button>
+      </div>
+      {status.isLoading ? (
+        <SkeletonText lines={2} />
+      ) : status.error ? (
+        <InlineError message={messageOf(status.error)} />
+      ) : s ? (
+        <div role="status" className="space-y-1 text-sm">
+          <p>
+            {nf(s.publications)} papers · {nf(s.college_matched)} of {nf(s.college_authorships)} college
+            authorships matched to a person · {nf(s.users_with_publications)} people with papers.
+          </p>
+          <Meta className="block">
+            {s.last_run
+              ? `Last run: ${s.last_run.action.replace(/_/g, " ").toLowerCase()}${
+                  s.last_run.at ? ` · ${new Date(s.last_run.at).toLocaleString("en-IN")}` : ""
+                }`
+              : "Never run from here."}
+          </Meta>
+        </div>
+      ) : null}
+    </section>
   )
 }
 

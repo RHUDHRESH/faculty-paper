@@ -113,6 +113,16 @@ describe("Leaderboard", () => {
     expect(csv).not.toMatch(/₹|amount/i)
   })
 
+  it("links Download CSV to the server export with the current filters", async () => {
+    mount(board(), "/leaderboard?category=q1&department=ECE")
+    const link = await screen.findByRole("link", { name: /Download CSV/ })
+    const href = link.getAttribute("href") ?? ""
+    expect(href).toContain("/api/leaderboard?")
+    expect(href).toContain("fmt=csv")
+    expect(href).toContain("category=q1")
+    expect(href).toContain("department=ECE")
+  })
+
   it("never prints a rupee figure", async () => {
     mount()
     await screen.findByRole("list", { name: "Podium" })

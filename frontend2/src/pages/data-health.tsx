@@ -55,6 +55,20 @@ export function DataHealth() {
   const [running, setRunning] = useState(false)
   const [fixing, setFixing] = useState<string | null>(null)
   const [backingUp, setBackingUp] = useState(false)
+  const [badging, setBadging] = useState(false)
+
+  /** The hourly badge job, run now. Safe to repeat. */
+  async function runBadges() {
+    setBadging(true)
+    try {
+      await api("/api/admin/badges/run", { method: "POST" })
+      toast.ok("Badges brought up to date")
+    } catch (e) {
+      toast.fail(e, "The badge job did not run")
+    } finally {
+      setBadging(false)
+    }
+  }
 
   async function runNow() {
     setRunning(true)
@@ -121,10 +135,15 @@ export function DataHealth() {
               : "Not checked yet. It runs every night, or now."}
           </Sub>
         </div>
-        <Button kind="primary" onClick={() => void runNow()} disabled={running}>
-          <RefreshCw className={cn(running && "animate-spin")} />
-          {running ? "Checking" : "Run now"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button kind="default" onClick={() => void runBadges()} disabled={badging}>
+            {badging ? "Awarding…" : "Run badges now"}
+          </Button>
+          <Button kind="primary" onClick={() => void runNow()} disabled={running}>
+            <RefreshCw className={cn(running && "animate-spin")} />
+            {running ? "Checking" : "Run now"}
+          </Button>
+        </div>
       </div>
 
       {report ? (

@@ -601,7 +601,7 @@ function CollegeReports() {
               value={money(data.totals.paid_amount)}
               hint={
                 data.totals.paid_claims
-                  ? `${data.totals.paid_claims.toLocaleString("en-IN")} claims${data.per_paper.median > 0 ? ` · typically ${money(data.per_paper.median)} each` : ""}`
+                  ? `${data.totals.paid_claims.toLocaleString("en-IN")} payments${data.per_paper.median > 0 ? ` · typically ${money(data.per_paper.median)} each` : ""}`
                   : "Nothing paid yet"
               }
               onOpen={() =>
@@ -648,6 +648,7 @@ function CollegeReports() {
               unit="money"
               points={data.by_month.map((p) => ({
                 ...p,
+                label: monthShort(p.key),
                 to: drillHref({ label: `Paid in ${p.key}`, filters: { ...scope, status: "PAID", month: p.key } }),
               }))}
             />
@@ -2105,4 +2106,11 @@ function collegeAnswer(data: ReportsPayload, department: string, year: string): 
     ? ` and ${money(data.totals.committed_amount)} is awaiting payment.`
     : " and nothing is awaiting payment."
   return s
+}
+
+/** "2024-04" as "Apr 2024"; anything else as it came. */
+function monthShort(key: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(key)
+  if (!m) return key
+  return new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
 }

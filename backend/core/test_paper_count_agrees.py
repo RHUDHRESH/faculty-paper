@@ -63,3 +63,27 @@ class PaperCountAgreesTests(TestCase):
 
     def test_empty_record_is_zero_everywhere(self):
         self.assertEqual(self._three(), (0, 0))
+
+
+class LedgerPaidIsNotUnclaimedTests(TestCase):
+    """A paper paid through the ledger (before this app) is filed: Home, My
+    papers and the filing page's Scopus pull all leave it out of "unclaimed"."""
+
+    def test_ledger_paid_paper_counts_as_paid_everywhere(self):
+        cache.clear()
+        me = User.objects.create_user(email="l@x.edu", password="p", name="Lena", role=Role.FACULTY, staff_id="S9")
+        c = Client()
+        c.force_login(me)
+        for title in ("Paid long ago", "Still to file"):
+            p = Publication.objects.create(title=title, normalized_title=title.lower(), year=2022)
+            Authorship.objects.create(publication=p, user=me, position=1, display_name="Lena",
+                                      author_key=f"u:{me.id}", is_college=True)
+        PaidLedger.objects.create(staff_id="s9", paper_title="Paid long ago", payout_month=date(2023, 3, 1),
+                                  amount=12000)
+        mine = c.get("/api/me/publications").json()
+        pull = c.get("/api/me/scopus-pull").json()
+        home = c.get("/api/me/summary").json()
+        self.assertEqual((mine["unclaimed"], pull["unclaimed"], home["unclaimed"]), (1, 1, 1))
+        paid = next(p for p in mine["publications"] if p["title"] == "Paid long ago")
+        self.assertEqual((paid["claim"]["stage"], paid["claim"]["id"], paid["claim"]["paid_month"]),
+                         ("PAID", None, "2023-03"))

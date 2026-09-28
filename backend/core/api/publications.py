@@ -188,8 +188,9 @@ class _LedgerIndex:
         cond = Q(claim__owner=user) | Q(publications__authorships__user=user)
         for sid in {user.staff_id, getattr(user, "employee_id", None)} - {None, ""}:
             cond |= Q(staff_id__iexact=sid.strip())
+        self.my_ids = {s.strip().lower() for s in {user.staff_id, getattr(user, "employee_id", None)} - {None, ""}}
         rows = {r.id: r for r in PaidLedger.objects.filter(cond).distinct()
-                .only("id", "claim_id", "payout_month", "paper_title", "raw_json")}
+                .only("id", "claim_id", "payout_month", "paper_title", "raw_json", "amount", "staff_id")}
         self.by_pub: dict = {}
         for rid, pid in PaidLedger.publications.through.objects.filter(paidledger_id__in=rows) \
                 .values_list("paidledger_id", "publication_id"):
@@ -210,6 +211,10 @@ class _LedgerIndex:
             if title:
                 self.by_title.setdefault(title, row)
 
+    def is_mine(self, row) -> bool:
+        """The row pays me (not a co-author) -- only then may its amount be shown."""
+        return (row.staff_id or "").strip().lower() in self.my_ids
+
     def find(self, p: dict):
         d = normalize_doi(p.get("doi") or "")
         return (self.by_pub.get(p.get("id")) or (d and self.by_doi.get(d.lower()))
@@ -221,8 +226,10 @@ def _waiting_since(c):
     return next((s for s in stamps if s), None) or c.updated_at
 
 
-def claim_state(p: dict, index: _ClaimIndex) -> dict:
-    """The claim fields for one of *my* papers. Money only once paid."""
+def claim_state(p: dict, index: _ClaimIndex, ledger: Optional[_LedgerIndex] = None) -> dict:
+    """The claim fields for one of *my* papers. Money only once paid. A paper
+    paid through the ledger (often before this app) is filed and paid -- the
+    rule the filing page's Scopus pull uses, so every count agrees."""
     c = index.find(p)
     total = p.get("total_authors") or 0
     eligible = total <= MAX_ELIGIBLE_AUTHORS
@@ -233,6 +240,10 @@ def claim_state(p: dict, index: _ClaimIndex) -> dict:
         claim = {"id": c.id, "stage": c.status,
                  "days_waiting": (timezone.now() - since).days if since else None,
                  **({"amount": c.remuneration} if paid else {})}
+    elif ledger is not None and (row := ledger.find(p)) is not None:
+        claim = {"id": row.claim_id, "stage": ClaimStatus.PAID, "days_waiting": None,
+                 **({"amount": row.amount} if ledger.is_mine(row) else {}),
+                 "paid_month": row.payout_month.isoformat()[:7] if row.payout_month else None}
     return {"claim": claim, "eligible": eligible,
             "ineligible_reason": None if eligible else f"More than {MAX_ELIGIBLE_AUTHORS} authors"}
 
@@ -240,9 +251,9 @@ def claim_state(p: dict, index: _ClaimIndex) -> dict:
 def unclaimed_count(user: User) -> int:
     """Eligible papers on my record with no live claim -- Home's `unclaimed`
     and the My papers "Not claimed" tab read the same rule."""
-    index = _ClaimIndex(user)
+    index, ledger = _ClaimIndex(user), _LedgerIndex(user)
     return sum(1 for p in _publications(user)
-               if (s := claim_state(p, index))["claim"] is None and s["eligible"])
+               if (s := claim_state(p, index, ledger))["claim"] is None and s["eligible"])
 
 
 @api.get("/me/publications", auth=session_auth)
@@ -256,9 +267,9 @@ def my_publications(request: HttpRequest, year: Optional[int] = None, year_from:
     user = require_user(request)
     out = _record(user, year=year, year_from=year_from, year_to=year_to, type=type, quartile=quartile, q=q,
                   sort=sort)
-    index = _ClaimIndex(user)
+    index, ledger = _ClaimIndex(user), _LedgerIndex(user)
     for p in out["publications"]:
-        p.update(claim_state(p, index))
+        p.update(claim_state(p, index, ledger))
         if p["source"] == "claim":
             # Known only from a recognised claim or the paid ledger: filed, never "unclaimed".
             p["eligible"], p["ineligible_reason"] = True, None

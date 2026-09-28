@@ -65,7 +65,8 @@ export type RecordPaper = {
   total_authors: number
   match_confidence: number | null
   authors: RecordAuthor[]
-  claim: { id: string; stage: string; days_waiting: number | null; amount?: number | null } | null
+  /** `id` is null for a paper paid through the ledger with no claim in this app. */
+  claim: { id: string | null; stage: string; days_waiting: number | null; amount?: number | null; paid_month?: string | null } | null
   eligible: boolean
   ineligible_reason: string | null
 }
@@ -567,6 +568,12 @@ export function Papers() {
   )
 }
 
+/** "2025-03" -> "Mar 2025". */
+function monthName(ym: string): string {
+  const [y, m] = ym.split("-").map(Number)
+  return y && m ? new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : ym
+}
+
 function coAuthors(p: RecordPaper, me: string) {
   const others = p.authors.filter((a) => a.user_id !== me)
   const college = others.filter((a) => a.is_college)
@@ -682,7 +689,12 @@ function RecordCard({
     >
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
         {isNew && <Chip tone="area">New</Chip>}
-        {stage && p.claim && (
+        {stage && p.claim && !p.claim.id && (
+          <Chip tone="positive" icon={IndianRupee}>
+            Paid{p.claim.paid_month ? ` ${monthName(p.claim.paid_month)}` : ""}
+          </Chip>
+        )}
+        {stage && p.claim?.id && (
           <Link to={`/papers/${p.claim.id}`} className="inline-flex items-center gap-2 hover:underline">
             <Chip tone={p.claim.stage === "PAID" ? "positive" : "area"} icon={p.claim.stage === "PAID" ? IndianRupee : Hourglass}>
               {stage.label}

@@ -269,11 +269,12 @@ class ApiTests(_Base):
         self.client = Client()
         self.client.force_login(self.subha)
 
-    def get(self, url):
+    def get(self, url, own_money=False):
         r = self.client.get(url)
         self.assertEqual(r.status_code, 200, r.content)
         body = r.json()
-        self.assertEqual(money_keys_in(body), [])
+        if not own_money:
+            self.assertEqual(money_keys_in(body), [])
         return body
 
     def test_records_and_filters(self):
@@ -435,13 +436,18 @@ class ApiTests(_Base):
     def test_my_publications_merge_claims(self):
         claim = Claim.objects.create(owner=self.joyal, status=ClaimStatus.SUBMITTED, paper_title="x", doi="10.1/w2")
         self.client.force_login(self.joyal)
-        body = self.get("/api/me/publications")
+        body = self.get("/api/me/publications", own_money=True)
+        # The ledger paid Joyal for W1: filed and paid, his own amount shown.
+        w1 = next(p for p in body["publications"] if (p["doi"] or "").lower() == "10.1/w1")
+        self.assertEqual((w1["claim"]["stage"], w1["claim"]["amount"]), (ClaimStatus.PAID, 5000))
         by_doi = {p["doi"]: p for p in body["publications"]}
         self.assertEqual(by_doi["10.1/w2"]["claim"]["id"], claim.id)
         self.assertEqual(by_doi["10.1/w2"]["claim"]["stage"], ClaimStatus.SUBMITTED)
         self.assertIsNone(by_doi["10.1/w5"]["claim"])
         self.assertTrue(by_doi["10.1/w5"]["eligible"])
-        self.assertEqual(body["unclaimed"], body["count"] - 1)
+        # W2 (my claim), W1 and the ledger-only paper (paid through the ledger) are filed.
+        self.assertEqual(body["unclaimed"], body["count"] - 3)
+        self.assertEqual(self.client.get("/api/me/scopus-pull").json()["unclaimed"], body["unclaimed"])
         # Home's unclaimed reads the same rule.
         self.assertEqual(self.client.get("/api/me/summary").json()["unclaimed"], body["unclaimed"])
         # Own money appears once paid, and only on my own claim.
@@ -451,7 +457,7 @@ class ApiTests(_Base):
 
     def test_dispute_only_own_paper(self):
         self.client.force_login(self.joyal)
-        pid = self.get("/api/me/publications")["publications"][0]["id"]
+        pid = self.get("/api/me/publications", own_money=True)["publications"][0]["id"]
         url = f"/api/me/publications/{pid}/dispute"
         r = self.client.post(url, data=json.dumps({"reason": "not_mine"}), content_type="application/json")
         self.assertEqual(r.status_code, 200, r.content)

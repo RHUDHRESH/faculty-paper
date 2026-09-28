@@ -118,6 +118,9 @@ for (const role of ROLES) {
         storageState: storageStatePath(role),
         viewport: { width: v.width, height: v.height },
         colorScheme: v.dark ? "dark" : "light",
+        // Entrance animations fade text in; axe sampling mid-fade reports
+        // contrast failures that are not there a moment later.
+        reducedMotion: "reduce",
         hasTouch: v.width < 768,
       })
       const page = await ctx.newPage()

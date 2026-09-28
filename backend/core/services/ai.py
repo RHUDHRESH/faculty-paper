@@ -241,6 +241,38 @@ def _off(code: str, detail: str) -> dict[str, Any]:
     }
 
 
+#: provider name -> (monotonic time answered, backend.health function, state)
+_PROBES: dict[str, tuple[float, Any, Any]] = {}
+_PROBES_LOCK = threading.Lock()
+
+
+def _probe(name: str, backend) -> Any:
+    """`backend.health()`, remembered for `AI_HEALTH_TTL_SECONDS`.
+
+    The probe is a network round trip to the model service with a 3 s
+    timeout, and `/trends/me` and `/discover/status` make it on every page
+    load. When the service is busy that is the whole of the page's wait: the
+    a11y/speed audit measured `/trends/me` at 3.6 s and `/discover/status` at
+    1.2 s against 15-30 ms for everything else they do. Whether a model is
+    loaded does not change from one second to the next, so a short memory is
+    honest. The backend's own `health` is part of the key, so a patched one
+    is never answered from a stale entry.
+    """
+    ttl = float(getattr(settings, "AI_HEALTH_TTL_SECONDS", 20) or 0)
+    fn = backend.health
+    if ttl <= 0:
+        return fn()
+    now = time.monotonic()
+    with _PROBES_LOCK:
+        hit = _PROBES.get(name)
+    if hit and hit[1] is fn and now - hit[0] < ttl:
+        return hit[2]
+    state = fn()
+    with _PROBES_LOCK:
+        _PROBES[name] = (now, fn, state)
+    return state
+
+
 def health() -> dict[str, Any]:
     """Everything a screen needs to explain itself, in one call.
 
@@ -271,7 +303,7 @@ def health() -> dict[str, Any]:
         return _off("misconfigured", "The Claude provider needs ANTHROPIC_API_KEY set.")
 
     backend = _backend()
-    state = backend.health()
+    state = _probe(name, backend)
     out = state.as_dict()
     out["provider"] = name
     out["hosted"] = name in ("openai", "anthropic")

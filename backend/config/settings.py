@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
@@ -397,6 +398,12 @@ AI_MODEL = (os.getenv("AI_MODEL") or "").strip()
 AI_FAST_MODEL = (os.getenv("AI_FAST_MODEL") or "").strip()
 AI_TIMEOUT_SECONDS = int(os.getenv("AI_TIMEOUT_SECONDS", "60"))
 OLLAMA_BASE_URL = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434").strip()
+# How long a model-service health probe is remembered (core.services.ai._probe).
+# Off under `manage.py test`, where many cases patch the transport between
+# calls and each must see its own answer.
+AI_HEALTH_TTL_SECONDS = (
+    0 if sys.argv[1:2] == ["test"] else float(os.getenv("AI_HEALTH_TTL_SECONDS", "20"))
+)
 #
 # Two models, not one, and the reason is measured rather than stylistic.
 # Everything runs on the CPU here, so speed is a function of parameter count:

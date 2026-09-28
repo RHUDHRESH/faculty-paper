@@ -388,6 +388,17 @@
   @media (max-width: 639px) {
     :where(button, [role="button"], [role="tab"], select, a.inline-flex):not([class*="size-"]):not(.tap-exempt) {
       min-height: 2.5rem;
+      min-width: 2.5rem;
+    }
+    /* Standalone text links ("See all", "Open the record") are tap targets
+       too. Padding rather than min-height so an inline one keeps its place
+       in the line; links inside a sentence are exempt (WCAG 2.5.8). */
+    :where(a.text-accent, a.hover\:underline, button.hover\:underline, a.text-fg-muted):not(p *):not(.block):not(.flex):not(.inline-flex):not(.tap-exempt) {
+      display: inline-block;
+      padding-block: 0.625rem;
+    }
+    :where(a.block.hover\:underline):not(.tap-exempt) {
+      min-height: 2.5rem;
     }
   }
 

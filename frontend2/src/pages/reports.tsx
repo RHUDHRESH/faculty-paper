@@ -24,6 +24,7 @@ import { DepartmentScopusLine, type DepartmentScopus } from "@/ui/scopus"
 import { stickyHeadCell, Table, TableScroller, type Column } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { HeaderSpot } from "@/ui/page-header"
+import { Answer, PrintButton, PrintStamp, ordinal } from "./reports-print"
 
 /**
  * The college's oversight report — a small set of large figures, with the
@@ -451,6 +452,13 @@ function CollegeReports() {
   }
 
   const filtered = Boolean(year) || Boolean(department) || Boolean(month)
+  const scopeLabel = [
+    year ? `publication year ${year}` : "all years",
+    department || "every department",
+    month ? `settled in ${month}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ")
   const coverage = areas.data?.coverage
   // `_year_on_year_rows` answers with a bare list when the record holds fewer
   // than two publication years, so the array case is the "cannot compare" case.
@@ -461,12 +469,13 @@ function CollegeReports() {
     <div className="page space-y-10">
       <header className="page-head">
         <div>
+          <PrintStamp title="College research report" scope={scopeLabel} />
           <PageTitle>Reports</PageTitle>
           <Sub className="mt-1">What the scheme has paid, what it has produced, and what is still open.</Sub>
         </div>
         {/* Secondary, and plural: the report is on the page. These are for
             taking a copy of it somewhere the page cannot go. */}
-        <div className="min-w-0">
+        <div className="min-w-0 print:hidden">
           <ColumnLabel className="mb-1 block">Also download as</ColumnLabel>
           <div className="flex flex-wrap gap-1">
             <Button kind="quiet" size="sm" asChild>
@@ -480,12 +489,15 @@ function CollegeReports() {
                 CSV
               </a>
             </Button>
+            <PrintButton />
           </div>
         </div>
-        <HeaderSpot name="spot-reports" />
+        <span className="contents print:hidden">
+          <HeaderSpot name="spot-reports" />
+        </span>
       </header>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 print:hidden">
         <Combobox
           value={year}
           onChange={(v) => setFilter("year", v)}
@@ -570,7 +582,8 @@ function CollegeReports() {
         />
       ) : (
         <>
-          <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
+          <Answer>{collegeAnswer(data, department, year)}</Answer>
+          <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-3">
             <Headline
               label="Papers"
               value={data.totals.publications.toLocaleString("en-IN")}
@@ -586,7 +599,7 @@ function CollegeReports() {
               value={money(data.totals.paid_amount)}
               hint={
                 data.totals.paid_claims
-                  ? `${data.totals.paid_claims.toLocaleString("en-IN")} claims · typically ${money(data.per_paper.median)} each`
+                  ? `${data.totals.paid_claims.toLocaleString("en-IN")} claims${data.per_paper.median > 0 ? ` · typically ${money(data.per_paper.median)} each` : ""}`
                   : "Nothing paid yet"
               }
               onOpen={() =>
@@ -620,15 +633,35 @@ function CollegeReports() {
             />
           </section>
 
-          <Trend
-            title="Paid by month"
-            dimension="Month"
-            unit="money"
-            points={data.by_month.map((p) => ({
-              ...p,
-              to: drillHref({ label: `Paid in ${p.key}`, filters: { ...scope, status: "PAID", month: p.key } }),
-            }))}
-          />
+          {data.by_month.length >= 2 ? (
+            <Trend
+              title="Paid by month"
+              dimension="Month"
+              unit="money"
+              points={data.by_month.map((p) => ({
+                ...p,
+                to: drillHref({ label: `Paid in ${p.key}`, filters: { ...scope, status: "PAID", month: p.key } }),
+              }))}
+            />
+          ) : data.by_month.length === 1 ? (
+            // One month is a figure, not a trend; a line needs two points.
+            <section className="space-y-1">
+              <SectionTitle>Paid by month</SectionTitle>
+              <Sub>
+                Every payment so far was settled in {data.by_month[0].key}:{" "}
+                <Link
+                  className="font-medium text-accent underline-offset-2 hover:underline"
+                  to={drillHref({
+                    label: `Paid in ${data.by_month[0].key}`,
+                    filters: { ...scope, status: "PAID", month: data.by_month[0].key },
+                  })}
+                >
+                  {money(data.by_month[0].amount ?? 0)}
+                </Link>
+                . A monthly line appears once a second month is paid.
+              </Sub>
+            </section>
+          ) : null}
 
           <section className="space-y-10">
             <SectionTitle>Where it comes from</SectionTitle>
@@ -699,7 +732,7 @@ function CollegeReports() {
               <SkeletonRows rows={6} rowHeight={32} />
             ) : areas.data && areas.data.areas.length > 0 ? (
               <>
-                <Callout tone="caution" title="Counts only — a paper can be in several areas">
+                <Callout tone="caution" title="Counts only: a paper can be in several areas">
                   A paper is counted under every subject area its journal is classified in, so
                   these rows add up to more than the{" "}
                   {data.totals.publications.toLocaleString("en-IN")} publications above, and the
@@ -1079,6 +1112,13 @@ function HodReports() {
     ...(data?.years_on_record || []).map((y) => ({ value: String(y), label: String(y) })),
   ]
 
+  // Rank only, no other department named; its own query so a failure costs
+  // just the "2nd of 16" clause.
+  const standing = useApi<{ position: number | null; of: number }>(
+    ["hod-standing", year],
+    `/api/hod/standing?${reportQuery.toString()}`
+  )
+
   const drillKey = searchParams.get("sheet") ?? ""
   const drillQuery = useApi<HodPubPayload>(
     ["hod-drill", drillKey],
@@ -1099,10 +1139,14 @@ function HodReports() {
     <div className="page space-y-10">
       <header className="page-head">
         <div>
-          <PageTitle>{data ? `${data.department} — publications` : "Reports"}</PageTitle>
+          <PrintStamp
+            title={`${data?.department ?? "Department"} publications report`}
+            scope={year ? `publication year ${year}` : "all years"}
+          />
+          <PageTitle>{data ? `${data.department} publications` : "Reports"}</PageTitle>
           <Sub className="mt-1">What the department has produced, and by whom.</Sub>
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 print:hidden">
           <ColumnLabel className="mb-1 block">Also download as</ColumnLabel>
           <div className="flex flex-wrap gap-1">
             <Button kind="quiet" size="sm" asChild>
@@ -1116,9 +1160,12 @@ function HodReports() {
                 CSV
               </a>
             </Button>
+            <PrintButton />
           </div>
         </div>
-        <HeaderSpot name="spot-reports" />
+        <span className="contents print:hidden">
+          <HeaderSpot name="spot-reports" />
+        </span>
       </header>
 
       <Callout tone="info" title="Payment figures are not shown for this role">
@@ -1126,7 +1173,7 @@ function HodReports() {
         has been paid for it.
       </Callout>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 print:hidden">
         <Combobox
           value={year}
           onChange={setYear}
@@ -1173,7 +1220,16 @@ function HodReports() {
         />
       ) : (
         <>
-          <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
+          <Answer>
+            {data.department} published {plural(data.totals.publications, "paper")}{" "}
+            {year ? `in ${year}` : "across all years on record"}
+            {standing.data?.position
+              ? `, ${ordinal(standing.data.position)} of ${standing.data.of} departments`
+              : ""}
+            . {data.totals.faculty_who_published} of {data.totals.faculty_in_department} faculty
+            contributed.
+          </Answer>
+          <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-3">
             <Headline
               label="Publications"
               value={data.totals.publications.toLocaleString("en-IN")}
@@ -1685,7 +1741,7 @@ function DirectionPanel({
       ) : (
         <>
           {!pairComparable && (
-            <Callout tone="caution" title="Not compared — the earlier year is not an earlier year">
+            <Callout tone="caution" title="Not compared: the earlier year is not an earlier year">
               Only {priorTotal.toLocaleString("en-IN")}{" "}
               {priorTotal === 1 ? "paper is" : "papers are"} recorded for {yoy.last_year},
               against {recentTotal.toLocaleString("en-IN")} for {yoy.this_year}. That gap is the
@@ -1890,7 +1946,7 @@ function HodDirection({ byYear }: { byYear: Point[] }) {
           {latest.key} against {previous.key}
         </h3>
         <p className="mt-0.5 text-sm text-fg-muted">
-          Counted on publication year — what the department published, not when anything was
+          Counted on publication year: what the department published, not when anything was
           processed.
         </p>
       </div>
@@ -1903,7 +1959,7 @@ function HodDirection({ byYear }: { byYear: Point[] }) {
       )}
 
       {!comparable ? (
-        <Callout tone="caution" title="Not compared — the earlier year is not an earlier year">
+        <Callout tone="caution" title="Not compared: the earlier year is not an earlier year">
           {previous.count.toLocaleString("en-IN")}{" "}
           {previous.count === 1 ? "publication is" : "publications are"} recorded for{" "}
           {previous.key}, against {latest.count.toLocaleString("en-IN")} for {latest.key}. A gap
@@ -2021,4 +2077,24 @@ function ReportsSkeleton() {
       <SkeletonRows rows={5} rowHeight={40} />
     </div>
   )
+}
+
+function plural(n: number, word: string): string {
+  return `${n.toLocaleString("en-IN")} ${word}${n === 1 ? "" : "s"}`
+}
+
+/** The college report's one-sentence answer. */
+function collegeAnswer(data: ReportsPayload, department: string, year: string): string {
+  const when = year ? `in ${year}` : "across all years on record"
+  const who = department || "The college"
+  let s = `${who} published ${plural(data.totals.publications, "paper")} ${when}`
+  const lead = [...data.by_department].sort((a, b) => b.count - a.count)[0]
+  if (!department && lead && data.by_department.length > 1) {
+    s += `; ${lead.label ?? lead.key} leads with ${lead.count.toLocaleString("en-IN")}`
+  }
+  s += `. ${money(data.totals.paid_amount)} has been paid`
+  s += data.totals.committed_amount
+    ? ` and ${money(data.totals.committed_amount)} is awaiting payment.`
+    : " and nothing is awaiting payment."
+  return s
 }

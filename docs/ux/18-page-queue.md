@@ -64,14 +64,14 @@ own worktree, reviewed on screen by the orchestrator before merge.
 | 13 | Search | /search | done |
 | 14 | Notifications + notification settings | /notifications /settings/notifications | done |
 | 15 | Sign in, password, privacy, 404 | * /privacy | done |
-| 16 | Clearing queue + claim review | /clearing | in flight |
-| 17 | Approvals (Principal) | /approvals | in flight |
-| 18 | Authorisations (Director) | /authorisations | in flight |
-| 19 | Payments + done | /payments /payments/done | in flight |
-| 20 | Department (HOD) | /department | in flight |
-| 21 | People + person + author matches | /people /people/:id /people/matches | queued |
-| 22 | Reports + report builder | /reports /reports/build | queued |
-| 23 | Ledger | /ledger | queued |
+| 16 | Clearing queue + claim review | /clearing | done |
+| 17 | Approvals (Principal) | /approvals | done |
+| 18 | Authorisations (Director) | /authorisations | done |
+| 19 | Payments + done | /payments /payments/done | done |
+| 20 | Department (HOD) | /department | done |
+| 21 | People + person + author matches | /people /people/:id /people/matches | done |
+| 22 | Reports + report builder | /reports /reports/build | in flight |
+| 23 | Ledger | /ledger | in flight |
 | 24 | Flags + duplicates | /flags /duplicates | queued |
 | 25 | Archive (past claims) | /archive | queued |
 | 26 | Audit + faults | /audit /faults | queued |

@@ -73,13 +73,13 @@ own worktree, reviewed on screen by the orchestrator before merge.
 | 22 | Reports + report builder | /reports /reports/build | done (figures from ledger + record) |
 | 23 | Ledger | /ledger | done |
 | 24 | Flags + duplicates | /flags /duplicates | in flight |
-| 25 | Archive (past claims) | /archive | queued |
-| 26 | Audit + faults | /audit /faults | queued |
-| 27 | Imports + batches | /imports /batches /batches/:id | queued |
-| 28 | Policy + budget | /policy /budget | queued |
-| 29 | Journals + journal record | /journals /journals/:title | queued |
-| 30 | Accreditation | /accreditation | queued |
-| 31 | Requests | /requests | queued |
-| 32 | Publications (college) | /publications | queued |
-| 33 | Data + data health | /data /data/health | queued |
-| 34 | Institution settings + setup + reference | /settings /setup /reference | queued |
+| 25 | Archive (past claims) | /archive | done (JTBD audits) |
+| 26 | Audit + faults | /audit /faults | done (JTBD audits) |
+| 27 | Imports + batches | /imports /batches /batches/:id | done (JTBD audits) |
+| 28 | Policy + budget | /policy /budget | done (JTBD audits) |
+| 29 | Journals + journal record | /journals /journals/:title | done (JTBD audits) |
+| 30 | Accreditation | /accreditation | done (JTBD audits) |
+| 31 | Requests | /requests | done (JTBD audits) |
+| 32 | Publications (college) | /publications | done (JTBD audits) |
+| 33 | Data + data health | /data /data/health | done (JTBD audits) |
+| 34 | Institution settings + setup + reference | /settings /setup /reference | done (JTBD audits) |

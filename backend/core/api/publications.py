@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -21,10 +21,11 @@ from ninja.errors import HttpError
 
 from core import hod
 from core.api.common import api, require_user, session_auth
-from core.models import AuditLog, Authorship, ClaimStatus, Publication, PublicationMetrics, Role, User
+from core.models import (AuditLog, Authorship, Claim, ClaimStatus, PaidLedger, Publication, PublicationMetrics,
+                         Role, User)
 from core.services import coauthors as graph
 from core.services import publications as pubs
-from core.services.normalize import normalize_title
+from core.services.normalize import normalize_doi, normalize_title
 from core.services.remuneration import MAX_ELIGIBLE_AUTHORS
 
 SORTS = {
@@ -149,6 +150,43 @@ class _ClaimIndex:
                 return self.by_id[cid]
         return ((p["doi"] and self.by_doi.get(p["doi"].lower())) or (p["eid"] and self.by_eid.get(p["eid"]))
                 or self.by_title.get(normalize_title(p["title"] or "")))
+
+
+class _LedgerIndex:
+    """My rows on the paid ledger -- by staff id, linked to my claim, or linked
+    to one of my papers -- findable by paper, DOI (from the imported sheet row)
+    or title. A paper paid through the ERP has no claim, but it is filed."""
+
+    def __init__(self, user: User):
+        cond = Q(claim__owner=user) | Q(publications__authorships__user=user)
+        for sid in {user.staff_id, getattr(user, "employee_id", None)} - {None, ""}:
+            cond |= Q(staff_id__iexact=sid.strip())
+        rows = {r.id: r for r in PaidLedger.objects.filter(cond).distinct()
+                .only("id", "claim_id", "payout_month", "paper_title", "raw_json")}
+        self.by_pub: dict = {}
+        for rid, pid in PaidLedger.publications.through.objects.filter(paidledger_id__in=rows) \
+                .values_list("paidledger_id", "publication_id"):
+            self.by_pub.setdefault(pid, rows[rid])
+        self.by_doi: dict = {}
+        self.by_title: dict = {}
+        for row in rows.values():
+            try:
+                raw = json.loads(row.raw_json or "{}")
+            except (ValueError, TypeError):
+                raw = {}
+            if not isinstance(raw, dict):
+                raw = {}
+            doi = normalize_doi(next((str(v) for k, v in raw.items() if "doi" in str(k).lower() and v), ""))
+            title = normalize_title(str(row.paper_title or raw.get("Scopus Article Title") or ""))
+            if doi:
+                self.by_doi.setdefault(doi.lower(), row)
+            if title:
+                self.by_title.setdefault(title, row)
+
+    def find(self, p: dict):
+        d = normalize_doi(p.get("doi") or "")
+        return (self.by_pub.get(p.get("id")) or (d and self.by_doi.get(d.lower()))
+                or self.by_title.get(normalize_title(p.get("title") or "")))
 
 
 def _waiting_since(c):
@@ -305,6 +343,7 @@ def my_scopus_pull(request: HttpRequest):
     by_doi = {c["doi"].lower(): c for c in mine if c["doi"]}
     by_eid = {c["eid"]: c for c in mine if c["eid"]}
     by_title = {c["normalized_title"]: c for c in mine if c["normalized_title"]}
+    ledger = _LedgerIndex(user)
     out = []
     for p in items:
         claim = None
@@ -312,6 +351,7 @@ def my_scopus_pull(request: HttpRequest):
             claim = next((c for c in mine if c["id"] in p["claim_ids"]), None)
         claim = claim or (p["doi"] and by_doi.get(p["doi"].lower())) or (p["eid"] and by_eid.get(p["eid"])) \
             or by_title.get(normalize_title(p["title"]))
+        paid = None if claim else ledger.find(p)
         out.append({
             "publication_id": p["id"],
             "title": p["title"],
@@ -326,12 +366,64 @@ def my_scopus_pull(request: HttpRequest):
             "author_position": p["author_position"],
             "total_authors": p["total_authors"],
             "authors": [a["name"] for a in p["authors"] if a["position"] is not None] or [a["name"] for a in p["authors"]],
-            "already_claimed": claim is not None,
-            "claim_id": claim["id"] if claim else None,
-            "claim_status": claim["status"] if claim else None,
+            "already_claimed": claim is not None or paid is not None,
+            "claim_id": claim["id"] if claim else (paid.claim_id if paid else None),
+            "claim_status": claim["status"] if claim else (ClaimStatus.PAID if paid else None),
+            # Paid through the ledger (often before this app): nothing to file.
+            "on_paid_ledger": paid is not None,
+            "paid_month": paid.payout_month.isoformat()[:7] if paid and paid.payout_month else None,
         })
     return hod.without_money({"count": len(out), "unclaimed": sum(1 for o in out if not o["already_claimed"]),
                               "papers": out})
+
+
+@api.get("/me/publications/{pub_id}/evidence", auth=session_auth)
+def my_publication_evidence(request: HttpRequest, pub_id: str):
+    """What the record says about one of my papers, for the three conditions
+    of filing. Read-only facts: they never tick a box for the claimant."""
+    user = require_user(request)
+    pub = get_object_or_404(Publication.objects.prefetch_related("authorships", "claims"), id=pub_id)
+    mine = next((a for a in pub.authorships.all() if a.user_id == user.id), None)
+    if mine is None:
+        raise HttpError(404, "This paper is not on your record.")
+    p = _pub_dict(pub, user)
+    # Any filed claim for this article, by anybody -- a co-author's counts.
+    d = normalize_doi(pub.doi or "")
+    nt = normalize_title(pub.title or "")
+    cond = Q(publications=pub)
+    if d:
+        cond |= Q(doi__iexact=d)
+    if nt:
+        cond |= Q(normalized_title=nt)
+    existing = (Claim.objects.filter(cond).exclude(status__in=(*_NOT_FILED, ClaimStatus.DRAFT))
+                .select_related("owner").order_by("submitted_at", "created_at").first())
+    paid = _LedgerIndex(user).find(p)
+    affiliation = (mine.raw_affiliation or mine.institution_name or "").strip()
+    return hod.without_money({
+        "publication_id": pub.id,
+        "title": pub.title,
+        "doi": pub.doi,
+        "scopus_eid": pub.eid or None,
+        "openalex_id": pub.openalex_id or None,
+        "source": pub.source,
+        "lists_me": True,
+        "my_position": mine.position,
+        "total_authors": p["total_authors"],
+        "affiliation_found": bool(mine.is_college),
+        "affiliation_text": affiliation or None,
+        "existing_claim": {
+            "id": existing.id,
+            "ticket_number": existing.ticket_number,
+            "owner": existing.owner.name if existing.owner_id else None,
+            "is_mine": existing.owner_id == user.id,
+            "status": existing.status,
+            "filed_at": (existing.submitted_at or existing.created_at).isoformat(),
+        } if existing else None,
+        "paid_ledger": {
+            "paid_month": paid.payout_month.isoformat()[:7] if paid.payout_month else None,
+            "claim_id": paid.claim_id,
+        } if paid else None,
+    })
 
 
 class HarvestIn(Schema):
@@ -389,6 +481,7 @@ __all__ = [
     "person_connection",
     "search_people_external",
     "my_scopus_pull",
+    "my_publication_evidence",
     "admin_queue_harvest",
     "admin_publication_status",
 ]

@@ -19,6 +19,7 @@ import {
 import { Checkbox, DateInput, Field, Input, Radio, Textarea } from "@/ui/field"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { money } from "@/ui/paper"
+import { Avatar, initialsOf } from "@/ui/person"
 import { toast } from "@/ui/toast"
 import {
   type CalItem,
@@ -310,6 +311,24 @@ export function EventDetails({
             {/* The server sends an amount only to whoever may see it: your own, or the office's total. */}
             {r?.amount != null && r.amount > 0 && <p className="tabular">{money(r.amount)}</p>}
             {e?.created_by && e.created_by_id !== me?.id && <p className="text-fg-muted">Added by {e.created_by}</p>}
+            {r?.person && (
+              <Link to={`/people/${r.person.user_id}`} className="flex items-center gap-2 hover:underline">
+                <Avatar size="sm" person={{ name: r.person.name, initials: r.person.initials ?? initialsOf(r.person.name), photo_url: r.person.photo_url ?? null }} />
+                <span className="font-medium">{r.person.name}</span>
+              </Link>
+            )}
+            {r?.kind === "SCOUT" && (
+              <p className="text-fg-muted">
+                Found by your latest Research scout run.{" "}
+                {r.url ? (
+                  <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-fg underline">
+                    Open the call
+                  </a>
+                ) : (
+                  <Link to="/scout" className="text-fg underline">Open Research scout</Link>
+                )}
+              </p>
+            )}
           </DialogBody>
           <DialogFooter className="flex-wrap justify-between gap-2">
             <div className="flex flex-wrap gap-2">

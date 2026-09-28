@@ -50,17 +50,17 @@ own worktree, reviewed on screen by the orchestrator before merge.
 | # | Page(s) | Routes | Status |
 |---|---|---|---|
 | 1 | Research scout + Discover | /scout /discover | done |
-| 2 | Leaderboard + Calendar | /leaderboard /wall /calendar | in flight |
-| 3 | Messages + Discussions | /messages/* /discussions/* | in flight |
+| 2 | Leaderboard + Calendar | /leaderboard /wall /calendar | done |
+| 3 | Messages + Discussions | /messages/* /discussions/* | done (composer follow-up in flight) |
 | 4 | Who to work with | /collaborate | done |
-| 5 | Your circle (map) | /collaborate?view=map | in flight |
+| 5 | Your circle (map) | /collaborate?view=map | done |
 | 6 | File a paper, every step + receipt + edit | /papers/new /papers/:id/edit | in flight |
 | 7 | Flows check, every role end to end | all | in flight |
 | 8 | Paper detail + claims list | /papers/:id /papers/claims | done |
-| 9 | My papers | /papers | in flight |
-| 10 | Home, every role | / | in flight |
-| 11 | My research + my stats | /research /u/me/stats | queued |
-| 12 | Profile (public + own) | /u/:id /me | queued |
+| 9 | My papers | /papers | done |
+| 10 | Home, every role | / | done |
+| 11 | My research + my stats | /research /u/me/stats | in flight |
+| 12 | Profile (public + own) | /u/:id /me | in flight |
 | 13 | Search | /search | queued |
 | 14 | Notifications + notification settings | /notifications /settings/notifications | queued |
 | 15 | Sign in, password, privacy, 404 | * /privacy | queued |

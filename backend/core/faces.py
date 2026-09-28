@@ -41,10 +41,35 @@ def _people(data: Any, out: list[dict]) -> None:
                 _people(v, out)
 
 
+def _owners(data: Any, out: list[dict]) -> None:
+    """Claims name their claimant as `owner_id` + `owner_name`."""
+    if isinstance(data, dict):
+        if isinstance(data.get("owner_id"), str) and "owner_name" in data and "owner_photo_url" not in data:
+            out.append(data)
+        for v in data.values():
+            if isinstance(v, (dict, list, tuple)):
+                _owners(v, out)
+    elif isinstance(data, (list, tuple)):
+        for v in data:
+            if isinstance(v, (dict, list, tuple)):
+                _owners(v, out)
+
+
 def fill(data: Any) -> Any:
-    """Add `photo_url` and `initials` to every person dict in `data`, in place."""
+    """Add `photo_url` and `initials` to every person dict in `data`, and
+    `owner_photo_url` to every claim, in place."""
     from core.models import User
     from core.social import initials
+
+    owners: list[dict] = []
+    _owners(data, owners)
+    if owners:
+        photos = dict(User.objects.filter(id__in={d["owner_id"] for d in owners})
+                      .exclude(photo="").exclude(photo__isnull=True).values_list("id", "photo"))
+        for d in owners:
+            p = photos.get(d["owner_id"])
+            d["owner_photo_url"] = f"{settings.MEDIA_URL}{p}" if p else None
+            d.setdefault("owner_initials", initials(d.get("owner_name") or ""))
 
     found: list[dict] = []
     _people(data, found)

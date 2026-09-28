@@ -93,7 +93,9 @@ class Command(BaseCommand):
                 row.amount = amount
                 row.save(update_fields=["amount"])
             AuditLog.objects.create(
-                actor=User.objects.filter(role=Role.SUPER_ADMIN).order_by("created_at").first(),
+                # values_list, not the model: this runs inside migration 0049, when
+                # later migrations have not yet added their User columns.
+                actor_id=User.objects.filter(role=Role.SUPER_ADMIN).order_by("created_at").values_list("id", flat=True).first(),
                 action="LEDGER_AMOUNTS_REPAIRED",
                 entity="PaidLedger",
                 detail_json=json.dumps({

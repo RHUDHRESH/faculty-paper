@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Link } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
@@ -57,20 +58,25 @@ export function Avatar({
     SIZE[size],
     className
   )
-  if (person?.photo_url) {
+  // A photo that fails to load (moved file, offline media) falls back to
+  // initials rather than the browser's broken-image icon.
+  const [failed, setFailed] = useState<string | null>(null)
+  const photo = person?.photo_url && failed !== person.photo_url ? person.photo_url : null
+  if (photo) {
     return (
       <img
-        src={person.photo_url}
+        src={photo}
         alt=""
         loading="lazy"
         decoding="async"
+        onError={() => setFailed(photo)}
         className={cn(base, "bg-sunken object-cover")}
       />
     )
   }
   return (
     <span aria-hidden className={cn(base, "bg-accent-wash font-semibold text-accent")}>
-      {person?.initials || "?"}
+      {person?.initials || initialsOf(person?.name)}
     </span>
   )
 }

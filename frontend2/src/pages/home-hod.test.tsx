@@ -70,12 +70,12 @@ function mount(claims: ReturnType<typeof claim>[], extra: ApiTable = {}) {
 describe("HodHome", () => {
   it("keeps the department view", async () => {
     mount([])
-    expect(await screen.findByText(/Physics — what the department has published/)).toBeInTheDocument()
+    expect(await screen.findByText(/How Physics is doing/)).toBeInTheDocument()
   })
 
   it("shows the head's own papers with their own amounts", async () => {
     mount([claim()])
-    const mine = await screen.findByRole("region", { name: "Your papers" })
+    const mine = await screen.findByRole("region", { name: "Your own papers" })
     // Received to date, and the row itself.
     expect(await within(mine).findAllByText("₹42,137")).not.toHaveLength(0)
     expect(within(mine).getByText("Thin films under strain")).toBeInTheDocument()
@@ -96,7 +96,7 @@ describe("HodHome", () => {
         paid_at: null,
       }),
     ])
-    const mine = await screen.findByRole("region", { name: "Your papers" })
+    const mine = await screen.findByRole("region", { name: "Your own papers" })
     expect(await within(mine).findAllByText("Under review")).not.toHaveLength(0)
     expect(within(mine).getByText(/waiting 12 days/i)).toBeInTheDocument()
     for (const desk of [/principal/i, /director/i, /finance/i, /research cell/i]) {
@@ -106,14 +106,14 @@ describe("HodHome", () => {
 
   it("invites a head with nothing filed to file, without a ₹0 record", async () => {
     mount([])
-    const mine = await screen.findByRole("region", { name: "Your papers" })
+    const mine = await screen.findByRole("region", { name: "Your own papers" })
     expect(await within(mine).findByText(/nothing filed yet/i)).toBeInTheDocument()
     expect(within(mine).queryByText("₹0")).toBeNull()
   })
 
   it("shows a failure for their own papers, not an empty record", async () => {
     mount([], { "/api/claims": failing(500) })
-    const mine = await screen.findByRole("region", { name: "Your papers" })
+    const mine = await screen.findByRole("region", { name: "Your own papers" })
     expect(await within(mine).findByText(/could not load your papers/i)).toBeInTheDocument()
     expect(within(mine).queryByText("₹0")).toBeNull()
   })

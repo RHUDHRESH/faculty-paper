@@ -14,7 +14,7 @@ import { Illustration } from "@/ui/illustration"
 import { InlineError, Skeleton } from "@/ui/state"
 import { toast } from "@/ui/toast"
 
-type Author = { id: string | null; name: string; department: string }
+type Author = { id: string | null; name: string; department: string; photo_url?: string | null; initials?: string }
 export type WallCard = {
   key: string
   title: string
@@ -286,7 +286,7 @@ function Tile({ card, wide, anonymous = false }: { card: WallCard; wide: boolean
           <span className="flex -space-x-2">
             {members.slice(0, 5).map((a) => (
               <Link key={a.id} to={`/u/${a.id}`} aria-label={a.name} className="rounded-full ring-2 ring-paper">
-                <Avatar size="sm" person={{ name: a.name, initials: initialsOf(a.name), photo_url: null }} />
+                <Avatar size="sm" person={{ name: a.name, initials: a.initials ?? initialsOf(a.name), photo_url: a.photo_url ?? null }} />
               </Link>
             ))}
           </span>

@@ -4,7 +4,9 @@ import { keepPreviousData } from "@tanstack/react-query"
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   Download,
+  SlidersHorizontal,
   FileText,
   Gem,
   Globe2,
@@ -27,7 +29,10 @@ import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Distribution, RankedBars, Sparkline, Trend } from "@/ui/chart"
 import { HeroBand } from "@/ui/hero"
+import { departmentArt } from "@/ui/illustration"
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/ui/menu"
 import { Avatar, type PersonBrief } from "@/ui/person"
+import { Picture } from "@/ui/picture"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/ui/sheet"
 import { ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, SectionTitle, Sub } from "@/ui/text"
@@ -177,7 +182,7 @@ export function standing(b: Pick<HonoursBoard, "me" | "period" | "scope">): stri
     const all = me.alltime_rank != null ? ` — your all-time rank is #${me.alltime_rank}` : ""
     return `No papers counted for you in ${period} yet${all}.`
   }
-  const parts = [`You: #${rankText(me.rank, me.joint)} of ${count(me.of)} in ${where}`]
+  const parts = [`You: ${me.joint ? "joint " : ""}#${me.rank} of ${count(me.of)} in ${where}`]
   if (!b.scope && me.dept_rank != null && me.department) parts.push(`#${me.dept_rank} in ${me.department}`)
   if (me.percentile != null) parts.push(`top ${me.percentile}%`)
   if (me.move) parts.push(`${me.move > 0 ? "↑" : "↓"}${Math.abs(me.move)} since the last period`)
@@ -299,60 +304,15 @@ export function Leaderboard() {
         />
       ) : (
         <>
-          <div role="group" aria-label="Category" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 print:hidden sm:flex-wrap">
-            {MEASURES.map((m) => (
-              <button
-                key={m.key}
-                type="button"
-                aria-pressed={measure === m.key}
-                onClick={() => set("category", m.key === "score" ? "" : m.key)}
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm ring-1 ring-inset",
-                  measure === m.key ? "bg-gold/15 font-semibold text-fg ring-gold" : "bg-surface text-fg-muted ring-line hover:text-fg"
-                )}
-              >
-                <m.icon aria-hidden className="size-4" /> {m.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 print:hidden">
-            <label className="flex items-center gap-2 text-sm">
-              <span className="text-fg-muted">Period</span>
-              <select className={selectClass} value={period} onChange={(e) => set("period", e.target.value === "academic" ? "" : e.target.value)}>
-                {Object.entries(PERIOD_LABELS).map(([k, l]) => (
-                  <option key={k} value={k}>{l}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <span className="text-fg-muted">Scope</span>
-              <select className={selectClass} value={department} onChange={(e) => set("department", e.target.value)}>
-                <option value="">Whole college</option>
-                {(b?.departments_list ?? []).map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <span className="text-fg-muted">Topic</span>
-              <select className={selectClass} value={topic} onChange={(e) => set("topic", e.target.value)}>
-                <option value="">Any topic</option>
-                {(b?.topic_options ?? []).map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <span className="text-fg-muted">Journal</span>
-              <select className={selectClass} value={journal} onChange={(e) => set("journal", e.target.value)}>
-                <option value="">Any journal</option>
-                {(b?.journal_options ?? []).map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <Controls
+            measure={measure}
+            period={period}
+            department={department}
+            topic={topic}
+            journal={journal}
+            board={b}
+            set={set}
+          />
 
           {query.isError ? (
             <ErrorState title="Could not load the leaderboard." message="Nothing has changed." onRetry={() => void query.refetch()} />
@@ -374,6 +334,128 @@ export function Leaderboard() {
       )}
     </div>
   )
+}
+
+/** The six everyday categories; the rarer ones sit behind "More". */
+const PRIMARY: Measure[] = ["score", "papers", "q1", "first", "cited", "h_index"]
+
+function Controls({
+  measure,
+  period,
+  department,
+  topic,
+  journal,
+  board,
+  set,
+}: {
+  measure: Measure
+  period: string
+  department: string
+  topic: string
+  journal: string
+  board: HonoursBoard | undefined
+  set: (key: string, value: string) => void
+}) {
+  const active = [department, topic, journal].filter(Boolean).length
+  const [open, setOpen] = useState(active > 0)
+  const more = MEASURES.filter((m) => !PRIMARY.includes(m.key))
+  const chosenMore = more.find((m) => m.key === measure)
+  const pick = (m: Measure) => set("category", m === "score" ? "" : m)
+  const seg = (on: boolean) =>
+    cn(
+      "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm whitespace-nowrap",
+      on ? "bg-paper font-semibold text-fg shadow-raise ring-1 ring-line" : "text-fg-muted hover:text-fg"
+    )
+  return (
+    <div className="space-y-3 print:hidden">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <div role="group" aria-label="Category" className="-mx-1 flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-sunken p-1">
+          {MEASURES.filter((m) => PRIMARY.includes(m.key)).map((m) => (
+            <button key={m.key} type="button" aria-pressed={measure === m.key} onClick={() => pick(m.key)} className={seg(measure === m.key)}>
+              {m.label}
+            </button>
+          ))}
+          <Menu>
+            <MenuTrigger asChild>
+              <button type="button" aria-pressed={!!chosenMore} className={seg(!!chosenMore)}>
+                {chosenMore ? chosenMore.label : "More"} <ChevronDown aria-hidden className="size-3.5" />
+              </button>
+            </MenuTrigger>
+            <MenuContent align="end">
+              {more.map((m) => (
+                <MenuItem key={m.key} onSelect={() => pick(m.key)}>
+                  <span className="inline-flex items-center gap-2">
+                    <m.icon aria-hidden className="size-4 text-fg-muted" /> {m.label}
+                  </span>
+                </MenuItem>
+              ))}
+            </MenuContent>
+          </Menu>
+        </div>
+        <div className="flex items-center gap-2 sm:ml-auto">
+          <label className="flex items-center gap-2 text-sm">
+            <span className="sr-only">Period</span>
+            <select className={selectClass} value={period} onChange={(e) => set("period", e.target.value === "academic" ? "" : e.target.value)}>
+              {Object.entries(PERIOD_LABELS).map(([k, l]) => (
+                <option key={k} value={k}>{l}</option>
+              ))}
+            </select>
+          </label>
+          <Button kind="quiet" size="sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            <SlidersHorizontal aria-hidden className="size-4" /> Filters{active ? ` (${active})` : ""}
+          </Button>
+        </div>
+      </div>
+      {open ? (
+        <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-fg-muted">Scope</span>
+            <select className={selectClass} value={department} onChange={(e) => set("department", e.target.value)}>
+              <option value="">Whole college</option>
+              {(board?.departments_list ?? []).map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-fg-muted">Topic</span>
+            <select className={selectClass} value={topic} onChange={(e) => set("topic", e.target.value)}>
+              <option value="">Any topic</option>
+              {(board?.topic_options ?? []).map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-fg-muted">Journal</span>
+            <select className={selectClass} value={journal} onChange={(e) => set("journal", e.target.value)}>
+              <option value="">Any journal</option>
+              {(board?.journal_options ?? []).map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          {active ? (
+            <Button kind="quiet" size="sm" onClick={() => { set("department", ""); set("topic", ""); set("journal", "") }}>
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const DEPT_HINTS: [RegExp, string][] = [
+  [/PHY/, "dept-sh-physics"], [/CHY|CHEM/, "dept-sh-chemistry"], [/MATH/, "dept-sh-maths"], [/ENG(L|$)/, "dept-sh-english"],
+  [/AI\W*ML/, "dept-aiml"], [/AI\W*DS/, "dept-aids"], [/ECE/, "dept-ece"], [/EEE/, "dept-eee"], [/CSE|\bCS\b/, "dept-cse"],
+  [/MECH/, "dept-mech"], [/AUTO/, "dept-auto"], [/\bIT\b/, "dept-it"], [/CIVIL/, "dept-civil"], [/BME|BIOMED/, "dept-bme"],
+  [/AGRI/, "dept-agri"], [/MBA/, "dept-mba"],
+]
+/** Department codes here look like "CSE - CS" or "S&H-PHY"; match on the telling part. */
+export function deptPicture(dept: string): string {
+  const k = dept.toUpperCase()
+  return DEPT_HINTS.find(([re]) => re.test(k))?.[1] ?? departmentArt(dept)
 }
 
 function Move({ row }: { row: Pick<BoardRow, "move" | "new" | "rank"> }) {
@@ -404,40 +486,49 @@ function breakdownText(r: BoardRow): string {
   return `${r.papers} paper${r.papers === 1 ? "" : "s"}${parts.length ? `: ${parts.join(", ")}` : ""}`
 }
 
-const MEDAL = ["bg-gold", "bg-[#b4b8bf]", "bg-[#c08a5a]"]
+/** Gold, silver, bronze: the plinth colour, the ring round the face, the plinth height. */
+const MEDAL = [
+  { plinth: "bg-gradient-to-b from-[#f3dc93] to-[#e2bf5c] text-[#6b4f0c]", ring: "ring-[#d9b24a]", h: "h-16 sm:h-32" },
+  { plinth: "bg-gradient-to-b from-[#e6e8ec] to-[#c7cbd2] text-[#4a4f58]", ring: "ring-[#b4b8bf]", h: "h-11 sm:h-24" },
+  { plinth: "bg-gradient-to-b from-[#ecc9a6] to-[#cf9a68] text-[#5e3a18]", ring: "ring-[#c08a5a]", h: "h-8 sm:h-16" },
+]
 
 function Podium({ board }: { board: HonoursBoard }) {
   if (!board.podium.length) return null
-  // Visual order 2 · 1 · 3 on wide screens; 1 first on phones.
+  // Visual order 2 · 1 · 3, the classic podium.
   const order = [1, 0, 2].filter((i) => board.podium[i])
   return (
-    <ol aria-label="Podium" className="grid grid-cols-3 items-end gap-2 sm:gap-4">
-      {order.map((i) => {
-        const r = board.podium[i]
-        const first = i === 0
-        return (
-          <li key={r.person.id} className={cn("min-w-0", first ? "order-2" : i === 1 ? "order-1" : "order-3")}>
-            <Link
-              to={`/people/${r.person.id}`}
-              className={cn(
-                "flex flex-col items-center gap-1 rounded-xl bg-paper px-2 text-center shadow-raise ring-1 ring-line",
-                first ? "pb-4 pt-5 sm:pb-6 sm:pt-7" : "pb-3 pt-4"
-              )}
-            >
-              <span className={cn("h-1.5 w-10 rounded-full", MEDAL[i])} aria-hidden />
-              <Avatar person={r.person} size={first ? "xl" : "lg"} />
-              <span className="text-xs text-fg-muted">{r.joint ? `joint ${r.rank}` : `#${r.rank}`}</span>
-              <span className="line-clamp-2 text-sm font-semibold">{r.person.name}</span>
-              <span className="hidden truncate text-xs text-fg-muted sm:block">{r.person.department}</span>
-              <span className="font-display text-2xl tabular-nums" title={breakdownText(r)}>
-                {count(r.value)}
-              </span>
-              <Sparkline values={r.spark} label={`Papers per year, ${board.spark_years[0]}–${board.spark_years.at(-1)}`} className="hidden sm:block" />
-            </Link>
-          </li>
-        )
-      })}
-    </ol>
+    <section className="rounded-2xl bg-paper px-3 pt-6 ring-1 ring-line sm:px-8">
+      <p className="text-center text-sm text-fg-muted">
+        {board.label} · {board.period.label}
+      </p>
+      <ol aria-label="Podium" className="mx-auto mt-4 grid max-w-3xl grid-cols-3 items-end gap-2 sm:gap-6">
+        {order.map((i) => {
+          const r = board.podium[i]
+          const first = i === 0
+          const m = MEDAL[Math.min((r.rank ?? i + 1) - 1, 2)] ?? MEDAL[i]
+          return (
+            <li key={r.person.id} className="flex min-w-0 flex-col items-center">
+              <Link to={`/people/${r.person.id}`} className="group flex min-w-0 flex-col items-center gap-1 px-1 pb-3 text-center">
+                <span className={cn("rounded-full ring-4 ring-offset-2 ring-offset-paper", m.ring)}>
+                  <Avatar person={r.person} size={first ? "xl" : "lg"} className={cn(!first && "sm:size-20")} />
+                </span>
+                <span className="mt-2 line-clamp-2 text-sm font-semibold group-hover:underline sm:text-base">{r.person.name}</span>
+                <span className="hidden max-w-full truncate text-xs text-fg-muted sm:block">{r.person.department}</span>
+                <span className="font-display text-2xl tabular-nums sm:text-3xl" title={breakdownText(r)}>
+                  {count(r.value)}
+                </span>
+                <Sparkline values={r.spark} label={`Papers per year, ${board.spark_years[0]}–${board.spark_years.at(-1)}`} className="hidden sm:block" />
+              </Link>
+              <div aria-hidden className={cn("flex w-full items-start justify-center rounded-t-lg pt-1 font-display text-lg sm:pt-2 sm:text-4xl", m.plinth, m.h)}>
+                {r.rank}
+              </div>
+              <span className="sr-only">{r.joint ? `joint ${r.rank}` : `#${r.rank}`}</span>
+            </li>
+          )
+        })}
+      </ol>
+    </section>
   )
 }
 
@@ -465,12 +556,12 @@ function PeopleView({ board }: { board: HonoursBoard }) {
       </p>
 
       {/* Desktop table */}
-      <div className="hidden overflow-clip rounded-xl ring-1 ring-line sm:block print:block">
+      <div className="hidden sm:block print:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-fg-muted">
               {["#", "Name / department", board.label, "Score", "Papers", "Q1", "First", "Cited", "Trend", "Move"].map((h, i) => (
-                <th key={h} scope="col" className={cn("sticky top-0 z-10 bg-sunken px-3 py-2 font-medium print:static", i >= 2 && i <= 7 && "text-right")}>
+                <th key={h} scope="col" className={cn("sticky top-0 z-10 border-b border-line bg-bg px-3 py-2 font-normal print:static", i >= 2 && i <= 7 && "text-right")}>
                   {h}
                 </th>
               ))}
@@ -484,9 +575,13 @@ function PeopleView({ board }: { board: HonoursBoard }) {
                   key={r.person.id}
                   ref={me ? myRef : undefined}
                   aria-current={me ? "true" : undefined}
-                  className={cn("border-t border-line", me && "bg-accent-wash", r.rank == null && "text-fg-muted")}
+                  className={cn(
+                    "border-b border-line/60 hover:bg-hover/50",
+                    me && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)] hover:bg-accent-wash",
+                    r.rank == null && "text-fg-muted"
+                  )}
                 >
-                  <td className="px-3 py-2 tabular-nums">{rankText(r.rank, r.joint)}</td>
+                  <td className="px-3 py-2.5 tabular-nums text-fg-muted">{rankText(r.rank, r.joint)}</td>
                   <td className="px-3 py-2">
                     <Link to={`/people/${r.person.id}`} className="flex items-center gap-2 hover:underline">
                       <Avatar person={r.person} size="sm" className="print:hidden" />
@@ -512,9 +607,9 @@ function PeopleView({ board }: { board: HonoursBoard }) {
       </div>
 
       {/* Phone list */}
-      <ol className="divide-y divide-line rounded-xl ring-1 ring-line sm:hidden print:hidden">
+      <ol className="divide-y divide-line/60 border-y border-line sm:hidden print:hidden">
         {shown.map((r) => (
-          <li key={r.person.id} className={cn(isMe(board, r) && "bg-accent-wash")}>
+          <li key={r.person.id} className={cn(isMe(board, r) && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)]")}>
             <Link to={`/people/${r.person.id}`} className="flex items-center gap-3 px-3 py-2">
               <span className="w-8 shrink-0 text-sm tabular-nums text-fg-muted">{rankText(r.rank, r.joint)}</span>
               <Avatar person={r.person} size="sm" />
@@ -551,11 +646,11 @@ function PinnedMe({ board }: { board: HonoursBoard }) {
   return (
     <div
       role="status"
-      className="sticky bottom-3 z-20 flex items-center gap-3 rounded-2xl bg-fg px-4 py-2 text-sm text-bg shadow-pop print:hidden"
+      className="sticky bottom-3 z-20 flex items-center gap-3 rounded-xl bg-paper px-4 py-2 text-sm shadow-raise ring-1 ring-line print:hidden"
     >
-      <span className="font-semibold tabular-nums">{rankText(me.rank, me.joint)}</span>
-      <span className="flex-1">Your place</span>
-      <span className="tabular-nums">{count(me.value)} {board.unit}</span>
+      <span className="font-display text-lg tabular-nums text-accent">{rankText(me.rank, me.joint)}</span>
+      <span className="flex-1 text-fg-muted">Your place{me.percentile != null ? `, top ${me.percentile}%` : ""}</span>
+      <span className="font-semibold tabular-nums">{count(me.value)} <span className="font-normal text-fg-muted">{board.unit}</span></span>
     </div>
   )
 }
@@ -563,8 +658,26 @@ function PinnedMe({ board }: { board: HonoursBoard }) {
 function DepartmentsView({ board }: { board: HonoursBoard }) {
   const [perFaculty, setPerFaculty] = useState(true)
   const points = board.departments.map((d) => ({ key: d.department, count: perFaculty ? d.per_faculty : d.value }))
+  const sorted = [...board.departments].sort((a, b) => (perFaculty ? b.per_faculty - a.per_faculty : b.value - a.value))
+  const leaders = sorted.filter((d) => (perFaculty ? d.rank_per_faculty : d.rank) != null).slice(0, 3)
   return (
     <div className="space-y-5">
+      {leaders.length ? (
+        <ol aria-label="Leading departments" className="grid gap-3 sm:grid-cols-3">
+          {leaders.map((d, i) => (
+            <li key={d.department} className={cn("flex items-center gap-4 rounded-2xl bg-paper p-4 ring-1 ring-line sm:flex-col sm:text-center", i === 0 && "ring-gold/60")}>
+              <Picture name={deptPicture(d.department)} className="h-20 w-24 shrink-0 sm:h-28 sm:w-full" />
+              <div className="min-w-0">
+                <p className="text-xs text-fg-muted">{i === 0 ? "Leading department" : ordinal(i + 1)}</p>
+                <p className="truncate font-display text-xl">{d.department}</p>
+                <p className="text-sm text-fg-muted tabular-nums">
+                  {perFaculty ? `${d.per_faculty} per head` : `${count(d.value)} ${board.unit}`} · {d.faculty} faculty
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : null}
       <div className="flex gap-2 print:hidden" role="group" aria-label="Normalise">
         <Button size="sm" kind={perFaculty ? "primary" : "quiet"} onClick={() => setPerFaculty(true)}>Per faculty member</Button>
         <Button size="sm" kind={!perFaculty ? "primary" : "quiet"} onClick={() => setPerFaculty(false)}>Total</Button>
@@ -577,19 +690,19 @@ function DepartmentsView({ board }: { board: HonoursBoard }) {
         limit={20}
         showAmounts={false}
       />
-      <div className="overflow-x-auto rounded-xl ring-1 ring-line">
+      <div className="overflow-x-auto">
         <table className="w-full min-w-[34rem] text-sm">
           <thead>
             <tr className="text-left text-xs text-fg-muted">
               {["#", "Department", "Faculty", board.label, "Per faculty", "Papers", "Papers / faculty", "5 years"].map((h) => (
-                <th key={h} scope="col" className="sticky top-0 bg-sunken px-3 py-2 font-medium">{h}</th>
+                <th key={h} scope="col" className="sticky top-0 border-b border-line bg-bg px-3 py-2 font-normal">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {[...board.departments].sort((a, b) => (perFaculty ? b.per_faculty - a.per_faculty : b.value - a.value)).map((d) => (
-              <tr key={d.department} className="border-t border-line">
-                <td className="px-3 py-2 tabular-nums">{perFaculty ? d.rank_per_faculty ?? "—" : d.rank ?? "—"}</td>
+            {sorted.map((d) => (
+              <tr key={d.department} className="border-b border-line/60">
+                <td className="px-3 py-2 tabular-nums text-fg-muted">{perFaculty ? d.rank_per_faculty ?? "—" : d.rank ?? "—"}</td>
                 <td className="px-3 py-2 font-medium">{d.department}</td>
                 <td className="px-3 py-2 tabular-nums">{d.faculty}</td>
                 <td className="px-3 py-2 tabular-nums">{count(d.value)}</td>

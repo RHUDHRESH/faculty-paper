@@ -96,7 +96,7 @@ function mount(me: Me, ui: React.ReactElement, extra: ApiTable = {}) {
 describe("an officer's home", () => {
   it("keeps the Principal's desk and adds their own papers below it", async () => {
     mount(PRINCIPAL, <PrincipalHome />)
-    const mine = await screen.findByRole("region", { name: "Your papers" })
+    const mine = await screen.findByRole("region", { name: "Your own papers" })
     expect(await within(mine).findByText("Grain boundaries in thin copper films")).toBeInTheDocument()
     // Theirs only, although the Principal can see the college's.
     expect(within(mine).queryByText(/lattice struts/)).toBeNull()
@@ -106,7 +106,7 @@ describe("an officer's home", () => {
 
   it("draws their paper as the claimant's journey, never naming the desk it is at", async () => {
     mount(PRINCIPAL, <PrincipalHome />)
-    const mine = await screen.findByRole("region", { name: "Your papers" })
+    const mine = await screen.findByRole("region", { name: "Your own papers" })
     expect(await within(mine).findAllByText("Under review")).not.toHaveLength(0)
     for (const desk of [/principal/i, /director/i, /finance/i, /research cell/i]) {
       expect(within(mine).queryByText(desk)).toBeNull()
@@ -115,8 +115,8 @@ describe("an officer's home", () => {
 
   it("gives the super admin, who files nothing of their own, no such section", async () => {
     mount(SUPER_ADMIN, <OfficeHome />)
-    await screen.findByText(/What is waiting, what is stuck/)
-    expect(screen.queryByRole("region", { name: "Your papers" })).toBeNull()
+    await screen.findByText(/Whether everything is healthy/)
+    expect(screen.queryByRole("region", { name: "Your own papers" })).toBeNull()
     expect(requested.some((p) => p.includes("mine=1"))).toBe(false)
   })
 })

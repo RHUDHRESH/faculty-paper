@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { BellRing, Check, Download, FileText, Users } from "lucide-react"
 
@@ -84,7 +84,14 @@ function face(p: BriefPerson) {
   return { name: p.name, initials: initialsOf(p.name), photo_url: p.photo_url }
 }
 
-export function DepartmentGlance({ year }: { year: number }) {
+export type PersonExtras = {
+  /** Scopus's own career count for a person, beside the papers filed here. */
+  scopus?: (id: string) => { publications: number | null; citations: number | null } | undefined
+  /** The personal target cell: what they were asked for, or a way to set one. */
+  targetCell?: (p: BriefPerson) => ReactNode
+}
+
+export function DepartmentGlance({ year, extras }: { year: number; extras?: PersonExtras }) {
   const brief = useApi<Brief>(["hod", "brief", year], `/api/hod/brief?year=${year}`)
 
   if (brief.isError) {
@@ -135,7 +142,7 @@ export function DepartmentGlance({ year }: { year: number }) {
         <Pairs b={b} />
       </div>
 
-      <FacultyTable b={b} />
+      <FacultyTable b={b} extras={extras} />
     </section>
   )
 }
@@ -469,7 +476,7 @@ function PairRow({ pair }: { pair: Brief["pairs"][number] }) {
 
 type SortKey = "name" | "this_year" | "last_year" | "q1_this_year" | "led_this_year" | "total"
 
-function FacultyTable({ b }: { b: Brief }) {
+function FacultyTable({ b, extras }: { b: Brief; extras?: PersonExtras }) {
   const [sort, setSort] = useState<SortKey>("this_year")
   const rows = useMemo(
     () =>
@@ -498,7 +505,7 @@ function FacultyTable({ b }: { b: Brief }) {
         <Meta>{b.people.length} people. Click a heading to sort.</Meta>
       </div>
       <TableScroller>
-        <table className="w-full min-w-[640px] text-sm">
+        <table className={cn("w-full text-sm", extras ? "min-w-[900px]" : "min-w-[640px]")}>
           <thead className="border-b border-line text-left text-xs">
             <tr>
               {head("name", "Faculty", false)}
@@ -510,6 +517,15 @@ function FacultyTable({ b }: { b: Brief }) {
               {head("q1_this_year", "Q1")}
               {head("led_this_year", "Led")}
               {head("total", "All years")}
+              {extras?.scopus && (
+                <>
+                  <th scope="col" className="px-3 py-2 text-right font-medium text-fg-muted">On Scopus</th>
+                  <th scope="col" className="px-3 py-2 text-right font-medium text-fg-muted">Citations</th>
+                </>
+              )}
+              {extras?.targetCell && (
+                <th scope="col" className="px-3 py-2 font-medium text-fg-muted">Their target</th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -547,6 +563,17 @@ function FacultyTable({ b }: { b: Brief }) {
                 <td className="px-3 py-2 text-right tabular-nums">{p.q1_this_year || "–"}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{p.led_this_year || "–"}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-fg-muted">{p.total}</td>
+                {extras?.scopus && (
+                  <>
+                    <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
+                      {extras.scopus(p.id)?.publications ?? "–"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-fg-muted">
+                      {extras.scopus(p.id)?.citations ?? "–"}
+                    </td>
+                  </>
+                )}
+                {extras?.targetCell && <td className="px-3 py-2">{extras.targetCell(p)}</td>}
               </tr>
             ))}
           </tbody>

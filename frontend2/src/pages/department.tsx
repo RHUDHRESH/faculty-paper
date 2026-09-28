@@ -38,14 +38,13 @@ import {
 import { DateInput, Field, Input, NumberInput, Radio, Textarea } from "@/ui/field"
 import { DepartmentScopusLine, type DepartmentScopus } from "@/ui/scopus"
 import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
-import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
 import { HeaderSpot } from "@/ui/page-header"
 import { Illustration, departmentArt } from "@/ui/illustration"
 import { Avatar, initialsOf } from "@/ui/person"
-import { DepartmentGlance } from "@/pages/department-glance"
+import { DepartmentGlance, type PersonExtras } from "@/pages/department-glance"
 
 /**
  * A head of department's own screen: where the department stands, what it has
@@ -291,6 +290,41 @@ export function Department() {
     )
   }
 
+  const personById = new Map((overview.data?.people ?? []).map((p) => [p.id, p]))
+  const targetsOf = new Map<string, Target[]>()
+  for (const t of targets.data?.personal_targets ?? []) {
+    if (t.person_id) targetsOf.set(t.person_id, [...(targetsOf.get(t.person_id) ?? []), t])
+  }
+  const extras: PersonExtras = {
+    scopus: overview.data?.scopus
+      ? (id) => {
+          const p = personById.get(id)
+          return p ? { publications: p.scopus_publications ?? null, citations: p.scopus_citations ?? null } : undefined
+        }
+      : undefined,
+    targetCell: (bp) => {
+      const theirs = targetsOf.get(bp.id) ?? []
+      const person = personById.get(bp.id)
+      if (theirs.length === 0) {
+        return person ? (
+          <Button kind="quiet" size="sm" onClick={() => setEditing({ target: null, person })}>
+            <TargetIcon />
+            Set one
+          </Button>
+        ) : null
+      }
+      return (
+        <span className="flex flex-wrap gap-x-3 gap-y-0.5">
+          {theirs.map((t) => (
+            <span key={t.id} className={cn("text-sm tabular", t.met && "text-positive")}>
+              {t.metric_label}: {t.done}/{t.target}
+            </span>
+          ))}
+        </span>
+      )
+    },
+  }
+
   const yearOptions: ComboboxOption[] = [
     { value: "all", label: "All years on record" },
     ...Array.from(new Set([thisYear, ...(standing.data?.years ?? [])])).map((y) => ({ value: String(y), label: String(y) })),
@@ -327,7 +361,11 @@ export function Department() {
         <HeaderSpot name="spot-home-hod" />
       </header>
 
-      <DepartmentGlance year={year ? Number(year) : thisYear} />
+      {/* One people table: the glance's, carrying Scopus figures and each
+          person's own target beside this year's output. */}
+      <DepartmentGlance year={year ? Number(year) : thisYear} extras={extras} />
+
+      {overview.data?.scopus ? <DepartmentScopusLine scopus={overview.data.scopus} /> : null}
 
       <DepartmentSiteProfile code={me?.department ?? null} />
 
@@ -371,16 +409,6 @@ export function Department() {
         failed={assignments.isError}
         onRetry={() => void assignments.refetch()}
         onAssign={() => setAssigning(true)}
-      />
-
-      <PeopleSection
-        overview={overview.data}
-        targets={targets.data}
-        loading={overview.isLoading}
-        failed={overview.isError}
-        onRetry={() => void overview.refetch()}
-        onSetFor={(person) => setEditing({ target: null, person })}
-        onRemind={setReminding}
       />
 
       <OpportunitiesSection
@@ -964,189 +992,6 @@ function AssignmentRow({ assignment: a }: { assignment: Assignment }) {
         onConfirm={withdrawIt}
       />
     </li>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* The people                                                                */
-/* ------------------------------------------------------------------------ */
-
-/**
- * Everybody in the department, what they have published, and their own
- * target if they have one.
- *
- * The personal target sits on the same row as the person's output on purpose:
- * a head setting a target for somebody is looking at what that person has
- * actually done while they set it, rather than at a number in a different
- * screen.
- */
-function PeopleSection({
-  overview,
-  targets,
-  loading,
-  failed,
-  onRetry,
-  onSetFor,
-  onRemind,
-}: {
-  overview: Overview | undefined
-  targets: TargetsPayload | undefined
-  loading: boolean
-  failed: boolean
-  onRetry: () => void
-  onSetFor: (person: Person) => void
-  onRemind: (group: OpportunityGroup) => void
-}) {
-  const byPerson = new Map<string, Target[]>()
-  for (const t of targets?.personal_targets ?? []) {
-    if (!t.person_id) continue
-    byPerson.set(t.person_id, [...(byPerson.get(t.person_id) ?? []), t])
-  }
-
-  const people = (overview?.people ?? []).filter((p) => p.active)
-  const scopus = overview?.scopus
-
-  return (
-    <section className="space-y-3" aria-labelledby="the-department">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <SectionTitle>
-          <span id="the-department">The department</span>
-        </SectionTitle>
-        <Meta>{people.length} people</Meta>
-      </div>
-
-      {!loading && !failed && people.length > 0 && <PublishedShare people={people} />}
-
-      {/* Scopus's own count of what they have published, across careers --
-          not the papers filed here, which the table's first columns count. */}
-      {!loading && !failed && scopus ? <DepartmentScopusLine scopus={scopus} /> : null}
-
-      {loading ? (
-        <SkeletonRows rows={8} rowHeight={40} />
-      ) : failed ? (
-        // "Nobody is on the roster for this department" is a startling thing
-        // to tell a head of department because a request timed out.
-        <ErrorState
-          title="Could not load the roster"
-          message="The server did not answer. Nobody has been removed."
-          onRetry={onRetry}
-        />
-      ) : people.length === 0 ? (
-        <p className="border-y border-line py-8 text-center text-sm text-fg-muted">
-          Nobody is on the roster for this department.
-        </p>
-      ) : (
-        <TableScroller minWidth="58rem">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr>
-                <th scope="col" className={stickyHeadCell}>
-                  <ColumnLabel>Person</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
-                  <ColumnLabel>Papers</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-20 text-right")}>
-                  <ColumnLabel>Q1</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
-                  <ColumnLabel>Led</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
-                  <ColumnLabel>On Scopus</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-24 text-right")}>
-                  <ColumnLabel>Citations</ColumnLabel>
-                </th>
-                <th scope="col" className={cn(stickyHeadCell, "w-56")}>
-                  <ColumnLabel>Their target</ColumnLabel>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {people.map((p) => {
-                const theirs = byPerson.get(p.id) ?? []
-                return (
-                  <tr key={p.id} className="row border-b border-line last:border-b-0">
-                    <td className="p-0 align-middle">
-                      <Link to={`/people/${p.id}`} className="flex items-center gap-3 px-3 py-2">
-                        <Avatar size="sm" person={faceOf(p)} />
-                        <span className="min-w-0">
-                          <span className="block truncate">{p.name}</span>
-                          <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
-                        </span>
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 text-right align-middle tabular">
-                      {p.publications > 0 ? (
-                        p.publications
-                      ) : (
-                        <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
-                          <Meta>Nothing on record</Meta>
-                          <Button
-                            kind="quiet"
-                            size="sm"
-                            aria-label={`Send ${p.name} a reminder`}
-                            onClick={() =>
-                              onRemind({
-                                key: "silent",
-                                title: p.name,
-                                blurb: "",
-                                count: 1,
-                                people: [{ id: p.id, name: p.name, designation: p.designation }],
-                              })
-                            }
-                          >
-                            <BellRing />
-                            Remind
-                          </Button>
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right align-middle tabular">
-                      {p.q1 || <Meta>—</Meta>}
-                    </td>
-                    <td className="px-3 py-2 text-right align-middle tabular">
-                      {p.first_author || <Meta>—</Meta>}
-                    </td>
-                    <td className="px-3 py-2 text-right align-middle tabular">
-                      {p.scopus_publications ?? <Meta>—</Meta>}
-                    </td>
-                    <td className="px-3 py-2 text-right align-middle tabular">
-                      {p.scopus_citations ?? <Meta>—</Meta>}
-                    </td>
-                    <td className="px-3 py-2 align-middle">
-                      {theirs.length === 0 ? (
-                        <Button
-                          kind="quiet"
-                          size="sm"
-                          className="reveal"
-                          onClick={() => onSetFor(p)}
-                        >
-                          <TargetIcon />
-                          Set one
-                        </Button>
-                      ) : (
-                        <span className="flex flex-wrap gap-x-3 gap-y-0.5">
-                          {theirs.map((t) => (
-                            <span
-                              key={t.id}
-                              className={cn("text-sm tabular", t.met && "text-positive")}
-                            >
-                              {t.metric_label}: {t.done}/{t.target}
-                            </span>
-                          ))}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </TableScroller>
-      )}
-    </section>
   )
 }
 
@@ -1883,30 +1728,3 @@ function faceOf(p: { name: string; initials?: string; photo_url?: string | null 
   return { name: p.name, initials: p.initials ?? initialsOf(p.name), photo_url: p.photo_url ?? null }
 }
 
-/**
- * How many of the department have anything filed, drawn as one bar. Uses the
- * same rule as the table below: a person with one or more papers.
- */
-function PublishedShare({ people }: { people: { publications: number }[] }) {
-  const filed = people.filter((p) => p.publications > 0).length
-  const total = people.length
-  const pct = Math.round((filed / total) * 100)
-  return (
-    <div className="space-y-1.5">
-      <p className="text-sm">
-        <span className="font-medium tabular">
-          {filed} of {total}
-        </span>{" "}
-        have at least one paper on record ({pct}%).{" "}
-        {total - filed > 0 ? `${total - filed} have nothing filed yet.` : "Everybody has filed."}
-      </p>
-      <div
-        className="flex h-2.5 w-full max-w-xl overflow-hidden rounded-full bg-sunken"
-        role="img"
-        aria-label={`${filed} of ${total} people have a paper on record`}
-      >
-        <span className="block h-full bg-accent" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  )
-}

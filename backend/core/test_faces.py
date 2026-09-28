@@ -37,3 +37,11 @@ class FacesTests(TestCase):
         faces.fill(data)
         self.assertTrue(data["people"][0]["photo_url"].endswith("photos/a.jpg"))
         self.assertNotIn("photo_url", data["departments"][0])
+
+    def test_claims_get_their_owner_face(self):
+        data = {"results": [{"id": "c1", "owner_id": self.a.id, "owner_name": self.a.name},
+                            {"id": "c2", "owner_id": self.b.id, "owner_name": self.b.name}]}
+        faces.fill(data)
+        a, b = data["results"]
+        self.assertTrue(a["owner_photo_url"].endswith("photos/a.jpg"))
+        self.assertEqual((b["owner_photo_url"], b["owner_initials"]), (None, "BK"))

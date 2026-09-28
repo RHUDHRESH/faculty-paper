@@ -1287,10 +1287,10 @@ export function FilePaper() {
   }
   if (editingExisting && existing && existing.status !== "DRAFT" && existing.status !== "REJECTED") {
     return (
-      <div className="page py-8">
+      <div className="page py-8" style={{ maxWidth: 740 }}>
         <EmptyState
           title="This paper can no longer be edited"
-          message={`It is ${stageOf(existing.status).label.toLowerCase()} — only a draft or a paper sent back for changes can be edited here.`}
+          message={`It is ${stageOf(existing.status).label.toLowerCase()}. Only a draft, or a paper sent back to you for changes, can be edited.`}
           action={
             <Button kind="default" size="sm" asChild>
               <Link to={`/papers/${existing.id}`}>Open the paper</Link>

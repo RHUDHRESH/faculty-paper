@@ -8,7 +8,7 @@ import { HOME_DATA } from "@/app/home-data"
 import { NAV, navBadges, navFor } from "@/app/nav"
 import { useApi } from "@/lib/query"
 import { Mark } from "@/ui/art"
-import { AREA_DOT, AREA_TEXT, type Area } from "@/ui/chip"
+import type { Area } from "@/ui/chip"
 import { Button } from "@/ui/button"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { useTheme, type ThemeChoice } from "@/app/theme"
@@ -53,11 +53,11 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
       <MenuTrigger
         aria-label={me?.name ? `Account: ${me.name}` : "Account"}
         className={cn(
-          "flex h-9 w-full items-center gap-2 rounded-md px-1.5 text-left text-sm",
+          "flex h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left text-sm",
           "hover:bg-hover data-[state=open]:bg-hover"
         )}
       >
-        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-wash text-[10px] font-semibold text-accent">
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fg text-[11px] font-semibold text-bg">
           {(me?.name || "?").slice(0, 2).toUpperCase()}
         </span>
         {!collapsed && (
@@ -199,14 +199,14 @@ export function Shell({
       <div className="flex min-h-svh bg-bg">
         <motion.aside
           initial={false}
-          animate={{ width: collapsed ? 56 : 240 }}
+          animate={{ width: collapsed ? 60 : 256 }}
           transition={reduceMotion ? { duration: 0 } : sidebarSpring}
           className={cn(
             "sticky top-0 hidden h-svh shrink-0 flex-col border-r border-line",
             "bg-sunken md:flex print:hidden"
           )}
         >
-          <div className="flex h-12 items-center gap-2 px-3">
+          <div className="flex h-14 items-center gap-2.5 px-3.5">
             {/* Collapsed, the mark is the only thing on screen naming the
                 institution, so it carries the name; expanded, the wordmark
                 beside it does and a second announcement is noise. */}
@@ -216,7 +216,7 @@ export function Shell({
             />
             {!collapsed && (
               <span className="min-w-0 leading-tight">
-                <span className="block truncate text-sm font-semibold">Publications</span>
+                <span className="block truncate font-display text-[15px] font-medium">Publications</span>
                 <span className="block truncate text-[11px] text-fg-subtle">{collegeName}</span>
               </span>
             )}
@@ -224,13 +224,13 @@ export function Shell({
               type="button"
               onClick={() => setCollapsed((v) => !v)}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              className="ml-auto grid size-6 place-items-center rounded-sm text-fg-subtle hover:bg-hover hover:text-fg"
+              className="ml-auto grid size-7 place-items-center rounded-lg text-fg-subtle hover:bg-hover hover:text-fg"
             >
               {collapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
             </button>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="Main">
+          <nav className="flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Main">
             {listed.map((item) => {
               const heading = item.group && !seen.has(item.group) ? item.group : null
               if (item.group) seen.add(item.group)
@@ -240,9 +240,8 @@ export function Shell({
                   {heading && !collapsed ? (
                     <p
                       data-area={item.area}
-                      className="caps flex items-center gap-1.5 px-2 pb-1 pt-4 font-medium text-fg-subtle"
+                      className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-5 text-xs font-medium text-fg-subtle"
                     >
-                      {item.area && <span aria-hidden className={cn("size-1.5 rounded-full", AREA_DOT[item.area])} />}
                       {heading}
                     </p>
                   ) : null}
@@ -282,7 +281,7 @@ export function Shell({
                     onFocus={preload(item.to)}
                     className={({ isActive }) => navClass(isActive, item.area)}
                   >
-                    <Icon className={cn("size-4 shrink-0", item.area && AREA_TEXT[item.area])} />
+                    <Icon className="size-4 shrink-0" />
                     {!collapsed && <span className="truncate">{item.label}</span>}
                   </NavLink>
                 )
@@ -290,12 +289,12 @@ export function Shell({
             </div>
           )}
 
-          <div className="border-t border-line p-2">
+          <div className="p-2.5">
             <button
               type="button"
               onClick={onOpenPalette}
               className={cn(
-                "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+                "flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-sm",
                 "text-fg-muted hover:bg-hover hover:text-fg"
               )}
             >
@@ -320,7 +319,7 @@ export function Shell({
         </motion.aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/85 px-3 backdrop-blur md:hidden print:hidden">
+          <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/90 px-3 backdrop-blur md:hidden print:hidden">
             <RadixDialog.Trigger asChild>
               <Button kind="quiet" size="icon" aria-label="Menu">
                 <PanelLeft />
@@ -342,7 +341,7 @@ export function Shell({
 
           {me?.impersonated_by && <ViewingAs name={me.name} role={me.role} />}
 
-          <main className="min-w-0 flex-1 py-8">
+          <main className="min-w-0 flex-1 py-10">
             <Suspense fallback={<PageLoading />}>
               <PageTransition>
                 <Outlet />
@@ -361,7 +360,7 @@ export function Shell({
           <aside
             className={cn(
               "frame-drawer fixed inset-y-0 left-0 z-50 flex w-64 flex-col overflow-hidden",
-              "border-r border-line bg-sunken p-2 md:hidden"
+              "border-r border-line bg-sunken p-2.5 md:hidden"
             )}
           >
             <RadixDialog.Title className="sr-only">Menu</RadixDialog.Title>
@@ -403,14 +402,13 @@ export function Shell({
 
 /** What a badge says aloud: work waiting at a desk, or conversations with news. */
 /** A sidebar link. Active takes its area's wash (docs/ux/00 §9), not `selected`. */
-function navClass(isActive: boolean, area: Area | undefined): string {
+function navClass(isActive: boolean, _area?: Area): string {
+  // Claude-like: one calm warm-grey pill for the current page, whatever its area.
   return cn(
-    "relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sm",
+    "relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm",
     "transition-colors duration-[var(--dur-1)]",
     isActive
-      ? area
-        ? "bg-(--area-wash) font-medium text-(--area)"
-        : "bg-active font-medium text-fg"
+      ? "bg-active font-medium text-fg"
       : "text-fg-muted hover:bg-hover hover:text-fg"
   )
 }

@@ -119,7 +119,7 @@ def record(request: HttpRequest, claim, user, ticked: dict[str, datetime], min_r
 
 def for_claim(claim) -> list[dict[str, Any]]:
     """The latest accepted set, for claim detail."""
-    rows = list(claim.confirmations.order_by("-recorded_at")[: len(CONDITION_IDS)])
+    rows = list(claim.confirmations.select_related("user").order_by("-recorded_at")[: len(CONDITION_IDS)])
     return [
         {
             "id": r.condition_id,
@@ -128,6 +128,7 @@ def for_claim(claim) -> list[dict[str, Any]]:
             "ticked_at": r.ticked_at.isoformat(),
             "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
             "user_id": r.user_id,
+            "user_name": r.user.name if r.user_id else None,
         }
         for r in rows
     ]

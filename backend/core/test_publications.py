@@ -382,7 +382,36 @@ class ApiTests(_Base):
         self.assertTrue(by_doi["10.1/w2"]["already_claimed"])
         self.assertEqual(by_doi["10.1/w2"]["claim_id"], claim.id)
         self.assertFalse(by_doi["10.1/w5"]["already_claimed"])
-        self.assertEqual(body["unclaimed"], body["count"] - 1)
+        # W1 has no claim, but the paid ledger shows it paid: already filed.
+        w1 = next(p for p in body["papers"] if (p["doi"] or "").lower() == "10.1/w1")
+        self.assertTrue(w1["already_claimed"])
+        self.assertTrue(w1["on_paid_ledger"])
+        self.assertEqual(w1["paid_month"], "2023-01")
+        # ...and so is the paper only the ledger knows. W2 is claimed; the rest are open.
+        self.assertEqual(sum(p["on_paid_ledger"] for p in body["papers"]), 2)
+        self.assertEqual(body["unclaimed"], body["count"] - 3)
+
+    def test_publication_evidence(self):
+        self.client.force_login(self.joyal)
+        body = self.get("/api/me/scopus-pull")
+        w2 = next(p for p in body["papers"] if p["doi"] == "10.1/w2")
+        w1 = next(p for p in body["papers"] if (p["doi"] or "").lower() == "10.1/w1")
+        ev = self.get(f"/api/me/publications/{w2['publication_id']}/evidence")
+        self.assertTrue(ev["lists_me"])
+        self.assertEqual(ev["my_position"], w2["author_position"])
+        self.assertIsNone(ev["existing_claim"])
+        self.assertIsNone(ev["paid_ledger"])
+        self.assertIn("affiliation_found", ev)
+        # A co-author's filed claim for the same DOI shows as the existing claim.
+        other = Claim.objects.create(owner=self.subha, status=ClaimStatus.SUBMITTED, paper_title="x", doi="10.1/W2")
+        ev = self.get(f"/api/me/publications/{w2['publication_id']}/evidence")
+        self.assertEqual(ev["existing_claim"]["id"], other.id)
+        self.assertFalse(ev["existing_claim"]["is_mine"])
+        self.assertEqual(self.get(f"/api/me/publications/{w1['publication_id']}/evidence")["paid_ledger"]["paid_month"],
+                         "2023-01")
+        # Not my paper: 404.
+        self.client.force_login(self.kumar2)
+        self.assertEqual(self.client.get(f"/api/me/publications/{w2['publication_id']}/evidence").status_code, 404)
 
     def test_my_publications_merge_claims(self):
         claim = Claim.objects.create(owner=self.joyal, status=ClaimStatus.SUBMITTED, paper_title="x", doi="10.1/w2")

@@ -73,6 +73,7 @@ class FilingConditionsTests(TestCase):
         # Shown back on claim detail.
         got = self.client.get(f"/api/claims/{claim.id}").json()
         self.assertEqual(len(got["confirmations"]), 3)
+        self.assertEqual({c["user_name"] for c in got["confirmations"]}, {self.faculty.name})
 
     def test_filing_a_draft_later_needs_them_too(self):
         self._login(self.faculty)

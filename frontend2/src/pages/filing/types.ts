@@ -198,6 +198,30 @@ export type FileCheck = {
  * final-year project scheme pays on. The same test the server makes
  * (`is_conference_paper`): a label mentioning a conference or proceedings.
  */
+/** GET /api/me/publications/{id}/evidence: facts for the three conditions. */
+export type PaperEvidence = {
+  publication_id: string
+  title: string
+  doi: string | null
+  scopus_eid: string | null
+  openalex_id: string | null
+  source: string | null
+  lists_me: boolean
+  my_position: number | null
+  total_authors: number
+  affiliation_found: boolean
+  affiliation_text: string | null
+  existing_claim: {
+    id: string
+    ticket_number: string | null
+    owner: string | null
+    is_mine: boolean
+    status: string
+    filed_at: string
+  } | null
+  paid_ledger: { paid_month: string | null; claim_id: string | null } | null
+}
+
 export function isConferencePaper(publicationType: string): boolean {
   return /conference|proceeding/i.test(publicationType)
 }

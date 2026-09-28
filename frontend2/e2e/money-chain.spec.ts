@@ -496,7 +496,9 @@ test.describe("Filing a paper", () => {
     const noteText = "E2E filing: the DOI resolves and the paper names the college."
     if (await note.isVisible()) await note.fill(noteText)
 
-    const filed = page.waitForURL(/\/papers\/[a-z0-9]+$/, { timeout: 90_000 })
+    // Filing ends on the receipt (docs/ux/04 step 7), not on the paper's page.
+    const receiptPlate = page.getByTestId("filed-receipt")
+    const filed = receiptPlate.waitFor({ timeout: 90_000 })
     await page.getByRole("button", { name: "File this paper" }).click()
     await page.getByRole("button", { name: "File it" }).click()
     const outcome = await Promise.race([
@@ -508,7 +510,12 @@ test.describe("Filing a paper", () => {
       await page.getByRole("button", { name: "Send it with this note" }).click()
       await filed
     }
-    await expect(page.getByText(/Filed — ticket/)).toBeVisible()
+    await expect(page.getByText("Filed. It's with the research cell.")).toBeVisible()
+    await expect(page.getByTestId("filed-ticket")).not.toBeEmpty()
+    await expect(receiptPlate).toContainText(title)
+    await expect(receiptPlate.locator("[data-condition]")).toHaveCount(3)
+    await page.getByRole("link", { name: /Track it/ }).click()
+    await page.waitForURL(/\/papers\/[a-z0-9]+$/)
   })
 })
 

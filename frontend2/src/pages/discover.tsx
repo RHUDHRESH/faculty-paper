@@ -29,7 +29,7 @@ import { TabIndicator } from "@/ui/motion/page"
 import { StreamingText, ThinkingIndicator } from "@/ui/motion/stream"
 import { toast } from "@/ui/toast"
 import { IndustryPartners } from "@/pages/discover-next"
-import { FeedCard, ModelCard, useHidden, type FeedItem, type ForYou } from "@/pages/discover-feed"
+import { FeedCard, FeedRow, ModelCard, useHidden, type FeedItem, type ForYou } from "@/pages/discover-feed"
 
 /**
  * The one screen that is useful before a paper exists — everything else in
@@ -265,6 +265,17 @@ function KindList({
 }) {
   const list = items.filter((i) => i.kind === kind)
   if (!list.length) return <Meta className="block">{empty}</Meta>
+  if (kind === "paper" || kind === "direction")
+    // Papers and directions are read, not browsed: a hairline list, one per row.
+    return (
+      <ul className="divide-y divide-(--color-edge) border-y border-(--color-edge)">
+        {list.map((item) => (
+          <li key={item.id} className="py-5">
+            <FeedRow item={item} onHide={() => hide(item)} />
+          </li>
+        ))}
+      </ul>
+    )
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {list.map((item) => (

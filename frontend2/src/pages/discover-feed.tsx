@@ -9,7 +9,8 @@ import { Sparkline } from "@/ui/chart"
 import { Chip } from "@/ui/chip"
 import { PersonCard } from "@/ui/entity"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/ui/menu"
-import { initialsOf } from "@/ui/person"
+import { Avatar, initialsOf } from "@/ui/person"
+import { Picture, topicPicture } from "@/ui/picture"
 import { toast } from "@/ui/toast"
 
 /**
@@ -68,7 +69,7 @@ const topicHref = (q: string) => `/search?scope=topics&q=${encodeURIComponent(q)
 
 function SourceChip({ source }: { source: FeedItem["source"] }) {
   return source === "counted" ? (
-    <Chip tone="area">Counted</Chip>
+    null
   ) : (
     <Chip className="bg-accent-wash text-accent">
       Suggested by the model · checked against our records
@@ -101,7 +102,7 @@ function CardHead({ item, icon: Icon, label, onHide }: {
   return (
     <div className="flex items-center gap-2">
       <Icon aria-hidden className="size-4 shrink-0 text-(--area)" strokeWidth={1.75} />
-      <span className="text-xs font-semibold uppercase tracking-[0.06em] text-(--area)">{label}</span>
+      <span className="text-sm font-medium text-(--area)">{label}</span>
       <span className="flex-1" />
       <SourceChip source={item.source} />
       <Dismiss onHide={onHide} label={item.title} />
@@ -110,6 +111,7 @@ function CardHead({ item, icon: Icon, label, onHide }: {
 }
 
 const card = "panel flex min-w-0 flex-col gap-3 p-5"
+const row = "flex min-w-0 flex-col gap-3"
 
 export function FollowButton({ topic }: { topic: string }) {
   const follow = useApiMutation<{ topic: string }>("/api/follows/topics", { invalidates: [["discover"]] })
@@ -126,20 +128,20 @@ export function FollowButton({ topic }: { topic: string }) {
   )
 }
 
-export function DirectionCard({ item, feature, onHide }: { item: FeedItem; feature?: boolean; onHide: () => void }) {
+export function DirectionCard({ item, feature, onHide, plain }: { item: FeedItem; feature?: boolean; onHide: () => void; plain?: boolean }) {
   const p = item.payload as { papers?: number; before?: number; growth_pct?: number | null; topic?: string; spark?: number[] }
   const topic = p.topic ?? item.title
   return (
     <article
       data-area="research"
       className={cn(
-        card,
+        plain ? row : card,
         feature && "bg-(--area-wash) shadow-[inset_0_0_0_1px_var(--area-line)] sm:flex-row sm:items-center sm:gap-6"
       )}
     >
       {feature && (
         <div className="order-last shrink-0 sm:order-none">
-          <img src="/illustrations/ideas.svg" alt="" className="mx-auto w-40" />
+          <Picture name={topicPicture(topic) ?? "discover-ideas"} className="mx-auto w-44" />
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -202,12 +204,12 @@ export function VenueCard({ item, onHide }: { item: FeedItem; onHide: () => void
 }
 
 export function PersonItem({ item, onHide }: { item: FeedItem; onHide: () => void }) {
-  const p = item.payload as { user_id: string; department?: string | null; designation?: string | null; affiliation?: string }
+  const p = item.payload as { user_id: string; photo_url?: string | null; department?: string | null; designation?: string | null; affiliation?: string }
   return (
     <div className="relative min-w-0">
       <PersonCard
         className="h-full"
-        person={{ id: p.user_id, name: item.title, initials: initialsOf(item.title), photo_url: null, department: p.department, designation: p.designation }}
+        person={{ id: p.user_id, name: item.title, initials: initialsOf(item.title), photo_url: p.photo_url ?? null, department: p.department, designation: p.designation }}
         to={`/u/${p.user_id}`}
         affiliation={p.affiliation ?? "Saveetha"}
         context={<span className="block">{item.why}</span>}
@@ -220,10 +222,17 @@ export function PersonItem({ item, onHide }: { item: FeedItem; onHide: () => voi
   )
 }
 
-export function PaperItem({ item, onHide }: { item: FeedItem; onHide: () => void }) {
-  const p = item.payload as { venue?: string | null; year?: number; quartile?: string | null; doi?: string | null }
+export function PaperItem({ item, onHide, plain }: { item: FeedItem; onHide: () => void; plain?: boolean }) {
+  const p = item.payload as {
+    venue?: string | null
+    year?: number
+    quartile?: string | null
+    doi?: string | null
+    people?: { user_id: string; name: string; initials?: string; photo_url?: string | null }[]
+  }
+  const people = p.people ?? []
   return (
-    <article data-area="research" className={card}>
+    <article data-area="research" className={plain ? row : card}>
       <CardHead item={item} icon={FileText} label="Fresh paper" onHide={onHide} />
       <h3 className="line-clamp-3 font-medium text-fg">
         {p.doi ? (
@@ -239,7 +248,28 @@ export function PaperItem({ item, onHide }: { item: FeedItem; onHide: () => void
         {p.quartile && <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"}>{p.quartile}</Chip>}
       </p>
       <p className="text-sm text-fg-muted">{item.why}</p>
+      {people.length > 0 && (
+        <div className="mt-auto flex items-center gap-2">
+          <div className="flex -space-x-2">
+            {people.map((a) => (
+              <Link key={a.user_id} to={`/u/${a.user_id}`} title={a.name} className="rounded-full ring-2 ring-surface">
+                <Avatar person={{ name: a.name, initials: a.initials || initialsOf(a.name), photo_url: a.photo_url ?? null }} size="sm" />
+              </Link>
+            ))}
+          </div>
+          <span className="truncate text-sm text-fg-muted">{people.map((a) => a.name).join(", ")}</span>
+        </div>
+      )}
     </article>
+  )
+}
+
+/** A feed item as one row of a hairline list (the Directions and Fresh papers tabs). */
+export function FeedRow({ item, onHide }: { item: FeedItem; onHide: () => void }) {
+  return item.kind === "direction" ? (
+    <DirectionCard item={item} onHide={onHide} plain />
+  ) : (
+    <PaperItem item={item} onHide={onHide} plain />
   )
 }
 
@@ -276,7 +306,7 @@ export function ModelCard() {
     <article className="panel flex min-w-0 flex-col gap-3 p-5 shadow-[inset_0_0_0_1px_#6d4bc233]">
       <div className="flex items-center gap-2">
         <Sparkles aria-hidden className="size-4 text-accent" strokeWidth={1.75} />
-        <span className="text-xs font-semibold uppercase tracking-[0.06em] text-accent">
+        <span className="text-sm font-medium text-accent">
           An idea
         </span>
         <span className="flex-1" />

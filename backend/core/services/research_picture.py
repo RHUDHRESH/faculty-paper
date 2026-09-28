@@ -582,7 +582,7 @@ def for_you(user: User, next_things: dict[str, Any], college: Optional[_College]
     people = [
         {"kind": "person", "id": f"person:{p['id']}", "title": p["name"],
          "why": (p.get("reasons") or ["Works near your topics."])[0], "source": "counted",
-         "payload": {"user_id": p["id"], "department": p.get("department"), "designation": p.get("designation"),
+         "payload": {"user_id": p["id"], "name": p["name"], "department": p.get("department"), "designation": p.get("designation"),
                      "papers": p.get("papers"), "affiliation": "Saveetha"}}
         for p in next_things.get("people", [])
     ]
@@ -603,7 +603,8 @@ def for_you(user: User, next_things: dict[str, Any], college: Optional[_College]
                    (f" · by {who.name}" + (f" ({who.department})" if who.department else "") if who else ""),
             "source": "counted",
             "payload": {"venue": p["venue"] or None, "year": p["year"], "quartile": p["quartile"] or None,
-                        "doi": p["doi"], "authors": [a.name for a in authors][:4]},
+                        "doi": p["doi"], "authors": [a.name for a in authors][:4],
+                        "people": [{"user_id": a.id, "name": a.name} for a in authors][:4]},
         })
 
     feed: list[dict[str, Any]] = []

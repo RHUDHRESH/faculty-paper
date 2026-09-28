@@ -426,7 +426,7 @@ function Podium({ board }: { board: HonoursBoard }) {
             >
               <span className={cn("h-1.5 w-10 rounded-full", MEDAL[i])} aria-hidden />
               <Avatar person={r.person} size={first ? "xl" : "lg"} />
-              <span className="text-xs text-fg-muted">#{rankText(r.rank, r.joint)}</span>
+              <span className="text-xs text-fg-muted">{r.joint ? `joint ${r.rank}` : `#${r.rank}`}</span>
               <span className="line-clamp-2 text-sm font-semibold">{r.person.name}</span>
               <span className="hidden truncate text-xs text-fg-muted sm:block">{r.person.department}</span>
               <span className="font-display text-2xl tabular-nums" title={breakdownText(r)}>
@@ -587,7 +587,7 @@ function DepartmentsView({ board }: { board: HonoursBoard }) {
             </tr>
           </thead>
           <tbody>
-            {board.departments.map((d) => (
+            {[...board.departments].sort((a, b) => (perFaculty ? b.per_faculty - a.per_faculty : b.value - a.value)).map((d) => (
               <tr key={d.department} className="border-t border-line">
                 <td className="px-3 py-2 tabular-nums">{perFaculty ? d.rank_per_faculty ?? "—" : d.rank ?? "—"}</td>
                 <td className="px-3 py-2 font-medium">{d.department}</td>

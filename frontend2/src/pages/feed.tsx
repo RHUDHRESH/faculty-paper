@@ -52,6 +52,7 @@ import { Avatar, initialsOf, PersonLink, type PersonBrief } from "@/ui/person"
 import { EmptyState, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { Tooltip } from "@/ui/tooltip"
 import { Ago } from "@/ui/when"
 import { HeaderSpot } from "@/ui/page-header"
 
@@ -740,21 +741,23 @@ function PostComposer({
                   e.target.value = ""
                 }}
               />
-              <Button kind="quiet" size="sm" type="button" onClick={() => fileInput.current?.click()} title="Add a picture or a PDF">
-                <ImagePlus />
-                <span className="hidden sm:inline">Picture or PDF</span>
-              </Button>
-              <Button
-                kind="quiet"
-                size="sm"
-                type="button"
-                aria-pressed={linkOpen}
-                onClick={() => setLinkOpen((o) => !o)}
-                title="Add a link"
-              >
-                <Link2 />
-                <span className="hidden sm:inline">Link</span>
-              </Button>
+              <Tooltip content="Add a picture or a PDF">
+                <Button kind="quiet" size="icon" type="button" onClick={() => fileInput.current?.click()} aria-label="Add a picture or a PDF">
+                  <ImagePlus />
+                </Button>
+              </Tooltip>
+              <Tooltip content={linkOpen ? "Remove the link box" : "Add a link"}>
+                <Button
+                  kind="quiet"
+                  size="icon"
+                  type="button"
+                  aria-pressed={linkOpen}
+                  onClick={() => setLinkOpen((o) => !o)}
+                  aria-label="Add a link"
+                >
+                  <Link2 />
+                </Button>
+              </Tooltip>
               <PaperPicker papers={papers.data?.results ?? []} loading={papers.isLoading} onPick={setPaper} />
               <Audience value={visibility} onChange={setVisibility} department={department} />
             </>
@@ -861,12 +864,13 @@ function PaperPicker({
   if (!loading && papers.length === 0) return null
   return (
     <Menu>
-      <MenuTrigger asChild>
-        <Button kind="quiet" size="sm" type="button" title="Point the post at one of your papers">
-          <FileText />
-          <span className="hidden sm:inline">My paper</span>
-        </Button>
-      </MenuTrigger>
+      <Tooltip content="Point the post at one of your papers">
+        <MenuTrigger asChild>
+          <Button kind="quiet" size="icon" type="button" aria-label="Attach one of my papers">
+            <FileText />
+          </Button>
+        </MenuTrigger>
+      </Tooltip>
       <MenuContent className="max-h-72 w-80 max-w-[90vw] overflow-y-auto">
         {loading ? (
           <MenuItem disabled>Loading your papers…</MenuItem>

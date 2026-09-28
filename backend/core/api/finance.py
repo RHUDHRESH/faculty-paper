@@ -27,6 +27,7 @@ from core.models import DuplicateFinding, MonthlyBatch, MonthlyRow, PaidLedger, 
 from core.services.record_dates import ledger_month_recorded
 from core.social import photo_url
 from core.services import rbac
+from core import visibility
 from core.services.monthly_processor import start_batch_async
 from core.services.remuneration import Category
 
@@ -150,7 +151,10 @@ def admin_ledger(
         u.staff_id: photo_url(u)
         for u in User.objects.filter(staff_id__in=staff_ids).only("staff_id", "photo")
     }
-    dup_keys = _duplicate_keys()
+    # A duplicate finding is a flag, and the Director and Finance are never
+    # shown flags (core.visibility): no marker, no count of open findings.
+    blind = visibility.is_contest_blind(user.role)
+    dup_keys = set() if blind else _duplicate_keys()
     # The month chart ignores the month filter, so choosing a month lights
     # its bar instead of collapsing the chart to a single bar.
     # A row whose month is only the import's default is not charted in that
@@ -182,7 +186,7 @@ def admin_ledger(
             for d in by_dept
         ],
         "people": qs.exclude(staff_id__isnull=True).exclude(staff_id="").values("staff_id").distinct().count(),
-        "duplicates_open": DuplicateFinding.objects.filter(kind="SAME_PERSON", status="OPEN").count(),
+        "duplicates_open": 0 if blind else DuplicateFinding.objects.filter(kind="SAME_PERSON", status="OPEN").count(),
         "total": total,
         "limit": limit,
         "offset": offset,

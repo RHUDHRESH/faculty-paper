@@ -23,8 +23,7 @@ import { useQuery } from "@tanstack/react-query"
 import type { Role } from "@/app/auth"
 import { navFor } from "@/app/nav"
 import { api } from "@/lib/api"
-import { cn } from "@/lib/cn"
-import { Chip, type Area } from "@/ui/chip"
+import type { Area } from "@/ui/chip"
 import type { SearchScope } from "@/ui/big-search"
 
 /**
@@ -325,52 +324,7 @@ export function useRows({
 
 /* --------------------------------------------------------------- renderer */
 
-/** The compact result row, shared by the palette and the page's phone list. */
-export function ResultRow({
-  row,
-  id,
-  active,
-  onPick,
-  onHover,
-}: {
-  row: Row
-  id: string
-  active: boolean
-  onPick: () => void
-  onHover?: () => void
-}) {
-  const Icon = row.icon
-  const area = GROUP_AREA[row.kind]
-  return (
-    <div
-      id={id}
-      role="option"
-      aria-selected={active}
-      tabIndex={-1}
-      data-area={area}
-      onMouseEnter={onHover}
-      onClick={onPick}
-      className={cn("flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left", active && "bg-hover")}
-    >
-      <Icon aria-hidden className={cn("size-4 shrink-0", area ? "text-(--area)" : "text-fg-subtle")} strokeWidth={1.75} />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-fg">{row.title}</span>
-        {row.subtitle && <span className="block truncate text-xs text-fg-muted">{row.subtitle}</span>}
-      </span>
-      {row.chips.slice(0, 2).map((c) => (
-        <Chip key={c} tone={c === "Yours" ? "area" : "neutral"} className="max-w-40 truncate max-sm:hidden">
-          {c}
-        </Chip>
-      ))}
-      {active && (
-        <span className="shrink-0 text-xs text-fg-subtle max-sm:hidden">
-          {row.run ? "↵ run" : "↵ open"}
-          {row.secondary && ` · Ctrl↵ ${row.secondary.label.toLowerCase()}`}
-        </span>
-      )}
-    </div>
-  )
-}
+export { ConnectionLine, ResultRow } from "@/app/search-row"
 
 /** Open a row: in-app route, outside link, or action. */
 export function openRow(row: Row, navigate: (to: string) => void) {

@@ -29,7 +29,7 @@ from ninja import File, Form, Schema, UploadedFile
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimFlag, ClaimStatus, FormulaConfig, PriorImport, PriorPayment, Role, ScimagoJournal, User
 from core import visibility
-from core.services import heads, rbac
+from core.services import heads, rbac, validation
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.remuneration import DEFAULT_AUTHOR_POINTS, DEFAULT_PUB_TYPE_MULTIPLIERS, DEFAULT_STUDENT_PROJECT_AMOUNT, MAX_ELIGIBLE_AUTHORS, MIN_SEC_REFERENCES
 from core.services.scimago_sync import SCIMAGO_RANK_URL, ScimagoSyncError, import_csv_text, sync_year
@@ -215,6 +215,7 @@ def admin_create_user(request: HttpRequest, payload: UserCreateIn):
     email = payload.email.strip().lower()
     if not email:
         raise HttpError(400, "An email address is required")
+    validation.as_http(validation.check_user_fields, {**payload.dict(), "email": email})
     # Without this the database raises, the request answers 500, and the
     # screen shows a stack trace instead of the one fact that matters: the
     # address is already somebody's.
@@ -295,6 +296,7 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
             raise HttpError(400, "You cannot change your own role — ask another admin")
         if data.get("active") is False:
             raise HttpError(400, "You cannot deactivate your own account")
+    validation.as_http(validation.check_user_fields, data)
     if data.get("faculty_type") not in (None, "REGULAR", "RESEARCH"):
         raise HttpError(400, "Faculty type must be REGULAR or RESEARCH.")
     if data.get("research_quota") is not None and data["research_quota"] < 0:

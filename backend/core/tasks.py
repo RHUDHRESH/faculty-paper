@@ -251,7 +251,21 @@ def run_restore(saved_path: str, actor_id: str | None = None) -> dict:
 
     from core.models import AuditLog, Claim, PaidLedger, User
 
-    call_command("loaddata", saved_path, verbosity=0)
+    from core.models import FormulaConfig
+
+    # First-run setup made a default active formula; the export carries the
+    # college's own, and only one may be active (constraint one_active_formula).
+    # Stand the default down for the load, and bring it back only if the
+    # export had none active.
+    stood_down = list(FormulaConfig.objects.filter(active=True).values_list("pk", flat=True))
+    FormulaConfig.objects.filter(pk__in=stood_down).update(active=False)
+    try:
+        call_command("loaddata", saved_path, verbosity=0)
+    except Exception:
+        FormulaConfig.objects.filter(pk__in=stood_down).update(active=True)
+        raise
+    if not FormulaConfig.objects.filter(active=True).exists():
+        FormulaConfig.objects.filter(pk__in=stood_down[:1]).update(active=True)
     counts = {
         "users": User.objects.count(),
         "claims": Claim.objects.count(),
@@ -272,3 +286,19 @@ def run_scout(run_id: str) -> str:
     from core.services.scout import execute
 
     return execute(run_id)
+
+
+def run_integrity_audit() -> dict:
+    """Nightly: the data-health audit, kept for GET /api/admin/data-health."""
+    from core.services import integrity
+
+    report = integrity.run_and_store()
+    return {"ok": True, "problems": report["problems"], "seconds": report["seconds"]}
+
+
+def run_stored_backup(kind: str = "auto") -> dict:
+    """Weekly, and on demand from the data-health page: a full backup kept in
+    the database's own file store (the newest four)."""
+    from core.services import backup
+
+    return backup.store_weekly(kind)

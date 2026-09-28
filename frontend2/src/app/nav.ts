@@ -32,6 +32,7 @@ import {
   Users,
   Wallet,
   TriangleAlert,
+  HeartPulse,
 } from "lucide-react"
 
 import type { Role } from "@/app/auth"
@@ -501,6 +502,15 @@ export const NAV: NavItem[] = [
     roles: ["SUPER_ADMIN"],
     group: "Set up",
     keywords: ["tables", "explorer", "delete", "import"],
+  },
+  {
+    to: "/data/health",
+    label: "Data health",
+    icon: HeartPulse,
+    // `_super` in api/data_health.py: the audit, its fixes and the backups.
+    roles: ["SUPER_ADMIN"],
+    group: "Set up",
+    keywords: ["integrity", "audit", "duplicates", "backup", "restore", "orphans", "constraints"],
   },
 ]
 

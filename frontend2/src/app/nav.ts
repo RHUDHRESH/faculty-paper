@@ -32,6 +32,7 @@ import {
   Users,
   Wallet,
   TriangleAlert,
+  RotateCw,
   HeartPulse,
 } from "lucide-react"
 
@@ -406,6 +407,15 @@ export const NAV: NavItem[] = [
     roles: [...OFFICE, "PRINCIPAL"],
     group: "Set up",
     keywords: ["broken", "blocked", "stuck", "unreconciled"],
+  },
+  {
+    to: "/jobs",
+    label: "Jobs",
+    icon: RotateCw,
+    // `core/api/jobs.py` answers the super admin only.
+    roles: ["SUPER_ADMIN"],
+    group: "Set up",
+    keywords: ["background", "queue", "harvest", "backup", "scopus sync", "failed", "retry"],
   },
   {
     to: "/audit",

@@ -2153,8 +2153,8 @@ type Impact = {
   quota?: {
     user_id: string
     name: string
-    initials?: string
-    photo_url?: string | null
+    initials: string
+    photo_url: string | null
     quota: number
     papers_inside: number
     absorbed_before: number

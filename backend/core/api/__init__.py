@@ -67,3 +67,4 @@ from core.api.scout import *  # noqa: F401,F403
 from core.api.college_site import *  # noqa: F401,F403
 from core.api.research_cell import *  # noqa: F401,F403
 from core.api.attention import *  # noqa: F401,F403
+from core.api.jobs import *  # noqa: F401,F403

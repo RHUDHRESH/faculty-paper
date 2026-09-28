@@ -70,7 +70,7 @@ own worktree, reviewed on screen by the orchestrator before merge.
 | 19 | Payments + done | /payments /payments/done | done |
 | 20 | Department (HOD) | /department | done |
 | 21 | People + person + author matches | /people /people/:id /people/matches | done |
-| 22 | Reports + report builder | /reports /reports/build | in flight |
+| 22 | Reports + report builder | /reports /reports/build | done (figures from ledger + record) |
 | 23 | Ledger | /ledger | done |
 | 24 | Flags + duplicates | /flags /duplicates | in flight |
 | 25 | Archive (past claims) | /archive | queued |

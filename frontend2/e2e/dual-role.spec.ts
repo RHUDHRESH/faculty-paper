@@ -225,7 +225,7 @@ test.describe("A Principal's own paper", () => {
     await row.getByText(title).click()
     await expect(page.getByRole("dialog")).toBeVisible()
     await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click()
-    const confirm = page.getByRole("button", { name: /^Approve — ₹/ })
+    const confirm = page.getByRole("button", { name: /^Approve ₹/ })
     await expect(confirm).toBeEnabled({ timeout: 180_000 })
     await confirmAndWait(page, confirm, `/claims/${claimId}/principal-approve`, "approval")
 

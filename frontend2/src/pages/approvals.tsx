@@ -44,6 +44,16 @@ import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { HoldControl, HoldNote, ReasonActionDialog, useIsOwnClaim } from "@/ui/desk-actions"
 import { HeaderSpot } from "@/ui/page-header"
+import { Avatar, initialsOf } from "@/ui/person"
+
+/** The claimant as `<Avatar>` wants them: the photo the API sent, or initials. */
+function claimant(c: QueueClaim) {
+  return {
+    name: c.owner_name,
+    initials: c.owner_initials || initialsOf(c.owner_name),
+    photo_url: c.owner_photo_url ?? null,
+  }
+}
 
 /**
  * The Principal's queue: every `CLEARED` ticket waiting between the research
@@ -136,6 +146,21 @@ type QueueClaim = {
   needs_second_approval: boolean
   second_approved_by_name: string | null
   second_approved_at: string | null
+  owner_photo_url?: string | null
+  owner_initials?: string | null
+  /** Unresolved research-cell flags; only on queue rows. */
+  open_flags?: number
+}
+
+type ClaimFlag = {
+  id: string
+  kind_label: string
+  note: string
+  open: boolean
+  raised_by_name: string | null
+  raised_at: string | null
+  resolved_by_name: string | null
+  resolution_note: string | null
 }
 
 type ClaimDetail = QueueClaim & {
@@ -282,7 +307,7 @@ export function Approvals() {
     isFetching,
     refetch,
   } = useApi<QueuePayload>(
-    ["principal-queue", q, department, sort, waitingOverParam],
+    ["principal-queue", q, department, sort, waitingOverParam, minAmountParam, quartile],
     `/api/principal/queue?${listQuery.toString()}`,
     { enabled: allowed, placeholderData: (prev) => prev }
   )
@@ -395,6 +420,17 @@ export function Approvals() {
   const selectedTotal = selectedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
   const selectedMissing = selectedRows.filter((c) => c.calc_error || c.remuneration == null).length
   const selectedNeedSecond = selectedRows.filter((c) => c.needs_second_approval).length
+  const selectedFlagged = selectedRows.filter((c) => (c.open_flags ?? 0) > 0).length
+  const bulkSummary = [
+    `${selected.size} ${selected.size === 1 ? "ticket" : "tickets"}, ${money(selectedTotal)} in all, go to the Director.`,
+    selectedFlagged > 0
+      ? `${selectedFlagged} of them ${selectedFlagged === 1 ? "has" : "have"} an open flag from the research cell; open ${selectedFlagged === 1 ? "it" : "them"} first if you are unsure.`
+      : "None has an open flag.",
+    selectedMissing > 0 ? `${selectedMissing} without an amount will be skipped.` : "",
+    "Each is re-checked as it approves; a row whose amount has moved is skipped, not approved at the wrong number.",
+  ]
+    .filter(Boolean)
+    .join(" ")
 
   // The bar shows whenever anything at all is selected, not only when one of
   // the selected rows survived the current filter. Gating it on the latter
@@ -420,7 +456,7 @@ export function Approvals() {
         return next
       })
       if (result.skipped.length === 0) {
-        toast.ok(`Approved — ${result.approved} ${result.approved === 1 ? "ticket" : "tickets"} sent to Finance`)
+        toast.ok(`Approved ${result.approved} ${result.approved === 1 ? "ticket" : "tickets"}, sent to the Director`)
       }
     } catch (err) {
       toast.fail(err)
@@ -434,7 +470,7 @@ export function Approvals() {
         <div>
           <PageTitle>Approvals</PageTitle>
           <Sub className="mt-1">
-            Cleared tickets waiting on you — approve the spend, or send one back to the research cell.
+            Cleared tickets waiting on you. Approve the spend, hold one, or send it back with a reason.
           </Sub>
           <OwnPapersNote className="mt-1" />
         </div>
@@ -632,7 +668,7 @@ export function Approvals() {
             </ul>
           </div>
 
-          <TableScroller minWidth="66rem" className="hidden md:block">
+          <TableScroller minWidth="58rem" className="hidden md:block">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr>
@@ -695,8 +731,9 @@ export function Approvals() {
                       <Meta className="mt-0.5 block">
                         {c.ticket_number || "Not yet ticketed"} · Cleared by {c.cleared_by_name || "—"}
                       </Meta>
-                      {(c.duplicate_warning || c.calc_error || c.remuneration_is_estimate) && (
+                      {(c.duplicate_warning || c.calc_error || c.remuneration_is_estimate || (c.open_flags ?? 0) > 0) && (
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          <OpenFlagsChip n={c.open_flags} />
                           {c.duplicate_warning && (
                             <RowFlag tone="critical">
                               <AlertTriangle className="size-3" /> Possible duplicate
@@ -712,8 +749,13 @@ export function Approvals() {
                       )}
                     </td>
                     <td className="px-3 py-3 align-top">
-                      <span className="block">{c.owner_name}</span>
-                      {c.owner_department && <Meta className="block">{c.owner_department}</Meta>}
+                      <span className="flex items-start gap-2">
+                        <Avatar person={claimant(c)} size="sm" />
+                        <span className="min-w-0">
+                          <span className="block">{c.owner_name}</span>
+                          {c.owner_department && <Meta className="block">{c.owner_department}</Meta>}
+                        </span>
+                      </span>
                     </td>
                     <td className="px-3 py-3 align-top text-sm text-fg-muted">{c.journal_title || "—"}</td>
                     <td className="px-3 py-3 align-top text-right">
@@ -745,8 +787,8 @@ export function Approvals() {
         open={bulkConfirmOpen}
         onOpenChange={setBulkConfirmOpen}
         title={`Approve ${selected.size} ${selected.size === 1 ? "ticket" : "tickets"}?`}
-        description={`${money(selectedTotal)} total, sent to Finance. Each ticket is re-checked against its stored figures as it approves — a row whose amount has moved is skipped, not approved at the wrong number.`}
-        confirmLabel={`Approve — ${money(selectedTotal)}`}
+        description={bulkSummary}
+        confirmLabel={`Approve ${selected.size} for ${money(selectedTotal)}`}
         onConfirm={runBulkApprove}
       />
 
@@ -793,9 +835,12 @@ function QueueCard({
         <span className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
             <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
-            <Meta className="mt-0.5 block">
-              {c.ticket_number || "Not yet ticketed"} · {c.owner_name}
-            </Meta>
+            <span className="mt-1 flex items-center gap-2">
+              <Avatar person={claimant(c)} size="xs" />
+              <Meta className="min-w-0 break-words">
+                {c.owner_name} · {c.ticket_number || "Not yet ticketed"}
+              </Meta>
+            </span>
             {c.journal_title && <Meta className="block break-words">{c.journal_title}</Meta>}
           </span>
           <span className="shrink-0 text-right">
@@ -815,6 +860,7 @@ function QueueCard({
           </span>
         </span>
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <OpenFlagsChip n={c.open_flags} />
           {c.duplicate_warning && (
             <RowFlag tone="critical">
               <AlertTriangle className="size-3" /> Possible duplicate
@@ -830,6 +876,15 @@ function QueueCard({
         </span>
       </button>
     </li>
+  )
+}
+
+function OpenFlagsChip({ n }: { n?: number }) {
+  if (!n) return null
+  return (
+    <RowFlag tone="caution">
+      <AlertTriangle className="size-3" /> {n} open {n === 1 ? "flag" : "flags"}
+    </RowFlag>
   )
 }
 
@@ -915,8 +970,8 @@ function BulkResultDialog({
           </DialogTitle>
           <DialogDescription>
             {result.skipped.length === 0
-              ? `${money(result.total)} sent to Finance.`
-              : `${money(result.total)} sent to Finance. The rest were skipped — each for its own reason, below. Nothing was approved at a wrong figure.`}
+              ? `${money(result.total)} sent to the Director.`
+              : `${money(result.total)} sent to the Director. The rest were skipped, each for its own reason below. Nothing was approved at a wrong figure.`}
           </DialogDescription>
         </DialogHeader>
         {result.skipped.length > 0 && (
@@ -1014,11 +1069,18 @@ function TicketSheet({
               <HoldNote claim={claim} />
               <section className="space-y-1">
                 <SectionTitle>Claimant</SectionTitle>
-                <p className="text-sm">{claim.owner_name}</p>
-                <Meta className="block">
-                  {[claim.owner_department, claim.owner_email].filter(Boolean).join(" · ")}
-                </Meta>
+                <div className="flex items-center gap-3">
+                  <Avatar person={claimant(claim)} size="md" />
+                  <div className="min-w-0">
+                    <p className="text-sm">{claim.owner_name}</p>
+                    <Meta className="block break-words">
+                      {[claim.owner_department, claim.owner_email].filter(Boolean).join(" · ")}
+                    </Meta>
+                  </div>
+                </div>
               </section>
+
+              {!own && <FlagsSection claimId={claim.id} />}
 
               <ClaimContext claim={claim} />
 
@@ -1032,8 +1094,8 @@ function TicketSheet({
                   <Callout tone="caution" title="Needs a second, different signature">
                     <p>
                       This is over the high-value threshold. Approving it here also serves as that second
-                      signature — unless you are the same person who cleared it above, in which case someone else
-                      on the research cell has to give it separately before Finance can pay this.
+                      signature, unless you are the same person who cleared it above, in which case someone else
+                      on the research cell has to give it separately before it can be paid.
                     </p>
                   </Callout>
                 ) : claim.second_approved_by_name ? (
@@ -1071,7 +1133,7 @@ function TicketSheet({
                           ) : (
                             [m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"
                           )}
-                          {m.amount != null && <> — {money(m.amount)}</>}
+                          {m.amount != null && <> · {money(m.amount)}</>}
                         </li>
                       ))}
                     </ul>
@@ -1163,21 +1225,24 @@ function TicketSheet({
               </section>
             </SheetBody>
 
-            {claim.status === "CLEARED" && (
+            {claim.status === "CLEARED" && own && (
+              <SheetFooter>
+                <p className="text-sm text-fg-muted">
+                  This is your own claim. Another Principal or a super admin decides it.
+                </p>
+              </SheetFooter>
+            )}
+            {claim.status === "CLEARED" && !own && (
               <SheetFooter className="flex-wrap gap-2">
                 <HoldControl claim={claim} />
-                {!own && (
-                  <>
-                    <Button kind="danger" onClick={() => setOutrightOpen(true)}>
-                      Reject outright
-                    </Button>
-                    <Button kind="quiet" onClick={() => setFacultyOpen(true)}>
-                      Send to the faculty member
-                    </Button>
-                  </>
-                )}
-                <Button kind="danger" onClick={() => setRejectOpen(true)}>
-                  Return one step
+                <Button kind="danger" onClick={() => setOutrightOpen(true)}>
+                  Reject outright
+                </Button>
+                <Button kind="quiet" onClick={() => setFacultyOpen(true)}>
+                  Send to the faculty member
+                </Button>
+                <Button kind="quiet" onClick={() => setRejectOpen(true)}>
+                  Send back to the research cell
                 </Button>
                 <Button kind="primary" onClick={() => setApproveOpen(true)}>
                   Approve
@@ -1213,6 +1278,49 @@ function TicketSheet({
         ) : null}
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** What the research cell doubted about this paper. The Principal judges the
+ *  paper, so sees these (`rbac.can_review_flags`); the Director and Finance
+ *  never do. Open flags first; resolved ones say who settled them. */
+function FlagsSection({ claimId }: { claimId: string }) {
+  const { data, isLoading, isError } = useApi<{ flags: ClaimFlag[] }>(
+    ["claim-review", claimId],
+    `/api/claims/${claimId}/review`
+  )
+  const flags = data?.flags ?? []
+  const open = flags.filter((f) => f.open)
+  const settled = flags.filter((f) => !f.open)
+  return (
+    <section className="space-y-2">
+      <SectionTitle>Flags from the research cell</SectionTitle>
+      {isLoading ? (
+        <SkeletonText lines={2} />
+      ) : isError ? (
+        <p className="text-sm text-fg-muted">Could not load the flags. Open /flags to check before approving.</p>
+      ) : flags.length === 0 ? (
+        <p className="text-sm text-fg-muted">None raised. The research cell cleared it without a doubt on record.</p>
+      ) : (
+        <ul className="space-y-3">
+          {[...open, ...settled].map((f) => (
+            <li key={f.id} className="text-sm">
+              <p className={cn("font-medium", f.open ? "text-caution" : "text-fg-muted")}>
+                {f.kind_label}
+                {f.open ? ", still open" : ", resolved"}
+              </p>
+              <p className="break-words">{f.note}</p>
+              <Meta className="block">
+                {f.raised_by_name || "Raised automatically"}
+                {f.raised_at ? ` · ${formatDateTime(f.raised_at)}` : ""}
+                {!f.open && f.resolved_by_name ? ` · settled by ${f.resolved_by_name}` : ""}
+                {!f.open && f.resolution_note ? `: ${f.resolution_note}` : ""}
+              </Meta>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 
@@ -1283,7 +1391,7 @@ function ApproveDialog({
     try {
       const result = await approve.mutateAsync({ note: note.trim() || undefined, expected_amount: amount })
       toast.ok(
-        `Approved — ${money(result.remuneration)} sent to Finance${
+        `Approved ${money(result.remuneration)}, sent to the Director${
           claim.ticket_number ? ` for ${claim.ticket_number}` : ""
         }`
       )
@@ -1331,13 +1439,13 @@ function ApproveDialog({
               {/* What confirming does, in the dialog rather than only in the
                   toast afterwards — by then it has already happened. */}
               <p className="text-sm text-fg-muted">
-                This sends {money(amount)} to Finance to pay. Once it has gone, only Finance can
-                reverse it.
+                This sends {money(amount)} to the Director to authorise, then Finance pays it. You cannot
+                take it back from here once it has gone.
               </p>
               {claim.needs_second_approval && (
                 <Callout tone="caution" title="Needs a second, different signature">
                   Cleared by {claim.cleared_by_name || "someone else"}. Approving here also serves as the second
-                  signature{selfCleared ? " — but not from you, since you cleared it yourself" : ""}.
+                  signature{selfCleared ? ", but not from you, since you cleared it yourself" : ""}.
                 </Callout>
               )}
               <Field label="Note (optional)">
@@ -1367,7 +1475,7 @@ function ApproveDialog({
               disabled={amount == null || !!claim.calc_error || busy}
               onClick={() => void confirmApprove()}
             >
-              {busy ? "Approving…" : `Approve — ${amount != null ? money(amount) : "…"}`}
+              {busy ? "Approving…" : `Approve ${amount != null ? money(amount) : "…"}`}
             </Button>
           )}
         </DialogFooter>
@@ -1409,7 +1517,7 @@ function RejectDialog({
   async function submit() {
     try {
       await reject.mutateAsync({ note: trimmed })
-      toast.ok(`Sent back to the research cell${claim.ticket_number ? ` — ${claim.ticket_number}` : ""}`)
+      toast.ok(`Sent back to the research cell${claim.ticket_number ? `: ${claim.ticket_number}` : ""}`)
       onOpenChange(false)
       onRejected()
     } catch (err) {
@@ -1421,13 +1529,13 @@ function RejectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Send this ticket back?</DialogTitle>
+          <DialogTitle>Send back to the research cell?</DialogTitle>
           <DialogDescription>{claim.paper_title}</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <Field
             label="Reason"
-            hint="Goes back to the research cell to fix, with this note attached — say what to check again."
+            hint="Goes back to the research cell to fix, with this note attached. Say what to check again."
             error={tooShort ? "At least 5 characters." : undefined}
           >
             <Textarea
@@ -1580,7 +1688,7 @@ function actionSentence(a: ClaimAction): string {
         return `${who} ${a.action.replace(/_/g, " ").toLowerCase()}`
     }
   })()
-  return a.note ? `${base} — ${a.note}` : base
+  return a.note ? `${base}: ${a.note}` : base
 }
 
 /** The approvals list as it is filtered on screen, for the Principal's own records. */

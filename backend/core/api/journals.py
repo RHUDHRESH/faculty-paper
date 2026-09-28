@@ -32,7 +32,7 @@ import time
 from datetime import timedelta
 from typing import Any, Optional
 from django.db import transaction
-from django.db.models import Min, Q, Sum
+from django.db.models import Count, Min, Q, Sum
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -1130,6 +1130,11 @@ def principal_queue(
         )
     if department:
         qs = qs.filter(owner__department__iexact=department)
+    # The Principal judges a paper, so sees the research cell's open doubts
+    # (`rbac.can_review_flags`); the Director and Finance never reach here.
+    qs = qs.annotate(
+        open_flags=Count("flags", filter=Q(flags__resolved_at__isnull=True), distinct=True)
+    )
     if quartile:
         qs = qs.filter(quartile__iexact=quartile)
     if min_amount is not None:
@@ -1159,7 +1164,9 @@ def principal_queue(
         "total": total,
         "limit": limit,
         "offset": offset,
-        "results": [claim_to_dict(c) for c in qs[offset : offset + limit]],
+        "results": [
+            {**claim_to_dict(c), "open_flags": c.open_flags} for c in qs[offset : offset + limit]
+        ],
         # Over everything the filter matched, not the page.
         "totals": {
             "count": total,

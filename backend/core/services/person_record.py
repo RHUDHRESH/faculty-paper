@@ -23,7 +23,7 @@ from datetime import date
 from typing import Iterable, Optional
 
 from core.models import Authorship, Publication, User
-from core.services.normalize import normalize_doi, normalize_title
+from core.services.normalize import clean_venue, normalize_doi, normalize_title
 from core.services.records import POINTS, QUARTILES, paper_records
 
 
@@ -86,7 +86,7 @@ def papers_of(users: Iterable[User]) -> dict[str, list[Paper]]:
         if t:
             titles[a.user_id].add(t[:512])
         out[a.user_id].append(Paper(
-            title=p.title, venue=p.venue or "", quartile=_q(p.quartile), year=p.year, on=p.date,
+            title=p.title, venue=clean_venue(p.venue), quartile=_q(p.quartile), year=p.year, on=p.date,
             position=a.position, citations=p.citations, source="record", publication_id=p.id,
         ))
 
@@ -110,7 +110,7 @@ def papers_of(users: Iterable[User]) -> dict[str, list[Paper]]:
             if r.key and r.key[:512] in titles[uid]:
                 continue
             out.setdefault(uid, []).append(Paper(
-                title=r.title, venue=r.journal, quartile=r.quartile, year=r.year, on=r.filed_on,
+                title=r.title, venue=clean_venue(r.journal), quartile=r.quartile, year=r.year, on=r.filed_on,
                 position=r.author_position, citations=r.citations, source="claims",
             ))
             if r.key:

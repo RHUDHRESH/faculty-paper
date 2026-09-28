@@ -228,6 +228,31 @@ def faculty_options(request: HttpRequest, q: Optional[str] = None):
     return results
 
 
+@api.post("/admin/scopus-ids/link", auth=session_auth)
+def scopus_ids_link(request: HttpRequest, file: UploadedFile = File(...), dry_run: bool = Form(False)):
+    """Set every account's Scopus author id from the ERP workbook (.xlsx).
+
+    Idempotent; a different id already on an account is returned as a
+    conflict, never overwritten."""
+    from core.services.erp_scopus import link_scopus_ids, read_erp_scopus
+
+    user = require_user(request)
+    if not rbac.can_import_prior(user.role):
+        raise HttpError(403, "Forbidden")
+    try:
+        entries = read_erp_scopus(io.BytesIO(file.read()))
+    except Exception as exc:
+        raise HttpError(400, f"Could not read the workbook: {exc}") from exc
+    result = link_scopus_ids(entries, dry_run=dry_run)
+    if not dry_run:
+        AuditLog.objects.create(
+            actor=user, action="SCOPUS_IDS_LINK", entity="User",
+            detail_json=json.dumps({"set": result["set"], "same": result["same"],
+                                    "conflicts": len(result["conflicts"]), "unmatched": len(result["unmatched"])}),
+        )
+    return result
+
+
 @api.post("/admin/faculty-master/import", auth=session_auth)
 def faculty_master_import(request: HttpRequest, file: UploadedFile = File(...)):
     user = require_user(request)

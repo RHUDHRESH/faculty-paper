@@ -166,6 +166,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     designation = models.CharField(max_length=128, blank=True, null=True)
     scopus_author_url = models.TextField(blank=True, null=True)
     scopus_author_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    #: When `sync_scopus_authors` last paged through this person's Scopus
+    #: profile (AU-ID search); oldest first, so an interrupted run resumes.
+    scopus_synced_at = models.DateTimeField(blank=True, null=True)
     must_change_password = models.BooleanField(default=False)
 
     #: Regular or research, set by an admin rather than inferred from the
@@ -2167,7 +2170,7 @@ class PostReport(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Rewards for work already done: badges, celebrations, goals, the impact card
+# Rewards for work already done: badges, celebrations, goals
 # and the wall of fame. Everything here is computed from recognised papers
 # (`core.services.records`) and none of it carries money -- these are the
 # things other people see.
@@ -2303,22 +2306,6 @@ class ResearchGoal(models.Model):
                 fields=["user", "year", "metric"], name="one_goal_per_metric_per_year"
             )
         ]
-
-
-class ImpactShare(models.Model):
-    """Whether somebody's impact card may be seen by anyone with the link.
-
-    Off until the person turns it on, and off again the moment they say so:
-    the public page and its image both answer 404 while `enabled` is false.
-    The token is random and is the only thing in the URL -- no id, no name.
-    """
-
-    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="impact_share")
-    token = models.CharField(max_length=64, unique=True)
-    enabled = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
 
 class WallPin(models.Model):
@@ -2628,10 +2615,14 @@ class Publication(models.Model):
     quartile = models.CharField(max_length=8, blank=True, default="", db_index=True)
     citations = models.IntegerField(default=0)
     citations_refreshed_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    #: Scopus lists this paper (seen on a member's AU-ID search).
+    scopus_indexed = models.BooleanField(default=False, db_index=True)
+    #: Scopus's cited-by count, beside OpenAlex's `citations`.
+    scopus_citations = models.IntegerField(blank=True, null=True)
     oa_url = models.TextField(blank=True, default="")
     #: A short list of topic names, JSON.
     topics_json = models.TextField(blank=True, default="[]")
-    #: openalex | scopus_sheet | record
+    #: openalex | scopus_sheet | scopus | record
     source = models.CharField(max_length=16, default="openalex")
     claims = models.ManyToManyField("Claim", blank=True, related_name="publications")
     ledger_rows = models.ManyToManyField("PaidLedger", blank=True, related_name="publications")

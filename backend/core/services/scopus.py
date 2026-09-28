@@ -41,8 +41,11 @@ def _api_key() -> str:
     return key
 
 
-def scopus_fetch(url: str, timeout: float = 30.0) -> dict[str, Any]:
-    _check_rate_limit()
+def scopus_fetch(url: str, timeout: float = 30.0, *, throttled: bool = False) -> dict[str, Any]:
+    """`throttled`: the caller paces itself (the nightly sync), so the
+    per-process 30-a-minute guard for interactive lookups does not apply."""
+    if not throttled:
+        _check_rate_limit()
     key = _api_key()
     sep = "&" if "?" in url else "?"
     if "apiKey=" not in url:

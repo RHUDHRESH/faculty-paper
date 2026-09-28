@@ -1,7 +1,7 @@
 {
   "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
   "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
-  "count": 69,
+  "count": 99,
   "assets": [
     {
       "name": "empty-no-papers",
@@ -1287,6 +1287,574 @@
         "png": 13229
       },
       "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-first-paper",
+      "category": "badge",
+      "purpose": "Badge FIRST_PAPER",
+      "page": "Badge shelf (ui/badge-shelf.tsx)",
+      "files": {
+        "svg": "/illustrations/generated/badge-first-paper.svg",
+        "webp": "/illustrations/generated/badge-first-paper.webp",
+        "png": "/illustrations/generated/badge-first-paper.png"
+      },
+      "bytes": {
+        "svg": 40184,
+        "webp": 22546,
+        "png": 18884
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-first-q1",
+      "category": "badge",
+      "purpose": "Badge FIRST_Q1",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-first-q1.svg",
+        "webp": "/illustrations/generated/badge-first-q1.webp",
+        "png": "/illustrations/generated/badge-first-q1.png"
+      },
+      "bytes": {
+        "svg": 31215,
+        "webp": 22942,
+        "png": 18321
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-papers-5",
+      "category": "badge",
+      "purpose": "Badge PAPERS_5",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-papers-5.svg",
+        "webp": "/illustrations/generated/badge-papers-5.webp",
+        "png": "/illustrations/generated/badge-papers-5.png"
+      },
+      "bytes": {
+        "svg": 52315,
+        "webp": 28570,
+        "png": 23084
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-papers-10",
+      "category": "badge",
+      "purpose": "Badge PAPERS_10",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-papers-10.svg",
+        "webp": "/illustrations/generated/badge-papers-10.webp",
+        "png": "/illustrations/generated/badge-papers-10.png"
+      },
+      "bytes": {
+        "svg": 77398,
+        "webp": 30426,
+        "png": 25657
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-papers-25",
+      "category": "badge",
+      "purpose": "Badge PAPERS_25",
+      "page": "Badge shelf",
+      "files": {
+        "webp": "/illustrations/generated/badge-papers-25.webp",
+        "png": "/illustrations/generated/badge-papers-25.png"
+      },
+      "bytes": {
+        "webp": 35782,
+        "png": 32235
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-first-author",
+      "category": "badge",
+      "purpose": "Badge FIRST_AUTHOR",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-first-author.svg",
+        "webp": "/illustrations/generated/badge-first-author.webp",
+        "png": "/illustrations/generated/badge-first-author.png"
+      },
+      "bytes": {
+        "svg": 40004,
+        "webp": 21926,
+        "png": 18632
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-cross-department",
+      "category": "badge",
+      "purpose": "Badge CROSS_DEPARTMENT",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-cross-department.svg",
+        "webp": "/illustrations/generated/badge-cross-department.webp",
+        "png": "/illustrations/generated/badge-cross-department.png"
+      },
+      "bytes": {
+        "svg": 31316,
+        "webp": 21386,
+        "png": 17820
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-quota-met",
+      "category": "badge",
+      "purpose": "Badge QUOTA_MET",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-quota-met.svg",
+        "webp": "/illustrations/generated/badge-quota-met.webp",
+        "png": "/illustrations/generated/badge-quota-met.png"
+      },
+      "bytes": {
+        "svg": 32643,
+        "webp": 25116,
+        "png": 21124
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-top10-department",
+      "category": "badge",
+      "purpose": "Badge TOP10_DEPARTMENT",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-top10-department.svg",
+        "webp": "/illustrations/generated/badge-top10-department.webp",
+        "png": "/illustrations/generated/badge-top10-department.png"
+      },
+      "bytes": {
+        "svg": 41540,
+        "webp": 26806,
+        "png": 23408
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-streak-3",
+      "category": "badge",
+      "purpose": "Badge STREAK_3",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-streak-3.svg",
+        "webp": "/illustrations/generated/badge-streak-3.webp",
+        "png": "/illustrations/generated/badge-streak-3.png"
+      },
+      "bytes": {
+        "svg": 39682,
+        "webp": 20854,
+        "png": 17429
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-streak-6",
+      "category": "badge",
+      "purpose": "Badge STREAK_6",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-streak-6.svg",
+        "webp": "/illustrations/generated/badge-streak-6.webp",
+        "png": "/illustrations/generated/badge-streak-6.png"
+      },
+      "bytes": {
+        "svg": 36707,
+        "webp": 22610,
+        "png": 19129
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-first-citation",
+      "category": "badge",
+      "purpose": "Badge FIRST_CITATION",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-first-citation.svg",
+        "webp": "/illustrations/generated/badge-first-citation.webp",
+        "png": "/illustrations/generated/badge-first-citation.png"
+      },
+      "bytes": {
+        "svg": 32172,
+        "webp": 22380,
+        "png": 18126
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-cse",
+      "category": "department",
+      "purpose": "Department: CSE",
+      "page": "Department page, people/department filters",
+      "files": {
+        "svg": "/illustrations/generated/dept-cse.svg",
+        "webp": "/illustrations/generated/dept-cse.webp",
+        "png": "/illustrations/generated/dept-cse.png"
+      },
+      "bytes": {
+        "svg": 22226,
+        "webp": 9996,
+        "png": 11218
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-ece",
+      "category": "department",
+      "purpose": "Department: ECE",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-ece.svg",
+        "webp": "/illustrations/generated/dept-ece.webp",
+        "png": "/illustrations/generated/dept-ece.png"
+      },
+      "bytes": {
+        "svg": 20906,
+        "webp": 14974,
+        "png": 9250
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-eee",
+      "category": "department",
+      "purpose": "Department: EEE",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-eee.svg",
+        "webp": "/illustrations/generated/dept-eee.webp",
+        "png": "/illustrations/generated/dept-eee.png"
+      },
+      "bytes": {
+        "svg": 24818,
+        "webp": 18262,
+        "png": 11490
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-mech",
+      "category": "department",
+      "purpose": "Department: MECH",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-mech.svg",
+        "webp": "/illustrations/generated/dept-mech.webp",
+        "png": "/illustrations/generated/dept-mech.png"
+      },
+      "bytes": {
+        "svg": 29842,
+        "webp": 15152,
+        "png": 12664
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-auto",
+      "category": "department",
+      "purpose": "Department: AUTO (Automobile)",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-auto.svg",
+        "webp": "/illustrations/generated/dept-auto.webp",
+        "png": "/illustrations/generated/dept-auto.png"
+      },
+      "bytes": {
+        "svg": 22742,
+        "webp": 19540,
+        "png": 18557
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-it",
+      "category": "department",
+      "purpose": "Department: IT",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-it.svg",
+        "webp": "/illustrations/generated/dept-it.webp",
+        "png": "/illustrations/generated/dept-it.png"
+      },
+      "bytes": {
+        "svg": 22066,
+        "webp": 13534,
+        "png": 8728
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-civil",
+      "category": "department",
+      "purpose": "Department: CIVIL",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-civil.svg",
+        "webp": "/illustrations/generated/dept-civil.webp",
+        "png": "/illustrations/generated/dept-civil.png"
+      },
+      "bytes": {
+        "svg": 40727,
+        "webp": 19236,
+        "png": 14680
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-aids",
+      "category": "department",
+      "purpose": "Department: AI&DS",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-aids.svg",
+        "webp": "/illustrations/generated/dept-aids.webp",
+        "png": "/illustrations/generated/dept-aids.png"
+      },
+      "bytes": {
+        "svg": 16741,
+        "webp": 15012,
+        "png": 8799
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-aiml",
+      "category": "department",
+      "purpose": "Department: AI&ML",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-aiml.svg",
+        "webp": "/illustrations/generated/dept-aiml.webp",
+        "png": "/illustrations/generated/dept-aiml.png"
+      },
+      "bytes": {
+        "svg": 25970,
+        "webp": 14200,
+        "png": 14067
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-bme",
+      "category": "department",
+      "purpose": "Department: BME",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-bme.svg",
+        "webp": "/illustrations/generated/dept-bme.webp",
+        "png": "/illustrations/generated/dept-bme.png"
+      },
+      "bytes": {
+        "svg": 31982,
+        "webp": 18010,
+        "png": 11543
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-agri",
+      "category": "department",
+      "purpose": "Department: AGRI",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-agri.svg",
+        "webp": "/illustrations/generated/dept-agri.webp",
+        "png": "/illustrations/generated/dept-agri.png"
+      },
+      "bytes": {
+        "svg": 34568,
+        "webp": 25528,
+        "png": 15851
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-mba",
+      "category": "department",
+      "purpose": "Department: MBA",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-mba.svg",
+        "webp": "/illustrations/generated/dept-mba.webp",
+        "png": "/illustrations/generated/dept-mba.png"
+      },
+      "bytes": {
+        "svg": 25345,
+        "webp": 12182,
+        "png": 12847
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-sh-english",
+      "category": "department",
+      "purpose": "Department: S&H-ENGLISH",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-sh-english.svg",
+        "webp": "/illustrations/generated/dept-sh-english.webp",
+        "png": "/illustrations/generated/dept-sh-english.png"
+      },
+      "bytes": {
+        "svg": 26771,
+        "webp": 17934,
+        "png": 15690
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-sh-chemistry",
+      "category": "department",
+      "purpose": "Department: S&H-CHY",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-sh-chemistry.svg",
+        "webp": "/illustrations/generated/dept-sh-chemistry.webp",
+        "png": "/illustrations/generated/dept-sh-chemistry.png"
+      },
+      "bytes": {
+        "svg": 18947,
+        "webp": 13444,
+        "png": 9843
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-sh-physics",
+      "category": "department",
+      "purpose": "Department: S&H-PHY",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-sh-physics.svg",
+        "webp": "/illustrations/generated/dept-sh-physics.webp",
+        "png": "/illustrations/generated/dept-sh-physics.png"
+      },
+      "bytes": {
+        "svg": 40381,
+        "webp": 20036,
+        "png": 15611
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-sh-maths",
+      "category": "department",
+      "purpose": "Department: S&H-MATHS",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-sh-maths.svg",
+        "webp": "/illustrations/generated/dept-sh-maths.webp",
+        "png": "/illustrations/generated/dept-sh-maths.png"
+      },
+      "bytes": {
+        "svg": 25760,
+        "webp": 16600,
+        "png": 12921
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-research-centre",
+      "category": "department",
+      "purpose": "Research centre (any non-teaching research unit)",
+      "page": "Department page, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/dept-research-centre.svg",
+        "webp": "/illustrations/generated/dept-research-centre.webp",
+        "png": "/illustrations/generated/dept-research-centre.png"
+      },
+      "bytes": {
+        "svg": 28438,
+        "webp": 15944,
+        "png": 13313
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-interdisciplinary",
+      "category": "department",
+      "purpose": "Interdisciplinary / cross-department work",
+      "page": "Collaborate, Department fallback",
+      "files": {
+        "svg": "/illustrations/generated/dept-interdisciplinary.svg",
+        "webp": "/illustrations/generated/dept-interdisciplinary.webp",
+        "png": "/illustrations/generated/dept-interdisciplinary.png"
+      },
+      "bytes": {
+        "svg": 14585,
+        "webp": 11636,
+        "png": 10549
+      },
+      "sheet": "sheet16",
       "date": "2026-09-28",
       "background": "transparent"
     }

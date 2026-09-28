@@ -543,6 +543,231 @@
         }
       ],
       "note": "Retrieved from the ChatGPT Library after the conversation failed to load."
+    },
+    {
+      "id": "sheet12",
+      "raw": "sheet12_badges_a.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Badge variant: every item is a round medallion badge of identical size and construction — a sand-coloured disc with a charcoal outline, a thin inner ring, and a single simple emblem in the centre drawn in the palette colours; a small two-tail ribbon hangs below each medallion; no text, no numerals — show counts only as dots or stacked shapes. Six achievement badges: (1) an open book — 'first paper'; (2) a single bright star — 'first top-quartile journal'; (3) a small stack of five thin sheets shown as five layered lines — 'five papers'; (4) a taller stack of layered sheets with a small star above — 'ten papers'; (5) a large stack of layered sheets with a laurel sprig on either side — 'twenty-five papers'; (6) a fountain pen nib — 'first-author paper'.",
+      "assets": [
+        {
+          "name": "badge-first-paper",
+          "category": "badge",
+          "purpose": "Badge FIRST_PAPER",
+          "page": "Badge shelf (ui/badge-shelf.tsx)"
+        },
+        {
+          "name": "badge-first-q1",
+          "category": "badge",
+          "purpose": "Badge FIRST_Q1",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-papers-5",
+          "category": "badge",
+          "purpose": "Badge PAPERS_5",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-papers-10",
+          "category": "badge",
+          "purpose": "Badge PAPERS_10",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-papers-25",
+          "category": "badge",
+          "purpose": "Badge PAPERS_25",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-first-author",
+          "category": "badge",
+          "purpose": "Badge FIRST_AUTHOR",
+          "page": "Badge shelf"
+        }
+      ]
+    },
+    {
+      "id": "sheet13",
+      "raw": "sheet13_badges_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Badge variant (as sheet12). Six more achievement badges in exactly the same medallion construction as the previous sheet: (1) two small buildings joined by a curved bridge of dotted nodes — 'cross-department collaboration'; (2) a round target with an arrow in the centre — 'yearly target met'; (3) a small trophy cup with laurel — 'department in the top ten'; (4) a small calendar page with three tick marks in a row — 'three-month streak'; (5) a small calendar page with six tick marks in two rows — 'six-month streak'; (6) a pair of quotation marks — 'first citation'.",
+      "assets": [
+        {
+          "name": "badge-cross-department",
+          "category": "badge",
+          "purpose": "Badge CROSS_DEPARTMENT",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-quota-met",
+          "category": "badge",
+          "purpose": "Badge QUOTA_MET",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-top10-department",
+          "category": "badge",
+          "purpose": "Badge TOP10_DEPARTMENT",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-streak-3",
+          "category": "badge",
+          "purpose": "Badge STREAK_3",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-streak-6",
+          "category": "badge",
+          "purpose": "Badge STREAK_6",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-first-citation",
+          "category": "badge",
+          "purpose": "Badge FIRST_CITATION",
+          "page": "Badge shelf"
+        }
+      ]
+    },
+    {
+      "id": "sheet14",
+      "raw": "sheet14_departments_a.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Department variant: each item is one symbolic still-life object (no buildings with signs, no letters), sitting on a small soft sand-coloured ground ellipse, all items the same scale. Six engineering department emblems: (1) an open laptop whose screen shows a small graph of connected nodes — 'computer science'; (2) a microchip with an antenna emitting three curved signal waves — 'electronics and communication'; (3) a lightning bolt beside a wound copper coil and a small leaf — 'electrical and electronics'; (4) two meshing gears with a piston rod — 'mechanical'; (5) a car wheel with a small spanner resting against it — 'automobile'; (6) a small server rack with a cloud above it joined by dotted lines — 'information technology'.",
+      "assets": [
+        {
+          "name": "dept-cse",
+          "category": "department",
+          "purpose": "Department: CSE",
+          "page": "Department page, people/department filters"
+        },
+        {
+          "name": "dept-ece",
+          "category": "department",
+          "purpose": "Department: ECE",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-eee",
+          "category": "department",
+          "purpose": "Department: EEE",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-mech",
+          "category": "department",
+          "purpose": "Department: MECH",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-auto",
+          "category": "department",
+          "purpose": "Department: AUTO (Automobile)",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-it",
+          "category": "department",
+          "purpose": "Department: IT",
+          "page": "Department page"
+        }
+      ]
+    },
+    {
+      "id": "sheet15",
+      "raw": "sheet15_departments_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Department variant (as sheet14). Six more department emblems in exactly the same construction as the previous sheet: (1) a small arched bridge with a tower crane behind it — 'civil engineering'; (2) a bar chart with a scatter of data dots and a trend line — 'artificial intelligence and data science'; (3) a head-shaped outline filled with a small network of connected nodes — 'artificial intelligence and machine learning'; (4) a heart with a heartbeat line running through it beside a small microscope — 'biomedical engineering'; (5) a wheat stalk and a seedling with a water droplet under a small sun — 'agricultural engineering'; (6) a briefcase with a small rising arrow chart card — 'management studies'.",
+      "assets": [
+        {
+          "name": "dept-civil",
+          "category": "department",
+          "purpose": "Department: CIVIL",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-aids",
+          "category": "department",
+          "purpose": "Department: AI&DS",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-aiml",
+          "category": "department",
+          "purpose": "Department: AI&ML",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-bme",
+          "category": "department",
+          "purpose": "Department: BME",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-agri",
+          "category": "department",
+          "purpose": "Department: AGRI",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-mba",
+          "category": "department",
+          "purpose": "Department: MBA",
+          "page": "Department page"
+        }
+      ]
+    },
+    {
+      "id": "sheet16",
+      "raw": "sheet16_departments_c.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Department variant (as sheet14). Six more emblems in exactly the same construction as the previous two sheets: (1) an open book with a quill pen resting across it — 'English'; (2) a round-bottom flask with a small molecule model beside it — 'chemistry'; (3) an atom with three orbit rings beside a small pendulum — 'physics'; (4) a drawing compass with a triangle ruler and a circle — 'mathematics'; (5) a small observatory dome with a telescope and a few stars — 'research centre'; (6) three overlapping circles in sage, clay and navy with a small spark where they meet — 'interdisciplinary research'.",
+      "assets": [
+        {
+          "name": "dept-sh-english",
+          "category": "department",
+          "purpose": "Department: S&H-ENGLISH",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-sh-chemistry",
+          "category": "department",
+          "purpose": "Department: S&H-CHY",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-sh-physics",
+          "category": "department",
+          "purpose": "Department: S&H-PHY",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-sh-maths",
+          "category": "department",
+          "purpose": "Department: S&H-MATHS",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-research-centre",
+          "category": "department",
+          "purpose": "Research centre (any non-teaching research unit)",
+          "page": "Department page, Research scout"
+        },
+        {
+          "name": "dept-interdisciplinary",
+          "category": "department",
+          "purpose": "Interdisciplinary / cross-department work",
+          "page": "Collaborate, Department fallback"
+        }
+      ]
     }
   ]
 }

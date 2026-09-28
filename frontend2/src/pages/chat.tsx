@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, AtSign, Check, Handshake, Lock, Phone, Send, UserRound, Users, X } from "lucide-react"
+import { ArrowLeft, AtSign, Check, FileText, Handshake, Lock, Phone, Send, UserRound, Users, X } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { api, ApiError } from "@/lib/api"
@@ -83,10 +83,30 @@ type Conversation = {
   participants: (PersonBrief & { me: boolean; last_read_at: string | null })[]
   messages: Message[]
   may_post: boolean
+  /** What the conversation is about, shown as a card at its top. */
+  context?: ChatContext | null
+  /** Offered by `/dm/with/{id}?context_kind=…`; attached by the first message sent. */
+  pending_context?: ChatContext | null
+}
+
+export type ChatContext = { kind: "paper" | "person" | "collab"; id: string; title: string; href: string }
+
+/** `ctx=paper:<id>` on a `/messages?to=` link, as the query the server reads. */
+export function contextQuery(ctx: string | null | undefined): string {
+  if (!ctx) return ""
+  const at = ctx.indexOf(":")
+  if (at < 1) return ""
+  const kind = ctx.slice(0, at)
+  const id = ctx.slice(at + 1)
+  return `?context_kind=${encodeURIComponent(kind)}&context_id=${encodeURIComponent(id)}`
 }
 
 export type InboxRow = {
   id: string
+  /** "office" rows are research-office threads, merged into the one list. */
+  kind?: "person" | "group" | "office"
+  href?: string
+  resolved?: boolean | null
   is_group: boolean
   title: string
   people: PersonBrief[]
@@ -121,23 +141,39 @@ export function Faces({ people }: { people: PersonBrief[] }) {
 /* ------------------------------------------------------------------------ */
 
 /** `/messages?to=<id>[&ref=<post id>]`: straight to the one-to-one chat, opened if new. */
-export function OpenChat({ to, refPost, draft: given }: { to: string; refPost?: string | null; /** A prefilled, unsent draft (e.g. an intro request). */ draft?: string | null }) {
+export function OpenChat({
+  to,
+  refPost,
+  draft: given,
+  ctx,
+}: {
+  to: string
+  refPost?: string | null
+  /** A prefilled, unsent draft (e.g. an intro request). */
+  draft?: string | null
+  /** `kind:id` of what this is about -- a paper, a person, a collaboration. */
+  ctx?: string | null
+}) {
   const navigate = useNavigate()
   const [failed, setFailed] = useState<string | null>(null)
   const started = useRef(false)
   useEffect(() => {
     if (started.current) return
     started.current = true
-    api<Conversation>(`/api/dm/with/${to}`, { method: "POST" })
+    const open = (q: string) => api<Conversation>(`/api/dm/with/${to}${q}`, { method: "POST" })
+    // A context that no longer resolves must not stop the conversation opening.
+    open(contextQuery(ctx))
+      .catch((err: ApiError) => (ctx && err.status !== 401 ? open("") : Promise.reject(err)))
       .then((c) => {
-        const draft = refPost ? `About your post: ${window.location.origin}/discussions/p/${refPost}\n\n` : undefined
+        const draft =
+          given ?? (refPost ? `About your post: ${window.location.origin}/discussions/p/${refPost}\n\n` : undefined)
         navigate(`/messages/c/${c.id}`, {
           replace: true,
-          state: draft ? { draft } : undefined,
+          state: draft || c.pending_context ? { draft, context: c.pending_context ?? null } : undefined,
         })
       })
       .catch((err: ApiError) => setFailed(err.message))
-  }, [to, refPost, given, navigate])
+  }, [to, refPost, given, ctx, navigate])
   if (failed) {
     return (
       <div className="page max-w-2xl">
@@ -230,7 +266,10 @@ export function ChatPage() {
   const { me } = useAuth()
   const qc = useQueryClient()
   const location = useLocation()
-  const [text, setText] = useState<string>(() => (location.state as { draft?: string } | null)?.draft ?? "")
+  const handed = location.state as { draft?: string; context?: ChatContext | null } | null
+  const [text, setText] = useState<string>(() => handed?.draft ?? "")
+  // Attached to the next message sent; dismissable with its ✕ until then.
+  const [attach, setAttach] = useState<ChatContext | null>(() => handed?.context ?? null)
   const [proposing, setProposing] = useState(false)
   const [unsent, setUnsent] = useState<Message[]>([])
   const bottom = useRef<HTMLDivElement>(null)
@@ -267,22 +306,23 @@ export function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const send = useMutation<Message, ApiError, { body: string; temp: Message }>({
-    mutationFn: ({ body }) =>
+  const send = useMutation<Message, ApiError, { body: string; temp: Message; context?: ChatContext | null }>({
+    mutationFn: ({ body, context }) =>
       api<Message>(`/api/dm/${id}/messages`, {
         method: "POST",
-        json: { body },
+        json: context ? { body, context: { kind: context.kind, id: context.id } } : { body },
       }),
     onMutate: ({ temp }) => {
       qc.setQueryData<Conversation>(["dm", "conversation", id], (c) =>
         c ? { ...c, messages: [...c.messages, temp] } : c
       )
     },
-    onSuccess: (real, { temp }) => {
+    onSuccess: (real, { temp, context }) => {
       qc.setQueryData<Conversation>(["dm", "conversation", id], (c) =>
         c
           ? {
               ...c,
+              context: context ?? c.context,
               messages: c.messages.map((m) => (m.id === temp.id ? real : m)),
             }
           : c
@@ -312,8 +352,11 @@ export function ChatPage() {
 
   function post(body: string) {
     if (!me) return
+    const context = attach
+    setAttach(null)
     send.mutate({
       body,
+      context,
       temp: {
         id: `temp-${Date.now()}`,
         author: {
@@ -408,6 +451,7 @@ export function ChatPage() {
       </p>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {c.context && <ContextCard context={c.context} className="mx-auto mb-4 max-w-lg" />}
         <ol className="space-y-2" aria-label="Messages" aria-live="polite">
           {c.messages.length === 0 && (
             <li>
@@ -430,6 +474,11 @@ export function ChatPage() {
         <div ref={bottom} />
       </div>
 
+      {c.may_post && attach && (
+        <div className="border-t border-line bg-bg px-3 pt-2">
+          <ContextCard context={attach} onDismiss={() => setAttach(null)} note="attached as context" />
+        </div>
+      )}
       {c.may_post ? (
         <form
           className="sticky bottom-0 flex items-end gap-2 border-t border-line bg-bg px-3 py-2"
@@ -480,6 +529,55 @@ export function ChatPage() {
       )}
 
       {proposing && other && <CollabDialog person={other} onClose={() => setProposing(false)} />}
+    </div>
+  )
+}
+
+const CONTEXT_LABEL: Record<ChatContext["kind"], string> = {
+  paper: "Paper",
+  person: "About",
+  collab: "Collaboration",
+}
+
+/** What a conversation is about: a paper, a person or a collaboration. */
+export function ContextCard({
+  context,
+  onDismiss,
+  note,
+  className,
+}: {
+  context: ChatContext
+  onDismiss?: () => void
+  note?: string
+  className?: string
+}) {
+  const Icon = context.kind === "paper" ? FileText : context.kind === "person" ? UserRound : Handshake
+  const title = context.href ? (
+    <Link to={context.href} className="truncate font-medium hover:underline">
+      {context.title}
+    </Link>
+  ) : (
+    <span className="truncate font-medium">{context.title}</span>
+  )
+  return (
+    <div
+      data-testid="context-card"
+      className={cn(
+        "flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-sm",
+        className
+      )}
+    >
+      <Icon className="size-4 shrink-0 text-[var(--area-people)]" aria-hidden />
+      <Meta className="shrink-0 text-xs">{CONTEXT_LABEL[context.kind]}</Meta>
+      <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+        {title}
+        {note && <Meta className="hidden shrink-0 text-xs sm:inline">· {note}</Meta>}
+      </span>
+      {onDismiss && (
+        <Button kind="quiet" size="sm" type="button" onClick={onDismiss} aria-label="Remove the context">
+          <X />
+        </Button>
+      )}
     </div>
   )
 }

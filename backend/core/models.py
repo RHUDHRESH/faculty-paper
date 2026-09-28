@@ -1487,6 +1487,9 @@ class Thread(models.Model):
     resolved_at = models.DateTimeField(blank=True, null=True)
     #: A locked thread is readable and closed to new posts.
     locked = models.BooleanField(default=False)
+    #: What a direct conversation was started about -- {kind, id, title} of a
+    #: paper, a person or a collaboration request -- shown as a card at its top.
+    context = models.JSONField(blank=True, null=True)
 
     class Meta:
         ordering = ["-last_post_at"]

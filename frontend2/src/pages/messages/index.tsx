@@ -29,12 +29,15 @@ import { Ago } from "@/ui/when"
  *
  * Routes, all rendering this one layout:
  *   /messages              nothing open: "Start a conversation"
- *   /messages?to=<id>      straight into the chat with that person
+ *   /messages?to=<id>[&ctx=paper:<id>]  straight into the chat with that person,
+ *                          with what it is about offered as a context card
  *   /messages/c/:id        a direct or group conversation
  *   /messages/office       the research office
  *   /messages/o/:id        one conversation with the office
- * Old links: `?lane=office` lands on /messages/office, `/messages/:id` still
- * resolves through `Thread` (and a direct one is redirected to /c/).
+ * Old links: `?lane=office` lands on /messages/office, `/messages/:id` opens
+ * inside this two-pane layout
+ * through `Thread` (and a direct one is redirected to /c/). The inbox is the
+ * one merged `/api/dm` list; office threads in it carry kind "office".
  */
 
 type Pane = "start" | "chat" | "office" | "office-thread"
@@ -72,7 +75,7 @@ export function MessagesPage({ pane }: { pane: Pane }) {
           className={cn("min-w-0 flex-1 flex-col bg-bg md:flex", open ? "flex" : "hidden")}
         >
           {to ? (
-            <OpenChat to={to} refPost={params.get("ref")} draft={params.get("draft")} />
+            <OpenChat to={to} refPost={params.get("ref")} draft={params.get("draft")} ctx={params.get("ctx")} />
           ) : pane === "chat" ? (
             <ChatPage />
           ) : pane === "office" ? (
@@ -113,9 +116,13 @@ function InboxPane({ onNew }: { onNew: () => void }) {
     refetchInterval: INBOX_POLL_MS,
   })
 
+  // One list from the server (docs/ux/10): office threads arrive in it with
+  // kind "office" and are gathered into the pinned row; the rest are Recent.
+  const all = inbox.data?.results ?? []
+  const office = all.filter((r) => r.kind === "office")
   // Searched here rather than on the server: it is your own fifty most recent
   // conversations, already on screen.
-  const rows = (inbox.data?.results ?? []).filter(
+  const rows = all.filter((r) => r.kind !== "office").filter(
     (r) =>
       !needle ||
       r.title.toLowerCase().includes(needle) ||
@@ -148,7 +155,7 @@ function InboxPane({ onNew }: { onNew: () => void }) {
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-24 md:pb-2">
         <GroupHead>Pinned</GroupHead>
-        <OfficeRow />
+        <OfficeRow rows={office} />
         <GroupHead>Recent</GroupHead>
         {inbox.isPending ? (
           <div className="px-4">
@@ -261,27 +268,34 @@ function useOfficeThreads() {
   })
 }
 
-function OfficeRow() {
-  const office = useOfficeThreads()
-  const latest = office.data?.results[0]
-  const open = (office.data?.results ?? []).filter((t) => !t.resolved).length
+function OfficeRow({ rows }: { rows: InboxRow[] }) {
+  // Already newest first from the server.
+  const latest = rows[0]
+  const open = rows.filter((t) => !t.resolved).length
+  const unread = rows.reduce((n, r) => n + (r.unread || 0), 0)
   return (
     <InboxLink to="/messages/office">
       <OfficeAvatar />
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">Research office</span>
+          <span className={cn("min-w-0 flex-1 truncate text-sm", unread ? "font-semibold" : "font-medium")}>
+            Research office
+          </span>
           {latest && (
             <Meta className="shrink-0 text-xs">
-              <Ago iso={latest.last_post_at} />
+              <Ago iso={latest.updated_at} />
             </Meta>
           )}
         </span>
         <span className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-sm text-fg-muted">
-            {latest ? latest.title : "Ask about your claims"}
+          <span className={cn("min-w-0 flex-1 truncate text-sm", unread ? "text-fg" : "text-fg-muted")}>
+            {latest ? (latest.last?.body ? `${latest.last.mine ? "You: " : ""}${latest.last.body}` : latest.title) : "Ask about your claims"}
           </span>
-          {open > 0 && <Meta className="shrink-0 text-xs tabular">{open} open</Meta>}
+          {unread > 0 ? (
+            <Unread n={unread} />
+          ) : (
+            open > 0 && <Meta className="shrink-0 text-xs tabular">{open} open</Meta>
+          )}
         </span>
       </span>
     </InboxLink>
@@ -292,19 +306,23 @@ function OfficeRow() {
 /* Nothing open                                                              */
 /* ------------------------------------------------------------------------ */
 
-type Collaborators = {
-  worked_with: {
-    id: string
-    name: string
-    department: string
-    designation: string
-    together: number
-  }[]
+/** `/api/people/{id}/coauthors`: the part the empty state needs. */
+type Coauthors = {
+  inside: { user_id: string | null; name: string; department: string | null; papers_together: number }[]
 }
 
 function StartPane({ onNew }: { onNew: () => void }) {
-  const people = useApi<Collaborators>(["collaborate", "me", 3], "/api/collaborate/me?limit=3")
-  const worked = people.data?.worked_with.slice(0, 3) ?? []
+  const { me } = useAuth()
+  const people = useApi<Coauthors>(
+    ["people", me?.id, "coauthors"],
+    `/api/people/${me?.id ?? "me"}/coauthors`,
+    { enabled: !!me?.id }
+  )
+  // Colleagues with an account here -- only they can be messaged.
+  const worked = (people.data?.inside ?? [])
+    .filter((p) => p.user_id && p.user_id !== me?.id)
+    .slice(0, 3)
+    .map((p) => ({ id: p.user_id!, name: p.name, department: p.department, together: p.papers_together }))
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 overflow-y-auto px-6 py-10 text-center">
       <div className="rounded-3xl bg-[var(--area-people-wash)] p-4">

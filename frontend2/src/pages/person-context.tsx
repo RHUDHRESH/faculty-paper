@@ -400,7 +400,7 @@ export function PersonContext({
         {x && (
           <Button kind="default" size="md" asChild>
             <Link
-              to={`/messages?to=${encodeURIComponent(x.user_id!)}&draft=${encodeURIComponent(introDraft(x.name, name, topic, xPapers))}`}
+              to={`/messages?to=${encodeURIComponent(x.user_id!)}&ctx=${encodeURIComponent(`person:${target}`)}&draft=${encodeURIComponent(introDraft(x.name, name, topic, xPapers))}`}
             >
               <Waypoints />
               Ask {firstName(x.name)} for an intro

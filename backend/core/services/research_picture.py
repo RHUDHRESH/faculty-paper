@@ -103,6 +103,41 @@ class _College:
         return [p for p in self.pubs.values() if uid in p["members"]]
 
 
+#: One `_College` per process, rebuilt when the record changes. Building it
+#: reads every college paper (~16 s on the full record), and it is the same
+#: for every reader, so Discover and My research reuse it.
+_SHARED: dict[str, Any] = {"sig": None, "at": 0.0, "college": None}
+_MAX_AGE = 600.0
+
+
+def _signature() -> tuple:
+    """Cheap fingerprint of what `_College` is built from: a harvest, a match
+    or a citation refresh changes it."""
+    from django.db.models import Max, Sum
+
+    linked = Authorship.objects.filter(user__isnull=False)
+    pubs = Publication.objects.aggregate(c=Sum("citations"), last=Max("id"))
+    return (
+        Publication.objects.count(),
+        Authorship.objects.count(),
+        linked.count(),
+        pubs["c"] or 0,
+        pubs["last"],
+        Authorship.objects.aggregate(last=Max("id"))["last"],
+        linked.aggregate(u=Max("user_id"))["u"],
+    )
+
+
+def shared_college() -> _College:
+    import time
+
+    sig = _signature()
+    now = time.monotonic()
+    if _SHARED["college"] is None or _SHARED["sig"] != sig or now - _SHARED["at"] > _MAX_AGE:
+        _SHARED.update(sig=sig, at=now, college=_College())
+    return _SHARED["college"]
+
+
 def _today() -> date:
     return timezone.localdate()
 
@@ -114,7 +149,7 @@ def _today() -> date:
 
 def my_research(user: User, college: Optional[_College] = None) -> dict[str, Any]:
     today = _today()
-    college = college or _College()
+    college = college or shared_college()
     mine_rows = list(
         Authorship.objects.filter(user=user)
         .select_related("publication")
@@ -448,7 +483,7 @@ def _near_label(k: str, college: _College, mine: set[str], spelled: dict[str, st
 
 def college_research(user: User, college: Optional[_College] = None) -> dict[str, Any]:
     today = _today()
-    college = college or _College()
+    college = college or shared_college()
     pubs = list(college.pubs.values())
     topic_n: Counter[str] = Counter()
     spelled: dict[str, str] = {}
@@ -533,7 +568,7 @@ def for_you(user: User, next_things: dict[str, Any], college: Optional[_College]
     topics are woven in with rising topics and fresh papers from the record.
     """
     today = _today()
-    college = college or _College()
+    college = college or shared_college()
     mine_pubs = college.of(user.id)
     my_topics = Counter(_fold(t) for p in mine_pubs for t in p["topics"])
     followed = {_fold(d): d for d in ResearchInterest.objects.filter(user=user).values_list("domain", flat=True)}

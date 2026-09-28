@@ -51,7 +51,7 @@ SCOUT_SYSTEM = (
 
 
 def profile_of(user: User, college: picture._College | None = None) -> dict[str, Any]:
-    college = college or picture._College()
+    college = college or picture.shared_college()
     mine = picture.my_research(user, college)
     recent = sorted(college.of(user.id), key=lambda p: -(p["year"] or 0))[:8]
     co = graph.coauthors(user)
@@ -277,7 +277,7 @@ def scout(user: User) -> tuple[dict[str, Any], dict[str, Any]]:
     if ai.provider_name() != "anthropic" or anthropic_provider.missing_settings():
         raise ai.AIError("The research scout needs the Claude provider (ANTHROPIC_API_KEY).",
                          code="not_configured")
-    college = picture._College()
+    college = picture.shared_college()
     profile = profile_of(user, college)
     candidates = colleague_candidates(user, college)
     if not profile["papers"]:

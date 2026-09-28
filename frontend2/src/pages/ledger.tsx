@@ -74,6 +74,8 @@ type LedgerPayload = {
   no_month?: { amount: number; count: number }
   by_department?: DeptTotal[]
   people?: number
+  /** Net payments: rows above ₹0, less reversals. */
+  payments?: number
   duplicates_open?: number
 }
 
@@ -520,6 +522,8 @@ function Totals({
         : `from ${monthLabel(first)} to ${monthLabel(last)}`
       : ""
   const people = data.people ?? 0
+  // Rows are not payments: a ₹0 quota row pays nobody and a reversal cancels one.
+  const payments = data.payments ?? data.total
   return (
     <section
       aria-label="Totals"
@@ -529,7 +533,7 @@ function Totals({
       <span className="text-fg-muted">
         {filtered ? "matching this filter, " : "paid "}
         {span && `${span}, `}
-        across {data.total.toLocaleString("en-IN")} {data.total === 1 ? "payment" : "payments"}
+        across {payments.toLocaleString("en-IN")} {payments === 1 ? "payment" : "payments"}
         {people > 0 && ` to ${people.toLocaleString("en-IN")} ${people === 1 ? "person" : "people"}`}
       </span>
     </section>

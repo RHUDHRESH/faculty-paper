@@ -823,7 +823,15 @@ def _reverify_or_recalc(claim: Claim, user, *, skip_external: bool) -> None:
         exclude_claim_id=claim.id,
     )
     if not result.get("ok"):
-        if claim.manual_verified_at or claim.snip_source or claim.quartile_source:
+        if (
+            claim.manual_verified_at
+            or claim.snip_source
+            or claim.quartile_source
+            # A final-year project claim is a fixed amount per team: nothing
+            # Scopus says can change it, so there is nothing to wait for.
+            # Without this, no college without a Scopus key could clear one.
+            or claim.claim_reason == ClaimReason.STUDENT_PROJECT
+        ):
             # The claim already carries values the server verified (Scopus,
             # the SNIP dump, Scimago, or an admin by hand -- faculty-declared
             # figures live in self_reported_* and never set a source). An

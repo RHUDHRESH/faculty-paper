@@ -126,6 +126,17 @@ type CalcResult = {
 /* Page                                                                      */
 /* ------------------------------------------------------------------------ */
 
+/**
+ * How the quartile amounts are paid, as `core/services/remuneration.py` pays
+ * them: [(SNIP × rate) + QFA] × APP. The page used to read this off
+ * `qf_only_for_no_snip` and say "used only when no SNIP is held — a paper with
+ * a SNIP is priced from it, not from its quartile", which is the opposite of
+ * the arithmetic on every claim. That flag has never been read by the
+ * calculator, so it is no longer offered or described.
+ */
+export const QUARTILE_BLURB =
+  "Added on top of the SNIP amount, for a journal classified as Engineering. A paper with no SNIP is paid the fixed amount instead."
+
 export function Policy() {
   const { me } = useAuth()
   const allowed = can(me?.role).viewReports
@@ -226,11 +237,7 @@ export function Policy() {
 
           <Section
             title="The quartile amounts"
-            blurb={
-              data.qf_only_for_no_snip
-                ? "Used only when no SNIP is held for the journal — a paper with a SNIP is priced from it, not from its quartile."
-                : "Added to the SNIP amount, not only used in its place. That is unusual — check it is meant."
-            }
+            blurb={QUARTILE_BLURB}
           >
             <Row label="Q1" value={money(data.qf_q1)} />
             <Row label="Q2" value={money(data.qf_q2)} />
@@ -1424,11 +1431,6 @@ function EditDialog({
                 checked={form.student_remuneration_zero}
                 onCheckedChange={(v) => set("student_remuneration_zero", v === true)}
                 label="A student author's share is zero"
-              />
-              <Checkbox
-                checked={form.qf_only_for_no_snip}
-                onCheckedChange={(v) => set("qf_only_for_no_snip", v === true)}
-                label="Quartile amounts apply only when no SNIP is held"
               />
             </div>
 

@@ -122,8 +122,12 @@ class AggregateCacheTests(TestCase):
         owner = User.objects.create_user(
             email="o@x.edu", password="p", name="O", role=Role.FACULTY, department="ECE"
         )
+        # Authorised, not merely submitted: since reports count papers from the
+        # publication record plus *recognised* claims (college_totals.papers),
+        # a submitted claim is not a publication yet and counted 0 either way,
+        # which left this test unable to tell the two cache entries apart.
         Claim.objects.create(
-            owner=owner, status=ClaimStatus.SUBMITTED, paper_title="t", publication_year=2025
+            owner=owner, status=ClaimStatus.DIRECTOR_APPROVED, paper_title="t", publication_year=2025
         )
         all_years = self.a.get("/api/reports").json()["totals"]["publications"]
         other = self.a.get("/api/reports?year=2019").json()["totals"]["publications"]

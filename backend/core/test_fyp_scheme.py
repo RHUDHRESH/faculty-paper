@@ -450,6 +450,34 @@ class StudentProjectClaimRuleTests(TestCase):
         self.assertEqual(claim.qf_amount, 0)
         self.assertIn("final-year project", (claim.remuneration_note or "").lower())
 
+    def test_the_research_cell_can_clear_one_when_scopus_cannot_be_asked(self):
+        """The amount is fixed per team; an unreachable (or unconfigured)
+        Scopus must not leave the claim unclearable."""
+        from unittest.mock import patch
+
+        from core.models import Claim, ClaimStatus
+
+        r = self.file()
+        self.assertEqual(r.status_code, 200, r.content)
+        claim = Claim.objects.get(pk=r.json()["id"])
+        Claim.objects.filter(pk=claim.pk).update(
+            snip_source=None, quartile_source=None, manual_verified_at=None
+        )
+        cell = _person("cell@test.edu", "Cell", role=Role.RESEARCH_CELL)
+        self.client.force_login(cell)
+        with patch("core.api.journals.verify_publication", return_value={"ok": False}):
+            r = self.client.post(f"/api/claims/{claim.id}/recalculate", content_type="application/json")
+            self.assertEqual(r.status_code, 200, r.content)
+            self.assertEqual(r.json()["remuneration"], 15000)
+            r = self.client.post(
+                f"/api/claims/{claim.id}/clear",
+                data=json.dumps({"expected_amount": 15000}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 200, r.content)
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.CLEARED)
+
     def test_the_amount_is_the_policy_setting_not_a_constant(self):
         from core.models import Claim
 

@@ -1296,6 +1296,21 @@ class MoneyIntegrityTests(TestCase):
         self.assertEqual(r.json()["version"], 2)
         self.assertEqual(FormulaConfig.objects.filter(active=True).count(), 1)
 
+    def test_the_first_saved_policy_is_v2_after_the_built_in_v1(self):
+        """The editor promises "retires v1, makes v2 active" over the built-in
+        rates and asks for v2 to be typed; the row it saves must be v2."""
+        FormulaConfig.objects.all().delete()
+        self.client.force_login(self.admin)
+        shown = self.client.get("/api/admin/formula").json()
+        self.assertEqual(shown["version"], 1)
+        r = self.client.put(
+            "/api/admin/formula",
+            data=json.dumps(self._formula_payload(qf_q4=8000)),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["version"], 2)
+
     def test_paid_claim_cannot_be_reverified(self):
         claim = Claim.objects.create(
             owner=self.faculty, status=ClaimStatus.PAID,
@@ -4457,6 +4472,26 @@ class DuplicateSweepTests(TestCase):
         )
         call_command("find_duplicate_payments", verbosity=0)
         self.assertEqual(DuplicateFinding.objects.count(), 0)
+
+    def test_a_payment_here_and_the_same_one_in_the_erp_is_one_person_paid_twice(self):
+        """Paid in this app, and paid again per the ERP sheet under the same
+        staff id: the same person, not two co-authors."""
+        from django.core.management import call_command
+
+        self.a.staff_id = "SEC0042"
+        self.a.save()
+        self._paid(self.a, "A Paper Paid Twice", 74500, "FP-2026-000001", doi="10.1/x")
+        PriorPayment.objects.create(
+            faculty_name="PERSON A", employee_id="sec0042", paper_title="A Paper Paid Twice",
+            normalized_title=normalize_title("A Paper Paid Twice"), doi="10.1/x",
+            amount_paid=74500, claim_ref="ERP-77", raw_json="{}",
+        )
+        call_command("find_duplicate_payments", verbosity=0)
+        f = DuplicateFinding.objects.get(kind=DuplicateFinding.Kind.SAME_PERSON)
+        self.assertEqual((f.payment_count, f.extra_amount), (2, 74500))
+        self.assertFalse(
+            DuplicateFinding.objects.filter(kind=DuplicateFinding.Kind.CROSS_PERSON).exists()
+        )
 
     def test_a_finding_is_reviewed_and_the_decision_is_recorded(self):
         from django.core.management import call_command

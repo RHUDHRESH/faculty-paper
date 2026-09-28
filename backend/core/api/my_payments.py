@@ -66,7 +66,7 @@ def my_payments(request: HttpRequest):
     }
 
 
-def financial_year_of(d: date) -> int:
+def _fy_start_year(d: date) -> int:
     """Indian financial year (1 April to 31 March), named by its starting year."""
     return d.year if d.month >= 4 else d.year - 1
 
@@ -86,14 +86,14 @@ def my_payment_statement(request: HttpRequest, fy: Optional[int] = None, format:
     rows = list(ledger_for(user).filter(amount__gt=0).order_by("payout_month", "id"))
     years: dict[int, float] = {}
     for r in rows:
-        k = financial_year_of(r.payout_month)
+        k = _fy_start_year(r.payout_month)
         years[k] = round(years.get(k, 0) + (r.amount or 0), 2)
     if fy is not None:
-        rows = [r for r in rows if financial_year_of(r.payout_month) == fy]
+        rows = [r for r in rows if _fy_start_year(r.payout_month) == fy]
     out_rows = [
         {
             "payout_month": _format_payout_month(r.payout_month),
-            "financial_year": _fy_label(financial_year_of(r.payout_month)),
+            "financial_year": _fy_label(_fy_start_year(r.payout_month)),
             "paper_title": r.paper_title,
             "journal_title": r.journal_title,
             "amount": r.amount,
@@ -132,4 +132,4 @@ def my_payment_statement(request: HttpRequest, fy: Optional[int] = None, format:
     }
 
 
-__all__ = ["my_payments", "my_payment_statement", "financial_year_of", "ledger_for", "academic_year_start"]
+__all__ = ["my_payments", "my_payment_statement", "ledger_for", "academic_year_start"]

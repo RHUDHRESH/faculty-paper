@@ -29,6 +29,7 @@ from core.services import exporters
 from core.services.aggregate_cache import cached
 from core.services.remuneration import CATEGORY_LABELS
 from core.services.scopus_profiles import department_totals
+from core.services import college_totals
 
 # ---------- dashboard ----------
 
@@ -461,32 +462,67 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
         for y in range(min(year_rows), max(year_rows) + 1)
     ] if year_rows else []
 
-    by_month = []
-    for r in (
-        paid.exclude(payout_month__isnull=True)
-        .values("payout_month")
-        .annotate(count=Count("id"), amount=Sum("remuneration"))
-        .order_by("payout_month")
-    ):
-        by_month.append(
-            {
-                "key": r["payout_month"].strftime("%Y-%m"),
-                "count": r["count"],
-                "amount": round(r["amount"] or 0, 2),
-            }
+    # Money from the ledger, papers from the publication record: the claims
+    # alone describe only what this app processed (core/services/college_totals.py).
+    pays = college_totals.payments(year, department, month)
+    months: dict[str, dict[str, Any]] = {}
+    for p in (p for p in pays if p["month"]):
+        k = p["month"].strftime("%Y-%m")
+        slot = months.setdefault(k, {"key": k, "count": 0, "amount": 0.0})
+        slot["count"] += 1
+        slot["amount"] += p["amount"]
+    by_month = [
+        {**months[k], "amount": round(months[k]["amount"], 2)} for k in sorted(months)
+    ]
+    # Under a payout-month filter the question is about that run, so papers
+    # stay the claims settled in it; otherwise the whole record.
+    record = None if month else college_totals.papers(year, department)
+    publications = qs.count() if record is None else len(record)
+
+    dept_rows: dict[str, dict[str, Any]] = {}
+    if record is None:
+        for r in rows("owner__department", label_blank="No department"):
+            dept_rows[r["key"].casefold()] = {**r, "amount": 0.0}
+    else:
+        for paper in record:
+            for d in paper["departments"]:
+                slot = dept_rows.setdefault(d.casefold(), {"key": d, "count": 0, "amount": 0.0})
+                slot["count"] += 1
+    for p in pays:
+        slot = dept_rows.setdefault(
+            p["department"].casefold(), {"key": p["department"], "count": 0, "amount": 0.0}
         )
+        slot["amount"] += p["amount"]
+    by_department = sorted(
+        ({**r, "amount": round(r["amount"], 2)} for r in dept_rows.values()),
+        key=lambda r: (-r["count"], -r["amount"]),
+    )
+    if record is not None:
+        paid_by_year: dict[int, float] = {}
+        for p in (p for p in pays if p["month"]):
+            paid_by_year[p["month"].year] = paid_by_year.get(p["month"].year, 0) + p["amount"]
+        count_by_year: dict[int, int] = {}
+        for paper in record:
+            if paper["year"]:
+                count_by_year[paper["year"]] = count_by_year.get(paper["year"], 0) + 1
+        span = set(count_by_year) | set(paid_by_year)
+        by_year = [
+            {"key": str(y), "count": count_by_year.get(y, 0), "amount": round(paid_by_year.get(y, 0), 2)}
+            for y in range(min(span), max(span) + 1)
+        ] if span else []
 
     return {
         "filters": {"year": year, "department": department},
         "totals": {
-            "publications": qs.count(),
+            "publications": publications,
             "count_only": count_only,
-            "paid_claims": paid.count(),
-            "paid_amount": round(paid.aggregate(s=Sum("remuneration"))["s"] or 0, 2),
+            # A void writes a reversing row; it cancels the payment it reverses.
+            "paid_claims": sum(1 if p["amount"] > 0 else -1 if p["amount"] < 0 else 0 for p in pays),
+            "paid_amount": round(sum(p["amount"] for p in pays), 2),
             "awaiting_payment": payable.count(),
             "committed_amount": round(payable.aggregate(s=Sum("remuneration"))["s"] or 0, 2),
         },
-        "by_department": rows("owner__department", label_blank="No department"),
+        "by_department": by_department,
         "by_quartile": rows("quartile", label_blank="No quartile"),
         "by_category": [
             {**r, "label": CATEGORY_LABELS.get(str(r["key"]), str(r["key"]))}
@@ -528,7 +564,7 @@ def _report(user: User, year: Optional[int], department: Optional[str], month: O
         ),
         # The months the college has actually settled in, so the picker offers
         # real ones rather than a calendar of mostly-empty options.
-        "payout_months": _payout_months(user),
+        "payout_months": college_totals.payout_months(),
         # What Scopus holds for each department's people, from the office's
         # profile import. Career totals, so the year filter does not apply;
         # the department filter does.
@@ -730,6 +766,31 @@ def _build_rows(qs, dimension: str) -> list[dict[str, Any]]:
     return ordered
 
 
+def _college_rows(key: str, year, department, month) -> list[dict[str, Any]]:
+    """Department or year from the record and the ledger, as `/reports` counts them.
+
+    Papers by publication year, money by payout year; see college_totals.
+    """
+    buckets: dict[str, dict[str, Any]] = {}
+
+    def slot(k: str) -> dict[str, Any]:
+        return buckets.setdefault(k.casefold(), {"key": k, "count": 0, "amount": 0.0})
+
+    if not month:
+        for paper in college_totals.papers(year, department):
+            if key == "department":
+                for d in paper["departments"]:
+                    slot(d)["count"] += 1
+            else:
+                slot(str(paper["year"]) if paper["year"] else "Not recorded")["count"] += 1
+    for p in college_totals.payments(year, department, month):
+        slot(p["department"] if key == "department" else (str(p["month"].year) if p["month"] else "Not recorded"))["amount"] += p["amount"]
+    ordered = sorted(buckets.values(), key=lambda r: (-r["count"], r["key"]))
+    if key == "year":
+        ordered.sort(key=lambda r: r["key"])
+    return ordered
+
+
 @api.get("/reports/build", auth=session_auth)
 def reports_build(
     request: HttpRequest,
@@ -783,7 +844,11 @@ def reports_build(
     tables = []
     for key in wanted:
         label, _field = REPORT_DIMENSIONS[key]
-        rows = _build_rows(qs, key)
+        rows = (
+            _college_rows(key, year, department, month)
+            if key in ("department", "year")
+            else _build_rows(qs, key)
+        )
         overlapping = key in OVERLAPPING_DIMENSIONS
         tables.append({
             "key": key,

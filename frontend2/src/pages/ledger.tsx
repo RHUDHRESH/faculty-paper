@@ -5,6 +5,7 @@ import { Download, Receipt, SearchX } from "lucide-react"
 import { can, useAuth } from "@/app/auth"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { filterBar } from "@/ui/filter-bar"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Input } from "@/ui/field"
 import { money } from "@/ui/paper"
@@ -49,6 +50,9 @@ type LedgerRow = {
   journal_title: string | null
   amount: number
   voucher_number: string | null
+  /** Which scheme paid it: the final-year project scheme, or faculty
+   *  publication remuneration. Absent on a server that predates the split. */
+  scheme?: "FYP" | "FACULTY"
   created_at: string | null
 }
 
@@ -149,6 +153,11 @@ export function Ledger() {
         <span className="block min-w-0">
           <span className="block truncate text-base">{r.paper_title || "Untitled"}</span>
           <Meta className="mt-0.5 block truncate">{r.journal_title || "Journal not recorded"}</Meta>
+          {/* The two schemes are budgeted apart; the export carries the same
+              `scheme` column for whoever reconciles them. */}
+          {r.scheme === "FYP" ? (
+            <Meta className="mt-0.5 block">Final-year project scheme</Meta>
+          ) : null}
         </span>
       ),
     },
@@ -201,7 +210,7 @@ export function Ledger() {
         </Sub>
       </header>
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className={filterBar}>
         <label className="block">
           <ColumnLabel className="mb-1 block">Payout month</ColumnLabel>
           <Input

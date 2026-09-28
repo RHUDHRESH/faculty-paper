@@ -17,6 +17,7 @@ from ninja.errors import HttpError
 from core.models import AttachmentKind, Claim, ClaimAttachment, ClaimReason, Role, Team, User
 from core.services.normalize import normalize_title
 from core.services.scopus import extract_author_id
+from core.services.student_projects import StudentProjectRefusal, check_student_project
 
 # ---------- schemas ----------
 
@@ -53,6 +54,13 @@ class AttachmentIn(Schema):
     ref_title: Optional[str] = None
     #: Returned by /claims/upload; carried back so the file stays identifiable.
     content_hash: Optional[str] = None
+
+
+class ConfirmationIn(Schema):
+    """One eligibility condition ticked for this article (services/filing_conditions)."""
+    id: str
+    text_version: str
+    ticked_at: str
 
 
 class ClaimIn(Schema):
@@ -108,6 +116,9 @@ class ClaimIn(Schema):
     engineering_class: Optional[str] = None
     contest_forward: bool = False
     contest_note: Optional[str] = None
+    #: Required when ``submit`` is true: the three conditions, each ticked by
+    #: the person filing, for this article. Recorded as the legal acceptance.
+    confirmations: Optional[list[ConfirmationIn]] = None
     submit: bool = False
 
 
@@ -211,21 +222,22 @@ def _apply_faculty_payload(claim: Claim, payload: ClaimIn) -> None:
 
     # The team, on the claims that have one. Note this deliberately does not
     # touch `is_student_publication`: that flag makes the engine return zero,
-    # and a student-project conference paper is *paid* -- it prices as
-    # Category III like any other conference proceeding. Wiring the two
-    # together on the strength of both having "student" in the name would pay
-    # every one of these nothing.
+    # and a student-project conference paper is *paid* -- a fixed amount per
+    # team under the final-year project scheme (`calculate_student_project`).
+    # Wiring the two together on the strength of both having "student" in the
+    # name would pay every one of these nothing.
     if "team_code" in data:
         code = (payload.team_code or "").strip()
         if not code:
             claim.team = None
         else:
-            team = Team.objects.filter(code__iexact=code).first()
+            team = Team.objects.filter(code__iexact=code).select_related("mentor").first()
             if team is None:
                 raise HttpError(
                     404,
-                    f"No team with the code {code!r}. Create the team first, "
-                    "with the students on it.",
+                    f"No final-year project team with the code {code!r} is on the "
+                    "roster. Choose one of your own teams; the research office "
+                    "imports the roster and can add a missing one.",
                 )
             claim.team = team
     # A claim that stops being a student project stops carrying a team, for
@@ -233,6 +245,12 @@ def _apply_faculty_payload(claim: Claim, payload: ClaimIn) -> None:
     # would show a roster of students on a paper that is no longer theirs.
     if claim.claim_reason != ClaimReason.STUDENT_PROJECT:
         claim.team = None
+    # Somebody else's team, a claimed one, or a paper that is not a conference
+    # paper is refused as soon as it is known, not left for the submit button.
+    try:
+        check_student_project(claim, filing=False)
+    except StudentProjectRefusal as refusal:
+        raise HttpError(refusal.status, refusal.message) from refusal
     claim.normalized_title = normalize_title(claim.paper_title)[:512]
     # Never trust client override flags. (scimago_verified no longer needs a
     # reset here: quartile itself is not faculty-writable, and wiping the flag
@@ -401,6 +419,9 @@ class CalcIn(Schema):
     author_position: int = 1
     publication_type: Optional[str] = None
     is_student_publication: bool = False
+    #: STUDENT_PROJECT prices under the final-year project scheme instead of
+    #: the faculty formula, so the preview has to know which one it is.
+    claim_reason: Optional[str] = None
     # Both decide the category and whether the quartile incentive applies, so
     # the preview needs them or it quietly estimates a different category.
     indexing_level: Optional[str] = None
@@ -477,6 +498,10 @@ class UserCreateIn(Schema):
     scopus_author_url: Optional[str] = None
     scopus_author_id: Optional[str] = None
     must_change_password: bool = True
+    #: Creating a head for a department that already has one: demote the one
+    #: in post to faculty in the same write. Without it the request is refused
+    #: (409) and names them.
+    replace_hod: bool = False
 
 
 class UserUpdateIn(Schema):
@@ -496,6 +521,9 @@ class UserUpdateIn(Schema):
     faculty_type: Optional[str] = None
     research_quota: Optional[int] = None
     research_quota_note: Optional[str] = None
+    #: Not a field of the account: the office's explicit "yes, replace the
+    #: head in post" when this edit makes a second head of a department.
+    replace_hod: Optional[bool] = None
 
 
 class ResetPasswordIn(Schema):
@@ -543,6 +571,14 @@ class FormulaIn(Schema):
     fixed_web_of_science: float = 5000
     max_authors: int = 9
     min_sec_references: int = 2
+    #: The final-year project scheme's fixed amount per team per conference
+    #: paper. Omitted means "as the live version has it" -- a default here
+    #: would reset a changed amount every time a client that does not send it
+    #: saved the policy, which is the defect noted above for the fixed rates.
+    student_project_amount: Optional[float] = None
+    #: Day of the month filing closes for that month's run, 1-28, or null for
+    #: none. Left out of a request, the previous version's value is kept.
+    filing_cutoff_day: Optional[int] = None
 
 
 class MonthlyCreateIn(Schema):
@@ -561,6 +597,7 @@ __all__ = [
     'CandidateSearchIn',
     'ChangePasswordIn',
     'ClaimIn',
+    'ConfirmationIn',
     'FormulaIn',
     'LoginIn',
     'ManualVerifyIn',

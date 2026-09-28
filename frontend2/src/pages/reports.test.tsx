@@ -1,5 +1,5 @@
 import type { ComponentType } from "react"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -500,5 +500,52 @@ describe("the three questions a review meeting asks", () => {
     expect(screen.getByText(/1 in 2023/)).toBeInTheDocument()
     // And the whole-panel refusal is correctly absent this time.
     expect(screen.queryByText(/the earlier year is not an earlier year/i)).toBeNull()
+  })
+})
+
+/* ------------------------------------------------------------------------ */
+/* Scopus figures per department                                             */
+/* ------------------------------------------------------------------------ */
+
+describe("citations and Scopus publications per department", () => {
+  it("are tabulated for the college, from the imported profiles", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        ...COLLEGE_API,
+        "/api/reports": () => ({
+          ...REPORTS,
+          scopus_by_department: [
+            { department: "ECE", people_with_profile: 1, publications: 49, citations: 170,
+              highest_h_index: 6 },
+            { department: "EEE", people_with_profile: 1, publications: 26, citations: 166,
+              highest_h_index: 8 },
+          ],
+        }),
+      }) as typeof api
+    )
+    renderWithProviders(<Reports />, { route: "/reports" })
+    const region = await screen.findByRole("region", { name: /on scopus, by department/i })
+    const eee = within(region).getByRole("row", { name: /EEE/ })
+    expect(within(eee).getByText("166")).toBeInTheDocument()
+    expect(within(eee).getByText("26")).toBeInTheDocument()
+  })
+
+  it("are shown to a head for their own department, with no money", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => HOD,
+        "/api/hod/overview": () => ({
+          ...HOD_OVERVIEW,
+          scopus: {
+            people_with_profile: 2, publications: 75, citations: 336, highest_h_index: 8,
+            last_imported_at: "2026-09-23T08:00:00Z",
+          },
+        }),
+      }) as typeof api
+    )
+    renderWithProviders(<Reports />, { route: "/reports" })
+    expect(await screen.findByText(/336 citations/)).toBeInTheDocument()
+    expect(screen.getByText(/75 Scopus publications/)).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/₹/)
   })
 })

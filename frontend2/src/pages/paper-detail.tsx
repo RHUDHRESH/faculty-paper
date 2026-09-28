@@ -1,10 +1,12 @@
 import { useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { reviewsFlags } from "@/app/nav"
 import { useApi, useApiMutation } from "@/lib/query"
-import { AttachmentGallery, type Attachment } from "@/ui/attachments"
+import { ClaimFlagsPanel, FileCheckLine, useClaimReview } from "@/pages/claim-review"
+import { AttachmentGallery, extensionOf, isOwnMedia, type Attachment } from "@/ui/attachments"
 import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
 import {
@@ -15,6 +17,9 @@ import {
   StageTrack,
   stageOf,
 } from "@/ui/paper"
+import { Journey, facultyStage } from "@/ui/journey"
+import { CopyButton } from "@/ui/copy"
+import { When } from "@/ui/when"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonText } from "@/ui/state"
 import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -60,7 +65,27 @@ type ClaimAction = {
   created_at: string
 }
 
+/**
+ * A ticket brought across from the college's ERP workbook carries the
+ * import's moment as its filing and payment time. These are the dates it
+ * really has: the Google Form's own timestamp for a Raw_Data row, a payout
+ * month somebody recorded, and the day it was brought across.
+ */
+type ClaimRecord = {
+  imported: boolean
+  /** The workbook sheet: "Raw_Data" (the Google Form's) or "Processed". */
+  source: string | null
+  imported_at: string | null
+  filed_at: string | null
+  /** "2025-03" */
+  paid_month: string | null
+  erp_status: string | null
+}
+
 type Claim = {
+  faculty_stage?: string | null
+  days_waiting?: number | null
+  waiting_days?: number | null
   id: string
   ticket_number: string | null
   paper_title: string
@@ -117,6 +142,8 @@ type Claim = {
   director_approved_by_name: string | null
   paid_at: string | null
   actions?: ClaimAction[]
+  /** What the history can truthfully say (server: services/record_dates.py). */
+  record?: ClaimRecord | null
   team: Team | null
 }
 
@@ -149,6 +176,7 @@ type Note = {
 
 export function PaperDetail() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { me } = useAuth()
   const [confirmWithdraw, setConfirmWithdraw] = useState(false)
 
@@ -163,6 +191,16 @@ export function PaperDetail() {
     `/api/claims/${id}/withdraw`,
     { invalidates: [["claim", id], ["my-claims"]] }
   )
+
+  // The desks that judge a paper also see its flags and what its files were
+  // found to say. Asked for here, above the early returns, because a hook
+  // cannot wait for the claim to load; the server refuses anybody else. Never
+  // on the reader's own paper: an officer who files is its claimant, and the
+  // doubts about it are the desk's (`rbac.is_own_claim`) -- so the request
+  // waits for the claim to say whose it is.
+  const reviewer = reviewsFlags(me?.role) && !!claim && claim.owner_id !== me?.id
+  const review = useClaimReview(id, reviewer)
+  const checksByUrl = new Map((review.data?.file_checks ?? []).map((c) => [c.url, c]))
 
   if (isLoading) {
     return (
@@ -247,8 +285,10 @@ export function PaperDetail() {
   // and nobody could read it anywhere. The ticket simply reappeared in the
   // clearing queue with no explanation attached.
   const sentBackByPrincipal = lastRejection?.action === "PRINCIPAL_SEND_BACK"
+  // A Principal's send-back to the office is internal: the claimant is only
+  // shown a send-back that came to them.
   const showSendBack = Boolean(
-    claim.status_note && (claim.status === "REJECTED" || sentBackByPrincipal)
+    claim.status_note && (claim.status === "REJECTED" || (sentBackByPrincipal && !isOwner))
   )
 
   const settled = claim.status === "PAID"
@@ -291,23 +331,63 @@ export function PaperDetail() {
         </Callout>
       )}
 
-      <Link
-        to="/papers"
-        className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
-      >
-        <ArrowLeft className="size-3.5" aria-hidden />
-        My papers
-      </Link>
+      {/* The claimant's way back is their list; anybody else arrived from a
+          queue, a search or the flags, so "My papers" would be wrong. */}
+      {isOwner || window.history.length <= 1 ? (
+        <Link
+          to={isOwner ? "/papers" : "/"}
+          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden />
+          {isOwner ? "My papers" : "Home"}
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden />
+          Back
+        </button>
+      )}
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <PageTitle className="break-words">{claim.paper_title || "Untitled"}</PageTitle>
             <Sub className="mt-1">
-              {claim.ticket_number ? `Ticket ${claim.ticket_number}` : "Not yet filed"}
+              {claim.ticket_number ? (
+                <>
+                  Ticket {claim.ticket_number}{" "}
+                  <CopyButton value={claim.ticket_number} label="ticket number" />
+                </>
+              ) : (
+                "Not yet filed"
+              )}
               {claim.journal_title ? ` · ${claim.journal_title}` : ""}
             </Sub>
           </div>
+          {isOwner && claim.journal_title && claim.status !== "DRAFT" && (
+            <Button kind="quiet" className="shrink-0 print:hidden" asChild>
+              <Link to={`/papers/new?copy=${claim.id}`}>File another in this journal</Link>
+            </Button>
+          )}
+          {isOwner && claim.status !== "DRAFT" && claim.status !== "REJECTED" && (
+            // One tap to tell colleagues: the post opens with the paper card,
+            // the words and the co-authors already in, all still editable.
+            // The card says what the paper is -- never what it paid.
+            <Button kind="default" className="shrink-0 print:hidden" asChild>
+              <Link to={`/discussions?share=${claim.id}`}>Share to the feed</Link>
+            </Button>
+          )}
+          {isOwner && claim.status === "PAID" && (
+            // The ticket page is the payment advice: amount, how it was worked
+            // out, voucher and date. Printing it prints just the page.
+            <Button kind="default" className="shrink-0 print:hidden" onClick={() => window.print()}>
+              Print payment advice
+            </Button>
+          )}
           {(canEdit || canWithdraw) && (
             <div className="flex shrink-0 items-center gap-2">
               {canEdit && (
@@ -324,11 +404,20 @@ export function PaperDetail() {
           )}
         </div>
         <div className="w-full max-w-md space-y-2">
-          <p className="text-base font-medium">{stage.label}</p>
-          <StageTrack stage={stage} />
-          {/* Who is holding it, said after the picture rather than instead of
-              it. This was the only answer the page gave. */}
-          <p className="text-sm text-fg-muted">{stage.who}</p>
+          {isOwner ? (
+            // The claimant sees how far it has come and how long it has
+            // waited -- never whose desk it is on (the college's rule).
+            <Journey
+              stage={claim.faculty_stage || facultyStage(claim.status)}
+              daysWaiting={claim.days_waiting ?? claim.waiting_days ?? null}
+            />
+          ) : (
+            <>
+              <p className="text-base font-medium">{stage.label}</p>
+              <StageTrack stage={stage} />
+              <p className="text-sm text-fg-muted">{stage.who}</p>
+            </>
+          )}
           {/* The question somebody who has waited three weeks actually opens
               this page with. The page carried the dates in its payload and
               printed none of them anywhere above the history, so "how long
@@ -473,7 +562,7 @@ export function PaperDetail() {
         </div>
       </section>
 
-      <section className="grid gap-x-10 gap-y-8 sm:grid-cols-2">
+      <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-8 sm:grid-cols-2 [&>*]:min-w-0">
         <div className="space-y-3">
           <SectionTitle>The paper</SectionTitle>
           <dl className="space-y-2 text-sm">
@@ -516,6 +605,16 @@ export function PaperDetail() {
         <SectionTitle>Attachments</SectionTitle>
         <AttachmentGallery
           files={claim.attachments}
+          annotate={
+            reviewer
+              ? (file) => (
+                  <FileCheckLine
+                    check={checksByUrl.get(file.url)}
+                    readable={isOwnMedia(file.url) && extensionOf(file) === "pdf"}
+                  />
+                )
+              : undefined
+          }
           emptyLabel={
             <>
               No files are attached to this ticket.
@@ -529,11 +628,25 @@ export function PaperDetail() {
 
       {claim.team ? <TeamPanel team={claim.team} /> : null}
 
-      <Notes claimId={claim.id} />
+      {reviewer && claim.status !== "DRAFT" && (
+        <ClaimFlagsPanel
+          claimId={claim.id}
+          review={review.data}
+          loading={review.isLoading}
+          failed={review.isError}
+          onRetry={() => void review.refetch()}
+        />
+      )}
+
+      {/* The desk's notes, which are about the claimant -- so not on the
+          reader's own paper. */}
+      {!isOwner && <Notes claimId={claim.id} />}
 
       <section className="space-y-3">
         <SectionTitle>History</SectionTitle>
-        {claim.actions && claim.actions.length > 0 ? (
+        {isOwner ? (
+          <ClaimantHistory claim={claim} />
+        ) : claim.actions && claim.actions.length > 0 ? (
           <ul className="space-y-3 border-l border-line pl-4">
             {[...claim.actions].reverse().map((a) => (
               <li key={a.id} className="text-sm">
@@ -553,18 +666,25 @@ export function PaperDetail() {
           // not have.
           <>
             <p className="text-sm text-fg-muted">
-              No step-by-step record was kept for this ticket — it did not travel
-              through this system one desk at a time. These are the dates the
-              ticket itself carries, and they are all that is known about it.
+              {claim.record?.imported
+                ? "No step-by-step record was kept for this ticket — it was brought across from the college's ERP workbook, which records what was decided but not when each desk acted. These are the dates it does carry."
+                : "No step-by-step record was kept for this ticket — it did not travel through this system one desk at a time. These are the dates the ticket itself carries, and they are all that is known about it."}
             </p>
             <ul className="space-y-3 border-l border-line pl-4">
               {dates.map((d) => (
                 <li key={d.label} className="text-sm">
                   <p>{d.label}</p>
-                  <Meta>{[d.who, formatDateTime(d.at)].filter(Boolean).join(" · ")}</Meta>
+                  {!d.month && (
+                    <Meta>{[d.who, formatDateTime(d.at)].filter(Boolean).join(" · ")}</Meta>
+                  )}
                 </li>
               ))}
             </ul>
+            {claim.record?.erp_status && (
+              <p className="text-sm text-fg-muted">
+                The workbook's own note: “{claim.record.erp_status}”
+              </p>
+            )}
           </>
         ) : (
           <p className="text-sm text-fg-muted">
@@ -633,7 +753,7 @@ function parseJsonArray<T>(raw: string | null | undefined): T[] {
  * than by anybody in the chain.
  */
 function amountCaption(c: Claim, settled: boolean): string {
-  if (settled) return c.paid_at ? `Paid on ${formatDate(c.paid_at)}` : "Paid"
+  if (settled) return paidCaption(c)
   if (c.status === "DRAFT") return "Estimated — this has not been filed yet"
   if (c.status === "REJECTED") return "Worked out before it came back to you"
   if (c.status === "DIRECTOR_APPROVED" || c.status === "FINANCE_APPROVED") {
@@ -749,13 +869,40 @@ function capitalise(s: string): string {
  */
 function waitingLine(c: Claim): string | null {
   if (c.status === "DRAFT") return null
-  if (c.status === "PAID") return c.paid_at ? `Paid on ${formatDate(c.paid_at)}` : null
-  if (!c.submitted_at) return null
-  const days = daysSince(c.submitted_at)
-  if (days == null) return `Filed on ${formatDate(c.submitted_at)}`
+  if (c.status === "PAID") return c.paid_at || c.record?.imported ? paidCaption(c) : null
+  // An imported ticket's `submitted_at` is the import's moment unless the
+  // server vouches for it as a filing time.
+  const filed = c.record?.imported ? c.record.filed_at : c.submitted_at
+  if (!filed) return null
+  const days = daysSince(filed)
+  if (days == null) return `Filed on ${formatDate(filed)}`
   const ago =
     days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`
-  return `Filed on ${formatDate(c.submitted_at)} — ${ago}`
+  return `Filed on ${formatDate(filed)} — ${ago}`
+}
+
+/**
+ * When it was paid, as far as anybody knows. A ticket brought across from the
+ * ERP was paid before this system existed, and `paid_at` on it is only the
+ * moment of the import -- printing that as "Paid on 23 Sept 2026" told people
+ * they had been paid on a day nothing happened.
+ */
+function paidCaption(c: Claim): string {
+  const r = c.record
+  if (r?.imported) {
+    return r.paid_month
+      ? `Paid in ${monthName(r.paid_month)}`
+      : "Paid before this system — the college's records do not say when"
+  }
+  return c.paid_at ? `Paid on ${formatDate(c.paid_at)}` : "Paid"
+}
+
+/** "2025-03" -> "March 2025" */
+function monthName(ym: string): string {
+  const d = new Date(`${ym}-01T00:00:00`)
+  return Number.isNaN(d.getTime())
+    ? ym
+    : d.toLocaleDateString("en-IN", { month: "long", year: "numeric" })
 }
 
 function daysSince(iso: string): number | null {
@@ -764,7 +911,28 @@ function daysSince(iso: string): number | null {
   return Math.max(0, Math.floor((Date.now() - then) / 86_400_000))
 }
 
-type TicketDate = { label: string; who: string | null; at: string }
+type TicketDate = { label: string; who: string | null; at: string; month?: boolean }
+
+/**
+ * The dates an imported ticket really carries, and none of the import's
+ * stamps: the day it was brought across, the Google Form's own filing time,
+ * and a payout month if one was recorded.
+ */
+function importedDates(r: ClaimRecord): TicketDate[] {
+  const out: TicketDate[] = []
+  if (r.filed_at) out.push({ label: "Filed on the college's Google Form", who: null, at: r.filed_at })
+  if (r.paid_month) {
+    out.push({ label: `Paid in ${monthName(r.paid_month)}`, who: null, at: `${r.paid_month}-01`, month: true })
+  }
+  if (r.imported_at) {
+    out.push({
+      label: `Brought across from the ERP workbook${r.source ? ` (${r.source} sheet)` : ""}`,
+      who: null,
+      at: r.imported_at,
+    })
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at))
+}
 
 /**
  * The account a ticket can give of itself when nothing was recorded about it.
@@ -778,6 +946,7 @@ type TicketDate = { label: string; who: string | null; at: string }
  * several columns rather than several things happening at once.
  */
 function ticketDates(c: Claim): TicketDate[] {
+  if (c.record?.imported) return importedDates(c.record)
   const all: TicketDate[] = [
     { label: "Filed", who: null, at: c.submitted_at || "" },
     { label: "Checked by the research cell", who: c.cleared_by_name, at: c.cleared_at || "" },
@@ -1091,5 +1260,116 @@ function roleLabel(role: string) {
       RESEARCH_COORDINATOR: "Research coordinator",
       PRINCIPAL: "Principal",
     }[role] || role.toLowerCase().replace(/_/g, " ")
+  )
+}
+
+/**
+ * The history a claimant is shown: what they did, what came back to them,
+ * and the two outcomes that matter -- approved for payment, paid. The desks in
+ * between are not named and their steps are not listed (the college's rule),
+ * so the office's internal back-and-forth never reads as "stuck with X".
+ */
+const CLAIMANT_EVENTS: Record<string, string> = {
+  CREATE_DRAFT: "You started this draft",
+  ADMIN_CREATE: "The research cell started this on your behalf",
+  SUBMIT: "You filed it",
+  CONTEST_FORWARD: "You filed it, and asked for the possible match to be reviewed",
+  RESUBMIT: "You filed it again",
+  WITHDRAW: "You withdrew it to make changes",
+  REJECT: "It was sent back to you",
+  RETURN_TO_FACULTY: "It was sent back to you",
+  DIRECTOR_APPROVE: "Approved for payment",
+  MARK_PAID: "Paid",
+  // What the server sends a claimant instead (core/visibility.py renames
+  // every step somebody else took, so no desk can be read off the history).
+  CREATED: "Started",
+  SUBMITTED: "Filed",
+  SENT_BACK: "The college sent it back",
+  NOT_ACCEPTED: "The college did not accept it",
+  APPROVED_FOR_PAYMENT: "Approved for payment",
+  PAID: "Paid",
+  PAYMENT_REVERSED: "The payment was reversed",
+}
+
+/** Steps whose note is the reason, written for the claimant to act on. */
+const REASON_STEPS = new Set(["REJECT", "RETURN_TO_FACULTY", "SENT_BACK", "NOT_ACCEPTED"])
+
+function ClaimantHistory({ claim }: { claim: Claim }) {
+  if (claim.record?.imported) return <ImportedHistory claim={claim} record={claim.record} />
+  const events = (claim.actions || [])
+    .filter((a) => CLAIMANT_EVENTS[a.action])
+    .map((a) => ({
+      id: a.id,
+      text:
+        REASON_STEPS.has(a.action) && a.note
+          ? `${CLAIMANT_EVENTS[a.action]} — ${a.note}`
+          : CLAIMANT_EVENTS[a.action],
+      note: null,
+      at: a.created_at,
+    }))
+  if (!events.some((e) => e.text === "Approved for payment") && claim.director_approved_at) {
+    events.push({ id: "approved", text: "Approved for payment", note: null, at: claim.director_approved_at })
+  }
+  if (!events.some((e) => e.text === "Paid") && claim.paid_at) {
+    events.push({ id: "paid", text: "Paid", note: null, at: claim.paid_at })
+  }
+  if (!events.some((e) => /^(You filed|Filed)/.test(e.text)) && claim.submitted_at) {
+    events.push({ id: "filed", text: "You filed it", note: null, at: claim.submitted_at })
+  }
+  events.sort((a, b) => (b.at || "").localeCompare(a.at || ""))
+  if (!events.length) return <p className="text-sm text-fg-muted">Nothing has happened to it yet.</p>
+  return <HistoryList events={events} />
+}
+
+/**
+ * A claimant's paper that was brought across from the college's records.
+ * It was filed and paid under the old process, so "You filed it yesterday"
+ * -- the import's moment -- was the one thing this page must not say.
+ */
+function ImportedHistory({ claim, record }: { claim: Claim; record: ClaimRecord }) {
+  const events: { id: string; text: string; note: string | null; at: string | null }[] = []
+  if (claim.status === "PAID") {
+    events.push({
+      id: "paid",
+      text: record.paid_month
+        ? `Paid in ${monthName(record.paid_month)}`
+        : "Paid under the old process — the college's records do not say when",
+      note: null,
+      at: null,
+    })
+  }
+  if (record.imported_at) {
+    events.push({
+      id: "imported",
+      text: "Brought across from the college's records when this system replaced them",
+      note: null,
+      at: record.imported_at,
+    })
+  }
+  if (record.filed_at) {
+    events.push({ id: "filed", text: "You filed it on the college's Google Form", note: null, at: record.filed_at })
+  }
+  return <HistoryList events={events} />
+}
+
+function HistoryList({
+  events,
+}: {
+  events: { id: string; text: string; note: string | null; at: string | null }[]
+}) {
+  return (
+    <ul className="space-y-3 border-l border-line pl-4">
+      {events.map((e) => (
+        <li key={e.id} className="text-sm">
+          <p>{e.text}</p>
+          {e.note && <p className="text-fg-muted">{e.note}</p>}
+          {e.at && (
+            <Meta>
+              <When iso={e.at} />
+            </Meta>
+          )}
+        </li>
+      ))}
+    </ul>
   )
 }

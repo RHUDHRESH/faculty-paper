@@ -20,7 +20,8 @@ import {
   SkeletonRows,
 } from "@/ui/state"
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/ui/sheet"
-import { stickyHeadCell, TableScroller } from "@/ui/table"
+import { DepartmentScopusLine, type DepartmentScopus } from "@/ui/scopus"
+import { stickyHeadCell, Table, TableScroller, type Column } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 
 /**
@@ -152,6 +153,17 @@ type ReportsPayload = {
   year_on_year: YearOnYear | []
   years: number[]
   payout_months: string[]
+  /** From the office's Scopus profile import; absent on an older server. */
+  scopus_by_department?: ScopusDepartmentRow[]
+}
+
+/** `department_totals` in core/services/scopus_profiles.py. */
+type ScopusDepartmentRow = {
+  department: string
+  people_with_profile: number
+  publications: number
+  citations: number
+  highest_h_index: number | null
 }
 
 /** The measured half of `/api/trends/me`, narrowed to the part this screen
@@ -641,6 +653,10 @@ function CollegeReports() {
             />
           </section>
 
+          {data.scopus_by_department ? (
+            <ScopusByDepartment rows={data.scopus_by_department} />
+          ) : null}
+
           <section className="space-y-10">
             <SectionTitle>Which way it is going</SectionTitle>
             <DirectionPanel
@@ -852,6 +868,69 @@ function CollegeReports() {
 /** One row inside the drill-down sheet — the same information `papers.tsx`'s
  *  card shows, plus who and which department, since this list spans the
  *  whole college rather than one person's own papers. */
+const SCOPUS_COLUMNS: Column<ScopusDepartmentRow>[] = [
+  { key: "dept", header: "Department", cell: (r) => r.department },
+  {
+    key: "people",
+    header: "People with a profile",
+    align: "right",
+    cell: (r) => r.people_with_profile.toLocaleString("en-IN"),
+  },
+  {
+    key: "pubs",
+    header: "Scopus publications",
+    align: "right",
+    cell: (r) => r.publications.toLocaleString("en-IN"),
+  },
+  {
+    key: "cites",
+    header: "Citations",
+    align: "right",
+    cell: (r) => r.citations.toLocaleString("en-IN"),
+  },
+  {
+    key: "h",
+    header: "Highest h-index",
+    align: "right",
+    cell: (r) => (r.highest_h_index == null ? "—" : String(r.highest_h_index)),
+  },
+]
+
+/**
+ * What Scopus holds for each department's people, from the office's profile
+ * import. Career totals -- Scopus's count, not the papers filed here -- so the
+ * year and month filters do not narrow them; the department filter does.
+ */
+function ScopusByDepartment({ rows }: { rows: ScopusDepartmentRow[] }) {
+  return (
+    <section className="space-y-3" aria-labelledby="scopus-by-department">
+      <div>
+        <SectionTitle>
+          <span id="scopus-by-department">On Scopus, by department</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          Citations and Scopus publications for the people whose profile the research office has
+          imported. Career totals as Scopus had them, so the year filter does not apply.
+        </Sub>
+      </div>
+      {rows.length === 0 ? (
+        <Meta className="block">
+          No Scopus profiles are loaded yet. The research office imports them on the Imports
+          screen.
+        </Meta>
+      ) : (
+        <Table
+          rows={rows}
+          columns={SCOPUS_COLUMNS}
+          getKey={(r) => r.department}
+          caption="Citations and Scopus publications per department"
+          minWidth="36rem"
+        />
+      )}
+    </section>
+  )
+}
+
 function ClaimRow({ claim: c }: { claim: SearchClaim }) {
   return (
     <li className="row">
@@ -912,6 +991,8 @@ type HodOverview = {
   by_journal: Point[]
   by_indexing: Point[]
   people: HodPerson[]
+  /** Absent on a server that predates the Scopus profile import. */
+  scopus?: DepartmentScopus
 }
 
 type HodPubRow = {
@@ -1109,6 +1190,10 @@ function HodReports() {
               hint="With the research cell or the Principal"
             />
           </section>
+
+          {/* Career totals from the office's profile import, so the year
+              filter above does not narrow them. Not money: a head sees them. */}
+          {data.scopus ? <DepartmentScopusLine scopus={data.scopus} /> : null}
 
           <Trend
             title="Publications by year"

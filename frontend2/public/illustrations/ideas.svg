@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-labelledby="t">
+  <title id="t">A sprouting path of topics toward a bright idea</title>
+  <!-- Convocation house set. CC0. Accent: research/teal #0b6e67. -->
+  <rect x="40" y="176" width="240" height="1.5" fill="#b5e2dc"/>
+  <path d="M60 176 C110 176 110 120 160 120 S210 64 256 64" fill="none" stroke="#b5e2dc" stroke-width="4" stroke-linecap="round"/>
+  <g>
+    <rect x="70" y="150" width="46" height="18" rx="9" fill="#e8f6f4" stroke="#0b6e67" stroke-width="2"/>
+    <rect x="128" y="108" width="56" height="18" rx="9" fill="#e8f6f4" stroke="#0b6e67" stroke-width="2"/>
+    <rect x="80" y="157" width="26" height="4" rx="2" fill="#0b6e67"/>
+    <rect x="138" y="115" width="36" height="4" rx="2" fill="#0b6e67"/>
+  </g>
+  <path d="M200 176 v-26" stroke="#0b6e67" stroke-width="3" stroke-linecap="round"/>
+  <path d="M200 158 c-12 -2 -16 -12 -14 -18 c8 0 14 6 14 18z M200 152 c10 -2 14 -10 12 -16 c-7 0 -12 5 -12 16z" fill="#0b6e67"/>
+  <circle cx="256" cy="60" r="22" fill="#fdf6e3"/>
+  <path d="M256 44 a14 14 0 0 1 8 25 v5 h-16 v-5 a14 14 0 0 1 8 -25z" fill="#e0a82e"/>
+  <rect x="249" y="77" width="14" height="4" rx="2" fill="#2b398f"/>
+  <g stroke="#e0a82e" stroke-width="2.5" stroke-linecap="round">
+    <path d="M256 30 v-6"/><path d="M280 40 l5 -4"/><path d="M232 40 l-5 -4"/><path d="M286 62 h6"/><path d="M226 62 h-6"/>
+  </g>
+</svg>

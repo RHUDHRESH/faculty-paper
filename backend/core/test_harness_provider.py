@@ -174,7 +174,7 @@ class AskJsonWorksThroughTheHarness(SimpleTestCase):
         self.assertEqual(raised.exception.code, "unreachable")
 
     def test_a_generation_that_never_answers_maps_to_timeout(self):
-        def responder(req):
+        def responder(req, timeout=None):
             import socket
 
             raise socket.timeout("timed out")

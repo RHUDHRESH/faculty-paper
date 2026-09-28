@@ -28,7 +28,7 @@ import { cn } from "@/lib/cn"
 type Size = "md" | "lg"
 
 const CONTROL_SIZE: Record<Size, string> = {
-  md: "h-9 px-3 text-sm rounded-lg",
+  md: "h-9 max-sm:h-10 px-3 text-sm rounded-lg",
   lg: "h-11 px-3.5 text-base rounded-lg",
 }
 

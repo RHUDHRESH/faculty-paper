@@ -89,7 +89,7 @@
      than as decoration. */
   --color-fg: #2b2a27;
   --color-fg-muted: #6b6862;
-  --color-fg-subtle: #9a968e;
+  --color-fg-subtle: #6f6c66; /* 4.6:1 on sunken — WCAG AA for small text (a11y audit) */
 
   /* Surfaces, as a stack, and the order is the whole point: sunken is below
      the ground, the ground is below a panel.
@@ -128,8 +128,8 @@
 
   /* One accent. Indigo rather than violet — it stays legible at small sizes
      and against white, which the old purple did not at 13px. */
-  --color-accent: #c96a4a;
-  --color-accent-hover: #b25a3c;
+  --color-accent: #a84f31; /* 4.7:1 on wash, 5.4:1 under white text (a11y audit; was #c96a4a, 3.5:1) */
+  --color-accent-hover: #92432a;
   --color-accent-fg: #ffffff;
   --color-accent-wash: #f8ece6;
   --color-accent-line: #ecc9ba;
@@ -379,6 +379,27 @@
     }
   }
 
+  /* Phone tap targets: nothing you press is shorter than 40px (a11y audit,
+     docs/jtbd/a11y-mobile-speed-audit.md). The pages draw plenty of raw
+     `h-7`/`h-8` buttons, tabs and selects that are fine under a mouse and a
+     miss under a thumb; min-height grows them without touching their width
+     or the desktop layout. Explicitly sized glyph controls (`size-*`) are
+     left alone — they get their own hit area where they are drawn. */
+  @media (max-width: 639px) {
+    :where(button, [role="button"], [role="tab"], select, a.inline-flex):not([class*="size-"]):not(.tap-exempt) {
+      min-height: 2.5rem;
+    }
+  }
+
+  /* A link inside a sentence is not told apart by colour alone (WCAG 1.4.1,
+     axe `link-in-text-block`): the accent and the muted body text are too
+     close in lightness, so the link carries an underline as well. */
+  :where(p, .text-fg-muted) a:where(.text-accent) {
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+  }
+
   /* The page column. Wide enough for a table, narrow enough to read. */
   .page {
     width: 100%;
@@ -600,7 +621,7 @@
   --area-time-wash: #27302f;
   --color-fg: #ece9e2;
   --color-fg-muted: #a8a49b;
-  --color-fg-subtle: #7a766e;
+  --color-fg-subtle: #9a968f;
   --color-surface: #2c2c2a;
   --color-bg: #262624;
   --color-sunken: #1f1e1d;
@@ -610,8 +631,8 @@
   --color-line: #353431;
   --color-edge: #3e3d39;
   --color-field: #4a4843;
-  --color-accent: #d97757;
-  --color-accent-hover: #e48a6b;
+  --color-accent: #e08466;
+  --color-accent-hover: #e89a7f;
   --color-accent-fg: #1f1e1d;
   --color-accent-wash: #3a2c26;
   --color-accent-line: #5a3d31;

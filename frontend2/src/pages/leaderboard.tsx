@@ -555,8 +555,8 @@ function PeopleView({ board }: { board: HonoursBoard }) {
         {count(board.ranked)} of {count(board.population)} people ranked by {board.label.toLowerCase()} ({board.unit}). People with nothing counted are listed without a rank.
       </p>
 
-      {/* Desktop table */}
-      <div className="hidden sm:block print:block">
+      {/* Desktop table — ten columns need 1024px; below that the list (a11y audit: 992px wide at 768) */}
+      <div className="hidden lg:block print:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-fg-muted">
@@ -607,7 +607,7 @@ function PeopleView({ board }: { board: HonoursBoard }) {
       </div>
 
       {/* Phone list */}
-      <ol className="divide-y divide-line/60 border-y border-line sm:hidden print:hidden">
+      <ol className="divide-y divide-line/60 border-y border-line lg:hidden print:hidden">
         {shown.map((r) => (
           <li key={r.person.id} className={cn(isMe(board, r) && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)]")}>
             <Link to={`/people/${r.person.id}`} className="flex items-center gap-3 px-3 py-2">

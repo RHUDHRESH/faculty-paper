@@ -48,10 +48,10 @@ const KIND: Record<Kind, string> = {
 }
 
 const SIZE: Record<Size, string> = {
-  sm: "h-7 gap-1.5 px-2.5 text-xs rounded-md",
-  md: "h-9 gap-1.5 px-3.5 text-sm rounded-lg",
+  sm: "h-7 max-sm:h-10 gap-1.5 px-2.5 text-xs rounded-md",
+  md: "h-9 max-sm:h-10 gap-1.5 px-3.5 text-sm rounded-lg",
   lg: "h-11 gap-2 px-5 text-base rounded-lg",
-  icon: "size-9 rounded-lg",
+  icon: "size-9 max-sm:size-10 rounded-lg",
 }
 
 export const Button = forwardRef<

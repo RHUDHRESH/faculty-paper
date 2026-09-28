@@ -447,7 +447,7 @@ function NavBadge({ n, compact = false, label: said }: { n: number | undefined; 
  *  nothing at all. */
 function PageLoading() {
   return (
-    <div className="page" aria-busy="true" aria-label="Loading">
+    <div className="page" role="status" aria-busy="true" aria-label="Loading">
       <div className="h-7 w-48 animate-[pulse_1.6s_ease-in-out_infinite] rounded-md bg-hover opacity-0 [animation-delay:250ms]" />
     </div>
   )

@@ -57,6 +57,12 @@ async function confirmDetailsAndFile(page: Page, paper: PaperRef, tag: string): 
   await page.getByRole("button", { name: "Continue" }).click()
   // 4. The proof
   await expect(page.getByRole("heading", { name: "The proof", level: 2 })).toBeVisible()
+  await attachProof(page, paper, tag)
+  await page.getByRole("button", { name: "Continue" }).click()
+  return fileIt(page, tag)
+}
+
+async function attachProof(page: Page, paper: PaperRef, tag: string): Promise<void> {
   let chooser = page.waitForEvent("filechooser")
   await page.getByRole("button", { name: /Choose a file|Replace or add a file/ }).click()
   await (await chooser).setFiles(pdf(`paper-${tag}.pdf`, [paper.title, `doi ${paper.doi}`, "Saveetha Engineering College"]))
@@ -68,16 +74,17 @@ async function confirmDetailsAndFile(page: Page, paper: PaperRef, tag: string): 
   ])
   await page.getByRole("textbox", { name: `Reference number for ref-a-${tag}.pdf` }).fill("12")
   await page.getByRole("textbox", { name: `Reference number for ref-b-${tag}.pdf` }).fill("17")
-  await page.getByRole("button", { name: "Continue" }).click()
-  // 5. Check and file
+}
+
+/** Step 5, Check and file: the note Scopus-less filing asks for, then File it. */
+async function fileIt(page: Page, tag: string): Promise<string> {
   await expect(page.getByRole("heading", { name: "Check and file", level: 2 })).toBeVisible()
   await page
     .getByRole("textbox", { name: "A note for the checkers" })
     .fill("Indexed in Scopus; the DOI resolves and the paper names the college.")
-  await snap(page, `${tag}-before-file`)
   await page.getByRole("button", { name: "File this paper" }).click()
   await page.getByRole("dialog", { name: "File this paper?" }).getByRole("button", { name: "File it" }).click()
-  await page.waitForTimeout(4000)
+  await expect(page.getByRole("heading", { name: /Filed/ })).toBeVisible()
   await snap(page, `${tag}-filed`)
   const ticket = (await page.locator("main").innerText()).match(/[A-Z]{2,4}-\d{4}-\d{3,}/)
   expect(ticket, "no ticket number after filing").not.toBeNull()
@@ -105,6 +112,7 @@ async function fileByDoi(page: Page, paper: PaperRef, tag: string): Promise<stri
   return confirmDetailsAndFile(page, paper, tag)
 }
 
+const FYP_TITLE = "Edge vision attendance for large classrooms"
 const SEND_BACK_REASON = "The author position or the number of authors does not match the paper."
 const FLAG_NOTE = "Co-author 3 has the same name as a student; check the author list."
 
@@ -381,6 +389,219 @@ test.describe("A year at the college", () => {
     await expect(statement).toContainText("₹1,76,800")
     const pdf = await download(page, () => statement.getByRole("link", { name: "Statement to sign (PDF)" }).click())
     expect(pdf.text.startsWith("%PDF")).toBe(true)
+    await close(page)
+  })
+
+  test("Anand sees Paid, downloads his payment statement and appraisal list, and never the desk", async ({ browser }) => {
+    const page = await as(browser, "anand")
+    await page.goto("/papers/claims")
+    for (const [key, amount] of [["anand_scopus", "₹74,500"], ["anand_doi", "₹57,600"]] as const) {
+      const row = page.getByRole("row").filter({ hasText: tickets[key] })
+      await expect(row).toContainText("Paid")
+      await expect(row).toContainText(amount)
+    }
+    await expect(page.getByRole("row").filter({ hasText: tickets.anand_watched })).toContainText("Under review")
+    // The research cell's flag and the desk's names are not the claimant's to see.
+    await page.getByRole("row").filter({ hasText: tickets.anand_scopus }).getByRole("link").first().click()
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(year.papers.anand_scopus.title)
+    await expect(page.locator("main")).not.toContainText(FLAG_NOTE)
+    await expect(page.locator("main")).not.toContainText("Cell Officer")
+
+    await page.goto("/papers/statement")
+    await expect(page.getByRole("row", { name: "Total ₹1,32,100" })).toBeVisible()
+    const sheet = await download(page, () => page.getByRole("link", { name: "Spreadsheet" }).click())
+    expect(sheet.text).toContain(year.papers.anand_scopus.title)
+    expect(sheet.text).toMatch(/74,?500/)
+    money.anand_statement = "₹1,32,100"
+
+    await page.goto("/papers/appraisal")
+    const list = await download(page, () => page.getByRole("button", { name: "Spreadsheet" }).click())
+    expect(list.size).toBeGreaterThan(0)
+    expect(list.name).toMatch(/\.(csv|xlsx)$/)
+
+    // Faculty never see the desk.
+    await page.goto("/clearing")
+    await expect(page.getByRole("heading", { name: "Clearing queue" })).toHaveCount(0)
+    await expect(page.locator("body")).not.toContainText(tickets.revathi_3)
+    await close(page)
+  })
+
+  test("Revathi's statement shows the one paper paid beyond her quota", async ({ browser }) => {
+    const page = await as(browser, "revathi")
+    await page.goto("/papers/statement")
+    await expect(page.getByRole("row", { name: "Total ₹44,700" })).toBeVisible()
+    await expect(page.getByRole("row").filter({ hasText: year.papers.revathi_3.title })).toHaveCount(1)
+    await expect(page.getByRole("row").filter({ hasText: year.papers.revathi_1.title })).toHaveCount(0)
+    await close(page)
+  })
+
+  test("the same month agrees on the ledger, the statement, Reports and the year brief", async ({ browser }) => {
+    let page = await as(browser, "finance")
+    await page.goto("/ledger")
+    const totals = page.getByRole("region", { name: "Totals" })
+    await expect(totals).toContainText("₹1,76,800")
+    await expect(totals).toContainText("3 payments to 2 people")
+    // Each payment once.
+    for (const key of ["anand_scopus", "anand_doi", "revathi_3"]) {
+      await expect(
+        page.getByRole("table", { name: "Payments matching the filter" }).getByRole("row").filter({ hasText: year.papers[key]?.title ?? year.doi_paper.title })
+      ).toHaveCount(1)
+    }
+    await page.goto("/statements")
+    await expect(page.getByRole("region", { name: "Statement for September 2026" })).toContainText(
+      "3 payments to 2 people"
+    )
+    await close(page)
+
+    page = await as(browser, "principal")
+    await page.goto("/reports")
+    const paid = page.getByRole("button", { name: /^Paid ₹1,76,800/ })
+    await expect(paid).toContainText("3 payments")
+    await page.goto("/reports/brief")
+    await page.getByRole("button", { name: "Year" }).click()
+    await page.getByRole("option", { name: "2026" }).click()
+    await expect(page.locator("main")).toContainText("₹1,76,800")
+    await snap(page, "11-brief")
+    const pdf = await download(page, () => page.getByRole("link", { name: "Council PDF" }).click())
+    expect(pdf.text.startsWith("%PDF")).toBe(true)
+    const xlsx = await download(page, () => page.getByRole("link", { name: "Excel (NAAC 3.3.1)" }).click())
+    expect(xlsx.text.startsWith("PK")).toBe(true)
+    await close(page)
+  })
+
+  test("the ERP repeats a payment; the sweep finds it and the research cell decides it", async ({ browser }) => {
+    manage(["e2e_year", "--erp-repeat"])
+    manage(["find_duplicate_payments"])
+    const page = await as(browser, "cell")
+    await page.goto("/duplicates")
+    const item = page.getByRole("button", { name: new RegExp(`Anand Kumar ${year.papers.anand_scopus.title}`) })
+    await expect(item).toContainText("2 payments")
+    await expect(page.getByText("Aug 2026").first()).toBeVisible()
+    await page.getByRole("button", { name: "Confirm duplicate" }).click()
+    const ask = page.getByRole("dialog", { name: "Confirm this is a duplicate?" })
+    await expect(ask).toContainText("₹74,500 becomes money to recover")
+    await ask.getByRole("textbox", { name: "What shows it is a duplicate?" }).fill(
+      "The ERP sheet records the August payment of FP-2026-000001 that this app made in September."
+    )
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/admin/duplicate-findings/") && r.request().method() === "POST" && r.ok()),
+      ask.getByRole("button", { name: "Confirm duplicate" }).click(),
+    ])
+    await page.getByRole("button", { name: /^History/ }).click()
+    await expect(page.getByRole("button", { name: new RegExp(year.papers.anand_scopus.title) })).toBeVisible()
+    await close(page)
+  })
+
+  test("Director and Finance never see the duplicate finding", async ({ browser }) => {
+    for (const who of ["director", "finance"] as const) {
+      const page = await as(browser, who)
+      await page.goto("/ledger")
+      await expect(page.getByRole("region", { name: "Totals" })).toContainText("₹1,76,800")
+      await expect(page.locator("main")).not.toContainText(/duplicate/i)
+      await close(page)
+    }
+  })
+
+  test("the HOD sees pace without money, reminds Meena and pairs Anand with Revathi", async ({ browser }) => {
+    const page = await as(browser, "hod")
+    await page.goto("/department")
+    await expect(page.getByRole("heading", { name: "Are we on track?" })).toBeVisible()
+    await expect(page.locator("main")).not.toContainText("₹")
+    await page.getByRole("button", { name: /^Remind Meena/ }).click()
+    await expect(page.getByRole("button", { name: "Meena Krishnan reminded" })).toBeVisible()
+    await page.getByRole("button", { name: "Assign work" }).click()
+    const ask = page.getByRole("dialog", { name: "Assign work" })
+    await ask.getByRole("radio", { name: "Pair co-authors" }).check()
+    await ask.getByRole("textbox", { name: "What they should write together" }).fill(
+      "A joint paper on federated vision for campus energy"
+    )
+    await ask.getByRole("button", { name: "First author" }).click()
+    await page.getByRole("option", { name: /Anand Kumar/ }).click()
+    await ask.getByRole("button", { name: "Co-author" }).click()
+    await page.getByRole("option", { name: /Revathi Sundaram/ }).click()
+    await Promise.all([
+      page.waitForResponse((r) => r.request().method() === "POST" && /assign/.test(r.url()) && r.ok()),
+      ask.getByRole("button", { name: "Assign" }).click(),
+    ])
+    await expect(page.getByRole("region", { name: "Work assigned" })).toContainText("federated vision for campus energy")
+    await close(page)
+  })
+
+  test("Anand finds the pairing on his home screen", async ({ browser }) => {
+    const page = await as(browser, "anand")
+    await page.goto("/")
+    await expect(page.getByText(/federated vision for campus energy/).first()).toBeVisible()
+    await close(page)
+  })
+
+  test("the super admin changes the policy with the preview, and finds it in the audit log", async ({ browser }) => {
+    const page = await as(browser, "admin")
+    await page.goto("/policy")
+    await page.getByRole("button", { name: "Publish a new version" }).click()
+    const ask = page.getByRole("dialog", { name: "Publish a new policy version" })
+    await ask.getByRole("textbox", { name: "Name" }).fill("Policy 2026-27")
+    await ask.getByRole("spinbutton", { name: "Q4" }).fill("8000")
+    // The preview prices a Q4 paper from the numbers in the form, before anything is saved.
+    await ask.getByRole("radio", { name: "Q4" }).check()
+    await expect(ask.getByText("+ ₹8,000")).toBeVisible()
+    await ask.getByRole("textbox", { name: "Notes" }).fill("Q4 incentive raised to 8,000 from April 2027 by council resolution.")
+    await ask.getByRole("button", { name: "Publish…" }).click()
+    await page.waitForTimeout(800)
+    await snap(page, "14-policy-confirm")
+    await close(page)
+  })
+
+  test("Anand files his final-year team's conference paper at the team rate", async ({ browser }) => {
+    const page = await as(browser, "anand")
+    await page.goto("/papers/new")
+    await page.getByRole("button", { name: /Type it in by hand/ }).click()
+    const boxes = page.getByRole("checkbox", { name: "I confirm this is true for this article" })
+    for (const box of await boxes.all()) await box.check()
+    await page.getByRole("button", { name: "Start the claim" }).click()
+    await page.getByRole("radio", { name: /Final-year project conference incentive/ }).check()
+    await page.getByRole("radio", { name: new RegExp(year.team.code) }).check()
+    await page.getByRole("textbox", { name: "Paper title" }).fill(FYP_TITLE)
+    await page.getByRole("button", { name: "Type of publication" }).click()
+    await page.getByRole("option", { name: "Conference proceeding" }).click()
+    await page.getByRole("textbox", { name: "Date published" }).fill("2026-08-20")
+    await page.getByRole("button", { name: "Continue" }).click()
+    await expect(page.getByRole("region", { name: "Payout estimate" })).toContainText("₹15,000")
+    await page.getByRole("textbox", { name: "Journal title" }).fill("International Conference on Smart Campus Systems")
+    await page.getByRole("checkbox", { name: "Scopus" }).check()
+    await page.getByRole("textbox", { name: "Yukthi ID" }).fill("NA")
+    await page.getByRole("textbox", { name: "ISSN" }).fill("2345-6744")
+    await page.getByRole("button", { name: "Continue" }).click()
+    await expect(page.getByRole("heading", { name: "You and the claim", level: 2 })).toBeVisible()
+    await snap(page, "q-fyp-5")
+    await page.getByRole("checkbox", { name: /the article names Saveetha Engineering College/ }).check()
+    await page.getByRole("button", { name: "Continue" }).click()
+    await expect(page.getByRole("heading", { name: "The proof", level: 2 })).toBeVisible()
+    await attachProof(page, { title: FYP_TITLE, doi: "" }, "fyp")
+    await page.getByRole("button", { name: "Continue" }).click()
+    tickets.fyp = await fileIt(page, "fyp")
+    await expect(page.locator("main")).toContainText("₹15,000")
+    // One claim per team: the team is now shown with the ticket that holds it.
+    await page.goto("/papers/new")
+    await page.getByRole("button", { name: /Type it in by hand/ }).click()
+    for (const box of await page.getByRole("checkbox", { name: "I confirm this is true for this article" }).all()) {
+      await box.check()
+    }
+    await page.getByRole("button", { name: "Start the claim" }).click()
+    await page.getByRole("radio", { name: /Final-year project conference incentive/ }).check()
+    await expect(page.getByRole("radio", { name: new RegExp(year.team.code) })).toBeDisabled()
+    await expect(page.getByText(tickets.fyp).first()).toBeVisible()
+    await close(page)
+  })
+
+  test("the scheme is for the mentor only: Meena mentors no team", async ({ browser }) => {
+    const page = await as(browser, "meena")
+    await page.goto("/papers/new")
+    await page.getByRole("button", { name: /Type it in by hand/ }).click()
+    for (const box of await page.getByRole("checkbox", { name: "I confirm this is true for this article" }).all()) {
+      await box.check()
+    }
+    await page.getByRole("button", { name: "Start the claim" }).click()
+    await expect(page.getByRole("radio", { name: /Final-year project conference incentive/ })).toBeDisabled()
     await close(page)
   })
 })

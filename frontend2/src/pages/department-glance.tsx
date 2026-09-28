@@ -140,6 +140,39 @@ export function DepartmentGlance({ year }: { year: number }) {
   )
 }
 
+/**
+ * The head's home: this year's pace and the push list, the same two panels
+ * the department page opens with, so the two screens never disagree.
+ */
+export function GlanceSummary() {
+  const brief = useApi<Brief>(["hod", "brief", "current"], "/api/hod/brief")
+  if (brief.isError) {
+    return (
+      <ErrorState
+        title="Could not load this year's pace"
+        message={brief.error?.status === 403 ? "This account is not registered as the head of a department." : "The server did not answer."}
+        onRetry={brief.error?.status === 403 ? undefined : () => void brief.refetch()}
+      />
+    )
+  }
+  if (brief.isLoading || !brief.data) return <SkeletonRows rows={4} rowHeight={48} />
+  const b = brief.data
+  return (
+    <section aria-label="This year" className="space-y-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <SectionTitle>{b.year} so far</SectionTitle>
+        <Link to="/department" className="text-sm text-accent underline-offset-4 hover:underline">
+          Everything at a glance, pairs and the report
+        </Link>
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
+        <OnTrack b={b} />
+        <PushList b={b} />
+      </div>
+    </section>
+  )
+}
+
 /* ---------------- are we on track ---------------- */
 
 function OnTrack({ b }: { b: Brief }) {

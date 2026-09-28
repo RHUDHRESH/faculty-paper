@@ -23,6 +23,7 @@ import {
   Sigma,
   type LucideIcon,
 } from "lucide-react"
+import { useAuth } from "@/app/auth"
 
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
@@ -216,7 +217,12 @@ export function Leaderboard() {
   const measure = (MEASURES.some((m) => m.key === params.get("category")) ? params.get("category") : "score") as Measure
   const period = params.get("period") && PERIOD_LABELS[params.get("period")!] ? params.get("period")! : "academic"
   const view = (VIEWS.some((v) => v.key === params.get("view")) ? params.get("view") : "people") as View
-  const department = params.get("department") ?? ""
+  // A head of department opens on their own department; "all" is the whole
+  // college, chosen on purpose. Everybody else opens on the whole college.
+  const { me } = useAuth()
+  const home = me?.role === "HOD" ? (me.department ?? "") : ""
+  const rawDepartment = params.get("department")
+  const department = rawDepartment === null ? home : rawDepartment === "all" ? "" : rawDepartment
   const topic = params.get("topic") ?? ""
   const journal = params.get("journal") ?? ""
 
@@ -311,7 +317,7 @@ export function Leaderboard() {
             topic={topic}
             journal={journal}
             board={b}
-            set={set}
+            set={(key, value) => set(key, key === "department" && !value && home ? "all" : value)}
           />
 
           {query.isError ? (
@@ -358,6 +364,10 @@ function Controls({
 }) {
   const active = [department, topic, journal].filter(Boolean).length
   const [open, setOpen] = useState(active > 0)
+  // A head's own department arrives once the account has loaded: show it.
+  useEffect(() => {
+    if (active) setOpen(true)
+  }, [active])
   const more = MEASURES.filter((m) => !PRIMARY.includes(m.key))
   const chosenMore = more.find((m) => m.key === measure)
   const pick = (m: Measure) => set("category", m === "score" ? "" : m)

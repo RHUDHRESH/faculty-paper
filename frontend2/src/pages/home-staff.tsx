@@ -1,7 +1,6 @@
 import { firstName } from "@/lib/names"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
-import { useState } from "react"
 import {
   ArrowUpRight,
   BarChart3,
@@ -26,6 +25,7 @@ import {
   PaidList,
   useOwnPapers,
 } from "@/pages/home-faculty"
+import { GlanceSummary } from "@/pages/department-glance"
 import { Button } from "@/ui/button"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Picture } from "@/ui/picture"
@@ -918,18 +918,6 @@ type HodStanding = {
   of: number
 }
 
-type HodTargets = {
-  year: number
-  department_targets: {
-    id: string
-    metric_label: string
-    target: number
-    done: number
-    fraction: number | null
-    met: boolean
-  }[]
-}
-
 type HodOverview = {
   department: string
   totals: {
@@ -1027,14 +1015,8 @@ export function HodHome() {
   const { me } = useAuth()
   const overview = useApi<HodOverview>(HOME_DATA.hodOverview.key, HOME_DATA.hodOverview.path)
   const standing = useApi<HodStanding>(HOME_DATA.hodStanding.key, HOME_DATA.hodStanding.path)
-  const targets = useApi<HodTargets>(HOME_DATA.hodTargets.key, HOME_DATA.hodTargets.path)
 
   const totals = overview.data?.totals
-  const people = overview.data?.people ?? []
-  const silent = people.filter((p) => p.active && p.publications === 0)
-  const published = [...people]
-    .filter((p) => p.publications > 0)
-    .sort((a, b) => b.publications - a.publications)
 
   return (
     <div className="page space-y-10">
@@ -1043,108 +1025,24 @@ export function HodHome() {
         picture="spot-home-hod"
         sentence={
           overview.data?.department
-            ? `How ${overview.data.department} is doing: what it has published, and by whom.`
-            : "How your department is doing: what it has published, and by whom."
+            ? `How ${overview.data.department} is doing this year, and who needs a push.`
+            : "How your department is doing this year, and who needs a push."
         }
       />
 
+      {/* This year first: pace against target and the push list, the same
+          panels the department page opens with. All-years totals live on
+          Department publications. */}
+      <GlanceSummary />
+
       <Celebrations />
-
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
-        <Figure
-          label="Publications"
-          value={totals ? totals.publications.toLocaleString("en-IN") : "â€”"}
-          loading={overview.isLoading}
-        />
-        <Figure
-          label="Q1 papers"
-          value={totals ? totals.q1.toLocaleString("en-IN") : "â€”"}
-          hint="Top-quartile journals"
-          loading={overview.isLoading}
-        />
-        <Figure
-          label="First author"
-          value={totals ? totals.first_author.toLocaleString("en-IN") : "â€”"}
-          hint="Papers led from this department"
-          loading={overview.isLoading}
-        />
-        <Figure
-          label="Under review"
-          value={totals ? totals.under_review.toLocaleString("en-IN") : "â€”"}
-          hint="Filed, not yet settled"
-          loading={overview.isLoading}
-        />
-      </section>
-
-      {overview.isError && (
-        <InlineError
-          message={
-            overview.error?.status === 403
-              ? "This account is not registered as the head of a department."
-              : "Could not load the department overview."
-          }
-          onRetry={overview.error?.status === 403 ? undefined : () => overview.refetch()}
-        />
-      )}
-
-      {totals && (
-        <section className="space-y-2">
-          <SectionTitle>Who has published</SectionTitle>
-          <p className="text-base text-fg-muted">
-            {totals.faculty_who_published} of {totals.faculty_in_department} in the department.
-          </p>
-
-          {published.length > 0 && (
-            <ul className="divide-y divide-line border-y border-line">
-              {published.slice(0, 10).map((p) => (
-                <li key={p.id} className="row">
-                  <Link
-                    to={`/people/${p.id}`}
-                    className="flex items-center gap-4 px-1 py-2.5 sm:px-2"
-                  >
-                    <Avatar size="sm" person={faceOf(p)} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-base">{p.name}</span>
-                      <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
-                    </span>
-                    <span className="w-16 shrink-0 text-right text-sm tabular text-fg-muted">
-                      {p.q1 ? `${p.q1} Q1` : ""}
-                    </span>
-                    <span className="w-20 shrink-0 text-right text-base tabular">
-                      {p.publications}
-                    </span>
-                    <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
-      {silent.length > 0 && (
-        <section className="space-y-2">
-          <SectionTitle>Nothing on record</SectionTitle>
-          {/* The only screen in the app that answers this. It is a
-              department's own business who has not published, and a list of
-              names with no context beside them is an accusation â€” so the
-              sentence above it says plainly what the list does and does not
-              mean. */}
-          <p className="max-w-2xl text-base text-fg-muted">
-            {silent.length} {silent.length === 1 ? "member has" : "members have"} nothing filed
-            under the scheme. That is not the same as having published nothing â€” a paper nobody
-            filed a claim for does not appear anywhere in this system.
-          </p>
-          <SilentList people={silent} />
-        </section>
-      )}
 
       {/* Where the department sits, which is the one thing a head cannot work
           out from their own numbers alone. */}
       {standing.data && (
         <section className="space-y-2">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <SectionTitle>Against the college</SectionTitle>
+            <SectionTitle>Against the college, all years on record</SectionTitle>
             <Link
               to="/department"
               className="text-sm text-accent underline-offset-4 hover:underline"
@@ -1195,37 +1093,6 @@ export function HodHome() {
         </section>
       )}
 
-      {(targets.data?.department_targets.length ?? 0) > 0 && (
-        <section className="space-y-2">
-          <SectionTitle>Targets for {targets.data?.year}</SectionTitle>
-          <ul className="divide-y divide-line border-y border-line">
-            {targets.data?.department_targets.map((t) => (
-              <li key={t.id} className="space-y-1.5 py-3">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-base">{t.metric_label}</span>
-                  <span
-                    className={cn(
-                      "text-base font-medium tabular",
-                      t.met ? "text-positive" : "text-fg"
-                    )}
-                  >
-                    {t.done} / {t.target}
-                  </span>
-                </div>
-                <span className="block h-1.5 w-full overflow-hidden rounded-full bg-sunken">
-                  <span
-                    className={cn(
-                      "block h-full rounded-full",
-                      t.met ? "bg-positive" : "bg-accent"
-                    )}
-                    style={{ width: `${Math.min(1, t.fraction ?? 0) * 100}%` }}
-                  />
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       <section className="space-y-2">
         <SectionTitle>Look further</SectionTitle>
@@ -1260,46 +1127,6 @@ export function HodHome() {
   )
 }
 
-/**
- * Members with nothing filed, as a compact grid: a department of seventy
- * would otherwise push everything after it off the bottom of the page. The
- * first twelve are shown; the rest are one press away.
- */
-function faceOf(p: { name: string; initials?: string; photo_url?: string | null }) {
-  return { name: p.name, initials: p.initials || initialsOf(p.name), photo_url: p.photo_url ?? null }
-}
-
-function SilentList({
-  people,
-}: {
-  people: { id: string; name: string; designation?: string | null; initials?: string; photo_url?: string | null }[]
-}) {
-  const [all, setAll] = useState(false)
-  const shown = all ? people : people.slice(0, 12)
-  return (
-    <div className="space-y-2">
-      <ul className="grid gap-x-6 border-y border-line sm:grid-cols-2 lg:grid-cols-3">
-        {shown.map((p) => (
-          <li key={p.id} className="row min-w-0 border-b border-line last:border-b-0">
-            <Link to={`/people/${p.id}`} className="flex items-center gap-3 px-1 py-2">
-              <Avatar size="sm" person={faceOf(p)} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{p.name}</span>
-                <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
-              </span>
-              <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
-            </Link>
-          </li>
-        ))}
-      </ul>
-      {people.length > 12 && (
-        <Button kind="quiet" size="sm" onClick={() => setAll((v: boolean) => !v)}>
-          {all ? "Show fewer" : `Show all ${people.length}`}
-        </Button>
-      )}
-    </div>
-  )
-}
 
 type Attention = {
   checked_at: string

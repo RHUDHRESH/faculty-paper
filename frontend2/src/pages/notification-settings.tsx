@@ -23,8 +23,12 @@ type Kind = {
   can_turn_off: boolean
 }
 
+type Smtp = { configured: boolean; host: string; port: number | null; from_email: string; line: string }
+
 export type Preferences = {
   email_available: boolean
+  /** Only for the super admin. */
+  smtp?: Smtp | null
   whatsapp_available: boolean
   email: string
   has_phone: boolean
@@ -45,6 +49,33 @@ const KEY = ["notification-preferences"]
  * forget. The social switches on the statistics page write the same
  * preferences, so the two pages can never disagree.
  */
+type TestResult = { sent: boolean; message: string; smtp: Smtp }
+
+/** Super admin only: where email goes out from, and a way to prove it works. */
+function MailServer({ smtp }: { smtp: Smtp }) {
+  const test = useMutation<TestResult, ApiError>({
+    mutationFn: () => api<TestResult>("/api/notifications/test-email", { method: "POST" }),
+    onError: (err) => toast.fail(err),
+  })
+  const result = test.data
+  return (
+    <section className="space-y-3" aria-labelledby="mail-server">
+      <SectionTitle id="mail-server">Mail server</SectionTitle>
+      <Callout tone={smtp.configured ? "info" : "caution"}>{smtp.line}</Callout>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button onClick={() => test.mutate()} disabled={test.isPending}>
+          {test.isPending ? "Sending..." : "Send a test email to myself"}
+        </Button>
+        {result && (
+          <p role="status" className={result.sent ? "text-sm text-fg" : "text-sm text-critical"}>
+            {result.message}
+          </p>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export function NotificationSettings() {
   const qc = useQueryClient()
   const query = useApi<Preferences>(KEY, "/api/notifications/preferences")
@@ -112,6 +143,8 @@ export function NotificationSettings() {
           ) : (
             <Meta className="block">Email goes to {p.email}. Every email has a link to stop that kind.</Meta>
           )}
+
+          {p.smtp && <MailServer smtp={p.smtp} />}
 
           {groups.map(([group, kinds], i) => (
             <section key={group} className="space-y-1" aria-labelledby={`group-${slug(group)}`}>

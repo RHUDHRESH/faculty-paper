@@ -139,7 +139,45 @@ describe("ImpactCardPage", () => {
     top_journal: "Nature Photonics",
     since: 2019,
     as_of: "2026-09-24",
+    initials: "AR",
+    papers_source: "record",
+    headlines: [
+      { key: "dept_rank", big: "#2", label: "in Mechanical Engineering, of 31 publishing colleagues", priority: 1 },
+      { key: "papers", big: "12", label: "papers published", priority: 8 },
+    ],
+    headline_text: "Writes about heat transfer.",
+    strip: [{ year: 2026, papers: 2 }],
+    photo_url: null,
   }
+
+  it("previews the server card and redraws it for each format and headline", async () => {
+    mount(<ImpactCardPage />, FACULTY, {
+      "/api/me/impact": () => ({ ...IMPACT, share: { enabled: false, token: null, path: null } }),
+    })
+    const img = await screen.findByRole("img", { name: /impact card, Portrait format/ })
+    expect(img.getAttribute("src")).toMatch(/format=portrait.*headline=dept_rank/)
+    await userEvent.click(screen.getByRole("radio", { name: /Story/ }))
+    await userEvent.click(screen.getByRole("radio", { name: /papers published/ }))
+    const download = screen.getByRole("link", { name: /Download PNG/ })
+    expect(download.getAttribute("href")).toMatch(/format=story.*headline=papers/)
+  })
+
+  it("asks before turning the public link on to share", async () => {
+    const put = vi.fn(() => ({ enabled: true, token: "tok", path: "/api/share/impact/tok" }))
+    const open = vi.spyOn(window, "open").mockImplementation(() => null)
+    mount(<ImpactCardPage />, FACULTY, {
+      "/api/me/impact/share": put,
+      "/api/me/impact": () => ({ ...IMPACT, share: { enabled: false, token: null, path: null } }),
+    })
+    await userEvent.click(await screen.findByRole("button", { name: /Share$/ }))
+    await userEvent.click(await screen.findByRole("menuitem", { name: "LinkedIn" }))
+    expect(await screen.findByText("Turn on your public link?")).toBeInTheDocument()
+    expect(put).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole("button", { name: "Turn on and share" }))
+    await waitFor(() => expect(open).toHaveBeenCalled())
+    expect(String(open.mock.calls[0][0])).toContain("linkedin.com/sharing/share-offsite/?url=")
+    open.mockRestore()
+  })
 
   it("is private until shared, and says what the card leaves out", async () => {
     mount(<ImpactCardPage />, FACULTY, {

@@ -20,6 +20,7 @@ from django.utils import timezone
 
 from core.models import Authorship, Claim, Follow, Publication, ResearchGoal, ResearchInterest, User
 from core.services import coauthors as graph
+from core.services.person_record import papers_for
 
 #: Papers this far back count as "what you work on now".
 NOW_YEARS = 3
@@ -130,12 +131,18 @@ def my_research(user: User, college: Optional[_College] = None) -> dict[str, Any
     ):
         all_auth[pid].append((uid, college_flag, inst))
 
-    cites = [p.citations or 0 for p, _ in pubs]
-    q1 = sum(1 for p, _ in pubs if (p.quartile or "").upper() == "Q1")
-    first = sum(1 for _, pos in pubs if pos == 1)
+    # Claims-only papers: recognised by the college, not yet on the record.
+    # Counted here as on Home and the Impact card (core.services.person_record).
+    extras = [x for x in papers_for(user) if x.source == "claims"]
+    cites = [p.citations or 0 for p, _ in pubs] + [x.citations or 0 for x in extras]
+    q1 = sum(1 for p, _ in pubs if (p.quartile or "").upper() == "Q1") + sum(
+        1 for x in extras if x.quartile == "Q1")
+    first = sum(1 for _, pos in pubs if pos == 1) + sum(1 for x in extras if x.first_author)
+    total = len(pubs) + len(extras)
 
     # ---- past ---------------------------------------------------------------
     by_year_papers: Counter[int] = Counter(p.year for p, _ in pubs if p.year)
+    by_year_papers.update(x.year for x in extras if x.year)
     by_year_cites: Counter[int] = Counter()
     for p, _ in pubs:
         if p.year:
@@ -253,10 +260,11 @@ def my_research(user: User, college: Optional[_College] = None) -> dict[str, Any
         "headline": headline,
         "headline_is_custom": False,
         "metrics": {
-            "papers": len(pubs),
-            "citations": sum(cites) if pubs else None,
-            "h_index": h_index(cites) if pubs else None,
-            "i10_index": sum(1 for c in cites if c >= 10) if pubs else None,
+            "papers": total,
+            "claims_only": len(extras),
+            "citations": sum(cites) if total else None,
+            "h_index": h_index(cites) if total else None,
+            "i10_index": sum(1 for c in cites if c >= 10) if total else None,
             "q1": q1,
             "first_author": first,
             "first_year": years[0] if years else None,

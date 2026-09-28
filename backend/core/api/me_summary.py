@@ -3,14 +3,10 @@
 `/me/summary` exists so the Home hero does not race four requests (impact,
 claims, payments, calendar) to draw one band (docs/ux/01-landing-home.md).
 
-**Where the paper count comes from.** Today: `core.services.records` -- the
-recognised claims plus the paid ledger, the same source the Impact card uses,
-so Home and the Impact card cannot disagree. `papers_source` says "claims".
-TODO(publication-table): when the Publication/Authorship tables land, replace
-`_record_for` with a read of the person's authorships (and `/me/publications`),
-set `papers_source` to "record", and fill `unclaimed` with authorships that
-have no claim. Everything else in this module reads through `_record_for`, so
-that is the one function to change.
+**Where the paper count comes from.** `core.services.person_record`: the
+publication record plus claims-only papers -- the one count Home, My research
+and the Impact card share, so they cannot disagree. `papers_source` is
+"record".
 
 `/public/stats` is unauthenticated: three whole-college counts for the
 sign-in page, no names and no money, cached for an hour.
@@ -29,7 +25,8 @@ from django.utils import timezone
 from core.api.common import api, require_user, session_auth
 from core.api.my_payments import academic_year_start, ledger_for
 from core.models import Claim, ClaimStatus, Role, User
-from core.services.records import PaperRecord, collect, paper_records
+from core.services.person_record import Paper, department_of
+from core.services.records import collect
 
 #: Months of history the Record strip draws.
 STRIP_MONTHS = 120
@@ -53,17 +50,9 @@ PUBLIC_STATS_KEY = "public-stats:v1"
 PUBLIC_STATS_SECONDS = 60 * 60
 
 
-def _record_for(user: User) -> tuple[list[PaperRecord], dict[str, list[PaperRecord]]]:
-    """The person's papers, and their department's (for the rank).
-
-    TODO(publication-table): the single hook to switch to authorships.
-    """
-    department = (user.department or "").strip()
-    colleagues = list(User.objects.filter(department__iexact=department)) if department else [user]
-    if user.id not in {u.id for u in colleagues}:
-        colleagues.append(user)
-    records = paper_records(colleagues)
-    return records.get(user.id, []), records
+def _record_for(user: User) -> tuple[list[Paper], dict[str, list[Paper]]]:
+    """The person's papers, and their department's (for the rank)."""
+    return department_of(user)
 
 
 def _unclaimed(user: User) -> Optional[int]:
@@ -91,16 +80,24 @@ def _month_key(d: date) -> str:
     return f"{d.year:04d}-{d.month:02d}"
 
 
-def strip_of(mine: list[PaperRecord], today: date) -> list[dict[str, Any]]:
-    """Papers per month for the last STRIP_MONTHS months, sparse, oldest first.
+def _when(r) -> Optional[date]:
+    """The month a paper counts in: its filing day when the row has one, else
+    its publication date, else January of its year."""
+    d = getattr(r, "filed_on", None) or getattr(r, "on", None)
+    if d:
+        return d
+    year = getattr(r, "year", None)
+    return date(year, 1, 1) if year else None
 
-    Dated by when the paper was filed (a ledger row knows only its payout
-    month), because the records carry a publication year and no month.
-    """
+
+def strip_of(mine, today: date) -> list[dict[str, Any]]:
+    """Papers per month for the last STRIP_MONTHS months, sparse, oldest first."""
     first = today.year * 12 + today.month - STRIP_MONTHS
-    counts = Counter(
-        _month_key(r.filed_on) for r in mine if r.filed_on and r.filed_on.year * 12 + r.filed_on.month > first
-    )
+    counts: Counter = Counter()
+    for r in mine:
+        d = _when(r)
+        if d and first < d.year * 12 + d.month <= today.year * 12 + today.month:
+            counts[_month_key(d)] += 1
     return [{"month": m, "papers": n} for m, n in sorted(counts.items())]
 
 
@@ -118,9 +115,9 @@ def my_summary(request: HttpRequest):
     if department and mine:
         scores = {uid: sum(r.points for r in recs) for uid, recs in records.items() if recs}
         before = {
-            uid: sum(r.points for r in recs if r.on < since)
+            uid: sum(r.points for r in recs if (_when(r) or since) < since)
             for uid, recs in records.items()
-            if any(r.on < since for r in recs)
+            if any((_when(r) or since) < since for r in recs)
         }
         rank = _rank(scores, user.id)
         was = _rank(before, user.id)
@@ -142,7 +139,7 @@ def my_summary(request: HttpRequest):
 
     return {
         "papers": len(mine),
-        "papers_source": "claims",
+        "papers_source": "record",
         "citations": sum(known) if known else None,
         "h_index": h_index(known) if known else None,
         "dept_rank": dept_rank,

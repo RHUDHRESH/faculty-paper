@@ -46,7 +46,7 @@ class MeSummaryTests(TestCase):
         card = impact_card.summary(self.me)
         self.assertEqual(body["papers"], card["papers"])
         self.assertEqual(body["papers"], 2)
-        self.assertEqual(body["papers_source"], "claims")
+        self.assertEqual(body["papers_source"], "record")
         self.assertIsNone(body["unclaimed"])
         self.assertEqual(body["dept_rank"]["rank"], card["rank"])
         self.assertEqual(body["dept_rank"]["of"], 2)

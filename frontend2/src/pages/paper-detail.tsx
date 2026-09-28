@@ -1,6 +1,8 @@
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { ArrowLeft, MessageCircle } from "lucide-react"
+import { ArrowLeft, Check, MessageCircle, Printer } from "lucide-react"
+
+import { cn } from "@/lib/cn"
 
 import { useAuth } from "@/app/auth"
 import { reviewsFlags } from "@/app/nav"
@@ -20,8 +22,10 @@ import {
 import { Journey, facultyStage } from "@/ui/journey"
 import { CopyButton } from "@/ui/copy"
 import { When } from "@/ui/when"
+import { Avatar } from "@/ui/person"
+import { Picture, topicPicture } from "@/ui/picture"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonText } from "@/ui/state"
-import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
 /**
@@ -320,6 +324,7 @@ export function PaperDetail() {
   const dates = ticketDates(claim)
   const waiting = waitingLine(claim)
   const provenance = provenanceLines(claim)
+  const topic = topicPicture(claim.paper_title, claim.journal_title)
 
   return (
     <div className="page space-y-10 py-8">
@@ -331,7 +336,7 @@ export function PaperDetail() {
           title={
             sentBackByPrincipal && claim.status !== "REJECTED"
               ? "The Principal sent this back to the research cell"
-              : "Sent back — what to fix"
+              : "Sent back to you: what to fix"
           }
         >
           <p>{claim.status_note}</p>
@@ -364,88 +369,93 @@ export function PaperDetail() {
         </button>
       )}
 
-      <header className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <header className="space-y-6">
+        <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
             <PageTitle className="break-words">{claim.paper_title || "Untitled"}</PageTitle>
-            <Sub className="mt-1">
+            <Sub className="mt-2">
+              {claim.journal_title || "Journal not given"}
+              {claim.quartile ? ` · ${claim.quartile}` : ""}
+              {claim.publication_year ? ` · ${claim.publication_year}` : ""}
+            </Sub>
+            <p className="mt-1 flex items-center gap-1 text-sm text-fg-muted">
               {claim.ticket_number ? (
                 <>
-                  Ticket {claim.ticket_number}{" "}
+                  Ticket {claim.ticket_number}
                   <CopyButton value={claim.ticket_number} label="ticket number" />
                 </>
               ) : (
-                "Not yet filed"
+                "Not filed yet"
               )}
-              {claim.journal_title ? ` · ${claim.journal_title}` : ""}
-            </Sub>
+            </p>
           </div>
+          {topic && <Picture name={topic} className="hidden size-28 shrink-0 sm:block" />}
+        </div>
+
+        {/* The journey: the one bold element on the page. */}
+        <div className="panel-lead space-y-3 p-4 sm:p-5">
+          {isOwner ? (
+            // The claimant sees how far it has come and how long it has
+            // waited -- never whose desk it is on (the college's rule).
+            <>
+              <Journey
+                stage={claim.faculty_stage || facultyStage(claim.status)}
+                daysWaiting={claim.days_waiting ?? claim.waiting_days ?? null}
+              />
+            </>
+          ) : (
+            <>
+              <p className="text-lg font-medium">{stage.label}</p>
+              <StageTrack stage={stage} />
+              <p className="text-sm text-fg-muted">{stage.who}</p>
+            </>
+          )}
+          {waiting && (!isOwner || settled) && <Meta className="block">{waiting}</Meta>}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          {canEdit && (
+            <Button kind="primary" asChild>
+              <Link to={`/papers/${claim.id}/edit`}>
+                {claim.status === "REJECTED" ? "Fix and resend" : "Continue this draft"}
+              </Link>
+            </Button>
+          )}
           {!isOwner && !!me && claim.owner_id && (
             // Lands in the one-to-one chat with the paper attached as context.
-            <Button kind="default" className="shrink-0 print:hidden" asChild>
+            <Button kind="default" asChild>
               <Link to={`/messages?to=${claim.owner_id}&ctx=paper:${claim.id}`}>
                 <MessageCircle />
                 Message {claim.owner_name?.split(" ")[0] || "the author"}
               </Link>
             </Button>
           )}
-          {isOwner && claim.journal_title && claim.status !== "DRAFT" && (
-            <Button kind="quiet" className="shrink-0 print:hidden" asChild>
-              <Link to={`/papers/new?copy=${claim.id}`}>File another in this journal</Link>
+          {isOwner && settled && (
+            // The ticket page is the receipt: amount, working, dates.
+            <Button kind="default" onClick={() => window.print()}>
+              <Printer />
+              Print receipt
             </Button>
           )}
           {isOwner && claim.status !== "DRAFT" && claim.status !== "REJECTED" && (
-            // One tap to tell colleagues: the post opens with the paper card,
-            // the words and the co-authors already in, all still editable.
             // The card says what the paper is -- never what it paid.
-            <Button kind="default" className="shrink-0 print:hidden" asChild>
+            <Button kind="default" asChild>
               <Link to={`/discussions?share=${claim.id}`}>Share to the feed</Link>
             </Button>
           )}
-          {isOwner && claim.status === "PAID" && (
-            // The ticket page is the payment advice: amount, how it was worked
-            // out, voucher and date. Printing it prints just the page.
-            <Button kind="default" className="shrink-0 print:hidden" onClick={() => window.print()}>
-              Print payment advice
+          {isOwner && claim.journal_title && claim.status !== "DRAFT" && (
+            <Button kind="quiet" asChild>
+              <Link to={`/papers/new?copy=${claim.id}`}>File another in this journal</Link>
             </Button>
           )}
-          {(canEdit || canWithdraw) && (
-            <div className="flex shrink-0 items-center gap-2">
-              {canEdit && (
-                <Button kind="default" asChild>
-                  <Link to={`/papers/${claim.id}/edit`}>Edit</Link>
-                </Button>
-              )}
-              {canWithdraw && (
-                <Button kind="quiet" onClick={() => setConfirmWithdraw(true)}>
-                  Withdraw
-                </Button>
-              )}
-            </div>
+          {canWithdraw && (
+            <Button kind="quiet" className="sm:ml-auto" onClick={() => setConfirmWithdraw(true)}>
+              Withdraw
+            </Button>
           )}
-        </div>
-        <div className="w-full max-w-md space-y-2">
-          {isOwner ? (
-            // The claimant sees how far it has come and how long it has
-            // waited -- never whose desk it is on (the college's rule).
-            <Journey
-              stage={claim.faculty_stage || facultyStage(claim.status)}
-              daysWaiting={claim.days_waiting ?? claim.waiting_days ?? null}
-            />
-          ) : (
-            <>
-              <p className="text-base font-medium">{stage.label}</p>
-              <StageTrack stage={stage} />
-              <p className="text-sm text-fg-muted">{stage.who}</p>
-            </>
-          )}
-          {/* The question somebody who has waited three weeks actually opens
-              this page with. The page carried the dates in its payload and
-              printed none of them anywhere above the history, so "how long
-              has this been sitting there" had no answer on the screen. */}
-          {waiting && <Meta className="block">{waiting}</Meta>}
         </div>
       </header>
+
 
       {claim.duplicate_warning && (
         <Callout tone="critical" title="This paper may already have been paid">
@@ -455,7 +465,7 @@ export function PaperDetail() {
               {duplicateMatches.map((m, i) => (
                 <li key={m.id ?? i} className="text-sm">
                   {[m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"}
-                  {m.amount != null && <> — {money(m.amount)}</>}
+                  {m.amount != null && <>, {money(m.amount)}</>}
                 </li>
               ))}
             </ul>
@@ -484,6 +494,20 @@ export function PaperDetail() {
             answers, this is the one nobody scrolls past, and until it had a
             ground of its own the amount sat on the same white as the ISSN. */}
         <div className="panel-lead space-y-4 p-4 sm:p-5">
+          {settled && isOwner && (
+            <div className="flex items-center gap-4 border-b border-line pb-4">
+              <Picture
+                name={claim.quartile === "Q1" ? "celebrate-top-quartile" : "celebrate-first-publication"}
+                className="size-20 shrink-0"
+              />
+              <div>
+                <p className="display text-xl text-positive">Paid. Well done.</p>
+                <p className="text-sm text-fg-muted">
+                  The college has settled this paper. Thank you for publishing it.
+                </p>
+              </div>
+            </div>
+          )}
           <div>
             {/* A figure this size with no caption reads as a promise, and it
                 is not one until the Director has authorised it. */}
@@ -506,7 +530,7 @@ export function PaperDetail() {
 
           {claim.calc_error ? null : working.length > 0 ? (
             <div className="space-y-2 border-t border-line pt-4">
-              <ColumnLabel>How that is worked out</ColumnLabel>
+              <p className="text-sm font-medium">How that is worked out</p>
               <PayoutWorking facts={claim} />
               {claim.remuneration_category === "I" && (
                 // The old page printed `[(SNIP × 55,000) + QFA] × APP` and
@@ -611,9 +635,9 @@ export function PaperDetail() {
                 share is the one where it is doing work: it is the reason that
                 number is what it is. Repeated here it read as a second,
                 unrelated fact about the paper. */}
-            <DetailRow label="Authors" value={authorNames(claim)} />
           </dl>
         </div>
+        <AuthorList claim={claim} />
       </section>
 
       {/* Its own full-width section rather than half of the grid above. It
@@ -692,8 +716,8 @@ export function PaperDetail() {
           <>
             <p className="text-sm text-fg-muted">
               {claim.record?.imported
-                ? "No step-by-step record was kept for this ticket — it was brought across from the college's ERP workbook, which records what was decided but not when each desk acted. These are the dates it does carry."
-                : "No step-by-step record was kept for this ticket — it did not travel through this system one desk at a time. These are the dates the ticket itself carries, and they are all that is known about it."}
+                ? "No step-by-step record was kept for this ticket. It was brought across from the college's ERP workbook, which records what was decided but not when each desk acted. These are the dates it does carry."
+                : "No step-by-step record was kept for this ticket. It did not travel through this system one desk at a time. These are the dates the ticket itself carries, and they are all that is known about it."}
             </p>
             <ul className="space-y-3 border-l border-line pl-4">
               {dates.map((d) => (
@@ -714,7 +738,7 @@ export function PaperDetail() {
         ) : (
           <p className="text-sm text-fg-muted">
             Nothing has happened to this ticket yet. From the moment you file it,
-            every step — who moved it, when, and anything they wrote — is listed
+            every step, who moved it, when and anything they wrote, is listed
             here.
           </p>
         )}
@@ -733,8 +757,8 @@ export function PaperDetail() {
             await withdraw.mutateAsync({})
             toast.ok(
               claim.ticket_number
-                ? `Withdrawn — ticket ${claim.ticket_number} is back in your drafts`
-                : "Withdrawn — it is back in your drafts"
+                ? `Withdrawn. Ticket ${claim.ticket_number} is back in your drafts`
+                : "Withdrawn. It is back in your drafts"
             )
           } catch (err) {
             toast.fail(err)
@@ -779,10 +803,10 @@ function parseJsonArray<T>(raw: string | null | undefined): T[] {
  */
 function amountCaption(c: Claim, settled: boolean): string {
   if (settled) return paidCaption(c)
-  if (c.status === "DRAFT") return "Estimated — this has not been filed yet"
+  if (c.status === "DRAFT") return "Estimated. This has not been filed yet"
   if (c.status === "REJECTED") return "Worked out before it came back to you"
   if (c.status === "DIRECTOR_APPROVED" || c.status === "FINANCE_APPROVED") {
-    return "Authorised — this is what Finance will pay"
+    return "Authorised. This is what Finance will pay"
   }
   return "If it is approved exactly as filed"
 }
@@ -837,7 +861,7 @@ function provenanceLines(c: Claim): string[] {
       lines.push(
         signedFor
           ? `${snip} was entered by hand rather than matched to the published SNIP dataset.`
-          : `${snip} was typed in by hand — nobody has matched it to the published SNIP dataset.`
+          : `${snip} was typed in by hand. Nobody has matched it to the published SNIP dataset.`
       )
     } else lines.push(`${snip}.`)
   }
@@ -855,7 +879,7 @@ function provenanceLines(c: Claim): string[] {
       lines.push(
         signedFor
           ? `Quartile ${c.quartile} was entered by hand rather than read off Scimago.`
-          : `Quartile ${c.quartile} was typed in by hand — it has not been confirmed against Scimago.`
+          : `Quartile ${c.quartile} was typed in by hand. It has not been confirmed against Scimago.`
       )
     } else {
       lines.push(`Quartile ${c.quartile}.`)
@@ -903,7 +927,7 @@ function waitingLine(c: Claim): string | null {
   if (days == null) return `Filed on ${formatDate(filed)}`
   const ago =
     days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`
-  return `Filed on ${formatDate(filed)} — ${ago}`
+  return days === 0 ? "Filed today" : `Filed on ${formatDate(filed)}, ${ago}`
 }
 
 /**
@@ -917,7 +941,7 @@ function paidCaption(c: Claim): string {
   if (r?.imported) {
     return r.paid_month
       ? `Paid in ${monthName(r.paid_month)}`
-      : "Paid before this system — the college's records do not say when"
+      : "Paid before this system. The college's records do not say when"
   }
   return c.paid_at ? `Paid on ${formatDate(c.paid_at)}` : "Paid"
 }
@@ -995,13 +1019,60 @@ function ticketDates(c: Claim): TicketDate[] {
   return kept.reverse()
 }
 
-function authorNames(c: Claim): string | null {
-  const arr = parseJsonArray<unknown>(c.authors_json)
-  if (!arr.length) return null
-  const names = arr
-    .map((a) => (typeof a === "string" ? a : (a as { name?: string })?.name))
-    .filter((n): n is string => !!n)
-  return names.length ? names.join(", ") : null
+type AuthorRow = { name: string; college: boolean; photo_url: string | null; initials: string | null }
+
+function authorRows(c: Claim): AuthorRow[] {
+  return parseJsonArray<unknown>(c.authors_json)
+    .map((a) => {
+      if (typeof a === "string") return { name: a, college: false, photo_url: null, initials: null }
+      const o = (a ?? {}) as { name?: string; college?: string | boolean; photo_url?: string | null; initials?: string | null }
+      return {
+        name: o.name ?? "",
+        college: o.college === true || o.college === "yes",
+        photo_url: o.photo_url ?? null,
+        initials: o.initials ?? null,
+      }
+    })
+    .filter((r) => !!r.name)
+}
+
+function initialsOf(name: string): string {
+  const parts = name.replace(/^(dr|mr|mrs|ms|prof)\.?\s+/i, "").split(/[\s.]+/).filter(Boolean)
+  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase()
+}
+
+/** The authors in order; college co-authors carry a face, outside authors a name. */
+function AuthorList({ claim }: { claim: Claim }) {
+  const rows = authorRows(claim)
+  if (!rows.length) return null
+  return (
+    <div className="space-y-3">
+      <SectionTitle>Authors</SectionTitle>
+      <ol className="space-y-2.5">
+        {rows.map((r, i) => (
+          <li key={`${r.name}-${i}`} className="flex items-center gap-3 text-sm">
+            {r.college ? (
+              <Avatar
+                size="sm"
+                person={{ name: r.name, initials: r.initials || initialsOf(r.name), photo_url: r.photo_url }}
+              />
+            ) : (
+              <span aria-hidden className="inline-flex size-8 shrink-0 items-center justify-center text-xs text-fg-subtle">
+                {i + 1}
+              </span>
+            )}
+            <span className="min-w-0">
+              <span className="block truncate">{r.name}</span>
+              <span className="block text-xs text-fg-muted">
+                {i === 0 ? "First author" : `Author ${i + 1}`}
+                {r.college ? " · this college" : ""}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
 }
 
 const CONDITION_ORDER = ["indexed", "no-duplicate", "documents"]
@@ -1018,14 +1089,17 @@ function Confirmations({ rows, isOwner }: { rows: ClaimConfirmation[]; isOwner: 
   return (
     <section className="space-y-3" aria-labelledby="claim-confirmations">
       <SectionTitle id="claim-confirmations">{isOwner ? "What you confirmed" : "What the claimant confirmed"}</SectionTitle>
-      <ul className="space-y-2">
+      <ul className="divide-y divide-line border-y border-line">
         {sorted.map((r) => (
-          <li key={r.id} data-condition={r.id} className="rounded-xl bg-positive-wash/60 p-3">
-            <p className="text-sm font-medium">{r.text}</p>
+          <li key={r.id} data-condition={r.id} className="flex gap-3 py-3">
+            <Check className="mt-0.5 size-4 shrink-0 text-positive" aria-hidden />
+            <div>
+            <p className="text-sm">{r.text}</p>
             <p className="text-xs text-fg-muted">
               Confirmed {formatDateTime(r.ticked_at)}
               {r.user_name && !isOwner ? ` by ${r.user_name}` : ""} · wording version {r.text_version}
             </p>
+            </div>
           </li>
         ))}
       </ul>
@@ -1358,11 +1432,8 @@ function ClaimantHistory({ claim }: { claim: Claim }) {
     .filter((a) => CLAIMANT_EVENTS[a.action])
     .map((a) => ({
       id: a.id,
-      text:
-        REASON_STEPS.has(a.action) && a.note
-          ? `${CLAIMANT_EVENTS[a.action]} — ${a.note}`
-          : CLAIMANT_EVENTS[a.action],
-      note: null,
+      text: CLAIMANT_EVENTS[a.action],
+      note: REASON_STEPS.has(a.action) && a.note ? (a.note as string | null) : null,
       at: a.created_at,
     }))
   if (!events.some((e) => e.text === "Approved for payment") && claim.director_approved_at) {
@@ -1391,7 +1462,7 @@ function ImportedHistory({ claim, record }: { claim: Claim; record: ClaimRecord 
       id: "paid",
       text: record.paid_month
         ? `Paid in ${monthName(record.paid_month)}`
-        : "Paid under the old process — the college's records do not say when",
+        : "Paid under the old process. The college's records do not say when",
       note: null,
       at: null,
     })
@@ -1416,11 +1487,18 @@ function HistoryList({
   events: { id: string; text: string; note: string | null; at: string | null }[]
 }) {
   return (
-    <ul className="space-y-3 border-l border-line pl-4">
+    <ul className="space-y-4 border-l border-line pl-5">
       {events.map((e) => (
-        <li key={e.id} className="text-sm">
+        <li key={e.id} className="relative text-sm">
+          <span
+            aria-hidden
+            className={cn(
+              "absolute -left-[24.5px] top-1.5 size-2 rounded-full",
+              /^Paid/.test(e.text) ? "bg-positive" : /sent it back|sent back|did not accept/.test(e.text) ? "bg-caution" : "bg-active"
+            )}
+          />
           <p>{e.text}</p>
-          {e.note && <p className="text-fg-muted">{e.note}</p>}
+          {e.note && <p className="mt-0.5 text-fg-muted">“{e.note}”</p>}
           {e.at && (
             <Meta>
               <When iso={e.at} />

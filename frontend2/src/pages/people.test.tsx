@@ -123,10 +123,15 @@ function patches() {
 
 async function openEditor() {
   const user = userEvent.setup()
-  await user.click(await screen.findByRole("button", { name: /Edit account/ }))
-  const dialog = await screen.findByRole("dialog")
-  await within(dialog).findByText("Where they sit")
+  const dialog = await screen.findByRole("form", { name: "Account" })
+  await within(dialog).findByText("Role and department")
   return { user, dialog }
+}
+
+/** Role changes and deactivation ask again, with the same verb. */
+async function confirmWith(user: ReturnType<typeof userEvent.setup>, verb: string) {
+  const confirm = await screen.findByRole("dialog")
+  await user.click(within(confirm).getByRole("button", { name: verb }))
 }
 
 async function pick(
@@ -155,7 +160,7 @@ describe("AccountEditor — the role", () => {
     await pick(user, dialog, "Role", "Head of department (still files papers)")
 
     expect(
-      await within(dialog).findByText("Dr Current Head is HOD of CSE — replace?")
+      await within(dialog).findByText("Dr Current Head is HOD of CSE. Replace them?")
     ).toBeInTheDocument()
     const save = within(dialog).getByRole("button", { name: "Save changes" })
     expect(save).toBeDisabled()
@@ -163,6 +168,7 @@ describe("AccountEditor — the role", () => {
     await user.click(within(dialog).getByRole("checkbox", { name: /Replace Dr Current Head/ }))
     expect(save).toBeEnabled()
     await user.click(save)
+    await confirmWith(user, "Change role")
 
     await waitFor(() => expect(patches()).toHaveLength(1))
     expect(patches()[0]).toEqual({ role: "HOD", replace_hod: true })
@@ -173,10 +179,11 @@ describe("AccountEditor — the role", () => {
     const { user, dialog } = await openEditor()
     await pick(user, dialog, "Role", "Head of department (still files papers)")
     await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
+    await confirmWith(user, "Change role")
 
     await waitFor(() => expect(patches()).toHaveLength(1))
     expect(patches()[0]).toEqual({ role: "HOD" })
-    expect(within(dialog).queryByText(/— replace\?/)).toBeNull()
+    expect(within(dialog).queryByText(/Replace them\?/)).toBeNull()
   })
 
   it("lets the research cell appoint a head without sending the quota it may not touch", async () => {
@@ -187,6 +194,7 @@ describe("AccountEditor — the role", () => {
     const { user, dialog } = await openEditor()
     await pick(user, dialog, "Role", "Head of department (still files papers)")
     await user.click(within(dialog).getByRole("button", { name: "Save changes" }))
+    await confirmWith(user, "Change role")
 
     await waitFor(() => expect(patches()).toHaveLength(1))
     expect(patches()[0]).toEqual({ role: "HOD" })
@@ -201,6 +209,24 @@ describe("AccountEditor — the role", () => {
   })
 })
 
+describe("AccountEditor — who may appoint what", () => {
+  it("offers the office no role that decides whether money moves", async () => {
+    mountPerson(CELL)
+    const { user, dialog } = await openEditor()
+    await user.click(within(dialog).getByLabelText("Role"))
+    expect(screen.queryByRole("option", { name: "Finance" })).toBeNull()
+    expect(screen.queryByRole("option", { name: "Super admin" })).toBeNull()
+    expect(screen.getByRole("option", { name: "Research coordinator" })).toBeInTheDocument()
+  })
+
+  it("offers a super admin every role", async () => {
+    mountPerson(SUPER_ADMIN)
+    const { user, dialog } = await openEditor()
+    await user.click(within(dialog).getByLabelText("Role"))
+    expect(screen.getByRole("option", { name: "Finance" })).toBeInTheDocument()
+  })
+})
+
 describe("AccountEditor — switching a head off", () => {
   it("is never held up by the one-head rule: an account switched off holds no post", async () => {
     mountPerson(SUPER_ADMIN, account({ role: "HOD", department: "" }))
@@ -210,6 +236,7 @@ describe("AccountEditor — switching a head off", () => {
     expect(within(dialog).queryByText(/A head needs a department/)).toBeNull()
     expect(save).toBeEnabled()
     await user.click(save)
+    await confirmWith(user, "Deactivate")
     await waitFor(() => expect(patches()).toHaveLength(1))
     expect(patches()[0]).toEqual({ active: false })
   })
@@ -281,7 +308,7 @@ describe("NewAccount — one head per department", () => {
     await pick(user, dialog, "Department", "CSE")
 
     expect(
-      await within(dialog).findByText("Dr Current Head is HOD of CSE — replace?")
+      await within(dialog).findByText("Dr Current Head is HOD of CSE. Replace them?")
     ).toBeInTheDocument()
     const create = within(dialog).getByRole("button", { name: "Create the account" })
     expect(create).toBeDisabled()

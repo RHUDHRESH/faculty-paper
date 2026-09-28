@@ -1,7 +1,7 @@
 import { firstName } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
-import { ArrowLeft, FilePlus, UserPlus, KeyRound, Pencil, Search, SearchX, Users } from "lucide-react"
+import { ArrowLeft, Eye, FilePlus, UserPlus, KeyRound, Search, SearchX, Users } from "lucide-react"
 
 import { can, useAuth, type Role } from "@/app/auth"
 import { cn } from "@/lib/cn"
@@ -18,6 +18,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  ConfirmDialog,
 } from "@/ui/dialog"
 import { RankedBars, MixBar, Trend, type Point } from "@/ui/chart"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
@@ -30,6 +31,7 @@ import { Table, type Column } from "@/ui/table"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { HeaderSpot } from "@/ui/page-header"
+import { Avatar } from "@/ui/person"
 
 /**
  * The staff directory (`People`) and one account's publication record
@@ -111,6 +113,8 @@ type PersonRow = {
   active: boolean
   faculty_type?: "REGULAR" | "RESEARCH"
   research_quota?: number | null
+  photo_url?: string | null
+  initials?: string
 }
 
 type PeoplePayload = {
@@ -244,11 +248,14 @@ export function People() {
       key: "person",
       header: "Person",
       cell: (p) => (
-        <span className="block min-w-0">
-          <span className="block truncate text-base">{p.name || p.email}</span>
-          <Meta className="mt-0.5 block truncate">
-            {[p.department, p.designation].filter(Boolean).join(" · ") || "—"}
-          </Meta>
+        <span className="flex min-w-0 items-center gap-3">
+          <Avatar person={{ name: p.name || p.email, initials: p.initials ?? "", photo_url: p.photo_url ?? null }} size="sm" />
+          <span className="block min-w-0">
+            <span className={cn("block truncate text-base", !p.active && "text-fg-muted")}>{p.name || p.email}</span>
+            <Meta className="mt-0.5 block truncate">
+              {[p.department, p.designation].filter(Boolean).join(" · ") || "No department"}
+            </Meta>
+          </span>
         </span>
       ),
     },
@@ -416,6 +423,8 @@ type Faculty = {
   employee_id: string | null
   staff_id: string | null
   active: boolean
+  photo_url?: string | null
+  initials?: string
 }
 
 type ReportTotals = {
@@ -495,8 +504,9 @@ function CollegePerson() {
     }
   }
   const showMoney = can(me?.role).seeMoney
-  const [editing, setEditing] = useState(false)
+  const manages = can(me?.role).manageUsers
   const [resetting, setResetting] = useState(false)
+  const [viewing, setViewing] = useState(false)
 
   const {
     data: report,
@@ -624,7 +634,12 @@ function CollegePerson() {
       </Link>
 
       <header className="page-head">
-        <div className="space-y-1">
+        <div className="flex min-w-0 items-center gap-4">
+        <Avatar
+          person={{ name: faculty.name || faculty.email, initials: faculty.initials ?? "", photo_url: faculty.photo_url ?? null }}
+          size="lg"
+        />
+        <div className="min-w-0 space-y-1">
           <PageTitle>{faculty.name || faculty.email}</PageTitle>
           <Sub>
             {roleLabel(faculty.role)}
@@ -632,10 +647,14 @@ function CollegePerson() {
               ? ` · ${[faculty.department, faculty.designation].filter(Boolean).join(" · ")}`
               : ""}
           </Sub>
-          <Meta className="block">{faculty.email}</Meta>
+          <Meta className="block break-all">
+            {faculty.email}
+            {!faculty.active && <span className="ml-2 text-critical">Inactive</span>}
+          </Meta>
         </div>
-        {can(me?.role).manageUsers && id && (
-          <div className="flex shrink-0 gap-2">
+        </div>
+        {manages && id && (
+          <div className="flex flex-wrap gap-2">
             {/* Claimants only -- faculty, and a head of department, who is
                 faculty too. A claim belongs to the person who published the
                 paper, and the server refuses an owner who is not one
@@ -648,14 +667,6 @@ function CollegePerson() {
                 </Link>
               </Button>
             )}
-            <Button kind="default" size="md" onClick={() => setEditing(true)}>
-              <Pencil />
-              Edit account
-            </Button>
-            <Button kind="quiet" size="md" onClick={() => setResetting(true)}>
-              <KeyRound />
-              Set a password
-            </Button>
           </div>
         )}
         <HeaderSpot name="spot-profile" />
@@ -674,14 +685,30 @@ function CollegePerson() {
             </Button>
           </>
         )}
-        {me?.role === "SUPER_ADMIN" && id && faculty.role !== "SUPER_ADMIN" && (
-          <Button kind="quiet" size="sm" className="ml-auto" onClick={() => void viewAs()}>
-            View the app as {firstName(faculty.name) || "them"}
-          </Button>
-        )}
       </div>
 
-      {editing && id && <AccountEditor userId={id} onClose={() => setEditing(false)} />}
+      {manages && id && (
+        <section className="space-y-2" aria-labelledby="person-account">
+          <SectionTitle>
+            <span id="person-account">Account</span>
+          </SectionTitle>
+          <AccountForm
+            userId={id}
+            onResetPassword={() => setResetting(true)}
+            onViewAs={() => setViewing(true)}
+            canViewAs={me?.role === "SUPER_ADMIN" && faculty.role !== "SUPER_ADMIN" && me?.id !== id}
+          />
+        </section>
+      )}
+      {manages && id && <PersonAudit userId={id} />}
+      <ConfirmDialog
+        open={viewing}
+        onOpenChange={setViewing}
+        title={`View the app as ${firstName(faculty.name) || "them"}?`}
+        description="You see exactly what they see, read-only in spirit: anything you do is done as them. The start and the end are written to the audit log, and a banner stays up until you stop."
+        confirmLabel={`View as ${firstName(faculty.name) || "them"}`}
+        onConfirm={() => viewAs()}
+      />
       {resetting && id && (
         <PasswordReset
           userId={id}
@@ -697,7 +724,10 @@ function CollegePerson() {
         </Callout>
       )}
 
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
+      {manages && (
+        <SectionTitle>Publication record</SectionTitle>
+      )}
+      <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-3">
         <Figure label="Publications" value={String(totals.publications)} />
         <Figure
           label="Paid"
@@ -1098,10 +1128,10 @@ function ReplaceHead({
 }) {
   const name = current.name || current.email
   return (
-    <Callout tone="caution" title={`${name} is HOD of ${department} — replace?`}>
+    <Callout tone="caution" title={`${name} is HOD of ${department}. Replace them?`}>
       <p>
         A department has one head. Replacing makes {newHead} head of {department}, and {name}{" "}
-        goes back to being faculty — both in the same save, and both in the audit log.
+        goes back to being faculty. Both happen in the same save, and both go in the audit log.
       </p>
       <div className="mt-2">
         <Checkbox
@@ -1115,7 +1145,7 @@ function ReplaceHead({
 }
 
 /* ------------------------------------------------------------------------ */
-/* AccountEditor — the one place a person's details are changed             */
+/* AccountForm — the one place a person's details are changed               */
 /* ------------------------------------------------------------------------ */
 
 /** Everything `PATCH /api/admin/users/{id}` will take. */
@@ -1138,6 +1168,7 @@ type AccountDetail = AccountFields & {
   id: string
   email: string
   employee_id: string | null
+  orcid_id?: string | null
   must_change_password: boolean
   stats: {
     claims: number
@@ -1148,30 +1179,73 @@ type AccountDetail = AccountFields & {
   }
 }
 
+/** Mirrors `PRIVILEGED_ROLES` in core/api/admin.py: only a super admin
+ *  appoints a role that decides whether money moves. */
+const PRIVILEGED: Role[] = ["SUPER_ADMIN", "DIRECTOR", "FINANCE"]
+
+const FIELD_NAME: Record<string, string> = {
+  name: "Full name",
+  department: "Department",
+  designation: "Designation",
+  staff_id: "Staff ID",
+  biometric_id: "Biometric ID",
+  scopus_author_url: "Scopus link",
+  scopus_author_id: "Scopus ID",
+  role: "Role",
+  active: "Active",
+  faculty_type: "Research faculty",
+  research_quota: "Quota",
+  research_quota_note: "Quota note",
+}
+
+/** One section of the form: a title and a sentence on the left, the fields
+ *  on the right, a hairline between sections. */
+function FormSection({
+  title,
+  sentence,
+  children,
+}: {
+  title: string
+  sentence: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-3 border-t border-line pt-6 md:grid-cols-[15rem_minmax(0,1fr)]">
+      <div>
+        <h3 className="text-base font-medium">{title}</h3>
+        <p className="mt-1 text-sm text-fg-muted">{sentence}</p>
+      </div>
+      <div className="min-w-0 max-w-xl space-y-4">{children}</div>
+    </section>
+  )
+}
+
 /**
  * Two tiers of field, and the split is the point of the screen.
  *
- * **Routing** — role, department, whether the account is active — is the
- * research cell's ordinary work. People move between departments as a matter
- * of course.
+ * **Routing** (role, department, whether the account is active) is the office's
+ * ordinary work. **Identity** (name, designation, staff ID, biometric ID, the
+ * Scopus link) is a super admin's alone, and the server refuses everyone else
+ * field by field. The research post and its quota belong to the research
+ * coordinator as well (`may_set_field` in core/api/auth.py).
  *
- * **Identity** — name, designation, staff ID, biometric ID, the Scopus link —
- * is a super admin's alone, and the server refuses everyone else field by
- * field. The reason is not seniority: the research cell processes the claims
- * these fields decide the outcome of, so it cannot also set them. A Scopus
- * link pointed at the wrong profile is how a paper gets attributed to another
- * author, and a staff ID is what the payment is made against.
- *
- * So the identity fields are shown to the research cell and disabled, with
- * that sentence beside them. Hiding them would make the page look like it was
- * missing something; offering them would be a guaranteed 403.
+ * Fields a role may not set are shown disabled with the reason beside them:
+ * hiding them would make the page look like it was missing something, and
+ * offering them would be a guaranteed 403.
  */
-function AccountEditor({ userId, onClose }: { userId: string; onClose: () => void }) {
+function AccountForm({
+  userId,
+  onResetPassword,
+  onViewAs,
+  canViewAs,
+}: {
+  userId: string
+  onResetPassword: () => void
+  onViewAs: () => void
+  canViewAs: boolean
+}) {
   const { me } = useAuth()
   const isSuperAdmin = can(me?.role).admin
-  // Mirrors `may_set_field` in core/api/auth.py: the research coordinator
-  // runs the research programme, so whether somebody holds a research post
-  // and its quota are theirs to set as well as a super admin's.
   const mayEditPost = isSuperAdmin || me?.role === "RESEARCH_COORDINATOR"
   const editingSelf = me?.id === userId
 
@@ -1182,36 +1256,43 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
   const departments = useApi<string[]>(["meta", "departments"], "/api/meta/departments")
 
   const [form, setForm] = useState<AccountFields | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  function fromData(d: AccountDetail): AccountFields {
+    return {
+      name: d.name || "",
+      department: d.department || "",
+      designation: d.designation || "",
+      staff_id: d.staff_id || "",
+      biometric_id: d.biometric_id || "",
+      scopus_author_url: d.scopus_author_url || "",
+      scopus_author_id: d.scopus_author_id || "",
+      role: d.role,
+      active: d.active,
+      faculty_type: d.faculty_type || "REGULAR",
+      research_quota: d.research_quota,
+      research_quota_note: d.research_quota_note || "",
+    }
+  }
   useEffect(() => {
-    if (!data) return
-    setForm({
-      name: data.name || "",
-      department: data.department || "",
-      designation: data.designation || "",
-      staff_id: data.staff_id || "",
-      biometric_id: data.biometric_id || "",
-      scopus_author_url: data.scopus_author_url || "",
-      scopus_author_id: data.scopus_author_id || "",
-      role: data.role,
-      active: data.active,
-      faculty_type: data.faculty_type || "REGULAR",
-      research_quota: data.research_quota,
-      research_quota_note: data.research_quota_note || "",
-    })
+    if (data) setForm(fromData(data))
   }, [data])
 
   const save = useApiMutation<Partial<AccountFields> & { replace_hod?: boolean }, AccountDetail>(
     `/api/admin/users/${userId}`,
     {
       method: "PATCH",
-      invalidates: [["admin", "user", userId], ["people"], ["faculty-report", userId]],
+      invalidates: [
+        ["admin", "user", userId],
+        ["people"],
+        ["faculty-report", userId],
+        ["person-audit", userId],
+      ],
     }
   )
 
   const head = useHeadInPost(form?.role ?? "", form?.department ?? "", userId)
-  // The server checks the post only when a save changes who holds it -- the
-  // role, the department, or whether the account is on -- and only for an
-  // account left on: one switched off holds no post. So does this.
+  // The server checks the post only when a save changes who holds it, and
+  // only for an account left on: one switched off holds no post.
   const takesPost =
     !!form &&
     !!data &&
@@ -1226,269 +1307,417 @@ function AccountEditor({ userId, onClose }: { userId: string; onClose: () => voi
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev))
   }
 
-  async function submit() {
-    if (!form || !data) return
-    // Only what actually moved. Sending the whole form would put every
-    // identity field in the request, and the server refuses the request for
-    // a research-cell account the moment one of them is present — even
-    // unchanged. Empty is empty whichever way it is spelt: comparing an
-    // empty quota (null) with "" sent `research_quota` on every save, and the
-    // research cell was refused every save it made.
-    const patch: Partial<AccountFields> & { replace_hod?: boolean } = {}
+  // Only what actually moved. The server refuses the whole request for a
+  // non-admin the moment an identity field is present, even unchanged, and
+  // an empty quota (null) must compare equal to an empty string.
+  const patch: Partial<AccountFields> & { replace_hod?: boolean } = {}
+  if (form && data) {
     for (const key of Object.keys(form) as (keyof AccountFields)[]) {
       if ((form[key] ?? "") !== (data[key] ?? "")) {
-        // @ts-expect-error — narrowed by the key loop, which TS cannot follow
+        // @ts-expect-error narrowed by the key loop, which TS cannot follow
         patch[key] = form[key]
       }
     }
-    if (Object.keys(patch).length === 0) {
-      onClose()
-      return
-    }
-    if (mustReplace && head.replace) patch.replace_hod = true
+  }
+  const changes = Object.keys(patch).length
+  const roleChanged = "role" in patch
+  const deactivating = patch.active === false
+  const dangerous = roleChanged || deactivating
+  const verb = deactivating ? "Deactivate" : roleChanged ? "Change role" : "Save changes"
+
+  async function submit() {
+    if (!form || !data || changes === 0) return
+    const body = { ...patch }
+    if (mustReplace && head.replace) body.replace_hod = true
+    const who = data.name || data.email
     try {
-      await save.mutateAsync(patch)
+      await save.mutateAsync(body)
       toast.ok(
-        `Saved — ${Object.keys(patch).length} ${Object.keys(patch).length === 1 ? "change" : "changes"} to ${data.name || data.email}`
+        deactivating
+          ? `Deactivated ${who}`
+          : roleChanged
+            ? `Changed role: ${who} is now ${roleLabel(form.role)}`
+            : `Saved ${changes} ${changes === 1 ? "change" : "changes"} to ${who}`
       )
-      onClose()
     } catch (err) {
       toast.fail(err)
     }
   }
 
-  const roleOptions: ComboboxOption[] = ASSIGNABLE_ROLE_KEYS.map((r) => ({
-    value: r,
-    label: ROLE_CHOICE_LABEL[r],
-  }))
+  if (error) {
+    return (
+      <ErrorState
+        title="Could not load this account"
+        message={
+          error.status === 403
+            ? "Only the office and a super admin can edit accounts."
+            : "The server did not answer. Nothing has been lost."
+        }
+      />
+    )
+  }
+  if (isLoading || !form || !data) return <SkeletonRows rows={6} rowHeight={40} />
+
+  const targetPrivileged = PRIVILEGED.includes(data.role)
+  const roleLocked = editingSelf || (!isSuperAdmin && targetPrivileged)
+  const roleOptions: ComboboxOption[] = ASSIGNABLE_ROLE_KEYS.filter(
+    (r) => isSuperAdmin || !PRIVILEGED.includes(r) || r === data.role
+  ).map((r) => ({ value: r, label: ROLE_CHOICE_LABEL[r] }))
   const departmentOptions: ComboboxOption[] = [
     { value: "", label: "No department" },
     ...(departments.data ?? []).map((d) => ({ value: d, label: d })),
   ]
+  const identityHint = isSuperAdmin
+    ? undefined
+    : "Only a super admin can change this."
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent size="md">
-        <DialogHeader>
-          <DialogTitle>Edit this account</DialogTitle>
-          <DialogDescription>
-            {data?.email}
-            {data?.employee_id ? ` · ${data.employee_id}` : ""}. Every change is written to
-            the audit log with what it was before.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody className="space-y-5">
-          {isLoading || !form ? (
-            <SkeletonRows rows={5} rowHeight={40} />
-          ) : error ? (
-            <ErrorState
-              title="Could not load this account"
-              message={
-                error.status === 403
-                  ? "Only the research cell and a super admin can edit accounts."
-                  : "The server did not answer."
-              }
+    <form
+      aria-label="Account"
+      className="space-y-6"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (dangerous) setConfirming(true)
+        else void submit()
+      }}
+    >
+      {data.stats.claims > 0 && (
+        <Callout tone="info" title="This account has a record behind it">
+          {data.stats.claims} papers, {data.stats.paid_claims} of them paid. Changing the staff or
+          biometric ID changes what future payments are made against; it does not rewrite what
+          has already been paid.
+        </Callout>
+      )}
+
+      <FormSection
+        title="Identity"
+        sentence={
+          isSuperAdmin
+            ? "Who they are on paper. The staff ID is what a payment is made against."
+            : "A super admin's to change. The office clears the claims these decide, so it cannot also set them."
+        }
+      >
+        <Field label="Full name" hint={identityHint}>
+          <Input value={form.name} onChange={(e) => set("name", e.target.value)} disabled={!isSuperAdmin} />
+        </Field>
+        <Field label="Designation">
+          <Input
+            value={form.designation}
+            onChange={(e) => set("designation", e.target.value)}
+            disabled={!isSuperAdmin}
+          />
+        </Field>
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2">
+          <Field label="Staff ID">
+            <Input value={form.staff_id} onChange={(e) => set("staff_id", e.target.value)} disabled={!isSuperAdmin} />
+          </Field>
+          <Field label="Biometric ID">
+            <Input
+              value={form.biometric_id}
+              onChange={(e) => set("biometric_id", e.target.value)}
+              disabled={!isSuperAdmin}
             />
+          </Field>
+        </div>
+        {data.employee_id && <Meta className="block">Employee ID {data.employee_id}</Meta>}
+      </FormSection>
+
+      <FormSection
+        title="Role and department"
+        sentence="What this account may do, and which head sees their work. A department has one head."
+      >
+        <Field
+          label="Role"
+          hint={
+            editingSelf
+              ? "You cannot change your own role. Ask another admin."
+              : roleLocked
+                ? "Only a super admin can change a role that decides whether money moves."
+                : "A head of department is faculty who also heads the department."
+          }
+        >
+          <Combobox
+            value={form.role}
+            onChange={(v) => set("role", v as Role)}
+            options={roleOptions}
+            disabled={roleLocked}
+          />
+        </Field>
+        <Field
+          label="Department"
+          error={takesPost && head.noDepartment ? HEAD_NEEDS_DEPARTMENT : undefined}
+        >
+          <Combobox
+            value={form.department}
+            onChange={(v) => set("department", v)}
+            options={departmentOptions}
+            placeholder="No department"
+          />
+        </Field>
+        {mustReplace && head.current && (
+          <ReplaceHead
+            current={head.current}
+            department={head.dept}
+            newHead={data.name || data.email}
+            checked={head.replace}
+            onChange={head.setReplace}
+          />
+        )}
+      </FormSection>
+
+      <FormSection
+        title="Research faculty and quota"
+        sentence={
+          mayEditPost
+            ? "A research post is paid to do research, so the scheme rewards only what exceeds the quota."
+            : "Set by the research coordinator or a super admin. The office clears the claims the quota decides."
+        }
+      >
+        <Checkbox
+          checked={form.faculty_type === "RESEARCH"}
+          onCheckedChange={(v) => set("faculty_type", v === true ? "RESEARCH" : "REGULAR")}
+          disabled={!mayEditPost}
+          label="Research faculty"
+          hint="Their first papers each year, up to the quota, carry no remuneration."
+        />
+        {form.faculty_type === "RESEARCH" && (
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-[10rem_minmax(0,1fr)]">
+            <Field label="Papers a year before any incentive">
+              <Input
+                value={form.research_quota == null ? "" : String(form.research_quota)}
+                onChange={(e) => {
+                  const n = Number.parseInt(e.target.value, 10)
+                  set("research_quota", Number.isFinite(n) && n >= 0 ? n : null)
+                }}
+                inputMode="numeric"
+                placeholder="No quota"
+                disabled={!mayEditPost}
+              />
+            </Field>
+            <Field label="Where the number came from">
+              <Input
+                value={form.research_quota_note}
+                onChange={(e) => set("research_quota_note", e.target.value)}
+                placeholder="Agreed in the appointment letter"
+                disabled={!mayEditPost}
+              />
+            </Field>
+          </div>
+        )}
+        {form.faculty_type === "RESEARCH" && form.research_quota != null && (
+          <Meta className="block">
+            With a quota of {form.research_quota}, paper {form.research_quota + 1} onwards each year is
+            paid. Leave it empty and nothing is zeroed.
+          </Meta>
+        )}
+      </FormSection>
+
+      <FormSection
+        title="Scopus and ORCID"
+        sentence="The profile a paper is checked against. The wrong one attributes their work to somebody else."
+      >
+        <Field label="Scopus author ID" hint={identityHint}>
+          <Input
+            value={form.scopus_author_id}
+            onChange={(e) => set("scopus_author_id", e.target.value)}
+            disabled={!isSuperAdmin}
+            inputMode="numeric"
+          />
+        </Field>
+        <Field label="Scopus author link">
+          <Input
+            value={form.scopus_author_url}
+            onChange={(e) => set("scopus_author_url", e.target.value)}
+            disabled={!isSuperAdmin}
+          />
+        </Field>
+        <p className="text-sm">
+          <span className="text-fg-muted">ORCID </span>
+          {data.orcid_id ? (
+            <a
+              className="underline decoration-line underline-offset-2 hover:decoration-fg"
+              href={`https://orcid.org/${data.orcid_id}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {data.orcid_id}
+            </a>
           ) : (
-            <>
-              {data && data.stats.claims > 0 && (
-                <Callout tone="info" title="This account has a record behind it">
-                  {data.stats.claims} papers, {data.stats.paid_claims} of them paid. Changing the
-                  staff or biometric ID changes what future payments are made against; it does
-                  not rewrite what has already been paid.
-                </Callout>
-              )}
-
-              {/* ---- routing: the research cell's ordinary work ---- */}
-              <fieldset className="space-y-4">
-                <legend className="text-sm font-medium">Where they sit</legend>
-
-                <Field
-                  label="Department"
-                  hint="Decides which head sees them and which department their output counts towards."
-                  error={takesPost && head.noDepartment ? HEAD_NEEDS_DEPARTMENT : undefined}
-                >
-                  <Combobox
-                    value={form.department}
-                    onChange={(v) => set("department", v)}
-                    options={departmentOptions}
-                    placeholder="No department"
-                  />
-                </Field>
-
-                <Field
-                  label="Role"
-                  hint={
-                    editingSelf
-                      ? "You cannot change your own role — ask another admin."
-                      : "What this account may do. A head of department is faculty who also heads the department, one per department."
-                  }
-                >
-                  <Combobox
-                    value={form.role}
-                    onChange={(v) => set("role", v as Role)}
-                    options={roleOptions}
-                    disabled={editingSelf}
-                  />
-                </Field>
-
-                {mustReplace && head.current && (
-                  <ReplaceHead
-                    current={head.current}
-                    department={head.dept}
-                    newHead={data?.name || data?.email || "this account"}
-                    checked={head.replace}
-                    onChange={head.setReplace}
-                  />
-                )}
-
-                <Checkbox
-                  checked={form.active}
-                  onCheckedChange={(v) => set("active", v === true)}
-                  disabled={editingSelf}
-                  label="Active"
-                  hint={
-                    editingSelf
-                      ? "You cannot deactivate the account you are signed in as."
-                      : "An inactive account cannot sign in. Its papers and payments stay on record."
-                  }
-                />
-              </fieldset>
-
-              {/* ---- identity: super admin only ---- */}
-              <fieldset className="space-y-4 border-t border-line pt-4">
-                <legend className="text-sm font-medium">Who they are</legend>
-
-                {!isSuperAdmin && (
-                  <Callout tone="caution" title="Only a super admin can change these">
-                    They decide who gets paid and whose record a paper is checked against — and
-                    the research cell processes the claims they decide the outcome of, so it
-                    cannot also set them.
-                  </Callout>
-                )}
-
-                <Field label="Full name">
-                  <Input
-                    value={form.name}
-                    onChange={(e) => set("name", e.target.value)}
-                    disabled={!isSuperAdmin}
-                  />
-                </Field>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Designation">
-                    <Input
-                      value={form.designation}
-                      onChange={(e) => set("designation", e.target.value)}
-                      disabled={!isSuperAdmin}
-                    />
-                  </Field>
-                  <Field label="Staff ID" hint="What the payment is made against.">
-                    <Input
-                      value={form.staff_id}
-                      onChange={(e) => set("staff_id", e.target.value)}
-                      disabled={!isSuperAdmin}
-                    />
-                  </Field>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Biometric ID">
-                    <Input
-                      value={form.biometric_id}
-                      onChange={(e) => set("biometric_id", e.target.value)}
-                      disabled={!isSuperAdmin}
-                    />
-                  </Field>
-                  <Field label="Scopus author ID">
-                    <Input
-                      value={form.scopus_author_id}
-                      onChange={(e) => set("scopus_author_id", e.target.value)}
-                      disabled={!isSuperAdmin}
-                    />
-                  </Field>
-                </div>
-
-                <Field
-                  label="Scopus author link"
-                  hint="Points at the profile a paper is checked against. The wrong one attributes their work to somebody else."
-                >
-                  <Input
-                    value={form.scopus_author_url}
-                    onChange={(e) => set("scopus_author_url", e.target.value)}
-                    disabled={!isSuperAdmin}
-                  />
-                </Field>
-              </fieldset>
-
-              {/* ---- what the post is expected to produce ---- */}
-              <fieldset className="space-y-4 border-t border-line pt-4">
-                <legend className="text-sm font-medium">What the post expects</legend>
-
-                {!mayEditPost && (
-                  <p className="text-sm text-fg-muted">
-                    Set by the research coordinator or a super admin. The research cell clears
-                    the claims the quota decides, so it cannot also set it.
-                  </p>
-                )}
-
-                <Checkbox
-                  checked={form.faculty_type === "RESEARCH"}
-                  onCheckedChange={(v) => set("faculty_type", v === true ? "RESEARCH" : "REGULAR")}
-                  disabled={!mayEditPost}
-                  label="Research faculty"
-                  hint="A research post is already paid to do research, so the scheme rewards only what exceeds the quota."
-                />
-
-                {form.faculty_type === "RESEARCH" && (
-                  <>
-                    <div className="grid gap-4 sm:grid-cols-[10rem_minmax(0,1fr)]">
-                      <Field label="Papers a year before any incentive">
-                        <Input
-                          value={form.research_quota == null ? "" : String(form.research_quota)}
-                          onChange={(e) => {
-                            const n = Number.parseInt(e.target.value, 10)
-                            set("research_quota", Number.isFinite(n) && n >= 0 ? n : null)
-                          }}
-                          inputMode="numeric"
-                          placeholder="No quota"
-                          disabled={!mayEditPost}
-                        />
-                      </Field>
-                      <Field label="Where the number came from">
-                        <Input
-                          value={form.research_quota_note}
-                          onChange={(e) => set("research_quota_note", e.target.value)}
-                          placeholder="Agreed in the appointment letter"
-                          disabled={!mayEditPost}
-                        />
-                      </Field>
-                    </div>
-                    <Callout tone="caution" title="Papers up to the quota are paid nothing">
-                      With a quota of four, their first four papers each year carry no
-                      remuneration and only the fifth onwards is reimbursed. Leave it empty
-                      and nothing is zeroed.
-                    </Callout>
-                  </>
-                )}
-              </fieldset>
-            </>
+            <span className="text-fg-muted">not added yet. They add it on their own profile.</span>
           )}
-        </DialogBody>
-        <DialogFooter>
-          <Button kind="quiet" onClick={onClose} disabled={save.isPending}>
-            Cancel
+        </p>
+      </FormSection>
+
+      <FormSection
+        title="Account and sign-in"
+        sentence="An inactive account cannot sign in. Its papers and payments stay on record."
+      >
+        <Checkbox
+          checked={form.active}
+          onCheckedChange={(v) => set("active", v === true)}
+          disabled={editingSelf}
+          label="Active"
+          hint={editingSelf ? "You cannot deactivate the account you are signed in as." : undefined}
+        />
+        <p className="text-sm text-fg-muted">
+          {data.must_change_password
+            ? "They will be asked to choose a new password the next time they sign in."
+            : "They sign in with their own password or their college Google account."}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" kind="default" size="sm" onClick={onResetPassword}>
+            <KeyRound />
+            Reset password
           </Button>
-          <Button
-            kind="primary"
-            disabled={!form || save.isPending || blocked}
-            onClick={() => void submit()}
-          >
-            {save.isPending ? "Saving…" : "Save changes"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          {canViewAs && (
+            <Button type="button" kind="quiet" size="sm" onClick={onViewAs}>
+              <Eye />
+              View the app as {firstName(data.name) || "them"}
+            </Button>
+          )}
+          {(
+            <Button type="button" kind="quiet" size="sm" asChild>
+              <Link to="/people/matches?tab=duplicates">
+                <Users />
+                Link a duplicate account
+              </Link>
+            </Button>
+          )}
+        </div>
+      </FormSection>
+
+      <div
+        className={cn(
+          "sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-end gap-2 border-t border-line bg-canvas/95 px-1 py-3 backdrop-blur",
+          changes === 0 && "static"
+        )}
+      >
+        <Meta className="mr-auto" aria-live="polite">
+          {changes === 0
+            ? "No unsaved changes."
+            : `${changes} unsaved ${changes === 1 ? "change" : "changes"}: ${Object.keys(patch)
+                .map((k) => FIELD_NAME[k] ?? k)
+                .join(", ")}`}
+        </Meta>
+        <Button
+          type="button"
+          kind="quiet"
+          disabled={changes === 0 || save.isPending}
+          onClick={() => setForm(fromData(data))}
+        >
+          Discard
+        </Button>
+        <Button type="submit" kind="primary" disabled={changes === 0 || save.isPending || blocked}>
+          {save.isPending ? "Saving…" : "Save changes"}
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={
+          deactivating
+            ? `Deactivate ${data.name || data.email}?`
+            : `Change ${firstName(data.name) || "their"}'s role to ${roleLabel(form.role)}?`
+        }
+        description={
+          deactivating
+            ? "They will not be able to sign in. Their papers and payments stay on record, and you can switch the account back on."
+            : `From ${roleLabel(data.role)} to ${roleLabel(form.role)}. What they can see and approve changes the moment you save. It is written to the audit log.`
+        }
+        confirmLabel={verb}
+        danger
+        onConfirm={() => submit()}
+      />
+    </form>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* PersonAudit — who changed what on this account                           */
+/* ------------------------------------------------------------------------ */
+
+type AuditRow = {
+  id: string
+  action: string
+  entity: string
+  entity_id: string
+  actor: string | null
+  detail_json: string | null
+  created_at: string
+}
+
+const AUDIT_VERB: Record<string, string> = {
+  USER_CREATE: "created the account",
+  USER_UPDATE: "changed",
+  USER_RESET_PASSWORD: "reset the password",
+  IMPERSONATE_START: "started viewing the app as them",
+  IMPERSONATE_STOP: "stopped viewing the app as them",
+}
+
+function showValue(key: string, v: unknown): string {
+  if (v === null || v === undefined || v === "") return "empty"
+  if (key === "role") return roleLabel(String(v))
+  if (key === "active") return v ? "on" : "off"
+  if (key === "faculty_type") return v === "RESEARCH" ? "yes" : "no"
+  return String(v)
+}
+
+function PersonAudit({ userId }: { userId: string }) {
+  const { data, isLoading, isError } = useApi<{ results: AuditRow[] }>(
+    ["person-audit", userId],
+    `/api/admin/audit?${new URLSearchParams({ q: userId, limit: "30" })}`
+  )
+  const rows = (data?.results ?? []).filter((r) => r.entity === "User" && r.entity_id === userId)
+  return (
+    <section className="space-y-3" aria-labelledby="person-history">
+      <SectionTitle>
+        <span id="person-history">Who changed what</span>
+      </SectionTitle>
+      {isError ? (
+        <Meta>The audit log is not open to this account.</Meta>
+      ) : isLoading ? (
+        <SkeletonRows rows={3} />
+      ) : rows.length === 0 ? (
+        <Meta>No changes recorded for this account yet.</Meta>
+      ) : (
+        <ol className="divide-y divide-line">
+          {rows.map((r) => {
+            let diff: Record<string, { from: unknown; to: unknown }> = {}
+            try {
+              diff = r.detail_json ? JSON.parse(r.detail_json) : {}
+            } catch {
+              diff = {}
+            }
+            const lines = r.action === "USER_UPDATE" ? Object.entries(diff) : []
+            return (
+              <li key={r.id} className="py-2.5 text-sm">
+                <p>
+                  <span className="font-medium">{r.actor ?? "The system"}</span>{" "}
+                  {AUDIT_VERB[r.action] ?? r.action.replace(/_/g, " ").toLowerCase()}
+                  {r.action === "USER_UPDATE" && lines.length === 0 ? " nothing" : ""}
+                  <Meta className="ml-2">
+                    {new Date(r.created_at).toLocaleString(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </Meta>
+                </p>
+                {lines.length > 0 && (
+                  <ul className="mt-1 space-y-0.5 text-fg-muted">
+                    {lines.map(([k, v]) => (
+                      <li key={k}>
+                        {FIELD_NAME[k] ?? k}: {showValue(k, v?.from)} to {showValue(k, v?.to)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+    </section>
   )
 }
 
@@ -1529,7 +1758,7 @@ function PasswordReset({
   async function submit() {
     try {
       await reset.mutateAsync({ password })
-      toast.ok(`Password set for ${name} — they must change it when they sign in`)
+      toast.ok(`Password reset for ${name}. They must change it when they sign in.`)
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -1540,7 +1769,7 @@ function PasswordReset({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Set a password</DialogTitle>
+          <DialogTitle>Reset password</DialogTitle>
           <DialogDescription>For {name}.</DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
@@ -1572,7 +1801,7 @@ function PasswordReset({
             Cancel
           </Button>
           <Button kind="primary" disabled={!canSubmit} onClick={() => void submit()}>
-            {reset.isPending ? "Setting…" : "Set the password"}
+            {reset.isPending ? "Resetting…" : "Reset password"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1657,7 +1886,7 @@ function NewAccount({ onClose }: { onClose: () => void }) {
         </DialogHeader>
         <DialogBody className="space-y-4">
           <Callout tone="info" title="No password is set here">
-            The account is created without one. Use "Set a password" on their
+            The account is created without one. Use "Reset password" on their
             record afterwards and hand the value over, or let them sign in with
             the Google account for their email.
           </Callout>

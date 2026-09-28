@@ -362,6 +362,187 @@
           "page": "Offline banner / network error"
         }
       ]
+    },
+    {
+      "id": "sheet08",
+      "raw": "sheet08_empty_states_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Empty-state spot illustrations, each a small quiet scene with one gentle focal object and lots of space: (1) a desk bell resting with a tiny 'z' breath curl and a leaf, calm — 'no notifications'; (2) an empty park bench under a small tree — 'no discussions yet'; (3) an empty wooden display shelf with one small star-shaped outline waiting — 'no badges yet'; (4) a single chair beside a small table with a second chair's dashed outline — 'no collaborators yet'; (5) a flagpole with the flag lowered and folded neatly at its base, sun behind — 'no flags, all clear'; (6) an empty open wooden crate with a single leaf inside — 'nothing imported yet'.",
+      "assets": [
+        {
+          "name": "empty-no-notifications",
+          "category": "empty-state",
+          "purpose": "No notifications",
+          "page": "Notifications"
+        },
+        {
+          "name": "empty-no-discussions",
+          "category": "empty-state",
+          "purpose": "No discussions yet",
+          "page": "Discussions"
+        },
+        {
+          "name": "empty-no-badges",
+          "category": "empty-state",
+          "purpose": "No badges earned yet",
+          "page": "Profile badge shelf"
+        },
+        {
+          "name": "empty-no-collaborators",
+          "category": "empty-state",
+          "purpose": "No collaborators yet",
+          "page": "Who to work with, Profile"
+        },
+        {
+          "name": "empty-no-flags",
+          "category": "empty-state",
+          "purpose": "No open flags — all clear",
+          "page": "Flags"
+        },
+        {
+          "name": "empty-no-imports",
+          "category": "empty-state",
+          "purpose": "Nothing imported yet",
+          "page": "Imports"
+        }
+      ]
+    },
+    {
+      "id": "sheet09",
+      "raw": "sheet09_empty_error_c.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Empty and error-state spot illustrations, each a small quiet scene with one gentle focal object: (1) a blank notepad with a pencil resting diagonally across it — 'no drafts'; (2) a closed arched wooden door with a small padlock and a potted plant beside it — 'access restricted'; (3) an hourglass with the sand run out and a small moon — 'session expired, please sign in again'; (4) a sheet of paper with a folded corner and a small cloud with a gentle curved return arrow — 'upload failed, try again'; (5) an empty open envelope with nothing inside and a leaf — 'no payouts yet'; (6) an empty archive box with its lid leaning against it — 'archive empty'.",
+      "assets": [
+        {
+          "name": "empty-no-drafts",
+          "category": "empty-state",
+          "purpose": "No drafts",
+          "page": "File a paper (drafts), My papers"
+        },
+        {
+          "name": "error-access-denied",
+          "category": "error-state",
+          "purpose": "Access restricted (403)",
+          "page": "403 / role-gated pages"
+        },
+        {
+          "name": "error-session-expired",
+          "category": "error-state",
+          "purpose": "Session expired — sign in again",
+          "page": "Auth expiry screen"
+        },
+        {
+          "name": "error-upload-failed",
+          "category": "error-state",
+          "purpose": "Upload failed — try again",
+          "page": "Attachments, File a paper"
+        },
+        {
+          "name": "empty-no-payouts",
+          "category": "empty-state",
+          "purpose": "No payouts yet",
+          "page": "Payouts"
+        },
+        {
+          "name": "empty-archive",
+          "category": "empty-state",
+          "purpose": "Archive is empty",
+          "page": "Archive"
+        }
+      ]
+    },
+    {
+      "id": "sheet10",
+      "raw": "sheet10_onboarding.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Onboarding / first-run illustrations, warm and encouraging, one focal object each: (1) an open arched doorway with warm light spilling out and a doormat with a leaf — 'welcome'; (2) a chain link joining a blank identity card to a closed book — 'link your author ID'; (3) a profile card with an abstract faceless silhouette and a short checklist being ticked by a pencil — 'complete your profile'; (4) a single sheet of paper with a small sprout growing from its top edge — 'file your first paper'; (5) a sealed envelope with two small hands reaching toward it from either side — 'invite a colleague'; (6) a small pennant flag on top of a gentle hill with a winding path leading up — 'you are all set'.",
+      "assets": [
+        {
+          "name": "onboard-welcome",
+          "category": "onboarding",
+          "purpose": "Welcome / first sign-in",
+          "page": "Setup step 1, first-run modal"
+        },
+        {
+          "name": "onboard-link-author-id",
+          "category": "onboarding",
+          "purpose": "Link your Scopus / author ID",
+          "page": "Setup, Profile"
+        },
+        {
+          "name": "onboard-complete-profile",
+          "category": "onboarding",
+          "purpose": "Complete your profile",
+          "page": "Setup, Profile"
+        },
+        {
+          "name": "onboard-first-paper",
+          "category": "onboarding",
+          "purpose": "File your first paper (tip)",
+          "page": "Home (faculty) first-run tip, File a paper"
+        },
+        {
+          "name": "onboard-invite-colleague",
+          "category": "onboarding",
+          "purpose": "Invite a colleague / co-author",
+          "page": "Who to work with, Setup"
+        },
+        {
+          "name": "onboard-all-set",
+          "category": "onboarding",
+          "purpose": "Setup complete",
+          "page": "Setup final step"
+        }
+      ]
+    },
+    {
+      "id": "sheet11",
+      "raw": "sheet11_celebrations.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Milestone and celebration illustrations, joyful but calm, one focal object each with a few confetti dots and small sparkles in palette colours: (1) a single research paper lifted up with confetti around it — 'first publication'; (2) a tall neat stack of bound papers with a star on top — 'ten papers milestone'; (3) a journal with a gold ribbon rosette pinned to its cover — 'top-quartile journal'; (4) a large pair of quotation marks with sparkles and a small upward arrow — 'first citation'; (5) a trophy cup with a small college building engraved as a simple shape and laurel leaves — 'department in the top ten'; (6) a paper lantern gently rising with a few stars — 'anniversary and thank-you'.",
+      "assets": [
+        {
+          "name": "celebrate-first-publication",
+          "category": "celebration",
+          "purpose": "First publication moment",
+          "page": "Filing receipt, Moments"
+        },
+        {
+          "name": "celebrate-ten-papers",
+          "category": "celebration",
+          "purpose": "Paper-count milestone (5/10/25)",
+          "page": "Moments, Profile"
+        },
+        {
+          "name": "celebrate-top-quartile",
+          "category": "celebration",
+          "purpose": "Q1 / top-quartile journal",
+          "page": "Moments, Filing receipt"
+        },
+        {
+          "name": "celebrate-first-citation",
+          "category": "celebration",
+          "purpose": "First citation",
+          "page": "Moments"
+        },
+        {
+          "name": "celebrate-top-department",
+          "category": "celebration",
+          "purpose": "Department in the top ten",
+          "page": "Leaderboard, HoD home"
+        },
+        {
+          "name": "celebrate-anniversary",
+          "category": "celebration",
+          "purpose": "Anniversary / thank-you",
+          "page": "Moments, Convocation"
+        }
+      ],
+      "note": "Retrieved from the ChatGPT Library after the conversation failed to load."
     }
   ]
 }

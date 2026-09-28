@@ -1,7 +1,7 @@
 {
   "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
   "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
-  "count": 45,
+  "count": 69,
   "assets": [
     {
       "name": "empty-no-papers",
@@ -833,6 +833,460 @@
         "png": 9596
       },
       "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-notifications",
+      "category": "empty-state",
+      "purpose": "No notifications",
+      "page": "Notifications",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-notifications.svg",
+        "webp": "/illustrations/generated/empty-no-notifications.webp",
+        "png": "/illustrations/generated/empty-no-notifications.png"
+      },
+      "bytes": {
+        "svg": 19702,
+        "webp": 11210,
+        "png": 9504
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-discussions",
+      "category": "empty-state",
+      "purpose": "No discussions yet",
+      "page": "Discussions",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-discussions.svg",
+        "webp": "/illustrations/generated/empty-no-discussions.webp",
+        "png": "/illustrations/generated/empty-no-discussions.png"
+      },
+      "bytes": {
+        "svg": 57928,
+        "webp": 24026,
+        "png": 22725
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-badges",
+      "category": "empty-state",
+      "purpose": "No badges earned yet",
+      "page": "Profile badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-badges.svg",
+        "webp": "/illustrations/generated/empty-no-badges.webp",
+        "png": "/illustrations/generated/empty-no-badges.png"
+      },
+      "bytes": {
+        "svg": 39869,
+        "webp": 16520,
+        "png": 17120
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-collaborators",
+      "category": "empty-state",
+      "purpose": "No collaborators yet",
+      "page": "Who to work with, Profile",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-collaborators.svg",
+        "webp": "/illustrations/generated/empty-no-collaborators.webp",
+        "png": "/illustrations/generated/empty-no-collaborators.png"
+      },
+      "bytes": {
+        "svg": 42456,
+        "webp": 23136,
+        "png": 14268
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-flags",
+      "category": "empty-state",
+      "purpose": "No open flags — all clear",
+      "page": "Flags",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-flags.svg",
+        "webp": "/illustrations/generated/empty-no-flags.webp",
+        "png": "/illustrations/generated/empty-no-flags.png"
+      },
+      "bytes": {
+        "svg": 22875,
+        "webp": 12720,
+        "png": 10584
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-imports",
+      "category": "empty-state",
+      "purpose": "Nothing imported yet",
+      "page": "Imports",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-imports.svg",
+        "webp": "/illustrations/generated/empty-no-imports.webp",
+        "png": "/illustrations/generated/empty-no-imports.png"
+      },
+      "bytes": {
+        "svg": 49192,
+        "webp": 23960,
+        "png": 20839
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-drafts",
+      "category": "empty-state",
+      "purpose": "No drafts",
+      "page": "File a paper (drafts), My papers",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-drafts.svg",
+        "webp": "/illustrations/generated/empty-no-drafts.webp",
+        "png": "/illustrations/generated/empty-no-drafts.png"
+      },
+      "bytes": {
+        "svg": 51691,
+        "webp": 21292,
+        "png": 16632
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-access-denied",
+      "category": "error-state",
+      "purpose": "Access restricted (403)",
+      "page": "403 / role-gated pages",
+      "files": {
+        "svg": "/illustrations/generated/error-access-denied.svg",
+        "webp": "/illustrations/generated/error-access-denied.webp",
+        "png": "/illustrations/generated/error-access-denied.png"
+      },
+      "bytes": {
+        "svg": 40762,
+        "webp": 18264,
+        "png": 15065
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-session-expired",
+      "category": "error-state",
+      "purpose": "Session expired — sign in again",
+      "page": "Auth expiry screen",
+      "files": {
+        "svg": "/illustrations/generated/error-session-expired.svg",
+        "webp": "/illustrations/generated/error-session-expired.webp",
+        "png": "/illustrations/generated/error-session-expired.png"
+      },
+      "bytes": {
+        "svg": 30431,
+        "webp": 17528,
+        "png": 13244
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-upload-failed",
+      "category": "error-state",
+      "purpose": "Upload failed — try again",
+      "page": "Attachments, File a paper",
+      "files": {
+        "svg": "/illustrations/generated/error-upload-failed.svg",
+        "webp": "/illustrations/generated/error-upload-failed.webp",
+        "png": "/illustrations/generated/error-upload-failed.png"
+      },
+      "bytes": {
+        "svg": 24568,
+        "webp": 14716,
+        "png": 10980
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-payouts",
+      "category": "empty-state",
+      "purpose": "No payouts yet",
+      "page": "Payouts",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-payouts.svg",
+        "webp": "/illustrations/generated/empty-no-payouts.webp",
+        "png": "/illustrations/generated/empty-no-payouts.png"
+      },
+      "bytes": {
+        "svg": 24722,
+        "webp": 12812,
+        "png": 13185
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-archive",
+      "category": "empty-state",
+      "purpose": "Archive is empty",
+      "page": "Archive",
+      "files": {
+        "svg": "/illustrations/generated/empty-archive.svg",
+        "webp": "/illustrations/generated/empty-archive.webp",
+        "png": "/illustrations/generated/empty-archive.png"
+      },
+      "bytes": {
+        "svg": 29062,
+        "webp": 14386,
+        "png": 14607
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-welcome",
+      "category": "onboarding",
+      "purpose": "Welcome / first sign-in",
+      "page": "Setup step 1, first-run modal",
+      "files": {
+        "svg": "/illustrations/generated/onboard-welcome.svg",
+        "webp": "/illustrations/generated/onboard-welcome.webp",
+        "png": "/illustrations/generated/onboard-welcome.png"
+      },
+      "bytes": {
+        "svg": 58976,
+        "webp": 23494,
+        "png": 24090
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-link-author-id",
+      "category": "onboarding",
+      "purpose": "Link your Scopus / author ID",
+      "page": "Setup, Profile",
+      "files": {
+        "svg": "/illustrations/generated/onboard-link-author-id.svg",
+        "webp": "/illustrations/generated/onboard-link-author-id.webp",
+        "png": "/illustrations/generated/onboard-link-author-id.png"
+      },
+      "bytes": {
+        "svg": 50153,
+        "webp": 21674,
+        "png": 18450
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-complete-profile",
+      "category": "onboarding",
+      "purpose": "Complete your profile",
+      "page": "Setup, Profile",
+      "files": {
+        "svg": "/illustrations/generated/onboard-complete-profile.svg",
+        "webp": "/illustrations/generated/onboard-complete-profile.webp",
+        "png": "/illustrations/generated/onboard-complete-profile.png"
+      },
+      "bytes": {
+        "svg": 39529,
+        "webp": 15232,
+        "png": 13760
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-first-paper",
+      "category": "onboarding",
+      "purpose": "File your first paper (tip)",
+      "page": "Home (faculty) first-run tip, File a paper",
+      "files": {
+        "svg": "/illustrations/generated/onboard-first-paper.svg",
+        "webp": "/illustrations/generated/onboard-first-paper.webp",
+        "png": "/illustrations/generated/onboard-first-paper.png"
+      },
+      "bytes": {
+        "svg": 32366,
+        "webp": 18352,
+        "png": 13690
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-invite-colleague",
+      "category": "onboarding",
+      "purpose": "Invite a colleague / co-author",
+      "page": "Who to work with, Setup",
+      "files": {
+        "svg": "/illustrations/generated/onboard-invite-colleague.svg",
+        "webp": "/illustrations/generated/onboard-invite-colleague.webp",
+        "png": "/illustrations/generated/onboard-invite-colleague.png"
+      },
+      "bytes": {
+        "svg": 38318,
+        "webp": 22452,
+        "png": 16911
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-all-set",
+      "category": "onboarding",
+      "purpose": "Setup complete",
+      "page": "Setup final step",
+      "files": {
+        "svg": "/illustrations/generated/onboard-all-set.svg",
+        "webp": "/illustrations/generated/onboard-all-set.webp",
+        "png": "/illustrations/generated/onboard-all-set.png"
+      },
+      "bytes": {
+        "svg": 38502,
+        "webp": 17524,
+        "png": 18022
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-first-publication",
+      "category": "celebration",
+      "purpose": "First publication moment",
+      "page": "Filing receipt, Moments",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-first-publication.svg",
+        "webp": "/illustrations/generated/celebrate-first-publication.webp",
+        "png": "/illustrations/generated/celebrate-first-publication.png"
+      },
+      "bytes": {
+        "svg": 18925,
+        "webp": 15396,
+        "png": 10812
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-ten-papers",
+      "category": "celebration",
+      "purpose": "Paper-count milestone (5/10/25)",
+      "page": "Moments, Profile",
+      "files": {
+        "webp": "/illustrations/generated/celebrate-ten-papers.webp",
+        "png": "/illustrations/generated/celebrate-ten-papers.png"
+      },
+      "bytes": {
+        "webp": 32800,
+        "png": 25923
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-top-quartile",
+      "category": "celebration",
+      "purpose": "Q1 / top-quartile journal",
+      "page": "Moments, Filing receipt",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-top-quartile.svg",
+        "webp": "/illustrations/generated/celebrate-top-quartile.webp",
+        "png": "/illustrations/generated/celebrate-top-quartile.png"
+      },
+      "bytes": {
+        "svg": 42950,
+        "webp": 19080,
+        "png": 15201
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-first-citation",
+      "category": "celebration",
+      "purpose": "First citation",
+      "page": "Moments",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-first-citation.svg",
+        "webp": "/illustrations/generated/celebrate-first-citation.webp",
+        "png": "/illustrations/generated/celebrate-first-citation.png"
+      },
+      "bytes": {
+        "svg": 21187,
+        "webp": 15628,
+        "png": 9702
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-top-department",
+      "category": "celebration",
+      "purpose": "Department in the top ten",
+      "page": "Leaderboard, HoD home",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-top-department.svg",
+        "webp": "/illustrations/generated/celebrate-top-department.webp",
+        "png": "/illustrations/generated/celebrate-top-department.png"
+      },
+      "bytes": {
+        "svg": 60973,
+        "webp": 34734,
+        "png": 23072
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-anniversary",
+      "category": "celebration",
+      "purpose": "Anniversary / thank-you",
+      "page": "Moments, Convocation",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-anniversary.svg",
+        "webp": "/illustrations/generated/celebrate-anniversary.webp",
+        "png": "/illustrations/generated/celebrate-anniversary.png"
+      },
+      "bytes": {
+        "svg": 19663,
+        "webp": 16190,
+        "png": 13229
+      },
+      "sheet": "sheet11",
       "date": "2026-09-28",
       "background": "transparent"
     }

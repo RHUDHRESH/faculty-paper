@@ -54,8 +54,8 @@ def _result_text(result: Any, success: bool) -> str:
     if result is None:
         return "Finished" if success else "Failed without a message"
     if isinstance(result, dict):
-        parts = [f"{k.replace('_', ' ')}: {v}" for k, v in list(result.items())[:4]
-                 if isinstance(v, (str, int, float, bool))]
+        parts = [f"{k.replace('_', ' ')}: {v}" for k, v in list(result.items())[:6]
+                 if isinstance(v, (str, int, float)) and not isinstance(v, bool)][:4]
         return "; ".join(parts) or ("Finished" if success else "Failed")
     text = str(result).strip()
     if not success:

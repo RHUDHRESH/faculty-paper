@@ -474,6 +474,23 @@ export function calcRequest(
   }
 }
 
+/** The key of an article with neither a DOI nor a title yet. */
+export const BLANK_ARTICLE = "|"
+
+/**
+ * Whether conditions ticked for one article still stand for the form as it is.
+ *
+ * Ticked for a paper that was picked or looked up, they stand only while its
+ * DOI and title are unchanged. Ticked on "Type it in by hand", they were given
+ * for "the article you are about to describe" — there was no DOI or title to
+ * bind them to — so they stand for whatever is then described. Holding those
+ * to the empty key sent every hand-typed claim (every final-year project claim
+ * among them) back to the conditions when File it was pressed.
+ */
+export function ticksHold(ticksFor: string, articleKey: string): boolean {
+  return ticksFor === articleKey || ticksFor === BLANK_ARTICLE
+}
+
 export function FilePaper() {
   const collegeName = useCollegeName()
   const { id } = useParams<{ id?: string }>()
@@ -1022,7 +1039,7 @@ export function FilePaper() {
   }, [pull, searchParams])
 
   const articleKey = `${normaliseDoi(form.doi.trim()).toLowerCase()}|${form.paperTitle.trim().toLowerCase()}`
-  const ticksValid = !!ticks && ticksFor === articleKey
+  const ticksValid = !!ticks && ticksHold(ticksFor, articleKey)
 
   /** "Change" on the conditions: back to Step 1, and every tick cleared. */
   function changePaper() {

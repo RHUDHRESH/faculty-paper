@@ -710,6 +710,9 @@ def journal_report(request: HttpRequest, title: str):
                 "key": owner.name or owner.email,
                 "id": owner.id,
                 "department": owner.department or "—",
+                # Faces on "Who publishes here".
+                "photo_url": f"{settings.MEDIA_URL}{owner.photo}" if owner.photo else None,
+                "initials": social.initials(owner.name or owner.email),
                 "count": 0,
                 "amount": 0.0,
             },

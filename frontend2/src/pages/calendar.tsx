@@ -17,6 +17,7 @@ import {
   ALL_LAYERS,
   addDays,
   addMonths,
+  agendaWindow,
   dayLabel,
   iso,
   kindStyle,
@@ -126,7 +127,7 @@ export function Calendar() {
   )
   const all = useMemo(() => toItems(data), [data])
   const items = all.filter((i) => layers.has(i.layer))
-  const shown = items.filter((i) => overlaps(i, from, to))
+  const [agendaFrom, agendaTo] = agendaWindow(from, to, today, horizon, sameMonth(anchor, today))
   const next = all.find((i) => i.end >= today && i.start <= horizon && i.layer !== "papers")
     ?? all.find((i) => i.start >= today && i.start <= horizon)
 
@@ -251,10 +252,10 @@ export function Calendar() {
           onRetry={() => refetch()}
         />
       ) : view === "agenda" ? (
-        shown.length === 0 ? (
+        !items.some((i) => overlaps(i, agendaFrom, agendaTo)) ? (
           <QuietMonth onAdd={() => add(today)} />
         ) : (
-          <AgendaView items={items} from={from < today && sameMonth(anchor, today) ? today : from} to={to} today={today} onOpen={setOpen} />
+          <AgendaView items={items} from={agendaFrom} to={agendaTo} today={today} onOpen={setOpen} />
         )
       ) : view === "week" ? (
         <WeekView anchor={anchor} today={today} items={items} onOpen={setOpen} onAdd={add} />

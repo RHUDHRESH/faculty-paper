@@ -42,6 +42,7 @@ from core.models import (
     FeedComment,
     FeedPost,
     FeedReaction,
+    Publication,
     Follow,
     Notification,
     PostReport,
@@ -146,7 +147,7 @@ def _annotated(qs, viewer: User):
         mine[f"m_{kind.lower()}"] = Exists(
             FeedReaction.objects.filter(post=OuterRef("pk"), user=viewer, kind=kind)
         )
-    return qs.select_related("author", "paper").annotate(
+    return qs.select_related("author", "paper", "publication").annotate(
         comment_count=Coalesce(Subquery(comments), 0),
         reported_by_me=Exists(
             PostReport.objects.filter(
@@ -179,7 +180,25 @@ def paper_card(c, coauthors: list[User] | None) -> dict[str, Any]:
     }
 
 
+def record_card(p, author_id: str | None) -> dict[str, Any]:
+    """A paper from the publication record (not filed yet), as the same card:
+    title, venue, year, quartile, DOI, and the colleagues here on it."""
+    people = [a.user for a in p.authorships.all() if a.user_id and a.user_id != author_id and a.user is not None]
+    return {
+        "id": p.id,
+        "title": p.title or "Untitled",
+        "journal_title": p.venue or None,
+        "publication_year": p.year,
+        "quartile": p.quartile or None,
+        "doi": p.doi,
+        "coauthors": [{"id": u.id, "name": u.name} for u in people],
+        "from_record": True,
+    }
+
+
 def _paper_brief(post: FeedPost) -> dict[str, Any] | None:
+    if post.paper_id is None and getattr(post, "publication_id", None) and post.publication is not None:
+        return record_card(post.publication, post.author_id)
     c = post.paper
     # A paper later withdrawn or refused stops being shown, rather than
     # standing in the feed as work the college never accepted.
@@ -637,6 +656,8 @@ class PostForm(Schema):
     visibility: str = FeedPost.Visibility.EVERYONE
     link_url: Optional[str] = None
     paper_id: Optional[str] = None
+    #: A paper on your publication record that is not filed yet.
+    publication_id: Optional[str] = None
     #: The people picked from the @ menu, so a namesake is never the one notified.
     mention_ids: list[str] = []
 
@@ -793,6 +814,11 @@ def create_post(request: HttpRequest, payload: Form[PostForm], file: File[Upload
         paper = social.published_papers(viewer).filter(pk=payload.paper_id).first()
         if paper is None:
             raise HttpError(400, "You can point a post at a paper you have filed, and only that.")
+    publication = None
+    if payload.publication_id and paper is None:
+        publication = Publication.objects.filter(pk=payload.publication_id, authorships__user=viewer).first()
+        if publication is None:
+            raise HttpError(400, "You can point a post at a paper on your own record, and only that.")
 
     attachment: dict[str, Any] = {}
     if file is not None:
@@ -816,7 +842,7 @@ def create_post(request: HttpRequest, payload: Form[PostForm], file: File[Upload
             "attachment_size": len(data),
         }
 
-    if not body and not paper and not attachment and not link:
+    if not body and not paper and not publication and not attachment and not link:
         raise HttpError(400, "Write something, or add a link, a paper or a picture.")
 
     mentions = json.dumps(social.resolve_mentions(body, payload.mention_ids))
@@ -827,6 +853,7 @@ def create_post(request: HttpRequest, payload: Form[PostForm], file: File[Upload
         department=(viewer.department or "").strip() or None,
         link_url=link,
         paper=paper,
+        publication=publication,
         mentions_json=mentions,
         **attachment,
     )
@@ -860,7 +887,7 @@ def edit_post(request: HttpRequest, post_id: str, payload: PostEditIn):
         body = (data["body"] or "").strip()
         if len(body) > POST_MAX_CHARS:
             raise HttpError(400, f"Keep a post under {POST_MAX_CHARS} characters.")
-        if not body and not post.paper_id and not post.attachment_name and not post.link_url:
+        if not body and not post.paper_id and not post.publication_id and not post.attachment_name and not post.link_url:
             raise HttpError(400, "A post cannot be emptied — delete it instead.")
         before = set(social.mentioned_user_ids(post.mentions_json))
         post.body = body

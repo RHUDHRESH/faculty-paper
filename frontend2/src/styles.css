@@ -386,7 +386,9 @@
      or the desktop layout. Explicitly sized glyph controls (`size-*`) are
      left alone — they get their own hit area where they are drawn. */
   @media (max-width: 639px) {
-    :where(button, [role="button"], [role="tab"], select, a.inline-flex):not([class*="size-"]):not(.tap-exempt) {
+    :where(button, [role="button"], [role="tab"], select, a.inline-flex):not([class*="size-"]):not(.tap-exempt):not(.min-w-0) {
+      /* A control that says min-w-0 is a bar in a chart row; widening it to
+         40px pushed the ledger 890px past a phone screen (real-data QA). */
       min-height: 2.5rem;
       min-width: 2.5rem;
     }

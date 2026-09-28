@@ -32,9 +32,40 @@ type Job = {
 
 type JobsPayload = {
   queued: { id: string; func: string; name: string; locked: string | null }[]
+  /** Picked up by a worker and not yet finished (older servers omit it). */
+  running?: RunningJob[]
   jobs: Job[]
   failed_count: number
   total: number
+}
+
+export type RunningJob = { id: string; func: string; name: string; started?: string | null; running_s?: number | null }
+
+/** Jobs a worker has picked up, with how long each has been going. */
+export function RunningJobs({ rows }: { rows: RunningJob[] }) {
+  return (
+    <section className="space-y-2">
+      <SectionTitle>Running now</SectionTitle>
+      {rows.length === 0 ? (
+        <Meta>Nothing is running at the moment.</Meta>
+      ) : (
+        <ul className="divide-y divide-border border-y border-border">
+          {rows.map((r) => (
+            <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+              <span className="inline-flex items-center gap-2">
+                <span className="size-2 animate-pulse rounded-full bg-accent" aria-hidden />
+                {r.name}
+              </span>
+              <Meta>
+                {r.running_s != null ? `Running for ${duration(r.running_s)}` : "Running"}
+                {r.started ? `, since ${when(r.started)}` : ""}
+              </Meta>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
 }
 
 function when(iso: string | null): string {
@@ -91,6 +122,8 @@ export function Jobs() {
         <ErrorState title="Could not load the jobs" message={String(error)} onRetry={() => void refetch()} />
       ) : data ? (
         <>
+          <RunningJobs rows={data.running ?? []} />
+
           <section className="space-y-2">
             <SectionTitle>Waiting to run</SectionTitle>
             {data.queued.length === 0 ? (

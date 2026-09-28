@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { Link } from "react-router-dom"
 import { useEffect, useRef, useState } from "react"
 import {
@@ -42,7 +43,9 @@ import { EditClaimFieldsDialog, HoldControl, HoldNote, ReasonActionDialog, useIs
 import { HeaderSpot } from "@/ui/page-header"
 import { Avatar, initialsOf } from "@/ui/person"
 import { ClaimFlagsPanel, RaiseFlagDialog, useClaimReview } from "@/pages/claim-review"
-import { AgeingChips, type AgeBucket, type DeskFields, inBucket, isClean, MonthlyReport, SchemeRules, WatchCallout } from "@/pages/clearing-desk"
+import { recordPosition } from "@/pages/clearing-position"
+import { ClaimOfficeThread } from "@/pages/clearing-thread"
+import { AgeingChips, type AgeBucket, type DeskFields, inBucket, isAgeBucket, isClean, MonthlyReport, SchemeRules, WatchCallout } from "@/pages/clearing-desk"
 
 /**
  * The research cell's daily job: every submitted ticket, oldest first, and
@@ -129,6 +132,9 @@ type QueueClaim = {
   scimago_dataset_year: number | null
   author_position: number | null
   total_authors: number | null
+  record_author_position?: number | null
+  record_total_authors?: number | null
+  record_has_authors?: boolean
   affiliation_ok?: boolean | null
   authors_json: string | null
   attachments: Attachment[]
@@ -211,7 +217,11 @@ export function Clearing() {
   useSlashToSearch(searchRef)
   const [dept, setDept] = useState("")
   const [check, setCheck] = useState<"" | "passed" | "failed" | "flagged" | "clean">("")
-  const [age, setAge] = useState<AgeBucket | "">("")
+  // Home's ageing split links here as ?age=<bucket>.
+  const [age, setAge] = useState<AgeBucket | "">(() => {
+    const v = new URLSearchParams(window.location.search).get("age")
+    return isAgeBucket(v) ? v : ""
+  })
   const needle = q.trim().toLowerCase()
   const rows = all.filter(
     (c) =>
@@ -503,6 +513,7 @@ export function Clearing() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          guide="clear-a-claim"
           art="empty-queue"
           icon={Inbox}
           title="Nothing waiting"
@@ -592,7 +603,7 @@ export function Clearing() {
                     />
                   </td>
                   <td className="px-3 py-3 align-top">
-                    <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
+                    <span className="block break-words text-base">{paperTitle(c.paper_title)}</span>
                     <Meta className="mt-0.5 block">{c.ticket_number || "Not yet ticketed"}</Meta>
                     {c.verification_ok === false && issuesOf(c)[0] && (
                       <p className="mt-1 text-xs text-critical">
@@ -735,7 +746,7 @@ function QueueCard({
       <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
         <span className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
+            <span className="block break-words text-base">{paperTitle(c.paper_title)}</span>
             <Meta className="mt-0.5 block">
               {c.ticket_number || "Not yet ticketed"} · {c.owner_name}
             </Meta>
@@ -989,7 +1000,7 @@ function TicketSheet({
         ) : claim ? (
           <>
             <SheetHeader>
-              <SheetTitle className="break-words">{claim.paper_title || "Untitled"}</SheetTitle>
+              <SheetTitle className="break-words">{paperTitle(claim.paper_title)}</SheetTitle>
               <SheetDescription>
                 {claim.ticket_number || "Not yet ticketed"}
                 {claim.journal_title ? ` · ${claim.journal_title}` : ""}
@@ -1041,6 +1052,8 @@ function TicketSheet({
               {claim.journal_watch && <WatchCallout watch={claim.journal_watch} />}
 
               <ClaimedVsRecord claim={claim} />
+
+              <ClaimOfficeThread claimId={claim.id} />
 
               <SchemeRules c={claim} />
 
@@ -1294,6 +1307,7 @@ function ClaimedVsRecord({ claim: c }: { claim: ClaimDetail }) {
     c.author_position != null
       ? `${ordinal(c.author_position)}${c.total_authors ? ` of ${c.total_authors}` : ""}`
       : "Not recorded"
+  const posRec = recordPosition(c)
   const rows: { label: string; claimed: string; record: string; differs: boolean }[] = [
     {
       label: "SNIP",
@@ -1307,7 +1321,7 @@ function ClaimedVsRecord({ claim: c }: { claim: ClaimDetail }) {
       record: c.quartile || "Not found",
       differs: !!c.self_reported_quartile && !!c.quartile && c.self_reported_quartile !== c.quartile,
     },
-    { label: "Author position", claimed: pos, record: pos, differs: false },
+    { label: "Author position", claimed: pos, record: posRec.text, differs: posRec.differs },
     {
       label: "Affiliation",
       claimed: "This college",

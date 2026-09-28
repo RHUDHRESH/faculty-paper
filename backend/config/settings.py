@@ -518,6 +518,9 @@ EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "20"))
 #: Emails a day across everybody, after which alerts are in-app only until
 #: tomorrow. Brevo's free plan allows 300 a day; 0 means no cap.
 EMAIL_DAILY_CAP = int(os.getenv("EMAIL_DAILY_CAP", "280"))
+#: Emails one person may be sent in an hour; the rest go out together in the
+#: hourly batch (schedule "email-batch"). 0 means no limit.
+EMAIL_HOURLY_PER_PERSON = int(os.getenv("EMAIL_HOURLY_PER_PERSON", "4"))
 #: Where links in emails point: the site people open, which rewrites /api to
 #: this server. Falls back to the first https origin this server trusts.
 APP_BASE_URL = (

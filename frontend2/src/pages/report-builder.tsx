@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useMemo } from "react"
 import { Link, useLocation, useSearchParams } from "react-router-dom"
 import { BarChart3, Download, Table2, X } from "lucide-react"
@@ -871,7 +872,7 @@ function ClaimRow({ claim: c }: { claim: SearchClaim }) {
       <a href={`/papers/${c.id}`} className="block px-1 py-3">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+            <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
             <Meta className="mt-0.5 block truncate">
               {[c.owner_name, c.owner_department, c.journal_title, c.publication_year]
                 .filter(Boolean)

@@ -30,6 +30,13 @@ def _probe(qs, field: str, n: int = 4) -> tuple[int, list]:
     on nearly every visit -- its length is the count, and the separate COUNT
     query is never sent. Half the round trips of asking both every time.
     """
+    if qs.model is User:
+        # People are shown as faces: the sample string stays for old readers,
+        # `people` carries who they are.
+        rows = list(qs.values(*dict.fromkeys(("id", "name", "email", "photo", field)))[:n])
+        sample = [r[field] for r in rows]
+        people = [_person(r) for r in rows]
+        return (len(sample) if len(sample) < n else qs.count()), sample, people
     sample = [
         v if v or field != "ticket_number" else "(draft)"
         for v in qs.values_list(field, flat=True)[:n]
@@ -37,10 +44,26 @@ def _probe(qs, field: str, n: int = 4) -> tuple[int, list]:
     return (len(sample) if len(sample) < n else qs.count()), sample
 
 
-def _fault(key, title, detail, count=0, *, found=None, severity="warning", to=None, sample=None):
-    if found is not None:
-        count, sample = found
+def _person(r: dict) -> dict:
+    from django.conf import settings
+    from core.social import initials
+
     return {
+        "user_id": r["id"],
+        "name": r["name"] or r["email"],
+        "email": r["email"],
+        "initials": initials(r["name"] or r["email"]),
+        "photo_url": f"{settings.MEDIA_URL}{r['photo']}" if r["photo"] else None,
+    }
+
+
+def _fault(key, title, detail, count=0, *, found=None, severity="warning", to=None, sample=None):
+    people = None
+    if found is not None:
+        count, sample, *rest = found
+        people = rest[0] if rest else None
+    return {
+        "people": people or [],
         "key": key,
         "title": title,
         "detail": detail,
@@ -105,8 +128,15 @@ def _faults_now() -> dict[str, Any]:
     # ---- work that has stopped moving ----
     stale_days = 14
     stale_cut = now - timedelta(days=stale_days)
-    stale_submitted = claims.filter(status=ClaimStatus.SUBMITTED, updated_at__lt=stale_cut)
-    stale_cleared = claims.filter(status=ClaimStatus.CLEARED, updated_at__lt=stale_cut)
+    # Measured from arrival at the step (as `_waiting_days` does for the queue),
+    # not updated_at: an import or any edit resets updated_at, and the real
+    # college data showed 0 stale tickets beside a queue 90 days old.
+    stale_submitted = claims.filter(status=ClaimStatus.SUBMITTED).filter(
+        Q(submitted_at__lt=stale_cut) | Q(submitted_at__isnull=True, updated_at__lt=stale_cut)
+    )
+    stale_cleared = claims.filter(status=ClaimStatus.CLEARED).filter(
+        Q(cleared_at__lt=stale_cut) | Q(cleared_at__isnull=True, updated_at__lt=stale_cut)
+    )
     legacy = claims.filter(status__in=[
         ClaimStatus.HOD_APPROVED,
         ClaimStatus.RESEARCH_APPROVED,

@@ -5,6 +5,8 @@ import type { ArtName } from "@/ui/art"
 import { Illustration, type IllustrationName } from "@/ui/illustration"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
+import { Link } from "react-router-dom"
+import { guideById } from "@/app/guides"
 
 /** The generated drawing that replaces each of the older spot scenes. */
 export const ART_ILLUSTRATION: Record<ArtName, IllustrationName> = {
@@ -153,6 +155,7 @@ export function EmptyState({
   title,
   message,
   action,
+  guide,
   className,
 }: {
   icon?: React.ComponentType<{ className?: string }>
@@ -170,8 +173,11 @@ export function EmptyState({
    *  filters". An empty state without one leaves the reader to work out for
    *  themselves where the button is. */
   action?: React.ReactNode
+  /** A Help guide id (app/guides.ts): adds a quiet "How to" link to it. */
+  guide?: string
   className?: string
 }) {
+  const g = guide ? guideById(guide) : undefined
   const drawing = illustration ?? (art ? ART_ILLUSTRATION[art] : undefined)
   return (
     <div
@@ -197,6 +203,11 @@ export function EmptyState({
       <p className="text-lg font-semibold text-fg">{title}</p>
       <p className="max-w-sm text-pretty text-base text-fg-muted">{message}</p>
       {action && <div className="mt-4">{action}</div>}
+      {g && (
+        <Link to={`/help#${g.id}`} className="mt-3 text-sm text-fg-muted underline underline-offset-2 hover:text-fg">
+          How to: {g.title.charAt(0).toLowerCase() + g.title.slice(1)}
+        </Link>
+      )}
     </div>
   )
 }

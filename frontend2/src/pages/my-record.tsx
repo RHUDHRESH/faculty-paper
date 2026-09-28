@@ -24,6 +24,7 @@ type Payload = {
 export function authorRole(p: RecordPaper): string {
   if (!p.author_position) return "Author"
   if (p.author_position === 1) return p.total_authors === 1 ? "Sole author" : "First author"
+  if (!p.total_authors || p.total_authors < p.author_position) return `Co-author (author ${p.author_position})`
   return `Co-author (${p.author_position} of ${p.total_authors})`
 }
 
@@ -39,12 +40,13 @@ function csvCell(v: unknown): string {
 export function appraisalCsv(name: string, rows: RecordPaper[]): string {
   const head = [
     "S.No", "Title", "Authors (in order)", "Journal / conference", "Year", "Type",
-    "Indexed in", "Quartile", "DOI", "Your role", "Citations",
+    "Indexed in", "Quartile", "DOI", "Your role", "Corresponding author", "Citations",
   ]
   const body = rows.map((p, i) =>
     [
       i + 1, p.title, p.authors.map((a) => a.name).join("; "), p.venue, p.year, p.type,
-      p.scopus_indexed ? "Scopus" : "", p.quartile ?? "", p.doi ? `https://doi.org/${p.doi}` : "", authorRole(p), p.citations ?? "",
+      p.scopus_indexed ? "Scopus" : "", p.quartile ?? "", p.doi ? `https://doi.org/${p.doi}` : "", authorRole(p),
+      p.corresponding_author == null ? "" : p.corresponding_author ? "Yes" : "No", p.citations ?? "",
     ].map(csvCell).join(",")
   )
   return [`Publication list,${csvCell(name)}`, "", head.join(","), ...body].join("\n")
@@ -169,7 +171,8 @@ export function AppraisalList() {
                     </p>
                     <p className="text-fg-muted break-all">
                       {authorRole(p)}
-                      {p.citations != null ? ` · ${p.citations} citations` : ""}
+                      {p.corresponding_author ? " · Corresponding author" : ""}
+                      {p.citations != null ? ` · ${p.citations} citation${p.citations === 1 ? "" : "s"}` : ""}
                       {p.doi ? ` · doi.org/${p.doi}` : ""}
                     </p>
                   </div>

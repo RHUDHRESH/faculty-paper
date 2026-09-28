@@ -497,15 +497,16 @@ function Comparison({ members }: { members: Member[] }) {
     },
     {
       label: "Voucher",
-      value: (m) => m.reference || "",
+      // The ERP import stored voucher numbers as floats ("1802.0").
+      value: (m) => voucher(m.reference),
       render: (m) =>
         m.source === "claim" ? (
           <Link to={`/papers/${m.id}`} className="text-accent underline-offset-2 hover:underline">
-            {m.reference || "Open the ticket"}
+            {voucher(m.reference) || "Open the ticket"}
           </Link>
         ) : (
           <span>
-            {m.reference || "None"}
+            {voucher(m.reference) || "None"}
             <Meta className="block">Imported from the ERP</Meta>
           </span>
         ),
@@ -811,4 +812,9 @@ function formatDate(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ""
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+}
+
+/** An ERP voucher number, without the ".0" the spreadsheet import left on it. */
+function voucher(ref: string | null): string {
+  return (ref || "").replace(/^(\d+)\.0+$/, "$1")
 }

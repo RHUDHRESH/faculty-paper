@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { CircleCheck, Stamp } from "lucide-react"
@@ -285,7 +286,7 @@ export function Authorisations() {
               onRetry={error?.status === 403 ? undefined : () => refetch()}
             />
           ) : rows.length === 0 ? (
-            <EmptyState
+            <EmptyState guide="authorise-the-month"
               // With a department chosen, "every approved claim has been
               // authorised" would be a claim about the whole college made
               // from one department's empty page.
@@ -639,7 +640,7 @@ function ClaimRow({
               to={`/papers/${claim.id}`}
               className="block truncate rounded-sm text-base underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
-              {claim.paper_title || "Untitled"}
+              {paperTitle(claim.paper_title)}
             </Link>
             <Meta className="block truncate">
               {[claim.journal_title, claim.quartile, claim.ticket_number]

@@ -83,8 +83,10 @@ describe("Leaderboard", () => {
     mount()
     await screen.findByRole("list", { name: "Podium" })
     const row = screen.getAllByText("Dr Mina Das")[0].closest("tr")!
-    expect(within(row).getByText("—")).toBeInTheDocument()
-    expect(rankText(null, true)).toBe("—")
+    expect(within(row).getByText("Not ranked yet")).toBeInTheDocument()
+    expect(within(row).getByTitle("Nothing counted for them in this period yet.")).toBeInTheDocument()
+    expect(within(row).queryByText("—")).toBeNull()
+    expect(rankText(null, true)).toBe("Not ranked yet")
     expect(rankText(4, true)).toBe("=4")
   })
 

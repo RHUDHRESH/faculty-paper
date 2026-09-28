@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { Download, FileSearch, Flag, Search, SearchX } from "lucide-react"
@@ -325,7 +326,7 @@ function PastRow({ row }: { row: Row }) {
         <span className="min-w-0 flex-1">
           <span className="flex items-start justify-between gap-3">
             <span className="min-w-0 flex-1">
-              <span className="line-clamp-2 block text-base sm:truncate">{row.paper_title || "Untitled"}</span>
+              <span className="line-clamp-2 block text-base sm:truncate">{paperTitle(row.paper_title)}</span>
               <Meta className="mt-0.5 block truncate">
                 {[row.owner_name, row.owner_department, row.ticket_number].filter(Boolean).join(" · ")}
               </Meta>

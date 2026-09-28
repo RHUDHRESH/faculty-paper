@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { JournalCover } from "@/ui/journal-cover"
 import { Link, useParams, useSearchParams } from "react-router-dom"
@@ -7,6 +8,7 @@ import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { RankedBars, MixBar, Trend, type Point } from "@/ui/chart"
+import { initialsOf } from "@/ui/person"
 import { Input } from "@/ui/field"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
@@ -104,6 +106,9 @@ export function Journals() {
     {
       key: "journal",
       header: "Journal",
+      // max-w-0 + w-full: the cell takes the spare width and truncates, so a
+      // 200-character conference name cannot push Papers and Paid off screen.
+      className: "w-full max-w-0",
       cell: (j) => (
         <span className="block min-w-0 truncate text-base" title={j.key}>
           {j.key}
@@ -267,6 +272,8 @@ type JournalAuthor = {
   department: string
   count: number
   amount?: number
+  photo_url?: string | null
+  initials?: string
 }
 
 type JournalClaimRow = {
@@ -418,6 +425,7 @@ export function JournalRecord() {
     count: a.count,
     amount: showMoney ? a.amount : undefined,
     to: `/people/${a.id}`,
+    face: { name: a.key, initials: a.initials ?? initialsOf(a.key), photo_url: a.photo_url ?? null },
   }))
 
   const activeYears =
@@ -434,7 +442,7 @@ export function JournalRecord() {
       className: "max-w-[22rem]",
       cell: (c) => (
         <span className="block min-w-0">
-          <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+          <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
           <Meta className="mt-0.5 block truncate">{c.ticket_number || "—"}</Meta>
         </span>
       ),

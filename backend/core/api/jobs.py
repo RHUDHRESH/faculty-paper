@@ -72,10 +72,44 @@ def _require_super(request: HttpRequest):
     return user
 
 
+def _queue_split() -> tuple[list[dict], list[dict]]:
+    """OrmQ rows split into waiting and running.
+
+    The ORM broker marks a task it hands to a worker by pushing its `lock`
+    `Q_CLUSTER["retry"]` seconds into the future (django_q/brokers/orm.py);
+    the row is deleted when the worker acknowledges it. So `lock > now` is a
+    task in progress, and `lock - retry` is roughly when it started.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+    from django_q.conf import Conf
+    from django_q.models import OrmQ
+
+    now = timezone.now()
+    queued: list[dict] = []
+    running: list[dict] = []
+    for q in OrmQ.objects.all().order_by("lock", "id")[:100]:
+        try:
+            func = q.func()
+            row = {"id": q.task_id(), "func": func, "name": _kind(func)[0],
+                   "locked": q.lock.isoformat() if q.lock else None}
+        except Exception:
+            continue
+        if q.lock and q.lock > now:
+            started = q.lock - timedelta(seconds=Conf.RETRY)
+            row["started"] = started.isoformat()
+            row["running_s"] = max(0, round((now - started).total_seconds()))
+            running.append(row)
+        else:
+            queued.append(row)
+    return queued[:50], running[:50]
+
+
 @api.get("/admin/jobs", auth=session_auth)
 def list_jobs(request: HttpRequest, failed: bool = False, limit: int = 50):
     """Recent background jobs, newest first; `failed=true` for failures only."""
-    from django_q.models import OrmQ, Task as QTask
+    from django_q.models import Task as QTask
 
     _require_super(request)
     limit = max(1, min(int(limit), 200))
@@ -100,16 +134,10 @@ def list_jobs(request: HttpRequest, failed: bool = False, limit: int = 50):
             "attempts": getattr(t, "attempt_count", None),
             "retry_safe": safe,
         })
-    queued = []
-    for q in OrmQ.objects.all().order_by("lock", "id")[:50]:
-        try:
-            func = q.func()
-            queued.append({"id": q.task_id(), "func": func, "name": _kind(func)[0],
-                           "locked": q.lock.isoformat() if q.lock else None})
-        except Exception:
-            continue
+    queued, running = _queue_split()
     return {
         "queued": queued,
+        "running": running,
         "jobs": jobs,
         "failed_count": QTask.objects.filter(success=False).count(),
         "total": QTask.objects.count(),

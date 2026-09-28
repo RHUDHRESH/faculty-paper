@@ -16,7 +16,7 @@ import csv
 import io
 import re
 from typing import Any, Optional
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Case, Count, F, Q, Sum, When
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -40,10 +40,27 @@ SCHEME_FYP = "FYP"
 SCHEME_FACULTY = "FACULTY"
 
 
+#: Spellings the ERP sheet used for one department, beyond case and spaces.
+_DEPT_SAME = {"S&H-CHEMISTRY": "S&H-CHY", "S&H-PHYSICS": "S&H-PHY", "E&I": "EIE"}
+
+
+def ledger_department(name: str | None) -> str | None:
+    """One name per department: "S&H - Maths", "AI & ML" and "Civil" were
+    rolled up apart from "S&H-MATHS", "AI&ML" and "CIVIL" on the real ledger."""
+    if not name or not name.strip() or name.strip().lower() == "not found":
+        return None
+    key = re.sub(r"\s+", "", name).upper()
+    return _DEPT_SAME.get(key, key)
+
+
 def _ledger_queryset(
     month: str | None, department: str | None, scheme: str | None = None, q: str | None = None
 ):
-    qs = PaidLedger.objects.select_related("claim").order_by("-payout_month", "department", "faculty_name")
+    # Newest first, but the ERP's ₹0 quota rows (stamped with the import
+    # month, no voucher) last: on the real ledger they filled page one.
+    qs = PaidLedger.objects.select_related("claim").order_by(
+        Case(When(amount=0, then=1), default=0), "-payout_month", "department", "faculty_name"
+    )
     for word in (q or "").split()[:6]:
         # Every word must match somewhere: a name, a staff id, a voucher.
         qs = qs.filter(
@@ -60,7 +77,12 @@ def _ledger_queryset(
         if parsed:
             qs = qs.filter(payout_month=parsed)
     if department:
-        qs = qs.filter(department__iexact=department)
+        want = ledger_department(department)
+        spellings = [
+            d for d in PaidLedger.objects.values_list("department", flat=True).distinct()
+            if d and ledger_department(d) == want
+        ]
+        qs = qs.filter(department__in=spellings) if spellings else qs.filter(department__iexact=department)
     fyp = Q(claim__remuneration_category=Category.STUDENT_PROJECT)
     if (scheme or "").upper() == SCHEME_FYP:
         qs = qs.filter(fyp)
@@ -172,9 +194,15 @@ def admin_ledger(
             no_month[0] += amt or 0
             no_month[1] += 1
     by_month = [{"payout_month": k, "s": v[0], "n": v[1]} for k, v in sorted(months.items())]
-    by_dept = (
-        qs.order_by().values("department").annotate(s=Sum("amount"), n=Count("id")).order_by("-s")
-    )
+    merged: dict[Any, dict[str, Any]] = {}
+    for d in qs.order_by().values("department").annotate(s=Sum("amount"), n=Count("id")):
+        m = merged.setdefault(ledger_department(d["department"]), {"department": None, "s": 0.0, "n": 0, "top": 0})
+        m["s"] += d["s"] or 0
+        m["n"] += d["n"]
+        # Shown under its most-used spelling ("CSE - IoT", not the key).
+        if ledger_department(d["department"]) and d["n"] > m["top"]:
+            m["department"], m["top"] = d["department"], d["n"]
+    by_dept = sorted(merged.values(), key=lambda d: -d["s"])
     return {
         "by_month": [
             {"month": _format_payout_month(m["payout_month"]), "amount": round(m["s"] or 0, 2), "count": m["n"]}
@@ -199,7 +227,7 @@ def admin_ledger(
         # The sum of everything the filter matches, not of the page. The screen
         # showed one page's worth beside an Export button that wrote all of
         # them, so the page and the file disagreed about the same filter.
-        "total_amount": qs.aggregate(s=Sum("amount"))["s"] or 0,
+        "total_amount": round(qs.aggregate(s=Sum("amount"))["s"] or 0, 2),
         "results": [_ledger_row_dict(r, dup_keys, photos) for r in page],
     }
 

@@ -85,22 +85,31 @@ def plain(text: str | None) -> str:
 
 
 def notify(user_id: str, kind: str, title: str, body: str | None, href: str, *,
-           coalesce: bool = False, once: bool = False, actor: User | None = None) -> bool:
+           coalesce: bool = False, once: bool = False, actor: User | None = None,
+           group_key: str | None = None, verb: str | None = None) -> bool:
     """Tell one person something, unless they switched this kind off.
 
     `coalesce` holds back a second notification while an earlier unread one
     for the same place is still waiting -- five messages in a row are one
     thing to come back to, not five. `once` sends a given title about a given
     place only ever once, so taking a reaction back and giving it again does
-    not ring twice. Returns whether a row was written.
+    not ring twice. `group_key` + `verb` fold repeats into one unread line,
+    "Asha and 3 others congratulated you on your post"; with `once`, a person
+    already named on that group is not counted again. Returns whether a row
+    was written or grown.
     """
     if kind not in KINDS:
         raise ValueError(f"Unknown social notification kind: {kind}")
     title = title[:255]
     if coalesce and Notification.objects.filter(user_id=user_id, href=href, read=False).exists():
         return False
-    if once and Notification.objects.filter(user_id=user_id, href=href, title=title).exists():
+    if once and group_key and actor is not None:
+        for actors in Notification.objects.filter(user_id=user_id, group_key=group_key).values_list("actors", flat=True):
+            if any(isinstance(a, dict) and a.get("id") == actor.pk for a in actors or []):
+                return False
+    elif once and Notification.objects.filter(user_id=user_id, href=href, title=title).exists():
         return False
     person = _user(user_id)
-    note = notify_service.notify(person, kind, title, plain(body)[:300], href, actor=actor)
+    note = notify_service.notify(person, kind, None if verb else title, plain(body)[:300], href, actor=actor,
+                                 group_key=group_key, verb=verb)
     return note is not None

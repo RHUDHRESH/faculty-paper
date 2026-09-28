@@ -163,9 +163,12 @@ export function ordinal(n: number): string {
   return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] ?? "th"}`
 }
 
-/** "=4" for a tie, "4" otherwise, "—" for somebody with nothing counted. */
+/** "=4" for a tie, "4" otherwise, "Not ranked yet" for somebody with nothing counted this period. */
+export const NOT_RANKED = "Not ranked yet"
+export const NOT_RANKED_WHY = "Nothing counted for them in this period yet."
+
 export function rankText(rank: number | null, joint: boolean): string {
-  if (rank == null) return "—"
+  if (rank == null) return NOT_RANKED
   return joint ? `=${rank}` : String(rank)
 }
 
@@ -471,6 +474,17 @@ export function deptPicture(dept: string): string {
   return DEPT_HINTS.find(([re]) => re.test(k))?.[1] ?? departmentArt(dept)
 }
 
+/** A rank, or a muted "Not ranked yet" that says why on hover and to screen readers. */
+export function RankCell({ rank, joint }: { rank: number | null; joint: boolean }) {
+  if (rank != null) return <>{rankText(rank, joint)}</>
+  return (
+    <span className="text-xs text-fg-subtle" title={NOT_RANKED_WHY}>
+      {NOT_RANKED}
+      <span className="sr-only">. {NOT_RANKED_WHY}</span>
+    </span>
+  )
+}
+
 function Move({ row }: { row: Pick<BoardRow, "move" | "new" | "rank"> }) {
   if (row.rank == null) return null
   if (row.new) return <span className="text-xs text-fg-muted">new</span>
@@ -565,7 +579,7 @@ function PeopleView({ board }: { board: HonoursBoard }) {
     <div className="space-y-5">
       <Podium board={board} />
       <p className="text-sm text-fg-muted">
-        {count(board.ranked)} of {count(board.population)} people ranked by {board.label.toLowerCase()} ({board.unit}). People with nothing counted are listed without a rank.
+        {count(board.ranked)} of {count(board.population)} people ranked by {board.label.toLowerCase()} ({board.unit}). People with nothing counted this period show as not ranked yet.
       </p>
 
       {/* Desktop table — ten columns need 1024px; below that the list (a11y audit: 992px wide at 768) */}
@@ -594,7 +608,7 @@ function PeopleView({ board }: { board: HonoursBoard }) {
                     r.rank == null && "text-fg-muted"
                   )}
                 >
-                  <td className="px-3 py-2.5 tabular-nums text-fg-muted">{rankText(r.rank, r.joint)}</td>
+                  <td className="px-3 py-2.5 tabular-nums text-fg-muted"><RankCell rank={r.rank} joint={r.joint} /></td>
                   <td className="px-3 py-2">
                     <Link to={`/people/${r.person.id}`} className="flex items-center gap-2 hover:underline">
                       <Avatar person={r.person} size="sm" className="print:hidden" />
@@ -624,7 +638,7 @@ function PeopleView({ board }: { board: HonoursBoard }) {
         {shown.map((r) => (
           <li key={r.person.id} className={cn(isMe(board, r) && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)]")}>
             <Link to={`/people/${r.person.id}`} className="flex items-center gap-3 px-3 py-2">
-              <span className="w-8 shrink-0 text-sm tabular-nums text-fg-muted">{rankText(r.rank, r.joint)}</span>
+              <span className={cn("shrink-0 tabular-nums text-fg-muted", r.rank == null ? "w-14 text-xs leading-tight" : "w-8 text-sm")}><RankCell rank={r.rank} joint={r.joint} /></span>
               <Avatar person={r.person} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{r.person.name}</span>

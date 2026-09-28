@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { FilePlus, Plus, Search, SearchX, X } from "lucide-react"
@@ -233,7 +234,7 @@ export function ClaimsList() {
       className: "max-w-[22rem]",
       cell: (c) => (
         <span className="block">
-          <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+          <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
           <Meta className="mt-0.5 block truncate">
             {c.ticket_number || (c.status === "DRAFT" ? "Not filed yet" : "No ticket number")}
           </Meta>
@@ -588,7 +589,7 @@ function PaperCard({ claim }: { claim: Claim }) {
       <Link to={`/papers/${claim.id}`} className="block px-1 py-3">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-base">{claim.paper_title || "Untitled"}</span>
+            <span className="block truncate text-base">{paperTitle(claim.paper_title)}</span>
             <Meta className="mt-0.5 block truncate">
               {[claim.journal_title, claim.publication_year, claim.ticket_number || (claim.status === "DRAFT" ? "Not filed yet" : null)]
                 .filter(Boolean)

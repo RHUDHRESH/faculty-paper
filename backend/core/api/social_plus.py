@@ -36,7 +36,7 @@ from core.models import (
 
 REACTION_WORDS = {
     FeedReaction.Kind.CONGRATS: "congratulated you on your post",
-    FeedReaction.Kind.INTERESTED: "is interested in your post",
+    FeedReaction.Kind.INTERESTED: "showed interest in your post",
     FeedReaction.Kind.COLLABORATE: "would like to collaborate on your post",
 }
 
@@ -69,6 +69,7 @@ def add_reaction(request: HttpRequest, post_id: str, kind: str):
         social_notify.notify(
             post.author_id, "reaction", f"{viewer.name} {REACTION_WORDS[kind]}",
             social_excerpt(post.body), _post_href(post.id), once=True, actor=viewer,
+            group_key=f"reaction:{post.id}:{kind}", verb=REACTION_WORDS[kind],
         )
     return _reaction_state(viewer, post.id)
 

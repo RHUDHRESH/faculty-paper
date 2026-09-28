@@ -30,6 +30,7 @@ import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { HeaderSpot } from "@/ui/page-header"
+import { Avatar } from "@/ui/person"
 
 /**
  * `Audit` — who did what, and when — and `Faults` — what is broken, blocked
@@ -804,6 +805,29 @@ type Fault = {
   severity: FaultSeverity
   to: string | null
   sample: string[]
+  /** Set when the sample is people: shown as faces, not emails. */
+  people?: FaultPerson[]
+}
+
+export type FaultPerson = { user_id: string; name: string; email?: string; initials: string; photo_url: string | null }
+
+/** People in a fault's sample, as faces that open their profile. */
+export function FaultPeople({ people }: { people: FaultPerson[] }) {
+  return (
+    <>
+      {people.map((p) => (
+        <Link
+          key={p.user_id}
+          to={`/u/${p.user_id}`}
+          title={p.email}
+          className="inline-flex items-center gap-1.5 rounded-full py-0.5 pr-2 underline-offset-2 hover:underline"
+        >
+          <Avatar person={p} size="xs" />
+          <span className="text-fg">{p.name}</span>
+        </Link>
+      ))}
+    </>
+  )
 }
 
 type FaultGroup = {
@@ -1003,7 +1027,7 @@ function FaultRow({ fault }: { fault: Fault }) {
       {fault.count > 0 && fault.sample.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-fg-muted">
           <span>For example:</span>
-          {fault.sample.map((s, i) => {
+          {fault.people?.length ? <FaultPeople people={fault.people} /> : fault.sample.map((s, i) => {
             const href = sampleHref(s)
             return (
               <span key={`${s}-${i}`} className="inline-flex items-center">

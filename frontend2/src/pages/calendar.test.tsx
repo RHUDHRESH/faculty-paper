@@ -10,7 +10,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
 import { Calendar } from "@/pages/calendar"
-import { googleTemplateUrl, lanes, toItems } from "@/pages/calendar/model"
+import { agendaWindow, googleTemplateUrl, lanes, toItems } from "@/pages/calendar/model"
 import { FACULTY, fakeApi, renderWithProviders } from "@/test/harness"
 
 const FINANCE: Me = { id: "u-fin", email: "f@x.edu", name: "Finance", role: "FINANCE", department: null }
@@ -120,6 +120,11 @@ describe("Calendar", () => {
 })
 
 describe("calendar model", () => {
+  it("agenda on the current month runs from today through the Next horizon", () => {
+    expect(agendaWindow("2026-08-31", "2026-10-04", "2026-09-29", "2026-10-29", true)).toEqual(["2026-09-29", "2026-10-29"])
+    expect(agendaWindow("2026-10-26", "2026-12-06", "2026-09-29", "2026-10-29", false)).toEqual(["2026-10-26", "2026-12-06"])
+  })
+
   it("builds a timed Google template in the college's zone", () => {
     const [item] = toItems({
       start: "", end: "", kinds: [],

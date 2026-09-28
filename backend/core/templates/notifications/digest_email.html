@@ -39,5 +39,40 @@
 {% endfor %}
 </table>
 {% endif %}
+{% if digest.progress %}
+<h2 style="margin:20px 0 6px 0;font-size:15px;font-weight:600;color:#2b398f;">Your papers</h2>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+{% for i in digest.progress %}
+<tr><td style="padding:6px 0;border-bottom:1px solid #eef0f5;font-size:14px;line-height:1.45;">
+<a href="{{ app_base }}{{ i.href }}" style="color:#1d2130;text-decoration:none;font-weight:600;">{{ i.title }}</a><br>
+<span style="color:#6b7080;font-size:13px;">{{ i.state }}</span>
+</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+{% if digest.found %}
+<h2 style="margin:20px 0 6px 0;font-size:15px;font-weight:600;color:#2b398f;">Found on your record, not filed yet</h2>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+{% for p in digest.found.papers %}
+<tr><td style="padding:6px 0;border-bottom:1px solid #eef0f5;font-size:14px;line-height:1.45;">
+<a href="{{ app_base }}{{ digest.found.href }}" style="color:#1d2130;text-decoration:none;font-weight:600;">{{ p.title }}</a><br>
+<span style="color:#6b7080;font-size:13px;">{{ p.year|default:"" }}{% if p.venue %} &middot; {{ p.venue }}{% endif %}</span>
+</td></tr>
+{% endfor %}
+</table>
+{% if digest.found.count > digest.found.papers|length %}<p style="margin:6px 0 0 0;font-size:13px;color:#6b7080;">{{ digest.found.count }} in all.</p>{% endif %}
+{% endif %}
+
+{% if digest.pace %}
+<h2 style="margin:20px 0 6px 0;font-size:15px;font-weight:600;color:#2b398f;">{{ digest.pace.department }} this year</h2>
+<p style="margin:0 0 8px 0;font-size:15px;line-height:1.55;">{{ digest.pace.line }}</p>
+{% if digest.pace.push %}<p style="margin:0 0 12px 0;font-size:14px;line-height:1.5;color:#5b6173;">Nothing filed yet this year: {{ digest.pace.push|join:", " }}.</p>{% endif %}
+{% endif %}
+
+{% if digest.desk %}
+<h2 style="margin:20px 0 6px 0;font-size:15px;font-weight:600;color:#2b398f;">On your desk</h2>
+<p style="margin:0 0 12px 0;font-size:15px;line-height:1.55;">{{ digest.desk.line }}</p>
+{% endif %}
 <p style="margin:16px 0 0 0;"></p>
 {% endblock %}

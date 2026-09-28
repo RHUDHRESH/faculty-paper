@@ -62,6 +62,8 @@ export type RecordPaper = {
   citations: number | null
   source: string | null
   scopus_indexed?: boolean
+  /** True or false only when a source (OpenAlex, the claim) says; null when unknown. */
+  corresponding_author?: boolean | null
   author_position: number | null
   total_authors: number
   match_confidence: number | null
@@ -374,6 +376,7 @@ export function Papers() {
         <SkeletonRows rows={6} />
       ) : all.length === 0 ? (
         <EmptyState
+          guide="file-a-paper"
           illustration="empty-no-papers"
           title="Your record will build itself"
           message="Once we match you to your Scopus profile, every paper you have published appears here. You will not have to type them in."
@@ -531,6 +534,7 @@ export function Papers() {
           {rows.length === 0 ? (
             tab === "unclaimed" && counts.unclaimed === 0 ? (
               <EmptyState
+                guide="where-is-my-claim"
                 illustration="empty-no-papers"
                 title="Every eligible paper is filed"
                 message="Nothing is waiting to be claimed. New papers appear here after a Scopus pull."

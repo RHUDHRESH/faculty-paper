@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import {
@@ -429,6 +430,7 @@ export function Payments() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          guide="pay-claims"
           art="nothing-paid"
           icon={Banknote}
           title="Nothing waiting on Finance"
@@ -460,7 +462,7 @@ export function Payments() {
                         />
                         <div className="min-w-0 flex-1 space-y-2">
                           <div>
-                            <span className="block break-words">{c.paper_title || "Untitled"}</span>
+                            <span className="block break-words">{paperTitle(c.paper_title)}</span>
                             <Meta className="block">{c.ticket_number || "Not yet ticketed"}</Meta>
                           </div>
                           <Claimant c={c} />
@@ -541,7 +543,7 @@ export function Payments() {
                         />
                       </td>
                       <td className="px-3 py-3 align-top">
-                        <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
+                        <span className="block break-words text-base">{paperTitle(c.paper_title)}</span>
                         <Meta className="mt-0.5 block">
                           {c.ticket_number || "Not yet ticketed"}
                           {c.journal_title ? ` · ${c.journal_title}` : ""}
@@ -963,7 +965,7 @@ function BulkPayDialog({
                   return (
                     <tr key={c.id} className="border-b border-line last:border-b-0">
                       <td className="px-3 py-2.5 align-top">
-                        <span className="block break-words">{c.paper_title || "Untitled"}</span>
+                        <span className="block break-words">{paperTitle(c.paper_title)}</span>
                         <Meta className="mt-0.5 block">
                           {c.owner_name}
                           {c.ticket_number ? ` · ${c.ticket_number}` : ""}
@@ -1173,7 +1175,7 @@ export function PaymentsDone() {
                 {g.rows.map((c) => (
                   <div key={c.id} className="space-y-2 rounded-lg p-3 ring-1 ring-inset ring-edge">
                     <div>
-                      <span className="block break-words">{c.paper_title || "Untitled"}</span>
+                      <span className="block break-words">{paperTitle(c.paper_title)}</span>
                       <Meta className="block">{c.ticket_number || "Not yet ticketed"}</Meta>
                     </div>
                     <Claimant c={c} />
@@ -1227,7 +1229,7 @@ export function PaymentsDone() {
                 {g.rows.map((c) => (
                   <tr key={c.id} className="row border-b border-line last:border-b-0">
                     <td className="px-3 py-3 align-top">
-                      <span className="block break-words text-base">{c.paper_title || "Untitled"}</span>
+                      <span className="block break-words text-base">{paperTitle(c.paper_title)}</span>
                       <Meta className="mt-0.5 block">{c.ticket_number || "Not yet ticketed"}</Meta>
                     </td>
                     <td className="px-3 py-3 align-top">

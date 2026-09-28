@@ -1,4 +1,4 @@
-import { firstName } from "@/lib/names"
+import { firstName, paperTitle } from "@/lib/names"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
 import {
@@ -29,6 +29,7 @@ import { GlanceSummary } from "@/pages/department-glance"
 import { Button } from "@/ui/button"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Picture } from "@/ui/picture"
+import { AgeingSplit } from "@/pages/clearing-desk"
 import { Celebrations } from "@/ui/celebrations"
 import { ComingUp } from "@/ui/coming-up"
 import { money, Stage, stageOf } from "@/ui/paper"
@@ -194,7 +195,7 @@ export function ClaimRow({ claim }: { claim: Claim }) {
     <li className="row">
       <Link to={`/papers/${claim.id}`} className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-base">{claim.paper_title || "Untitled"}</span>
+          <span className="block truncate text-base">{paperTitle(claim.paper_title)}</span>
           <Meta className="block truncate">
             {[claim.owner_name, claim.owner_department, claim.ticket_number]
               .filter(Boolean)
@@ -304,7 +305,7 @@ export function DeskQueue({
                 to={`/papers/${c.id}`}
                 className="block truncate text-base font-medium underline-offset-4 hover:underline"
               >
-                {c.paper_title || "Untitled"}
+                {paperTitle(c.paper_title)}
               </Link>
               <Meta className="block truncate">
                 {[c.owner_name, c.owner_department].filter(Boolean).join(" · ")}
@@ -329,7 +330,7 @@ export function DeskQueue({
               {daysLabel(days)}
             </span>
             <Button size="sm" asChild>
-              <Link to={to} aria-label={`${action}: ${c.paper_title || "Untitled"}`}>
+              <Link to={to} aria-label={`${action}: ${paperTitle(c.paper_title)}`}>
                 {action}
               </Link>
             </Button>
@@ -421,6 +422,7 @@ export function OfficeHome() {
             Open the clearing queue{waiting ? ` (${waiting.toLocaleString("en-IN")})` : ""}
           </Link>
         </div>
+        {queueRows.length > 0 && <AgeingSplit rows={queueRows} />}
         {clearing.isLoading ? (
           <ul className="divide-y divide-line border-y border-line">
             {Array.from({ length: 4 }).map((_, i) => (

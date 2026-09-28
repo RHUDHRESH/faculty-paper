@@ -107,3 +107,31 @@ class LedgerPageTests(TestCase):
     def test_money_is_closed_to_a_head_of_department(self):
         self.client.force_login(self.hod)
         self.assertEqual(self.client.get("/api/admin/ledger").status_code, 403)
+
+
+class LedgerRealDataTests(TestCase):
+    """Shapes found on the real college ledger (docs/jtbd/real-data-qa.md)."""
+
+    def setUp(self):
+        self.finance = User.objects.create_user(
+            email="rd-fin@test.edu", password="pass", name="Rd Fin", role=Role.FINANCE
+        )
+        for dept, amt, month in [("S&H-MATHS", 100, 1), ("S&H - Maths", 50, 2), ("AI & ML", 10, 3), ("AI&ML", 20, 3)]:
+            PaidLedger.objects.create(
+                payout_month=date(2024, month, 1), amount=amt, faculty_name="X", department=dept
+            )
+        PaidLedger.objects.create(payout_month=date(2026, 9, 1), amount=0, faculty_name="Quota", department="CSE")
+        self.client.force_login(self.finance)
+
+    def test_department_spellings_roll_up_and_filter_together(self):
+        body = self.client.get("/api/admin/ledger").json()
+        by = {d["department"]: d["amount"] for d in body["by_department"]}
+        self.assertEqual(len(body["by_department"]), 3)  # maths, AI&ML, CSE
+        self.assertEqual(by.get("S&H-MATHS", by.get("S&H - Maths")), 150)
+        self.assertEqual(by.get("AI&ML", by.get("AI & ML")), 30)
+        self.assertEqual(self.client.get("/api/admin/ledger", {"department": "S&H-MATHS"}).json()["total"], 2)
+
+    def test_zero_rows_sort_after_real_payments(self):
+        rows = self.client.get("/api/admin/ledger").json()["results"]
+        self.assertEqual(rows[-1]["faculty_name"], "Quota")
+        self.assertNotEqual(rows[0]["faculty_name"], "Quota")

@@ -1,4 +1,4 @@
-import { firstName } from "@/lib/names"
+import { firstName, paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeft, Eye, FilePlus, UserPlus, KeyRound, Search, SearchX, Users } from "lucide-react"
@@ -598,7 +598,7 @@ function CollegePerson() {
       className: "max-w-[22rem]",
       cell: (c) => (
         <span className="block">
-          <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+          <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
           <Meta className="mt-0.5 block truncate">{c.ticket_number || "—"}</Meta>
         </span>
       ),
@@ -1037,7 +1037,7 @@ function HodPerson() {
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-base">
-                      {c.paper_title || "Untitled"}
+                      {paperTitle(c.paper_title)}
                     </span>
                     <Meta className="block truncate">
                       {[

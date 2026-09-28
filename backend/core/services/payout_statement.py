@@ -172,22 +172,36 @@ def reconcile(month: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _counts_as_payment(amount: float) -> int:
+    """How a ledger row moves the count of payments, the way `/reports` counts.
+
+    A research-quota paper is paid at ₹0: it is settled, it has a voucher and a
+    ledger row, but no money went to anybody, the bank file leaves it out, and
+    Reports does not count it. A void's reversing row cancels the payment it
+    reverses. The statement called the same month "5 payments to 2 people"
+    where the bank file and Reports said 3.
+    """
+    return 1 if amount > 0.005 else -1 if amount < -0.005 else 0
+
+
 def statement(month: str) -> dict[str, Any]:
     rows = month_rows(month)
     total = round(sum(r["amount"] for r in rows), 2)
     # The ledger's own figure for the month, as every other screen reads it.
     ledger_total = round(sum(p["amount"] for p in college_totals.payments(month=month)), 2)
     depts: dict[str, list[float]] = defaultdict(lambda: [0.0, 0])
+    net_by_person: dict[str, float] = defaultdict(float)
     for r in rows:
         depts[r["department"]][0] += r["amount"]
-        depts[r["department"]][1] += 1
-    people = {(r["staff_id"] or r["name"]).strip().casefold() for r in rows}
+        depts[r["department"]][1] += _counts_as_payment(r["amount"])
+        net_by_person[(r["staff_id"] or r["name"]).strip().casefold()] += r["amount"]
+    people = {k for k, v in net_by_person.items() if v > 0.005}
     d = _parse_month(month)
     return {
         "month": month,
         "label": d.strftime("%B %Y"),
         "college": institution.get("college_name"),
-        "count": len(rows),
+        "count": sum(_counts_as_payment(r["amount"]) for r in rows),
         "people": len(people),
         "total": total,
         "ledger_total": ledger_total,
@@ -206,7 +220,7 @@ def months() -> list[dict[str, Any]]:
         if p["month"]:
             k = p["month"].strftime("%Y-%m")
             sums[k][0] += p["amount"]
-            sums[k][1] += 1
+            sums[k][1] += _counts_as_payment(p["amount"])
     return [{"month": k, "label": _parse_month(k).strftime("%b %Y"),
              "amount": round(sums[k][0], 2), "count": int(sums[k][1])}
             for k in college_totals.payout_months()]

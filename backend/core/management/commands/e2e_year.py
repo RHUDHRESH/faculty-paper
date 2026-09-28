@@ -22,16 +22,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date
+from datetime import date, datetime
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY
 from django.contrib.sessions.backends.db import SessionStore
 from django.contrib.sessions.models import Session
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from core.models import (
-    Authorship, Budget, Claim, DuplicateFinding, JournalWatch, PaidLedger, Publication, Role,
+    Authorship, Budget, PriorPayment, Claim, DuplicateFinding, JournalWatch, PaidLedger, Publication, Role,
     ScimagoJournal, SnipSource, Team, TeamMember, User,
 )
 
@@ -86,10 +87,17 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--reset", action="store_true")
         parser.add_argument("--fixtures", default=None, help="Write the recorded upstream answers here.")
+        parser.add_argument(
+            "--erp-repeat", action="store_true",
+            help="Only: add the ERP sheet's row for a payment already made here, and stop.",
+        )
 
     def handle(self, *args, **opts):
         if not settings.DEBUG:
             raise CommandError("e2e_year refuses to run with DJANGO_DEBUG=false.")
+        if opts["erp_repeat"]:
+            self._erp_repeat()
+            return
         if opts["reset"]:
             self._reset()
         people = {key: self._account(key, *spec) for key, spec in CAST.items()}
@@ -122,6 +130,7 @@ class Command(BaseCommand):
         PaidLedger.objects.filter(staff_id__startswith="YR").delete()
         DuplicateFinding.objects.filter(faculty_name__in=[c[0] for c in CAST.values()]).delete()
         Publication.objects.filter(source=TAG).delete()
+        PriorPayment.objects.filter(claim_ref__startswith="ERP-YR").delete()
         Team.objects.filter(code__startswith="FYP-YR").delete()
         for row in Session.objects.all().iterator():
             try:
@@ -130,6 +139,20 @@ class Command(BaseCommand):
             except Exception:  # noqa: BLE001
                 continue
         users.delete()
+
+    def _erp_repeat(self) -> None:
+        """Accounts' ERP export arrives with Anand's first paper on it again,
+        paid in August under his staff id -- the same paper this app paid in
+        September. The nightly sweep should call that one person paid twice."""
+        _, title, _journal, doi, _, _ = PAPERS["anand_scopus"]
+        PriorPayment.objects.get_or_create(
+            claim_ref="ERP-YR-0815",
+            defaults={"faculty_name": "ANAND KUMAR", "employee_id": CAST["anand"][2],
+                      "paper_title": title, "normalized_title": " ".join(title.lower().split()),
+                      "doi": doi, "amount_paid": 74500,
+                      "paid_at": timezone.make_aware(datetime(date.today().year, 8, 15)),
+                      "raw_json": json.dumps({"Month": f"{date.today().year}-08", "Source": TAG})},
+        )
 
     def _account(self, key, name, role, staff_id, scopus_id) -> User:
         email = f"{key}@{DOMAIN}"

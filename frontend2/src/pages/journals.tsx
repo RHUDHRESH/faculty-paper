@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { JournalCover } from "@/ui/journal-cover"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeft, BookOpen, Search, SearchX } from "lucide-react"
 
@@ -483,12 +484,16 @@ export function JournalRecord() {
         Journals
       </Link>
 
-      <header className="space-y-1">
-        <PageTitle>{journal.title}</PageTitle>
-        <Sub>
-          {[journal.subject_category, journal.indexing].filter(Boolean).join(" · ") || "—"}
-        </Sub>
-        {journal.issn && <Meta className="block">ISSN {journal.issn}</Meta>}
+      <header className="flex items-start gap-4">
+        <JournalCover title={journal.title} size="lg" className="max-sm:hidden" />
+        <JournalCover title={journal.title} size="md" className="sm:hidden" />
+        <div className="min-w-0 space-y-1">
+          <PageTitle>{journal.title}</PageTitle>
+          <Sub>
+            {[journal.subject_category, journal.indexing].filter(Boolean).join(" · ") || "—"}
+          </Sub>
+          {journal.issn && <Meta className="block">ISSN {journal.issn}</Meta>}
+        </div>
       </header>
 
       {!showMoney && (

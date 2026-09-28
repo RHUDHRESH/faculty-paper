@@ -323,7 +323,7 @@ function Entity({ row, meId, onPick, index }: { row: Row; meId?: string; onPick:
     const ext = !!m.external
     return (
       <PersonCard
-        person={{ name: it.title, initials: initialsOf(it.title), photo_url: null, department: ext ? null : m.department, designation: ext ? null : m.designation }}
+        person={{ name: it.title, initials: initialsOf(it.title), photo_url: ext ? null : ((m.photo_url as string | null | undefined) ?? null), department: ext ? null : m.department, designation: ext ? null : m.designation }}
         to={it.url || undefined}
         affiliation={ext ? it.chips[0] ?? "External" : "Saveetha"}
         context={personContext(it)}

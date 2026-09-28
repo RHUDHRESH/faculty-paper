@@ -1,9 +1,10 @@
-import { BookOpen, FilePlusCorner, FileText, Gem, MessageCircle, Quote, UserRound } from "lucide-react"
+import { FilePlusCorner, FileText, Gem, MessageCircle, Quote, UserRound } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
 import { Chip } from "@/ui/chip"
 import { StageTrack, type StageInfo } from "@/ui/paper"
+import { JournalCover } from "@/ui/journal-cover"
 import { Avatar, type PersonBrief } from "@/ui/person"
 
 /* ------------------------------------------------------------------------ */
@@ -99,7 +100,12 @@ export function PaperCard({
       data-area="record"
       className={cn(dense ? "row flex items-start gap-3 px-4 py-2.5" : "panel flex gap-4 p-4", className)}
     >
-      {!dense && <FileText aria-hidden className="mt-0.5 size-5 shrink-0 text-(--area)" strokeWidth={1.75} />}
+      {!dense &&
+        (journal ? (
+          <JournalCover title={journal} quartile={quartile} size="sm" className="mt-0.5" />
+        ) : (
+          <FileText aria-hidden className="mt-0.5 size-5 shrink-0 text-(--area)" strokeWidth={1.75} />
+        ))}
       <div className="min-w-0 flex-1">
         <h3 className={cn("line-clamp-2 font-medium text-fg", dense ? "text-sm" : "text-base")}>{heading}</h3>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted">
@@ -254,7 +260,7 @@ export function JournalCard({
 }) {
   return (
     <article data-area="research" className={cn("panel flex gap-4 p-4", className)}>
-      <BookOpen aria-hidden className="mt-0.5 size-5 shrink-0 text-(--area)" strokeWidth={1.75} />
+      <JournalCover title={name} publisher={publisher} quartile={quartile} size="md" />
       <div className="min-w-0 flex-1">
         <h3 className="line-clamp-2 font-medium text-fg">
           {to ? (

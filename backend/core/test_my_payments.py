@@ -60,3 +60,38 @@ class CollegeLedgerTotalTests(TestCase):
         self.assertEqual(body["ledger_since"], "2024-01")
         c.force_login(faculty)
         self.assertNotIn("ledger_total", c.get("/api/dashboard").json())
+
+
+class PaymentStatementTests(TestCase):
+    def setUp(self):
+        self.me = User.objects.create_user(
+            email="s@x.edu", password="p", name="Stmt", role=Role.FACULTY, staff_id="TSEC009"
+        )
+        self.c = Client()
+        self.c.force_login(self.me)
+        for amt, m in [(1000, date(2024, 3, 1)), (2000, date(2024, 4, 1)), (3000, date(2025, 3, 1))]:
+            PaidLedger.objects.create(payout_month=m, staff_id="TSEC009", amount=amt, paper_title="P")
+        PaidLedger.objects.create(payout_month=date(2024, 5, 1), staff_id="OTHER", amount=99, paper_title="X")
+
+    def test_financial_year_runs_april_to_march(self):
+        from core.api.my_payments import financial_year_of
+        self.assertEqual(financial_year_of(date(2025, 3, 31)), 2024)
+        self.assertEqual(financial_year_of(date(2025, 4, 1)), 2025)
+
+    def test_years_and_filter(self):
+        body = self.c.get("/api/me/payments/statement").json()
+        self.assertEqual([(y["label"], y["total"]) for y in body["years"]], [("2024-25", 5000), ("2023-24", 1000)])
+        body = self.c.get("/api/me/payments/statement?fy=2024").json()
+        self.assertEqual(body["total"], 5000)
+        self.assertEqual(body["count"], 2)
+
+    def test_csv_download(self):
+        r = self.c.get("/api/me/payments/statement?fy=2024&format=csv")
+        self.assertEqual(r["Content-Type"], "text/csv")
+        self.assertIn("payment-statement-2024-25.csv", r["Content-Disposition"])
+        text = r.content.decode()
+        self.assertIn("Total,,,,,5000", text)
+        self.assertNotIn(",99", text)
+
+    def test_needs_sign_in(self):
+        self.assertIn(Client().get("/api/me/payments/statement").status_code, (401, 403))

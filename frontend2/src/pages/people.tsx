@@ -32,6 +32,7 @@ import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { HeaderSpot } from "@/ui/page-header"
 import { Avatar } from "@/ui/person"
+import { PeopleDirectory, PublicProfile } from "@/pages/person"
 
 /**
  * The staff directory (`People`) and one account's publication record
@@ -130,7 +131,14 @@ type PeoplePayload = {
  * and the role written out rather than left as the raw constant the account
  * was created with.
  */
+/** The office manages accounts here; everybody else finds colleagues. */
 export function People() {
+  const { me } = useAuth()
+  if (!can(me?.role).manageUsers) return <PeopleDirectory />
+  return <AdminPeople />
+}
+
+function AdminPeople() {
   const { me } = useAuth()
   const [creating, setCreating] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -482,6 +490,10 @@ export function Person() {
   // asked inside the two limits they work under: their own department, and
   // no money.
   if (can(me?.role).seeDepartment) return <HodPerson />
+  // Faculty (and anyone else without the office record) see the colleague's
+  // profile: faces in Search, the leaderboard and the feed link here, and a
+  // refusal page is no answer to "who is this?".
+  if (!can(me?.role).viewReports && !can(me?.role).manageUsers) return <PublicProfile />
   return <CollegePerson />
 }
 

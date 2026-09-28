@@ -74,9 +74,9 @@ class PaymentStatementTests(TestCase):
         PaidLedger.objects.create(payout_month=date(2024, 5, 1), staff_id="OTHER", amount=99, paper_title="X")
 
     def test_financial_year_runs_april_to_march(self):
-        from core.api.my_payments import financial_year_of
-        self.assertEqual(financial_year_of(date(2025, 3, 31)), 2024)
-        self.assertEqual(financial_year_of(date(2025, 4, 1)), 2025)
+        from core.api.my_payments import _fy_start_year
+        self.assertEqual(_fy_start_year(date(2025, 3, 31)), 2024)
+        self.assertEqual(_fy_start_year(date(2025, 4, 1)), 2025)
 
     def test_years_and_filter(self):
         body = self.c.get("/api/me/payments/statement").json()

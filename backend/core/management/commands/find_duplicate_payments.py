@@ -71,6 +71,7 @@ class Command(BaseCommand):
             .values(
                 "id", "ticket_number", "paper_title", "doi", "remuneration",
                 "payout_month", "owner_id", "owner__name", "owner__department",
+                "owner__staff_id",
             )
         ):
             rows.append({
@@ -81,7 +82,12 @@ class Command(BaseCommand):
                 "doi": c["doi"],
                 "amount": c["remuneration"] or 0,
                 "when": c["payout_month"].strftime("%Y-%m") if c["payout_month"] else None,
-                "person_key": c["owner_id"],
+                # The staff id when the account has one, because that is what
+                # an ERP row carries (`employee_id`): keyed on the account id,
+                # a payment made here and the same payment in the ERP sheet
+                # were two different people, and a paper paid twice to one
+                # person was filed as co-authors paid once each.
+                "person_key": (c["owner__staff_id"] or "").strip().lower() or c["owner_id"],
                 "person": c["owner__name"],
                 "department": c["owner__department"],
             })

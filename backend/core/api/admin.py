@@ -21,7 +21,7 @@ import json
 from datetime import date
 from typing import Optional
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, Sum, Value, When
+from django.db.models import Max, Case, IntegerField, Q, Sum, Value, When
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -521,7 +521,13 @@ def put_formula(request: HttpRequest, payload: FormulaIn):
 
     with transaction.atomic():
         prev = FormulaConfig.objects.filter(active=True).order_by("-version").first()
-        next_version = (prev.version + 1) if prev else 1
+        # With no stored row the college is priced from the built-in rates,
+        # which every screen calls v1 -- the editor says "retires v1, makes v2
+        # active" and asks the admin to type v2. Saving that as version 1 gave
+        # two different policies the same number. Never reuse a number either:
+        # count on from the highest version ever stored.
+        highest = FormulaConfig.objects.aggregate(m=Max("version"))["m"] or 0
+        next_version = max(highest, prev.version if prev else 1) + 1
         student_project_amount = (
             payload.student_project_amount
             if payload.student_project_amount is not None

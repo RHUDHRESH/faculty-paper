@@ -68,7 +68,7 @@ def add_reaction(request: HttpRequest, post_id: str, kind: str):
     if created and kind in REACTION_WORDS and post.author_id != viewer.id and post.author.active:
         social_notify.notify(
             post.author_id, "reaction", f"{viewer.name} {REACTION_WORDS[kind]}",
-            social_excerpt(post.body), _post_href(post.id), once=True,
+            social_excerpt(post.body), _post_href(post.id), once=True, actor=viewer,
         )
     return _reaction_state(viewer, post.id)
 
@@ -278,7 +278,7 @@ def endorse_skill(request: HttpRequest, skill_id: str):
     if created:
         social_notify.notify(
             skill.user_id, "endorsement", f"{viewer.name} endorsed you for {skill.name}",
-            None, f"/u/{skill.user_id}", once=True,
+            None, f"/u/{skill.user_id}", once=True, actor=viewer,
         )
     return {"endorsed": True, "count": skill.endorsements.count()}
 

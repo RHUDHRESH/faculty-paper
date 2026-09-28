@@ -70,3 +70,5 @@ class Command(BaseCommand):
                 reason="Cloned site; the real title was discontinued from Scopus in 2024.", added_by=cell,
             )
         self.stdout.write("Suspicious tickets and the watch-list entry are in place.")
+        from core.management.commands._demo_social import seed_social
+        seed_social(self.stdout)

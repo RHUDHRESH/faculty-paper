@@ -23,7 +23,7 @@ import { AuthorList } from "./filing/authors"
 import { ChooseFooter, ChooseMethod, type Method, type PulledPaper, type ScopusPull } from "./filing/choose"
 import { SourceTag } from "./filing/bits"
 import { EstimateBar, EstimatePanel } from "./filing/estimate"
-import { FiledReceipt } from "./filing/filed"
+import { FiledReceipt, receiptAmount } from "./filing/filed"
 import {
   CHECK_TARGET,
   FoundCard,
@@ -41,6 +41,7 @@ import {
   yearOf,
 } from "./filing/identifiers"
 import { applyLookup, type PaperLookup, type StoredAuthor } from "./filing/lookup"
+import { useDebouncedSave } from "./filing/autosave"
 import { AttachmentGroup, ReferenceFields, ReferenceTally } from "./filing/proof"
 import { readiness, sameFileOnThisForm, type Problem } from "./filing/readiness"
 import { ContestNote, EstimateDetail, PreFlight, PriorCheckLine, Receipt } from "./filing/receipt"
@@ -94,6 +95,8 @@ type ClaimDetail = {
   scopus_author_url: string | null
   designation: string | null
   claim_reason: string | null
+  /** What the server priced the claim at, from the journal figures it verified. */
+  remuneration?: number | null
   team: { code: string } | null
   affiliation_ok: boolean
   total_authors: number
@@ -435,6 +438,59 @@ function focusField(field: string) {
  * each named with where it came from. Everything the old ERP form lacked —
  * the duplicate check, the autosave, the estimate labelled as one — stays.
  */
+/**
+ * What the live estimate asks `/api/calculate` for.
+ *
+ * `claim_reason` goes too: the server prices a final-year project claim under
+ * its own scheme (a fixed amount per team) and only knows to when told. Left
+ * out, a mentor filing their team's conference paper was shown ₹4,000 — the
+ * faculty formula's conference rate — for a claim that pays ₹15,000.
+ */
+export function calcRequest(
+  form: Pick<
+    FormState,
+    | "selfReportedSnip"
+    | "selfReportedQuartile"
+    | "totalAuthors"
+    | "authorPosition"
+    | "publicationType"
+    | "claimReason"
+    | "indexing"
+  >,
+  engineeringClass: string | null | undefined,
+  referencesPriced: number
+) {
+  return {
+    snip: form.selfReportedSnip.trim() ? Number(form.selfReportedSnip) : undefined,
+    quartile: form.selfReportedQuartile || undefined,
+    total_authors: form.totalAuthors,
+    author_position: form.authorPosition,
+    publication_type: form.publicationType || undefined,
+    is_student_publication: form.claimReason === "COUNT_ONLY",
+    claim_reason: form.claimReason === "INCENTIVE" ? undefined : form.claimReason,
+    indexing_level: form.indexing.join(", ") || undefined,
+    engineering_class: engineeringClass || undefined,
+    sec_reference_count: referencesPriced,
+  }
+}
+
+/** The key of an article with neither a DOI nor a title yet. */
+export const BLANK_ARTICLE = "|"
+
+/**
+ * Whether conditions ticked for one article still stand for the form as it is.
+ *
+ * Ticked for a paper that was picked or looked up, they stand only while its
+ * DOI and title are unchanged. Ticked on "Type it in by hand", they were given
+ * for "the article you are about to describe" — there was no DOI or title to
+ * bind them to — so they stand for whatever is then described. Holding those
+ * to the empty key sent every hand-typed claim (every final-year project claim
+ * among them) back to the conditions when File it was pressed.
+ */
+export function ticksHold(ticksFor: string, articleKey: string): boolean {
+  return ticksFor === articleKey || ticksFor === BLANK_ARTICLE
+}
+
 export function FilePaper() {
   const collegeName = useCollegeName()
   const { id } = useParams<{ id?: string }>()
@@ -671,12 +727,7 @@ export function FilePaper() {
   }
 
   // The debounce: a burst of keystrokes becomes one request 2.5s after the last.
-  useEffect(() => {
-    if (!dirtyRef.current) return
-    const t = setTimeout(() => void save(), 2500)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form])
+  useDebouncedSave(form, dirtyRef, () => void save())
 
   useEffect(() => {
     const t = setInterval(() => forceTick((n) => n + 1), 30_000)
@@ -988,7 +1039,7 @@ export function FilePaper() {
   }, [pull, searchParams])
 
   const articleKey = `${normaliseDoi(form.doi.trim()).toLowerCase()}|${form.paperTitle.trim().toLowerCase()}`
-  const ticksValid = !!ticks && ticksFor === articleKey
+  const ticksValid = !!ticks && ticksHold(ticksFor, articleKey)
 
   /** "Change" on the conditions: back to Step 1, and every tick cleared. */
   function changePaper() {
@@ -1042,17 +1093,7 @@ export function FilePaper() {
     const t = setTimeout(() => {
       void api<CalcResult>("/api/calculate", {
         method: "POST",
-        json: {
-          snip: form.selfReportedSnip.trim() ? Number(form.selfReportedSnip) : undefined,
-          quartile: form.selfReportedQuartile || undefined,
-          total_authors: form.totalAuthors,
-          author_position: form.authorPosition,
-          publication_type: form.publicationType || undefined,
-          is_student_publication: form.claimReason === "COUNT_ONLY",
-          indexing_level: form.indexing.join(", ") || undefined,
-          engineering_class: engineeringClass || undefined,
-          sec_reference_count: referencesPriced,
-        },
+        json: calcRequest(form, engineeringClass, referencesPriced),
       })
         // Guarded on the run number: a slow reply to an earlier keystroke must
         // not overwrite a newer figure.
@@ -1122,6 +1163,10 @@ export function FilePaper() {
         ? await api<ClaimDetail>(`/api/claims/${claimIdRef.current}`, { method: "PATCH", json: payload })
         : await api<ClaimDetail>("/api/claims", { method: "POST", json: payload })
       dirtyRef.current = false
+      // The filed claim is this form's claim from now on: anything that
+      // saves after this point must address it, never create another.
+      claimIdRef.current = result.id
+      setClaimId(result.id)
       // Step 7: the receipt, not a jump to the paper's page.
       setFiled(result)
       window.scrollTo({ top: 0 })
@@ -1402,7 +1447,7 @@ export function FilePaper() {
     return (
       <FiledReceipt
         claim={filed}
-        estimate={calc?.remuneration ?? null}
+        estimate={receiptAmount(filed.remuneration, calc?.remuneration)}
         countOnly={countOnly}
         ticks={ticks ?? {}}
         minReferences={rules.min_sec_references}

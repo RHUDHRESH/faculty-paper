@@ -40,10 +40,10 @@ export function EventChip({
       }}
       title={item.title}
       aria-label={`${item.title}, ${item.kindLabel}, ${dayLabel(item.start)}${span ? ` to ${dayLabel(item.end)}` : ""}`}
-      style={{ borderLeftColor: colour, ...(span ? { backgroundColor: "var(--area-time-wash)" } : {}) }}
+      style={{ borderLeftColor: colour, backgroundColor: `color-mix(in srgb, ${colour} ${span ? 18 : 10}%, var(--color-surface))` }}
       className={cn(
-        "flex h-5 w-full min-w-0 items-center gap-1 rounded-sm border-l-[3px] px-1 text-left text-xs text-fg",
-        span ? "" : "bg-surface hover:bg-hover",
+        "flex h-5 w-full min-w-0 items-center gap-1 rounded-sm border-l-[3px] px-1.5 text-left text-xs text-fg",
+        "hover:brightness-95",
         "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--area-time)]",
         continues?.before && "rounded-l-none",
         continues?.after && "rounded-r-none",
@@ -84,7 +84,7 @@ export function MonthView({
     <div role="grid" aria-label="Month" className="overflow-hidden rounded-lg bg-surface ring-1 ring-line">
       <div role="row" className="grid grid-cols-7 border-b border-line bg-sunken">
         {WEEKDAYS.map((d) => (
-          <div role="columnheader" key={d} className="px-2 py-1.5 text-xs font-medium uppercase tracking-[0.04em] text-fg-muted">
+          <div role="columnheader" key={d} className="px-2 py-1.5 text-xs font-medium text-fg-muted">
             {d}
           </div>
         ))}
@@ -113,7 +113,8 @@ export function MonthView({
                   style={{ gridColumn: col + 1, gridRow: "1 / -1" }}
                   className={cn(
                     "cursor-pointer border-r border-line px-1.5 pt-1 last:border-r-0 hover:bg-hover/60",
-                    outside && "bg-sunken/60"
+                    outside && "bg-sunken/60",
+                    isToday && "bg-[var(--area-time-wash)]/50 shadow-[inset_0_2px_0_var(--area-time)]"
                   )}
                 >
                   <button

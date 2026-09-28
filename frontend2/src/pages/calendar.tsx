@@ -5,6 +5,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { Avatar, initialsOf } from "@/ui/person"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 
 import { DayDialog, EventDetails, EventDialog, GoogleMenu, type Prefill } from "./calendar/dialogs"
@@ -13,6 +14,7 @@ import {
   type CalendarPayload,
   type EventRow,
   type Layer,
+  ALL_LAYERS,
   addDays,
   addMonths,
   dayLabel,
@@ -39,6 +41,7 @@ const LAYERS: { key: Layer | "all"; label: string }[] = [
   { key: "all", label: "All" },
   { key: "college", label: "College dates" },
   { key: "papers", label: "My papers" },
+  { key: "colleagues", label: "Colleagues" },
   { key: "mine", label: "My reminders" },
 ]
 
@@ -60,7 +63,7 @@ export function Calendar() {
   const today = iso(new Date())
   const view: View = (["month", "week", "agenda"] as const).find((v) => v === params.get("view")) ?? (phone ? "agenda" : "month")
   const anchor = parse(params.get("date") ?? today)
-  const [layers, setLayers] = useState<Set<Layer>>(new Set(["college", "papers", "mine"]))
+  const [layers, setLayers] = useState<Set<Layer>>(new Set(ALL_LAYERS))
   const [adding, setAdding] = useState<Prefill | null>(null)
   const [editing, setEditing] = useState<EventRow | null>(null)
   const [open, setOpen] = useState<CalItem | null>(null)
@@ -128,13 +131,13 @@ export function Calendar() {
     ?? all.find((i) => i.start >= today && i.start <= horizon)
 
   function toggle(key: Layer | "all") {
-    if (key === "all") return setLayers(new Set(["college", "papers", "mine"]))
+    if (key === "all") return setLayers(new Set(ALL_LAYERS))
     setLayers((prev) => {
-      const everything = prev.size === 3
+      const everything = prev.size === ALL_LAYERS.length
       const n = new Set(everything ? [] : prev)
       if (n.has(key)) n.delete(key)
       else n.add(key)
-      return n.size === 0 ? new Set(["college", "papers", "mine"]) : n
+      return n.size === 0 ? new Set(ALL_LAYERS) : n
     })
   }
 
@@ -219,7 +222,7 @@ export function Calendar() {
       {/* Layers. */}
       <div role="group" aria-label="Show" className="flex flex-wrap gap-2">
         {LAYERS.map((l) => {
-          const on = l.key === "all" ? layers.size === 3 : layers.has(l.key) && layers.size < 3
+          const on = l.key === "all" ? layers.size === ALL_LAYERS.length : layers.has(l.key) && layers.size < ALL_LAYERS.length
           return (
             <button
               key={l.key}
@@ -266,10 +269,13 @@ export function Calendar() {
           onAdd={add}
         />
       ) : (
-        <>
-          <MonthView anchor={anchor} today={today} items={items} onOpen={setOpen} onAdd={add} onMore={setMoreDay} />
-          {shown.length === 0 && <QuietMonth onAdd={() => add(selectedIn(anchor, today))} />}
-        </>
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_17rem]">
+          <div className="min-w-0 space-y-4">
+            <MonthView anchor={anchor} today={today} items={items} onOpen={setOpen} onAdd={add} onMore={setMoreDay} />
+            {!items.some((i) => overlaps(i, iso(anchor).slice(0, 8) + "01", iso(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)))) && <QuietMonth onAdd={() => add(selectedIn(anchor, today))} />}
+          </div>
+          <UpNext items={items} today={today} horizon={horizon} onOpen={setOpen} />
+        </div>
       )}
 
       {/* Phone: the floating add button. */}
@@ -324,13 +330,67 @@ function NextIcon({ kind }: { kind: string }) {
   return <Icon className="size-4 shrink-0" style={{ color: colour }} aria-hidden />
 }
 
+/** The next few things from today, beside the month on wide screens. */
+function UpNext({ items, today, horizon, onOpen }: { items: CalItem[]; today: string; horizon: string; onOpen: (i: CalItem) => void }) {
+  const ahead = items.filter((i) => i.end >= today && i.start <= horizon).slice(0, 8)
+  const days: [string, CalItem[]][] = []
+  for (const i of ahead) {
+    const day = i.start < today ? today : i.start
+    const last = days.at(-1)
+    if (last && last[0] === day) last[1].push(i)
+    else days.push([day, [i]])
+  }
+  return (
+    <aside aria-labelledby="up-next" className="hidden xl:block">
+      <h2 id="up-next" className="font-display text-xl">Up next</h2>
+      <p className="text-sm text-fg-muted">The next 30 days</p>
+      {days.length === 0 ? (
+        <p className="mt-4 text-sm text-fg-muted">Nothing ahead yet. Dates you add, and dates from the record, show here.</p>
+      ) : (
+        <ol className="mt-3 space-y-4">
+          {days.map(([day, list]) => (
+            <li key={day}>
+              <p className={cn("text-xs font-medium", day === today ? "text-[var(--area-time)]" : "text-fg-muted")}>
+                {day === today ? "Today" : relative(day, today).replace(/^in /, "In ")} · {dayLabel(day, true)}
+              </p>
+              <ul className="mt-1 divide-y divide-line/60 border-y border-line/60">
+                {list.map((i) => {
+                  const { icon: Icon, colour } = kindStyle(i.kind)
+                  const p = i.record?.person
+                  return (
+                    <li key={i.key}>
+                      <button type="button" onClick={() => onOpen(i)} className="flex w-full items-start gap-2 py-2 text-left hover:bg-hover/60">
+                        {p ? (
+                          <Avatar size="xs" person={{ name: p.name, initials: p.initials ?? initialsOf(p.name), photo_url: p.photo_url ?? null }} />
+                        ) : (
+                          <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full" style={{ backgroundColor: `color-mix(in srgb, ${colour} 14%, transparent)` }}>
+                            <Icon className="size-3" style={{ color: colour }} aria-hidden />
+                          </span>
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="line-clamp-2 text-sm">{i.title}</span>
+                          <span className="block text-xs text-fg-muted">{i.kindLabel}{i.startTime ? ` · ${i.startTime}` : ""}</span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </li>
+          ))}
+        </ol>
+      )}
+    </aside>
+  )
+}
+
 function QuietMonth({ onAdd }: { onAdd: () => void }) {
   return (
     <EmptyState
       icon={CalendarDays}
-      art="empty-queue"
+      illustration="empty-calendar"
       title="A quiet month"
-      message="College dates appear here as the research office adds them."
+      message="Nothing on the record for this month. Add a reminder, or step to another month."
       action={
         <Button kind="primary" size="sm" onClick={onAdd}>
           <Plus />

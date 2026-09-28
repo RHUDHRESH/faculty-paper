@@ -1334,11 +1334,11 @@ export function FilePaper() {
             : "File a paper"
   const heroSentence =
     phase === "choose"
-      ? "Start from your record — it fills almost everything."
+      ? "Pick it from your record and almost everything fills itself."
       : phase === "confirm"
-        ? "All three have to be true. Tick each one yourself — they are recorded with your claim."
+        ? "All three have to be true. Tick each one yourself; they are recorded with your claim."
         : filingFor
-          ? "The claim will be theirs, not yours — it goes on their record and is paid to them."
+          ? "The claim will be theirs, not yours. It goes on their record and is paid to them."
           : "Five steps. Most of them filled themselves from the paper you chose."
   const hero = (
     <div className="space-y-2">
@@ -1389,6 +1389,7 @@ export function FilePaper() {
             choosePulled(p)
             setAutoContinue(true)
           }}
+          onByHand={typeByHand}
           paste={
             <>
               <div className="space-y-3" data-field="find">

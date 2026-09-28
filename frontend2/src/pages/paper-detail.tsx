@@ -145,6 +145,18 @@ type Claim = {
   /** What the history can truthfully say (server: services/record_dates.py). */
   record?: ClaimRecord | null
   team: Team | null
+  /** The three conditions as accepted at filing (services/filing_conditions.py). */
+  confirmations?: ClaimConfirmation[]
+}
+
+type ClaimConfirmation = {
+  id: string
+  text_version: string
+  text: string
+  ticked_at: string
+  recorded_at: string | null
+  user_id: string | null
+  user_name?: string | null
 }
 
 type Team = {
@@ -628,6 +640,10 @@ export function PaperDetail() {
 
       {claim.team ? <TeamPanel team={claim.team} /> : null}
 
+      {claim.confirmations && claim.confirmations.length > 0 && (
+        <Confirmations rows={claim.confirmations} isOwner={isOwner} />
+      )}
+
       {reviewer && claim.status !== "DRAFT" && (
         <ClaimFlagsPanel
           claimId={claim.id}
@@ -977,6 +993,39 @@ function authorNames(c: Claim): string | null {
     .map((a) => (typeof a === "string" ? a : (a as { name?: string })?.name))
     .filter((n): n is string => !!n)
   return names.length ? names.join(", ") : null
+}
+
+const CONDITION_ORDER = ["indexed", "no-duplicate", "documents"]
+
+/**
+ * The eligibility conditions as they were accepted when this paper was filed:
+ * the exact wording, its version, who ticked it and when. Read-only -- this
+ * is the college's record, not something to change.
+ */
+function Confirmations({ rows, isOwner }: { rows: ClaimConfirmation[]; isOwner: boolean }) {
+  const sorted = [...rows].sort((a, b) => CONDITION_ORDER.indexOf(a.id) - CONDITION_ORDER.indexOf(b.id))
+  const who = sorted.find((r) => r.user_name)?.user_name
+  const recorded = sorted.find((r) => r.recorded_at)?.recorded_at
+  return (
+    <section className="space-y-3" aria-labelledby="claim-confirmations">
+      <SectionTitle id="claim-confirmations">{isOwner ? "What you confirmed" : "What the claimant confirmed"}</SectionTitle>
+      <ul className="space-y-2">
+        {sorted.map((r) => (
+          <li key={r.id} data-condition={r.id} className="rounded-xl bg-positive-wash/60 p-3">
+            <p className="text-sm font-medium">{r.text}</p>
+            <p className="text-xs text-fg-muted">
+              Confirmed {formatDateTime(r.ticked_at)}
+              {r.user_name && !isOwner ? ` by ${r.user_name}` : ""} · wording version {r.text_version}
+            </p>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-fg-muted">
+        Stored with the claim{who && !isOwner ? ` for ${who}` : ""}
+        {recorded ? ` on ${formatDateTime(recorded)}` : ""}.
+      </p>
+    </section>
+  )
 }
 
 function formatDateTime(iso: string | null | undefined): string {

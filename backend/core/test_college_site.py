@@ -169,3 +169,84 @@ class PermissionTests(TestCase):
 
     def test_signed_out_gets_nothing(self):
         self.assertIn(Client().get("/api/departments/CSE/profile").status_code, (401, 403))
+
+
+class BioCleaningTests(TestCase):
+    """Scraped bios carried PDF table text: 'Completion, Full, Time/Part, Time'."""
+
+    DIRTY = (
+        "M.E., Ph.D. Areas of specialisation: DataWarehousingandDataMining, ArtificialIntelligence, "
+        "InternetofThings, Completion, Full, Time/Part, Time."
+    )
+
+    def test_areas_drop_table_headers_repeats_and_fragments(self):
+        from core.services.college_site import clean_areas
+
+        got = clean_areas([
+            "DataWarehousingandDataMining", "InternetofThings", "ElectromagneticFields&Transmissionlines",
+            "Completion", "Full", "Time/Part", "Time", "", "  ", "IoT", "Internet of Things", "a", "--",
+            "Status:", "Machine Learning", "machine learning", "Power Electronics",
+        ])
+        self.assertEqual(got, [
+            "Data Warehousing and Data Mining", "Internet of Things",
+            "Electromagnetic Fields & Transmissionlines", "IoT", "Machine Learning", "Power Electronics",
+        ])
+
+    def test_bio_from_a_dirty_row_is_clean(self):
+        from core.services.college_site import _bio
+
+        bio = _bio({"qualifications": "M.E., Ph.D.,", "teaching_experience": "21.4 Years",
+                    "research_areas": ["Embedded System Design", "Completion", "Full", "Time/Part", "Time", ""]})
+        self.assertEqual(
+            bio, "M.E., Ph.D. Teaching experience: 21.4 Years. Areas of specialisation: Embedded System Design."
+        )
+
+    def test_clean_imported_bio_keeps_real_sentences(self):
+        from core.services.college_site import clean_imported_bio
+
+        self.assertEqual(
+            clean_imported_bio(self.DIRTY),
+            "M.E., Ph.D. Areas of specialisation: Data Warehousing and Data Mining, Artificial Intelligence, "
+            "Internet of Things.",
+        )
+        self.assertEqual(
+            clean_imported_bio("Ph.D. Areas of specialisation: Completion, Full, Time/Part, Time."), "Ph.D."
+        )
+        plain = "I study antennas and write about them."
+        self.assertEqual(clean_imported_bio(plain), plain)
+
+    def test_reclean_touches_only_imported_bios(self):
+        imported = _user("imp@x.in", "Imported Person", "CSE", bio=self.DIRTY)
+        own = _user("own@x.in", "Own Words", "CSE", bio=self.DIRTY)  # same text, not from the import
+        rewrote = _user("rw@x.in", "Rewrote It", "CSE", bio="My research: Completion, Full, Time.")
+        SystemSetting.objects.create(key=APPLIED_KEY, value={
+            imported.id: ["bio", "photo"], rewrote.id: ["bio"], own.id: ["photo"],
+        })
+
+        dry = _command_out("reclean_college_bios", "--dry-run")
+        self.assertIn("changed 1", dry)
+        imported.refresh_from_db()
+        self.assertEqual(imported.bio, self.DIRTY)
+
+        _command_out("reclean_college_bios")
+        for u in (imported, own, rewrote):
+            u.refresh_from_db()
+        self.assertNotIn("Completion", imported.bio)
+        self.assertIn("Internet of Things", imported.bio)
+        self.assertEqual(own.bio, self.DIRTY)
+        self.assertEqual(rewrote.bio, "My research: Completion, Full, Time.")
+
+    def test_office_action_needs_the_office(self):
+        c = Client()
+        c.force_login(_user("f@x.in", "Fac Ulty", "CSE"))
+        self.assertEqual(c.post("/api/admin/college-site/reclean-bios").status_code, 403)
+        c.force_login(_user("cell@x.in", "Cell", "CSE", role=Role.RESEARCH_CELL))
+        r = c.post("/api/admin/college-site/reclean-bios?dry_run=true")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["changed"], 0)
+
+
+def _command_out(*args) -> str:
+    out = io.StringIO()
+    call_command(*args, stdout=out)
+    return out.getvalue()

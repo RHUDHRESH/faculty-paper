@@ -872,7 +872,40 @@ function CollegeSiteSection() {
           )}
         </ImportResult>
       ) : null}
+      <RecleanBios />
     </section>
+  )
+}
+
+/** Strip PDF table leftovers from bios the import filled — never ones a person wrote. */
+function RecleanBios() {
+  const [result, setResult] = useState<{ checked: number; changed: number } | null>(null)
+  const run = useApiMutation<Record<string, never>, { checked: number; changed: number }>(
+    "/api/admin/college-site/reclean-bios"
+  )
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+      <Button
+        kind="quiet"
+        disabled={run.isPending}
+        onClick={async () => {
+          try {
+            const r = await run.mutateAsync({})
+            setResult(r)
+            toast.ok(`${nf(r.changed)} imported bios cleaned`)
+          } catch (err) {
+            toast.fail(err)
+          }
+        }}
+      >
+        {run.isPending ? "Cleaning…" : "Re-clean imported bios"}
+      </Button>
+      <Meta>
+        {result
+          ? `${nf(result.changed)} of ${nf(result.checked)} imported bios changed.`
+          : "Removes leftover table text such as “Completion, Full, Time/Part”. Bios people wrote are left alone."}
+      </Meta>
+    </div>
   )
 }
 

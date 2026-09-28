@@ -40,7 +40,8 @@ import time
 from datetime import date, timedelta
 from typing import Optional
 from django.db import transaction
-from django.db.models import Min, Q, Sum, When
+from django.conf import settings
+from django.db.models import Count, Min, Q, Sum, When
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -182,11 +183,35 @@ def director_queue(
     agg = qs.aggregate(amount=Sum("remuneration"), oldest=Min("principal_approved_at"))
     oldest = agg["oldest"]
 
+    def row(c: Claim) -> dict:
+        d = claim_to_dict(c)
+        # The claimant's face, so a batch reads as people rather than tickets.
+        d["owner_photo_url"] = (
+            f"{settings.MEDIA_URL}{c.owner.photo}" if c.owner.photo else None
+        )
+        return d
+
+    # Per department over the whole queue, so the breakdown still shows every
+    # department while one is chosen as the filter.
+    by_department = [
+        {
+            "department": r["owner__department"] or None,
+            "count": r["n"],
+            "amount": round(r["s"] or 0, 2),
+        }
+        for r in Claim.objects.filter(status=ClaimStatus.PRINCIPAL_APPROVED)
+        .exclude(owner=user)
+        .values("owner__department")
+        .annotate(n=Count("id"), s=Sum("remuneration"))
+        .order_by("-s")
+    ]
+
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
-        "results": [claim_to_dict(c) for c in qs[offset : offset + limit]],
+        "results": [row(c) for c in qs[offset : offset + limit]],
+        "by_department": by_department,
         # Over everything the filter matched, not the page.
         "totals": {
             "count": total,

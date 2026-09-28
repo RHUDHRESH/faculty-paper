@@ -238,7 +238,7 @@ export function PasswordDialog({
               </div>
               <p className="text-xs text-fg-muted" aria-live="polite">
                 <span className={next.length >= 8 ? "text-positive" : undefined}>
-                  {next.length >= 8 ? "✓ " : ""}At least 8 characters ({next.length}/8)
+                  {next.length >= 8 ? "✓ " : ""}At least 8 characters{next.length < 8 ? ` (${next.length} of 8)` : ""}
                 </span>
                 {next && <> · Strength: <span className="font-medium text-fg">{strength.label}</span></>}
               </p>

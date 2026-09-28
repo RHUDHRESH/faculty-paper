@@ -163,8 +163,8 @@ describe("SignIn — Convocation landing", () => {
   it("draws the live stats line from the public endpoint", async () => {
     stubStats({ papers: 1240, faculty: 410, departments: 23 })
     mount(() => ({}))
-    const lines = await screen.findAllByText(/departments — and counting/)
-    expect(lines[0]).toHaveTextContent("1,240 papers · 410 faculty · 23 departments — and counting")
+    const lines = await screen.findAllByText(/departments on the record/)
+    expect(lines[0]).toHaveTextContent("1,240 papers · 410 faculty · 23 departments on the record")
   })
 
   it("hides the line rather than printing 0 when the stats are missing", async () => {

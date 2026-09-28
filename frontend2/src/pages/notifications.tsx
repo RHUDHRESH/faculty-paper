@@ -3,9 +3,9 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom"
 
 import {
   destinationFor,
-  GroupCount,
+  groupByDay,
   listPath,
-  relative,
+  NotificationLine,
   SECTION_TABS,
   type Notification,
 } from "@/app/notifications"
@@ -90,12 +90,12 @@ export function NotificationsPage() {
         ))}
       </div>
 
-      {tab === "week" ? <ThisWeek /> : <AlertList section={tab} />}
+      {tab === "week" ? <ThisWeek /> : <AlertList section={tab} onShowAll={() => pick("")} />}
     </div>
   )
 }
 
-function AlertList({ section }: { section: string }) {
+function AlertList({ section, onShowAll }: { section: string; onShowAll: () => void }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const query = useApi<Notification[]>(["notifications", "list", section, "page"], listPath(section))
@@ -106,6 +106,7 @@ function AlertList({ section }: { section: string }) {
     try {
       await api("/api/notifications/read-all", { method: "POST" })
       await qc.invalidateQueries({ queryKey: ["notifications"] })
+      toast.ok("Marked all read.")
     } catch (err) {
       toast.fail(err)
     }
@@ -133,34 +134,71 @@ function AlertList({ section }: { section: string }) {
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <Button kind="quiet" size="sm" disabled={!unread} onClick={() => void markAll()}>
+        <Button
+          kind="quiet"
+          size="sm"
+          disabled={!unread}
+          title={unread ? undefined : "Everything here is already read"}
+          onClick={() => void markAll()}
+        >
           Mark all read
         </Button>
       </div>
       {items.length === 0 ? (
-        <EmptyState title="Nothing here" message="You will hear when something concerns you." />
+        <EmptyState
+          illustration="empty-no-notifications"
+          title={section ? "Nothing in this tab" : "You are all caught up"}
+          message={
+            section
+              ? "Nothing of this kind has happened yet. All shows everything."
+              : "When a paper moves, somebody follows you or a message arrives, it shows up here."
+          }
+          action={
+            section ? (
+              <Button kind="default" size="sm" onClick={onShowAll}>
+                Show all
+              </Button>
+            ) : (
+              <Link to="/settings/notifications" className="text-sm underline underline-offset-2">
+                Choose what you hear about
+              </Link>
+            )
+          }
+        />
       ) : (
-        <ul className="divide-y divide-line rounded-lg ring-1 ring-inset ring-edge">
-          {items.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => open(item)}
-                className={cn(
-                  "block w-full px-3 py-3 text-left transition-colors duration-[var(--dur-1)] ease-out hover:bg-hover",
-                  !item.read && "bg-accent-wash"
-                )}
-              >
-                <span className="flex items-baseline gap-2">
-                  <span className={cn("min-w-0 flex-1 text-sm", !item.read && "font-medium")}>{item.title}</span>
-                  <GroupCount count={item.count} />
-                  <Meta className="shrink-0 text-xs">{relative(item.created_at)}</Meta>
-                </span>
-                {item.body && <span className="mt-0.5 block whitespace-pre-line text-sm text-fg-muted">{item.body}</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
+        groupByDay(items).map(([label, group]) => (
+          <section key={label} aria-label={label} className="space-y-1">
+            <h2 className="px-3 text-xs font-medium text-fg-subtle">{label}</h2>
+            <ul className="divide-y divide-line border-y border-line">
+              {group.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => open(item)}
+                    className={cn(
+                      "block w-full px-3 py-3 text-left outline-none transition-colors duration-[var(--dur-1)] ease-out hover:bg-hover",
+                      "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+                      !item.read && "bg-accent-wash"
+                    )}
+                  >
+                    <NotificationLine item={item} />
+                  </button>
+                  {item.share_paper_id && (
+                    <div className="pb-3 pl-14 pr-3">
+                      <Button
+                        kind="default"
+                        size="sm"
+                        onClick={() => navigate(`/discussions?share=${item.share_paper_id}`)}
+                      >
+                        Share to the feed
+                      </Button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
       )}
     </div>
   )

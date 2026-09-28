@@ -8,7 +8,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 })
 
 import { api } from "@/lib/api"
-import { NotificationBell } from "@/app/notifications"
+import { groupByDay, NotificationBell } from "@/app/notifications"
 import { NotificationSettings } from "@/pages/notification-settings"
 import { NotificationsPage } from "@/pages/notifications"
 import { fakeApi, FACULTY, renderWithProviders, type ApiTable } from "@/test/harness"
@@ -78,8 +78,10 @@ describe("notification settings", () => {
   it("lists each kind under its heading with its current setting", async () => {
     stub({ "/api/notifications/preferences": () => PREFS })
     renderWithProviders(<NotificationSettings />, { route: "/settings/notifications" })
-    const paid = await screen.findByRole("radiogroup", { name: "Paid" })
-    expect(within(paid).getByRole("radio", { name: "By email too" })).toHaveAttribute("aria-checked", "true")
+    const paidEmail = await screen.findByRole("switch", { name: "Paid: email" })
+    expect(paidEmail).toHaveAttribute("aria-checked", "true")
+    expect(screen.getByRole("switch", { name: "Mentions: email" })).toHaveAttribute("aria-checked", "false")
+    expect(screen.getByRole("switch", { name: "Mentions: in app" })).toHaveAttribute("aria-checked", "true")
     expect(screen.getByRole("heading", { name: "Your papers" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "People" })).toBeInTheDocument()
   })
@@ -87,8 +89,7 @@ describe("notification settings", () => {
   it("saves a change at once, for that kind only", async () => {
     stub({ "/api/notifications/preferences": () => PREFS })
     renderWithProviders(<NotificationSettings />, { route: "/settings/notifications" })
-    const mentions = await screen.findByRole("radiogroup", { name: "Mentions" })
-    await userEvent.click(within(mentions).getByRole("radio", { name: "Off" }))
+    await userEvent.click(await screen.findByRole("switch", { name: "Mentions: in app" }))
     await waitFor(() => {
       const put = calls("/api/notifications/preferences").find(
         ([, o]) => (o as { method?: string })?.method === "PUT"
@@ -97,17 +98,21 @@ describe("notification settings", () => {
     })
   })
 
-  it("does not offer Off for what must always reach you", async () => {
+  it("does not let you switch off what must always reach you", async () => {
     stub({ "/api/notifications/preferences": () => PREFS })
     renderWithProviders(<NotificationSettings />, { route: "/settings/notifications" })
-    const mod = await screen.findByRole("radiogroup", { name: "Your posts and reports" })
-    expect(within(mod).queryByRole("radio", { name: "Off" })).toBeNull()
+    expect(await screen.findByRole("switch", { name: "Your posts and reports: in app" })).toBeDisabled()
   })
 
-  it("says plainly when the college has no email set up", async () => {
-    stub({ "/api/notifications/preferences": () => ({ ...PREFS, email_available: false }) })
+  it("says plainly when the college has no email set up, and offers the calendar feed", async () => {
+    stub({
+      "/api/notifications/preferences": () => ({ ...PREFS, email_available: false }),
+      "/api/calendar/feed-link": () => ({ url: "https://x.edu/api/calendar/feed/tok.ics" }),
+    })
     renderWithProviders(<NotificationSettings />, { route: "/settings/notifications" })
-    expect(await screen.findByText(/email is not set up here yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/mail server \(SMTP\)/i)).toBeInTheDocument()
+    expect(await screen.findByDisplayValue("https://x.edu/api/calendar/feed/tok.ics")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeEnabled()
   })
 })
 
@@ -172,6 +177,41 @@ describe("the notifications screen", () => {
     await waitFor(() => expect(calls("/api/notifications?section=people").length).toBeGreaterThan(0))
     await userEvent.click(screen.getByRole("button", { name: "Mark all read" }))
     await waitFor(() => expect(calls("/api/notifications/read-all").length).toBe(1))
+  })
+})
+
+describe("grouping and faces", () => {
+  it("groups by Today, Earlier this week and Older", () => {
+    const now = new Date(2026, 8, 30, 12) // a Wednesday
+    const at = (d: number) => ({ created_at: new Date(2026, 8, d, 9).toISOString() })
+    const groups = groupByDay([at(30), at(28), at(27)], now)
+    expect(groups.map(([label, g]) => [label, g.length])).toEqual([
+      ["Today", 1],
+      ["Earlier this week", 1],
+      ["Older", 1],
+    ])
+  })
+
+  it("shows the actor's face and an unread dot", async () => {
+    stub({
+      "/api/notifications": () => [
+        { ...ROWS[0], actor: { user_id: "u1", name: "Asha", initials: "A", photo_url: null } },
+      ],
+    })
+    renderWithProviders(<NotificationsPage />, { route: "/notifications" })
+    expect(await screen.findByText(ROWS[0].title)).toBeInTheDocument()
+    expect(screen.getByRole("img", { name: "Unread" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument()
+  })
+
+  it("shows the empty picture and a next step when there is nothing", async () => {
+    stub({ "/api/notifications": () => [] })
+    renderWithProviders(<NotificationsPage />, { route: "/notifications" })
+    expect(await screen.findByText("You are all caught up")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Choose what you hear about" })).toHaveAttribute(
+      "href",
+      "/settings/notifications"
+    )
   })
 })
 

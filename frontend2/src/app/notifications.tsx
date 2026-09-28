@@ -1,13 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Bell } from "lucide-react"
+import {
+  Award,
+  Bell,
+  CalendarDays,
+  Clock,
+  FileCheck2,
+  FilePen,
+  FileText,
+  FileX2,
+  Handshake,
+  Inbox,
+  IndianRupee,
+  MessageSquare,
+  Quote,
+  ShieldCheck,
+  Target,
+  type LucideIcon,
+} from "lucide-react"
 
 import { cn } from "@/lib/cn"
 import { api } from "@/lib/api"
 import { useApi } from "@/lib/query"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/ui/button"
+import { Avatar } from "@/ui/person"
+import { Picture } from "@/ui/picture"
 import { Meta } from "@/ui/text"
+import { toast } from "@/ui/toast"
 
 /**
  * The bell, and what is behind it.
@@ -50,6 +70,8 @@ export type Notification = {
   section?: string
   /** How many things one grouped line stands for: "Asha and 2 others ...". */
   count?: number
+  /** Whoever did it most recently, with a face; null for system lines. */
+  actor?: { user_id: string; name: string; initials: string; photo_url: string | null } | null
   /** Set on "Approved for payment" and "Paid" for your own paper: offer to share it. */
   share_paper_id?: string | null
 }
@@ -240,8 +262,9 @@ export function NotificationBell({ className }: { className?: string }) {
     try {
       await api("/api/notifications/read-all", { method: "POST" })
       await qc.invalidateQueries({ queryKey: ["notifications"] })
-    } catch {
-      // Nothing is lost by a failed mark-all; the rows are still there.
+      toast.ok("Marked all read.")
+    } catch (err) {
+      toast.fail(err)
     }
   }
 
@@ -344,9 +367,14 @@ export function NotificationBell({ className }: { className?: string }) {
                 Could not load these. Nothing has been lost.
               </p>
             ) : items.length === 0 ? (
-              <p className="px-3 py-8 text-center text-sm text-fg-muted">
-                {section ? "Nothing here." : "Nothing yet. You will hear when a ticket needs you."}
-              </p>
+              <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
+                <Picture name="empty-no-notifications" className="w-28" />
+                <p className="text-sm text-fg-muted">
+                  {section
+                    ? "Nothing in this tab. Try All."
+                    : "You are all caught up. You will hear here when something concerns you."}
+                </p>
+              </div>
             ) : (
               <>
               {groupByDay(items).map(([label, group]) => (
@@ -362,33 +390,18 @@ export function NotificationBell({ className }: { className?: string }) {
                       data-row=""
                       onClick={() => follow(item)}
                       className={cn(
-                        "block w-full px-3 py-2.5 text-left transition-colors",
+                        "block w-full px-3 py-2.5 text-left transition-colors outline-none",
                         "duration-[var(--dur-1)] ease-out hover:bg-hover",
+                        "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
                         !item.read && "bg-accent-wash"
                       )}
                     >
-                      <span className="flex items-baseline gap-2">
-                        <span
-                          className={cn(
-                            "min-w-0 flex-1 truncate text-sm",
-                            !item.read && "font-medium"
-                          )}
-                        >
-                          {item.title}
-                        </span>
-                        <GroupCount count={item.count} />
-                        <Meta className="shrink-0 text-xs">{relative(item.created_at)}</Meta>
-                      </span>
-                      {item.body && (
-                        <span className="mt-0.5 line-clamp-2 block text-sm text-fg-muted">
-                          {item.body}
-                        </span>
-                      )}
+                      <NotificationLine item={item} compact />
                     </button>
                     {item.share_paper_id && (
                       // Outside the row's button: a control inside a control is
                       // two targets a screen reader announces as one.
-                      <div className="px-3 pb-2">
+                      <div className="pb-2 pl-14 pr-3">
                         <Button
                           kind="default"
                           size="sm"
@@ -432,18 +445,83 @@ export function NotificationBell({ className }: { className?: string }) {
   )
 }
 
-/** Today, Yesterday, Earlier -- in that order, empty groups left out. */
-function groupByDay<T extends { created_at: string }>(items: T[]): [string, T[]][] {
-  const start = new Date()
+/** Today, Earlier this week, Older -- in that order, empty groups left out.
+ *  "This week" starts on Monday, as the weekly summary does. */
+export function groupByDay<T extends { created_at: string }>(
+  items: T[],
+  now: Date = new Date()
+): [string, T[]][] {
+  const start = new Date(now)
   start.setHours(0, 0, 0, 0)
   const today = start.getTime()
-  const yesterday = today - 86_400_000
-  const groups: Record<string, T[]> = { Today: [], Yesterday: [], Earlier: [] }
+  const monday = today - ((start.getDay() + 6) % 7) * 86_400_000
+  const groups: Record<string, T[]> = { Today: [], "Earlier this week": [], Older: [] }
   for (const item of items) {
     const t = new Date(item.created_at).getTime()
-    groups[t >= today ? "Today" : t >= yesterday ? "Yesterday" : "Earlier"].push(item)
+    groups[t >= today ? "Today" : t >= monday ? "Earlier this week" : "Older"].push(item)
   }
-  return (["Today", "Yesterday", "Earlier"] as const)
+  return (["Today", "Earlier this week", "Older"] as const)
     .filter((k) => groups[k].length)
     .map((k) => [k, groups[k]])
+}
+
+/** A small glyph for what the line is about, when no person did it. */
+const KIND_ICONS: Record<string, LucideIcon> = {
+  claim_approved: FileCheck2,
+  claim_paid: IndianRupee,
+  claim_sent_back: FilePen,
+  claim_not_accepted: FileX2,
+  claim_status: FileText,
+  citation: Quote,
+  digest: CalendarDays,
+  nudge_cutoff: Clock,
+  nudge_quota: Clock,
+  desk: Inbox,
+  message: MessageSquare,
+  collab: Handshake,
+  badge: Award,
+  target: Target,
+  moderation: ShieldCheck,
+}
+
+/** The face of whoever did it, or the kind's glyph. */
+export function NotificationLead({ item }: { item: Notification }) {
+  if (item.actor) return <Avatar person={item.actor} size="sm" />
+  const Icon = (item.kind && KIND_ICONS[item.kind]) || Bell
+  return (
+    <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-sunken">
+      <Icon className="size-4 text-fg-muted" />
+    </span>
+  )
+}
+
+/** One line: lead, what happened, when, and a dot while unread. */
+export function NotificationLine({ item, compact }: { item: Notification; compact?: boolean }) {
+  return (
+    <span className="flex items-start gap-3">
+      <NotificationLead item={item} />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          <span className={cn("min-w-0 flex-1 text-sm", compact && "truncate", !item.read && "font-medium")}>
+            {item.title}
+          </span>
+          <GroupCount count={item.count} />
+          <Meta className="shrink-0 text-xs">{relative(item.created_at)}</Meta>
+        </span>
+        {item.body && (
+          <span
+            className={cn(
+              "mt-0.5 block text-sm text-fg-muted",
+              compact ? "line-clamp-2" : "line-clamp-3 whitespace-pre-line"
+            )}
+          >
+            {item.body}
+          </span>
+        )}
+      </span>
+      <span className="flex h-5 w-2 shrink-0 items-center">
+        {!item.read && <span role="img" aria-label="Unread" className="size-2 rounded-full bg-accent" />}
+      </span>
+    </span>
+  )
 }

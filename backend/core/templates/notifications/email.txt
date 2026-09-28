@@ -11,7 +11,8 @@
 {{ action_label }}: {{ action_url }}
 {% endif %}
 --
-You are getting this because "{{ kind_label }}" is set to email in your notification settings.
-Stop these emails: {{ unsubscribe_url }}
-All notification settings: {{ settings_url }}
+{% if kind_label %}You are getting this because "{{ kind_label }}" is set to email in your notification settings.
+{% endif %}Change what you get emailed: {{ settings_url }}
+{% if unsubscribe_url %}Stop these emails: {{ unsubscribe_url }}
+{% endif %}
 {% endautoescape %}

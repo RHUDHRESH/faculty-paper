@@ -209,10 +209,131 @@ def _open_items(user: User) -> list[dict[str, Any]]:
     return items
 
 
+#: Where a claimant's paper is, in words that never name a desk or a person.
+_PROGRESS_WORDS = {
+    ClaimStatus.SUBMITTED: "Being checked",
+    ClaimStatus.CLEARED: "Being checked",
+    ClaimStatus.PRINCIPAL_APPROVED: "Approved, payment being arranged",
+    ClaimStatus.DIRECTOR_APPROVED: "Approved, payment being arranged",
+}
+FOUND_SHOWN = 3
+
+
+def _progress_part(user: User, now) -> list[dict[str, Any]]:
+    out = []
+    for c in Claim.objects.filter(owner=user, status__in=list(_PROGRESS_WORDS)).order_by("-updated_at")[:5]:
+        out.append({"title": c.paper_title or "Untitled", "state": _PROGRESS_WORDS[c.status],
+                    "href": f"/papers/{c.id}"})
+    for c in Claim.objects.filter(owner=user, status=ClaimStatus.PAID,
+                                  updated_at__gte=now - timedelta(days=7)).order_by("-updated_at")[:3]:
+        out.append({"title": c.paper_title or "Untitled", "state": "Paid this week", "href": f"/papers/{c.id}"})
+    return out
+
+
+def _found_part(user: User, now) -> dict[str, Any] | None:
+    """Papers on this person's record that no claim has been filed for."""
+    from core.models import Publication
+
+    year = timezone.localtime(now).year
+    qs = (
+        Publication.objects.filter(authorships__user=user, claims__isnull=True, year__gte=year - 1)
+        .distinct()
+        .order_by("-year", "title")
+    )
+    count = qs.count()
+    if not count:
+        return None
+    return {
+        "count": count,
+        "papers": [{"title": p.title or "Untitled", "year": p.year, "venue": p.venue}
+                   for p in qs[:FOUND_SHOWN]],
+        "href": "/record",
+    }
+
+
+def _pace_part(user: User, now) -> dict[str, Any] | None:
+    """A head's department against its publications target, and who to nudge."""
+    from core.models import DepartmentTarget
+
+    if user.role != rbac.Role.HOD or not user.department:
+        return None
+    local = timezone.localtime(now)
+    target = DepartmentTarget.objects.filter(
+        department=user.department, year=local.year, person__isnull=True,
+        metric=DepartmentTarget.Metric.PUBLICATIONS,
+    ).first()
+    filed = Claim.objects.filter(owner__department=user.department, submitted_at__year=local.year).exclude(
+        status__in=(ClaimStatus.DRAFT, ClaimStatus.REJECTED))
+    done = filed.count()
+    members = User.objects.filter(active=True, department=user.department,
+                                  role__in=rbac.CLAIMANT_ROLES).exclude(pk=user.pk)
+    busy = set(filed.values_list("owner_id", flat=True))
+    push = [m.name or m.email for m in members.order_by("name") if m.id not in busy][:5]
+    if target is None and not push:
+        return None
+    part: dict[str, Any] = {"department": user.department, "done": done, "push": push,
+                            "href": "/department"}
+    if target is not None:
+        elapsed = (local.timetuple().tm_yday) / 365
+        expected = round(target.target * elapsed)
+        part.update(target=target.target, expected=expected)
+        if done >= expected:
+            part["line"] = f"{done} of {target.target} filed this year: on pace (about {expected} expected by now)."
+        else:
+            part["line"] = f"{done} of {target.target} filed this year: behind pace, about {expected} expected by now."
+    else:
+        part["line"] = f"{done} filed this year. No department target is set."
+    return part
+
+
+#: Which statuses wait on which role's desk.
+_DESK_STATUSES = {
+    rbac.Role.RESEARCH_CELL: (ClaimStatus.SUBMITTED,),
+    rbac.Role.RESEARCH_COORDINATOR: (ClaimStatus.SUBMITTED,),
+    rbac.Role.SUPER_ADMIN: (ClaimStatus.SUBMITTED,),
+    rbac.Role.PRINCIPAL: (ClaimStatus.CLEARED,),
+    rbac.Role.DIRECTOR: (ClaimStatus.PRINCIPAL_APPROVED,),
+    rbac.Role.FINANCE: (ClaimStatus.DIRECTOR_APPROVED,),
+}
+_DESK_HREF = {
+    rbac.Role.RESEARCH_CELL: "/admin/clearing",
+    rbac.Role.RESEARCH_COORDINATOR: "/admin/clearing",
+    rbac.Role.SUPER_ADMIN: "/admin/clearing",
+    rbac.Role.PRINCIPAL: "/principal",
+    rbac.Role.DIRECTOR: "/authorisations",
+    rbac.Role.FINANCE: "/finance",
+}
+
+
+def _desk_part(user: User, now) -> dict[str, Any] | None:
+    """What waits on an officer's desk, and how long the oldest has waited."""
+    statuses = _DESK_STATUSES.get(user.role)
+    if not statuses:
+        return None
+    waiting = Claim.objects.filter(status__in=statuses).exclude(owner=user)
+    count = waiting.count()
+    if not count:
+        return None
+    oldest = waiting.order_by("updated_at").values_list("updated_at", flat=True).first()
+    days = max(0, (now - oldest).days) if oldest else 0
+    week = waiting.filter(updated_at__lte=now - timedelta(days=7)).count()
+    return {"count": count, "oldest_days": days, "over_a_week": week,
+            "href": _DESK_HREF.get(user.role, "/"),
+            "line": (f"{count} paper{'s' if count != 1 else ''} waiting on your desk; "
+                     f"the oldest for {days} day{'s' if days != 1 else ''}"
+                     + (f", {week} for over a week." if week else "."))}
+
+
 def build_for(user: User, now=None, ctx: dict[str, Any] | None = None) -> dict[str, Any]:
     """One person's summary. Carries no money and no claim rows."""
     now = now or timezone.now()
     ctx = ctx or context(now)
+    if user.role not in rbac.CLAIMANT_ROLES:
+        monday = week_start(now)
+        return {"eligible": True, "week_of": f"{monday.day} {monday:%B %Y}", "standing": None,
+                "department": None, "collaborator": None, "open_items": [], "progress": [],
+                "found": None, "pace": None, "desk": _desk_part(user, now),
+                "scoring": standing.SCORING}
     place = ctx["movement"].get(user.id)
     standing_part = {**place, "line": standing.sentence(place)} if place else None
     monday = week_start(now)
@@ -223,19 +344,26 @@ def build_for(user: User, now=None, ctx: dict[str, Any] | None = None) -> dict[s
         "department": _department_part(user, ctx),
         "collaborator": _collaborator_part(user, ctx),
         "open_items": _open_items(user),
+        "progress": _progress_part(user, now),
+        "found": _found_part(user, now),
+        "pace": _pace_part(user, now),
+        "desk": _desk_part(user, now),
         "scoring": standing.SCORING,
     }
 
 
+PARTS = ("standing", "department", "collaborator", "open_items", "progress", "found", "pace", "desk")
+
+
 def has_content(d: dict[str, Any]) -> bool:
-    return any(d.get(k) for k in ("standing", "department", "collaborator", "open_items"))
+    return any(d.get(k) for k in PARTS)
 
 
 def preview_for(user: User) -> dict[str, Any]:
-    if user.role not in rbac.CLAIMANT_ROLES:
+    if user.role not in rbac.CLAIMANT_ROLES and user.role not in _DESK_STATUSES:
         return {
             "eligible": False,
-            "reason": "The weekly summary is for people who file papers.",
+            "reason": "The weekly summary is for people who file or review papers.",
         }
     d = build_for(user)
     d["level"] = notify_service.level_for(user, KIND)
@@ -252,6 +380,13 @@ def _headline(d: dict[str, Any]) -> str:
     if d["open_items"]:
         n = len(d["open_items"])
         parts.append(f"{n} waiting on you")
+    if d.get("found"):
+        n = d["found"]["count"]
+        parts.append(f"{n} paper{'s' if n != 1 else ''} found to file")
+    if d.get("pace") and d["pace"].get("target"):
+        parts.append(f"department at {d['pace']['done']} of {d['pace']['target']}")
+    if d.get("desk"):
+        parts.append(f"{d['desk']['count']} on your desk")
     return "Your week: " + ", ".join(parts) if parts else "Your weekly summary"
 
 
@@ -267,6 +402,14 @@ def _body(d: dict[str, Any]) -> str:
         lines.append(f"Somebody to write with: {c['name']}. {c['why']}")
     if d["open_items"]:
         lines.append(f"Waiting on you: {len(d['open_items'])}.")
+    if d.get("progress"):
+        lines.append(f"In progress: {len(d['progress'])}.")
+    if d.get("found"):
+        lines.append(f"Found on your record, not filed yet: {d['found']['count']}.")
+    if d.get("pace"):
+        lines.append(d["pace"]["line"])
+    if d.get("desk"):
+        lines.append(d["desk"]["line"])
     return "\n".join(lines)
 
 
@@ -279,6 +422,14 @@ def _text_sections(d: dict[str, Any]) -> str:
         out.append("Waiting on you:")
         out += [f"- {i['title']}: {i['state']}" + (f" ({i['reason']})" if i["reason"] else "")
                 for i in d["open_items"]]
+    if d.get("progress"):
+        out.append("Your papers:")
+        out += [f"- {i['title']}: {i['state']}" for i in d["progress"]]
+    if d.get("found"):
+        out.append("Found on your record, not filed yet:")
+        out += [f"- {p['title']}" for p in d["found"]["papers"]]
+    if d.get("pace") and d["pace"]["push"]:
+        out.append("Nothing filed this year yet: " + ", ".join(d["pace"]["push"]))
     return "\n".join(out)
 
 
@@ -293,7 +444,10 @@ def send_weekly_digest(now=None) -> dict[str, int]:
     summary = {"people": len(ctx["people"]), "sent": 0, "emailed": 0, "nothing_to_say": 0,
                "already": 0, "switched_off": 0}
     built = []
-    for user in ctx["people"].values():
+    officers = User.objects.filter(active=True, role__in=list(_DESK_STATUSES)).exclude(
+        role__in=rbac.CLAIMANT_ROLES)
+    summary["people"] += officers.count()
+    for user in [*ctx["people"].values(), *officers]:
         if user.id in already:
             summary["already"] += 1
             continue
@@ -307,7 +461,7 @@ def send_weekly_digest(now=None) -> dict[str, int]:
         built.append((user, d))
     # People with something waiting on them first, so that if the day's email
     # cap runs out it runs out on the summaries that ask nothing of anybody.
-    built.sort(key=lambda pair: (not pair[1]["open_items"], pair[0].name or ""))
+    built.sort(key=lambda pair: (not (pair[1]["open_items"] or pair[1]["desk"]), pair[0].name or ""))
 
     connection = None
     if notify_service.email_enabled():
@@ -324,10 +478,10 @@ def send_weekly_digest(now=None) -> dict[str, int]:
                 KIND,
                 _headline(d),
                 _body(d),
-                "/notifications?tab=week",
+                d["desk"]["href"] if d.get("desk") else "/notifications?tab=week",
                 email_template="notifications/digest_email.html",
                 email_context={"digest": d, "text_sections": _text_sections(d),
-                               "action_label": "Open this week in the app"},
+                               "action_label": "Open your desk" if d.get("desk") else "Open this week in the app"},
                 email_connection=connection,
                 at=now,
             )

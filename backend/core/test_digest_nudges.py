@@ -178,17 +178,23 @@ class DigestContentTests(DigestBase):
         self.assertTrue(body["eligible"])
         self.assertIn("standing", body)
 
-    def test_staff_have_no_summary(self):
+    def test_officers_see_only_their_desk(self):
         office = _person("o@t.edu", "Office", role=Role.SUPER_ADMIN, dept=None)
         c = Client()
         c.force_login(office)
-        self.assertFalse(c.get("/api/notifications/digest").json()["eligible"])
+        body = c.get("/api/notifications/digest").json()
+        self.assertTrue(body["eligible"])
+        self.assertTrue(body["desk"]["count"] >= 1)
+        self.assertIsNone(body["standing"])
+        self.assertFalse(body["open_items"])
 
 
 @override_settings(EMAIL_HOST="smtp.test", APP_BASE_URL="https://app.test")
 class DigestSendTests(DigestBase):
     def test_sends_one_per_person_with_something_to_say_in_app_and_by_email(self):
         quiet = _person("quiet@t.edu", "Quiet One", dept="Nowhere")
+        # Email of the summary is opt-in.
+        NotificationPreference.objects.create(user=self.me, kind="digest", level="email")
         summary = digest.send_weekly_digest(now=MONDAY)
         mine = Notification.objects.get(user=self.me, kind="digest")
         self.assertEqual(mine.href, "/notifications?tab=week")
@@ -213,13 +219,14 @@ class DigestSendTests(DigestBase):
         digest.send_weekly_digest(now=MONDAY)
         self.assertFalse(Notification.objects.filter(user=self.me, kind="digest").exists())
 
-    def test_staff_and_inactive_accounts_get_none(self):
+    def test_officers_get_their_desk_and_inactive_accounts_get_none(self):
         _person("o@t.edu", "Office", role=Role.SUPER_ADMIN, dept="Mechanical")
+        _person("f@t.edu", "Money", role=Role.FINANCE, dept=None)  # nothing at Finance
         gone = _person("gone@t.edu", "Gone", active=False)
         _paper(gone, "Gone's paper")
         digest.send_weekly_digest(now=MONDAY)
         roles = set(Notification.objects.filter(kind="digest").values_list("user__role", flat=True))
-        self.assertEqual(roles, {Role.FACULTY})
+        self.assertEqual(roles, {Role.FACULTY, Role.SUPER_ADMIN})
         self.assertFalse(Notification.objects.filter(user=gone).exists())
 
 

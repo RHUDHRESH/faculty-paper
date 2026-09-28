@@ -114,6 +114,25 @@ describe("notification settings", () => {
     expect(await screen.findByDisplayValue("https://x.edu/api/calendar/feed/tok.ics")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Copy link" })).toBeEnabled()
   })
+
+  it("lets the super admin send a test email and says when SMTP is not set up", async () => {
+    const smtp = { configured: false, host: "", port: null, from_email: "x@y", line: "The mail server (SMTP) is not set up, so nothing is emailed yet." }
+    stub({
+      "/api/notifications/preferences": () => ({ ...PREFS, smtp }),
+      "/api/notifications/test-email": () => ({ sent: false, message: smtp.line, smtp }),
+    })
+    renderWithProviders(<NotificationSettings />, { route: "/settings/notifications" })
+    await userEvent.click(await screen.findByRole("button", { name: "Send a test email to myself" }))
+    expect(await screen.findByRole("status")).toHaveTextContent("not set up")
+    expect(calls("/api/notifications/test-email")).toHaveLength(1)
+  })
+
+  it("shows no mail server panel to anybody else", async () => {
+    stub({ "/api/notifications/preferences": () => PREFS })
+    renderWithProviders(<NotificationSettings />, { route: "/settings/notifications" })
+    await screen.findByText("Paid")
+    expect(screen.queryByRole("button", { name: "Send a test email to myself" })).toBeNull()
+  })
 })
 
 const WEEK = {

@@ -26,16 +26,18 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 
-from core import social, social_notify
+from core import discussions, social, social_notify
 from core.api.common import api, rate_limit_for, require_user, session_auth
 from core.api.discussions import _write_post
 from core.models import (
+    Claim,
     Collaboration,
     CollaborationRequest,
     Notification,
     Post,
     Thread,
     ThreadParticipant,
+    ThreadSubscription,
     User,
 )
 
@@ -145,7 +147,58 @@ def _conversation_dict(thread: Thread, viewer: User) -> dict[str, Any]:
         ],
         "messages": [_message(p, viewer, cards.get(p.id)) for p in posts],
         "may_post": not thread.locked,
+        "context": thread.context or None,
     }
+
+
+# ------------------------------------------------------------------ context --
+
+
+class ContextIn(Schema):
+    kind: str
+    id: str
+
+
+def _context_href(kind: str, ident: str) -> str:
+    return {"paper": f"/papers/{ident}", "person": f"/people/{ident}"}.get(kind, "")
+
+
+def _resolve_context(me: User, ctx: ContextIn | None) -> dict[str, Any] | None:
+    """What a conversation is about, as a card: {kind, id, title, href}.
+
+    Only a title ever leaves here -- never money, never a paper nobody may see
+    yet: an unpublished paper resolves for its owner alone, a collaboration
+    request only for the two people in it."""
+    if ctx is None:
+        return None
+    kind = (ctx.kind or "").strip().lower()
+    ident = (ctx.id or "").strip()
+    title: str | None = None
+    if kind == "paper":
+        claim = Claim.objects.filter(pk=ident).first()
+        if claim and (claim.owner_id == me.id or claim.status not in social.NOT_PUBLISHED):
+            title = claim.paper_title or "A paper"
+    elif kind == "person":
+        person = User.objects.filter(pk=ident, active=True).first()
+        if person:
+            title = person.name
+    elif kind == "collab":
+        req = CollaborationRequest.objects.filter(pk=ident).filter(
+            Q(sender=me) | Q(recipient=me)
+        ).first()
+        if req:
+            title = req.topic
+    else:
+        raise HttpError(400, "A context is a paper, a person or a collaboration.")
+    if title is None:
+        raise HttpError(404, "That could not be found.")
+    return {"kind": kind, "id": ident, "title": title[:300], "href": _context_href(kind, ident)}
+
+
+def _attach(thread: Thread, context: dict[str, Any] | None) -> None:
+    if context and thread.context != context:
+        thread.context = context
+        thread.save(update_fields=["context"])
 
 
 def _unread(user: User, thread_ids: list[str]) -> dict[str, int]:
@@ -263,26 +316,87 @@ def my_conversations(request: HttpRequest, limit: int = 50):
     for t in threads:
         members = parts.get(t.id, [])
         last = lasts.get(t.last_post_id)
+        group = len(members) > 2
         results.append({
             "id": t.id,
-            "is_group": len(members) > 2,
+            "kind": "group" if group else "person",
+            "href": _href(t.id),
+            "is_group": group,
             "title": _title(t, members, me),
             "people": [social.person_brief(p.user) for p in members if p.user_id != me.id],
-            "last": {
-                "body": ("" if last.deleted_at else " ".join(last.body.split())[:160]),
-                "author_id": last.author_id,
-                "mine": last.author_id == me.id,
-                "kind": last.kind,
-                "at": last.created_at.isoformat(),
-            } if last else None,
+            "last": _last_dict(last, me),
             "unread": unread.get(t.id, 0),
             "updated_at": t.last_post_at.isoformat(),
+            "resolved": None,
         })
+
+    # The research office, in the same list: the office threads this person
+    # may read (their own; the office's whole queue for the office).
+    office = list(
+        _office_threads(me).annotate(last_post_id=Subquery(latest))
+        .order_by("-last_post_at")[: max(1, min(int(limit), 100))]
+    )
+    office_unread = _office_unread(me, [t.id for t in office])
+    office_lasts = {p.id: p for p in Post.objects.filter(pk__in=[t.last_post_id for t in office if t.last_post_id]).select_related("author")}
+    for t in office:
+        results.append({
+            "id": t.id,
+            "kind": "office",
+            "href": f"/messages/o/{t.id}",
+            "is_group": False,
+            "title": t.title,
+            "people": [],
+            "last": _last_dict(office_lasts.get(t.last_post_id), me),
+            "unread": office_unread.get(t.id, 0),
+            "updated_at": t.last_post_at.isoformat(),
+            "resolved": t.resolved,
+        })
+    results.sort(key=lambda r: r["updated_at"], reverse=True)
+    counts = list(unread.values()) + list(office_unread.values())
     return {
         "results": results,
-        "unread_total": sum(unread.values()),
-        "unread_conversations": sum(1 for n in unread.values() if n),
+        "unread_total": sum(counts),
+        "unread_conversations": sum(1 for n in counts if n),
+        "office_unread": sum(office_unread.values()),
     }
+
+
+def _last_dict(last: Post | None, me: User) -> dict[str, Any] | None:
+    if last is None:
+        return None
+    return {
+        "body": ("" if last.deleted_at else " ".join(last.body.split())[:160]),
+        "author_id": last.author_id,
+        "mine": last.author_id == me.id,
+        "kind": last.kind,
+        "at": last.created_at.isoformat(),
+    }
+
+
+def _office_threads(me: User):
+    # `visible_threads` is the one rule for who reads an OFFICE thread; asked
+    # here rather than restated, so the inbox can never show more than /threads.
+    return discussions.visible_threads(me).filter(visibility=Thread.Visibility.OFFICE).distinct()
+
+
+def _office_unread(me: User, thread_ids: list[str]) -> dict[str, int]:
+    """Posts by somebody else since this person last opened each office thread.
+
+    Counted from their subscription's `last_read_at` (moved by GET /threads/{id}).
+    A thread they do not follow -- the office's view of somebody else's
+    question -- counts nothing, or the whole queue would be one red badge."""
+    if not thread_ids:
+        return {}
+    subs = ThreadSubscription.objects.filter(user=me, thread_id__in=thread_ids, muted=False)
+    condition = Q(pk__in=[])
+    for tid, at in subs.values_list("thread_id", "last_read_at"):
+        condition |= Q(thread_id=tid, created_at__gt=at) if at else Q(thread_id=tid)
+    rows = (
+        Post.objects.filter(condition, deleted_at__isnull=True)
+        .exclude(author=me)
+        .values("thread_id").annotate(n=Count("id")).values_list("thread_id", "n")
+    )
+    return dict(rows)
 
 
 @api.get("/dm/unread", auth=session_auth)
@@ -290,13 +404,16 @@ def my_unread(request: HttpRequest):
     """What the badge on Messages says, cheaply enough to ask every half minute."""
     me = require_user(request)
     unread = _unread(me, list(_mine(me).values_list("id", flat=True)))
-    return {"unread": sum(unread.values()), "conversations": sum(1 for n in unread.values() if n)}
+    office = _office_unread(me, list(_office_threads(me).values_list("id", flat=True)))
+    counts = list(unread.values()) + list(office.values())
+    return {"unread": sum(counts), "conversations": sum(1 for n in counts if n)}
 
 
 class NewConversationIn(Schema):
     participant_ids: list[str]
     title: Optional[str] = None
     body: Optional[str] = None
+    context: Optional[ContextIn] = None
 
 
 @api.post("/dm", auth=session_auth)
@@ -316,6 +433,7 @@ def start_conversation(request: HttpRequest, payload: NewConversationIn):
     else:
         title = " ".join((payload.title or "").split())[:120] or None
         thread = _open(me, people, title)
+    _attach(thread, _resolve_context(me, payload.context))
     if (payload.body or "").strip():
         rate_limit_for(me, "dm_message", 600, "hour", what="messaging")
         _send(thread, me, _clean_body(payload.body))
@@ -323,13 +441,20 @@ def start_conversation(request: HttpRequest, payload: NewConversationIn):
 
 
 @api.post("/dm/with/{user_id}", auth=session_auth)
-def conversation_with(request: HttpRequest, user_id: str):
-    """The one-to-one conversation with this person, opened if there is none yet."""
+def conversation_with(request: HttpRequest, user_id: str, context_kind: str = "", context_id: str = ""):
+    """The one-to-one conversation with this person, opened if there is none yet.
+
+    `context_kind`/`context_id` (paper, person, collab) come back resolved as
+    `pending_context`: a card the composer attaches to the first message sent,
+    and which can be dismissed before then. Nothing is stored until it is sent."""
     me = require_user(request)
     other = _person(user_id)
     if other.id == me.id:
         raise HttpError(400, "That is you.")
-    return _conversation_dict(_one_to_one_or_open(me, other), me)
+    out = _conversation_dict(_one_to_one_or_open(me, other), me)
+    if context_kind:
+        out["pending_context"] = _resolve_context(me, ContextIn(kind=context_kind, id=context_id))
+    return out
 
 
 # ------------------------------------------------------------ a conversation --
@@ -348,6 +473,8 @@ def read_conversation(request: HttpRequest, thread_id: str, read: bool = False):
 
 class MessageIn(Schema):
     body: str
+    #: What this message is about, attached as the conversation's context card.
+    context: Optional[ContextIn] = None
 
 
 @api.post("/dm/{thread_id}/messages", auth=session_auth)
@@ -357,7 +484,9 @@ def send_message(request: HttpRequest, thread_id: str, payload: MessageIn):
     if thread.locked:
         raise HttpError(400, "This conversation is closed to new messages.")
     body = _clean_body(payload.body)
+    context = _resolve_context(me, payload.context)
     rate_limit_for(me, "dm_message", 600, "hour", what="messaging")
+    _attach(thread, context)
     post = _send(thread, me, body)
     post.author = me
     return _message(post, me)

@@ -990,7 +990,7 @@ function HodQuery({ department }: { department: string | null }) {
     { key: "journal", header: "Journal", className: "max-w-[13rem]", cell: (r) => <span className="line-clamp-2 text-sm text-fg-muted">{r.journal_title || "—"}</span> },
     { key: "year", header: "Year", className: "w-16", cell: (r) => <span className="tabular">{r.publication_year ?? "—"}</span> },
     { key: "quartile", header: "Quartile", className: "w-20", cell: (r) => <span className="text-sm">{r.quartile || "—"}</span> },
-    { key: "indexing", header: "Indexed in", className: "max-w-[10rem]", cell: (r) => <span className="truncate text-sm text-fg-muted">{r.indexing_level || "—"}</span> },
+    { key: "indexing", header: "Indexed in", className: "max-w-[10rem]", cell: (r) => <span className="line-clamp-2 break-words text-sm text-fg-muted" title={r.indexing_level || undefined}>{r.indexing_level || "—"}</span> },
     {
       key: "progress",
       header: "Progress",

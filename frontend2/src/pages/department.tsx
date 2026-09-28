@@ -179,6 +179,59 @@ type Overview = {
 }
 
 /* ------------------------------------------------------------------------ */
+/* From the college website                                                  */
+/* ------------------------------------------------------------------------ */
+
+type SiteProfile = {
+  code: string
+  name: string | null
+  description: string
+  image_url: string | null
+  research_focus: string[]
+  source_url: string | null
+}
+
+/** What the college's public website says about the department, once imported. */
+export function DepartmentSiteProfile({ code }: { code: string | null }) {
+  const q = useApi<{ profile: SiteProfile | null }>(
+    ["department-profile", code ?? ""],
+    `/api/departments/${encodeURIComponent(code ?? "")}/profile`,
+    { enabled: !!code }
+  )
+  const p = q.data?.profile
+  if (!p || (!p.description && !p.image_url)) return null
+  return (
+    <section aria-label="About the department" className="panel overflow-hidden">
+      {p.image_url && (
+        <img src={p.image_url} alt="" className="h-36 w-full object-cover sm:h-48" loading="lazy" />
+      )}
+      <div className="space-y-3 p-4">
+        {p.description && <p className="max-w-prose text-sm text-fg-muted">{p.description}</p>}
+        {p.research_focus.length > 0 && (
+          <ul className="flex flex-wrap gap-2" aria-label="Research focus">
+            {p.research_focus.slice(0, 8).map((f) => (
+              <li key={f} className="rounded-full bg-sunken px-2.5 py-0.5 text-xs text-fg-muted">
+                {f}
+              </li>
+            ))}
+          </ul>
+        )}
+        {p.source_url && (
+          <a
+            href={p.source_url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-fg-subtle hover:underline"
+          >
+            From the college website
+          </a>
+        )}
+      </div>
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
 /* Page                                                                      */
 /* ------------------------------------------------------------------------ */
 
@@ -249,6 +302,8 @@ export function Department() {
           className="w-44"
         />
       </header>
+
+      <DepartmentSiteProfile code={me?.department ?? null} />
 
       {standing.isError ? (
         <ErrorState

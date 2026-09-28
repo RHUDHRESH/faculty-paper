@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Count, Q
 from django.http import HttpRequest
 from ninja.errors import HttpError
@@ -95,7 +96,7 @@ def _claim_item(c: Claim, viewer: User) -> dict[str, Any]:
 def _people(q: str, viewer: User, limit: int) -> dict[str, Any]:
     users = visible_users(viewer).filter(name__icontains=q)
     total = users.count()
-    rows = list(users.values("id", "name", "department", "designation")[:200])
+    rows = list(users.values("id", "name", "department", "designation", "photo")[:200])
     counts = dict(
         Authorship.objects.filter(user_id__in=[r["id"] for r in rows])
         .values_list("user_id").annotate(n=Count("publication", distinct=True))
@@ -109,7 +110,8 @@ def _people(q: str, viewer: User, limit: int) -> dict[str, Any]:
             "url": f"/people/{r['id']}",
             "chips": ["Saveetha"],
             "meta": {"external": False, "department": r["department"], "designation": r["designation"],
-                     "papers": counts.get(r["id"], 0), "connect": r["id"]},
+                     "papers": counts.get(r["id"], 0), "connect": r["id"],
+                     "photo_url": f"{settings.MEDIA_URL}{r['photo']}" if r["photo"] else None},
             "secondary_action": {"label": "Message", "url": f"/messages?to={r['id']}"},
         }
         for r in rows[:limit]

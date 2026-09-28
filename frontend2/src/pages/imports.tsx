@@ -166,6 +166,7 @@ export function Imports() {
       <FypRosterSection />
       <ScopusIdsSection />
       <ScopusProfilesSection />
+      <CollegeSiteSection />
       <ProcessQueueSection />
       {me?.role === "SUPER_ADMIN" && <RestoreSection onImported={refreshStats} />}
     </div>
@@ -662,6 +663,134 @@ function FacultyLookup() {
  * is worth saying but is not the kind of thing that needs a confirmation
  * dialog in front of it.
  */
+/* ------------------------------------------------------------------------ */
+/* The college website                                                       */
+/* ------------------------------------------------------------------------ */
+
+export type CollegeSiteReport = {
+  scraped: number
+  matched: number
+  unmatched_count: number
+  photos: number
+  bios: number
+  designations: number
+  interests: number
+  departments: number
+  unmatched: { name: string; department: string }[]
+  conflicts: { name: string; department: string; reason: string }[]
+  dry_run: boolean
+}
+
+/**
+ * Photos, bios and designations off the college's public website, from a zip
+ * of the scrape folder. Fills only what people left empty, once per person.
+ */
+function CollegeSiteSection() {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [report, setReport] = useState<CollegeSiteReport | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+
+  async function run(dryRun: boolean) {
+    if (!file) return
+    setBusy(true)
+    setFailure(null)
+    try {
+      const body = new FormData()
+      body.append("file", file)
+      body.append("dry_run", dryRun ? "true" : "false")
+      const res = await api<CollegeSiteReport>("/api/admin/college-site/import", {
+        method: "POST",
+        body,
+      } as unknown as Parameters<typeof api>[1])
+      setReport(res)
+      if (!dryRun) {
+        toast.ok(`${nf(res.matched)} people matched; ${nf(res.photos)} photos added.`)
+        setFile(null)
+      }
+    } catch (err) {
+      setFailure(messageOf(err))
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const reason = busy ? "Importing." : !file ? "Choose the zip first." : null
+
+  return (
+    <section className="space-y-4" aria-labelledby="college-site">
+      <div>
+        <SectionTitle>
+          <span id="college-site">From the college website</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          Faculty photos, qualifications and designations, and department descriptions, taken from
+          the college's public website. Upload the zip of the scrape folder.
+        </Sub>
+      </div>
+      <Callout tone="info" title="It only fills what is empty">
+        A photo, bio or designation somebody set is never replaced, and each is filled for a person
+        once — so a photo somebody removes stays removed when this is run again. Matching is by
+        email, then Scopus author id, then an unambiguous name in the same department.
+      </Callout>
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field label="Scrape zip" hint="faculty.json, departments.json, photos/ and images/.">
+          <FileInput accept=".zip,application/zip" file={file} onPick={setFile} disabled={busy} />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <Button kind="default" disabled={reason !== null} onClick={() => void run(true)}>
+            Preview
+          </Button>
+          <Button kind="primary" disabled={reason !== null} onClick={() => void run(false)}>
+            <Upload />
+            {busy ? "Importing…" : "Import"}
+          </Button>
+        </div>
+      </div>
+      <WhyDisabled reason={reason} />
+      {failure ? (
+        <InlineError message={failure} />
+      ) : report ? (
+        <ImportResult>
+          <p>
+            {report.dry_run ? "Preview — nothing saved. " : ""}
+            {nf(report.scraped)} on the website, {nf(report.matched)} matched to accounts,{" "}
+            {nf(report.unmatched_count)} unmatched. Filled {nf(report.photos)} photos,{" "}
+            {nf(report.bios)} bios, {nf(report.designations)} designations,{" "}
+            {nf(report.interests)} research-interest sets; {nf(report.departments)} departments
+            updated.
+          </p>
+          {report.conflicts.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer">{nf(report.conflicts.length)} left alone</summary>
+              <ul className="mt-1 list-disc pl-5">
+                {report.conflicts.slice(0, 50).map((c, i) => (
+                  <li key={i}>
+                    {c.name} ({c.department}): {c.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {report.unmatched.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer">{nf(report.unmatched_count)} not matched</summary>
+              <ul className="mt-1 list-disc pl-5">
+                {report.unmatched.slice(0, 50).map((c, i) => (
+                  <li key={i}>
+                    {c.name} ({c.department})
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </ImportResult>
+      ) : null}
+    </section>
+  )
+}
+
 function PriorPaymentsSection({
   stats,
   onImported,

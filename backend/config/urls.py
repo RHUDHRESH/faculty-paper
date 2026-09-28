@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path
 
 from core.api import api
-from core.views import avatar_media, claim_media, feed_media
+from core.views import avatar_media, claim_media, feed_media, site_media
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -12,4 +12,5 @@ urlpatterns = [
     path("media/claims/<str:filename>", claim_media, name="claim-media"),
     path("media/avatars/<str:filename>", avatar_media, name="avatar-media"),
     path("media/feed/<str:filename>", feed_media, name="feed-media"),
+    path("media/site/<str:filename>", site_media, name="site-media"),
 ]

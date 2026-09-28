@@ -19,6 +19,7 @@ import { InlineError, Skeleton, SkeletonRows } from "@/ui/state"
  */
 
 export type ConnectionStep = {
+  photo_url?: string | null
   key: string
   user_id: string | null
   name: string
@@ -48,7 +49,7 @@ export type ExternalPerson = {
     citations: number
     college_authors: { user_id: string; name: string }[]
   }[]
-  college_coauthors: { user_id: string; name: string; department: string | null; papers_together: number }[]
+  college_coauthors: { user_id: string; name: string; department: string | null; papers_together: number; photo_url?: string | null }[]
 }
 
 const REASON_ICON: Record<string, typeof Gem> = {
@@ -94,7 +95,7 @@ export function toHops(body: ConnectionBody | undefined): Hop[][] {
   if (!body?.paths?.length) return []
   return body.paths.slice(0, 3).map((p) =>
     p.people.map((h) => ({
-      person: { id: h.user_id ?? undefined, name: h.name, initials: initialsOf(h.name), photo_url: null },
+      person: { id: h.user_id ?? undefined, name: h.name, initials: initialsOf(h.name), photo_url: h.photo_url ?? null },
       evidence: h.via?.length
         ? `${plural(h.via.length, "paper")}${h.is_college_member ? "" : ` · ${h.institution ? h.institution.split(",")[0] : "outside"}`}`
         : undefined,
@@ -196,7 +197,7 @@ export function WhyTheyMatter({ target, name }: { target: string; name: string }
 function Section({ title, icon: Icon, children }: { title: string; icon: typeof Gem; children: React.ReactNode }) {
   return (
     <section className="space-y-2 border-t border-line pt-4">
-      <h3 className="flex items-center gap-1.5 text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">
+      <h3 className="flex items-center gap-1.5 text-sm font-medium text-fg-muted">
         <Icon aria-hidden className="size-4 text-(--area)" strokeWidth={1.75} />
         {title}
       </h3>
@@ -323,7 +324,7 @@ export function PersonContext({
           <ul className="space-y-1.5">
             {ext.data.college_coauthors.slice(0, 6).map((c) => (
               <li key={c.user_id} className="flex items-center gap-2 text-sm">
-                <Avatar person={{ name: c.name, initials: initialsOf(c.name), photo_url: null }} size="sm" />
+                <Avatar person={{ name: c.name, initials: initialsOf(c.name), photo_url: c.photo_url ?? null }} size="sm" />
                 <Link to={`/u/${c.user_id}`} className="min-w-0 truncate text-fg hover:underline hover:underline-offset-4">
                   {c.name}
                 </Link>

@@ -508,7 +508,7 @@ function RailCard({
 }) {
   return (
     <section className={cn("panel space-y-3 p-4", className)}>
-      <h2 className="flex items-center gap-1.5 text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">
+      <h2 className="flex items-center gap-1.5 text-sm font-medium text-fg-muted">
         <Icon aria-hidden className="size-4 text-(--area)" strokeWidth={1.75} />
         {title}
       </h2>
@@ -794,7 +794,7 @@ export function PublishedWork({ papers }: { papers: RecordPaper[] }) {
       </div>
       {groups.map((g) => (
         <div key={g.year} className="space-y-1">
-          <h3 className="text-xs font-semibold uppercase tracking-[0.06em] text-fg-subtle">{g.year}</h3>
+          <h3 className="text-sm font-semibold text-fg-muted">{g.year}</h3>
           <ul className="divide-y divide-line border-y border-line">
             {g.rows.map((p) => (
               <li key={p.id} className="flex min-w-0 items-start gap-4 py-3">

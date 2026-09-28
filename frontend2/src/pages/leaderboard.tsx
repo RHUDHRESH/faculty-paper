@@ -446,6 +446,18 @@ function Controls({
   )
 }
 
+const DEPT_HINTS: [RegExp, string][] = [
+  [/PHY/, "dept-sh-physics"], [/CHY|CHEM/, "dept-sh-chemistry"], [/MATH/, "dept-sh-maths"], [/ENG(L|$)/, "dept-sh-english"],
+  [/AI\W*ML/, "dept-aiml"], [/AI\W*DS/, "dept-aids"], [/ECE/, "dept-ece"], [/EEE/, "dept-eee"], [/CSE|\bCS\b/, "dept-cse"],
+  [/MECH/, "dept-mech"], [/AUTO/, "dept-auto"], [/\bIT\b/, "dept-it"], [/CIVIL/, "dept-civil"], [/BME|BIOMED/, "dept-bme"],
+  [/AGRI/, "dept-agri"], [/MBA/, "dept-mba"],
+]
+/** Department codes here look like "CSE - CS" or "S&H-PHY"; match on the telling part. */
+export function deptPicture(dept: string): string {
+  const k = dept.toUpperCase()
+  return DEPT_HINTS.find(([re]) => re.test(k))?.[1] ?? departmentArt(dept)
+}
+
 function Move({ row }: { row: Pick<BoardRow, "move" | "new" | "rank"> }) {
   if (row.rank == null) return null
   if (row.new) return <span className="text-xs text-fg-muted">new</span>
@@ -654,7 +666,7 @@ function DepartmentsView({ board }: { board: HonoursBoard }) {
         <ol aria-label="Leading departments" className="grid gap-3 sm:grid-cols-3">
           {leaders.map((d, i) => (
             <li key={d.department} className={cn("flex items-center gap-4 rounded-2xl bg-paper p-4 ring-1 ring-line sm:flex-col sm:text-center", i === 0 && "ring-gold/60")}>
-              <Picture name={departmentArt(d.department)} className="h-20 w-24 shrink-0 sm:h-28 sm:w-full" />
+              <Picture name={deptPicture(d.department)} className="h-20 w-24 shrink-0 sm:h-28 sm:w-full" />
               <div className="min-w-0">
                 <p className="text-xs text-fg-muted">{i === 0 ? "Leading department" : ordinal(i + 1)}</p>
                 <p className="truncate font-display text-xl">{d.department}</p>

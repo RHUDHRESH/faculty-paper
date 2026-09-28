@@ -70,7 +70,7 @@ function SourceChip({ source }: { source: FeedItem["source"] }) {
   return source === "counted" ? (
     <Chip tone="area">Counted</Chip>
   ) : (
-    <Chip className="bg-[#6d4bc2]/10 text-[#6d4bc2] dark:text-[#b9a4f2]">
+    <Chip className="bg-accent-wash text-accent">
       Suggested by the model · checked against our records
     </Chip>
   )
@@ -275,8 +275,8 @@ export function ModelCard() {
   return (
     <article className="panel flex min-w-0 flex-col gap-3 p-5 shadow-[inset_0_0_0_1px_#6d4bc233]">
       <div className="flex items-center gap-2">
-        <Sparkles aria-hidden className="size-4 text-[#6d4bc2] dark:text-[#b9a4f2]" strokeWidth={1.75} />
-        <span className="text-xs font-semibold uppercase tracking-[0.06em] text-[#6d4bc2] dark:text-[#b9a4f2]">
+        <Sparkles aria-hidden className="size-4 text-accent" strokeWidth={1.75} />
+        <span className="text-xs font-semibold uppercase tracking-[0.06em] text-accent">
           An idea
         </span>
         <span className="flex-1" />

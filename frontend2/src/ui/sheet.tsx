@@ -61,7 +61,7 @@ type Side = Edge
 const EDGE: Record<Side, string> = {
   right: "inset-y-0 right-0 h-full w-full sm:w-[26rem] sm:max-w-[85vw]",
   left: "inset-y-0 left-0 h-full w-full sm:w-[26rem] sm:max-w-[85vw]",
-  bottom: "inset-x-0 bottom-0 max-h-[85vh] w-full rounded-t-xl",
+  bottom: "inset-x-0 bottom-0 max-h-[85vh] w-full rounded-t-2xl",
   top: "inset-x-0 top-0 max-h-[85vh] w-full rounded-b-xl",
 }
 
@@ -132,7 +132,7 @@ export function SheetTitle({
   className,
   ...props
 }: React.ComponentProps<typeof RadixDialog.Title>) {
-  return <RadixDialog.Title className={cn("text-base font-semibold", className)} {...props} />
+  return <RadixDialog.Title className={cn("display text-lg", className)} {...props} />
 }
 
 export function SheetDescription({

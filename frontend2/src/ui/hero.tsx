@@ -74,7 +74,7 @@ export function HeroFigure({ value, label, prefix, to, srLabel, note, size = "xl
       >
         {text}
       </span>
-      <span aria-hidden className="mt-1 block text-sm opacity-80">
+      <span aria-hidden className="mt-1 block text-sm text-fg-muted">
         {label}
       </span>
       <span className="sr-only">
@@ -129,43 +129,21 @@ export function HeroBand({
   children?: React.ReactNode
   className?: string
 }) {
-  const solid = variant === "solid"
+  // Claude-like (docs/ux/00): a calm header on the canvas, not a coloured
+  // band. Serif title, muted sentence, serif figures. `solid` is kept for
+  // callers but renders the same calm header.
   return (
-    <section
-      data-area={area}
-      data-variant={variant}
-      className={cn(
-        "relative isolate overflow-hidden rounded-2xl",
-        solid
-          ? "bg-brand text-brand-fg"
-          : "hero-wash text-fg shadow-[inset_0_0_0_1px_var(--area-line)]",
-        className
-      )}
-    >
-      <div aria-hidden className={cn("absolute inset-x-0 top-0 h-[3px]", solid ? "ribbon" : "bg-(--area-fill)")} />
-      <img
-        src="/brand/emblem-192.png"
-        alt=""
-        aria-hidden
-        draggable={false}
-        className="pointer-events-none absolute -right-8 -bottom-10 -z-10 size-56 opacity-5 select-none"
-      />
-      <div className="flex flex-col gap-6 p-6 sm:p-8 lg:flex-row lg:items-start">
+    <section data-area={area} data-variant={variant} className={cn("relative", className)}>
+      <div className="flex flex-col gap-6 pb-2 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1">
-          {eyebrow && (
-            <p className={cn("text-sm font-medium", solid ? "text-brand-fg/80" : "text-(--area)")}>{eyebrow}</p>
-          )}
+          {eyebrow && <p className="text-sm text-fg-muted">{eyebrow}</p>}
           <div className="mt-1 flex flex-wrap items-start justify-between gap-4">
-            <h1 className={cn("display text-display min-w-0", titleClassName)}>{title}</h1>
+            <h1 className={cn("display text-display min-w-0 text-fg", titleClassName)}>{title}</h1>
             {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
           </div>
-          {sentence && (
-            <p className={cn("mt-2 max-w-prose text-base", solid ? "text-brand-fg/85" : "text-fg-muted")}>
-              {sentence}
-            </p>
-          )}
+          {sentence && <p className="mt-2 max-w-prose text-base text-fg-muted">{sentence}</p>}
           {figure && (
-            <div className={cn("mt-6", solid ? "" : "text-(--area)")}>
+            <div className="mt-6 text-fg">
               <HeroFigure {...figure} />
             </div>
           )}

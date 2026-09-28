@@ -133,7 +133,7 @@ function InboxPane({ onNew }: { onNew: () => void }) {
   return (
     <>
       <header className="flex items-center justify-between gap-2 px-4 pb-2 pt-1 md:pt-4">
-        <h1 className="text-xl font-semibold tracking-tight">Messages</h1>
+        <h1 className="display text-[1.75rem] leading-9">Messages</h1>
         <Button kind="primary" size="sm" onClick={onNew} className="hidden md:inline-flex">
           <PenLine />
           New
@@ -238,7 +238,7 @@ function InboxLink({ to, children }: { to: string; children: React.ReactNode }) 
 function Unread({ n }: { n: number }) {
   if (!n) return null
   return (
-    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--area-people)] px-1.5 text-xs font-semibold text-white tabular dark:text-[#0b1020]">
+    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--area-people)] px-1.5 text-xs font-semibold text-white tabular dark:text-bg">
       <span className="sr-only">Unread: </span>
       {n}
     </span>

@@ -53,7 +53,7 @@ export function FiledReceipt({
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
           <Illustration name="celebrate" area="honours" className="max-w-[160px] max-sm:hidden" />
           <div className="min-w-0 flex-1 space-y-2">
-            <h1 className="text-2xl font-semibold sm:text-3xl">Filed. It's with the research cell.</h1>
+            <h1 className="display text-2xl sm:text-3xl">Filed. It's with the research cell.</h1>
             {claim.ticket_number ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-fg-muted">Ticket</span>

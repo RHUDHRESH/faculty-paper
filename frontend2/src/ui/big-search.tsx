@@ -1,5 +1,6 @@
 import { Search } from "lucide-react"
-import { forwardRef } from "react"
+import { forwardRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
 
@@ -69,7 +70,7 @@ export const BigSearch = forwardRef<
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="h-16 w-full rounded-2xl bg-surface pr-24 pl-14 text-xl text-fg shadow-[inset_0_0_0_1px_var(--color-field)] placeholder:text-fg-subtle focus:shadow-[inset_0_0_0_2px_var(--color-accent)] focus:outline-none max-sm:text-lg"
+          className="h-16 w-full rounded-3xl bg-surface pr-24 pl-14 text-lg text-fg shadow-[inset_0_0_0_1px_var(--color-edge),0_2px_12px_-4px_rgb(43_42_39/0.08)] placeholder:text-fg-subtle focus:shadow-[inset_0_0_0_1px_var(--color-accent-line),0_2px_16px_-4px_rgb(43_42_39/0.12)] focus:outline-none max-sm:text-lg"
         />
         <kbd
           aria-hidden
@@ -106,3 +107,20 @@ export const BigSearch = forwardRef<
     </div>
   )
 })
+
+/** Home's centred composer-style search (Claude-like): type, press Enter, land on Search. */
+export function HomeSearch({ className }: { className?: string }) {
+  const [q, setQ] = useState("")
+  const nav = useNavigate()
+  return (
+    <div className={cn("mx-auto w-full max-w-2xl", className)}>
+      <BigSearch
+        value={q}
+        onChange={setQ}
+        hideScopes
+        label="Search the college's research"
+        onSubmit={(v) => nav(v.trim() ? `/search?q=${encodeURIComponent(v.trim())}` : "/search")}
+      />
+    </div>
+  )
+}

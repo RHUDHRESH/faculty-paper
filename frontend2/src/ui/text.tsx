@@ -35,7 +35,7 @@ import { cn } from "@/lib/cn"
 export function PageTitle({ children, className }: React.ComponentProps<"h1">) {
   // `text-balance` so a two-line title breaks into two even lines rather
   // than a full line and one orphaned word.
-  return <h1 className={cn("display text-balance text-xl", className)}>{children}</h1>
+  return <h1 className={cn("display text-balance text-[1.75rem] leading-9", className)}>{children}</h1>
 }
 
 /**

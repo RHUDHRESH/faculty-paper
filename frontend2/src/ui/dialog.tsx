@@ -96,7 +96,7 @@ export function DialogContent({
                 animate="visible"
                 exit="hidden"
                 className={cn(
-                  "relative flex max-h-[85vh] w-full flex-col overflow-hidden rounded-xl",
+                  "relative flex max-h-[85vh] w-full flex-col overflow-hidden rounded-2xl",
                   "bg-surface shadow-modal",
                   WIDTH[size],
                   className
@@ -137,7 +137,7 @@ export function DialogTitle({
   className,
   ...props
 }: React.ComponentProps<typeof RadixDialog.Title>) {
-  return <RadixDialog.Title className={cn("text-base font-semibold", className)} {...props} />
+  return <RadixDialog.Title className={cn("display text-lg", className)} {...props} />
 }
 
 export function DialogDescription({

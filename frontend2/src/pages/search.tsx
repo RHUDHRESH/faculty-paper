@@ -163,7 +163,7 @@ function Idle({ box, onTry }: { box: React.ReactNode; onTry: (t: string) => void
   const [recent, setRecent] = useState(readRecent)
   return (
     <div className="mx-auto max-w-4xl pt-[120px] max-sm:pt-10">
-      <h1 className="mb-6 text-center text-[32px] leading-[38px] font-[650] text-fg">Find anything</h1>
+      <h1 className="mb-6 display text-center text-[2rem] leading-[2.5rem] text-fg">Find anything</h1>
       {box}
       <p className="mt-3 text-sm text-fg-muted">Paste a DOI to check whether a paper exists and who has claimed it.</p>
       <div className="mt-4 flex flex-wrap items-center gap-2">

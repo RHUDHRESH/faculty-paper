@@ -24,8 +24,8 @@ export const AREA_DOT: Record<Area, string> = {
 export type ChipTone = "neutral" | "area" | "gold" | "caution" | "positive"
 
 const TONE: Record<ChipTone, string> = {
-  neutral: "bg-sunken text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)]",
-  area: "bg-(--area-wash) text-(--area) shadow-[inset_0_0_0_1px_var(--area-line)]",
+  neutral: "bg-hover text-fg-muted",
+  area: "bg-(--area-wash) text-(--area)",
   gold: "bg-area-honours-wash text-area-honours shadow-[inset_0_0_0_1px_var(--color-area-honours-line)]",
   caution: "bg-caution-wash text-caution",
   positive: "bg-positive-wash text-positive",

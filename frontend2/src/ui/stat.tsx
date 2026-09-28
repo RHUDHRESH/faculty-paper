@@ -39,7 +39,7 @@ export function StatTile({
   const Trend = delta != null && delta < 0 ? TrendingDown : TrendingUp
   const inner = (
     <>
-      <Icon aria-hidden className="size-8 text-(--area)" strokeWidth={1.5} />
+      <Icon aria-hidden className="size-5 text-fg-subtle" strokeWidth={1.5} />
       <div className="mt-3 flex flex-wrap items-baseline gap-2">
         <span className="figure text-figure text-fg">{figure == null ? "—" : <MaybeCount figure={figure} />}</span>
         {spark}
@@ -59,7 +59,7 @@ export function StatTile({
       )}
     </>
   )
-  const box = cn("panel hover-lift block p-6 text-left", className)
+  const box = cn("panel block p-5 text-left", className)
   return (
     <div data-area={area} className="min-w-0">
       {to ? (

@@ -25,7 +25,7 @@ export function SharePlate({
         className
       )}
     >
-      <div aria-hidden className={cn("absolute inset-x-0 top-0 h-[3px]", ribbon === "gold" ? "ribbon" : "bg-brand")} />
+      <div aria-hidden className={cn("absolute inset-x-0 top-0 h-[3px]", ribbon === "gold" ? "ribbon" : "bg-accent")} />
       {children}
     </Tag>
   )

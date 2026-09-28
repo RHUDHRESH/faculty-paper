@@ -1,4 +1,4 @@
-# 00 · Design language: "Convocation"
+# 00 · Design language: Claude-like (supersedes "Convocation")
 
 This is the direction for the frontend2 redesign. Every page spec in `docs/ux/` assumes it.
 It covers what the page looks like and which parts builders must reuse. It does not replace
@@ -25,78 +25,56 @@ account against a copy of `real.sqlite3`:
 - **Nothing to be proud of.** The Impact card is the closest thing, but it is a navy rectangle
   with a yellow pill.
 
-## The direction in one paragraph
+## The direction in one paragraph (revised 2026-09-28: "Claude-like")
 
-**Convocation.** The app should feel like a college's graduation day, not like a SaaS
-dashboard: deep navy gowns, a gold ribbon for honours, cream paper for certificates, and a
-confident serif used *only* for honour moments. Everyday work (filing, lists, search) stays
-quiet, dense and Inter. Two things change the whole feel:
+**The owner's direction overrides "Convocation": the app should look and feel like Claude
+(claude.ai).** Patterns only, never Anthropic assets, logos or fonts. A warm off-white canvas,
+warm-grey surfaces with hairline borders, one warm clay accent, an elegant serif for page titles
+and hero numbers, Inter for everything else, soft radii, almost no shadows, generous whitespace,
+a calm slim sidebar, and a centred content column. Motion (`src/ui/motion/*`) is unchanged.
 
-1. **Every area has its own colour.** You always know where you are. Record is navy, Research
-   is teal, People is terracotta, Honours is gold, Time is sky.
-2. **Every page opens with a Hero band.** It is a tinted band that answers the page's question
-   in one big number or sentence, and it carries the Saveetha emblem as a faint watermark.
-
-The hero is where flow and appeal live. The body of the page underneath stays calm.
-
-Patterns borrowed, not looks:
-
-- **Linear and Raycast:** one palette for everything (search, pages, actions) with grouped
-  results and keyboard hints.
-- **GitHub:** the contribution graph, a year of activity readable at a glance. It becomes
-  our **Record strip**.
-- **Google Scholar and ORCID:** a profile made of metrics, a citations-per-year chart and
-  co-authors on the side.
-- **LinkedIn:** "2nd-degree via X" connection context.
-- **Spotify Wrapped:** share cards built for 9:16 and 1:1, with the user as the main character
-  and one surprising stat.
-- **Cal.com and Notion Calendar:** a month/week grid, quick-add, and subscribe by link.
-- **Stripe:** report tables with aligned numerals and a quiet chrome.
+- **No heavy colour bands.** Heroes are calm: a serif title, a muted sub-line, the answer as a
+  serif figure. No navy fields, no gradients, no watermarks competing with content.
+- **Area colours survive only as muted warm hints** (an icon, a chip), never as page grounds.
+- **Brand navy is not a UI colour.** It may appear only inside the Saveetha emblem.
 
 ## 1. Palette
 
-The brand navy is unchanged: `--color-brand` and `--color-accent` are `#2b398f`. The additions
-below go in `frontend2/src/styles.css` under `@theme`, with dark values in the existing dark
-block. Contrast figures are for text on `#ffffff`, and each text token is ≥ 4.5:1.
+Tokens live in `frontend2/src/styles.css` (`@theme` for light, `:root[data-theme="dark"]`
+for dark). Token names are unchanged so every component reflows.
 
-| Area | Used by | `--area-*` (text/icon) | `--area-*-wash` (fill) | `--area-*-line` | Dark text | Dark wash |
-|---|---|---|---|---|---|---|
-| **record** (navy) | Home, My papers, File a paper | `#2b398f` | `#eef2fd` | `#c8d3f7` | `#8fa5ff` | `#1a2341` |
-| **research** (teal) | My research, Discover, Search topics | `#0b6e67` | `#e8f6f4` | `#b5e2dc` | `#4fd1c1` | `#0e2826` |
-| **people** (terracotta) | Who to work with, Profiles, Messages | `#b04a2f` | `#fcefe9` | `#f3cbbd` | `#ff9a7a` | `#2e1911` |
-| **honours** (gold) | Leaderboard, Wall of fame, Impact card | `#8a6410` (text) / `#e0a82e` (fill/ribbon) | `#fdf6e3` | `#f1dca3` | `#f5c451` | `#2a220c` |
-| **time** (sky) | Calendar | `#1b6fa3` | `#e8f3fb` | `#b9dbf1` | `#6cc0f5` | `#0f2230` |
+| Token | Light | Dark | Use |
+|---|---|---|---|
+| `--color-bg` | `#faf9f5` | `#262624` | Canvas |
+| `--color-surface` | `#fdfcfa` | `#2c2c2a` | Cards, fields, menus |
+| `--color-sunken` | `#f3f1ea` | `#1f1e1d` | Sidebar, table heads, wells |
+| `--color-hover` / `-active` | `#efece4` / `#e6e2d8` | `#33322f` / `#3b3a37` | Pointer states, active nav pill |
+| `--color-line` / `-edge` | `#ece8df` / `#e2ddd2` | `#353431` / `#3e3d39` | Hairlines |
+| `--color-fg` / `-muted` / `-subtle` | `#2b2a27` / `#6b6862` / `#9a968e` | `#ece9e2` / `#a8a49b` / `#7a766e` | Ink |
+| `--color-accent` (+`-hover`) | `#c96a4a` (`#b25a3c`) | `#d97757` (`#e48a6b`) | The one accent: primary actions, focus, links |
+| `--color-brand` | `#2b2a27` | `#1f1e1d` | Former navy field; now warm ink |
 
-Other colour rules:
-
-- **Cream paper** `--color-paper: #fbf8f1` (dark: `#1b1a16`). It is used only for certificate
-  surfaces: the impact card preview plate, Wall of fame tiles and the "you were cited" moment.
-- **Gold ribbon** `--gradient-ribbon: linear-gradient(90deg, #e0a82e, #f5d27a 50%, #e0a82e)`.
-  It is a 3px top border on honour surfaces and nowhere else.
-- **Hero gradient** per area: `linear-gradient(135deg, var(--area-X-wash) 0%, var(--color-bg) 70%)`.
-  The record-area hero on Home and on Landing is the one exception. It uses a *solid navy*
-  field, `--color-brand`, with white type.
-- **Status colours** (positive, caution, critical) are unchanged and are never used as area
-  colours.
-- **Rule:** a page uses exactly one area colour, plus navy for actions. Gold appears only when
-  something is an honour.
+Area tokens (`--color-area-{record,research,people,honours,time}`) are muted warm variants:
+record clay-brown, research sage, people terracotta, honours old gold, time slate. Status
+colours (positive, caution, critical) are warm-shifted and still hold 4.5:1 as text.
 
 ## 2. Type
 
-| Token | Size / line | Face | Use |
-|---|---|---|---|
-| `display-honour` | 44/48, weight 600, tracking −0.02em | **Fraunces Variable** (add `@fontsource-variable/fraunces`, OFL) | Landing hero, Impact card name, Wall of fame month titles, profile name. Nowhere else. |
-| `display` | 32/38, weight 650 | Inter | Hero band headline (the answer) |
-| `figure-xl` | 56/56, weight 700, `tabular-nums` | Inter | The one number in a hero |
-| `figure` | 28/32, weight 650, tabular | Inter | Stat tiles |
-| `title` (existing `text-xl`) | 26/32 | Inter | Page title above the hero |
-| `section` (`text-lg`) | 16/24, weight 600 | Inter | Section heading |
-| `body` (`text-base`) | 14/24 | Inter | Body |
-| `meta` (`text-sm`/`xs`) | 13 and 12 | Inter | Metadata, column heads (12px caps, tracking +0.04em) |
+| Role | Face | Notes |
+|---|---|---|
+| Page titles, hero headline, hero numbers (`.display`, `.honour`, `--font-display`) | **Source Serif 4 Variable** (OFL, `@fontsource-variable/source-serif-4`), Fraunces as fallback | weight 500, tracking −0.015em |
+| UI, body, tables, labels | **Inter Variable** | 14/24 body, 13 dense, 12 meta |
 
-The existing comment in `styles.css` says a serif made "a working tool read like an article".
-That is right for working pages, so the serif is restricted to honour moments, where reading
-like a certificate is the point.
+## 2a. Shape and depth
+
+- Radii: controls 8px, cards and panels 12–14px (`--radius-xl`), pills and search full.
+- Shadows: none on cards, controls or bands. Only `pop` (menus, popovers, toasts) and `modal`
+  carry a very soft shadow plus a hairline.
+- Layout: content column max 1100px (`--page-max`), centred. Sidebar slim, sunken warm grey,
+  rounded active pill, small muted section labels, collapse button, Saveetha emblem + name in
+  the header. Home opens on a centred composer-style search.
+
+
 
 ## 3. Iconography
 

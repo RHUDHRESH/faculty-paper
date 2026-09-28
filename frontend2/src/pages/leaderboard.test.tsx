@@ -90,7 +90,12 @@ describe("Leaderboard", () => {
 
   it("does not contradict the table when the reader has nothing counted", () => {
     const b = board({ me: { ...board().me!, rank: null, value: 0, percentile: null, alltime_rank: 12 } })
-    expect(standing(b)).toBe("No papers counted for you in this academic year (2026–27) yet — your all-time rank is #12.")
+    expect(standing(b)).toBe("No papers counted for you in this academic year (2026–27) yet. Your all-time rank is #12.")
+  })
+
+  it("says the list is filtered, not that the reader is uncounted, outside their department", () => {
+    expect(standing(board({ me: null, scope: "AIDS" }))).toBe("Showing AIDS. You are not in this list.")
+    expect(standing(board({ me: null }))).not.toContain("—")
   })
 
   it("asks for the chosen category and period", async () => {

@@ -304,6 +304,9 @@ def my_conversations(request: HttpRequest, limit: int = 50):
     latest = Post.objects.filter(thread=OuterRef("pk")).order_by("-created_at", "-id").values("id")[:1]
     threads = list(
         _mine(me).annotate(last_post_id=Subquery(latest))
+        # Opening a chat writes nothing to the other person: until a message is
+        # sent, an empty conversation shows only in its opener's list.
+        .exclude(Q(last_post_id__isnull=True) & ~Q(created_by=me))
         .order_by("-last_post_at")[: max(1, min(int(limit), 100))]
     )
     ids = [t.id for t in threads]

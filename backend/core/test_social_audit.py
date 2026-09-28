@@ -51,6 +51,29 @@ class SocialAuditTests(TestCase):
         self.assertEqual(msg["actor"]["name"], "Asha Rao")
         self.assertTrue(msg["href"].startswith("/messages/"))
 
+    def test_an_opened_but_empty_chat_is_not_in_the_other_persons_inbox(self):
+        self.c.force_login(self.a)
+        self.assertEqual(self.c.post(f"/api/dm/with/{self.b.id}").status_code, 200)
+        mine = self.c.get("/api/dm").json()
+        mine = mine.get("results", mine) if isinstance(mine, dict) else mine
+        self.assertEqual(len(mine), 1)
+        self.c.force_login(self.b)
+        theirs = self.c.get("/api/dm").json()
+        theirs = theirs.get("results", theirs) if isinstance(theirs, dict) else theirs
+        self.assertEqual(len(theirs), 0)
+
+    def test_scout_without_claude_says_so_and_queues_nothing(self):
+        from unittest import mock
+
+        from core.models import ScoutRun
+
+        self.c.force_login(self.a)
+        with mock.patch("core.services.ai.provider_name", return_value="none"):
+            r = self.c.post("/api/scout", "{}", content_type="application/json")
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("not switched on", r.json()["detail"])
+        self.assertFalse(ScoutRun.objects.exists())
+
     def test_faculty_can_open_a_colleague_profile(self):
         self.c.force_login(self.a)
         self.assertEqual(self.c.get(f"/api/people/{self.b.id}").status_code, 200)

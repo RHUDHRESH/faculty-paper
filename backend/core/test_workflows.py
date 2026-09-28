@@ -307,6 +307,8 @@ class FacultyOtherWorkflows(Flow):
         from core.services import anthropic_provider, scout
         found = lambda *a, **k: {"text": "{}", "sources": [], "usage": {"input_tokens": 1, "output_tokens": 1}}  # noqa: E731
         with patch.object(anthropic_provider, "research", side_effect=found), \
+                patch("core.services.ai.provider_name", return_value="anthropic"), \
+                patch.object(anthropic_provider, "missing_settings", return_value=[]), \
                 patch("django_q.tasks.async_task", side_effect=lambda f, rid, **k: scout.execute(rid)):
             self.ok(self._post(self.faculty, "/api/scout"))
         self.ok(self._j(self.faculty, "get", "/api/scout"))

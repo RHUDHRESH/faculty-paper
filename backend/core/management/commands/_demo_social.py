@@ -179,8 +179,8 @@ def seed_social(out) -> None:
         c.force_login(u)
         return c
 
-    # Faces.
-    for i, u in enumerate(everyone):
+    # Faces, for every demo account whatever its role (officers are colleagues too).
+    for i, u in enumerate(everyone + list(User.objects.filter(email__endswith="@college.edu").exclude(role=Role.FACULTY))):
         if not u.photo:
             buf = io.BytesIO(face_png(i))
             buf.name = "face.png"
@@ -222,6 +222,13 @@ def seed_social(out) -> None:
             pos += 1
         made_papers += 1
     from core.services.publications import refresh_metrics
+    # A publication date, so "this academic year" counts something: the
+    # leaderboard windows on the date, not the bare year.
+    today = now.date()
+    for pub in Publication.objects.filter(doi__startswith="10.5555/demo.social.", date__isnull=True):
+        d = today.replace(year=pub.year, month=1, day=1) + timedelta(days=rng.randint(0, 364))
+        pub.date = min(d, today - timedelta(days=rng.randint(1, 60)))
+        pub.save(update_fields=["date"])
     refresh_metrics()
 
     marker = "Our paper on chest X-ray triage"

@@ -542,11 +542,11 @@ function CitationBars({ rows }: { rows: ReturnType<typeof citationsByYear> }) {
             key={r.year}
             type="button"
             role="listitem"
-            aria-label={`${r.year}: ${r.citations} citations`}
+            aria-label={`${r.year}: ${r.citations} citation${r.citations === 1 ? "" : "s"}`}
             aria-pressed={open === r.year}
             onClick={() => setOpen(open === r.year ? null : r.year)}
             className="flex h-full flex-1 flex-col justify-end"
-            title={`${r.year} · ${r.citations} citations`}
+            title={`${r.year} · ${r.citations} citation${r.citations === 1 ? "" : "s"}`}
           >
             <span
               className={cn("block w-full rounded-t-sm", open === r.year ? "bg-(--area)" : "bg-(--area-line)")}
@@ -822,7 +822,7 @@ export function PublishedWork({ papers }: { papers: RecordPaper[] }) {
                   )}
                 </p>
                 <Meta className="block">
-                  {[p.venue, p.quartile, p.citations ? `${p.citations} citations` : null].filter(Boolean).join(" · ")}
+                  {[p.venue, p.quartile, p.citations ? `${p.citations} citation${p.citations === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ")}
                 </Meta>
                 </div>
               </li>

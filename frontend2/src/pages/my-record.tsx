@@ -169,7 +169,7 @@ export function AppraisalList() {
                     </p>
                     <p className="text-fg-muted break-all">
                       {authorRole(p)}
-                      {p.citations != null ? ` · ${p.citations} citations` : ""}
+                      {p.citations != null ? ` · ${p.citations} citation${p.citations === 1 ? "" : "s"}` : ""}
                       {p.doi ? ` · doi.org/${p.doi}` : ""}
                     </p>
                   </div>

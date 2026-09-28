@@ -1,9 +1,22 @@
 import type { CSSProperties } from "react"
 import { AlertTriangle } from "lucide-react"
 
-import { Art, type ArtName } from "@/ui/art"
+import type { ArtName } from "@/ui/art"
+import { Illustration, type IllustrationName } from "@/ui/illustration"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
+
+/** The generated drawing that replaces each of the older spot scenes. */
+export const ART_ILLUSTRATION: Record<ArtName, IllustrationName> = {
+  "nothing-filed": "empty-no-papers",
+  "empty-queue": "empty-nothing-to-review",
+  "no-results": "empty-no-results",
+  "nothing-paid": "empty-no-payouts",
+  "no-budget": "spot-budget",
+  "could-not-load": "error-server",
+  "no-page": "not-found-404",
+  "closed-gate": "error-access-denied",
+}
 
 /**
  * What a section looks like before its data arrives, when there is none, and
@@ -136,6 +149,7 @@ export function SkeletonText({
 export function EmptyState({
   icon: Icon,
   art,
+  illustration,
   title,
   message,
   action,
@@ -148,6 +162,8 @@ export function EmptyState({
    *  because forty screens pass one and a glyph in a well is still the
    *  right answer for a one-off. */
   art?: ArtName
+  /** A generated illustration by name; wins over `art`. */
+  illustration?: IllustrationName
   title: string
   message: string
   /** The thing that would fill this screen — "File a paper", "Clear the
@@ -156,15 +172,16 @@ export function EmptyState({
   action?: React.ReactNode
   className?: string
 }) {
+  const drawing = illustration ?? (art ? ART_ILLUSTRATION[art] : undefined)
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-1.5 rounded-lg bg-sunken px-6 py-14 text-center",
+        "flex flex-col items-center gap-1.5 rounded-xl bg-sunken px-6 py-12 text-center",
         className
       )}
     >
-      {art ? (
-        <Art name={art} className="mb-2" />
+      {drawing ? (
+        <Illustration name={drawing} width={132} className="mb-3" />
       ) : (
         Icon && (
           // A well, so the glyph is an object on the shelf rather than a grey
@@ -224,11 +241,11 @@ export function ErrorState({
     <div
       role="alert"
       className={cn(
-        "flex flex-col items-center gap-1.5 rounded-lg bg-critical-wash px-6 py-14 text-center",
+        "flex flex-col items-center gap-1.5 rounded-xl bg-critical-wash px-6 py-12 text-center",
         className
       )}
     >
-      <Art name={art} className="mb-2" />
+      <Illustration name={ART_ILLUSTRATION[art]} width={132} className="mb-3" />
       <p className="text-lg font-semibold text-fg">{title}</p>
       <p className="max-w-sm text-pretty text-base text-fg-muted">{message}</p>
       {onRetry && (

@@ -126,7 +126,7 @@ export function DataHealth() {
 
   return (
     <Frame>
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="page-head">
         <div>
           <PageTitle>Data health</PageTitle>
           <Sub>

@@ -50,6 +50,7 @@ import { EmptyState, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Ago } from "@/ui/when"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * Discussions — the college's feed.
@@ -259,7 +260,7 @@ export function Feed() {
 
   return (
     <div className="page max-w-2xl space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="page-head">
         <div className="min-w-0">
           <PageTitle>Discussions</PageTitle>
           <Sub className="mt-1">
@@ -281,6 +282,7 @@ export function Feed() {
             </Link>
           </Button>
         </div>
+        <HeaderSpot name="spot-discussions" />
       </header>
 
       {tab !== "reported" && (

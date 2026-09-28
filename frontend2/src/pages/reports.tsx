@@ -23,6 +23,7 @@ import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle, SheetDescripti
 import { DepartmentScopusLine, type DepartmentScopus } from "@/ui/scopus"
 import { stickyHeadCell, Table, TableScroller, type Column } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * The college's oversight report — a small set of large figures, with the
@@ -458,7 +459,7 @@ function CollegeReports() {
 
   return (
     <div className="page space-y-10">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header className="page-head">
         <div>
           <PageTitle>Reports</PageTitle>
           <Sub className="mt-1">What the scheme has paid, what it has produced, and what is still open.</Sub>
@@ -481,6 +482,7 @@ function CollegeReports() {
             </Button>
           </div>
         </div>
+        <HeaderSpot name="spot-reports" />
       </header>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -1095,7 +1097,7 @@ function HodReports() {
 
   return (
     <div className="page space-y-10">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header className="page-head">
         <div>
           <PageTitle>{data ? `${data.department} — publications` : "Reports"}</PageTitle>
           <Sub className="mt-1">What the department has produced, and by whom.</Sub>
@@ -1116,6 +1118,7 @@ function HodReports() {
             </Button>
           </div>
         </div>
+        <HeaderSpot name="spot-reports" />
       </header>
 
       <Callout tone="info" title="Payment figures are not shown for this role">

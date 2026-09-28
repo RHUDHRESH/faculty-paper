@@ -240,7 +240,7 @@ export function Leaderboard() {
   return (
     <div className="page space-y-5">
       <style>{"@media print { @page { size: A4 landscape; margin: 12mm } }"}</style>
-      <HeroBand
+      <HeroBand spot="leaderboard-honours"
         area="honours"
         eyebrow="Honours"
         title="Leaderboard"

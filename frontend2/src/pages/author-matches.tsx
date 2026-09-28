@@ -64,7 +64,7 @@ export function AuthorMatches() {
 
   return (
     <div className="space-y-6">
-      <HeroBand
+      <HeroBand spot="spot-search"
         area="people"
         eyebrow="Set up"
         title="Author matches"

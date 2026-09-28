@@ -42,6 +42,7 @@ import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * A head of department's own screen: where the department stands, what it has
@@ -284,7 +285,7 @@ export function Department() {
 
   return (
     <div className="page space-y-10">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="page-head">
         <div>
           <PageTitle>{standing.data?.department || "My department"}</PageTitle>
           <Sub className="mt-1">
@@ -301,6 +302,7 @@ export function Department() {
           aria-label="Publication year"
           className="w-44"
         />
+        <HeaderSpot name="spot-home-hod" />
       </header>
 
       <DepartmentSiteProfile code={me?.department ?? null} />

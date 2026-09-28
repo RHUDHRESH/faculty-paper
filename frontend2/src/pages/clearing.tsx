@@ -39,6 +39,7 @@ import { useSlashToSearch } from "@/ui/queue-keys"
 import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { EditClaimFieldsDialog, HoldControl, HoldNote, ReasonActionDialog, useIsOwnClaim } from "@/ui/desk-actions"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * The research cell's daily job: every submitted ticket, oldest first, and
@@ -342,7 +343,7 @@ export function Clearing() {
 
   return (
     <div className="page space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header className="page-head">
         <div>
           <PageTitle>Clearing queue</PageTitle>
           <Sub className="mt-1">
@@ -354,6 +355,7 @@ export function Clearing() {
           <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
           Refresh
         </Button>
+        <HeaderSpot name="spot-approvals" />
       </header>
 
       {all.length > 0 && (

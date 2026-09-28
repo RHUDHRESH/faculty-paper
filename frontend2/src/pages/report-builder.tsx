@@ -20,6 +20,7 @@ import {
 } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * Build a report, read it on screen, take it away if you want it.
@@ -367,7 +368,7 @@ export function ReportBuilder() {
 
   return (
     <div className="page space-y-8">
-      <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+      <header className="page-head">
         <div className="min-w-0">
           <PageTitle>Build a report</PageTitle>
           <Sub className="mt-1">
@@ -391,6 +392,7 @@ export function ReportBuilder() {
             ))}
           </div>
         </div>
+        <HeaderSpot name="spot-reports" />
       </header>
 
       {/* ---- what to break it down by ---- */}

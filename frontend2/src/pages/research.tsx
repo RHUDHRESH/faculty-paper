@@ -181,7 +181,7 @@ export function Research() {
 
   return (
     <div className="page space-y-8" data-area="research">
-      <HeroBand
+      <HeroBand spot="spot-my-research"
         area="research"
         eyebrow="Research"
         title="My research"

@@ -29,6 +29,7 @@ import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText }
 import { Table, type Column } from "@/ui/table"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * The staff directory (`People`) and one account's publication record
@@ -294,7 +295,7 @@ export function People() {
 
   return (
     <div className="page space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="page-head">
         <div>
           <PageTitle>People</PageTitle>
           <Sub className="mt-1">
@@ -307,6 +308,7 @@ export function People() {
             New account
           </Button>
         )}
+        <HeaderSpot name="spot-people" />
       </header>
 
       {creating && <NewAccount onClose={() => setCreating(false)} />}
@@ -621,7 +623,7 @@ function CollegePerson() {
         People
       </Link>
 
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="page-head">
         <div className="space-y-1">
           <PageTitle>{faculty.name || faculty.email}</PageTitle>
           <Sub>
@@ -656,6 +658,7 @@ function CollegePerson() {
             </Button>
           </div>
         )}
+        <HeaderSpot name="spot-profile" />
       </header>
 
       <div className="flex flex-wrap items-center gap-2">

@@ -43,6 +43,7 @@ import { useSlashToSearch } from "@/ui/queue-keys"
 import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { HoldControl, HoldNote, ReasonActionDialog, useIsOwnClaim } from "@/ui/desk-actions"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * The Principal's queue: every `CLEARED` ticket waiting between the research
@@ -429,7 +430,7 @@ export function Approvals() {
 
   return (
     <div className="page space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header className="page-head">
         <div>
           <PageTitle>Approvals</PageTitle>
           <Sub className="mt-1">
@@ -441,6 +442,7 @@ export function Approvals() {
           <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
           Refresh
         </Button>
+        <HeaderSpot name="spot-approvals" />
       </header>
 
       <Meta className="block">

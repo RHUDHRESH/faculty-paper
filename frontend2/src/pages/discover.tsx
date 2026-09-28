@@ -87,7 +87,7 @@ export function Discover() {
 
   return (
     <div className="page space-y-6" data-area="research">
-      <HeroBand
+      <HeroBand spot="discover-ideas"
         area="research"
         eyebrow="Research"
         title="Discover"

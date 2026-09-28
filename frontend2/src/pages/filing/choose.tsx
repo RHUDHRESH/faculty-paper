@@ -7,7 +7,7 @@ import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
 import { ChoiceGroup, ChoiceTile } from "@/ui/choice"
 import { Input } from "@/ui/field"
-import { Illustration } from "@/ui/share-plate"
+import { Illustration } from "@/ui/illustration"
 import { Callout, SkeletonText } from "@/ui/state"
 
 /** One paper from `GET /api/me/scopus-pull` (frontend2/API.md). */
@@ -89,7 +89,7 @@ export function ChooseMethod({
                     ? `Pick one of your ${unclaimed} unclaimed paper${unclaimed === 1 ? "" : "s"}. Journal, authors and quartile fill themselves.`
                     : "No unclaimed papers on your record. Check Scopus for new ones, or paste a DOI."}
               </span>
-              <Illustration name="scopus-pull" className="w-[120px] shrink-0 p-2 max-sm:hidden" />
+              <Illustration name="file-from-index" width={112} className="shrink-0 max-sm:hidden" />
             </span>
           }
         />
@@ -100,7 +100,12 @@ export function ChooseMethod({
           onSelect={() => onMethod("paste")}
           className="min-h-[200px] max-sm:min-h-[140px]"
           title="Paste a DOI or link"
-          description="For a paper that isn't on your record yet."
+          description={
+            <span className="flex items-end justify-between gap-4">
+              <span>For a paper that isn't on your record yet.</span>
+              <Illustration name="file-paste-doi" width={112} className="shrink-0 max-sm:hidden" />
+            </span>
+          }
         />
       </ChoiceGroup>
 
@@ -184,7 +189,7 @@ function Picker({
 
       {!error && papers.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl p-6 text-center shadow-[inset_0_0_0_1px_var(--color-line)]">
-          <Illustration name="empty-papers" />
+          <Illustration name="empty-no-papers" width={120} />
           <p className="text-base font-medium">Nothing to pick yet — your record hasn't been matched to Scopus.</p>
           <Button kind="primary" type="button" onClick={onPaste}>
             <ClipboardPaste aria-hidden />

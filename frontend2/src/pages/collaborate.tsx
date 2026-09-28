@@ -106,7 +106,7 @@ export function Collaborate() {
 
   return (
     <div data-area="people" className="page space-y-8">
-      <HeroBand area="people" eyebrow="People" title="Who to work with" sentence={sentence}>
+      <HeroBand spot="collaboration" area="people" eyebrow="People" title="Who to work with" sentence={sentence}>
         <PeopleSearch onPick={open} />
       </HeroBand>
 

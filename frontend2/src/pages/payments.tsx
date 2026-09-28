@@ -32,6 +32,7 @@ import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * Where money actually leaves the college — the queue of tickets the
@@ -255,7 +256,7 @@ export function Payments() {
 
   return (
     <div className="page space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header className="page-head">
         <div>
           <PageTitle>Payments</PageTitle>
           <Sub className="mt-1">
@@ -273,6 +274,7 @@ export function Payments() {
             Refresh
           </Button>
         </div>
+        <HeaderSpot name="spot-payouts" />
       </header>
 
       {anySelected && (
@@ -852,7 +854,7 @@ export function PaymentsDone() {
 
   return (
     <div className="page space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header className="page-head">
         <div>
           <Button kind="quiet" size="sm" asChild className="-ml-2 mb-1">
             <Link to="/payments">
@@ -876,6 +878,7 @@ export function PaymentsDone() {
             Refresh
           </Button>
         </div>
+        <HeaderSpot name="spot-payouts" />
       </header>
 
       {isLoading ? (

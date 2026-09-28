@@ -13,6 +13,7 @@ import { money, Stage, stageOf } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, Sub } from "@/ui/text"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * Looking into the past: every claim filed with the college, paid and
@@ -168,12 +169,15 @@ export function PastClaims() {
 
   return (
     <div className="page space-y-6">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Past claims</PageTitle>
         <Sub className="mt-1">
           Every claim filed with the college, paid ones and those brought across from the old
           records included. Open one to read its files and raise a flag.
         </Sub>
+        </div>
+        <HeaderSpot name="spot-archive" />
       </header>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

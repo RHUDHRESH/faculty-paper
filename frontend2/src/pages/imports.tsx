@@ -21,6 +21,7 @@ import {
 } from "@/ui/state"
 import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * How the college's own records get into the system.
@@ -149,7 +150,8 @@ export function Imports() {
 
   return (
     <div className="page space-y-10">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Imports</PageTitle>
         <Sub className="mt-1">
           The roster, the payment history and the ERP workbook — the three
@@ -157,6 +159,8 @@ export function Imports() {
           teams and the Scopus author profiles, and the queue that checks what
           they brought in against Scopus.
         </Sub>
+        </div>
+        <HeaderSpot name="spot-imports" />
       </header>
 
       <AlreadyLoaded query={stats} />

@@ -22,6 +22,7 @@ import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * The NAAC / NIRF submission, and — the part that makes it a screen rather
@@ -170,12 +171,15 @@ export function Accreditation() {
 
   return (
     <div className="page space-y-6">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Accreditation</PageTitle>
         <Sub className="mt-1">
           The NAAC and NIRF tables, built from what the system already holds — and the rows an
           assessor would send back.
         </Sub>
+        </div>
+        <HeaderSpot name="spot-accreditation" />
       </header>
 
       <div className="flex flex-wrap items-end gap-3">

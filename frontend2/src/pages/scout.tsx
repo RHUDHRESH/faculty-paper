@@ -108,7 +108,7 @@ export function Scout() {
 
   return (
     <div className="page space-y-6" data-area="research">
-      <HeroBand
+      <HeroBand spot="hero-research-scout"
         area="research"
         eyebrow="Research"
         title="Research scout"

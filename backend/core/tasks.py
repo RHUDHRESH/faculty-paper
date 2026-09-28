@@ -247,3 +247,9 @@ def run_restore(saved_path: str, actor_id: str | None = None) -> dict:
         actor=actor, action="RESTORE_DONE", entity="Export", detail_json=str(counts)[:2000]
     )
     return {"ok": True, **counts}
+
+
+def run_scout(run_id: str) -> str:
+    from core.services.scout import execute
+
+    return execute(run_id)

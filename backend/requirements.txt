@@ -37,6 +37,7 @@ pypdf>=6.0
 google-auth>=2.35
 PyJWT[crypto]>=2.9
 requests>=2.32
+anthropic>=0.75
 
 # Re-encodes profile photos and pictures shared in the feed, which drops the
 # camera metadata (and any GPS position) before colleagues see them. It was

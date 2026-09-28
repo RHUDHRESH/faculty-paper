@@ -1539,6 +1539,62 @@
         }
       ],
       "note": "Item 5 came out as a scatter cluster, not a seamless tile."
+    },
+    {
+      "id": "banner01",
+      "raw": "banner01.png",
+      "date": "2026-09-28",
+      "variant": "hero",
+      "subject": "Banner variant: three separate wide panoramic banner strips stacked vertically, each strip about 3:1, separated by generous empty bands of plain background, no borders or frames; in each strip the scene sits in the right two-thirds and fades softly into calm empty background on the left for a page title; flat untextured background; simple, minimal, few details, flat fills, clear outlines, no shading. Strip 1 (faculty home): a tidy desk by a window with a plant, an open journal and a small stack of papers, morning light. Strip 2 (discover): an open book on a hill with small paper boats and constellation dots drifting out toward the horizon. Strip 3 (leaderboard and wall of fame): three gentle podium blocks in sage, clay and sand with laurel sprigs and a few floating stars.",
+      "assets": [
+        {
+          "name": "banner-home-faculty",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1), title space on the left",
+          "page": "Home (faculty) header"
+        },
+        {
+          "name": "banner-discover",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "Discover header"
+        },
+        {
+          "name": "banner-leaderboard",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "Leaderboard, Wall of fame header"
+        }
+      ],
+      "note": "Returned as one 2172x724 image with three ~9:1 strips split on white bands (scripts/split-banner-strips.py); background kept."
+    },
+    {
+      "id": "banner02",
+      "raw": "banner02.png",
+      "date": "2026-09-28",
+      "variant": "hero",
+      "subject": "Banner variant (as banner01). Strip 1 (file a paper): a single paper sheet gliding like a paper plane over a desk toward an open folder, with a small dotted path. Strip 2 (calendar and deadlines): a gentle row of hills with small flags planted at intervals along a winding path, a sun low on the horizon. Strip 3 (messages and discussions): a few speech bubbles floating like lanterns above two empty chairs and a small round table.",
+      "assets": [
+        {
+          "name": "banner-file-paper",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "File a paper header"
+        },
+        {
+          "name": "banner-calendar",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "Calendar header"
+        },
+        {
+          "name": "banner-messages",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "Messages, Discussions header"
+        }
+      ],
+      "note": "Split with scripts/split-banner-strips.py; background kept."
     }
   ]
 }

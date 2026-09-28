@@ -1,7 +1,7 @@
 {
   "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
   "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
-  "count": 207,
+  "count": 213,
   "assets": [
     {
       "name": "empty-no-papers",
@@ -3909,6 +3909,108 @@
       "sheet": "sheet29",
       "date": "2026-09-28",
       "background": "transparent"
+    },
+    {
+      "name": "banner-home-faculty",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1), title space on the left",
+      "page": "Home (faculty) header",
+      "files": {
+        "webp": "/illustrations/generated/banner-home-faculty.webp",
+        "png": "/illustrations/generated/banner-home-faculty.png"
+      },
+      "bytes": {
+        "webp": 26962,
+        "png": 36460
+      },
+      "sheet": "banner01",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-discover",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "Discover header",
+      "files": {
+        "webp": "/illustrations/generated/banner-discover.webp",
+        "png": "/illustrations/generated/banner-discover.png"
+      },
+      "bytes": {
+        "webp": 17974,
+        "png": 21030
+      },
+      "sheet": "banner01",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-leaderboard",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "Leaderboard, Wall of fame header",
+      "files": {
+        "webp": "/illustrations/generated/banner-leaderboard.webp",
+        "png": "/illustrations/generated/banner-leaderboard.png"
+      },
+      "bytes": {
+        "webp": 12496,
+        "png": 15072
+      },
+      "sheet": "banner01",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-file-paper",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "File a paper header",
+      "files": {
+        "webp": "/illustrations/generated/banner-file-paper.webp",
+        "png": "/illustrations/generated/banner-file-paper.png"
+      },
+      "bytes": {
+        "webp": 17992,
+        "png": 20872
+      },
+      "sheet": "banner02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-calendar",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "Calendar header",
+      "files": {
+        "webp": "/illustrations/generated/banner-calendar.webp",
+        "png": "/illustrations/generated/banner-calendar.png"
+      },
+      "bytes": {
+        "webp": 14816,
+        "png": 17577
+      },
+      "sheet": "banner02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-messages",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "Messages, Discussions header",
+      "files": {
+        "webp": "/illustrations/generated/banner-messages.webp",
+        "png": "/illustrations/generated/banner-messages.png"
+      },
+      "bytes": {
+        "webp": 22766,
+        "png": 25131
+      },
+      "sheet": "banner02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
     }
   ]
 }

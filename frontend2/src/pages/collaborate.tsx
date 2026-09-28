@@ -57,7 +57,6 @@ type EgoNode = {
   papers: number
   together: number
   degree: number
-  initials?: string
 }
 type Ego = { center: string; coauthors: number; capped: boolean; nodes: EgoNode[]; links: { source: string; target: string; papers: number }[] }
 

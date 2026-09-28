@@ -6,7 +6,6 @@ import {
   ArrowUpRight,
   BarChart3,
   Building2,
-  ClipboardCheck,
   Copy,
   FileCheck,
   Plus,
@@ -27,6 +26,8 @@ import {
   useOwnPapers,
 } from "@/pages/home-faculty"
 import { Button } from "@/ui/button"
+import { Avatar, initialsOf } from "@/ui/person"
+import { Picture } from "@/ui/picture"
 import { Celebrations } from "@/ui/celebrations"
 import { ComingUp } from "@/ui/coming-up"
 import { money, Stage, stageOf } from "@/ui/paper"
@@ -172,6 +173,10 @@ export type Claim = {
   status: string
   remuneration: number | null
   updated_at: string | null
+  owner_id?: string | null
+  owner_photo_url?: string | null
+  waiting_days?: number | null
+  needs_second_approval?: boolean
 }
 
 /**
@@ -215,6 +220,122 @@ export function Waiting({ children }: { children: React.ReactNode }) {
     >
       {children}
     </motion.section>
+  )
+}
+
+/**
+ * The top of every office home: greeting, the one question this desk answers,
+ * and the desk's picture on a wide screen.
+ */
+export function HomeHead({
+  name,
+  sentence,
+  picture,
+  actions,
+}: {
+  name: string | undefined
+  sentence: React.ReactNode
+  picture: string
+  actions?: React.ReactNode
+}) {
+  return (
+    <header className="flex items-center justify-between gap-6">
+      <div className="min-w-0">
+        <PageTitle>{greeting(name)}</PageTitle>
+        <Sub className="mt-1 max-w-xl">{sentence}</Sub>
+        {actions && <div className="mt-4 flex flex-wrap gap-2">{actions}</div>}
+      </div>
+      <Picture name={picture} eager className="hidden w-[200px] shrink-0 md:block lg:w-[240px]" />
+    </header>
+  )
+}
+
+function daysLabel(n: number | null | undefined): string {
+  if (n == null) return ""
+  if (n <= 0) return "Today"
+  return `${n} ${n === 1 ? "day" : "days"}`
+}
+
+/**
+ * Work waiting at this desk, oldest first, as rows: the claimant's face, the
+ * paper, how long it has waited, and the one thing to do next.
+ *
+ * The viewer's own claim is never drawn here even if a server ever sent it:
+ * somebody at a desk cannot act on their own paper, so a row with an action
+ * button on it would be a lie.
+ */
+export function DeskQueue({
+  claims,
+  meId,
+  action,
+  to,
+  showMoney = true,
+  limit = 6,
+}: {
+  claims: Claim[]
+  meId: string | undefined
+  action: string
+  to: string
+  showMoney?: boolean
+  limit?: number
+}) {
+  const rows = claims
+    .filter((c) => !meId || c.owner_id !== meId)
+    .slice()
+    .sort((a, b) => (b.waiting_days ?? 0) - (a.waiting_days ?? 0))
+    .slice(0, limit)
+  return (
+    <ul className="divide-y divide-line border-y border-line">
+      {rows.map((c) => {
+        const days = c.waiting_days ?? null
+        return (
+          <li key={c.id} className="flex items-center gap-3 py-3 sm:gap-4 sm:px-2">
+            <Avatar
+              size="md"
+              person={{
+                name: c.owner_name || "",
+                initials: initialsOf(c.owner_name),
+                photo_url: c.owner_photo_url ?? null,
+              }}
+            />
+            <div className="min-w-0 flex-1">
+              <Link
+                to={`/papers/${c.id}`}
+                className="block truncate text-base font-medium underline-offset-4 hover:underline"
+              >
+                {c.paper_title || "Untitled"}
+              </Link>
+              <Meta className="block truncate">
+                {[c.owner_name, c.owner_department].filter(Boolean).join(" · ")}
+                {showMoney && c.remuneration ? (
+                  <span className="sm:hidden"> · {money(c.remuneration)}</span>
+                ) : null}
+              </Meta>
+            </div>
+            {showMoney && (
+              <span className="hidden w-24 shrink-0 text-right text-base tabular sm:block">
+                {c.remuneration ? money(c.remuneration) : ""}
+              </span>
+            )}
+            <span
+              className={cn(
+                "w-14 shrink-0 text-right text-sm tabular text-fg-muted sm:w-16",
+                days != null && days > 30 && "font-medium text-critical",
+                days != null && days > 14 && days <= 30 && "text-caution"
+              )}
+              title={days != null ? `Waiting ${daysLabel(days).toLowerCase()}` : undefined}
+            >
+              {daysLabel(days)}
+            </span>
+            <Button size="sm" asChild>
+              <Link to={to} aria-label={`${action}: ${c.paper_title || "Untitled"}`}>
+                {action}
+              </Link>
+            </Button>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -270,15 +391,78 @@ export function OfficeHome() {
   const duplicates = useApi<DuplicatesSummary>(D.openDuplicates.key, D.openDuplicates.path)
   const dashboard = useApi<Dashboard>(D.dashboard.key, D.dashboard.path)
 
+  const clearing = useApi<Claim[]>(D.clearingQueue.key, D.clearingQueue.path)
+
   const waiting = counts.data?.counts.filed ?? null
   const sentBack = counts.data?.counts.sent_back ?? null
+  const isAdmin = me?.role === "SUPER_ADMIN"
+  const queueRows = clearing.data ?? []
+
+  const healthKnown = faults.data && duplicates.data
+  const unhealthy = (faults.data?.urgent ?? 0) + (duplicates.data?.summary.open ?? 0)
 
   return (
     <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">What is waiting, what is stuck, and what has moved lately.</Sub>
-      </header>
+      <HomeHead
+        name={me?.name}
+        picture="spot-home-admin"
+        sentence={
+          isAdmin
+            ? "Whether everything is healthy, and what is waiting at the desks."
+            : "What is waiting on you to clear, oldest first."
+        }
+      />
+
+      {isAdmin && healthKnown && (
+        unhealthy === 0 ? (
+          <Callout tone="positive" title="Everything is healthy">
+            No urgent faults and no unreviewed duplicate payments.
+            {faults.data?.checked_at ? " Checked just now." : ""}
+          </Callout>
+        ) : (
+          <Callout tone="caution" title="Something needs a look">
+            {[
+              faults.data?.urgent
+                ? `${faults.data.urgent} urgent ${faults.data.urgent === 1 ? "fault" : "faults"}`
+                : null,
+              duplicates.data?.summary.open
+                ? `${duplicates.data.summary.open} possible duplicate ${duplicates.data.summary.open === 1 ? "payment" : "payments"}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" and ")}
+            . The rows below open each one.
+          </Callout>
+        )
+      )}
+
+      <Waiting>
+        <div className="flex items-baseline justify-between gap-3">
+          <SectionTitle>Waiting on you to clear</SectionTitle>
+          <Link to="/clearing" className="text-sm text-accent underline-offset-4 hover:underline">
+            Open the clearing queue{waiting ? ` (${waiting.toLocaleString("en-IN")})` : ""}
+          </Link>
+        </div>
+        {clearing.isLoading ? (
+          <ul className="divide-y divide-line border-y border-line">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <li key={i} className="h-[3.75rem] animate-pulse bg-sunken" />
+            ))}
+          </ul>
+        ) : clearing.isError ? (
+          <InlineError message="Could not load the clearing queue." onRetry={() => void clearing.refetch()} />
+        ) : queueRows.length === 0 ? (
+          <div className="flex items-center gap-5 border-y border-line py-6">
+            <Picture name="spot-approvals" className="w-24 shrink-0" />
+            <p className="text-base text-fg-muted">
+              Nothing is waiting to be cleared. A paper appears here the moment a claimant files
+              it. Your own papers are cleared by another officer, never by you.
+            </p>
+          </div>
+        ) : (
+          <DeskQueue claims={queueRows} meId={me?.id} action="Check" to="/clearing" />
+        )}
+      </Waiting>
 
       <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
         <Figure
@@ -311,16 +495,8 @@ export function OfficeHome() {
       )}
 
       <Waiting>
-        <SectionTitle>Queues</SectionTitle>
+        <SectionTitle>Other queues</SectionTitle>
         <ul className="divide-y divide-line border-y border-line">
-          <QueueRow
-            icon={ClipboardCheck}
-            label="Papers to check"
-            count={waiting}
-            detail="Oldest first, cleared to the Principal"
-            to="/clearing"
-            loading={counts.isLoading}
-          />
           <QueueRow
             icon={Users}
             label="Profile corrections"
@@ -426,12 +602,11 @@ export function PrincipalHome() {
 
   return (
     <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">
-          Everything the research cell has checked and sent up for your approval.
-        </Sub>
-      </header>
+      <HomeHead
+        name={me?.name}
+        picture="spot-approvals"
+        sentence="What needs your approval, oldest first. The research cell has checked each one."
+      />
 
       <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
         <Figure
@@ -484,9 +659,7 @@ export function PrincipalHome() {
               ))}
             </ul>
           ) : (
-            <ul className="divide-y divide-line border-y border-line">
-              {queue.data?.results.map((c) => <ClaimRow key={c.id} claim={c} />)}
-            </ul>
+            <DeskQueue claims={queue.data?.results ?? []} meId={me?.id} action="Approve" to="/approvals" limit={8} />
           )}
         </Waiting>
       )}
@@ -568,12 +741,11 @@ export function FinanceHome() {
 
   return (
     <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">
-          Everything the Director has authorised and Finance has not yet paid.
-        </Sub>
-      </header>
+      <HomeHead
+        name={me?.name}
+        picture="spot-payouts"
+        sentence="What to pay: everything the Director has authorised and Finance has not yet paid."
+      />
 
       <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
         <Figure
@@ -659,9 +831,7 @@ export function FinanceHome() {
               <ComingUp desk="finance" />
             </div>
           ) : (
-            <ul className="divide-y divide-line border-y border-line">
-              {ready.slice(0, 8).map((c) => <ClaimRow key={c.id} claim={c} />)}
-            </ul>
+            <DeskQueue claims={ready} meId={me?.id} action="Pay" to="/payments" limit={8} />
           )}
         </Waiting>
       )}
@@ -775,6 +945,8 @@ type HodOverview = {
     first_author: number
     q1: number
     active: boolean
+    initials?: string
+    photo_url?: string | null
   }[]
 }
 
@@ -792,7 +964,7 @@ type HodOverview = {
  * amounts on it are theirs (`hod.for_head`, `core.visibility`).
  */
 export function YourPapers({
-  note = "What you have filed yourself. Another officer, or the super admin, decides each one — never you.",
+  note = "What you have filed yourself. Another officer, or the super admin, decides each one, never you.",
 }: {
   note?: string
 }) {
@@ -800,10 +972,10 @@ export function YourPapers({
   const { claims, isLoading, isError, refetch } = own
 
   return (
-    <section aria-label="Your papers" className="space-y-4">
+    <section aria-label="Your own papers" className="space-y-4 border-t border-line pt-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <SectionTitle>Your papers</SectionTitle>
+          <SectionTitle>Your own papers</SectionTitle>
           <Meta className="block">{note}</Meta>
         </div>
         <Button kind="default" asChild>
@@ -863,14 +1035,15 @@ export function HodHome() {
 
   return (
     <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">
-          {overview.data?.department
-            ? `${overview.data.department} — what the department has published, and by whom.`
-            : "What the department has published, and by whom."}
-        </Sub>
-      </header>
+      <HomeHead
+        name={me?.name}
+        picture="spot-home-hod"
+        sentence={
+          overview.data?.department
+            ? `How ${overview.data.department} is doing: what it has published, and by whom.`
+            : "How your department is doing: what it has published, and by whom."
+        }
+      />
 
       <Celebrations />
 
@@ -911,8 +1084,6 @@ export function HodHome() {
         />
       )}
 
-      <YourPapers note="What you have filed yourself, with your own amounts. Your department's figures carry none." />
-
       {totals && (
         <section className="space-y-2">
           <SectionTitle>Who has published</SectionTitle>
@@ -928,6 +1099,7 @@ export function HodHome() {
                     to={`/people/${p.id}`}
                     className="flex items-center gap-4 px-1 py-2.5 sm:px-2"
                   >
+                    <Avatar size="sm" person={faceOf(p)} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-base">{p.name}</span>
                       <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
@@ -1079,6 +1251,8 @@ export function HodHome() {
           />
         </ul>
       </section>
+
+      <YourPapers note="What you have filed yourself, with your own amounts. Your department's figures carry none." />
     </div>
   )
 }
@@ -1088,7 +1262,15 @@ export function HodHome() {
  * would otherwise push everything after it off the bottom of the page. The
  * first twelve are shown; the rest are one press away.
  */
-function SilentList({ people }: { people: { id: string; name: string; designation?: string | null }[] }) {
+function faceOf(p: { name: string; initials?: string; photo_url?: string | null }) {
+  return { name: p.name, initials: p.initials || initialsOf(p.name), photo_url: p.photo_url ?? null }
+}
+
+function SilentList({
+  people,
+}: {
+  people: { id: string; name: string; designation?: string | null; initials?: string; photo_url?: string | null }[]
+}) {
   const [all, setAll] = useState(false)
   const shown = all ? people : people.slice(0, 12)
   return (
@@ -1097,6 +1279,7 @@ function SilentList({ people }: { people: { id: string; name: string; designatio
         {shown.map((p) => (
           <li key={p.id} className="row min-w-0 border-b border-line last:border-b-0">
             <Link to={`/people/${p.id}`} className="flex items-center gap-3 px-1 py-2">
+              <Avatar size="sm" person={faceOf(p)} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{p.name}</span>
                 <Meta className="block truncate">{p.designation || "Faculty"}</Meta>

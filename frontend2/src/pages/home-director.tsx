@@ -10,15 +10,15 @@ import { ComingUp } from "@/ui/coming-up"
 import { BulkAuthoriseDialog, type Claim as QueueClaim } from "@/pages/authorisations"
 import { money } from "@/ui/paper"
 import { Callout, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
-import { PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { SectionTitle } from "@/ui/text"
 import { cn } from "@/lib/cn"
 import {
-  ClaimRow,
+  DeskQueue,
   Figure,
+  HomeHead,
   QueueRow,
   Waiting,
   YourPapers,
-  greeting,
   type BudgetSummary,
   type Claim,
   collegeSince,
@@ -98,21 +98,19 @@ export function DirectorHome() {
 
   return (
     <div className="page space-y-10">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <PageTitle>{greeting(me?.name)}</PageTitle>
-          <Sub className="mt-1">
-            What is waiting on your authorisation, what it would mean, and what the
-            institution is publishing.
-          </Sub>
-        </div>
-        {waiting.length > 0 && allFetched && (
-          <Button kind="primary" size="lg" onClick={() => setBatchOpen(true)}>
-            <Stamp />
-            Authorise all {waiting.length} · {money(totals?.amount)}
-          </Button>
-        )}
-      </header>
+      <HomeHead
+        name={me?.name}
+        picture="spot-authorisations"
+        sentence="What needs your authorisation, what it would mean, and what the institution is publishing."
+        actions={
+          waiting.length > 0 && allFetched ? (
+            <Button kind="primary" size="lg" onClick={() => setBatchOpen(true)}>
+              <Stamp />
+              Authorise all {waiting.length} · {money(totals?.amount)}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {waiting.length > 0 && (
         <section aria-label="What authorising would mean" className="grid gap-px overflow-hidden rounded-lg bg-line ring-1 ring-line md:grid-cols-3">
@@ -230,11 +228,7 @@ export function DirectorHome() {
               ))}
             </ul>
           ) : (
-            <ul className="divide-y divide-line border-y border-line">
-              {queue.data?.results.slice(0, 6).map((c) => (
-                <ClaimRow key={c.id} claim={c} />
-              ))}
-            </ul>
+            <DeskQueue claims={waiting} meId={me?.id} action="Authorise" to="/authorisations" />
           )}
         </Waiting>
       )}

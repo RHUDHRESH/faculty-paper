@@ -794,7 +794,11 @@ function FirstSteps() {
     { icon: FilePlus2, title: "Send it and watch", text: "You see how far it has come and how long it has waited, until it is paid." },
   ]
   return (
-    <section className="panel-lead p-6 sm:p-8">
+    <section className="panel-lead relative overflow-hidden p-6 sm:p-8">
+      <Picture
+        name="onboard-first-paper"
+        className="float-right -mt-2 ml-4 w-24 sm:absolute sm:top-4 sm:right-6 sm:float-none sm:m-0 sm:w-36"
+      />
       <h2 className="text-lg font-semibold">File your first paper</h2>
       <p className="mt-1 max-w-prose text-fg-muted">
         It takes about five minutes if you have the DOI and the PDFs to hand.

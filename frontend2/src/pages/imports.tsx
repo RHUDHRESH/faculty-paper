@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import type { UseQueryResult } from "@tanstack/react-query"
@@ -1431,7 +1432,7 @@ function ProcessQueueSection() {
       className: "max-w-[22rem]",
       cell: (c) => (
         <span className="block">
-          <span className="block truncate text-sm">{c.paper_title || "Untitled"}</span>
+          <span className="block truncate text-sm">{paperTitle(c.paper_title)}</span>
           <Meta className="block truncate">
             {[c.ticket_number, c.owner_name, c.owner_department]
               .filter(Boolean)

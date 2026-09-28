@@ -1,3 +1,4 @@
+import { firstName, paperTitle } from "@/lib/names"
 import { useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft, Check, MessageCircle, Printer } from "lucide-react"
@@ -372,7 +373,7 @@ export function PaperDetail() {
       <header className="space-y-6">
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
-            <PageTitle className="break-words">{claim.paper_title || "Untitled"}</PageTitle>
+            <PageTitle className="break-words">{paperTitle(claim.paper_title)}</PageTitle>
             <Sub className="mt-2">
               {claim.journal_title || "Journal not given"}
               {claim.quartile ? ` · ${claim.quartile}` : ""}
@@ -426,7 +427,7 @@ export function PaperDetail() {
             <Button kind="default" asChild>
               <Link to={`/messages?to=${claim.owner_id}&ctx=paper:${claim.id}`}>
                 <MessageCircle />
-                Message {claim.owner_name?.split(" ")[0] || "the author"}
+                Message {firstName(claim.owner_name) || "the author"}
               </Link>
             </Button>
           )}

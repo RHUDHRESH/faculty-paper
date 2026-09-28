@@ -1,3 +1,4 @@
+import { firstName } from "@/lib/names"
 import { Fragment, useEffect, useRef, useState } from "react"
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -502,7 +503,7 @@ export function ChatPage() {
             {seenBy.length === 0
               ? "Sent"
               : c.is_group
-                ? `Seen by ${seenBy.map((p) => p.name.split(" ")[0]).join(", ")}`
+                ? `Seen by ${seenBy.map((p) => firstName(p.name)).join(", ")}`
                 : "Seen"}
           </Meta>
         )}
@@ -889,7 +890,7 @@ function CollabCard({ collab, conversationId }: { collab: Collab; conversationId
 /** "Shall we write this together?" -- from a profile or a chat. Lands as a card in your chat with them. */
 export function CollabDialog({ person, onClose }: { person: PersonBrief; onClose: () => void }) {
   const navigate = useNavigate()
-  const first = (person.name || "").replace(/^(Dr|Mr|Ms|Mrs|Prof)\.?\s+/i, "").split(" ")[0]
+  const first = firstName(person.name)
   const [topic, setTopic] = useState("")
   const [journal, setJournal] = useState("")
   const [message, setMessage] = useState(`Hello ${first}, would you like to work on this together?`)

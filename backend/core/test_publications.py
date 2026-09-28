@@ -124,6 +124,10 @@ class NameTests(TestCase):
         self.assertGreaterEqual(name_score("Subhashini R", "Subhashini Ramesh"), 0.9)
         self.assertGreaterEqual(name_score("R. Subhashini", "Subhashini Ramesh"), 0.9)
         self.assertGreaterEqual(name_score("Mr. S. Joyal Isac", "Joyal Isac S"), 0.99)
+        # "Selvi" is an honorific and a name: kept when it is the only name.
+        self.assertGreaterEqual(name_score("M. Selvi", "Dr. M. Selvi"), 0.9)
+        self.assertEqual(name_score("M. Selvi", "Dr. K. Selvi"), 0.0)
+        self.assertGreaterEqual(name_score("Selvi R. Kavitha", "Kavitha R"), 0.9)
         self.assertGreaterEqual(name_score("Dr. Gowri Ganesh N S", "N. S. Gowri Ganesh"), 0.99)
         self.assertGreaterEqual(name_score("S. Joyal Isac", "Joyal Isac"), 0.85)
 

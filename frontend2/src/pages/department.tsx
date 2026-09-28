@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import {
@@ -1080,7 +1081,7 @@ function OpportunitiesSection({
                 <Link to={`/papers/${c.id}`} className="flex items-center gap-3 px-1 py-2 sm:px-2">
                   <TriangleAlert className="size-4 shrink-0 text-caution" aria-hidden />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{c.paper_title || "Untitled"}</span>
+                    <span className="block truncate text-sm">{paperTitle(c.paper_title)}</span>
                     <Meta className="block truncate">
                       {[c.owner_name, c.journal_title, c.publication_year]
                         .filter(Boolean)

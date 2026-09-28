@@ -209,9 +209,9 @@ def build_brief(user: User, year: Optional[int] = None) -> dict[str, Any]:
             if p["last_year"]:
                 reasons.append(f"Nothing in {year}; {p['last_year']} in {year - 1}")
             elif p["last_year_published"]:
-                reasons.append(f"Nothing since {p['last_year_published']}")
+                reasons.append(f"Nothing filed since {p['last_year_published']}")
             else:
-                reasons.append("Nothing on record, ever")
+                reasons.append("Has never filed a paper here")
         elif p["target"] and p["this_year"] < p["target"] * elapsed:
             reasons.append(f"{p['this_year']} of a personal target of {p['target']}")
         if s["total"] and not s["q1_recent"]:

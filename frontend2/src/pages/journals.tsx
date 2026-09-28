@@ -1,3 +1,4 @@
+import { paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { JournalCover } from "@/ui/journal-cover"
 import { Link, useParams, useSearchParams } from "react-router-dom"
@@ -105,6 +106,9 @@ export function Journals() {
     {
       key: "journal",
       header: "Journal",
+      // max-w-0 + w-full: the cell takes the spare width and truncates, so a
+      // 200-character conference name cannot push Papers and Paid off screen.
+      className: "w-full max-w-0",
       cell: (j) => (
         <span className="block min-w-0 truncate text-base" title={j.key}>
           {j.key}
@@ -438,7 +442,7 @@ export function JournalRecord() {
       className: "max-w-[22rem]",
       cell: (c) => (
         <span className="block min-w-0">
-          <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+          <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
           <Meta className="mt-0.5 block truncate">{c.ticket_number || "—"}</Meta>
         </span>
       ),

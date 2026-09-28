@@ -13,3 +13,12 @@ export function firstName(full: string | null | undefined): string {
     .filter(Boolean)
   return words.find((w) => w.replace(/[^\p{L}]/gu, "").length > 2) || words[0] || ""
 }
+
+/**
+ * A paper's title for display. Imported rows carry placeholders such as "-",
+ * "NA" or "nil" where the spreadsheet had nothing; those read as "Untitled".
+ */
+export function paperTitle(title: string | null | undefined): string {
+  const t = (title || "").trim()
+  return !t || /^[-–—.\s]*$|^(n\/?a|nil|null|none|tbd)$/i.test(t) ? "Untitled" : t
+}

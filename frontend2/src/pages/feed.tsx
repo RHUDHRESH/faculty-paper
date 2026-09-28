@@ -533,6 +533,11 @@ function PostComposer({
   const papers = useApi<{ results: PaperOption[] }>(["feed-my-papers"], "/api/feed/my-papers", {
     staleTime: 5 * 60_000,
   })
+  const record = useApi<{ publications: RecordOption[] }>(
+    ["feed-my-record", me?.id],
+    `/api/people/${me?.id}/publications?sort=year`,
+    { enabled: open && !!me?.id, staleTime: 5 * 60_000 }
+  )
 
   // One tap from a paper: the card attached, the words written, the co-authors
   // named -- and all of it still editable before anything is posted.
@@ -758,7 +763,20 @@ function PostComposer({
                   <Link2 />
                 </Button>
               </Tooltip>
-              <PaperPicker papers={papers.data?.results ?? []} loading={papers.isLoading} onPick={setPaper} />
+              <PaperPicker
+                papers={papers.data?.results ?? []}
+                record={record.data?.publications ?? []}
+                loading={papers.isLoading}
+                onPick={setPaper}
+                onPickRecord={(r) => {
+                  const where = [r.venue, r.year].filter(Boolean).join(", ")
+                  setText((t) => t.trim() || `New paper out: “${r.title}”${where ? ` (${where})` : ""}.`)
+                  if (r.doi) {
+                    setLink(`https://doi.org/${r.doi}`)
+                    setLinkOpen(true)
+                  }
+                }}
+              />
               <Audience value={visibility} onChange={setVisibility} department={department} />
             </>
           }
@@ -852,16 +870,51 @@ function Audience({
   )
 }
 
-function PaperPicker({
+/** A paper on the person's publication record (OpenAlex/Scopus), filed or not. */
+export type RecordOption = { id: string; title: string; venue: string | null; year: number | null; doi: string | null }
+
+/**
+ * Papers to share. Filed papers attach as a card; a paper that is only on the
+ * publication record (never filed) is shared as words plus its DOI link, so a
+ * teacher who has not filed yet can still tell colleagues about it.
+ */
+export function PaperPicker({
   papers,
+  record = [],
   loading,
   onPick,
+  onPickRecord,
 }: {
   papers: PaperOption[]
+  record?: RecordOption[]
   loading: boolean
   onPick: (p: PaperOption) => void
+  onPickRecord?: (p: RecordOption) => void
 }) {
-  if (!loading && papers.length === 0) return null
+  const filedTitles = new Set(papers.map((p) => p.title.trim().toLowerCase()))
+  const extra = record.filter((r) => !filedTitles.has(r.title.trim().toLowerCase())).slice(0, 30)
+  if (!loading && papers.length === 0 && extra.length === 0) return null
+  if (!loading && papers.length === 0) {
+    return (
+      <Menu>
+        <Tooltip content="Share one of your papers">
+          <MenuTrigger asChild>
+            <Button kind="quiet" size="icon" type="button" aria-label="Attach one of my papers">
+              <FileText />
+            </Button>
+          </MenuTrigger>
+        </Tooltip>
+        <MenuContent className="max-h-72 w-80 max-w-[90vw] overflow-y-auto">
+          {extra.map((r) => (
+            <MenuItem key={r.id} onSelect={() => onPickRecord?.(r)} className="h-auto py-1.5">
+              <span className="block truncate">{r.title}</span>
+              <span className="block truncate text-xs text-fg-subtle">{[r.venue, r.year].filter(Boolean).join(" · ")}</span>
+            </MenuItem>
+          ))}
+        </MenuContent>
+      </Menu>
+    )
+  }
   return (
     <Menu>
       <Tooltip content="Point the post at one of your papers">
@@ -884,6 +937,13 @@ function PaperPicker({
             </MenuItem>
           ))
         )}
+        {!loading &&
+          extra.map((r) => (
+            <MenuItem key={r.id} onSelect={() => onPickRecord?.(r)} className="h-auto py-1.5">
+              <span className="block truncate">{r.title}</span>
+              <span className="block truncate text-xs text-fg-subtle">{[r.venue, r.year].filter(Boolean).join(" · ")}</span>
+            </MenuItem>
+          ))}
       </MenuContent>
     </Menu>
   )

@@ -175,11 +175,14 @@ function count(n: number): string {
 /** The hero sentence. Never says "none" to someone the table ranks. */
 export function standing(b: Pick<HonoursBoard, "me" | "period" | "scope">): string {
   const me = b.me
-  if (!me) return "You are not on this board — it ranks active faculty members."
+  // Filtered to a department you are not in: say so, rather than suggest you
+  // are not counted at all.
+  if (!me && b.scope) return `Showing ${b.scope}. You are not in this list.`
+  if (!me) return "You are not on this board. It ranks active faculty members."
   const where = b.scope ?? "the college"
   if (me.rank == null) {
     const period = b.period.label.toLowerCase()
-    const all = me.alltime_rank != null ? ` — your all-time rank is #${me.alltime_rank}` : ""
+    const all = me.alltime_rank != null ? `. Your all-time rank is #${me.alltime_rank}` : ""
     return `No papers counted for you in ${period} yet${all}.`
   }
   const parts = [`You: ${me.joint ? "joint " : ""}#${me.rank} of ${count(me.of)} in ${where}`]

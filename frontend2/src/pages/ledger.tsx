@@ -307,7 +307,6 @@ export function Ledger() {
               // imported ERP payment has no ticket behind it.
               rowLink={(r) => (r.claim_id ? `/papers/${r.claim_id}` : null)}
               minWidth="56rem"
-              maxHeight="70vh"
               caption="Payments matching the filter"
             />
           </div>

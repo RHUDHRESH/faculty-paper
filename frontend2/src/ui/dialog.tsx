@@ -197,6 +197,7 @@ export function ConfirmDialog({
   requirePhrase,
   reasonLabel,
   onConfirm,
+  children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -208,6 +209,8 @@ export function ConfirmDialog({
   requirePhrase?: string
   reasonLabel?: string
   onConfirm: (reason?: string) => void | Promise<void>
+  /** What the action will do, shown above the typed confirmation. */
+  children?: React.ReactNode
 }) {
   const [phrase, setPhrase] = useState("")
   const [reason, setReason] = useState("")
@@ -245,8 +248,9 @@ export function ConfirmDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        {(requirePhrase || reasonLabel) && (
+        {(requirePhrase || reasonLabel || children) && (
           <DialogBody className="space-y-3.5">
+            {children}
             {reasonLabel && (
               <label className="block space-y-1.5">
                 <span className="text-sm font-medium">{reasonLabel}</span>

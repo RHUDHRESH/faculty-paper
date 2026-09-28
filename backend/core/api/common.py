@@ -482,15 +482,10 @@ def _require_may_see_money(request: HttpRequest) -> User:
             "standing of a journal is on the journal's own page.",
         )
     return user
-def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
-    """Recompute the money columns.
-
-    `allow_self_reported` lets a draft show an estimate from the claimant's own
-    SNIP/quartile declarations. Every path that moves money — submit, verify,
-    clear, pay — computes from the server-verified columns only.
-    """
-    cfg_obj = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
-    cfg = formula_from_model(cfg_obj) if cfg_obj else None
+def price_claim(claim: Claim, cfg, *, allow_self_reported: bool = False):
+    """Price one claim under `cfg` (None = the defaults) without the quota
+    and without writing anything. `_apply_calc` and the policy preview share
+    it, so the preview prices a paper exactly the way the chain would."""
     # publication_type carries the full set; aggregation_type is the ERP's single
     # value and would hide a second type from the category rules.
     pub_type = claim.publication_type or claim.aggregation_type
@@ -528,6 +523,19 @@ def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
             engineering_class=claim.engineering_class,
             sec_reference_count=sec_refs,
         )
+    return result
+
+
+def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
+    """Recompute the money columns.
+
+    `allow_self_reported` lets a draft show an estimate from the claimant's own
+    SNIP/quartile declarations. Every path that moves money — submit, verify,
+    clear, pay — computes from the server-verified columns only.
+    """
+    cfg_obj = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
+    cfg = formula_from_model(cfg_obj) if cfg_obj else None
+    result = price_claim(claim, cfg, allow_self_reported=allow_self_reported)
     # The quota zeroes the payable amount and nothing else. base_amount, qf and
     # the author point stay exactly as the policy computed them, so the ticket
     # still shows what the paper was worth and why it came to nothing --

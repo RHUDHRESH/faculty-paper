@@ -55,18 +55,18 @@ own worktree, reviewed on screen by the orchestrator before merge.
 | 4 | Who to work with | /collaborate | done |
 | 5 | Your circle (map) | /collaborate?view=map | done |
 | 6 | File a paper, every step + receipt + edit | /papers/new /papers/:id/edit | in flight |
-| 7 | Flows check, every role end to end | all | in flight |
+| 7 | Flows check, every role end to end | all | done (quota + FYP e2e later) |
 | 8 | Paper detail + claims list | /papers/:id /papers/claims | done |
 | 9 | My papers | /papers | done |
 | 10 | Home, every role | / | done |
-| 11 | My research + my stats | /research /u/me/stats | in flight |
-| 12 | Profile (public + own) | /u/:id /me | in flight |
-| 13 | Search | /search | queued |
-| 14 | Notifications + notification settings | /notifications /settings/notifications | queued |
-| 15 | Sign in, password, privacy, 404 | * /privacy | queued |
-| 16 | Clearing queue + claim review | /clearing | queued |
-| 17 | Approvals (Principal) | /approvals | queued |
-| 18 | Authorisations (Director) | /authorisations | queued |
+| 11 | My research + my stats | /research /u/me/stats | done |
+| 12 | Profile (public + own) | /u/:id /me | done |
+| 13 | Search | /search | in flight |
+| 14 | Notifications + notification settings | /notifications /settings/notifications | done |
+| 15 | Sign in, password, privacy, 404 | * /privacy | in flight |
+| 16 | Clearing queue + claim review | /clearing | in flight |
+| 17 | Approvals (Principal) | /approvals | in flight |
+| 18 | Authorisations (Director) | /authorisations | in flight |
 | 19 | Payments + done | /payments /payments/done | queued |
 | 20 | Department (HOD) | /department | queued |
 | 21 | People + person + author matches | /people /people/:id /people/matches | queued |

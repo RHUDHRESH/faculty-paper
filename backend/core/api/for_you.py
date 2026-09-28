@@ -261,4 +261,64 @@ def for_you(request: HttpRequest, seed: str = ""):
     }
 
 
-__all__ = ["for_you"]
+#: How many papers and people the college stream carries.
+COLLEGE_PAPERS = 12
+COLLEGE_PEOPLE = 6
+
+
+@api.get("/feed/college", auth=session_auth)
+def college_stream(request: HttpRequest):
+    """What the college has been publishing, and colleagues worth following.
+
+    Keeps the Discussions page alive before anybody has posted: the newest
+    published papers by colleagues (one card per paper, whoever filed it) and
+    the most published colleagues you do not follow yet. A paper card carries
+    what the paper is and who wrote it -- never what it paid.
+    """
+    me = require_user(request)
+    now = timezone.now()
+    recent = list(
+        Claim.objects.exclude(status__in=social.NOT_PUBLISHED)
+        .exclude(owner=me)
+        .filter(owner__active=True)
+        .filter(Q(publication_year__isnull=True) | Q(publication_year__gte=now.year - 1))
+        .select_related("owner").order_by("-created_at", "-id")[:120]
+    )
+    seen: set[str] = set()
+    chosen: list[Claim] = []
+    for c in recent:
+        names = _paper_names(c)
+        if names & seen:
+            continue
+        seen |= names
+        chosen.append(c)
+        if len(chosen) >= COLLEGE_PAPERS:
+            break
+    coauthors = social_rank.coauthors_by_claim(chosen)
+    papers = [
+        {
+            "paper": paper_card(c, coauthors.get(c.id, [])),
+            "owner": social.person_brief(c.owner),
+            "filed_at": c.created_at.isoformat(),
+        }
+        for c in chosen
+    ]
+
+    followed = set(
+        Follow.objects.filter(follower=me, person__isnull=False).values_list("person_id", flat=True)
+    )
+    counts = (
+        Claim.objects.exclude(status__in=social.NOT_PUBLISHED)
+        .filter(owner__active=True).exclude(owner=me).exclude(owner_id__in=followed)
+        .values("owner").annotate(n=Count("id")).order_by("-n", "owner")[:COLLEGE_PEOPLE]
+    )
+    n_by_id = {row["owner"]: row["n"] for row in counts}
+    users = {u.id: u for u in User.objects.filter(pk__in=list(n_by_id))}
+    people = [
+        {**social.person_brief(users[uid]), "papers": n}
+        for uid, n in n_by_id.items() if uid in users
+    ]
+    return {"papers": papers, "people": people}
+
+
+__all__ = ["for_you", "college_stream"]

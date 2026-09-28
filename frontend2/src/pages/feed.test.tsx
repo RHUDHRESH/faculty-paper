@@ -77,8 +77,8 @@ function sent(path: string) {
 describe("Feed", () => {
   it("invites the first post when nobody has posted yet", async () => {
     mount([])
-    expect(await screen.findByText("Nothing here yet")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Write the first post" })).toBeInTheDocument()
+    expect(await screen.findByText("Nobody has posted yet")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Write a post" })).toBeInTheDocument()
   })
 
   it("shows a post the moment it is sent, before the server answers", async () => {
@@ -86,7 +86,8 @@ describe("Feed", () => {
       // Never answers: whatever appears, appeared optimistically.
       "/api/feed/posts": () => new Promise(() => {}),
     })
-    await screen.findByText("Nothing here yet")
+    await screen.findByText("Nobody has posted yet")
+    await user.click(screen.getByRole("button", { name: "Start a post" }))
     await user.type(screen.getByRole("combobox", { name: "Write a post" }), "Hello, college")
     await user.click(screen.getByRole("button", { name: "Post" }))
 
@@ -99,7 +100,8 @@ describe("Feed", () => {
 
   it("sends a department-only post when My department is chosen", async () => {
     const user = mount([], { "/api/feed/posts": () => new Promise(() => {}) })
-    await screen.findByText("Nothing here yet")
+    await screen.findByText("Nobody has posted yet")
+    await user.click(screen.getByRole("button", { name: "Start a post" }))
     await user.type(screen.getByRole("combobox", { name: "Write a post" }), "Lab keys are with me")
     await user.click(screen.getByRole("radio", { name: /Mechanical Engineering only/ }))
     await user.click(screen.getByRole("button", { name: "Post" }))

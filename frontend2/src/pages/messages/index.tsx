@@ -9,7 +9,8 @@ import { ChatPage, Faces, INBOX_POLL_MS, NewChat, OpenChat, type InboxRow } from
 import { NewConversation, Thread, type ThreadRow } from "@/pages/discussions"
 import { Button } from "@/ui/button"
 import { Input } from "@/ui/field"
-import { Avatar } from "@/ui/person"
+import { Avatar, initialsOf } from "@/ui/person"
+import { Picture } from "@/ui/picture"
 import { ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { Ago } from "@/ui/when"
@@ -42,7 +43,9 @@ import { Ago } from "@/ui/when"
 
 type Pane = "start" | "chat" | "office" | "office-thread"
 
-const OFFICE_NAVY = "bg-[var(--color-brand)] text-white"
+// The office is not a person: a calm navy wash instead of a face.
+const OFFICE_NAVY =
+  "bg-[color-mix(in_srgb,var(--color-brand)_12%,transparent)] text-[var(--color-brand)] ring-1 ring-inset ring-[color-mix(in_srgb,var(--color-brand)_20%,transparent)]"
 
 export function MessagesPage({ pane }: { pane: Pane }) {
   const [params] = useSearchParams()
@@ -154,9 +157,8 @@ function InboxPane({ onNew }: { onNew: () => void }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-24 md:pb-2">
-        <GroupHead>Pinned</GroupHead>
         <OfficeRow rows={office} />
-        <GroupHead>Recent</GroupHead>
+        <div className="mx-4 my-1 border-t border-line" aria-hidden />
         {inbox.isPending ? (
           <div className="px-4">
             <SkeletonRows rows={5} rowHeight={56} />
@@ -170,9 +172,11 @@ function InboxPane({ onNew }: { onNew: () => void }) {
             />
           </div>
         ) : rows.length === 0 ? (
-          <Meta className="block px-4 py-6 text-sm">
-            {needle ? "Nothing matches. Try part of a name." : "No conversations yet."}
-          </Meta>
+          needle ? (
+            <Meta className="block px-4 py-6 text-sm">Nothing matches. Try part of a name.</Meta>
+          ) : (
+            <InboxSuggestions />
+          )
         ) : (
           <ul>
             {rows.map((r) => (
@@ -215,10 +219,6 @@ function InboxPane({ onNew }: { onNew: () => void }) {
   )
 }
 
-function GroupHead({ children }: { children: React.ReactNode }) {
-  return <p className="px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-[0.04em] text-fg-subtle">{children}</p>
-}
-
 function InboxLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
     <NavLink
@@ -237,10 +237,12 @@ function InboxLink({ to, children }: { to: string; children: React.ReactNode }) 
 
 function Unread({ n }: { n: number }) {
   if (!n) return null
+  // A quiet dot; the count only when there is more than one.
   return (
-    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--area-people)] px-1.5 text-xs font-semibold text-white tabular dark:text-bg">
-      <span className="sr-only">Unread: </span>
-      {n}
+    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-[var(--area-people)] tabular">
+      <span className="sr-only">Unread: {n}</span>
+      {n > 1 && <span aria-hidden>{n}</span>}
+      <span className="size-2 rounded-full bg-[var(--area-people)]" aria-hidden />
     </span>
   )
 }
@@ -308,64 +310,122 @@ function OfficeRow({ rows }: { rows: InboxRow[] }) {
 
 /** `/api/people/{id}/coauthors`: the part the empty state needs. */
 type Coauthors = {
-  inside: { user_id: string | null; name: string; department: string | null; papers_together: number }[]
+  inside: {
+    user_id: string | null
+    name: string
+    initials?: string | null
+    photo_url?: string | null
+    department: string | null
+    papers_together: number
+  }[]
+}
+
+type Coauthor = {
+  id: string
+  name: string
+  initials: string
+  photo_url: string | null
+  department: string | null
+  together: number
+}
+
+/** Your co-authors who have an account here -- only they can be messaged -- most papers together first. */
+function useCoauthors(limit: number): Coauthor[] {
+  const { me } = useAuth()
+  const people = useApi<Coauthors>(["people", me?.id, "coauthors"], `/api/people/${me?.id ?? "me"}/coauthors`, {
+    enabled: !!me?.id,
+  })
+  return (people.data?.inside ?? [])
+    .filter((p) => p.user_id && p.user_id !== me?.id)
+    .sort((a, b) => b.papers_together - a.papers_together)
+    .slice(0, limit)
+    .map((p) => ({
+      id: p.user_id!,
+      name: p.name,
+      initials: p.initials || initialsOf(p.name),
+      photo_url: p.photo_url ?? null,
+      department: p.department,
+      together: p.papers_together,
+    }))
+}
+
+function firstName(name: string): string {
+  const words = name.replace(/\b(Dr|Mr|Ms|Mrs|Miss|Prof|Er)\b\.?/gi, " ").split(/[\s.]+/).filter(Boolean)
+  // "Dr.G.Venkatesan": the initial is not what anybody is called.
+  return words.find((w) => w.length > 1) ?? words[0] ?? name
 }
 
 function StartPane({ onNew }: { onNew: () => void }) {
   const { me } = useAuth()
-  const people = useApi<Coauthors>(
-    ["people", me?.id, "coauthors"],
-    `/api/people/${me?.id ?? "me"}/coauthors`,
-    { enabled: !!me?.id }
-  )
-  // Colleagues with an account here -- only they can be messaged.
-  const worked = (people.data?.inside ?? [])
-    .filter((p) => p.user_id && p.user_id !== me?.id)
-    .slice(0, 3)
-    .map((p) => ({ id: p.user_id!, name: p.name, department: p.department, together: p.papers_together }))
+  const worked = useCoauthors(6)
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-6 overflow-y-auto px-6 py-10 text-center">
-      <div className="rounded-3xl bg-[var(--area-people-wash)] p-4">
-        <img src="/illustrations/empty-messages.svg" alt="" width={200} height={125} className="h-auto w-[200px]" />
-      </div>
-      <div className="max-w-sm space-y-1">
-        <h2 className="text-lg font-semibold">Start a conversation</h2>
-        <p className="text-sm text-fg-muted">Message a co-author about a paper, a venue or an idea.</p>
-      </div>
-      <Button kind="primary" size="md" onClick={onNew}>
-        <PenLine />
-        New message
-      </Button>
+    <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10 text-center">
+      <Picture name="empty-no-messages" className="h-40 w-60" eager />
+      <h2 className="display mt-4 text-2xl">
+        {me?.name ? `Hello, ${firstName(me.name)}` : "Start a conversation"}
+      </h2>
+      <p className="mt-1 max-w-sm text-sm text-fg-muted">
+        Write to a co-author about a paper, a venue or an idea. Only the two of you can read it.
+      </p>
+
       {worked.length > 0 && (
-        <div className="w-full max-w-md text-left">
-          <p className="mb-2 text-xs font-medium uppercase tracking-[0.04em] text-fg-subtle">
-            People you've written with
-          </p>
-          <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
+        <div className="mt-8 w-full max-w-lg">
+          <p className="mb-3 text-sm text-fg-muted">People you have written papers with</p>
+          <ul className="flex flex-wrap justify-center gap-2">
             {worked.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 px-3 py-2.5">
-                <Avatar person={{ name: p.name, initials: "", photo_url: null }} size="md" />
-                <span className="min-w-0 flex-1">
-                  <Link to={`/u/${p.id}`} className="block truncate text-sm font-medium hover:underline">
-                    {p.name}
-                  </Link>
-                  <Meta className="block truncate text-xs">
-                    {[p.department, `${p.together} paper${p.together === 1 ? "" : "s"} together`]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </Meta>
-                </span>
-                <Button kind="default" size="sm" asChild>
-                  <Link to={`/messages?to=${p.id}`}>
-                    <MessageCircle />
-                    Message
-                  </Link>
-                </Button>
+              <li key={p.id}>
+                <Link
+                  to={`/messages?to=${p.id}`}
+                  title={`${p.name}${p.department ? `, ${p.department}` : ""} · ${p.together} paper${p.together === 1 ? "" : "s"} together`}
+                  className="group inline-flex items-center gap-2 rounded-full border border-line bg-surface py-1 pl-1 pr-3 text-sm transition-colors duration-[var(--dur-1)] ease-out hover:border-[var(--area-people-line)] hover:bg-[var(--area-people-wash)]"
+                >
+                  <Avatar person={p} size="sm" />
+                  <span className="max-w-[10rem] truncate font-medium">{p.name}</span>
+                  <MessageCircle className="size-3.5 text-fg-subtle group-hover:text-[var(--area-people)]" aria-hidden />
+                </Link>
               </li>
             ))}
           </ul>
         </div>
       )}
+
+      <Button kind={worked.length ? "default" : "primary"} size="md" onClick={onNew} className="mt-6">
+        <PenLine />
+        Write to someone else
+      </Button>
+    </div>
+  )
+}
+
+/** The inbox with nothing in it yet: your co-authors, one click from a chat. */
+function InboxSuggestions() {
+  const worked = useCoauthors(4)
+  if (worked.length === 0) {
+    return <Meta className="block px-4 py-6 text-sm">No conversations yet. Press New to write to a colleague.</Meta>
+  }
+  return (
+    <div className="pt-1">
+      <Meta className="block px-4 pb-1 text-xs">No conversations yet. Say hello to a co-author.</Meta>
+      <ul>
+        {worked.map((p) => (
+          <li key={p.id}>
+            <Link
+              to={`/messages?to=${p.id}`}
+              className="flex items-center gap-3 px-4 py-2.5 transition-colors duration-[var(--dur-1)] ease-out hover:bg-hover"
+            >
+              <Avatar person={p} size="md" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{p.name}</span>
+                <Meta className="block truncate text-xs">
+                  {p.together} paper{p.together === 1 ? "" : "s"} together
+                  {p.department ? ` · ${p.department}` : ""}
+                </Meta>
+              </span>
+              <span className="shrink-0 text-xs font-medium text-[var(--area-people)]">Message</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

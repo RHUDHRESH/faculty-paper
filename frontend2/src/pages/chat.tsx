@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, AtSign, Check, FileText, Handshake, Lock, Phone, Send, UserRound, Users, X } from "lucide-react"
@@ -468,14 +468,28 @@ export function ChatPage() {
 
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {c.context && <ContextCard context={c.context} className="mx-auto mb-4 max-w-lg" />}
-        <ol className="space-y-2" aria-label="Messages" aria-live="polite">
+        <ol className="space-y-0.5" aria-label="Messages" aria-live="polite">
           {c.messages.length === 0 && (
             <li>
               <Meta className="block py-6 text-center text-sm">No messages yet. Say hello.</Meta>
             </li>
           )}
-          {[...c.messages, ...unsent].map((m) => (
-            <MessageRow key={m.id} m={m} group={c.is_group} conversationId={c.id} onRetry={retry} />
+          {runs([...c.messages, ...unsent]).map(({ m, first, last, day }) => (
+            <Fragment key={m.id}>
+              {day && (
+                <li className="py-3 text-center" aria-hidden>
+                  <Meta className="text-xs">{day}</Meta>
+                </li>
+              )}
+              <MessageRow
+                m={m}
+                group={c.is_group}
+                first={first}
+                last={last}
+                conversationId={c.id}
+                onRetry={retry}
+              />
+            </Fragment>
           ))}
           {awaitingAgent(c.messages) && (
             <li className="flex justify-start pl-10">
@@ -614,14 +628,56 @@ function BackToMessages() {
   )
 }
 
+/** Messages from one person within five minutes read as one run. */
+const RUN_MS = 5 * 60_000
+
+function dayLabel(d: Date, now = new Date()): string {
+  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const days = Math.round((start(now) - start(d)) / 86_400_000)
+  if (days === 0) return "Today"
+  if (days === 1) return "Yesterday"
+  return d.toLocaleDateString(undefined, {
+    weekday: days < 7 ? "long" : undefined,
+    day: "numeric",
+    month: "long",
+    year: d.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  })
+}
+
+/**
+ * Each message with where it sits in its run: the face and the time are
+ * drawn once, on the last of a run, and a new day gets a quiet heading.
+ */
+export function runs(list: Message[]): { m: Message; first: boolean; last: boolean; day: string | null }[] {
+  const who = (m: Message) => (m.kind === "SYSTEM" ? "system" : m.mine ? "me" : m.author?.id ?? m.kind)
+  const t = (m: Message) => new Date(m.created_at).getTime()
+  const sameRun = (a: Message | undefined, b: Message | undefined) =>
+    !!a && !!b && a.kind !== "SYSTEM" && who(a) === who(b) && Math.abs(t(b) - t(a)) < RUN_MS &&
+    new Date(a.created_at).toDateString() === new Date(b.created_at).toDateString()
+  return list.map((m, i) => {
+    const prev = list[i - 1]
+    const newDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString()
+    return {
+      m,
+      first: !sameRun(prev, m),
+      last: !sameRun(m, list[i + 1]),
+      day: newDay ? dayLabel(new Date(m.created_at)) : null,
+    }
+  })
+}
+
 function MessageRow({
   m,
   group,
+  first = true,
+  last = true,
   conversationId,
   onRetry,
 }: {
   m: Message
   group: boolean
+  first?: boolean
+  last?: boolean
   conversationId: string
   onRetry: (m: Message) => void
 }) {
@@ -635,17 +691,29 @@ function MessageRow({
     )
   }
   return (
-    <li className={cn("flex gap-2", m.mine ? "justify-end" : "justify-start", m.pending && "opacity-70")}>
-      {!m.mine && <Avatar person={m.author} size="sm" className="mt-auto" />}
+    <li
+      className={cn(
+        "flex gap-2",
+        m.mine ? "justify-end" : "justify-start",
+        first && "pt-2",
+        m.pending && "opacity-70"
+      )}
+    >
+      {!m.mine &&
+        (last ? (
+          <Avatar person={m.author} size="sm" className="mt-auto" />
+        ) : (
+          <span className="size-8 shrink-0" aria-hidden />
+        ))}
       <div className={cn("flex max-w-[85%] flex-col gap-1 sm:max-w-[75%]", m.mine && "items-end")}>
-        {group && !m.mine && m.author && <Meta className="block px-1 text-xs">{m.author.name}</Meta>}
+        {group && first && !m.mine && m.author && <Meta className="block px-1 text-xs">{m.author.name}</Meta>}
         {m.body && (
           <div
             className={cn(
               "whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed",
               m.mine
-                ? "rounded-br-md bg-accent text-accent-fg [&_a]:text-accent-fg"
-                : "rounded-bl-md bg-sunken text-fg",
+                ? cn("bg-accent text-accent-fg [&_a]:text-accent-fg", last && "rounded-br-md", !first && "rounded-tr-md")
+                : cn("bg-sunken text-fg", last && "rounded-bl-md", !first && "rounded-tl-md"),
               m.failed && "bg-sunken text-fg ring-1 ring-inset ring-critical"
             )}
           >
@@ -666,10 +734,14 @@ function MessageRow({
               Retry
             </button>
           </p>
+        ) : m.pending ? (
+          <Meta className="block px-1 text-right text-[11px]">Sending…</Meta>
         ) : (
-          <Meta className={cn("block px-1 text-[11px]", m.mine && "text-right")}>
-            {m.pending ? "Sending…" : <Ago iso={m.created_at} />}
-          </Meta>
+          last && (
+            <Meta className={cn("block px-1 text-[11px]", m.mine && "text-right")}>
+              {new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+            </Meta>
+          )
         )}
       </div>
     </li>

@@ -55,6 +55,21 @@ services:
         value: 635082195334-p8h4j4o75r9jqk24hsfq6bbom0s8fjei.apps.googleusercontent.com
       # AI suggestions from a hosted model (DEPLOY.md, section E). Leave all
       # three empty and every AI panel shows its counted version instead.
+      # Claude (docs/DEPLOY-CHECKLIST.md): AI_PROVIDER=anthropic,
+      # ANTHROPIC_API_KEY, AI_MODEL=claude-haiku-4-5. AI_BASE_URL/AI_API_KEY
+      # are only for an OpenAI-compatible provider instead.
+      - key: AI_PROVIDER
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AI_FAST_MODEL
+        sync: false
+      # Publication harvest and Scopus sync. OpenAlex works without a key
+      # (the key only raises the daily budget); Scopus sync needs its key.
+      - key: SCOPUS_API_KEY
+        sync: false
+      - key: OPENALEX_API_KEY
+        sync: false
       - key: AI_BASE_URL
         sync: false
       - key: AI_API_KEY

@@ -647,9 +647,14 @@ export function FilePaper() {
         hydratedRef.current = true
         setTicketNumber(result.ticket_number)
         // Replace, not push: Back from here lands on the list they came from.
-        navigate(
-          `/papers/${result.id}/edit${filingForId ? `?for=${encodeURIComponent(filingForId)}` : ""}`,
-          { replace: true }
+        // Through the history API, not the router: the shell's page
+        // transition is keyed on the pathname, so a router navigation here
+        // remounted this page mid-filing and threw away the ticked
+        // conditions and the step. A reload still lands on the draft.
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `/papers/${result.id}/edit${filingForId ? `?for=${encodeURIComponent(filingForId)}` : ""}`
         )
       }
       setCarried(carriedFrom(result))
@@ -1355,13 +1360,13 @@ export function FilePaper() {
       ? "Choose the paper"
       : phase === "confirm"
         ? "Confirm three things about this paper"
-        : editingExisting
-          ? ticketNumber
+        : step === STEPS.length - 1
+          ? "Check and file"
+          : editingExisting && ticketNumber
             ? `Edit ticket ${ticketNumber}`
-            : "Edit your draft"
-          : filingFor
-            ? `File a paper for ${filingFor.name}`
-            : "File a paper"
+            : filingFor
+              ? `The details, for ${filingFor.name}`
+              : "Add the details"
   const heroSentence =
     phase === "choose"
       ? "Pick it from your record and almost everything fills itself."
@@ -1369,13 +1374,15 @@ export function FilePaper() {
         ? "All three have to be true. Tick each one yourself; they are recorded with your claim."
         : filingFor
           ? "The claim will be theirs, not yours. It goes on their record and is paid to them."
-          : "Five steps. Most of them filled themselves from the paper you chose."
+          : step === STEPS.length - 1
+            ? "Read it back once. Change anything with the link beside it."
+            : "Four short sections. Most of it filled itself from the paper you chose."
   const hero = (
     <div className="space-y-2">
       {backToPapers}
       <HeroBand
         area="record"
-        eyebrow={phase === "form" ? "File a paper" : `File a paper · step ${phaseIndex + 1} of 4`}
+        eyebrow={`File a paper · step ${phaseIndex + 1} of 4`}
         title={heroTitle}
         titleClassName="text-2xl sm:text-display"
         sentence={heroSentence}
@@ -1383,6 +1390,9 @@ export function FilePaper() {
         className="[&>div:last-of-type]:p-5 sm:[&>div:last-of-type]:p-6"
       >
         <PhaseTrack current={phaseIndex} />
+        {phase === "form" && step < STEPS.length - 1 && (
+          <SectionList current={step} furthest={furthest} onJump={(i) => goTo(i)} />
+        )}
       </HeroBand>
     </div>
   )
@@ -1585,7 +1595,7 @@ export function FilePaper() {
   }
 
   return (
-    <div className="page space-y-5 pb-16 pt-6 md:pt-8">
+    <div className="page space-y-5 pb-16 pt-6 md:pt-8" style={{ maxWidth: 808 }}>
       {hero}
 
       {/* Not a grey line in the header: a claimant typing past a failed save
@@ -1612,16 +1622,16 @@ export function FilePaper() {
 
       {draftsNotice}
 
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted">
-        <AlertTriangle className="size-3.5 shrink-0 text-caution" aria-hidden />
+      <p className="text-sm text-fg-muted">
+        <AlertTriangle className="mr-1.5 inline size-3.5 -translate-y-px text-caution" aria-hidden />
         <span>
           File once the article is in Scopus and on your author profile, with {collegeName} printed as
-          the affiliation. One claim per article.
+          the affiliation. One claim per article.{" "}
         </span>
         <ClaimRulesDialog
           minReferences={rules.min_sec_references}
           trigger={
-            <button type="button" className="font-medium text-accent underline underline-offset-2">
+            <button type="button" className="inline font-medium text-accent underline underline-offset-2">
               Read the full conditions
             </button>
           }
@@ -1640,7 +1650,7 @@ export function FilePaper() {
         finishLabel="File this paper"
         nextLabel="Continue"
         busy={fileBusy}
-        aside={<EstimatePanel {...estimateProps} />}
+        className="[&>div:nth-child(2)]:!hidden [&>div:nth-child(3)>div:first-child]:!hidden"
         footerNote={savingState === "error" ? "Not saved, see above" : "Saved as you go. Going back changes nothing."}
       >
         {step === 0 && (
@@ -1751,6 +1761,7 @@ export function FilePaper() {
           </div>
         )}
       </Wizard>
+      {!countOnly && problems.some((p) => p.kind === "unpaid") && <EstimatePanel {...estimateProps} />}
 
       <ConfirmDialog
         open={confirmFile}
@@ -1786,6 +1797,42 @@ export function FilePaper() {
 /* ------------------------------------------------------------------------ */
 /* Phase track                                                               */
 /* ------------------------------------------------------------------------ */
+
+/** The Details step's sections, as one quiet line of text under the phase track. */
+function SectionList({ current, furthest, onJump }: { current: number; furthest: number; onJump: (i: number) => void }) {
+  const sections = STEPS.slice(0, STEPS.length - 1)
+  return (
+    <nav aria-label="Details sections" className="mt-3">
+      <ol className="flex flex-wrap items-center gap-x-1 gap-y-1 text-[13px]">
+        {sections.map((s, i) => {
+          const here = i === current
+          const reachable = i <= Math.max(furthest, current) && !here
+          return (
+            <li key={s.id} className="flex items-center gap-1">
+              {i > 0 && <span aria-hidden className="text-fg-subtle">·</span>}
+              {reachable ? (
+                <button
+                  type="button"
+                  onClick={() => onJump(i)}
+                  className="rounded px-1 text-fg-muted underline-offset-2 hover:text-fg hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+                >
+                  {s.title}
+                </button>
+              ) : (
+                <span
+                  aria-current={here ? "step" : undefined}
+                  className={cn("px-1", here ? "font-medium text-fg" : "text-fg-subtle")}
+                >
+                  {s.title}
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+    </nav>
+  )
+}
 
 /** Choose · Confirm · Details · File, as four dots on a line (docs/ux/04). */
 function PhaseTrack({ current }: { current: number }) {
@@ -1862,8 +1909,8 @@ function SaveStatus({
       </>
     ) : state === "pending" ? (
       <>
-        <span className="size-2 shrink-0 rounded-full bg-caution" aria-hidden />
-        Unsaved changes — saving in a moment
+        <LoaderCircle className="size-3.5 shrink-0 animate-spin" aria-hidden />
+        Saving…
       </>
     ) : lastSavedAt ? (
       <>
@@ -1871,13 +1918,13 @@ function SaveStatus({
         Saved {relativeTime(lastSavedAt)}
       </>
     ) : (
-      <>Nothing to save yet — it saves itself as you type</>
+      <>Saves itself as you type</>
     )
   return (
     <span
       role="status"
       aria-live="polite"
-      className={cn("flex flex-wrap items-center gap-1.5 text-sm", state === "pending" ? "text-fg" : "text-fg-muted")}
+      className="flex flex-wrap items-center gap-1.5 text-sm text-fg-muted"
     >
       {body}
     </span>

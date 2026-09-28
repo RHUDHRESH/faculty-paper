@@ -4,7 +4,6 @@ import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { money } from "@/ui/paper"
 import { InlineError } from "@/ui/state"
-import { ColumnLabel } from "@/ui/text"
 
 import type { Problem } from "./readiness"
 import type { CalcResult } from "./types"
@@ -62,7 +61,7 @@ export function EstimatePanel(props: EstimateProps) {
 
   return (
     <section aria-label="Payout estimate" className="space-y-2 rounded-lg bg-sunken p-3">
-      <ColumnLabel className="block">{countOnly ? "Filing for the count" : "Your estimate"}</ColumnLabel>
+      <span className="block text-sm text-fg-muted">{countOnly ? "Filing for the count" : "Your estimate"}</span>
       <Amount {...props} />
       {!countOnly && !calcFailed && (
         <p className="text-xs text-fg-muted">
@@ -76,7 +75,7 @@ export function EstimatePanel(props: EstimateProps) {
         </p>
       )}
       {calc?.category_label && !countOnly && amount != null && (
-        <p className="text-xs text-fg-muted">{calc.category_label}</p>
+        <p className="text-xs text-fg-muted">{calc.category_label.replace(/\s+—\s+/g, ": ")}</p>
       )}
       {props.assumedReferences ? (
         <p className="text-xs text-fg-muted">
@@ -120,7 +119,7 @@ export function EstimateBar(props: EstimateProps) {
   return (
     <section
       aria-label="Payout estimate"
-      className="sticky top-12 z-20 -mx-4 flex min-h-11 items-center justify-between gap-3 border-b border-line bg-bg/95 px-4 py-1.5 backdrop-blur sm:-mx-8 sm:px-8 md:hidden"
+      className="sticky top-12 z-20 -mx-4 flex min-h-11 items-center justify-between gap-3 border-b border-line bg-bg/95 px-4 py-1.5 backdrop-blur sm:-mx-8 sm:px-8 md:top-0 md:mx-0 md:rounded-xl md:border md:px-4"
     >
       <span className="text-xs text-fg-muted">
         {countOnly

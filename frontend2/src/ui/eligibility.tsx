@@ -72,7 +72,7 @@ export function claimRules(minReferences: number): ClaimRule[] {
       title: "Duplicate claim prevention",
       body: (
         <>
-          Make sure no incentive claim has been filed for this article before — by you or by a
+          Make sure no incentive claim has been filed for this article before, by you or by a
           co-author. Duplicates are traced against the paid ledger and sent back.
         </>
       ),
@@ -85,15 +85,15 @@ export function claimRules(minReferences: number): ClaimRule[] {
           Pick the claim reason that matches what you are filing:
           <ul className="mt-1.5 space-y-1">
             <li>
-              <strong>Incentive</strong> — an ordinary faculty publication claim, which is
+              <strong>Incentive</strong>: an ordinary faculty publication claim, which is
               priced and paid.
             </li>
             <li>
-              <strong>For the record only</strong> — the publication is counted and no money is
+              <strong>For the record only</strong>: the publication is counted and no money is
               claimed. Typically a final-year student project outcome.
             </li>
             <li>
-              <strong>Student project</strong> — counted against a named project team.
+              <strong>Student project</strong>: counted against a named project team.
             </li>
           </ul>
           <p className="mt-1.5">
@@ -264,7 +264,7 @@ export function confirmations(minReferences: number): Confirmation[] {
             Scopus Author Feedback Wizard
             <ExternalLink className="size-3" aria-hidden />
           </a>
-          . If it is not indexed yet, there is nothing to fix — come back when it is. Nothing has
+          . If it is not indexed yet, there is nothing to fix; come back when it is. Nothing has
           been saved, so leaving now costs you nothing.
         </>
       ),
@@ -289,7 +289,7 @@ export function confirmations(minReferences: number): Confirmation[] {
       stuck: (
         <>
           Gather the files first. The form saves itself as you type, so you can start now and
-          attach them later — but a claim filed with fewer than {minReferences} numbered
+          attach them later, but a claim filed with fewer than {minReferences} numbered
           references is recorded and paid nothing, which is worse than waiting.
         </>
       ),

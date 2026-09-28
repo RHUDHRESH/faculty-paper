@@ -232,7 +232,21 @@ def run_restore(saved_path: str, actor_id: str | None = None) -> dict:
 
     from core.models import AuditLog, Claim, PaidLedger, User
 
-    call_command("loaddata", saved_path, verbosity=0)
+    from core.models import FormulaConfig
+
+    # First-run setup made a default active formula; the export carries the
+    # college's own, and only one may be active (constraint one_active_formula).
+    # Stand the default down for the load, and bring it back only if the
+    # export had none active.
+    stood_down = list(FormulaConfig.objects.filter(active=True).values_list("pk", flat=True))
+    FormulaConfig.objects.filter(pk__in=stood_down).update(active=False)
+    try:
+        call_command("loaddata", saved_path, verbosity=0)
+    except Exception:
+        FormulaConfig.objects.filter(pk__in=stood_down).update(active=True)
+        raise
+    if not FormulaConfig.objects.filter(active=True).exists():
+        FormulaConfig.objects.filter(pk__in=stood_down[:1]).update(active=True)
     counts = {
         "users": User.objects.count(),
         "claims": Claim.objects.count(),

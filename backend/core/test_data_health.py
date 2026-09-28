@@ -196,6 +196,7 @@ class BackupRoundTripTests(TestCase):
         pub = Publication.objects.create(title="Paper", year=2024, doi="10.1/x")
         pub.claims.add(claim)
         Authorship.objects.create(publication=pub, user=owner, display_name="Owner", author_key="u:1", position=1)
+        policy = FormulaConfig.objects.create(author_point_json="{}", active=True, name="College policy")
         StoredFile.objects.create(name="claims/a.pdf", content=b"%PDF-1.4 \x00\xff", size=11)
         StoredFile.objects.create(name="backups/old.json.gz", content=b"x", size=1)
         owner.user_permissions.add(*__import__("django.contrib.auth.models", fromlist=["Permission"]).Permission.objects.all()[:2])
@@ -206,14 +207,19 @@ class BackupRoundTripTests(TestCase):
         self.assertFalse(any(o["fields"].get("name", "").startswith("backups/") for o in objects if o["model"] == "core.storedfile"))
 
         # An empty installation.
-        for m in (Authorship, Publication, PaidLedger, Claim, StoredFile, User):
+        for m in (Authorship, Publication, PaidLedger, Claim, StoredFile, FormulaConfig, User):
             m.objects.all().delete()
+        # What first-run setup leaves behind: the new super admin and a default formula.
+        User.objects.create_user(email="restorer@x.edu", password="p", name="R", role=Role.SUPER_ADMIN)
+        default = FormulaConfig.objects.create(author_point_json="{}", active=True, name="Default")
 
         path = os.path.join(tempfile.mkdtemp(), "b.json.gz")
         with open(path, "wb") as f:
             f.write(data)
         out = run_restore(path)
-        self.assertEqual((out["users"], out["claims"], out["ledger_rows"]), (1, 1, 1))
+        self.assertEqual((out["users"], out["claims"], out["ledger_rows"]), (2, 1, 1))
+        self.assertEqual(list(FormulaConfig.objects.filter(active=True).values_list("pk", flat=True)), [policy.pk])
+        self.assertTrue(FormulaConfig.objects.filter(pk=default.pk, active=False).exists())
         restored = Claim.objects.get(pk=claim.pk)
         self.assertEqual(restored.owner_id, owner.pk)
         self.assertEqual(list(Publication.objects.get(pk=pub.pk).claims.values_list("pk", flat=True)), [claim.pk])

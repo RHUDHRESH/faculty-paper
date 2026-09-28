@@ -116,7 +116,7 @@ class Command(BaseCommand):
         people: list[tuple[User, str, float]] = []
         for i in range(n):
             email = f"{dept.lower()}.{i:02d}@{DOMAIN}"
-            name = f"Dr. {FIRST[(i * 7 + len(dept)) % len(FIRST)]} {LAST[(i * 3 + len(dept)) % len(LAST)]}"
+            name = f"Dr. {FIRST[(i * 7 + sum(map(ord, dept))) % len(FIRST)]} {LAST[(i * 3 + sum(map(ord, dept)) // 3) % len(LAST)]}"
             designation = DESIGNATIONS[i % len(DESIGNATIONS)] if main else random.Random(email).choice(DESIGNATIONS)
             user = User.objects.filter(email=email).first()
             if user is None:
@@ -135,6 +135,15 @@ class Command(BaseCommand):
             if designation == "Professor":
                 activity *= 1.5
             people.append((user, area, activity))
+
+        # The head files papers too; their own screen should have some.
+        if main:
+            for head in User.objects.filter(role=Role.HOD, department__iexact=dept):
+                for k in range(6):
+                    ticket = f"SEED-{dept}-H{head.id[:6]}-{k}"
+                    if not Claim.objects.filter(ticket_number=ticket).exists():
+                        self._paper(dept, ticket, head, AREAS[0], 2021 + k, people, random.Random(ticket))
+                        made["papers"] += 1
 
         index = 0
         for user, area, activity in people:

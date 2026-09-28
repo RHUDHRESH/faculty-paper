@@ -28,6 +28,7 @@ import {
   Sparkles,
   Stamp,
   Trophy,
+  UserCheck,
   Users,
   Wallet,
   TriangleAlert,
@@ -406,6 +407,15 @@ export const NAV: NavItem[] = [
     roles: OFFICE,
     group: "Set up",
     keywords: ["users", "accounts", "roles"],
+  },
+  {
+    to: "/people/matches",
+    label: "Author matches",
+    icon: UserCheck,
+    // `rbac.can_admin_portal`: the super admin and the research coordinator.
+    roles: OFFICE,
+    group: "Set up",
+    keywords: ["unmatched", "openalex", "alias", "duplicate accounts", "merge", "orcid", "former staff"],
   },
   {
     to: "/requests",

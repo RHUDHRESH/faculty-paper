@@ -110,6 +110,7 @@ const Reports = page(() => import("@/pages/reports"), "Reports")
 const Requests = page(() => import("@/pages/requests"), "Requests")
 const Search = page(() => import("@/pages/search"), "Search")
 const People = page(() => import("@/pages/people"), "People")
+const AuthorMatches = page(() => import("@/pages/author-matches"), "AuthorMatches")
 const Person = page(() => import("@/pages/people"), "Person")
 const Policy = page(() => import("@/pages/policy"), "Policy")
 const Profile = page(() => import("@/pages/profile"), "Profile")
@@ -177,6 +178,7 @@ const PRELOADS: [string, Page][] = [
   ["/archive", PastClaims],
   ["/audit", Audit],
   ["/faults", Faults],
+  ["/people/matches", AuthorMatches],
   ["/people/:id", Person],
   ["/people", People],
   ["/requests", Requests],
@@ -363,6 +365,7 @@ function App() {
           <Route path="/audit" element={<Audit />} />
           <Route path="/faults" element={<Faults />} />
           <Route path="/people" element={<People />} />
+          <Route path="/people/matches" element={<AuthorMatches />} />
           <Route path="/people/:id" element={<Person />} />
           <Route path="/requests" element={<Requests />} />
           <Route path="/budget" element={<Budget />} />

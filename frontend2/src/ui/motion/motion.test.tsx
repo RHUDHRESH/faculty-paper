@@ -70,12 +70,13 @@ describe("useTypewriter", () => {
 describe("reduced motion", () => {
   it("CountUp shows the final value immediately", () => {
     reduce = true
-    render(<CountUp value={1234} />)
-    expect(screen.getByLabelText("1,234").textContent).toBe("1,234")
+    const { container } = render(<CountUp value={1234} />)
+    expect(container.querySelector("[aria-hidden]")?.textContent).toBe("1,234")
   })
-  it("CountUp starts from zero with motion", () => {
-    render(<CountUp value={50} />)
-    expect(screen.getByLabelText("50").textContent).toBe("0")
+  it("CountUp starts from zero with motion, final value still readable", () => {
+    const { container } = render(<CountUp value={50} />)
+    expect(container.querySelector("[aria-hidden]")?.textContent).toBe("0")
+    expect(screen.getByText("50")).toHaveClass("sr-only")
   })
   it("Stagger adds no classes under reduced motion and caps otherwise", () => {
     const items = Array.from({ length: 12 }, (_, i) => <li key={i}>x</li>)

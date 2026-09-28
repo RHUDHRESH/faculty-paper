@@ -14,7 +14,7 @@
 @keyframes thinking-shimmer { from { background-position: 150% 0 } to { background-position: -50% 0 } }
 .thinking-shimmer {
   background: linear-gradient(90deg, currentColor 35%, color-mix(in oklab, currentColor 30%, transparent) 50%, currentColor 65%) 0 0 / 250% 100%;
-  -webkit-background-clip: text; background-clip: text; color: transparent;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; /* not `color`, which would blank currentColor */
   animation: thinking-shimmer 1.8s linear infinite;
 }
 
@@ -27,6 +27,6 @@ button:not(:disabled):active { transform: scale(0.98); }
 
 @media (prefers-reduced-motion: reduce) {
   .stream-word, .stagger-in, .thinking-dots i, .thinking-shimmer { animation: none !important; }
-  .thinking-shimmer { color: inherit; background: none; }
+  .thinking-shimmer { -webkit-text-fill-color: currentColor; background: none; }
   button:active, .hover-lift:hover { transform: none !important; }
 }

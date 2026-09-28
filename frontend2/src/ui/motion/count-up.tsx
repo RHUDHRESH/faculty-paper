@@ -23,7 +23,10 @@ export function CountUp({ value, duration = 0.7, format = fmt }: { value: number
     return () => c.stop()
   }, [value, reduce, duration])
   return (
-    <span aria-label={format(value)}>
+    // The final value is always in the DOM for assistive tech and text search;
+    // only the visible copy counts.
+    <span data-count={value}>
+      <span className="sr-only">{format(value)}</span>
       <span aria-hidden>{format(reduce ? value : shown)}</span>
     </span>
   )

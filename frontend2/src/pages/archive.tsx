@@ -325,7 +325,7 @@ function PastRow({ row }: { row: Row }) {
         <span className="min-w-0 flex-1">
           <span className="flex items-start justify-between gap-3">
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
+              <span className="line-clamp-2 block text-base sm:truncate">{row.paper_title || "Untitled"}</span>
               <Meta className="mt-0.5 block truncate">
                 {[row.owner_name, row.owner_department, row.ticket_number].filter(Boolean).join(" · ")}
               </Meta>

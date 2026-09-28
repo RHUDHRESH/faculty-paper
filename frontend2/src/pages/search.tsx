@@ -455,7 +455,8 @@ function Preview({ row, meId, onOpen }: { row: Row; meId?: string; onOpen: () =>
 /** Fixes worth trying: a shorter word, a wider scope, a DOI. */
 function NoResults({ q, scope, onScope, onTry }: { q: string; scope: SearchScope; onScope: (s: SearchScope) => void; onTry: (t: string) => void }) {
   const words = q.split(/\s+/).filter((w) => w.length >= 3)
-  const shorter = words.length > 1 ? words.sort((a, b) => b.length - a.length)[0] : q.length > 5 ? q.slice(0, Math.ceil(q.length * 0.6)) : null
+  const longest = [...words].sort((a, b) => b.length - a.length)[0] ?? q
+  const shorter = longest.length > 4 ? longest.slice(0, Math.max(4, longest.length - 1)) : null
   const fix = "rounded text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-(--color-accent)"
   return (
     <div className="mx-auto mt-10 flex max-w-md flex-col items-center text-center">

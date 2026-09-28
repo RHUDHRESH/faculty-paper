@@ -94,6 +94,7 @@ describe("/search", () => {
     await waitFor(() => expect(screen.getAllByText(/2 steps away via/).length).toBeGreaterThan(0))
     expect(screen.getAllByText("Dr T. Jaya").length).toBeGreaterThan(0)
     expect(screen.getByRole("link", { name: "Message Dr. S. Kanagamalliga" })).toHaveAttribute("href", "/messages?to=u-k")
+    expect(screen.getAllByText("Yours").length).toBeGreaterThan(0)
   })
 
   it("keyboard: Enter opens the best match, Esc clears", async () => {
@@ -104,7 +105,6 @@ describe("/search", () => {
     expect(input.getAttribute("aria-activedescendant")).toBe("search-row-0")
     fireEvent.keyDown(input, { key: "Escape" })
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Find anything" })).toHaveValue(""))
-    expect(screen.getAllByText("Yours").length).toBeGreaterThan(0)
   })
 
   it("a DOI is an exact hit at the top", async () => {

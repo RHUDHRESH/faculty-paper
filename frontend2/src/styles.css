@@ -145,7 +145,7 @@
      and not only as fills. */
   --color-positive: #3f7a4a;
   --color-positive-wash: #eef4ec;
-  --color-caution: #9a6a14;
+  --color-caution: #8a5f10; /* 4.9:1 on caution-wash (a11y audit; was #9a6a14, 4.3:1) */
   --color-caution-wash: #faf3e2;
   --color-critical: #b23b2e;
   --color-critical-wash: #fbecea;

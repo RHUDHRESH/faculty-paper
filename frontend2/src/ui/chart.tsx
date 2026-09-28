@@ -408,7 +408,7 @@ function Figure({
             </span>
             Show the numbers
           </summary>
-          <div className="mt-2 overflow-x-auto">
+          <div className="mt-2 overflow-x-auto" tabIndex={0} role="region" aria-label="The numbers">
             <table className="w-full min-w-[22rem] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-xs text-fg-muted">

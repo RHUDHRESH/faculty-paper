@@ -57,7 +57,7 @@ CAST = {
     "revathi": ("Revathi Sundaram", Role.FACULTY, "YR0002", "57300000002"),
     "meena": ("Meena Krishnan", Role.FACULTY, "YR0004", None),
     "hod": ("Hema Rajan", Role.HOD, "YR0003", None),
-    "cell": ("Cell Officer", Role.RESEARCH_CELL, None, None),
+    "cell": ("Cell Officer", Role.RESEARCH_CELL, "YR0005", "57300000005"),
     "principal": ("Prabhu Principal", Role.PRINCIPAL, None, None),
     "director": ("Deepa Director", Role.DIRECTOR, None, None),
     "finance": ("Farook Finance", Role.FINANCE, None, None),

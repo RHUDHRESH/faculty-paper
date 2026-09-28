@@ -457,11 +457,14 @@ test.describe("A year at the college", () => {
     await page.goto("/reports")
     const paid = page.getByRole("button", { name: /^Paid ₹1,76,800/ })
     await expect(paid).toContainText("3 payments")
+    // Every paper in the scenario is from 2026, so "all years" is 2026 here.
+    const papers = (await page.getByRole("button", { name: /^Papers \d+/ }).innerText()).match(/\d+/)![0]
     await page.goto("/reports/brief")
     await page.getByRole("button", { name: "Year" }).click()
     await page.getByRole("option", { name: "2026" }).click()
+    await expect(page.locator("main")).toContainText("Paid, FY 2026-27")
     await expect(page.locator("main")).toContainText("₹1,76,800")
-    await snap(page, "11-brief")
+    await expect(page.locator("main")).toContainText(`the college has published ${papers} papers`)
     const pdf = await download(page, () => page.getByRole("link", { name: "Council PDF" }).click())
     expect(pdf.text.startsWith("%PDF")).toBe(true)
     const xlsx = await download(page, () => page.getByRole("link", { name: "Excel (NAAC 3.3.1)" }).click())
@@ -695,5 +698,29 @@ test.describe("A year at the college", () => {
     expect([400, 403]).toContain(res.status())
     expect(await res.text()).toMatch(/own/i)
     await close(page)
+  })
+
+  test("the year's pages at desk and phone widths", async ({ browser }) => {
+    mkdirSync(OUT, { recursive: true })
+    for (const [who, url, name] of [
+      ["anand", "/papers/claims", "faculty-claims"],
+      ["anand", "/papers/statement", "faculty-statement"],
+      ["finance", "/statements", "finance-statements"],
+      ["principal", "/reports/brief", "principal-brief"],
+    ] as const) {
+      for (const width of [1280, 390]) {
+        const page = await as(browser, who, { width, height: 900 })
+        await page.goto(url)
+        await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+        await page.waitForTimeout(1500)
+        await page.screenshot({ path: `${OUT}/${width}-${name}.png`, fullPage: true })
+        // Nothing wider than the screen at phone width.
+        if (width === 390) {
+          const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+          expect(overflow, `${url} scrolls sideways at 390px`).toBeLessThanOrEqual(1)
+        }
+        await close(page)
+      }
+    }
   })
 })

@@ -9,9 +9,11 @@ later cannot reach a reader either.
 
 from __future__ import annotations
 
+import csv
+import io
 from typing import Optional
 
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from ninja.errors import HttpError
 
 from core import hod
@@ -30,6 +32,7 @@ def leaderboard(
     category: Optional[str] = None,
     topic: str = "",
     journal: str = "",
+    fmt: str = "json",
 ):
     """One board, for one period, ranked by one measure.
 
@@ -49,6 +52,9 @@ def leaderboard(
     by their head-count.
     """
     user = require_user(request)
+    if fmt == "csv":
+        got = leaderboard(request, board, period, sort, department, per_head, category, topic, journal)
+        return _csv(got.get("rows") or [], f"leaderboard-{category or board}-{period}.csv")
     if category is not None:
         if category not in honours_board.CATEGORIES:
             raise HttpError(400, "Choose one of the leaderboard's categories.")
@@ -76,6 +82,28 @@ def leaderboard(
             facts, period=period, sort=sort, per_head=per_head, viewer=user
         )
     return hod.without_money(payload)
+
+
+def _csv(rows: list[dict], filename: str) -> HttpResponse:
+    """The ranked rows as a spreadsheet: nested dicts flatten one level
+    (`person.name`), lists are dropped. Built from the money-free payload."""
+    flat = []
+    for row in rows:
+        out = {}
+        for k, v in row.items():
+            if isinstance(v, dict):
+                out.update({f"{k}.{kk}": vv for kk, vv in v.items() if not isinstance(vv, (dict, list))})
+            elif not isinstance(v, list):
+                out[k] = v
+        flat.append(out)
+    cols = list(dict.fromkeys(k for r in flat for k in r))
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=cols)
+    writer.writeheader()
+    writer.writerows(flat)
+    resp = HttpResponse(buf.getvalue(), content_type="text/csv")
+    resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return resp
 
 
 __all__ = ["leaderboard"]

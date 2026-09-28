@@ -647,3 +647,135 @@ class ReportWorkflows(Flow):
 
     def test_staff_sees_dashboard(self):
         self.ok(self._j(self.director, "get", "/api/dashboard"))
+
+
+# --------------------------------------------------------------------------- #
+# More jobs                                                                   #
+# --------------------------------------------------------------------------- #
+
+
+class MoreWorkflows(Flow):
+    def test_anyone_exports_the_leaderboard_csv(self):
+        r = self._j(self.faculty, "get", "/api/leaderboard", {"fmt": "csv"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Content-Type"], "text/csv")
+        self.assertNotIn(b"amount", r.content.lower())
+        r = self._j(self.faculty, "get", "/api/leaderboard", {"fmt": "csv", "board": "departments"})
+        self.assertEqual(r.status_code, 200)
+
+    def test_faculty_writes_to_the_research_office(self):
+        t = self.ok(self._post(self.faculty, "/api/threads",
+                               {"title": "My claim", "body": "Which proof do you need?", "visibility": "OFFICE"}))
+        listed = self.ok(self._j(self.cell, "get", "/api/threads", {"visibility": "OFFICE"}))
+        self.assertIn(t["id"], json.dumps(listed))
+        self.ok(self._post(self.cell, f"/api/threads/{t['id']}/posts", {"body": "The published PDF, please"}))
+
+    def test_principal_sends_back_to_the_desk(self):
+        claim = self._claim(ClaimStatus.CLEARED, cleared_by=self.cell, cleared_at=timezone.now())
+        self.ok(self._post(self.principal, f"/api/claims/{claim.id}/principal-reject",
+                           {"note": "The co-author list does not match Scopus"}))
+        claim.refresh_from_db()
+        self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
+
+    def test_director_only_moves_forward_super_admin_sends_back(self):
+        claim = self._claim(ClaimStatus.PRINCIPAL_APPROVED)
+        note = {"note": "Over this year's budget line, please review"}
+        self.assertEqual(self._post(self.director, f"/api/claims/{claim.id}/director-reject", note).status_code, 403)
+        self.ok(self._post(self.admin, f"/api/claims/{claim.id}/director-reject", note))
+        claim.refresh_from_db()
+        self.assertNotEqual(claim.status, ClaimStatus.PRINCIPAL_APPROVED)
+
+    def test_director_bulk_authorises(self):
+        claim = self._claim(ClaimStatus.PRINCIPAL_APPROVED)
+        self.ok(self._post(self.director, "/api/director/bulk-approve", {"claim_ids": [claim.id]}))
+
+    def test_hod_removes_a_target(self):
+        t = self.ok(self._post(self.hod, "/api/hod/targets",
+                               {"year": 2026, "metric": "Q1", "target": 4, "due_date": "2026-12-31"}))
+        self.ok(self._j(self.hod, "delete", f"/api/hod/targets/{t['id']}"))
+
+    def test_faculty_resets_calendar_feed_link(self):
+        old = self.ok(self._j(self.faculty, "get", "/api/calendar/feed-link"))["url"]
+        new = self.ok(self._post(self.faculty, "/api/calendar/feed-link/reset"))["url"]
+        self.assertNotEqual(old, new)
+
+    def test_faculty_follows_a_topic_and_reacts(self):
+        self.ok(self._post(self.faculty, "/api/follows/topics", {"topic": "Photonics"}))
+        post = self.ok(self._as(self.hod).post("/api/feed/posts", data={"body": "Out now", "visibility": "EVERYONE"}))
+        self.ok(self._post(self.faculty, f"/api/feed/posts/{post['id']}/reactions/congrats"))
+
+    def test_faculty_sets_social_privacy(self):
+        self.ok(self._j(self.faculty, "get", "/api/people/me/social-settings"))
+
+    def test_faculty_sees_celebrations_and_badges(self):
+        self.ok(self._j(self.faculty, "get", "/api/me/celebrations"))
+        self.ok(self._j(self.faculty, "get", "/api/me/badges"))
+
+    def test_discussion_owner_resolves_thread(self):
+        t = self.ok(self._post(self.faculty, "/api/threads", {"title": "Which journal?", "body": "Ideas?"}))
+        self.ok(self._post(self.faculty, f"/api/threads/{t['id']}/resolve"))
+
+    def test_officer_files_own_paper_but_cannot_clear_it(self):
+        own = self._claim(owner=self.coordinator, ticket="OWN-C")
+        self.assertEqual(self._post(self.coordinator, f"/api/claims/{own.id}/clear",
+                                    {"expected_amount": own.remuneration}).status_code, 403)
+        self.ok(self._post(self.cell, f"/api/claims/{own.id}/clear", {"expected_amount": own.remuneration}))
+
+    def test_cell_links_scopus_profiles(self):
+        self.ok(self._j(self.cell, "get", "/api/admin/scopus-profiles/verification"))
+
+
+# --------------------------------------------------------------------------- #
+# Every workflow has a door in the UI                                          #
+# --------------------------------------------------------------------------- #
+
+
+class UiEntryPoints(Flow):
+    """Each workflow's route is declared in main.tsx, and its API call is made
+    from some screen. A static check: cheap, and it catches a page deleted or
+    an endpoint no screen calls any more."""
+
+    ROUTES = [
+        "/papers/new", "/papers", "/clearing", "/approvals", "/authorisations", "/payments",
+        "/department", "/research", "/discover", "/scout", "/collaborate", "/messages",
+        "/discussions", "/leaderboard", "/calendar", "/reports", "/reports/build", "/accreditation",
+        "/ledger", "/duplicates", "/flags", "/archive", "/audit", "/faults", "/people",
+        "/people/matches", "/requests", "/budget", "/policy", "/settings", "/settings/notifications",
+        "/notifications", "/reference", "/imports", "/batches", "/data", "/data/health", "/me",
+        "/wall", "/setup", "/search", "/journals",
+    ]
+    CALLS = [
+        "lookup/paper", "me/scopus-pull", "claims/upload", "/withdraw", "/dispute", "/clear`",
+        "/reject`", "principal-approve", "principal-reject", "director-approve", "director-reject",
+        "mark-paid", "void-payment", "bulk-mark-paid", "principal/bulk-approve", "director/bulk-approve",
+        "/flags`", "check-files", "override-status", "reassign", "hod/targets", "hod/nudge",
+        "hod/assignments", "hod/plan", "google/link", "profile/correction", "admin/profile-requests",
+        "feed-link", "notifications/preferences", "collaborations/requests", "/dm/with", "feed/posts",
+        "/threads", "me/goals", "/budgets", "admin/formula", "reports/pack", "admin/restore",
+        "admin/backups", "college-site/import", "fyp-teams/import", "author-matches",
+        "duplicate-accounts", "data-health", "admin/wipe", "erp-import", "monthly/upload",
+        "scimago/import", "snip/import", "admin/settings", "impersonate", "change-password",
+        "reset-password", "discover/venues", "/api/scout", "wall/cheer", "follows/people",
+        "ledger/export", "hod/export", "reports/export", "/notes`",
+    ]
+
+    @classmethod
+    def _src(cls):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[2] / "frontend2" / "src"
+        if not root.exists():
+            return None
+        return "\n".join(p.read_text(encoding="utf8") for p in root.rglob("*.ts*")
+                         if ".test." not in p.name)
+
+    def test_every_workflow_route_is_declared(self):
+        src = self._src()
+        if src is None:
+            self.skipTest("frontend2 not checked out beside backend")
+        self.assertEqual([r for r in self.ROUTES if f'path="{r}"' not in src], [])
+
+    def test_every_workflow_endpoint_is_called_by_a_screen(self):
+        src = self._src()
+        if src is None:
+            self.skipTest("frontend2 not checked out beside backend")
+        self.assertEqual([c for c in self.CALLS if c not in src], [])

@@ -1,16 +1,22 @@
 import {
+  BadgeCheck,
+  CalendarDays,
+  FilePlusCorner,
+  Lightbulb,
+  MessageCircle,
+  UsersRound,
   Library,
   CalendarClock,
   BarChart3,
   BookOpen,
   Building2,
-  Calendar,
   ClipboardCheck,
   Coins,
-  Compass,
   Database,
   FileCheck,
   FileText,
+  Flag,
+  History,
   Home,
   Import,
   type LucideIcon,
@@ -21,12 +27,14 @@ import {
   ShieldCheck,
   Sparkles,
   Stamp,
+  Trophy,
   Users,
   Wallet,
   TriangleAlert,
 } from "lucide-react"
 
 import type { Role } from "@/app/auth"
+import type { Area } from "@/ui/chip"
 
 /**
  * Every place in the app, in one list.
@@ -49,10 +57,32 @@ export type NavItem = {
   /** Absent means everybody who is signed in. */
   roles?: Role[]
   group?: string
+  /**
+   * A heading for these roles only, in place of `group`. The claimant's two
+   * doors are a faculty member's daily work, and so carry no heading; for an
+   * officer they are a second errand beside the desk, and sit under one.
+   */
+  groupFor?: { roles: Role[]; group: string }
   /** Match only this exact path, for an index route. */
   end?: boolean
   /** Shown in the palette even when the sidebar hides it. */
   keywords?: string[]
+  /** The Convocation area colour (docs/ux/00 §1): heading dot, active wash. */
+  area?: Area
+  /** Drawn at the foot of the sidebar, above the account block (Calendar). */
+  pinned?: boolean
+}
+
+/**
+ * Destinations folded into others by the redesign (docs/ux/00 §9). Each old
+ * path redirects, so bookmarks and deep links still land somewhere sensible.
+ * Wall of fame stays a real page (`/wall`, TV display) but leaves the nav.
+ */
+export const REDIRECTS: Record<string, string> = {
+  "/u": "/search?scope=people",
+  "/network": "/collaborate?view=map",
+  "/goals": "/research?tab=me#this-year",
+  "/programme": "/research?tab=me",
 }
 
 const ALL_STAFF: Role[] = [
@@ -66,10 +96,26 @@ const ALL_STAFF: Role[] = [
 //: Mirrors `rbac.ADMIN_ROLES`. The research coordinator checks papers at
 //: the same step as the admin office, so every office destination is theirs.
 const OFFICE: Role[] = ["SUPER_ADMIN", "RESEARCH_CELL", "RESEARCH_COORDINATOR"]
+//: The office roles held by people who are academics too: everybody at a
+//: desk but the super admin. They "must be able to do both — do their own
+//: research as well as track others'".
+const OFFICERS: Role[] = ["RESEARCH_CELL", "RESEARCH_COORDINATOR", "PRINCIPAL", "DIRECTOR", "FINANCE"]
+//: Mirrors `rbac.CLAIMANT_ROLES`: the people who file their own papers.
+const CLAIMANTS: Role[] = ["FACULTY", "HOD", ...OFFICERS]
+//: Where an officer's own papers sit in their sidebar, apart from the desk.
+const MY_RESEARCH = { roles: OFFICERS, group: "My research" }
+//: Mirrors `rbac.can_review_flags`: the desks that judge a paper. Not the
+//: Director or Finance, who are not shown the doubts about what they
+//: authorise and pay, and not a claimant.
+export const REVIEWERS: Role[] = [...OFFICE, "PRINCIPAL"]
+
+/** Raise, read and resolve flags, and browse the whole history. */
+export function reviewsFlags(role: Role | undefined): boolean {
+  return !!role && REVIEWERS.includes(role)
+}
 
 export const NAV: NavItem[] = [
   // ---- the daily work, unlabelled -------------------------------------
-  { to: "/", label: "Home", icon: Home, end: true },
   // Everybody signed in, and second only to Home: it is the one destination
   // that answers a question asked before anything has been filed — does this
   // paper exist, is that journal real, has somebody here claimed it already.
@@ -88,8 +134,14 @@ export const NAV: NavItem[] = [
       "scopus",
       "journal",
       "everything",
+      "colleagues",
+      "people",
+      "profiles",
+      "directory",
+      "find someone",
     ],
   },
+  { to: "/", label: "Home", icon: Home, end: true },
   {
     to: "/clearing",
     label: "Clearing queue",
@@ -113,7 +165,7 @@ export const NAV: NavItem[] = [
   },
   {
     to: "/payments",
-    label: "Payment orders",
+    label: "Payments",
     icon: Wallet,
     roles: ["FINANCE"],
     keywords: ["pay", "disburse", "voucher"],
@@ -125,55 +177,111 @@ export const NAV: NavItem[] = [
     roles: ["HOD"],
     keywords: ["standing", "targets", "quota", "staff", "contribution", "college"],
   },
+  // ---- Convocation (docs/ux/00 §9): four areas, each with its colour ----
+  // RECORD. `rbac.CLAIMANT_ROLES`. A head of department is a faculty member
+  // who also heads the department, and keeps filing their own papers; an
+  // officer who publishes files theirs here too, under "My research", beside
+  // the desk.
   {
     to: "/papers",
     label: "My papers",
     icon: FileText,
-    roles: ["FACULTY"],
-    keywords: ["publications", "tickets", "claims"],
+    roles: CLAIMANTS,
+    group: "Record",
+    area: "record",
+    groupFor: MY_RESEARCH,
+    keywords: ["publications", "tickets", "claims", "my research", "mine"],
   },
   {
     to: "/papers/new",
     label: "File a paper",
-    icon: FileText,
-    roles: ["FACULTY"],
-    keywords: ["submit", "claim", "new"],
+    icon: FilePlusCorner,
+    roles: CLAIMANTS,
+    group: "Record",
+    area: "record",
+    groupFor: MY_RESEARCH,
+    keywords: ["submit", "claim", "new", "my research"],
   },
 
-  // ---- what faculty come back for -------------------------------------
+  // RESEARCH. My research absorbs "The college's research" as a tab
+  // (`/research?tab=college`) and "My goals" as a "This year" card.
   {
-    to: "/programme",
+    to: "/research",
     label: "My research",
     icon: Sparkles,
     group: "Research",
-    keywords: ["areas", "field", "trends", "breakthroughs", "who to work with", "programme"],
+    area: "research",
+    keywords: [
+      "areas", "field", "trends", "breakthroughs", "programme", "college", "college's research",
+      "growing", "fading", "departments", "goals", "targets", "this year", "progress",
+    ],
   },
   {
     to: "/discover",
     label: "Discover",
-    icon: Sparkles,
+    icon: Lightbulb,
     group: "Research",
+    area: "research",
     keywords: ["ideas", "topics", "what is new", "ai"],
   },
+
+  // PEOPLE. Who to work with absorbs Colleagues (now Search, people scope)
+  // and College network (now its Map view).
   {
     to: "/collaborate",
     label: "Who to work with",
-    icon: Compass,
-    group: "Research",
-    keywords: ["collaborators", "co-authors", "graph", "network"],
+    icon: UsersRound,
+    group: "People",
+    area: "people",
+    keywords: ["collaborators", "co-authors", "graph", "network", "map", "college network", "colleagues"],
+  },
+  {
+    to: "/messages",
+    label: "Messages",
+    icon: MessageCircle,
+    group: "People",
+    area: "people",
+    keywords: ["direct", "private", "dm", "office", "ask the office", "conversation"],
   },
   {
     to: "/discussions",
     label: "Discussions",
     icon: MessagesSquare,
-    group: "Research",
-    keywords: ["forum", "ask", "posts", "talk"],
+    group: "People",
+    area: "people",
+    keywords: ["forum", "ask", "posts", "talk", "feed", "social", "share"],
   },
+
+  // HONOURS. Everybody: paper counts per person and per department, with no
+  // money on it at any role. Wall of fame is its tab (`?view=wall`).
+  {
+    to: "/leaderboard",
+    label: "Leaderboard",
+    icon: Trophy,
+    group: "Honours",
+    area: "honours",
+    keywords: [
+      "ranking", "rank", "top", "standings", "department", "q1", "score", "position",
+      "wall of fame", "celebrate", "paper of the month",
+    ],
+  },
+  {
+    to: "/impact",
+    label: "Impact card",
+    icon: BadgeCheck,
+    roles: CLAIMANTS,
+    group: "Honours",
+    area: "honours",
+    keywords: ["share", "linkedin", "whatsapp", "badges", "card"],
+  },
+
+  // TIME. Pinned above the account block rather than in the list.
   {
     to: "/calendar",
     label: "Calendar",
-    icon: Calendar,
-    group: "Research",
+    icon: CalendarDays,
+    area: "time",
+    pinned: true,
     keywords: ["deadlines", "dates", "payout run"],
   },
 
@@ -244,9 +352,29 @@ export const NAV: NavItem[] = [
     to: "/duplicates",
     label: "Duplicates",
     icon: Coins,
-    roles: ALL_STAFF,
+    // Contested and duplicate flags are hidden from the Director and Finance
+    // (the college's rule; enforced on the server too).
+    roles: [...OFFICE, "PRINCIPAL"],
     group: "Look at",
     keywords: ["double payment", "repeats"],
+  },
+  {
+    to: "/flags",
+    label: "Flags",
+    icon: Flag,
+    // `rbac.can_review_flags`. A flag never holds a payment, so the queue is
+    // for reading and answering, not for unblocking anything.
+    roles: REVIEWERS,
+    group: "Look at",
+    keywords: ["discrepancy", "mismatch", "question", "concern", "content check", "scanned"],
+  },
+  {
+    to: "/archive",
+    label: "Past claims",
+    icon: History,
+    roles: REVIEWERS,
+    group: "Look at",
+    keywords: ["history", "paid", "imported", "erp", "old", "archive", "look back"],
   },
   {
     to: "/faults",
@@ -263,7 +391,9 @@ export const NAV: NavItem[] = [
     icon: ShieldCheck,
     // `rbac.can_view_audit` is wider than the office — the Principal and
     // Finance may read the audit log, and were being offered no way in.
-    roles: [...OFFICE, "PRINCIPAL", "DIRECTOR", "FINANCE"],
+    // The Director works from a summary and Finance only pays; the trail
+    // belongs to the office and the Principal.
+    roles: [...OFFICE, "PRINCIPAL"],
     group: "Look at",
     keywords: ["who did what", "trail"],
   },
@@ -304,24 +434,20 @@ export const NAV: NavItem[] = [
     // one role that can change what the college pays with no route to the
     // screen, and gave the research cell a menu item they can only look at
     // without ever saying so. Verified against rbac.py, not assumed.
-    roles: [...OFFICE, "FINANCE", "PRINCIPAL", "DIRECTOR"],
+    roles: [...OFFICE, "FINANCE", "PRINCIPAL"],
     group: "Set up",
     keywords: ["formula", "rates", "snip", "multiplier", "threshold"],
   },
-{
+  {
     to: "/settings",
     label: "Institution",
-    icon: Settings2,
-    // Read and write are different sets here, and the sidebar has to cover
-    // the union of them. `can_view_reports` reads the sheet (the office, the
-    // Principal, Finance); `can_edit_formula` is FINANCE and SUPER_ADMIN
-    // *only* — not the research cell. Gating this to OFFICE alone left the
-    // one role that can change what the college pays with no route to the
-    // screen, and gave the research cell a menu item they can only look at
-    // without ever saying so. Verified against rbac.py, not assumed.
-    roles: [...OFFICE, "FINANCE", "PRINCIPAL", "DIRECTOR"],
+    icon: Building2,
+    // Mirrors `rbac.can_admin_portal` on GET/PUT /admin/settings. This entry
+    // was once a copy of Policy's, which offered the Principal, Director and
+    // Finance a page the server then refused.
+    roles: OFFICE,
     group: "Set up",
-    keywords: ["formula", "rates", "snip", "multiplier", "threshold"],
+    keywords: ["college", "name", "branding", "support email", "sign-in note"],
   },
   {
     to: "/reference",
@@ -368,7 +494,35 @@ export const NAV: NavItem[] = [
   },
 ]
 
+/**
+ * The count beside a sidebar entry: what is waiting at the reader's own desk
+ * (from `/api/claims/counts`, grouped as the server groups stages), and for a
+ * claimant how many of their papers have come back to them. Nobody is shown a
+ * count for somebody else's desk.
+ */
+const BADGE: Partial<Record<Role, [to: string, stage: string]>> = {
+  SUPER_ADMIN: ["/clearing", "filed"],
+  RESEARCH_CELL: ["/clearing", "filed"],
+  RESEARCH_COORDINATOR: ["/clearing", "filed"],
+  PRINCIPAL: ["/approvals", "checked"],
+  DIRECTOR: ["/authorisations", "approved"],
+  FINANCE: ["/payments", "authorised"],
+  FACULTY: ["/papers", "sent_back"],
+  HOD: ["/papers", "sent_back"],
+}
+
+export function navBadges(
+  role: Role | undefined,
+  counts: Record<string, number> | undefined
+): Record<string, number> {
+  const entry = role ? BADGE[role] : undefined
+  const n = entry && counts ? counts[entry[1]] ?? 0 : 0
+  return entry && n > 0 ? { [entry[0]]: n } : {}
+}
+
 export function navFor(role: Role | undefined): NavItem[] {
   if (!role) return []
-  return NAV.filter((item) => !item.roles || item.roles.includes(role))
+  return NAV.filter((item) => !item.roles || item.roles.includes(role)).map((item) =>
+    item.groupFor?.roles.includes(role) ? { ...item, group: item.groupFor.group } : item
+  )
 }

@@ -25,6 +25,14 @@ export const FACULTY: Me = {
   department: "Mechanical Engineering",
 }
 
+export const HOD: Me = {
+  id: "u-hod",
+  email: "head.physics@example.edu",
+  name: "Dr Meera Pillai",
+  role: "HOD",
+  department: "Physics",
+}
+
 export const FINANCE: Me = {
   id: "u-finance",
   email: "finance@example.edu",
@@ -93,4 +101,24 @@ export function renderWithProviders(
       </MemoryRouter>
     </QueryClientProvider>
   )
+}
+
+/**
+ * What `/api/me/payments` would say for these claims: one ledger row per paid
+ * claim that carries an amount. The homes read money from the ledger.
+ */
+export function ledgerOf(claims: { id: string; status: string; paper_title?: unknown; journal_title?: unknown; remuneration?: unknown; paid_at?: unknown }[]) {
+  const rows = claims
+    .filter((c) => c.status === "PAID" && Number(c.remuneration) > 0)
+    .map((c, i) => ({
+      id: i + 1,
+      claim_id: c.id,
+      payout_month: typeof c.paid_at === "string" ? c.paid_at.slice(0, 7) : null,
+      paper_title: c.paper_title ?? null,
+      journal_title: c.journal_title ?? null,
+      amount: Number(c.remuneration),
+      voucher_number: null,
+    }))
+  const total = rows.reduce((s, r) => s + r.amount, 0)
+  return { total, this_year: 0, since: "2026-06-01", count: rows.length, latest_month: rows[0]?.payout_month ?? null, rows }
 }

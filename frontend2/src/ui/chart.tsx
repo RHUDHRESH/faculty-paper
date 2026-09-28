@@ -773,7 +773,11 @@ export function Trend({
                 />
 
                 {points.map((p, i) =>
-                  i % every === 0 || i === points.length - 1 ? (
+                  // The last label is right-aligned and always drawn, so the
+                  // step label before it gives way unless it is a step and a
+                  // half clear -- otherwise "19 Sept" and "24 Sept" overprint.
+                  (i % every === 0 && points.length - 1 - i >= Math.ceil(every * 1.5)) ||
+                  i === points.length - 1 ? (
                     <text
                       key={p.key}
                       x={x(i)}
@@ -842,6 +846,8 @@ export function Distribution({
   height = 160,
   showAmounts,
   gapWhy,
+  mark,
+  markLabel = "You",
   className,
 }: {
   title: string
@@ -854,6 +860,9 @@ export function Distribution({
   showAmounts?: boolean
   /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
   gapWhy?: ReactNode
+  /** The key of one column to mark ("you are here"), drawn in the area colour. */
+  mark?: string
+  markLabel?: string
   className?: string
 }) {
   const [at, setAt] = useState<number | null>(null)
@@ -886,7 +895,7 @@ export function Distribution({
                 <span
                   className={cn(
                     "block w-full rounded-t-sm transition-[height,background-color] duration-500 ease-out",
-                    at === i ? "bg-accent" : "bg-accent/55"
+                    p.key === mark ? "bg-(--area-fill,var(--color-accent))" : at === i ? "bg-accent" : "bg-accent/55"
                   )}
                   style={{ height: `${Math.max(2, (v / ceiling) * 100)}%` }}
                 />
@@ -894,10 +903,15 @@ export function Distribution({
               return (
                 <span
                   key={p.key}
-                  className="flex h-full min-w-0 flex-1 items-end"
                   onPointerEnter={() => setAt(i)}
-                  title={`${name} — ${fullLabel(v, unit)}`}
+                  title={`${name} — ${fullLabel(v, unit)}${p.key === mark ? ` · ${markLabel}` : ""}`}
+                  className={cn("relative flex h-full min-w-0 flex-1 items-end")}
                 >
+                  {p.key === mark && (
+                    <span className="absolute -top-5 inset-x-0 text-center text-xs font-semibold text-(--area,var(--color-accent))">
+                      {markLabel}
+                    </span>
+                  )}
                   {p.to ? (
                     <Link
                       to={p.to}
@@ -937,5 +951,46 @@ export function Distribution({
         </div>
       )}
     </Figure>
+  )
+}
+
+/**
+ * A 48×16 line for a stat tile (docs/ux/00 §8). Decorative next to its
+ * figure, so hidden from assistive tech unless given a `label`. Coloured
+ * with the current area (`--area`), never a rainbow.
+ */
+export function Sparkline({
+  values,
+  width = 48,
+  height = 16,
+  label,
+  className,
+}: {
+  values: number[]
+  width?: number
+  height?: number
+  label?: string
+  className?: string
+}) {
+  if (values.length < 2) return null
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const span = max - min || 1
+  const step = width / (values.length - 1)
+  const d = values
+    .map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - 1 - ((v - min) / span) * (height - 2)).toFixed(1)}`)
+    .join(" ")
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role={label ? "img" : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
+      className={cn("shrink-0 overflow-visible text-(--area)", className)}
+    >
+      <path d={d} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }

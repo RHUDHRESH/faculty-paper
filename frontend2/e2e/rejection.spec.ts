@@ -129,7 +129,12 @@ test.describe("A ticket sent back, and filed again", () => {
       `send back answered ${response.status()} — ${await response.text().catch(() => "")}`
     ).toBe(200)
 
-    await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 20_000 })
+    // After a send-back the sheet moves on to the next ticket in the queue
+    // (or closes when there is none); either way this ticket's sheet is gone.
+    await expect(
+      page.getByRole("dialog").filter({ hasText: seeded.claim!.ticket_number })
+    ).toHaveCount(0, { timeout: 20_000 })
+    await page.keyboard.press("Escape")
     await expect(
       page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number }),
       "a ticket that was sent back is still in the clearing queue"
@@ -163,16 +168,16 @@ test.describe("A ticket sent back, and filed again", () => {
       callout,
       "the callout does not carry the reason the research cell wrote"
     ).toContainText(REASON)
-    // Who said it and when, so it is a person's decision rather than the
-    // system's.
-    await expect(callout).toContainText("E2E Research Cell")
+    // Never who said it: a claimant does not learn which desk or person holds
+    // their paper (core/visibility.py). The reason is theirs; the name is not.
+    await expect(callout).not.toContainText("E2E Research Cell")
 
     // And again in the history, which is the durable record of it.
     await expect(page.getByText(`sent it back — ${REASON}`)).toBeVisible()
 
     // And the tracker agrees, in the claimant's own vocabulary.
-    await expect(page.getByText("Sent back", { exact: true }).first()).toBeVisible()
-    await expect(page.getByText("Edit the details and file it again.")).toBeVisible()
+    await expect(page.getByLabel("Stage: Sent back to you")).toBeVisible()
+    await expect(page.getByRole("link", { name: "Edit" })).toBeVisible()
 
     // The list says the same thing, because that is the screen they land on.
     await page.goto("/papers")
@@ -314,13 +319,11 @@ test.describe("A ticket sent back, and filed again", () => {
     // The claimant's own screens say it is travelling again.
     await faculty.goto(`/papers/${seeded.claim!.id}`)
     await waitForSettled(faculty)
-    // The tracker is back on the road at step one. Its accessible name is
-    // `Step <n> of 5: <label>`, and the label is the claimant's word for the
-    // status ("Awaiting check"), not the step's name ("Filed") — a sent-back
-    // ticket has no step at all and draws no track, so this locator existing
-    // is itself the assertion that it is travelling again.
-    await expect(faculty.getByLabel("Step 1 of 5: Awaiting check")).toBeVisible()
-    await expect(faculty.getByText("With the research cell.")).toBeVisible()
+    // The journey is back on the road at its first stage, named for the
+    // claimant ("Stage: Under review"). It never says whose desk it is on --
+    // the college's rule -- so the old desk sentence must be gone.
+    await expect(faculty.getByLabel("Stage: Under review")).toBeVisible()
+    await expect(faculty.getByText("With the research cell.")).toHaveCount(0)
     // And the sent-back callout is gone, because it no longer describes
     // anything the claimant has to do.
     await expect(

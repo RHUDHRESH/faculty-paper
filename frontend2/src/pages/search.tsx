@@ -1,740 +1,518 @@
-import { useEffect, useMemo, useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
-import { AlertTriangle, ExternalLink, FileText, Search as SearchIcon } from "lucide-react"
+import { BookOpen, Building2, FilePlusCorner, RotateCw, UsersRound, X } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom"
 
-import { can, useAuth } from "@/app/auth"
+import { useAuth } from "@/app/auth"
+import {
+  DOI_PATTERN,
+  GROUP_LABEL,
+  ResultRow,
+  clearRecent,
+  openRow,
+  pushRecent,
+  readRecent,
+  useDebounced,
+  useRows,
+  useSearchAll,
+  type Row,
+  type RowGroup,
+  type SearchItem,
+} from "@/app/search-engine"
+import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
-import { Button } from "@/ui/button"
-import { Input } from "@/ui/field"
-import { Stage, money, stageOf } from "@/ui/paper"
-import { Callout, EmptyState, ErrorState, SkeletonRows, SkeletonText } from "@/ui/state"
-import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { BigSearch, SEARCH_SCOPES, type SearchScope } from "@/ui/big-search"
+import { Chip } from "@/ui/chip"
+import { ChoiceTile } from "@/ui/choice"
+import { ConnectionPath, type Hop } from "@/ui/connection"
+import { JournalCard, PaperCard, PersonCard } from "@/ui/entity"
+import { initialsOf } from "@/ui/person"
+import { Skeleton } from "@/ui/state"
 
 /**
- * One box that searches everything this college can see: the literature
- * (Crossref, OpenAlex and Scopus, de-duplicated by DOI), the journals in our
- * own Scimago/SNIP tables, the people here, and the claims already filed.
- *
- * It is one screen rather than four because the question a person arrives
- * with is not "which index holds this" — it is "does this paper exist, is
- * that journal real, has anybody here already filed it". Four screens make
- * them ask it four times and compare the answers themselves, which is where
- * a duplicate claim comes from.
- *
- * Two rules are load-bearing and neither is cosmetic.
- *
- * The first is the split between a venue we resolved against our own journal
- * data and one we only have a name for. A resolved venue carries its
- * quartile and its metrics; an unresolved one carries no number of any kind,
- * enforced by its type having none to render. A plausible-sounding journal
- * shown beside a confident figure is how somebody submits to a venue that
- * does not exist and loses months over it.
- *
- * The second is that a source being down is its own answer. Three indexes
- * answering and one failing is not a short list — it is an incomplete one,
- * and presenting it as complete is how a paper gets filed twice because the
- * search that would have found the first claim quietly skipped it.
+ * /search — "Find anything" (docs/ux/02-search.md). One big box over the
+ * college's own data (/api/search/all), pages and actions, with the old
+ * Colleagues directory as the People scope with no query. The query lives in
+ * the URL (`?q=&scope=`), so Back restores it.
  */
-export function Search() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const q = searchParams.get("q") ?? ""
-  const query = q.trim()
-  const enabled = query.length >= MIN_QUERY
 
-  const results = useApi<SearchResults>(
-    ["search", query],
-    `/api/search?q=${encodeURIComponent(query)}`,
-    { enabled }
-  )
+const TRY = ["10.1109/ACCESS.2024.", "Kanagamalliga", "IEEE Access", "federated learning"]
+const PER_GROUP = 5
 
-  return (
-    <div className="page space-y-8">
-      <header>
-        <PageTitle>Search</PageTitle>
-        <Sub className="mt-1">
-          Papers, journals, people here, and claims already filed — all at once.
-        </Sub>
-      </header>
-
-      <SearchBox q={q} setSearchParams={setSearchParams} />
-
-      {!enabled ? (
-        <Prompt typed={q.length > 0} />
-      ) : results.isLoading ? (
-        <Loading />
-      ) : results.isError ? (
-        <ErrorState
-          title="The search did not run"
-          message={results.error.message}
-          onRetry={() => void results.refetch()}
-        />
-      ) : results.data ? (
-        <Results data={results.data} onRetry={() => void results.refetch()} />
-      ) : null}
-    </div>
-  )
-}
-
-/** Below this a query matches most of the literature, so it is not a search
- *  and the server is not asked one. */
-const MIN_QUERY = 2
-
-/* ------------------------------------------------------------------------ */
-/* Types — the client's view of GET /api/search?q=…                         */
-/* ------------------------------------------------------------------------ */
-
-/**
- * Whether one index or table answered this search.
- *
- * Every source reports itself whether or not it worked, so the screen can
- * tell "Scopus found nothing" from "Scopus was not asked" from "Scopus
- * refused". Those are three different sentences and only the first of them
- * means the paper is not there.
- */
-type SourceReport = {
-  /** `crossref` | `openalex` | `scopus` | `journals` | `college` */
-  id: string
-  /** What to call it in front of a reader. */
-  label: string
-  ok: boolean
-  /** How many results it contributed, when it answered. */
-  count?: number | null
-  /** Why it did not, when it did not. */
-  detail?: string | null
-  /** `rate_limit` | `unauthorized` | `timeout` | `error` | `not_configured` */
-  code?: string | null
-}
-
-/**
- * One article, as the indexes describe it — not a claim, not our record.
- *
- * `found_in` is the de-duplication made visible: the server merges by DOI, so
- * a paper all three indexes hold appears once and says so. A reader deciding
- * whether a record is trustworthy is better served by "Crossref, OpenAlex and
- * Scopus" than by the same row three times.
- */
-type FoundPaper = {
-  doi: string | null
-  title: string
-  authors: string[]
-  year: number | null
-  journal_title: string | null
-  issn: string | null
-  publication_type: string | null
-  cited_by: number | null
-  /** Where to read it. `https://doi.org/…` unless the index gave a better one. */
-  url: string | null
-  /** Source ids that returned this same record. */
-  found_in: string[]
-  /** The claim already filed here for this DOI, if there is one. */
-  claim: { id: string; status: string; mine: boolean } | null
-}
-
-/**
- * A journal we found in our own Scimago/SNIP tables. Only these carry
- * numbers, and that is the point of the type existing separately.
- */
-type ResolvedVenue = {
-  title: string
-  issn: string | null
-  /** Q1..Q4, or null when our row records none. Absent is not the same as
-   *  unresolved — we know this journal exists, we just have no quartile. */
-  quartile: string | null
-  subject: string | null
-  sjr: number | null
-  snip: number | null
-  dataset_year: number | null
-  publisher: string | null
-}
-
-/**
- * A venue name we could not resolve against our own data.
- *
- * It has no numeric field at all, deliberately. The rule "never show a metric
- * beside a journal we cannot identify" is not left to whoever writes the
- * markup — there is nothing here to show.
- */
-type UnresolvedVenue = {
-  title: string
-  publisher: string | null
-  issn: string | null
-}
-
-/** Somebody here, and how much of their work this system holds. */
-type FoundPerson = {
-  id: string
-  name: string
-  department: string | null
-  designation: string | null
-  /** Claims filed by this person. Never an amount — see the note in `Money`. */
-  papers: number
-}
-
-/** A claim already filed in this college. */
-type FoundTicket = {
-  id: string
-  paper_title: string | null
-  doi: string | null
-  journal_title: string | null
-  /** A `Claim.status` value; rendered through `stageOf`. */
-  status: string
-  publication_year: number | null
-  department: string | null
-  claimant: { id: string; name: string } | null
-  /** Omitted entirely by the server for a head of department, and guarded
-   *  again here. Two locks, because either one alone has been the one that
-   *  quietly stopped working. */
-  amount?: number | null
-}
-
-type SearchResults = {
-  query: string
-  sources: SourceReport[]
-  papers: FoundPaper[]
-  venues: { resolved: ResolvedVenue[]; unresolved: UnresolvedVenue[] }
-  people: FoundPerson[]
-  tickets: FoundTicket[]
-}
-
-function countOf(data: SearchResults): number {
-  return (
-    data.papers.length +
-    data.venues.resolved.length +
-    data.venues.unresolved.length +
-    data.people.length +
-    data.tickets.length
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* The box                                                                  */
-/* ------------------------------------------------------------------------ */
-
-/**
- * The query, and the URL, kept as the same thing.
- *
- * A search that lives only in component state cannot be sent to a colleague
- * and cannot be returned to with Back — and on this screen the whole point is
- * that somebody found a paper and wants to show it to the person who has to
- * decide about it. So `?q=` is the state, and the box is a draft of it.
- *
- * The URL is replaced rather than pushed while typing: a history entry per
- * keystroke turns Back into forty presses to leave one page. Arriving at the
- * screen and leaving it are the navigations worth recording, and both still
- * are.
- */
-function SearchBox({
-  q,
-  setSearchParams,
-}: {
-  q: string
-  setSearchParams: ReturnType<typeof useSearchParams>[1]
-}) {
-  const [draft, setDraft] = useState(q)
-
-  // The URL is the source of truth, so a Back press or a shared link that
-  // changes it puts the box right rather than the box overwriting it.
-  useEffect(() => setDraft(q), [q])
-
-  useEffect(() => {
-    if (draft === q) return
-    const t = setTimeout(() => commit(draft), 300)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, q])
-
-  function commit(value: string) {
-    setSearchParams(
+function useScope(): [SearchScope, string, string, (next: Partial<{ q: string; scope: SearchScope; dept: string }>) => void] {
+  const [params, setParams] = useSearchParams()
+  const raw = params.get("scope") ?? "all"
+  const scope = (SEARCH_SCOPES.some((s) => s.id === raw) ? raw : "all") as SearchScope
+  const set = (next: Partial<{ q: string; scope: SearchScope; dept: string }>) =>
+    setParams(
       (prev) => {
-        const next = new URLSearchParams(prev)
-        if (value.trim()) next.set("q", value)
-        else next.delete("q")
-        return next
+        const p = new URLSearchParams(prev)
+        for (const [k, v] of Object.entries(next)) {
+          if (v && !(k === "scope" && v === "all")) p.set(k, v)
+          else p.delete(k)
+        }
+        return p
       },
       { replace: true }
     )
+  return [scope, params.get("q") ?? "", params.get("dept") ?? "", set]
+}
+
+export function Search() {
+  const { me, signOut } = useAuth()
+  const navigate = useNavigate()
+  const { key: locationKey } = useLocation()
+  const [scope, urlQ, dept, setUrl] = useScope()
+  const [q, setQ] = useState(urlQ)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const debounced = useDebounced(q)
+
+  // Back/forward: the URL is the truth.
+  useEffect(() => setQ(urlQ), [urlQ, locationKey])
+  useEffect(() => {
+    if (debounced.trim() !== urlQ) setUrl({ q: debounced.trim() })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced])
+
+  const { data, isFetching, isError, refetch } = useSearchAll(debounced, scope, PER_GROUP)
+  const ctx = { navigate, signOut }
+  const groups = useRows({ q: debounced, scope, data, role: me?.role, perGroup: PER_GROUP, ctx })
+  const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups])
+  const [active, setActive] = useState(-1)
+  useEffect(() => setActive(-1), [debounced, scope])
+  const activeRow = flat[active] ?? flat[0]
+
+  const term = q.trim()
+  const searching = term.length >= 2
+  const directory = scope === "people" && !term
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setActive((i) => Math.min(i + 1, flat.length - 1))
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setActive((i) => Math.max(i - 1, -1))
+    } else if (e.key === "Enter" && active >= 0 && flat[active]) {
+      e.preventDefault()
+      pushRecent(term)
+      openRow(flat[active], navigate)
+    }
   }
 
-  return (
-    <form
-      role="search"
-      onSubmit={(e) => {
-        e.preventDefault()
-        commit(draft)
-      }}
-      className="flex flex-wrap items-center gap-2"
-    >
-      <div className="relative min-w-0 flex-1 basis-64">
-        <SearchIcon
-          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
-          aria-hidden
-        />
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          size="lg"
-          className="pl-9"
-          type="search"
-          autoComplete="off"
-          // A placeholder is not a name: it disappears the moment somebody
-          // types, and a screen reader announcing "edit text" with no label
-          // leaves them guessing what this box searches.
-          aria-label="Search papers, journals, people and claims"
-          placeholder="A title, a DOI, a journal, or somebody's name"
-        />
-      </div>
-      <Button type="submit" kind="primary" size="lg">
-        Search
-      </Button>
-    </form>
+  const box = (
+    <BigSearch
+      ref={inputRef}
+      value={q}
+      onChange={setQ}
+      onSubmit={(v) => pushRecent(v)}
+      scope={scope}
+      onScope={(s) => setUrl({ scope: s, dept: "" })}
+      placeholder="Papers, people, journals, topics, departments, pages…"
+      label="Find anything"
+    />
   )
-}
-
-/* ------------------------------------------------------------------------ */
-/* The four states before results                                           */
-/* ------------------------------------------------------------------------ */
-
-/**
- * Nothing has been searched for yet.
- *
- * Not an empty state and not an error: nobody has asked anything, so nothing
- * is missing. Rendering "no results" here would tell a reader their first
- * two characters matched nothing in the literature, which is a lie with
- * consequences on a screen people use to check whether a paper exists.
- */
-function Prompt({ typed }: { typed: boolean }) {
-  return (
-    <div className="well rounded-lg px-6 py-10 text-center">
-      <p className="text-base font-medium text-fg">
-        {typed ? `Keep typing — at least ${MIN_QUERY} characters.` : "Search for anything"}
-      </p>
-      <p className="mx-auto mt-1 max-w-md text-pretty text-base text-fg-muted">
-        A paper title or DOI looks it up in Crossref, OpenAlex and Scopus. A
-        journal name is checked against our own Scimago and SNIP data. A
-        person&rsquo;s name finds them and the claims they have filed.
-      </p>
-    </div>
-  )
-}
-
-function Loading() {
-  return (
-    <div className="space-y-6">
-      <SkeletonText lines={1} className="max-w-xs" />
-      <SkeletonRows rows={4} rowHeight={76} />
-      <SkeletonRows rows={2} rowHeight={76} />
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* Results                                                                  */
-/* ------------------------------------------------------------------------ */
-
-function Results({ data, onRetry }: { data: SearchResults; onRetry: () => void }) {
-  const { me } = useAuth()
-  const seeMoney = can(me?.role).seeMoney
-
-  const down = useMemo(() => data.sources.filter((s) => !s.ok), [data.sources])
-  const answered = useMemo(() => data.sources.filter((s) => s.ok), [data.sources])
-  const total = countOf(data)
-
-  // Every source refused. The request itself succeeded, so this never reached
-  // the page's error branch — but there is no result set here, only a failure
-  // wearing one, and it has to read as one.
-  if (down.length > 0 && answered.length === 0) {
-    return (
-      <ErrorState
-        title="Nothing could be searched"
-        message={`None of the ${down.length} sources answered. ${down
-          .map((s) => `${s.label}: ${s.detail || "did not answer"}`)
-          .join(" · ")}`}
-        onRetry={onRetry}
-      />
-    )
-  }
+  // The combobox wiring, on BigSearch's own input.
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.setAttribute("role", "combobox")
+    el.setAttribute("aria-controls", "search-results")
+    el.setAttribute("aria-expanded", String(flat.length > 0))
+    if (active >= 0) el.setAttribute("aria-activedescendant", `search-row-${active}`)
+    else el.removeAttribute("aria-activedescendant")
+  })
 
   return (
-    <div className="space-y-10">
-      {down.length > 0 && <Partial down={down} answered={answered} onRetry={onRetry} />}
-
-      <p className="text-sm text-fg-muted" aria-live="polite">
-        {total === 0
-          ? `Nothing matched “${data.query}”.`
-          : `${total} result${total === 1 ? "" : "s"} for “${data.query}”.`}
-      </p>
-
-      {total === 0 ? (
-        <EmptyState
-          art="no-results"
-          title="Nothing matched that"
-          message={
-            down.length > 0
-              ? "Nothing came back from the sources that did answer. The ones listed above were not searched, so this is not the whole picture — try again in a moment."
-              : "A DOI is the surest way in. Otherwise try fewer words of the title, or the journal name on its own."
-          }
-        />
+    <div className="page" onKeyDownCapture={(e) => e.target === inputRef.current && onKeyDown(e as React.KeyboardEvent<HTMLInputElement>)}>
+      {!searching && !directory ? (
+        <Idle box={box} onTry={(t) => setQ(t)} />
       ) : (
         <>
-          <Papers papers={data.papers} />
-          <Venues venues={data.venues} />
-          <People people={data.people} />
-          <Tickets tickets={data.tickets} seeMoney={seeMoney} />
+          <h1 className="sr-only">Find anything</h1>
+          <div className="sticky top-0 z-10 -mx-4 bg-bg/95 px-4 pt-2 pb-3 backdrop-blur sm:-mx-8 sm:px-8">{box}</div>
+          {directory ? (
+            <Directory dept={dept} onDept={(d) => setUrl({ dept: d })} />
+          ) : (
+            <Results
+              q={term}
+              scope={scope}
+              groups={groups}
+              loading={isFetching && groups.length === 0}
+              failed={isError}
+              onRetry={() => void refetch()}
+              active={active}
+              activeRow={activeRow}
+              onActive={setActive}
+              onPick={(row) => {
+                pushRecent(term)
+                openRow(row, navigate)
+              }}
+              onScope={(s) => setUrl({ scope: s })}
+              meId={me?.id}
+            />
+          )}
         </>
       )}
     </div>
   )
 }
 
-/**
- * One or more sources are down and the rest answered.
- *
- * Its own state, above the results rather than beside them, because the
- * damage a partial search does is silent: a shorter list is indistinguishable
- * from a complete one, and the person reading it concludes the paper is not
- * indexed or that nobody has claimed it. Naming the source and what it said
- * also tells whoever can fix it which one to look at.
- */
-function Partial({
-  down,
-  answered,
-  onRetry,
-}: {
-  down: SourceReport[]
-  answered: SourceReport[]
-  onRetry: () => void
-}) {
-  return (
-    <Callout tone="caution" title="This is not the whole search">
-      <p className="mb-2">
-        {answered.length} of {answered.length + down.length} sources answered. What is below is
-        everything they had, and nothing from the rest — so treat &ldquo;not found&rdquo; as
-        &ldquo;not found yet&rdquo;.
-      </p>
-      <ul className="space-y-1.5">
-        {down.map((s) => (
-          <li key={s.id} className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-            <span>
-              <span className="font-medium text-fg">{s.label}</span>
-              <span className="text-fg-muted"> — {s.detail || "did not answer"}</span>
-            </span>
-          </li>
-        ))}
-      </ul>
-      <Button kind="quiet" size="sm" className="mt-3" onClick={onRetry}>
-        Search again
-      </Button>
-    </Callout>
-  )
-}
+/* ------------------------------------------------------------------ idle */
 
-/** A group of results, or nothing at all. An empty group is not drawn: four
- *  headings over three empty lists is how a screen with results in it reads
- *  as a screen with none. */
-function Group({
-  title,
-  count,
-  note,
-  children,
-}: {
-  title: string
-  count: number
-  note?: React.ReactNode
-  children: React.ReactNode
-}) {
-  if (count === 0) return null
-  // `aria-label` rather than `aria-labelledby`: `SectionTitle` renders only
-  // its children and class, so an id handed to it never reaches the DOM and
-  // the region would end up with a name pointing at nothing.
+function Idle({ box, onTry }: { box: React.ReactNode; onTry: (t: string) => void }) {
+  const [recent, setRecent] = useState(readRecent)
   return (
-    <section aria-label={title} className="space-y-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <SectionTitle>{title}</SectionTitle>
-        <Meta className="tabular">
-          {count} result{count === 1 ? "" : "s"}
-        </Meta>
+    <div className="mx-auto max-w-4xl pt-[120px] max-sm:pt-10">
+      <h1 className="mb-6 text-center text-[32px] leading-[38px] font-[650] text-fg">Find anything</h1>
+      {box}
+      <p className="mt-3 text-sm text-fg-muted">Paste a DOI to check whether a paper exists and who has claimed it.</p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-fg-subtle">Try:</span>
+        {TRY.map((t) => (
+          <button key={t} type="button" onClick={() => onTry(t)} className="h-7 rounded-full bg-sunken px-3 text-sm text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-hover">
+            “{t}”
+          </button>
+        ))}
       </div>
-      {note}
-      {children}
-    </section>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* Papers                                                                   */
-/* ------------------------------------------------------------------------ */
-
-/**
- * Everything this paper is known by, packed into the address of the filing
- * form.
- *
- * The claim is filed on `/papers/new`, which was rebuilt as a
- * one-question-per-screen walk behind three confirmations and has its own
- * Scopus lookup. None of that is worth reproducing here, and a second filing
- * path is a second place for the eligibility gate to be got wrong — so this
- * hands over what it knows and stops.
- */
-function fileLink(p: FoundPaper): string {
-  const params = new URLSearchParams()
-  if (p.doi) params.set("doi", p.doi)
-  if (p.title) params.set("title", p.title)
-  if (p.journal_title) params.set("journal", p.journal_title)
-  if (p.issn) params.set("issn", p.issn)
-  if (p.year != null) params.set("year", String(p.year))
-  return `/papers/new?${params.toString()}`
-}
-
-function authorLine(authors: string[]): string {
-  if (authors.length === 0) return "Authors not recorded"
-  if (authors.length <= 3) return authors.join(", ")
-  return `${authors.slice(0, 3).join(", ")} and ${authors.length - 3} more`
-}
-
-function Papers({ papers }: { papers: FoundPaper[] }) {
-  return (
-    <Group title="Papers" count={papers.length}>
-      <ul className="divide-y divide-line border-y border-line">
-        {papers.map((p) => (
-          <li key={p.doi ?? p.title} className="py-4">
-            <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-              <div className="min-w-0 flex-1 basis-64">
-                <p className="text-base font-medium text-fg">
-                  {p.url ? (
-                    <a
-                      href={p.url}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="inline-flex items-start gap-1.5 hover:underline"
-                    >
-                      <span>{p.title}</span>
-                      <ExternalLink className="mt-1 size-3.5 shrink-0 text-fg-subtle" aria-hidden />
-                    </a>
-                  ) : (
-                    p.title
-                  )}
-                </p>
-                <Meta className="mt-0.5 block">{authorLine(p.authors)}</Meta>
-                <Meta className="mt-0.5 block">
-                  {[p.journal_title, p.year, p.publication_type, p.doi]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </Meta>
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-fg-subtle">
-                  {/* Which indexes hold it. Two agreeing is a stronger record
-                      than one, and a reader checking a suspect DOI is exactly
-                      who needs to know that. */}
-                  <span>
-                    Found in{" "}
-                    {p.found_in.length > 0 ? p.found_in.join(", ") : "one index"}
-                  </span>
-                  {p.cited_by != null && <span className="tabular">Cited by {p.cited_by}</span>}
-                </div>
-              </div>
-
-              <div className="shrink-0">
-                {p.claim ? (
-                  <Link to={`/papers/${p.claim.id}`} className="block text-right">
-                    <span className="block text-sm font-medium text-fg underline-offset-2 hover:underline">
-                      Already filed here
-                    </span>
-                    <Meta className="mt-0.5 block text-xs">
-                      {p.claim.mine ? "By you" : "By somebody here"} ·{" "}
-                      {stageOf(p.claim.status).label}
-                    </Meta>
-                  </Link>
-                ) : (
-                  <Button asChild size="sm">
-                    <Link to={fileLink(p)}>
-                      <FileText />
-                      File a claim
-                    </Link>
-                  </Button>
-                )}
-              </div>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </Group>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* Venues                                                                   */
-/* ------------------------------------------------------------------------ */
-
-/**
- * Journals, in two lists that must never become one.
- *
- * The top list is journals resolved against our own Scimago and SNIP rows:
- * these carry a quartile and real metrics because we can say which record
- * they are. The bottom list is names we have and cannot place, and it carries
- * no figure of any kind — the type it renders has none.
- *
- * Merging them, or "helpfully" showing an estimated quartile for the second
- * list, is the failure this whole screen is arranged to prevent: a plausible
- * journal beside a confident number is how somebody submits to a venue that
- * does not exist.
- */
-function Venues({ venues }: { venues: { resolved: ResolvedVenue[]; unresolved: UnresolvedVenue[] } }) {
-  const count = venues.resolved.length + venues.unresolved.length
-
-  return (
-    <Group title="Journals" count={count}>
-      {venues.resolved.length > 0 && (
-        <ul className="divide-y divide-line border-y border-line">
-          {venues.resolved.map((v) => (
-            <li key={v.issn ?? v.title} className="py-4">
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-                <div className="min-w-0 flex-1 basis-64">
-                  <p className="text-base font-medium text-fg">
-                    <Link
-                      to={`/journals/${encodeURIComponent(v.title)}`}
-                      className="underline-offset-2 hover:underline"
-                    >
-                      {v.title}
-                    </Link>
-                  </p>
-                  <Meta className="mt-0.5 block">
-                    {[v.publisher, v.subject, v.issn].filter(Boolean).join(" · ") || "—"}
-                  </Meta>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-subtle">
-                    <span className="tabular">SNIP {v.snip != null ? v.snip.toFixed(2) : "—"}</span>
-                    <span className="tabular">SJR {v.sjr != null ? v.sjr.toFixed(3) : "—"}</span>
-                    {v.dataset_year != null && <span>{v.dataset_year} data</span>}
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <ColumnLabel className="block">Quartile</ColumnLabel>
-                  <span className="tabular text-base font-medium text-fg">
-                    {v.quartile ?? "Not recorded"}
-                  </span>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {venues.unresolved.length > 0 && (
-        <Callout tone="caution" title="Names we could not verify">
-          <p className="mb-2">
-            These came back as journal names but are not in our own Scimago or SNIP data — so no
-            quartile, no SNIP, no payout. Attaching a number to a journal we cannot identify is
-            how somebody ends up submitting to a venue that does not exist.
-          </p>
-          <ul className="space-y-2.5">
-            {venues.unresolved.map((v) => (
-              <li key={v.issn ?? v.title} className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                <span className="min-w-0">
-                  <span className="block font-medium text-fg">{v.title}</span>
-                  {(v.publisher || v.issn) && (
-                    <span className="block text-fg-muted">
-                      {[v.publisher, v.issn].filter(Boolean).join(" · ")}
-                    </span>
-                  )}
-                  <span className="block text-xs">Unconfirmed — not in our journal data.</span>
-                </span>
-              </li>
+      <section aria-label="Jump to" className="mt-10">
+        <h2 className="mb-3 text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">Jump to</h2>
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <ChoiceTile to="/papers/new" area="record" icon={FilePlusCorner} title="File a paper" description="Claim a published paper." />
+          <ChoiceTile to="/search?scope=people" area="people" icon={UsersRound} title="Browse people" description="Everyone at the college." />
+          <ChoiceTile to="/journals" area="research" icon={BookOpen} title="Top journals" description="Quartiles and SNIP." />
+          <ChoiceTile to="/search?scope=departments&q=eng" area="people" icon={Building2} title="Departments" description="Who works where." />
+        </div>
+      </section>
+      {recent.length > 0 && (
+        <section aria-label="Recent searches" className="mt-8">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">Recent searches</h2>
+            <button
+              type="button"
+              onClick={() => {
+                clearRecent()
+                setRecent([])
+              }}
+              className="text-sm text-fg-muted hover:text-fg"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {recent.map((r) => (
+              <button key={r} type="button" onClick={() => onTry(r)} className="h-8 rounded-full bg-surface px-3 text-sm text-fg shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-hover">
+                {r}
+              </button>
             ))}
-          </ul>
-        </Callout>
+          </div>
+        </section>
       )}
-    </Group>
+    </div>
   )
 }
 
-/* ------------------------------------------------------------------------ */
-/* People                                                                   */
-/* ------------------------------------------------------------------------ */
+/* --------------------------------------------------------------- results */
 
-function People({ people }: { people: FoundPerson[] }) {
-  return (
-    <Group title="People here" count={people.length}>
-      <ul className="divide-y divide-line border-y border-line">
-        {people.map((p) => (
-          <li key={p.id} className="py-3">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-              <div className="min-w-0 flex-1 basis-48">
-                <p className="text-base font-medium text-fg">
-                  <Link to={`/people/${p.id}`} className="underline-offset-2 hover:underline">
-                    {p.name}
-                  </Link>
-                </p>
-                <Meta className="mt-0.5 block">
-                  {[p.designation, p.department].filter(Boolean).join(" · ") ||
-                    "Department not recorded"}
-                </Meta>
-              </div>
-              <Meta className="shrink-0 tabular">
-                {p.papers} paper{p.papers === 1 ? "" : "s"} filed
-              </Meta>
-            </div>
-          </li>
+function Results({
+  q,
+  scope,
+  groups,
+  loading,
+  failed,
+  onRetry,
+  active,
+  activeRow,
+  onActive,
+  onPick,
+  onScope,
+  meId,
+}: {
+  q: string
+  scope: SearchScope
+  groups: RowGroup[]
+  loading: boolean
+  failed: boolean
+  onRetry: () => void
+  active: number
+  activeRow: Row | undefined
+  onActive: (i: number) => void
+  onPick: (row: Row) => void
+  onScope: (s: SearchScope) => void
+  meId?: string
+}) {
+  const total = groups.reduce((n, g) => n + (g.kind === "exact" ? 0 : g.total), 0)
+  if (loading)
+    return (
+      <div className="mt-6 space-y-3" aria-busy="true">
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-20 w-full rounded-xl" />
         ))}
-      </ul>
-    </Group>
+      </div>
+    )
+  if (failed && groups.length === 0)
+    return (
+      <div role="alert" className="mt-6 flex items-center gap-3 rounded-xl bg-caution-wash px-4 py-3 text-sm text-caution">
+        Search did not answer — nothing was lost.
+        <button type="button" onClick={onRetry} className="inline-flex items-center gap-1 font-medium underline">
+          <RotateCw aria-hidden className="size-4" /> Retry
+        </button>
+      </div>
+    )
+  if (groups.length === 0) return <NoResults q={q} onScope={onScope} />
+
+  let i = -1
+  return (
+    <div className="mt-4 grid gap-6 lg:grid-cols-12">
+      <div id="search-results" role="listbox" aria-label={`${total} results`} className="min-w-0 space-y-8 lg:col-span-8">
+        <p className="text-sm text-fg-muted">
+          {total} {total === 1 ? "result" : "results"} for “{q}”
+        </p>
+        {groups.map((g) => (
+          <section key={g.kind} aria-label={GROUP_LABEL[g.kind]}>
+            <header className="mb-2 flex items-center justify-between">
+              <h2 className="text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">
+                {GROUP_LABEL[g.kind]} {g.kind !== "exact" && `(${g.total})`}
+              </h2>
+              {g.total > g.rows.length && scopeOf(g.kind) !== scope && (
+                <button type="button" onClick={() => onScope(scopeOf(g.kind))} className="text-sm text-accent hover:underline">
+                  See all →
+                </button>
+              )}
+            </header>
+            {g.status === "error" && (
+              <Chip tone="caution" className="mb-2">
+                This part of search is slow right now — showing what answered. <button type="button" onClick={onRetry} className="ml-1 underline">Retry</button>
+              </Chip>
+            )}
+            <div className={cn(g.kind === "person" || g.kind === "journal" ? "grid gap-3 sm:grid-cols-2" : "space-y-2")}>
+              {g.rows.map((row) => {
+                i += 1
+                const n = i
+                return (
+                  <div
+                    key={row.key}
+                    id={`search-row-${n}`}
+                    role="option"
+                    aria-selected={n === active}
+                    onMouseEnter={() => onActive(n)}
+                    className={cn("rounded-xl", n === active && "ring-2 ring-(--color-accent) ring-offset-2 ring-offset-bg")}
+                  >
+                    <Entity row={row} meId={meId} onPick={() => onPick(row)} index={n} />
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+      <aside aria-label="Preview" className="max-lg:hidden lg:col-span-4">
+        <div className="sticky top-28">{activeRow && <Preview row={activeRow} meId={meId} />}</div>
+      </aside>
+    </div>
   )
 }
 
-/* ------------------------------------------------------------------------ */
-/* Our own claims                                                           */
-/* ------------------------------------------------------------------------ */
+function scopeOf(kind: string): SearchScope {
+  return ({ person: "people", paper: "papers", claim: "papers", journal: "journals", topic: "topics", department: "departments", page: "pages", action: "pages" } as Record<string, SearchScope>)[kind] ?? "all"
+}
 
-/**
- * Claims already filed here.
- *
- * The amount is the one thing on this screen a head of department must never
- * see. The server leaves the key off for them; this checks `can().seeMoney`
- * as well, because a defence that exists only on one side stops working
- * silently the first time somebody changes the other.
- */
-function Tickets({ tickets, seeMoney }: { tickets: FoundTicket[]; seeMoney: boolean }) {
+function Entity({ row, meId, onPick, index }: { row: Row; meId?: string; onPick: () => void; index: number }) {
+  const it = row.item
+  const m = it?.meta ?? {}
+  if (row.kind === "person" && it) {
+    const ext = !!m.external
+    return (
+      <PersonCard
+        person={{ name: it.title, initials: initialsOf(it.title), photo_url: null, department: ext ? null : m.department, designation: ext ? null : m.designation }}
+        to={it.url || undefined}
+        affiliation={ext ? it.chips[0] ?? "External" : "Saveetha"}
+        context={personContext(it)}
+        messageTo={ext ? undefined : `/messages?to=${it.id}`}
+        path={meId && index < 8 ? <PersonConnection meId={meId} to={m.connect} /> : undefined}
+      />
+    )
+  }
+  if (row.kind === "paper" && it) {
+    const authors = (m.authors ?? []).map((a: { name: string; you: boolean }) => ({ name: a.name, you: a.you }))
+    return (
+      <PaperCard
+        title={it.title}
+        to={it.url && !/^https?:/.test(it.url) ? it.url : undefined}
+        journal={m.venue}
+        year={m.year}
+        quartile={m.quartile}
+        authors={authors}
+        sources={[...(m.mine ? ["Yours"] : []), m.claimed ? "Claimed" : null, m.citations ? `${m.citations} citations` : null].filter(Boolean) as string[]}
+        claim={m.mine && !m.claimed ? { unclaimed: true, fileTo: "/papers/new?method=scopus" } : undefined}
+      />
+    )
+  }
+  if (row.kind === "journal" && it) {
+    return <JournalCard name={it.title} to={it.url} quartile={m.quartile} snip={m.snip} colleagues={m.colleagues} subjects={m.subject ? [m.subject] : []} />
+  }
   return (
-    <Group
-      title="Claims filed here"
-      count={tickets.length}
-      note={
-        <Meta className="block">
-          Papers this college has already filed against. Check here before filing — a second claim
-          for the same paper is refused at clearing, after the work of filing it.
-        </Meta>
-      }
-    >
-      <ul className="divide-y divide-line border-y border-line">
-        {tickets.map((t) => {
-          const stage = stageOf(t.status)
-          return (
-            <li key={t.id} className="py-4">
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-                <div className="min-w-0 flex-1 basis-64">
-                  <p className="text-base font-medium text-fg">
-                    <Link to={`/papers/${t.id}`} className="underline-offset-2 hover:underline">
-                      {t.paper_title || "Untitled claim"}
-                    </Link>
-                  </p>
-                  <Meta className="mt-0.5 block">
-                    {[t.claimant?.name, t.department, t.journal_title, t.publication_year]
-                      .filter(Boolean)
-                      .join(" · ") || "—"}
-                  </Meta>
-                  {t.doi && <Meta className="mt-0.5 block text-xs">{t.doi}</Meta>}
-                </div>
-                <div className="flex shrink-0 items-center gap-4">
-                  <Stage stage={stage} />
-                  {seeMoney && t.amount != null && (
-                    <span className="tabular text-base font-medium text-fg">
-                      {money(t.amount)}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </li>
-          )
-        })}
-      </ul>
-    </Group>
+    <div className="panel p-1">
+      <ResultRow row={row} id={`search-inner-${row.key}`} active={false} onPick={onPick} />
+    </div>
+  )
+}
+
+function personContext(it: SearchItem) {
+  const m = it.meta ?? {}
+  if (m.external) {
+    const with_ = (m.college_coauthors ?? []) as { name: string; papers_together: number }[]
+    return with_.length
+      ? `${m.papers} papers · wrote with ${with_.map((c) => c.name).slice(0, 2).join(", ")}`
+      : `${m.papers} papers`
+  }
+  return m.papers ? `${m.papers} papers` : undefined
+}
+
+type ConnectionBody = {
+  hops: number | null
+  paths: { people: { key: string; user_id: string | null; name: string; via: { id: string }[] }[] }[]
+}
+
+/** "You → X → Y" from /api/people/{me}/connection, or "Not connected yet". */
+function PersonConnection({ meId, to }: { meId: string; to: string }) {
+  const self = to === meId
+  const { data, isLoading } = useApi<ConnectionBody>(["connection", meId, to], `/api/people/${meId}/connection?to=${encodeURIComponent(to)}`, {
+    enabled: !!to && !self,
+    retry: false,
+    staleTime: 5 * 60_000,
+  })
+  if (self || !to) return null
+  if (isLoading) return <Skeleton className="h-8 w-48" />
+  if (!data || !data.paths.length || data.hops == null || data.hops > 2)
+    return <p className="text-sm text-fg-subtle">Not connected yet</p>
+  const paths: Hop[][] = data.paths.slice(0, 2).map((p) =>
+    p.people.map((h) => ({
+      person: { id: h.user_id ?? undefined, name: h.name, initials: initialsOf(h.name), photo_url: null },
+      evidence: h.via?.length ? `${h.via.length} ${h.via.length === 1 ? "paper" : "papers"}` : undefined,
+    }))
+  )
+  return <ConnectionPath paths={paths} />
+}
+
+function Preview({ row, meId }: { row: Row; meId?: string }) {
+  const it = row.item
+  const m = it?.meta ?? {}
+  return (
+    <div className="panel space-y-3 p-5">
+      <p className="text-xs font-medium tracking-[0.04em] text-fg-subtle uppercase">{GROUP_LABEL[row.kind]}</p>
+      <h3 className="text-lg font-semibold text-fg">{row.title}</h3>
+      {row.subtitle && <p className="text-sm text-fg-muted">{row.subtitle}</p>}
+      {row.chips.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {row.chips.map((c) => (
+            <Chip key={c}>{c}</Chip>
+          ))}
+        </div>
+      )}
+      {row.kind === "person" && meId && m.connect && <PersonConnection meId={meId} to={m.connect} />}
+      {row.kind === "person" && m.external && (m.college_coauthors ?? []).length > 0 && (
+        <p className="text-sm text-fg-muted">
+          {(m.college_coauthors as { name: string; papers_together: number }[])
+            .map((c) => `${c.papers_together} ${c.papers_together === 1 ? "paper" : "papers"} with ${c.name}`)
+            .join("; ")}
+        </p>
+      )}
+      {row.kind === "paper" && m.doi && <p className="text-sm break-all text-fg-muted">DOI {m.doi}</p>}
+    </div>
+  )
+}
+
+function NoResults({ q, onScope }: { q: string; onScope: (s: SearchScope) => void }) {
+  return (
+    <div className="mx-auto mt-10 flex max-w-md flex-col items-center text-center">
+      <div data-area="record" className="rounded-3xl bg-(--area-wash) p-4">
+        <img src="/illustrations/empty-search.svg" alt="" width={200} height={125} />
+      </div>
+      <h2 className="mt-5 text-lg font-semibold text-fg">Nothing called “{q}” here or in the literature.</h2>
+      <p className="mt-2 text-sm text-fg-muted">
+        Check the spelling, try a DOI, or search only{" "}
+        <button type="button" className="text-accent underline" onClick={() => onScope("people")}>
+          People
+        </button>{" "}
+        /{" "}
+        <button type="button" className="text-accent underline" onClick={() => onScope("papers")}>
+          Papers
+        </button>
+        .
+      </p>
+      {DOI_PATTERN.test(q) && <p className="mt-2 text-sm text-fg-muted">This DOI is not in the college's record yet.</p>}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------- directory */
+
+type Card = { id: string; name: string; initials: string; photo_url: string | null; department: string | null; designation: string | null; papers: number }
+
+/** The People scope with no query: the old Colleagues directory. */
+function Directory({ dept, onDept }: { dept: string; onDept: (d: string) => void }) {
+  const [limit, setLimit] = useState(48)
+  const depts = useApi<string[]>(["meta", "departments"], "/api/meta/departments")
+  const { data, isLoading, isError, refetch } = useApi<{ total: number; results: Card[] }>(
+    ["people-directory", dept, limit],
+    `/api/people?limit=${limit}${dept ? `&department=${encodeURIComponent(dept)}` : ""}`,
+    { placeholderData: (p) => p }
+  )
+  const people = useMemo(() => [...(data?.results ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [data])
+  return (
+    <section data-area="people" className="mt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-fg-muted">
+          Everyone at the college — {data ? data.total : "—"} people. Filter by department, or type a name.
+        </p>
+        <label className="flex items-center gap-2 text-sm text-fg-muted">
+          Department
+          <select
+            value={dept}
+            onChange={(e) => onDept(e.target.value)}
+            className="h-9 max-w-56 rounded-md bg-surface px-2 text-sm text-fg shadow-[inset_0_0_0_1px_var(--color-field)]"
+          >
+            <option value="">All departments</option>
+            {(depts.data ?? []).map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          {dept && (
+            <button type="button" aria-label="Clear department" onClick={() => onDept("")} className="rounded p-1 hover:bg-hover">
+              <X className="size-4" />
+            </button>
+          )}
+        </label>
+      </div>
+      {isError && (
+        <p role="alert" className="mt-4 text-sm text-critical">
+          The directory did not load. Nothing was lost.{" "}
+          <button type="button" className="underline" onClick={() => void refetch()}>
+            Retry
+          </button>
+        </p>
+      )}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {isLoading
+          ? Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)
+          : people.map((p) => (
+              <PersonCard key={p.id} person={p} to={`/people/${p.id}`} messageTo={`/messages?to=${p.id}`} context={p.papers ? `${p.papers} papers` : undefined} />
+            ))}
+      </div>
+      {data && data.total > people.length && limit < 60 && (
+        <p className="mt-4 text-center text-sm text-fg-muted">
+          Showing {people.length} of {data.total}. Type a name to find anyone else.
+        </p>
+      )}
+      {data && data.total > people.length && limit < 60 && (
+        <div className="mt-2 text-center">
+          <button type="button" onClick={() => setLimit(60)} className="text-sm text-accent hover:underline">
+            Show more
+          </button>
+        </div>
+      )}
+    </section>
   )
 }

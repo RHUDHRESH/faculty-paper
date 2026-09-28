@@ -1,0 +1,105 @@
+# Render blueprint: the whole app on Render's free plan, with no secret to paste.
+#
+#   faculty-paper-db   free Postgres (expires 30 days after creation unless
+#                      upgraded -- see DEPLOY.md); Render wires DATABASE_URL.
+#   faculty-paper-api  the Django API (Docker). Uploaded PDFs are stored in the
+#                      database (DJANGO_MEDIA_STORAGE=db): the free plan has no
+#                      persistent disk. Sleeps after ~15 min idle; the first
+#                      request after that waits ~30-50 s.
+#   faculty-paper      the SPA as a static site; /api and /media are rewritten
+#                      to the API, so the browser talks to one origin.
+#
+# Data: open https://faculty-paper.onrender.com/setup, create the first
+# administrator, then Imports -> "Restore a full export" with the dumpdata file.
+databases:
+  - name: faculty-paper-db
+    plan: free
+    region: singapore
+    databaseName: faculty
+    user: faculty
+
+services:
+  - type: web
+    name: faculty-paper-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: faculty-paper-db
+          property: connectionString
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: .onrender.com
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://faculty-paper.onrender.com
+      - key: SECURE_SSL_REDIRECT
+        value: "true"
+      - key: DJANGO_MEDIA_STORAGE
+        value: db
+      - key: APP_BASE_URL
+        value: https://faculty-paper.onrender.com
+      - key: LOG_FORMAT
+        value: json
+      - key: GOOGLE_HOSTED_DOMAIN
+        value: saveetha.ac.in
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        value: 635082195334-p8h4j4o75r9jqk24hsfq6bbom0s8fjei.apps.googleusercontent.com
+      # AI suggestions from a hosted model (DEPLOY.md, section E). Leave all
+      # three empty and every AI panel shows its counted version instead.
+      - key: AI_BASE_URL
+        sync: false
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_MODEL
+        sync: false
+      # Alert email (DEPLOY.md, section F). Leave EMAIL_HOST empty and every
+      # alert stays in the app. The free plan blocks ports 25/465/587, so use
+      # Brevo on 2525 here; Gmail needs a paid instance.
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: EMAIL_USE_TLS
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      # WhatsApp for payment news (section F). Off unless both are set.
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
+
+  - type: web
+    name: faculty-paper
+    runtime: static
+    rootDir: frontend2
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeploy: false
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://faculty-paper-api-4iso.onrender.com/api/*
+      - type: rewrite
+        source: /media/*
+        destination: https://faculty-paper-api-4iso.onrender.com/media/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable

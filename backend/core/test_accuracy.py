@@ -92,6 +92,9 @@ class AuthorAccuracyTests(TestCase):
     def test_run_together_roster_name_matches_split_paper_name(self):
         self.assertGreaterEqual(name_score("K. Kamala Devi", "Dr. Kamaladevi K"), 0.85)
         self.assertEqual(name_score("Kamala Devi R", "Dr. Kamaladevi K"), 0.0)
+        self.assertGreaterEqual(name_score("Dr. R. Subhashini", "R. Subashini"), 0.85)  # one letter apart
+        self.assertEqual(name_score("Dr. R. Subhashini", "K. Subashini"), 0.0)
+        self.assertEqual(name_score("Kumaran R", "Kumar R"), 0.0)
         p = pub("A long enough title about kamala devi things")
         Authorship.objects.create(publication=p, position=1, display_name="K. Kamala Devi",
                                   author_key="n:k", is_college=True)

@@ -59,11 +59,35 @@ def name_key(name: str | None) -> str:
     return " ".join(sorted(full) + sorted(initials))
 
 
+def _one_edit(x: str, y: str) -> bool:
+    """Same long name spelt one letter apart ("Subhashini" / "Subashini")."""
+    if min(len(x), len(y)) < 6 or abs(len(x) - len(y)) > 1 or x[0] != y[0]:
+        return False
+    if len(x) == len(y):
+        return sum(p != q for p, q in zip(x, y)) == 1
+    if len(x) > len(y):
+        x, y = y, x
+    return any(y[:i] + y[i + 1:] == x for i in range(len(y)))
+
+
 def name_score(a: str | None, b: str | None) -> float:
     fa, ia = name_parts(a)
     fb, ib = name_parts(b)
     if not fa or not fb:
         return 0.0
+    # A one-letter spelling difference on a long token counts as the same
+    # token, a little weaker than an exact match.
+    fuzz = 0.0
+    if not set(fa) & set(fb):
+        spelt = {t: s for t in fb for s in fa if _one_edit(s, t)}
+        if spelt:
+            fb = tuple(spelt.get(t, t) for t in fb)
+            fuzz = 0.05
+    score = _score(fa, ia, fb, ib)
+    return round(score - fuzz, 4) if score > 0 else 0.0
+
+
+def _score(fa: tuple[str, ...], ia: tuple[str, ...], fb: tuple[str, ...], ib: tuple[str, ...]) -> float:
     if "".join(fa) == "".join(fb) and (fa != fb):
         # "Joyalisac" / "Joyal Isac" -- unless their initials disagree
         # ("Kamaladevi R" / "K. Kamala Devi").

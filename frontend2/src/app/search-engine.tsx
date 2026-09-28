@@ -1,5 +1,4 @@
 import {
-  BadgeCheck,
   BookOpen,
   Building2,
   CalendarDays,
@@ -122,7 +121,6 @@ export const ACTIONS: SearchAction[] = [
   },
   { id: "message", label: "New message", icon: MessageCircle, keywords: ["message", "chat", "dm", "write to"], suggestOn: ["/messages", "/people"], run: (c) => c.navigate("/messages") },
   { id: "event", label: "Add calendar event", icon: CalendarDays, keywords: ["event", "calendar", "meeting", "deadline", "add"], suggestOn: ["/calendar"], run: (c) => c.navigate("/calendar") },
-  { id: "impact", label: "Open my impact card", icon: BadgeCheck, keywords: ["impact", "card", "share", "wrapped"], suggestOn: ["/research"], run: (c) => c.navigate("/impact") },
   { id: "gcal", label: "Subscribe calendar to Google", icon: CalendarDays, keywords: ["google", "subscribe", "ics", "feed"], suggestOn: ["/calendar"], run: (c) => c.navigate("/calendar?subscribe=1") },
   { id: "people", label: "Browse people", icon: UsersRound, keywords: ["colleagues", "directory", "people", "faculty"], run: (c) => c.navigate("/search?scope=people") },
   { id: "signout", label: "Sign out", icon: LogOut, keywords: ["sign out", "log out", "logout", "exit"], run: (c) => void c.signOut() },

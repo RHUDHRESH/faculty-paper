@@ -1,5 +1,4 @@
 import {
-  BadgeCheck,
   CalendarDays,
   FilePlusCorner,
   Lightbulb,
@@ -84,6 +83,7 @@ export const REDIRECTS: Record<string, string> = {
   "/network": "/collaborate?view=map",
   "/goals": "/research?tab=me#this-year",
   "/programme": "/research?tab=me",
+  "/impact": "/research",
 }
 
 const ALL_STAFF: Role[] = [
@@ -265,15 +265,6 @@ export const NAV: NavItem[] = [
       "ranking", "rank", "top", "standings", "department", "q1", "score", "position",
       "wall of fame", "celebrate", "paper of the month",
     ],
-  },
-  {
-    to: "/impact",
-    label: "Impact card",
-    icon: BadgeCheck,
-    roles: CLAIMANTS,
-    group: "Honours",
-    area: "honours",
-    keywords: ["share", "linkedin", "whatsapp", "badges", "card"],
   },
 
   // TIME. Pinned above the account block rather than in the list.

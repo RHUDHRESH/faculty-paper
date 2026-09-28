@@ -164,6 +164,7 @@ export function Imports() {
       <PriorPaymentsSection stats={stats.data} onImported={refreshStats} />
       <WorkbookSection onImported={refreshStats} />
       <FypRosterSection />
+      <ScopusIdsSection />
       <ScopusProfilesSection />
       <ProcessQueueSection />
       {me?.role === "SUPER_ADMIN" && <RestoreSection onImported={refreshStats} />}
@@ -1829,6 +1830,93 @@ function PersonLink({ person }: { person: PersonRow }) {
     <Link to={`/people/${person.user_id}`} className="underline underline-offset-2">
       {person.name}
     </Link>
+  )
+}
+
+type ScopusIdLink = {
+  entries: number
+  set: number
+  same: number
+  conflicts: { user: string; staff_id: string | null; account: string; erp: string; source: string }[]
+  unmatched: { staff_id: string; bio_id: string; name: string; scopus_id: string }[]
+}
+
+/**
+ * Everybody's Scopus author id, from the ERP workbook's Faculty_Data sheet
+ * (and its paper sheets for anyone the roster leaves blank). Matched by
+ * staff id, then biometric id, then email; a different id already on an
+ * account is listed as a conflict and left alone. Safe to run again.
+ */
+export function ScopusIdsSection() {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<ScopusIdLink | null>(null)
+
+  async function run() {
+    if (!file) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await uploadWorkbook<ScopusIdLink>("/api/admin/scopus-ids/link", file)
+      setResult(res)
+      toast.ok(`${nf(res.set)} Scopus IDs set.`)
+      setFile(null)
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const reason = busy ? "Linking." : !file ? "Choose the ERP workbook first." : null
+
+  return (
+    <section className="space-y-4" aria-labelledby="scopus-ids">
+      <div>
+        <SectionTitle>
+          <span id="scopus-ids">Scopus IDs from the ERP workbook</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          Sets every account's Scopus author ID from the workbook's Faculty_Data sheet, matched by
+          staff ID, then biometric ID, then email. An account that already has a different ID is
+          listed below and never overwritten.
+        </Sub>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field label="ERP workbook" hint="Publication_Processing_ERP .xlsx">
+          <FileInput
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            file={file}
+            onPick={setFile}
+            disabled={busy}
+            aria-label="ERP workbook for Scopus IDs"
+          />
+        </Field>
+        <div className="space-y-1.5">
+          <Button kind="default" disabled={reason !== null} onClick={() => void run()}>
+            <Upload />
+            {busy ? "Linking…" : "Link Scopus IDs"}
+          </Button>
+          <WhyDisabled reason={reason} />
+        </div>
+      </div>
+      {result ? (
+        <ImportResult>
+          {nf(result.entries)} people carry a Scopus ID in the workbook: {nf(result.set)} set,{" "}
+          {nf(result.same)} already the same, {nf(result.conflicts.length)} conflicts,{" "}
+          {nf(result.unmatched.length)} with no account.
+          {result.conflicts.length ? (
+            <ul className="mt-2 list-disc pl-5">
+              {result.conflicts.map((c) => (
+                <li key={`${c.staff_id}-${c.erp}`}>
+                  {c.user} ({c.staff_id || "no staff ID"}): account has {c.account}, workbook says{" "}
+                  {c.erp}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </ImportResult>
+      ) : null}
+    </section>
   )
 }
 

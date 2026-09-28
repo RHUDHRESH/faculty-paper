@@ -135,7 +135,7 @@ describe("the Convocation sidebar", () => {
       "My papers", "File a paper",
       "My research", "Discover",
       "Who to work with", "Messages", "Discussions",
-      "Leaderboard", "Impact card",
+      "Leaderboard",
       "Calendar",
     ])
     expect([...new Set(items.map((i) => i.group).filter(Boolean))]).toEqual(["Record", "Research", "People", "Honours"])
@@ -149,12 +149,13 @@ describe("the Convocation sidebar", () => {
 
   it("drops the folded destinations from the sidebar and redirects them", () => {
     const to = NAV.map((i) => i.to)
-    for (const gone of ["/u", "/network", "/goals", "/programme", "/wall"]) expect(to).not.toContain(gone)
+    for (const gone of ["/u", "/network", "/goals", "/programme", "/wall", "/impact"]) expect(to).not.toContain(gone)
     expect(REDIRECTS).toEqual({
       "/u": "/search?scope=people",
       "/network": "/collaborate?view=map",
       "/goals": "/research?tab=me#this-year",
       "/programme": "/research?tab=me",
+      "/impact": "/research",
     })
   })
 

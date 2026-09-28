@@ -3,7 +3,7 @@ import type { Area } from "@/ui/chip"
 
 /**
  * The certificate surface (docs/ux/00 §8): cream paper, gold ribbon on top.
- * Impact card preview and Wall of fame tiles only.
+ * Wall of fame tiles only.
  */
 export function SharePlate({
   children,

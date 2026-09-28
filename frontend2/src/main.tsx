@@ -118,7 +118,6 @@ const Research = page(() => import("@/pages/research"), "Research")
 const Setup = page(() => import("@/pages/setup"), "Setup")
 const InstitutionSettings = page(() => import("@/pages/institution-settings"), "InstitutionSettings")
 const WallOfFame = page(() => import("@/pages/wall"), "WallOfFame")
-const ImpactCardPage = page(() => import("@/pages/impact"), "ImpactCardPage")
 const NotificationsPage = page(() => import("@/pages/notifications"), "NotificationsPage")
 const NotificationSettings = page(() => import("@/pages/notification-settings"), "NotificationSettings")
 
@@ -163,7 +162,6 @@ const PRELOADS: [string, Page][] = [
   ["/research", Research],
   ["/leaderboard", Leaderboard],
   ["/wall", WallOfFame],
-  ["/impact", ImpactCardPage],
   ["/calendar", Calendar],
   ["/department", Department],
   ["/publications", Publications],
@@ -380,7 +378,6 @@ function App() {
           <Route path="/data" element={<Data />} />
           <Route path="/me" element={<Profile />} />
           <Route path="/wall" element={<WallOfFame />} />
-          <Route path="/impact" element={<ImpactCardPage />} />
           <Route path="/privacy" element={<Privacy />} />
           {import.meta.env.DEV && <Route path="/gallery" element={<Gallery />} />}
           {/* Never a silent redirect home: see the note in not-found.tsx. */}

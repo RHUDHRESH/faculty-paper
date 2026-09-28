@@ -9,7 +9,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
-import { ImpactCardPage } from "@/pages/impact"
 import { WallBoard, mayPin, type WallPayload } from "@/pages/wall"
 
 const Board = () => <WallBoard department="" month="" onMonth={() => {}} />
@@ -17,9 +16,7 @@ import { FACULTY, HOD, fakeApi, renderWithProviders, type ApiTable } from "@/tes
 
 /**
  * The wall celebrates papers, a month at a time, with nothing about money on
- * it; only a department's own head chooses its paper of the month. The
- * impact card is private until its owner shares it, and the link it offers
- * is on this site's own address.
+ * it; only a department's own head chooses its paper of the month.
  */
 
 const WALL: WallPayload = {
@@ -120,100 +117,5 @@ describe("mayPin", () => {
     expect(mayPin({ ...FACULTY, role: "PRINCIPAL" }, "")).toBe(true)
     expect(mayPin({ ...FACULTY, role: "PRINCIPAL" }, "Physics")).toBe(false)
     expect(mayPin({ ...FACULTY, role: "SUPER_ADMIN" }, "Physics")).toBe(true)
-  })
-})
-
-describe("ImpactCardPage", () => {
-  const IMPACT = {
-    name: FACULTY.name,
-    designation: "Associate Professor",
-    department: "Mechanical Engineering",
-    college: "Saveetha Engineering College",
-    papers: 12,
-    q1: 3,
-    first_author: 5,
-    citations: null,
-    rank: 4,
-    ranked_among: 31,
-    rank_on_card: true,
-    top_journal: "Nature Photonics",
-    since: 2019,
-    as_of: "2026-09-24",
-    initials: "AR",
-    papers_source: "record",
-    headlines: [
-      { key: "dept_rank", big: "#2", label: "in Mechanical Engineering, of 31 publishing colleagues", priority: 1 },
-      { key: "papers", big: "12", label: "papers published", priority: 8 },
-    ],
-    headline_text: "Writes about heat transfer.",
-    strip: [{ year: 2026, papers: 2 }],
-    photo_url: null,
-  }
-
-  it("previews the server card and redraws it for each format and headline", async () => {
-    mount(<ImpactCardPage />, FACULTY, {
-      "/api/me/impact": () => ({ ...IMPACT, share: { enabled: false, token: null, path: null } }),
-    })
-    const img = await screen.findByRole("img", { name: /impact card, Portrait format/ })
-    expect(img.getAttribute("src")).toMatch(/format=portrait.*headline=dept_rank/)
-    await userEvent.click(screen.getByRole("radio", { name: /Story/ }))
-    await userEvent.click(screen.getByRole("radio", { name: /papers published/ }))
-    const download = screen.getByRole("link", { name: /Download PNG/ })
-    expect(download.getAttribute("href")).toMatch(/format=story.*headline=papers/)
-  })
-
-  it("asks before turning the public link on to share", async () => {
-    const put = vi.fn(() => ({ enabled: true, token: "tok", path: "/api/share/impact/tok" }))
-    const open = vi.spyOn(window, "open").mockImplementation(() => null)
-    mount(<ImpactCardPage />, FACULTY, {
-      "/api/me/impact/share": put,
-      "/api/me/impact": () => ({ ...IMPACT, share: { enabled: false, token: null, path: null } }),
-    })
-    await userEvent.click(await screen.findByRole("button", { name: /Share$/ }))
-    await userEvent.click(await screen.findByRole("menuitem", { name: "LinkedIn" }))
-    expect(await screen.findByText("Turn on your public link?")).toBeInTheDocument()
-    expect(put).not.toHaveBeenCalled()
-    await userEvent.click(screen.getByRole("button", { name: "Turn on and share" }))
-    await waitFor(() => expect(open).toHaveBeenCalled())
-    expect(String(open.mock.calls[0][0])).toContain("linkedin.com/sharing/share-offsite/?url=")
-    open.mockRestore()
-  })
-
-  it("is private until shared, and says what the card leaves out", async () => {
-    mount(<ImpactCardPage />, FACULTY, {
-      "/api/me/impact": () => ({ ...IMPACT, share: { enabled: false, token: null, path: null } }),
-    })
-    expect(await screen.findByRole("switch", { name: /^Share my card by link/ })).toHaveAttribute(
-      "aria-checked",
-      "false"
-    )
-    expect(screen.getByText(/never shows money/)).toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: /api\/share/ })).toBeNull()
-  })
-
-  it("offers the link on this site's own address once shared", async () => {
-    mount(<ImpactCardPage />, FACULTY, {
-      "/api/me/impact": () => ({
-        ...IMPACT,
-        share: { enabled: true, token: "tok", path: "/api/share/impact/tok" },
-      }),
-    })
-    const link = await screen.findByRole("link", { name: `${window.location.origin}/api/share/impact/tok` })
-    expect(link).toHaveAttribute("href", `${window.location.origin}/api/share/impact/tok`)
-  })
-
-  it("turns sharing on through the server", async () => {
-    const put = vi.fn(() => ({ enabled: true, token: "tok", path: "/api/share/impact/tok" }))
-    mount(<ImpactCardPage />, FACULTY, {
-      "/api/me/impact/share": put,
-      "/api/me/impact": () => ({ ...IMPACT, share: { enabled: false, token: null, path: null } }),
-    })
-    await userEvent.click(await screen.findByRole("switch", { name: /^Share my card by link/ }))
-    await waitFor(() =>
-      expect(vi.mocked(api)).toHaveBeenCalledWith("/api/me/impact/share", {
-        method: "PUT",
-        json: { enabled: true },
-      })
-    )
   })
 })

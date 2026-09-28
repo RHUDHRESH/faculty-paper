@@ -3,7 +3,6 @@ import { Link, useSearchParams } from "react-router-dom"
 import {
   AlarmClock,
   ArrowRight,
-  BadgeCheck,
   Building2,
   FileText,
   Gem,
@@ -198,13 +197,6 @@ export function Research() {
                 Your public profile
               </Link>
             )}
-            <Link
-              to="/impact"
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-fg hover:bg-accent-hover"
-            >
-              <BadgeCheck aria-hidden className="size-4" strokeWidth={1.75} />
-              Impact card
-            </Link>
           </>
         }
       >

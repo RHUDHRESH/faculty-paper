@@ -1,17 +1,16 @@
 import { useMemo, useState } from "react"
-import { Link, Navigate, useSearchParams } from "react-router-dom"
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
 import {
   CloudDownload,
   ClipboardPaste,
-  Download,
   FilePlusCorner,
   Hourglass,
   IndianRupee,
-  LayoutGrid,
-  List,
   MoreHorizontal,
   PenLine,
   Search,
+  SlidersHorizontal,
+  X,
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 
@@ -23,13 +22,11 @@ import { Chip } from "@/ui/chip"
 import { ConfirmDialog } from "@/ui/dialog"
 import { PaperCard } from "@/ui/entity"
 import { Input } from "@/ui/field"
-import { filterBar } from "@/ui/filter-bar"
 import { HeroBand } from "@/ui/hero"
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/ui/menu"
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { money, stageOf } from "@/ui/paper"
-import { RecordStrip, type StripMonth } from "@/ui/record-strip"
+import { Avatar, initialsOf } from "@/ui/person"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { TableScroller } from "@/ui/table"
 import { toast } from "@/ui/toast"
 import { topicPicture } from "@/ui/picture"
 
@@ -46,6 +43,8 @@ export type RecordAuthor = {
   user_id: string | null
   is_college: boolean
   institution: string | null
+  photo_url?: string | null
+  initials?: string
 }
 
 export type RecordPaper = {
@@ -100,7 +99,6 @@ const SOURCE_LABEL: Record<string, string> = {
   claim: "Claims & ledger",
 }
 
-const VIEW_KEY = "papers.view"
 
 function csvCell(v: unknown): string {
   const s = v == null ? "" : String(v)
@@ -164,11 +162,38 @@ export async function downloadMine(): Promise<void> {
 }
 
 const selectClass =
-  "h-9 rounded-md bg-surface px-2 text-sm text-fg ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent outline-none"
+  "h-9 w-full rounded-md bg-surface px-2 text-sm text-fg ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent outline-none"
+
+const SORT_LABEL: Record<string, string> = {
+  year: "Newest first",
+  oldest: "Oldest first",
+  citations: "Most cited",
+  title: "Title A to Z",
+}
+
+/** What a Scopus check changed, in words: "1 new paper, 2 now paid". */
+export function describeChange(before: RecordPaper[], after: RecordPaper[]): string {
+  const was = new Map(before.map((p) => [p.id, tabOf(p)]))
+  const added = after.filter((p) => !was.has(p.id)).length
+  const moved: Record<string, number> = {}
+  for (const p of after) {
+    const w = was.get(p.id)
+    const now = tabOf(p)
+    if (w && w !== now) moved[now] = (moved[now] ?? 0) + 1
+  }
+  const parts: string[] = []
+  if (added) parts.push(`${added} new ${added === 1 ? "paper" : "papers"}`)
+  if (moved.paid) parts.push(`${moved.paid} now paid`)
+  if (moved.progress) parts.push(`${moved.progress} now in progress`)
+  if (moved.unclaimed) parts.push(`${moved.unclaimed} ready to file`)
+  if (moved.ineligible) parts.push(`${moved.ineligible} no longer eligible`)
+  return parts.length ? parts.join(", ") : "nothing new"
+}
 
 export function Papers() {
   const [params, setParams] = useSearchParams()
   const qc = useQueryClient()
+  const nav = useNavigate()
   const status = params.get("status")
   const tab = ((params.get("tab") ?? params.get("filter") ?? "all") as Tab) || "all"
   const year = params.get("year") ?? ""
@@ -177,13 +202,12 @@ export function Papers() {
   const type = params.get("type") ?? ""
   const role = params.get("role") ?? ""
   const sort = params.get("sort") ?? "year"
-  const [view, setViewState] = useState<"cards" | "table">(() =>
-    typeof localStorage !== "undefined" && localStorage.getItem(VIEW_KEY) === "table" ? "table" : "cards"
-  )
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [fresh, setFresh] = useState<Set<string>>(new Set())
   const [disputing, setDisputing] = useState<RecordPaper | null>(null)
   const [pulling, setPulling] = useState(false)
+  const [pulled, setPulled] = useState<string | null>(null)
+  const [showFilters, setShowFilters] = useState(false)
 
   const query = useApi<Payload>(["me-publications", sort], `/api/me/publications?sort=${sort}`)
 
@@ -199,13 +223,15 @@ export function Papers() {
       { replace: true }
     )
   }
-  function setView(v: "cards" | "table") {
-    setViewState(v)
-    try {
-      localStorage.setItem(VIEW_KEY, v)
-    } catch {
-      /* private mode */
-    }
+  function clearFilters() {
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        for (const k of ["year", "quartile", "type", "role", "sort", "q"]) next.delete(k)
+        return next
+      },
+      { replace: true }
+    )
   }
 
   const all = query.data?.publications ?? []
@@ -214,24 +240,11 @@ export function Papers() {
     for (const p of all) c[tabOf(p)]++
     return c
   }, [all])
-  const years = useMemo(() => [...new Set(all.map((p) => p.year).filter(Boolean))] as number[], [all])
+  const years = useMemo(
+    () => ([...new Set(all.map((p) => p.year).filter(Boolean))] as number[]).sort((a, b) => b - a),
+    [all]
+  )
   const types = useMemo(() => [...new Set(all.map((p) => p.type).filter(Boolean))] as string[], [all])
-  const strip: StripMonth[] = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const p of all) {
-      const key = p.date?.slice(0, 7) ?? (p.year ? `${p.year}-01` : null)
-      if (key) m.set(key, (m.get(key) ?? 0) + 1)
-    }
-    return [...m].map(([month, papers]) => ({ month, papers }))
-  }, [all])
-  const sources = useMemo(() => {
-    const c = new Map<string, number>()
-    for (const p of all) {
-      const label = SOURCE_LABEL[p.source ?? ""] ?? p.source
-      if (label) c.set(label, (c.get(label) ?? 0) + 1)
-    }
-    return [...c]
-  }, [all])
 
   const needle = q.trim().toLowerCase()
   const rows = all.filter(
@@ -257,19 +270,29 @@ export function Papers() {
 
   if (status) return <Navigate to={`/papers/claims?status=${encodeURIComponent(status)}`} replace />
 
+  const active: { key: string; label: string }[] = [
+    year && { key: "year", label: year },
+    quartile && { key: "quartile", label: quartile === "none" ? "No quartile" : quartile },
+    type && { key: "type", label: type.replace(/-/g, " ") },
+    role && { key: "role", label: role === "first" ? "First author" : "Co-author" },
+    sort !== "year" && { key: "sort", label: SORT_LABEL[sort] ?? sort },
+  ].filter(Boolean) as { key: string; label: string }[]
+
   async function pull() {
     setPulling(true)
-    toast.info("Checking Scopus for new papers…")
+    setPulled(null)
     try {
-      const before = new Set(all.map((p) => p.id))
+      const before = all
       await api("/api/me/scopus-pull")
       const next = await qc.fetchQuery<Payload>({
         queryKey: ["me-publications", sort],
         queryFn: () => api<Payload>(`/api/me/publications?sort=${sort}`),
       })
-      const added = next.publications.filter((p) => !before.has(p.id)).map((p) => p.id)
-      setFresh(new Set(added))
-      toast.ok(added.length ? `Found ${added.length} new ${added.length === 1 ? "paper" : "papers"}.` : "No new papers found.")
+      const was = new Set(before.map((p) => p.id))
+      setFresh(new Set(next.publications.filter((p) => !was.has(p.id)).map((p) => p.id)))
+      const said = describeChange(before, next.publications)
+      setPulled(said)
+      toast.ok(said === "nothing new" ? "Pulled from Scopus: nothing new." : `Pulled from Scopus: ${said}.`)
     } catch (e) {
       toast.fail(e)
     } finally {
@@ -280,20 +303,22 @@ export function Papers() {
   async function dispute(p: RecordPaper) {
     await api(`/api/me/publications/${p.id}/dispute`, { method: "POST", json: { reason: "not_mine" } })
     setHidden((h) => new Set(h).add(p.id))
+    toast.ok("Reported as not mine.")
   }
 
   const m = query.data?.metrics
   const sentence = query.data
-    ? `${query.data.count} ${query.data.count === 1 ? "paper" : "papers"} on your record · ${m?.total_citations ?? 0} citations${
-        m?.first_year ? ` · since ${m.first_year}` : ""
-      }`
+    ? `${query.data.count} ${query.data.count === 1 ? "paper" : "papers"} on your record, ${m?.total_citations ?? 0} citations${
+        m?.first_year ? `, since ${m.first_year}` : ""
+      }.`
     : query.isError
       ? "Your record could not be loaded."
-      : "Loading your record…"
+      : "Loading your record."
 
   return (
     <div className="page space-y-6 pb-24 sm:pb-6" data-area="record">
-      <HeroBand spot="spot-my-papers"
+      <HeroBand
+        spot="spot-my-papers"
         area="record"
         title="My papers"
         sentence={sentence}
@@ -301,7 +326,7 @@ export function Papers() {
           <>
             <Button onClick={() => void pull()} disabled={pulling}>
               <CloudDownload />
-              {pulling ? "Checking…" : "Pull from Scopus"}
+              {pulling ? "Pulling…" : "Pull from Scopus"}
             </Button>
             <Button kind="primary" asChild className="max-sm:hidden">
               <Link to="/papers/new">
@@ -313,34 +338,24 @@ export function Papers() {
         }
       >
         {all.length > 0 && (
-          <div className="mt-5 space-y-3">
-            <RecordStrip
-              data={strip}
-              variant="compact"
-              years={Math.min(10, Math.max(3, new Date().getFullYear() - (m?.first_year ?? 2020) + 1))}
-              onSelect={(month) => set("year", month.slice(0, 4))}
-              label="Your papers by month"
-              className="max-w-full overflow-x-auto"
-            />
-            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted">
-              <span>Sources:</span>
-              {sources.map(([s, n]) => (
-                <span key={s} className="inline-flex items-center gap-1">
-                  <span aria-hidden className="size-2 rounded-full bg-(--area-fill)" />
-                  {s} {n}
-                </span>
-              ))}
-              <details className="inline">
-                <summary className="cursor-pointer text-(--area) underline-offset-4 hover:underline">What's this?</summary>
-                <span className="mt-1 block max-w-prose">
-                  We build your record from Scopus, OpenAlex and the college's ERP. A paper appears once any one of
-                  them lists you as an author. If something is wrong, report it on the paper.
-                </span>
-              </details>
-            </p>
-          </div>
+          <YearBars papers={all} selected={year} onSelect={(y) => set("year", y === year ? "" : y)} />
         )}
       </HeroBand>
+
+      {pulled && (
+        <p role="status" className="flex items-center gap-2 text-sm text-fg-muted">
+          <CloudDownload aria-hidden className="size-4 text-(--area)" strokeWidth={1.75} />
+          Checked Scopus just now: {pulled}.
+          <button
+            type="button"
+            onClick={() => setPulled(null)}
+            aria-label="Dismiss"
+            className="rounded p-1 hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent outline-none"
+          >
+            <X className="size-3.5" />
+          </button>
+        </p>
+      )}
 
       {query.isError ? (
         <ErrorState
@@ -352,13 +367,13 @@ export function Papers() {
         <SkeletonRows rows={6} />
       ) : all.length === 0 ? (
         <EmptyState
-          art="nothing-filed"
+          illustration="empty-no-papers"
           title="Your record will build itself"
-          message="Once we match you to your Scopus profile, every paper you've published appears here — you won't have to type them in."
+          message="Once we match you to your Scopus profile, every paper you have published appears here. You will not have to type them in."
           action={
             <div className="flex flex-wrap justify-center gap-2">
               <Button asChild kind="primary">
-                <Link to="/profile">Connect my Scopus profile</Link>
+                <Link to="/me">Connect my Scopus profile</Link>
               </Button>
               <Button asChild>
                 <Link to="/papers/new?method=doi">Paste a DOI instead</Link>
@@ -368,130 +383,170 @@ export function Papers() {
         />
       ) : (
         <>
-          <div
-            role="group"
-            aria-label="Claim state"
-            className="-mx-4 flex gap-1 overflow-x-auto px-4 sm:mx-0 sm:px-0"
-          >
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                aria-pressed={tab === t.id}
-                onClick={() => set("tab", t.id)}
-                className={cn(
-                  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-medium",
-                  tab === t.id
-                    ? "bg-(--area-wash) text-(--area) shadow-[inset_0_0_0_1px_var(--area-line)]"
-                    : "text-fg-muted hover:bg-hover"
-                )}
-              >
-                {t.label}
-                <span className="tabular-nums">{counts[t.id]}</span>
-                {t.id === "unclaimed" && counts.unclaimed > 0 && (
-                  <span aria-hidden className="size-2 rounded-full bg-area-honours-fill" />
-                )}
-              </button>
-            ))}
-          </div>
-
-          <div className={filterBar}>
-            <label className="relative sm:w-64">
-              <span className="sr-only">Search in my papers</span>
-              <Search aria-hidden className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-fg-subtle" />
-              <Input
-                value={q}
-                onChange={(e) => set("q", e.target.value)}
-                placeholder="Search in my papers"
-                className="pl-8"
-              />
-            </label>
-            <select aria-label="Year" className={selectClass} value={year} onChange={(e) => set("year", e.target.value)}>
-              <option value="">Any year</option>
-              {years.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Quartile"
-              className={selectClass}
-              value={quartile}
-              onChange={(e) => set("quartile", e.target.value)}
+          <div className="space-y-3">
+            <div
+              role="group"
+              aria-label="Claim state"
+              className="-mx-4 flex overflow-x-auto px-4 sm:mx-0 sm:px-0"
             >
-              <option value="">Any quartile</option>
-              {["Q1", "Q2", "Q3", "Q4"].map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-              <option value="none">No quartile</option>
-            </select>
-            <select aria-label="Type" className={selectClass} value={type} onChange={(e) => set("type", e.target.value)}>
-              <option value="">Any type</option>
-              {types.map((t) => (
-                <option key={t} value={t}>
-                  {t.replace(/-/g, " ")}
-                </option>
-              ))}
-            </select>
-            <select aria-label="Role" className={selectClass} value={role} onChange={(e) => set("role", e.target.value)}>
-              <option value="">First or co-author</option>
-              <option value="first">First author</option>
-              <option value="co">Co-author</option>
-            </select>
-            <select aria-label="Sort" className={selectClass} value={sort} onChange={(e) => set("sort", e.target.value)}>
-              <option value="year">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="citations">Most cited</option>
-              <option value="title">Title A–Z</option>
-            </select>
-            <div className="flex items-center gap-2 sm:ml-auto">
-              <div role="group" aria-label="View" className="flex rounded-md ring-1 ring-edge ring-inset max-sm:hidden">
-                <Button
-                  kind="quiet"
-                  size="sm"
-                  aria-pressed={view === "cards"}
-                  aria-label="Cards"
-                  className={cn(view === "cards" && "bg-hover text-fg")}
-                  onClick={() => setView("cards")}
-                >
-                  <LayoutGrid />
-                </Button>
-                <Button
-                  kind="quiet"
-                  size="sm"
-                  aria-pressed={view === "table"}
-                  aria-label="Table"
-                  className={cn(view === "table" && "bg-hover text-fg")}
-                  onClick={() => setView("table")}
-                >
-                  <List />
-                </Button>
+              <div className="inline-flex shrink-0 gap-0.5 rounded-lg bg-sunken p-0.5">
+                {TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    aria-pressed={tab === t.id}
+                    onClick={() => set("tab", t.id)}
+                    className={cn(
+                      "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                      tab === t.id
+                        ? "bg-surface font-medium text-fg shadow-[0_0_0_1px_var(--color-line)]"
+                        : "text-fg-muted hover:text-fg"
+                    )}
+                  >
+                    {t.label}
+                    <span className={cn("tabular-nums", tab === t.id ? "text-fg-muted" : "text-fg-subtle")}>
+                      {counts[t.id]}
+                    </span>
+                  </button>
+                ))}
               </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="relative min-w-0 flex-1 sm:max-w-72">
+                <span className="sr-only">Search in my papers</span>
+                <Search aria-hidden className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-fg-subtle" />
+                <Input
+                  value={q}
+                  onChange={(e) => set("q", e.target.value)}
+                  placeholder="Search title, journal or co-author"
+                  className="pl-8"
+                />
+              </label>
+              <Button
+                kind="quiet"
+                aria-expanded={showFilters}
+                aria-controls="paper-filters"
+                onClick={() => setShowFilters((s) => !s)}
+              >
+                <SlidersHorizontal />
+                Filters{active.length > 0 && <span className="tabular-nums text-fg-muted">{active.length}</span>}
+              </Button>
               <Menu>
                 <MenuTrigger asChild>
-                  <Button kind="quiet" size="sm">
-                    <Download />
-                    Export
+                  <Button kind="quiet" aria-label="More: export and claims">
+                    <MoreHorizontal />
                   </Button>
                 </MenuTrigger>
                 <MenuContent align="end">
-                  <MenuItem onSelect={() => download("my-papers.csv", toCsv(rows), "text/csv")}>CSV</MenuItem>
-                  <MenuItem onSelect={() => download("my-papers.bib", toBibtex(rows), "application/x-bibtex")}>
-                    BibTeX
+                  <MenuLabel>Download what is shown</MenuLabel>
+                  <MenuItem onSelect={() => download("my-papers.csv", toCsv(rows), "text/csv")}>
+                    Download as spreadsheet (CSV)
                   </MenuItem>
+                  <MenuItem onSelect={() => download("my-papers.bib", toBibtex(rows), "application/x-bibtex")}>
+                    Download as BibTeX
+                  </MenuItem>
+                  <MenuSeparator />
+                  <MenuItem onSelect={() => nav("/papers/claims")}>All my claims, drafts included</MenuItem>
                 </MenuContent>
               </Menu>
             </div>
+
+            {showFilters && (
+              <div id="paper-filters" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <select aria-label="Year" className={selectClass} value={year} onChange={(e) => set("year", e.target.value)}>
+                  <option value="">Any year</option>
+                  {years.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+                <select aria-label="Quartile" className={selectClass} value={quartile} onChange={(e) => set("quartile", e.target.value)}>
+                  <option value="">Any quartile</option>
+                  {["Q1", "Q2", "Q3", "Q4"].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                  <option value="none">No quartile</option>
+                </select>
+                <select aria-label="Type" className={selectClass} value={type} onChange={(e) => set("type", e.target.value)}>
+                  <option value="">Any type</option>
+                  {types.map((t) => (
+                    <option key={t} value={t}>
+                      {t.replace(/-/g, " ")}
+                    </option>
+                  ))}
+                </select>
+                <select aria-label="Author role" className={selectClass} value={role} onChange={(e) => set("role", e.target.value)}>
+                  <option value="">First or co-author</option>
+                  <option value="first">First author</option>
+                  <option value="co">Co-author</option>
+                </select>
+                <select aria-label="Sort" className={selectClass} value={sort} onChange={(e) => set("sort", e.target.value)}>
+                  {Object.entries(SORT_LABEL).map(([k, v]) => (
+                    <option key={k} value={k}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {active.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                {active.map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={() => set(f.key, "")}
+                    aria-label={`Remove filter ${f.label}`}
+                    className="inline-flex h-7 items-center gap-1 rounded-full bg-(--area-wash) px-2.5 text-(--area) outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    {f.label}
+                    <X aria-hidden className="size-3.5" />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="rounded px-1 text-fg-muted underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  Clear filters
+                </button>
+              </div>
+            )}
           </div>
 
           {rows.length === 0 ? (
-            <EmptyState
-              title={tab === "unclaimed" && counts.unclaimed === 0 ? "Every paper on your record is claimed. ✓" : "No papers match"}
-              message={tab === "unclaimed" && counts.unclaimed === 0 ? "Nothing waiting to be filed." : "Try a different filter or search."}
-            />
-          ) : view === "table" ? (
-            <PapersTable rows={rows} showMoney={tab === "paid"} />
+            tab === "unclaimed" && counts.unclaimed === 0 ? (
+              <EmptyState
+                illustration="empty-no-papers"
+                title="Every eligible paper is filed"
+                message="Nothing is waiting to be claimed. New papers appear here after a Scopus pull."
+                action={
+                  <Button onClick={() => void pull()} disabled={pulling}>
+                    <CloudDownload />
+                    Pull from Scopus
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                art="no-results"
+                title="No papers match"
+                message="Try another tab, or clear the filters and search."
+                action={
+                  <Button
+                    onClick={() => {
+                      clearFilters()
+                      set("tab", "all")
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                }
+              />
+            )
           ) : (
             <div className="space-y-6">
               {groups.map(([label, list]) => (
@@ -505,7 +560,7 @@ export function Papers() {
                       </span>
                     </h2>
                   )}
-                  <div className="panel divide-y divide-line overflow-hidden p-0">
+                  <div className="divide-y divide-line">
                     {list.map((p) => (
                       <RecordCard
                         key={p.id}
@@ -538,9 +593,6 @@ export function Papers() {
                 Paste its DOI
               </Link>
             </span>
-            <Link to="/papers/claims" className="text-(--area) hover:underline">
-              All my claims, drafts included
-            </Link>
           </p>
         </>
       )}
@@ -568,6 +620,95 @@ export function Papers() {
   )
 }
 
+/**
+ * Papers per year, one labelled bar each, shaded by what happened to them:
+ * paid, in progress, not yet claimed, not eligible. Clicking a year filters.
+ */
+function YearBars({
+  papers,
+  selected,
+  onSelect,
+}: {
+  papers: RecordPaper[]
+  selected: string
+  onSelect: (year: string) => void
+}) {
+  const byYear = new Map<number, Record<Exclude<Tab, "all">, number>>()
+  for (const p of papers) {
+    if (!p.year) continue
+    const r = byYear.get(p.year) ?? { paid: 0, progress: 0, unclaimed: 0, ineligible: 0 }
+    r[tabOf(p)]++
+    byYear.set(p.year, r)
+  }
+  const ys = [...byYear.keys()].sort((a, b) => a - b)
+  if (ys.length === 0) return null
+  const last = new Date().getFullYear()
+  const first = Math.max(ys[0], last - 9)
+  const span = Array.from({ length: last - first + 1 }, (_, i) => first + i)
+  const max = Math.max(1, ...span.map((y) => sum(byYear.get(y))))
+  const SEG = [
+    { k: "paid", cls: "bg-positive", label: "Paid" },
+    { k: "progress", cls: "bg-(--area)", label: "In progress" },
+    { k: "unclaimed", cls: "bg-(--area-fill)", label: "Not claimed" },
+    { k: "ineligible", cls: "bg-line", label: "Not eligible" },
+  ] as const
+  return (
+    <figure className="mt-5">
+      <figcaption className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-fg-muted">
+        <span className="font-medium text-fg">Papers per year</span>
+        {SEG.map((s) => (
+          <span key={s.k} className="inline-flex items-center gap-1.5">
+            <span aria-hidden className={cn("size-2.5 rounded-sm", s.cls)} />
+            {s.label}
+          </span>
+        ))}
+      </figcaption>
+      <div className="flex h-28 items-end gap-1.5 sm:gap-2">
+        {span.map((y) => {
+          const r = byYear.get(y)
+          const n = sum(r)
+          const on = selected === String(y)
+          return (
+            <button
+              key={y}
+              type="button"
+              aria-pressed={on}
+              disabled={n === 0}
+              onClick={() => onSelect(String(y))}
+              aria-label={`${y}: ${n} ${n === 1 ? "paper" : "papers"}${
+                r ? `, ${r.paid} paid, ${r.progress} in progress, ${r.unclaimed} not claimed` : ""
+              }. ${on ? "Show all years" : "Show only this year"}`}
+              className={cn(
+                "group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1 rounded-md px-0.5 pt-1 outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default",
+                on ? "bg-(--area-wash)" : "enabled:hover:bg-hover",
+                selected && !on && "opacity-50"
+              )}
+            >
+              <span className="text-xs tabular-nums text-fg-muted">{n || ""}</span>
+              <span
+                className="flex w-full max-w-8 flex-col-reverse overflow-hidden rounded-sm"
+                style={{ height: `${(n / max) * 64}px` }}
+              >
+                {r &&
+                  SEG.map((s) =>
+                    r[s.k] ? <span key={s.k} className={s.cls} style={{ flexGrow: r[s.k] }} /> : null
+                  )}
+              </span>
+              <span className={cn("text-xs tabular-nums", on ? "font-semibold text-fg" : "text-fg-muted")}>
+                {span.length > 6 ? `'${String(y).slice(2)}` : y}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </figure>
+  )
+}
+
+function sum(r?: Record<string, number>) {
+  return r ? Object.values(r).reduce((a, b) => a + b, 0) : 0
+}
+
 /** "2025-03" -> "Mar 2025". */
 function monthName(ym: string): string {
   const [y, m] = ym.split("-").map(Number)
@@ -578,29 +719,43 @@ function coAuthors(p: RecordPaper, me: string) {
   const others = p.authors.filter((a) => a.user_id !== me)
   const college = others.filter((a) => a.is_college)
   const external = others.length - college.length
-  if (others.length === 0) return null
+  if (others.length === 0) return <span>Sole author</span>
   return (
-    <span>
-      With:{" "}
-      {college.map((a, i) => (
-        <span key={i}>
-          {i > 0 && " · "}
-          {a.user_id ? (
-            <Link to={`/u/${a.user_id}`} className="text-fg hover:underline hover:underline-offset-4">
-              {a.name}
-            </Link>
-          ) : (
-            a.name
-          )}
-          <span className="text-fg-subtle"> (Saveetha)</span>
-        </span>
-      ))}
-      {external > 0 && (
-        <span className="text-fg-subtle">
-          {college.length > 0 && " · "}
-          {college.length > 0 ? `+${external} external` : `${external} external ${external === 1 ? "co-author" : "co-authors"}`}
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {college.length > 0 && (
+        <span aria-hidden className="flex -space-x-1.5">
+          {college.slice(0, 4).map((a, i) => (
+            <Avatar
+              key={i}
+              size="xs"
+              person={{ name: a.name, initials: a.initials ?? initialsOf(a.name), photo_url: a.photo_url ?? null }}
+              className="ring-2 ring-bg"
+            />
+          ))}
         </span>
       )}
+      <span>
+        {college.length > 0 && "With "}
+        {college.map((a, i) => (
+          <span key={i}>
+            {i > 0 && (i === college.length - 1 && external === 0 ? " and " : ", ")}
+            {a.user_id ? (
+              <Link to={`/u/${a.user_id}`} className="text-fg hover:underline hover:underline-offset-4">
+                {a.name}
+              </Link>
+            ) : (
+              <span className="text-fg">{a.name}</span>
+            )}
+          </span>
+        ))}
+        {external > 0 && (
+          <span>
+            {college.length > 0
+              ? ` and ${external} from outside`
+              : `${external} ${external === 1 ? "co-author" : "co-authors"} from outside the college`}
+          </span>
+        )}
+      </span>
     </span>
   )
 }
@@ -624,8 +779,8 @@ function RecordCard({
 }) {
   if (hidden)
     return (
-      <div className="panel flex items-center justify-between gap-3 p-4 opacity-40 hover:opacity-100">
-        <span className="line-clamp-1 text-sm text-fg-muted">Hidden — reported as not yours · {p.title}</span>
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <span className="line-clamp-1 text-sm text-fg-muted">Reported as not yours: {p.title}</span>
         <Button kind="quiet" size="sm" onClick={onUndo}>
           Undo
         </Button>
@@ -633,21 +788,24 @@ function RecordCard({
     )
   const state = tabOf(p)
   const stage = p.claim ? stageOf(p.claim.stage) : null
+  const paid = p.claim?.stage === "PAID"
   const open = p.doi ? `https://doi.org/${p.doi}` : p.openalex_id ? `https://openalex.org/${p.openalex_id}` : null
+  const paidLabel = `Paid${p.claim?.paid_month ? ` ${monthName(p.claim.paid_month)}` : ""}`
   return (
     <PaperCard
       title={p.title}
+      to={p.claim?.id ? `/papers/${p.claim.id}` : undefined}
       journal={p.venue}
       year={p.year}
       quartile={p.quartile}
       citations={p.citations}
       position={p.author_position ? { index: p.author_position, of: p.total_authors } : null}
       authorLine={
-        <span className="flex flex-wrap gap-x-2">
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {p.author_position && (
             <span className="inline-flex items-center gap-1">
               {p.author_position === 1 && <PenLine aria-hidden className="size-4" strokeWidth={1.75} />}
-              author {p.author_position} of {p.total_authors}
+              {p.author_position === 1 ? "First author" : `Author ${p.author_position}`} of {p.total_authors}
             </span>
           )}
           {coAuthors(p, me)}
@@ -655,7 +813,7 @@ function RecordCard({
       }
       claim={state === "unclaimed" ? { unclaimed: true, fileTo: `/papers/new?publication=${p.id}` } : undefined}
       picture={topicPicture(p.title, p.venue)}
-      className="rounded-none border-0 bg-transparent shadow-none ring-0 hover:bg-hover/60"
+      className="rounded-none border-0 bg-transparent px-0 shadow-none ring-0 sm:px-2"
       actions={
         <Menu>
           <MenuTrigger asChild>
@@ -664,110 +822,64 @@ function RecordCard({
             </Button>
           </MenuTrigger>
           <MenuContent align="end">
-            <MenuItem onSelect={onDispute}>Not my paper</MenuItem>
+            {open && (
+              <MenuItem onSelect={() => window.open(open, "_blank", "noopener")}>
+                {p.doi ? "Open the paper" : "Open on OpenAlex"}
+              </MenuItem>
+            )}
             {p.doi && (
               <MenuItem
                 onSelect={() => {
                   void navigator.clipboard?.writeText(p.doi!)
-                  toast.ok("DOI copied")
+                  toast.ok("DOI copied.")
                 }}
               >
                 Copy DOI
               </MenuItem>
             )}
-            {open && (
-              <>
-                <MenuSeparator />
-                <MenuItem onSelect={() => window.open(open, "_blank", "noopener")}>
-                  {p.doi ? "Open the paper" : "Open on OpenAlex"}
-                </MenuItem>
-              </>
-            )}
+            {(open || p.doi) && <MenuSeparator />}
+            <MenuItem onSelect={onDispute}>Not my paper</MenuItem>
           </MenuContent>
         </Menu>
       }
     >
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-        {isNew && <Chip tone="area">New</Chip>}
-        {stage && p.claim && !p.claim.id && (
-          <Chip tone="positive" icon={IndianRupee}>
-            Paid{p.claim.paid_month ? ` ${monthName(p.claim.paid_month)}` : ""}
-          </Chip>
-        )}
-        {stage && p.claim?.id && (
-          <Link to={`/papers/${p.claim.id}`} className="inline-flex items-center gap-2 hover:underline">
-            <Chip tone={p.claim.stage === "PAID" ? "positive" : "area"} icon={p.claim.stage === "PAID" ? IndianRupee : Hourglass}>
-              {stage.label}
-              {p.claim.days_waiting != null && ` · ${p.claim.days_waiting} days`}
+      {(isNew || stage || state === "ineligible") && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          {isNew && <Chip tone="area">New from Scopus</Chip>}
+          {paid && !p.claim?.id && (
+            <Chip tone="positive" icon={IndianRupee}>
+              {paidLabel}
             </Chip>
-            <span className="text-(--area)">View claim</span>
-          </Link>
-        )}
-        {showMoney && p.claim?.amount != null && (
-          <span className="font-medium tabular-nums text-fg">{money(p.claim.amount)}</span>
-        )}
-        {state === "ineligible" && (
-          <Chip tone="neutral">Not eligible{p.ineligible_reason ? ` — ${p.ineligible_reason}` : ""}</Chip>
-        )}
-      </div>
+          )}
+          {stage && p.claim?.id && (
+            <Link
+              to={`/papers/${p.claim.id}`}
+              className="inline-flex items-center gap-2 rounded-md outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <Chip tone={paid ? "positive" : "area"} icon={paid ? IndianRupee : Hourglass}>
+                {paid ? paidLabel : stage.label}
+                {!paid && p.claim.days_waiting != null && `, ${p.claim.days_waiting} days`}
+              </Chip>
+              <span className="text-(--area)">View claim</span>
+            </Link>
+          )}
+          {showMoney && p.claim?.amount != null && (
+            <span className="font-medium tabular-nums text-fg">{money(p.claim.amount)} to you</span>
+          )}
+          {state === "ineligible" && (
+            <span className="text-fg-muted">
+              Not eligible for a claim: {p.total_authors} authors listed, and the scheme pays up to{" "}
+              {maxAuthors(p.ineligible_reason) ?? "a limited number of"} authors.
+            </span>
+          )}
+        </div>
+      )}
     </PaperCard>
   )
 }
 
-function PapersTable({ rows, showMoney }: { rows: RecordPaper[]; showMoney: boolean }) {
-  return (
-    <TableScroller>
-      <table className="w-full min-w-[760px] text-sm">
-        <thead>
-          <tr className="text-left text-xs tracking-wide text-fg-muted uppercase">
-            <th className="px-3 py-2 font-medium">Title</th>
-            <th className="px-3 py-2 font-medium">Venue</th>
-            <th className="px-3 py-2 font-medium">Year</th>
-            <th className="px-3 py-2 font-medium">Q</th>
-            <th className="px-3 py-2 font-medium">Pos</th>
-            <th className="px-3 py-2 text-right font-medium">Cites</th>
-            <th className="px-3 py-2 font-medium">Claim state</th>
-            {showMoney && <th className="px-3 py-2 text-right font-medium">Amount</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p) => {
-            const state = tabOf(p)
-            return (
-              <tr key={p.id} className="h-10 border-t border-line">
-                <td className="max-w-[28rem] px-3 py-2">
-                  <span className="line-clamp-1">{p.title}</span>
-                </td>
-                <td className="max-w-[14rem] px-3 py-2 text-fg-muted">
-                  <span className="line-clamp-1">{p.venue ?? "—"}</span>
-                </td>
-                <td className="px-3 py-2 tabular-nums">{p.year ?? "—"}</td>
-                <td className="px-3 py-2">{p.quartile ?? "—"}</td>
-                <td className="px-3 py-2 tabular-nums">
-                  {p.author_position ? `${p.author_position}/${p.total_authors}` : "—"}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{p.citations ?? "—"}</td>
-                <td className="px-3 py-2">
-                  {p.claim ? (
-                    <Link to={`/papers/${p.claim.id}`} className="text-(--area) hover:underline">
-                      {stageOf(p.claim.stage).label}
-                    </Link>
-                  ) : state === "unclaimed" ? (
-                    <Link to={`/papers/new?publication=${p.id}`} className="font-medium text-(--area) hover:underline">
-                      File it
-                    </Link>
-                  ) : (
-                    <span className="text-fg-muted">Not eligible</span>
-                  )}
-                </td>
-                {showMoney && (
-                  <td className="px-3 py-2 text-right tabular-nums">{money(p.claim?.amount ?? null)}</td>
-                )}
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </TableScroller>
-  )
+/** "More than 10 authors" -> 10. */
+export function maxAuthors(reason: string | null): number | null {
+  const m = reason?.match(/(\d+)/)
+  return m ? Number(m[1]) : null
 }

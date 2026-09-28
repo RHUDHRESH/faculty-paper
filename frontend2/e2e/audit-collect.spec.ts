@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url"
 import AxeBuilder from "@axe-core/playwright"
 import { test, type Page } from "@playwright/test"
 
-import { ROLES, storageStatePath } from "./fixtures/backend"
+import { ALL_ROLES as ROLES, storageStatePath } from "./fixtures/backend"
 import { gotoRoute, sidebarRoutes, waitForSettled } from "./fixtures/page-health"
 
 const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), ".artifacts", process.env.AUDIT_OUT || "audit")

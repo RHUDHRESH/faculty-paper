@@ -14,11 +14,11 @@
  */
 import type { FullConfig } from "@playwright/test"
 
-import { ROLES, cleanupFixtures, openSession, writeStorageState } from "./fixtures/backend"
+import { ALL_ROLES, cleanupFixtures, openSession, writeStorageState } from "./fixtures/backend"
 
 async function globalSetup(_config: FullConfig) {
   cleanupFixtures()
-  for (const role of ROLES) {
+  for (const role of ALL_ROLES) {
     writeStorageState(role, openSession(role))
   }
 }

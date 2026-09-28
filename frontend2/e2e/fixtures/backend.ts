@@ -53,6 +53,19 @@ export const ROLE_LABEL: Record<E2ERole, string> = {
 }
 
 /**
+ * Every role a person can sign in as. `ROLES` is the set the workflow specs
+ * drive; the sweeps (sweep-a11y, audit-collect) also cover the two roles no
+ * workflow needs, because a screen that breaks for them is still broken.
+ */
+export const ALL_ROLES = [...ROLES, "RESEARCH_COORDINATOR", "SUPER_ADMIN"] as const
+export type AnyRole = (typeof ALL_ROLES)[number]
+export const ANY_ROLE_LABEL: Record<AnyRole, string> = {
+  ...ROLE_LABEL,
+  RESEARCH_COORDINATOR: "Research coordinator",
+  SUPER_ADMIN: "Administrator",
+}
+
+/**
  * The interpreter that can import Django.
  *
  * The repository keeps a virtualenv at `.venv`; CI may not, so `E2E_PYTHON`

@@ -43,13 +43,12 @@ export function PasteBox({
         onFind()
       }}
     >
-      <label htmlFor={id} className="block text-base font-medium">
+      <label htmlFor={id} className="sr-only">
         Paste the DOI or link
       </label>
       <div className="flex flex-col gap-2 sm:flex-row">
         <Input
           id={id}
-          size="lg"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="10.1016/j.… or https://doi.org/…"
@@ -58,7 +57,7 @@ export function PasteBox({
           aria-describedby={`${id}-hint`}
           className="min-w-0 flex-1"
         />
-        <Button kind="primary" size="lg" type="submit" disabled={busy || !value.trim()}>
+        <Button kind="primary" type="submit" disabled={busy || !value.trim()}>
           {busy ? <LoaderCircle className="animate-spin" /> : <Search />}
           {busy ? "Looking…" : "Find it"}
         </Button>

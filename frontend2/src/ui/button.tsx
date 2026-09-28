@@ -36,7 +36,7 @@ const KIND: Record<Kind, string> = {
   primary:
     "bg-accent text-accent-fg hover:bg-accent-hover " +
     "shadow-raise active:shadow-none " +
-    "disabled:bg-fg-subtle disabled:shadow-none",
+    "disabled:shadow-none",
   default:
     "bg-surface text-fg ring-1 ring-inset ring-edge font-medium " +
     "hover:bg-hover " +

@@ -1170,6 +1170,14 @@ export function FilePaper() {
   function leaveChoose() {
     if (canLeaveChoose) setPhase("confirm")
   }
+  // "File this" on a paper row: pick it, then go on as soon as its details are in.
+  const [autoContinue, setAutoContinue] = useState(false)
+  useEffect(() => {
+    if (autoContinue && canLeaveChoose && phase === "choose") {
+      setAutoContinue(false)
+      setPhase("confirm")
+    }
+  }, [autoContinue, canLeaveChoose, phase])
   /** Nothing to pull and nothing found: the details are typed on the form. */
   function typeByHand() {
     setPicked(null)
@@ -1365,7 +1373,7 @@ export function FilePaper() {
 
   if (phase === "choose") {
     return (
-      <div className="page space-y-6 pb-16 pt-6 md:pt-8">
+      <div className="page space-y-6 pb-16 pt-6 md:pt-8" style={{ maxWidth: 808 }}>
         {hero}
         {draftsNotice}
         <ChooseMethod
@@ -1377,9 +1385,13 @@ export function FilePaper() {
           onRetryPull={() => void refetchPull()}
           selectedId={picked?.publication_id ?? null}
           onSelect={choosePulled}
+          onFile={(p) => {
+            choosePulled(p)
+            setAutoContinue(true)
+          }}
           paste={
             <>
-              <div className="space-y-3 rounded-2xl bg-(--area-wash) p-4 sm:p-5" data-field="find">
+              <div className="space-y-3" data-field="find">
                 <PasteBox value={pasted} onChange={setPasted} onFind={() => void findPaper()} busy={lookupBusy} />
               </div>
               {lookupBusy ? (
@@ -1465,7 +1477,7 @@ export function FilePaper() {
       },
     }
     return (
-      <div className="page space-y-6 pb-16 pt-6 md:pt-8">
+      <div className="page space-y-6 pb-16 pt-6 md:pt-8" style={{ maxWidth: 808 }}>
         {hero}
         {draftsNotice}
         <ClaimEligibilityGate
@@ -1744,7 +1756,7 @@ export function FilePaper() {
 /** Choose · Confirm · Details · File, as four dots on a line (docs/ux/04). */
 function PhaseTrack({ current }: { current: number }) {
   return (
-    <ol aria-label="Filing progress" className="mt-5 flex max-w-xl items-start">
+    <ol aria-label="Filing progress" className="mt-4 flex max-w-md items-start">
       {PHASES.map((label, i) => {
         const done = i < current
         const here = i === current
@@ -1754,18 +1766,21 @@ function PhaseTrack({ current }: { current: number }) {
               <span
                 aria-hidden
                 className={cn(
-                  "grid size-7 shrink-0 place-items-center rounded-full text-xs font-semibold tabular",
-                  done || here ? "bg-(--area) text-white" : "bg-surface text-fg-muted shadow-[inset_0_0_0_1.5px_var(--color-line)]",
-                  here && "ring-4 ring-(--area-line)"
+                  "grid size-5 shrink-0 place-items-center rounded-full border text-[11px] font-medium tabular",
+                  here
+                    ? "border-accent text-accent"
+                    : done
+                      ? "border-accent/40 bg-accent-wash text-accent"
+                      : "border-edge text-fg-subtle"
                 )}
               >
-                {done ? <Check className="size-4" strokeWidth={3} /> : i + 1}
+                {done ? <Check className="size-3" strokeWidth={2.5} /> : i + 1}
               </span>
               {i < PHASES.length - 1 && (
-                <span aria-hidden className={cn("mx-1 h-0.5 flex-1 rounded", done ? "bg-(--area)" : "bg-line")} />
+                <span aria-hidden className={cn("mx-1.5 h-px flex-1", done ? "bg-accent/40" : "bg-line")} />
               )}
             </div>
-            <span className={cn("mt-1.5 text-xs sm:text-sm", here ? "font-semibold text-fg" : "text-fg-muted")}>
+            <span className={cn("mt-1 text-xs", here ? "font-medium text-accent" : "text-fg-muted")}>
               {label}
               <span className="sr-only">{done ? " (done)" : here ? " (current)" : ""}</span>
             </span>

@@ -56,6 +56,17 @@ class MatchingTests(TestCase):
         self.assertEqual(found[2], self.ravi_ece)
         self.assertEqual(unmatched, [])
 
+    def test_exact_unique_full_name_crosses_departments_but_a_single_word_does_not(self):
+        arul = _user("arul@x.in", "Dr. A. Arul Oli", "CSE")
+        _user("nandhini@x.in", "Ms. Nandhini R", "EEE")
+        rows = [
+            {"name": "Dr. A. Arul Oli", "department_slug": "artificial-intelligence-data-science"},
+            {"name": "Ms. Nandhini.R", "department_slug": "agricultural-engineering"},
+        ]
+        found, unmatched, conflicts = match(rows, list(User.objects.all()))
+        self.assertEqual(found, {0: arul})
+        self.assertEqual(len(conflicts), 1)
+
     def test_ambiguous_names_are_reported_not_guessed(self):
         rows = [
             {"name": "Ravi Shankar", "department_slug": "civil-engineering"},
@@ -97,7 +108,7 @@ class ImportTests(TestCase):
         self.assertEqual(self.full.photo, "avatars/mine.jpg")
         self.assertEqual(report.matched, 2)
         self.assertEqual(report.photos, 1)
-        self.assertTrue(any("kept ours" in c["reason"] for c in report.conflicts))
+        self.assertTrue(any("kept ours" in c["reason"] for c in report.differences))
         prof = department_profile("CSE")
         self.assertEqual(prof["description"], "About CSE.")
         self.assertTrue(prof["image_url"])

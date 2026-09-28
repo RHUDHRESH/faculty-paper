@@ -29,6 +29,7 @@ from django.db import transaction
 
 from core.models import ResearchInterest, SystemSetting, User
 from core.services.images import NotAPicture, reencode
+from core.services.author_names import name_parts
 from core.services.publications import _NameIndex
 
 APPLIED_KEY = "college_site_applied"
@@ -102,6 +103,7 @@ class Report:
     departments: int = 0
     unmatched: list[dict] = field(default_factory=list)
     conflicts: list[dict] = field(default_factory=list)
+    differences: list[dict] = field(default_factory=list)
     dry_run: bool = False
 
     def as_dict(self) -> dict[str, Any]:
@@ -116,6 +118,7 @@ class Report:
             "departments": self.departments,
             "unmatched": self.unmatched[:200],
             "conflicts": self.conflicts[:200],
+            "differences": self.differences[:200],
             "dry_run": self.dry_run,
         }
 
@@ -149,6 +152,11 @@ def match(rows: list[dict], people: list[User]) -> tuple[dict[int, User], list[d
                 elif len(best) == 1 and not in_dept and not depts:
                     user = best[0]
                 elif len(best) == 1 and best[0].department in depts:
+                    user = best[0]
+                elif len(best) == 1 and top >= 1.0 and len(name_parts(row.get("name"))[0]) >= 2:
+                    # The exact full name, two words or more, and nobody else
+                    # in the college has it: the website lists some people
+                    # under a sister department (AI&DS staff filed as CSE).
                     user = best[0]
                 elif len(best) == 1:
                     # One name, different department: plausible, but not safe.
@@ -234,7 +242,7 @@ def import_site(source: Source, *, actor: User | None = None, dry_run: bool = Fa
                     changed.append("designation")
                     report.designations += 1
                 elif user.designation.strip().lower() != desig.lower():
-                    report.conflicts.append({
+                    report.differences.append({
                         "name": user.name, "department": user.department,
                         "reason": f"designation here '{user.designation}', website '{desig}' (kept ours)",
                     })

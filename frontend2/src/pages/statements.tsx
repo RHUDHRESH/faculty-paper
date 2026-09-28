@@ -231,7 +231,7 @@ export function Statements() {
                 <span className="tabular">{money(s.total)}</span>
               </li>
             </ul>
-            <div className="hidden overflow-x-auto rounded-xl ring-1 ring-edge md:block">
+            <div tabIndex={0} role="region" aria-label="Statement" className="hidden overflow-x-auto rounded-xl ring-1 ring-edge md:block">
               <table className="w-full min-w-[40rem] text-sm">
                 <thead className="bg-hover/60 text-left">
                   <tr>
@@ -371,7 +371,7 @@ export function BudgetBurn({ fy }: { fy: FinancialYear }) {
             : `${money(fy.paid)} paid; no college allocation set for this year`}
         </Meta>
       </div>
-      <div className="overflow-x-auto">
+      <div tabIndex={0} role="region" aria-label="Months" className="overflow-x-auto">
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full min-w-[36rem]" role="img"
         aria-label={`Paid each month from April; running total ${money(fy.paid)}${fy.allocation != null ? ` against ${money(alloc)}` : ""}.`}>
         {fy.allocation != null && (

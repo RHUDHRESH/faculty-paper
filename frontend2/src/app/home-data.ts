@@ -23,6 +23,8 @@ export const HOME_DATA = {
   mySummary: { key: ["me", "summary"], path: "/api/me/summary" },
   myAssignments: { key: ["my-assignments"], path: "/api/me/assignments" },
   stageCounts: { key: ["claims", "counts", "home"], path: "/api/claims/counts" },
+  /** Oldest first, never the viewer's own (server excludes them). */
+  clearingQueue: { key: ["admin", "clearing-queue", "home"], path: "/api/admin/clearing-queue" },
   faults: { key: ["admin", "faults"], path: "/api/admin/faults" },
   pendingRequests: {
     key: ["admin", "profile-requests", "home"],
@@ -46,7 +48,7 @@ export const HOME_DATA = {
 } as const satisfies Record<string, HomeQuery>
 
 const D = HOME_DATA
-const OFFICE = [D.stageCounts, D.faults, D.pendingRequests, D.openDuplicates, D.dashboard]
+const OFFICE = [D.clearingQueue, D.stageCounts, D.faults, D.pendingRequests, D.openDuplicates, D.dashboard]
 /** "Your papers", below the desk on the home of everybody who files but faculty. */
 const OWN = [D.ownClaims, D.myPayments]
 

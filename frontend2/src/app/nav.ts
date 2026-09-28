@@ -26,6 +26,7 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  Telescope,
   Stamp,
   Trophy,
   UserCheck,
@@ -224,6 +225,14 @@ export const NAV: NavItem[] = [
     group: "Research",
     area: "research",
     keywords: ["ideas", "topics", "what is new", "ai"],
+  },
+  {
+    to: "/scout",
+    label: "Research scout",
+    icon: Telescope,
+    group: "Research",
+    area: "research",
+    keywords: ["scout", "web", "calls", "funding", "special issue", "next", "collaborators", "claude", "ai"],
   },
 
   // PEOPLE. Who to work with absorbs Colleagues (now Search, people scope)

@@ -1,0 +1,51 @@
+import { screen } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>()
+  return { ...actual, api: vi.fn() }
+})
+
+import { api } from "@/lib/api"
+import { Scout } from "@/pages/scout"
+import { fakeApi, renderWithProviders } from "@/test/harness"
+
+const DONE = {
+  status: "done",
+  id: "r1",
+  runs_left: 4,
+  limit: 5,
+  result: {
+    profile: { name: "A", department: "IT", papers: 9, citations: 40, h_index: 3, topics: ["Edge"] },
+    web: {
+      summary: "Take edge AI into federated diagnosis.",
+      opportunities: [{ title: "AI for Agriculture topic", kind: "special_issue", why: "fits", deadline: "", url: "https://www.frontiersin.org/x" }],
+      directions: [{ title: "Federated edge learning", builds_on: "IoT", why: "next step", urls: [] }],
+      external_people: [{ name: "Hossain S.", affiliation: "BRAC University", work: "ViT tumours", url: "" }],
+    },
+    literature: [],
+    colleagues: [{ user_id: "u2", name: "Dr. B", department: "CSE", papers: 7, shared_topics: ["Edge"], their_topics: ["Blockchain"], why: "ledger + edge", picked: true }],
+    sources: [{ url: "https://www.frontiersin.org/x", title: "Frontiers" }],
+    generated_at: "2026-09-28T10:00:00Z",
+  },
+}
+
+describe("Research scout", () => {
+  it("shows web findings and our-record colleagues, labelled apart, with no money", async () => {
+    vi.mocked(api).mockImplementation(fakeApi({ "/api/scout": () => DONE }))
+    renderWithProviders(<Scout />, { route: "/scout" })
+    expect(await screen.findByText("AI for Agriculture topic")).toBeInTheDocument()
+    expect(screen.getByText("Dr. B")).toBeInTheDocument()
+    expect(screen.getAllByText("From the web").length).toBeGreaterThan(0)
+    expect(screen.getByText("From our records")).toBeInTheDocument()
+    expect(screen.getByText(/frontiersin.org/, { selector: "a" })).toBeInTheDocument()
+    expect(screen.getAllByText(/No link found/).length).toBe(1)
+    expect(document.body.textContent).not.toMatch(/₹|\$|cost|token/i)
+  })
+
+  it("offers a first run when there is none", async () => {
+    vi.mocked(api).mockImplementation(fakeApi({ "/api/scout": () => ({ status: "none", runs_left: 5, limit: 5 }) }))
+    renderWithProviders(<Scout />, { route: "/scout" })
+    expect(await screen.findByRole("button", { name: /Scout for me/ })).toBeEnabled()
+  })
+})

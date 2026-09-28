@@ -115,6 +115,7 @@ const Person = page(() => import("@/pages/people"), "Person")
 const Policy = page(() => import("@/pages/policy"), "Policy")
 const Profile = page(() => import("@/pages/profile"), "Profile")
 const Research = page(() => import("@/pages/research"), "Research")
+const Scout = page(() => import("@/pages/scout"), "Scout")
 const Setup = page(() => import("@/pages/setup"), "Setup")
 const InstitutionSettings = page(() => import("@/pages/institution-settings"), "InstitutionSettings")
 const WallOfFame = page(() => import("@/pages/wall"), "WallOfFame")
@@ -161,6 +162,7 @@ const PRELOADS: [string, Page][] = [
   ["/messages", Messages],
   ["/u/:id", PublicProfile],
   ["/research", Research],
+  ["/scout", Scout],
   ["/leaderboard", Leaderboard],
   ["/wall", WallOfFame],
   ["/impact", ImpactCardPage],

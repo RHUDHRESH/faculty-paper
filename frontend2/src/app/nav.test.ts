@@ -133,7 +133,7 @@ describe("the Convocation sidebar", () => {
     expect(items.map((i) => i.label)).toEqual([
       "Search", "Home",
       "My papers", "File a paper",
-      "My research", "Discover",
+      "My research", "Discover", "Research scout",
       "Who to work with", "Messages", "Discussions",
       "Leaderboard", "Impact card",
       "Calendar",

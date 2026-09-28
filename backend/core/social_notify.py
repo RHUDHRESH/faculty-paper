@@ -12,6 +12,8 @@ something a named colleague did that concerns them.
 """
 from __future__ import annotations
 
+import re
+
 from core.models import Notification, SocialSettings, User
 from core.services import notify as notify_service
 
@@ -71,8 +73,19 @@ def counts_visits(user: User) -> bool:
     return settings_for(user).count_my_visits
 
 
+_MARKUP = re.compile(
+    r'@(?:(?:user|person|journal|paper|dept|department|agent):)?"([^"]{1,200})"'
+    r"|@(?:user|person|journal|paper|dept|department|agent):([A-Za-z0-9._\-]{1,80})"
+)
+
+
+def plain(text: str | None) -> str:
+    """Mention codes as people read them: `@"Asha Rao"` becomes `@Asha Rao`."""
+    return _MARKUP.sub(lambda m: "@" + (m.group(1) or m.group(2)), text or "")
+
+
 def notify(user_id: str, kind: str, title: str, body: str | None, href: str, *,
-           coalesce: bool = False, once: bool = False) -> bool:
+           coalesce: bool = False, once: bool = False, actor: User | None = None) -> bool:
     """Tell one person something, unless they switched this kind off.
 
     `coalesce` holds back a second notification while an earlier unread one
@@ -89,5 +102,5 @@ def notify(user_id: str, kind: str, title: str, body: str | None, href: str, *,
     if once and Notification.objects.filter(user_id=user_id, href=href, title=title).exists():
         return False
     person = _user(user_id)
-    note = notify_service.notify(person, kind, title, (body or "")[:300], href)
+    note = notify_service.notify(person, kind, title, plain(body)[:300], href, actor=actor)
     return note is not None

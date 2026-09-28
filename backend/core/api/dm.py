@@ -284,7 +284,7 @@ def _send(thread: Thread, author: User, body: str) -> Post:
     excerpt = " ".join(body.split())[:160]
     for p in parts:
         if p.user_id != author.id and p.user.active:
-            social_notify.notify(p.user_id, "message", title, excerpt, _href(thread.id), coalesce=True)
+            social_notify.notify(p.user_id, "message", title, excerpt, _href(thread.id), coalesce=True, actor=author)
     return post
 
 
@@ -540,7 +540,7 @@ def request_collaboration(request: HttpRequest, payload: CollabRequestIn):
     _mark_read(thread, me)
     social_notify.notify(
         other.id, "collab", f"{me.name} asked to collaborate on {topic}", message[:160] or None,
-        _href(thread.id),
+        _href(thread.id), actor=me,
     )
     return {"conversation_id": thread.id, "request": _collab_dict(req, me)}
 
@@ -593,7 +593,7 @@ def answer_collaboration(request: HttpRequest, request_id: str, payload: CollabA
         req.save(update_fields=["state", "response_note", "responded_at"])
         _system(req.thread, me, text)
     if told:
-        social_notify.notify(req.sender_id, "collab", told, note or None, _href(req.thread_id))
+        social_notify.notify(req.sender_id, "collab", told, note or None, _href(req.thread_id), actor=me)
     req.refresh_from_db()
     return _collab_dict(req, me)
 

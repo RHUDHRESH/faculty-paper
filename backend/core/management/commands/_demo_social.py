@@ -31,7 +31,7 @@ DOMAIN = "college.edu"  # the demo domain; seed.py treats any other address as a
 
 # name, department, designation, topics
 PEOPLE = [
-    ("Dr. Meenakshi Sundaram", "CSE", "Professor", ["Machine learning", "Medical imaging"]),
+    ("Dr. Malathi Sundaram", "CSE", "Professor", ["Machine learning", "Medical imaging"]),
     ("Dr. Arvind Krishnan", "CSE", "Associate Professor", ["Computer vision", "Deep learning"]),
     ("Kavya Ramesh", "CSE", "Assistant Professor", ["Natural language processing", "Deep learning"]),
     ("Dr. Sanjay Iyer", "CSE", "Professor", ["Cloud computing", "Edge computing"]),
@@ -230,7 +230,7 @@ def seed_social(out) -> None:
         return
 
     by = {u.name: u for u in everyone}
-    meena, arvind, kavya, sanjay = by["Dr. Meenakshi Sundaram"], by["Dr. Arvind Krishnan"], by["Kavya Ramesh"], by["Dr. Sanjay Iyer"]
+    meena, arvind, kavya, sanjay = by["Dr. Malathi Sundaram"], by["Dr. Arvind Krishnan"], by["Kavya Ramesh"], by["Dr. Sanjay Iyer"]
     senthil, bala, chitra, padmini = by["Dr. Senthil Kumar"], by["Dr. Balasubramanian R"], by["Dr. Chitra Sekar"], by["Dr. Padmini Raghavan"]
 
     # Follows.
@@ -321,6 +321,7 @@ def seed_social(out) -> None:
         )
     Follow.objects.get_or_create(follower=meena, topic="Medical imaging")
     out.write(f"Social demo: {len(people)} people, {made_papers} new papers, posts, threads and messages in place.")
+
 
 
 

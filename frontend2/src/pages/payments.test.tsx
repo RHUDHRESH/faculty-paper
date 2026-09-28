@@ -186,6 +186,39 @@ describe("paying one claim", () => {
       json: { expected_amount: 52_377.5 },
     })
   })
+
+  it("refuses a second payment in plain words and offers no second Pay", async () => {
+    const user = userEvent.setup()
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => FINANCE,
+        "/api/admin/payouts": () => payoutsPage([{ ...PAYABLE, payout_month: "2025-09" } as typeof PAYABLE]),
+        "/api/claims/claim-1/mark-paid": failing(400, "Invalid status — the ticket must be authorised by the Director first"),
+      })
+    )
+    renderWithProviders(<Payments />)
+
+    expect(await screen.findByText("September 2025")).toBeTruthy()
+    await user.click(await screen.findByRole("button", { name: "Pay" }))
+    const dialog = await screen.findByRole("dialog")
+    await user.click(within(dialog).getByRole("button", { name: "Pay — ₹52,377.50" }))
+
+    expect(await within(dialog).findByText("Already paid")).toBeTruthy()
+    expect(within(dialog).queryByRole("button", { name: /^Pay — / })).toBeNull()
+  })
+
+  it("never shows Finance a flag or a duplicate warning", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => FINANCE,
+        "/api/admin/payouts": () =>
+          payoutsPage([{ ...PAYABLE, needs_second_approval: true, duplicate_warning: true, override_duplicate: true, override_by_name: "X" } as typeof PAYABLE]),
+      })
+    )
+    renderWithProviders(<Payments />)
+    expect(await screen.findByText("Needs a second approver")).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/flag|duplicate|warning|history/i)
+  })
 })
 
 /** Every call the component made to the one endpoint that moves money. */

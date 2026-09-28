@@ -21,7 +21,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import (
-    AttachmentKind, Budget, Claim, ClaimAttachment, ClaimStatus, PaidLedger, Role, User,
+    AttachmentKind, Budget, Claim, ClaimAttachment, ClaimFlag, ClaimStatus, PaidLedger, Role, User,
 )
 
 DOMAIN = "demo.invalid"
@@ -128,15 +128,20 @@ class Command(BaseCommand):
         for i, status in enumerate(plan):
             when = now - timedelta(days=rnd.randint(12, 60))
             c = self._claim(people[i % len(people)], status, rnd, when)
-            if i == 5:  # one flagged claim: Director/Finance must never be told
+            if i in (5, 9, 15, 21):
+                # Flagged at clearing, principal, director and paid stages: the
+                # Director and Finance must never be told (core.visibility).
                 c.duplicate_warning = True
-                c.contest_note = "Possible duplicate of an older payment"
+                c.contest_note = "DEMO-FLAG possible duplicate of an older payment"
                 c.save(update_fields=["duplicate_warning", "contest_note"])
+                ClaimFlag.objects.create(claim=c, kind=ClaimFlag.Kind.DUPLICATE,
+                                         note="DEMO-FLAG matches a 2024 payment")
             if status == ClaimStatus.PAID:
                 m = date(now.year, now.month, 1) - timedelta(days=1)
                 c.payout_month = date(m.year, m.month, 1)
                 c.voucher_number = f"PV-{c.ticket_number}"
-                c.save(update_fields=["payout_month", "voucher_number"])
+                c.paid_at = when + timedelta(days=12)
+                c.save(update_fields=["payout_month", "voucher_number", "paid_at"])
                 PaidLedger.objects.create(
                     claim=c, payout_month=c.payout_month, department=c.owner.department,
                     faculty_name=c.owner.name, staff_id=c.staff_id, paper_title=c.paper_title,

@@ -145,6 +145,8 @@ type ReportsPayload = {
   by_department: Point[]
   by_quartile: Point[]
   by_month: Point[]
+  /** Payments whose month the ERP sheet never recorded: counted in totals, not charted. */
+  month_unrecorded?: { count: number; amount: number }
   by_journal: Capped<Point>
   top_by_publications: Capped<PersonPoint>
   top_by_amount: Capped<PersonPoint>
@@ -633,6 +635,12 @@ function CollegeReports() {
             />
           </section>
 
+          {data.month_unrecorded && data.month_unrecorded.count > 0 && (
+            <p className="-mb-4 text-sm text-fg-muted">
+              {money(data.month_unrecorded.amount)} in {data.month_unrecorded.count} payments has no month recorded, so it is
+              in the totals but not in the monthly chart.
+            </p>
+          )}
           {data.by_month.length >= 2 ? (
             <Trend
               title="Paid by month"

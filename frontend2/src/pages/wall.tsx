@@ -9,7 +9,8 @@ import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
 import { Avatar, initialsOf } from "@/ui/person"
-import { Illustration, SharePlate } from "@/ui/share-plate"
+import { SharePlate } from "@/ui/share-plate"
+import { Illustration } from "@/ui/illustration"
 import { InlineError, Skeleton } from "@/ui/state"
 import { toast } from "@/ui/toast"
 
@@ -186,7 +187,7 @@ export function WallBoard({
         </div>
       ) : data.cards.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-10 text-center">
-          <Illustration name="celebrate" area="honours" />
+          <Illustration name="spot-wall-of-fame" width={140} />
           <p className="font-semibold">No new papers yet this month</p>
           <p className="text-sm text-fg-muted">The first one filed will lead the wall.</p>
         </div>

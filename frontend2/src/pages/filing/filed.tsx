@@ -5,7 +5,8 @@ import { Button } from "@/ui/button"
 import { CopyButton } from "@/ui/copy"
 import { confirmations, type Ticks } from "@/ui/eligibility"
 import { money, StageTrack, stageOf } from "@/ui/paper"
-import { Illustration, SharePlate } from "@/ui/share-plate"
+import { SharePlate } from "@/ui/share-plate"
+import { Illustration } from "@/ui/illustration"
 
 export type FiledClaim = {
   id: string
@@ -51,7 +52,7 @@ export function FiledReceipt({
     <div className="page space-y-6 pb-16 pt-6 md:pt-8" data-testid="filed-receipt">
       <SharePlate as="section" className="space-y-6 p-6 sm:p-8">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
-          <Illustration name="celebrate" area="honours" className="max-w-[160px] max-sm:hidden" />
+          <Illustration name="celebrate-first-publication" width={150} className="max-sm:hidden" />
           <div className="min-w-0 flex-1 space-y-2">
             <h1 className="display text-2xl sm:text-3xl">Filed. It's with the research cell.</h1>
             {claim.ticket_number ? (

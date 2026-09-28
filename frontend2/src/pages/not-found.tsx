@@ -2,7 +2,7 @@ import { Link, useLocation } from "react-router-dom"
 
 import { useAuth } from "@/app/auth"
 import { NAV, navFor } from "@/app/nav"
-import { Art } from "@/ui/art"
+import { Illustration } from "@/ui/illustration"
 import { Button } from "@/ui/button"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 
@@ -48,7 +48,7 @@ export function NotFound() {
             belongs to somebody else gets the college's own portico with a
             bar across it; an address that is nothing at all gets a signpost
             with nothing written on it. */}
-        <Art name={forbidden ? "closed-gate" : "no-page"} className="mx-auto" />
+        <Illustration name={forbidden ? "error-access-denied" : "not-found-404"} width={180} className="mx-auto" eager />
 
         <div>
           <PageTitle>{forbidden ? "Not open to this account" : "No page at this address"}</PageTitle>

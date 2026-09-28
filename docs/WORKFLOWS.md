@@ -10,22 +10,20 @@ some screen calls every endpoint the jobs use.
 Legend: ✅ works end to end (API test passes and a UI entry point exists) ·
 ⚠ partial (the problem is stated in the row) · ❌ missing.
 
-Totals: **115 workflow rows. 107 ✅, 8 ⚠, 0 ❌.** Every ⚠ is an API that works but has
-no button, or no nav link, in the UI.
+Totals: **115 workflow rows. 115 ✅, 0 ⚠, 0 ❌.**
 
-## To build
+## Built (was "To build")
 
-Each item below has a working, tested API. What is missing is the UI. Another
-agent is restyling the pages right now, so these were not changed in this pass.
+All eight are wired. Frontend tests: `src/ui/desk-actions.test.tsx`, `leaderboard.test.tsx`, `imports.test.tsx`.
 
-1. **Hold / resume at the desks.** Add a "Put on hold (reason ≥10 chars)" / "Resume" button on `/clearing` (SUBMITTED) and `/approvals` (CLEARED). It calls `POST /api/claims/{id}/hold` and `/resume`.
-2. **Reject outright.** In `/clearing`, add a second choice next to "Send back": "Reject — cannot be refiled". It calls `POST /api/claims/{id}/reject-outright`.
-3. **Principal sends to the faculty or rejects outright.** On `/approvals`, add the same two choices beside "Return one step" (`return-to-faculty`, `reject-outright`).
-4. **Super admin corrects claim fields.** In the claim drawer, add an "Edit fields (with reason)" form. It calls `POST /api/admin/claims/{id}/edit`.
-5. **Leaderboard download.** Add a "Download CSV" button on `/leaderboard`. It calls `GET /api/leaderboard?fmt=csv&…` with the current filters. The API was added in this pass.
-6. **Publication harvest / Scopus sync.** Add "Refresh from OpenAlex" and "Sync Scopus" buttons with status on `/imports`. They call `POST /api/admin/publications/harvest`, `/scopus-sync` and `GET /status`.
-7. **Run badges now.** Add a super admin button on `/data/health` or `/imports`. It calls `POST /api/admin/badges/run`.
-8. **Data browser access mismatch.** The API lets the office roles and the Principal read `/api/admin/data/*`, but the nav shows `/data` only to the super admin. Either add those roles to the nav item or tighten `_may_browse_data`. This is a product decision.
+1. ✅ **Hold / resume at the desks.** Add a "Put on hold (reason ≥10 chars)" / "Resume" button on `/clearing` (SUBMITTED) and `/approvals` (CLEARED). It calls `POST /api/claims/{id}/hold` and `/resume`.
+2. ✅ **Reject outright.** In `/clearing`, add a second choice next to "Send back": "Reject — cannot be refiled". It calls `POST /api/claims/{id}/reject-outright`.
+3. ✅ **Principal sends to the faculty or rejects outright.** On `/approvals`, add the same two choices beside "Return one step" (`return-to-faculty`, `reject-outright`).
+4. ✅ **Super admin corrects claim fields.** In the claim drawer, add an "Edit fields (with reason)" form. It calls `POST /api/admin/claims/{id}/edit`.
+5. ✅ **Leaderboard download.** Add a "Download CSV" button on `/leaderboard`. It calls `GET /api/leaderboard?fmt=csv&…` with the current filters. The API was added in this pass.
+6. ✅ **Publication harvest / Scopus sync.** Add "Refresh from OpenAlex" and "Sync Scopus" buttons with status on `/imports`. They call `POST /api/admin/publications/harvest`, `/scopus-sync` and `GET /status`.
+7. ✅ **Run badges now.** Add a super admin button on `/data/health` or `/imports`. It calls `POST /api/admin/badges/run`.
+8. ✅ **Data browser access.** `_may_browse_data` is now SUPER_ADMIN only, matching the nav (`test_only_the_super_admin_may_browse`).
 
 ## Signed out
 
@@ -73,7 +71,7 @@ agent is restyling the pages right now, so these were not changed in this pass.
 | Start a discussion, reply | new thread | `/discussions` | ✅ | `test_faculty_starts_a_discussion_and_replies` |
 | Resolve my discussion | Mark resolved | `/discussions/:id` | ✅ | `test_discussion_owner_resolves_thread` |
 | See the leaderboard | board | `/leaderboard` | ✅ | `test_faculty_sees_leaderboard` |
-| Export the leaderboard | Download CSV | `/leaderboard` | ⚠ API added, no button (To build 5) | `test_anyone_exports_the_leaderboard_csv` |
+| Export the leaderboard | Download CSV | `/leaderboard` | ✅ | `test_anyone_exports_the_leaderboard_csv` |
 | Set my goals | This year → targets | `/research?tab=me` | ✅ | `test_faculty_sets_personal_goals` |
 | Add a calendar event | New event | `/calendar` | ✅ | `test_faculty_adds_a_calendar_event` |
 | Reset my ICS link | Subscribe → reset | `/calendar` | ✅ | `test_faculty_resets_calendar_feed_link` |
@@ -108,8 +106,8 @@ agent is restyling the pages right now, so these were not changed in this pass.
 |---|---|---|---|---|
 | Clear a submitted claim | queue → review → Clear | `/clearing` | ✅ | `test_cell_clears_a_submitted_claim` |
 | Send a claim back with a reason | Send back (≥10 chars) | `/clearing` | ✅ | `test_cell_sends_back_with_reason` |
-| Reject outright | – | `/clearing` | ⚠ API works, no button (To build 2) | `test_cell_rejects_outright` |
-| Hold and resume | – | `/clearing` | ⚠ API works, no button (To build 1) | `test_cell_holds_and_resumes` |
+| Reject outright | – | `/clearing` | ✅ | `test_cell_rejects_outright` |
+| Hold and resume | – | `/clearing` | ✅ | `test_cell_holds_and_resumes` |
 | Nobody acts on their own claim | – | – | ✅ | `test_nobody_acts_on_own_claim`, `test_officer_files_own_paper_but_cannot_clear_it` |
 | Leave an internal desk note (faculty never see it) | Notes | claim drawer | ✅ | `test_desk_leaves_internal_note_faculty_never_sees_it` |
 | Raise a flag → resolve it | Flag → resolve | claim review, `/flags` | ✅ | `test_cell_raises_a_flag_and_admin_resolves` |
@@ -129,7 +127,7 @@ agent is restyling the pages right now, so these were not changed in this pass.
 | Policy / formula | view, edit | `/policy` | ✅ | `test_cell_edits_formula_policy` |
 | Audit log and faults | browse | `/audit`, `/faults` | ✅ | `test_cell_reads_audit_and_faults` |
 | Past claims | browse | `/archive` | ✅ | `test_cell_browses_past_claims` |
-| Harvest publications | – | – | ⚠ API only (To build 6) | `test_cell_harvests_publications` |
+| Harvest publications | Refresh from OpenAlex / Sync Scopus | `/imports` | ✅ | `test_cell_harvests_publications` |
 | Handle profile requests | approve / decline | `/requests` | ✅ | `test_faculty_requests_profile_correction_and_admin_approves` |
 | Moderate the feed | reports → hide | feed | ✅ | `test_faculty_reports_a_post_and_office_hides_it` |
 
@@ -138,9 +136,9 @@ agent is restyling the pages right now, so these were not changed in this pass.
 | Job to be done | Steps | Entry point | Status | Test |
 |---|---|---|---|---|
 | Override a stuck status | Override | `/clearing` drawer | ✅ | `test_admin_overrides_a_stuck_status` |
-| Reassign a claim / edit fields | Reassign; Edit | claim drawer | ⚠ reassign ✅; field edit has no UI (To build 4) | `test_admin_edits_and_reassigns_a_claim` |
+| Reassign a claim / edit fields | Reassign; Edit | claim drawer | ✅ | `test_admin_edits_and_reassigns_a_claim` |
 | View as someone (impersonate) | View as → stop | `/people`, shell banner | ✅ | `test_admin_impersonates_and_stops` |
-| Browse / export any table | Data | `/data` | ⚠ nav vs API roles differ (To build 8) | `test_admin_browses_and_exports_data` |
+| Browse / export any table | Data | `/data` | ✅ (super admin only) | `test_admin_browses_and_exports_data` |
 | Check and fix data health | run → Fix | `/data/health` | ✅ | `test_admin_checks_and_fixes_data_health` |
 | Take a backup | Back up now | `/data/health` | ✅ | `test_admin_takes_a_backup` |
 | Restore a backup | upload + type RESTORE | `/imports` | ✅ | `test_admin_restores_a_backup` |
@@ -148,7 +146,7 @@ agent is restyling the pages right now, so these were not changed in this pass.
 | Merge duplicate accounts | merge | `/people/matches` | ✅ | `test_admin_merges_duplicate_accounts` |
 | Send a Director-stage claim back (standing in) | Send back | `/authorisations` | ✅ | `test_director_only_moves_forward_super_admin_sends_back` |
 | Void a payment | Void | `/ledger`, `/payments` | ✅ | `test_finance_pays_and_voids` |
-| Run badges | – | – | ⚠ API only (To build 7) | – |
+| Run badges | Run badges now | `/data/health` | ✅ | – |
 
 ## Principal
 
@@ -157,7 +155,7 @@ agent is restyling the pages right now, so these were not changed in this pass.
 | Approve a cleared claim | queue → Approve | `/approvals` | ✅ | `test_principal_approves_a_cleared_claim` |
 | Bulk approve | select → Approve all | `/approvals` | ✅ | `test_principal_bulk_approves` |
 | Return one step to the desk | Return | `/approvals` | ✅ | `test_principal_returns_one_step`, `test_principal_sends_back_to_the_desk` |
-| Return to faculty / reject outright | – | `/approvals` | ⚠ API only (To build 3) | – |
+| Return to faculty / reject outright | Send to the faculty member / Reject outright | `/approvals` | ✅ | – |
 | Read flags | – | `/flags` | ✅ | `test_cell_raises_a_flag_and_admin_resolves` |
 
 ## Director (never sees flags, only moves forward)

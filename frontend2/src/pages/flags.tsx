@@ -18,6 +18,7 @@ import {
   ResolveFlagDialog,
   type ClaimFlag,
 } from "@/pages/claim-review"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * Every discrepancy flag in one queue -- the super admin's list of questions
@@ -130,13 +131,16 @@ export function Flags() {
 
   return (
     <div className="page space-y-6">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Flags</PageTitle>
         <Sub className="mt-1">
           Questions about claims, raised by a reviewer or by the checks that read each claim&rsquo;s
           files. A flag never holds a claim back: it is paid as normal, and the super admin is told
           when money goes out with one still open.
         </Sub>
+        </div>
+        <HeaderSpot name="spot-flags" />
       </header>
 
       {summary && (

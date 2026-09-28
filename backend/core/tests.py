@@ -5165,9 +5165,9 @@ class DataExplorerTests(TestCase):
 
     # ---- who gets in ----------------------------------------------------
 
-    def test_the_admin_and_the_principal_may_browse_and_nobody_else(self):
+    def test_only_the_super_admin_may_browse(self):
         for who, allowed in (
-            (self.admin, True), (self.cell, True), (self.head, True),
+            (self.admin, True), (self.cell, False), (self.head, False),
             (self.finance, False), (self.faculty, False),
         ):
             self.client.force_login(who)

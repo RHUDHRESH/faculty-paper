@@ -12,6 +12,7 @@ import { money, Stage, stageOf } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * Where this college publishes (`Journals`) and one journal's record
@@ -130,9 +131,12 @@ export function Journals() {
 
   return (
     <div className="page space-y-6">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Journals</PageTitle>
         <Sub className="mt-1">Where this college actually publishes, most-used first.</Sub>
+        </div>
+        <HeaderSpot name="spot-search" />
       </header>
 
       {!showMoney && (

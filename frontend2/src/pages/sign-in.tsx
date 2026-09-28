@@ -5,6 +5,7 @@ import { useAuth } from "@/app/auth"
 import { loadGoogleIdentity, type GoogleConfig } from "@/app/google"
 import { useInstitution } from "@/app/institution"
 import { Mark } from "@/ui/art"
+import { Illustration } from "@/ui/illustration"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
 
@@ -276,14 +277,11 @@ function BrandPanel({ collegeName, stats }: { collegeName: string; stats: Public
         <p className="mt-3 hidden max-w-md text-base text-fg-muted sm:block">
           Every paper you have published, where each claim stands, and who you could write with next.
         </p>
-        <img
-          src="/illustrations/hero-landing.svg"
-          alt=""
-          aria-hidden
-          width={320}
-          height={200}
-          draggable={false}
-          className="-mb-2 mt-4 h-auto w-full max-w-[200px] select-none lg:mt-10 lg:max-w-[480px]"
+        <Illustration
+          name="hero-sign-in"
+          width={480}
+          eager
+          className="mt-4 w-full max-w-[220px] overflow-hidden rounded-2xl lg:mt-10 lg:max-w-[480px]"
         />
         {stats && <StatsLine stats={stats} className="mt-6 hidden text-fg-muted lg:block" />}
       </div>

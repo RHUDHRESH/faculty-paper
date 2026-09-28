@@ -292,7 +292,7 @@ export function Papers() {
 
   return (
     <div className="page space-y-6 pb-24 sm:pb-6" data-area="record">
-      <HeroBand
+      <HeroBand spot="spot-my-papers"
         area="record"
         title="My papers"
         sentence={sentence}

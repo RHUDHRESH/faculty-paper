@@ -17,6 +17,7 @@ import { useApi } from "@/lib/query"
 import { cn } from "@/lib/cn"
 import { SectionTitle, Meta } from "@/ui/text"
 import { Skeleton } from "@/ui/state"
+import { Illustration, type IllustrationName } from "@/ui/illustration"
 
 /** A badge as `/api/users/{id}/badges` sends it. It never carries money. */
 export type Badge = {
@@ -51,6 +52,22 @@ const ICON: Record<string, LucideIcon> = {
   STREAK_3: CalendarCheck,
   STREAK_6: CalendarCheck,
   FIRST_CITATION: Quote,
+}
+
+/** The medallion drawn for each badge kind. */
+const BADGE_ART: Record<string, IllustrationName> = {
+  FIRST_PAPER: "badge-first-paper",
+  FIRST_Q1: "badge-first-q1",
+  PAPERS_5: "badge-papers-5",
+  PAPERS_10: "badge-papers-10",
+  PAPERS_25: "badge-papers-25",
+  FIRST_AUTHOR: "badge-first-author",
+  CROSS_DEPARTMENT: "badge-cross-department",
+  QUOTA_MET: "badge-quota-met",
+  TOP10_DEPARTMENT: "badge-top10-department",
+  STREAK_3: "badge-streak-3",
+  STREAK_6: "badge-streak-6",
+  FIRST_CITATION: "badge-first-citation",
 }
 
 export function badgeIcon(kind: string): LucideIcon {
@@ -111,9 +128,10 @@ export function BadgeShelf({
           ))}
         </div>
       ) : badges.length === 0 ? (
-        <p className="max-w-prose text-base text-fg-muted">
-          No badges yet. They arrive on their own when a paper is approved for payment or paid —
-          a first paper, a first Q1, a paper led as first author, and more.
+        <p className="flex max-w-prose items-center gap-4 text-base text-fg-muted">
+          <Illustration name="empty-no-badges" width={72} />
+          <span>No badges yet. They arrive on their own when a paper is approved for payment or paid —
+          a first paper, a first Q1, a paper led as first author, and more.</span>
         </p>
       ) : (
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -137,12 +155,16 @@ export function BadgeTile({ badge: b, className }: { badge: Badge; className?: s
   )
   return (
     <li className={cn("panel flex min-w-0 gap-3 p-4", className)}>
-      <span
-        aria-hidden
-        className="grid size-10 shrink-0 place-items-center rounded-full bg-accent-wash text-accent ring-1 ring-inset ring-accent-line"
-      >
-        <Icon className="size-5" />
-      </span>
+      {BADGE_ART[b.kind] ? (
+        <Illustration name={BADGE_ART[b.kind]} width={48} className="shrink-0" />
+      ) : (
+        <span
+          aria-hidden
+          className="grid size-10 shrink-0 place-items-center rounded-full bg-accent-wash text-accent ring-1 ring-inset ring-accent-line"
+        >
+          <Icon className="size-5" />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-baseline justify-between gap-x-2">
           <span className="font-medium">{b.label}</span>

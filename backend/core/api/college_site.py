@@ -11,7 +11,7 @@ from ninja.errors import HttpError
 from core.api.common import api, require_user, session_auth
 from core.models import AuditLog
 from core.services import rbac
-from core.services.college_site import ZipSource, department_profile, import_site
+from core.services.college_site import ZipSource, department_profile, import_site, reclean_imported_bios
 
 MAX_ZIP = 200 * 1024 * 1024
 
@@ -41,6 +41,21 @@ def college_site_import(request: HttpRequest, file: UploadedFile = File(...), dr
             action="COLLEGE_SITE_IMPORT",
             entity="User",
             detail_json=json.dumps({k: v for k, v in report.items() if not isinstance(v, list)}),
+        )
+    return report
+
+
+@api.post("/admin/college-site/reclean-bios", auth=session_auth)
+def college_site_reclean_bios(request: HttpRequest, dry_run: bool = False):
+    """Re-clean bios the import filled (never ones a person wrote)."""
+    user = require_user(request)
+    if not rbac.can_import_prior(user.role):
+        raise HttpError(403, "Forbidden")
+    report = reclean_imported_bios(dry_run=dry_run)
+    if not dry_run and report["changed"]:
+        AuditLog.objects.create(
+            actor=user, action="COLLEGE_SITE_RECLEAN_BIOS", entity="User",
+            detail_json=json.dumps({"checked": report["checked"], "changed": report["changed"]}),
         )
     return report
 

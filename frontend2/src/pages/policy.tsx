@@ -30,6 +30,7 @@ import { money } from "@/ui/paper"
 import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * The payout policy: every rate, multiplier and threshold that decides what a
@@ -154,7 +155,7 @@ export function Policy() {
 
   return (
     <div className="page space-y-8">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="page-head">
         <div>
           <PageTitle>Policy</PageTitle>
           <Sub className="mt-1">
@@ -176,6 +177,7 @@ export function Policy() {
             </Button>
           )}
         </div>
+        <HeaderSpot name="spot-policy" />
       </header>
 
       {isLoading ? (

@@ -42,6 +42,8 @@ import { money } from "@/ui/paper"
 import { useSlashToSearch } from "@/ui/queue-keys"
 import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
+import { HoldControl, HoldNote, ReasonActionDialog, useIsOwnClaim } from "@/ui/desk-actions"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * The Principal's queue: every `CLEARED` ticket waiting between the research
@@ -136,7 +138,11 @@ type QueueClaim = {
   second_approved_at: string | null
 }
 
-type ClaimDetail = QueueClaim & { actions?: ClaimAction[] }
+type ClaimDetail = QueueClaim & {
+  actions?: ClaimAction[]
+  on_hold?: boolean | null
+  hold_reason?: string | null
+}
 
 type QueuePayload = {
   total: number
@@ -424,7 +430,7 @@ export function Approvals() {
 
   return (
     <div className="page space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header className="page-head">
         <div>
           <PageTitle>Approvals</PageTitle>
           <Sub className="mt-1">
@@ -436,6 +442,7 @@ export function Approvals() {
           <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
           Refresh
         </Button>
+        <HeaderSpot name="spot-approvals" />
       </header>
 
       <Meta className="block">
@@ -959,6 +966,9 @@ function TicketSheet({
 
   const [approveOpen, setApproveOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
+  const [facultyOpen, setFacultyOpen] = useState(false)
+  const [outrightOpen, setOutrightOpen] = useState(false)
+  const own = useIsOwnClaim(claim ?? {})
 
   const duplicateMatches = parseJsonArray<DuplicateMatch>(claim?.duplicate_matches_json)
   const snapshot = parseJsonObject<{ issues?: string[] }>(claim?.verification_snapshot_json)
@@ -1001,6 +1011,7 @@ function TicketSheet({
             </SheetHeader>
 
             <SheetBody className="space-y-8">
+              <HoldNote claim={claim} />
               <section className="space-y-1">
                 <SectionTitle>Claimant</SectionTitle>
                 <p className="text-sm">{claim.owner_name}</p>
@@ -1153,9 +1164,20 @@ function TicketSheet({
             </SheetBody>
 
             {claim.status === "CLEARED" && (
-              <SheetFooter>
+              <SheetFooter className="flex-wrap gap-2">
+                <HoldControl claim={claim} />
+                {!own && (
+                  <>
+                    <Button kind="danger" onClick={() => setOutrightOpen(true)}>
+                      Reject outright
+                    </Button>
+                    <Button kind="quiet" onClick={() => setFacultyOpen(true)}>
+                      Send to the faculty member
+                    </Button>
+                  </>
+                )}
                 <Button kind="danger" onClick={() => setRejectOpen(true)}>
-                  Send it back
+                  Return one step
                 </Button>
                 <Button kind="primary" onClick={() => setApproveOpen(true)}>
                   Approve
@@ -1165,6 +1187,28 @@ function TicketSheet({
 
             <ApproveDialog claim={claim} open={approveOpen} onOpenChange={setApproveOpen} me={me} onApproved={onClose} />
             <RejectDialog claim={claim} open={rejectOpen} onOpenChange={setRejectOpen} onRejected={onClose} />
+            <ReasonActionDialog
+              claim={claim}
+              open={facultyOpen}
+              onOpenChange={setFacultyOpen}
+              onDone={onClose}
+              path={`/api/claims/${claim.id}/return-to-faculty`}
+              title="Send to the faculty member?"
+              hint="It goes straight back to the claimant to fix and refile. They see this reason."
+              confirmLabel="Send to the faculty member"
+              doneToast="Sent to the faculty member"
+            />
+            <ReasonActionDialog
+              claim={claim}
+              open={outrightOpen}
+              onOpenChange={setOutrightOpen}
+              onDone={onClose}
+              path={`/api/claims/${claim.id}/reject-outright`}
+              title="Reject this ticket outright?"
+              hint="Final: the claimant cannot edit or refile it. They see this reason."
+              confirmLabel="Reject outright"
+              doneToast="Rejected outright"
+            />
           </>
         ) : null}
       </SheetContent>

@@ -28,6 +28,7 @@ import {
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * `Audit` — who did what, and when — and `Faults` — what is broken, blocked
@@ -552,12 +553,15 @@ export function Audit() {
 
   return (
     <div className="page space-y-6">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Audit log</PageTitle>
         <Sub className="mt-1">
           Every consequential action, recorded as it happened. Append-only — there is no edit here and
           nothing is ever removed.
         </Sub>
+        </div>
+        <HeaderSpot name="spot-audit" />
       </header>
 
       <div className={filterBar}>
@@ -875,12 +879,15 @@ export function Faults() {
 
   return (
     <div className="page space-y-6">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Faults</PageTitle>
         <Sub className="mt-1">
           Data that blocks a person, work that has stalled, verification that could not confirm, and money
           that does not add up.
         </Sub>
+        </div>
+        <HeaderSpot name="spot-audit" />
       </header>
 
       {isLoading ? (

@@ -21,6 +21,7 @@ import { Field, Textarea } from "@/ui/field"
 import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * The office's side of `profile.tsx`'s "Request a change" — every pending
@@ -127,13 +128,16 @@ export function Requests() {
 
   return (
     <div className="page space-y-8 py-8">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Profile requests</PageTitle>
         <Sub className="mt-1">
           Changes people cannot make to their own account — these details decide who gets
           paid, whose record a paper is checked against and what an account can do, so an
           admin decides here instead.
         </Sub>
+        </div>
+        <HeaderSpot name="spot-people" />
       </header>
 
       {isLoading ? (

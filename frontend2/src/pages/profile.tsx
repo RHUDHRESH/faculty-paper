@@ -41,6 +41,7 @@ import {
   SkeletonText,
 } from "@/ui/state"
 import { toast } from "@/ui/toast"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * The account page at `/me`, in the product owner's terms: every account has
@@ -294,12 +295,15 @@ export function Profile() {
 
   return (
     <div className="page space-y-10 py-8">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Your profile</PageTitle>
         <Sub className="mt-1">
           {me.name} · {me.email}
         </Sub>
         {summary && <Meta className="mt-1 block">{summary}</Meta>}
+        </div>
+        <HeaderSpot name="spot-profile" />
       </header>
 
       <BadgeShelf userId={me.id} own />

@@ -31,9 +31,9 @@ from core.services import rbac
 
 
 def _may_browse_data(role: str) -> bool:
-    """The admin and the principal. Finance reads money through its own
-    screens, which are shaped for that job."""
-    return role in rbac.ADMIN_ROLES or role == Role.PRINCIPAL
+    """The super admin only -- the same person the nav shows /data to. The
+    office and the Principal read the record through their own screens."""
+    return role == Role.SUPER_ADMIN
 
 
 class CellEditIn(Schema):

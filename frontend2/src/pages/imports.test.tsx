@@ -160,3 +160,39 @@ describe("the Scopus profiles and what to put right", () => {
     expect(status).toHaveTextContent("57527550200")
   })
 })
+
+describe("the publication harvest (super admin)", () => {
+  const ADMIN: Me = { id: "u-sa", email: "sa@example.edu", name: "Admin", role: "SUPER_ADMIN", department: null }
+
+  it("queues OpenAlex and Scopus jobs and shows the status", async () => {
+    const user = userEvent.setup()
+    mount({
+      "/api/auth/me": () => ADMIN,
+      "/api/admin/publications/status": () => ({
+        publications: 1200, authorships: 4000, college_authorships: 900, college_matched: 850,
+        users_with_publications: 300, unmatched_college_names: [],
+        last_run: { action: "PUBLICATION_HARVEST_QUEUED", at: "2026-09-20T10:00:00Z", detail: {} },
+      }),
+      "/api/admin/publications/harvest": () => ({ ok: true, queued: true, job_id: "abc123456" }),
+      "/api/admin/publications/scopus-sync": () => ({ ok: true, queued: true, job_id: "def" }),
+    })
+    const region = await section(/publication record/i)
+    expect(await within(region).findByText(/1,200 papers/)).toBeInTheDocument()
+    expect(within(region).getByText(/publication harvest queued/i)).toBeInTheDocument()
+    await user.click(within(region).getByRole("button", { name: /Refresh from OpenAlex/ }))
+    await user.click(within(region).getByRole("button", { name: /Sync Scopus/ }))
+    await waitFor(() => {
+      const calls = vi.mocked(api).mock.calls
+      const hit = (path: string) =>
+        calls.some(([p, o]) => p === path && (o as { method?: string })?.method === "POST")
+      expect(hit("/api/admin/publications/harvest")).toBe(true)
+      expect(hit("/api/admin/publications/scopus-sync")).toBe(true)
+    })
+  })
+
+  it("is not shown to the office", async () => {
+    mount()
+    await section(/final-year project teams/i)
+    expect(screen.queryByRole("region", { name: /publication record/i })).toBeNull()
+  })
+})

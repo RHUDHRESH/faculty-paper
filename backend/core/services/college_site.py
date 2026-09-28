@@ -176,20 +176,115 @@ def match(rows: list[dict], people: list[User]) -> tuple[dict[int, User], list[d
     return found, unmatched, conflicts
 
 
+#: Table-header cells from the profile PDFs ("Completion | Full Time/Part
+#: Time") and filler that leaked into the research-area lists.
+_JUNK_AREAS = {
+    "completion", "full", "time", "part", "time/part", "full time", "part time",
+    "full time/part time", "full-time", "part-time", "year", "years", "year of completion",
+    "status", "nil", "na", "n/a", "none", "-", "university", "degree", "specialization",
+    "specialisation", "area", "areas", "research", "details",
+}
+_AREAS_LABEL = "Areas of specialisation:"
+_SMALL_WORDS = r"(and|of|in|for|with|on|to)"
+
+
+def clean_area(value: Any) -> str:
+    """One research area, as a person would write it -- or "" for junk."""
+    # PDF bullets arrive as private-use glyphs; a line with a colon is a
+    # heading or a table cell that leaked in, not an area.
+    text = re.sub("[-●•▪■◦]", "", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip(" -,.;:|/")
+    if not text or ":" in text:
+        return ""
+    if " " not in text and re.search(r"[a-z]{2}[A-Z]", text):
+        # "DataWarehousingandDataMining" -> "Data Warehousing and Data Mining"
+        text = re.sub(r"(?<=[a-z]{2})(?=[A-Z])", " ", text)
+        text = re.sub(r"(?<=[a-z])&(?=[A-Z])", " & ", text)
+        text = re.sub(rf"(?<=[a-z]{{2}}){_SMALL_WORDS}(?= [A-Z])", r" \1", text)
+    if text.lower() in _JUNK_AREAS or len(text) < 3 or not re.search(r"[A-Za-z]{2}", text):
+        return ""
+    return text
+
+
+def clean_areas(values: list[Any]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in values:
+        a = clean_area(v)
+        if a and a.lower() not in seen:
+            seen.add(a.lower())
+            out.append(a)
+    # A PDF line split at every space ("Computer, Networks, Network,
+    # Security") reads better as the one phrase it was.
+    singles = [a for a in out if " " not in a]
+    if len(out) >= 4 and len(singles) / len(out) >= 0.75:
+        return [" ".join(out)[:200]]
+    return out
+
+
+def _tidy(text: str) -> str:
+    """Stray punctuation and spacing left between fragments."""
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s+([,.;:])", r"\1", text)
+    text = re.sub(r"([,;])(?:\s*[,;])+", r"\1", text)
+    text = re.sub(r",\s*\.", ".", text)
+    text = re.sub(r"\.{2,}", ".", text)
+    return text.strip(" ,;")
+
+
 def _bio(row: dict) -> str:
     parts = []
     if row.get("qualifications"):
         parts.append(row["qualifications"].strip().rstrip(","))
     if row.get("teaching_experience"):
         parts.append(f"Teaching experience: {row['teaching_experience']}.")
-    # PDF bullets arrive as private-use glyphs; a line with a colon is a
-    # heading or a table cell that leaked in, not an area.
-    areas = [re.sub(r"[-]", "", str(a)).strip(" -,.●•▪") for a in row.get("research_areas") or []]
-    areas = [a for a in areas if a and ":" not in a and a.lower() not in ("nil", "na")]
+    areas = clean_areas(row.get("research_areas") or [])
     if areas:
-        parts.append("Areas of specialisation: " + ", ".join(areas[:8]) + ".")
+        parts.append(f"{_AREAS_LABEL} " + ", ".join(areas[:8]) + ".")
     # The profile editor holds a bio to 600 characters; an imported one must fit it.
-    return " ".join(parts).strip()[:600]
+    return _tidy(" ".join(parts))[:600]
+
+
+def clean_imported_bio(bio: str) -> str:
+    """Re-clean a bio the import wrote earlier, from its text alone.
+
+    The shape is known: qualifications, "Teaching experience: ...", then
+    "Areas of specialisation: a, b, c." -- only the area list is rebuilt;
+    the sentences before it are kept as written (tidied).
+    """
+    text = bio or ""
+    head, sep, tail = text.partition(_AREAS_LABEL)
+    if not sep:
+        return _tidy(text)
+    areas = clean_areas(re.split(r"\s*,\s*", tail.strip().rstrip(".")))
+    head = _tidy(head)
+    if not areas:
+        return head
+    return _tidy(f"{head} {_AREAS_LABEL} " + ", ".join(areas[:8]) + ".")[:600]
+
+
+def reclean_imported_bios(*, dry_run: bool = False) -> dict[str, Any]:
+    """Re-clean bios the college-site import filled -- and nothing else.
+
+    A bio qualifies only when the ``college_site_applied`` record says the
+    import filled it for that person and the text still carries the import's
+    own shape. A bio the person rewrote since has lost that shape and is left
+    alone.
+    """
+    applied = _setting(APPLIED_KEY)
+    ids = [uid for uid, fields in applied.items() if "bio" in (fields or [])]
+    changed: list[dict[str, str]] = []
+    with transaction.atomic():
+        for user in User.objects.filter(id__in=ids).exclude(bio=""):
+            if _AREAS_LABEL not in user.bio and "Teaching experience:" not in user.bio:
+                continue
+            new = clean_imported_bio(user.bio)
+            if new and new != user.bio:
+                changed.append({"id": str(user.id), "name": user.name, "before": user.bio, "after": new})
+                if not dry_run:
+                    user.bio = new
+                    user.save(update_fields=["bio", "updated_at"])
+    return {"checked": len(ids), "changed": len(changed), "dry_run": dry_run, "samples": changed[:20]}
 
 
 def _store(folder: str, content: bytes, ext: str) -> str:

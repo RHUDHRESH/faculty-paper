@@ -23,6 +23,7 @@ import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/st
 import { stickyHeadCell, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * What the scheme was given for the year, and where it has gone.
@@ -168,7 +169,8 @@ export function Budget() {
 
   return (
     <div className="page space-y-8">
-      <header className="space-y-4">
+      <header className="page-head">
+        <div className="space-y-4">
         <div>
           <PageTitle>Budget</PageTitle>
           <Sub className="mt-1">
@@ -201,6 +203,8 @@ export function Budget() {
             </Button>
           )}
         </div>
+        </div>
+        <HeaderSpot name="spot-budget" />
       </header>
 
       {isLoading ? (

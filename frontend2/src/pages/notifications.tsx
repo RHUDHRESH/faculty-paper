@@ -16,6 +16,7 @@ import { Button } from "@/ui/button"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { HeaderSpot } from "@/ui/page-header"
 
 type Week = {
   eligible: boolean
@@ -55,7 +56,7 @@ export function NotificationsPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <header className="page-head">
         <div>
           <PageTitle>Notifications</PageTitle>
           <Sub>What happened to your papers, your posts and your work.</Sub>
@@ -63,7 +64,8 @@ export function NotificationsPage() {
         <Link to="/settings/notifications" className="text-sm underline underline-offset-2">
           Notification settings
         </Link>
-      </div>
+        <HeaderSpot name="spot-notifications" />
+      </header>
 
       <div
         role="tablist"

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
 import type { Area } from "@/ui/chip"
+import { Illustration, type IllustrationName } from "@/ui/illustration"
 
 /** Whether the reader asked the system to stop moving things. */
 function prefersReducedMotion(): boolean {
@@ -111,9 +112,12 @@ export function HeroBand({
   sentence,
   actions,
   aside,
+  spot,
   children,
   className,
 }: {
+  /** A small page-header illustration, shown when there is no `aside`. */
+  spot?: IllustrationName
   area?: Area
   variant?: "wash" | "solid"
   eyebrow?: React.ReactNode
@@ -156,7 +160,11 @@ export function HeroBand({
           )}
           {children}
         </div>
-        {aside && <div className="shrink-0">{aside}</div>}
+        {aside ? (
+          <div className="shrink-0">{aside}</div>
+        ) : spot ? (
+          <Illustration name={spot} width={112} className="hidden shrink-0 sm:block" eager />
+        ) : null}
       </div>
     </section>
   )

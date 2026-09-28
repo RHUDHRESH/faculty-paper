@@ -21,6 +21,7 @@ import {
 } from "@/ui/state"
 import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { HeaderSpot } from "@/ui/page-header"
 
 /**
  * How the college's own records get into the system.
@@ -149,7 +150,8 @@ export function Imports() {
 
   return (
     <div className="page space-y-10">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Imports</PageTitle>
         <Sub className="mt-1">
           The roster, the payment history and the ERP workbook — the three
@@ -157,6 +159,8 @@ export function Imports() {
           teams and the Scopus author profiles, and the queue that checks what
           they brought in against Scopus.
         </Sub>
+        </div>
+        <HeaderSpot name="spot-imports" />
       </header>
 
       <AlreadyLoaded query={stats} />
@@ -168,8 +172,93 @@ export function Imports() {
       <ScopusProfilesSection />
       <CollegeSiteSection />
       <ProcessQueueSection />
+      {me?.role === "SUPER_ADMIN" && <PublicationHarvestSection />}
       {me?.role === "SUPER_ADMIN" && <RestoreSection onImported={refreshStats} />}
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Publication harvest (super admin)                                         */
+/* ------------------------------------------------------------------------ */
+
+type PublicationStatus = {
+  publications: number
+  authorships: number
+  college_authorships: number
+  college_matched: number
+  users_with_publications: number
+  unmatched_college_names: string[]
+  last_run: { action: string; at: string | null; detail: Record<string, unknown> } | null
+}
+
+/**
+ * The OpenAlex harvest and the Scopus author sync. Both run as queued jobs
+ * (production has no shell); this shows what the record holds and the last
+ * run, and refreshes itself while a job is fresh.
+ */
+function PublicationHarvestSection() {
+  const [queuedAt, setQueuedAt] = useState<number | null>(null)
+  const status = useApi<PublicationStatus>(["admin", "publications", "status"], "/api/admin/publications/status", {
+    refetchInterval: queuedAt && Date.now() - queuedAt < 10 * 60_000 ? 15_000 : false,
+  })
+  const harvest = useApiMutation<Record<string, never>, { job_id?: string }>("/api/admin/publications/harvest", {
+    invalidates: [["admin", "publications", "status"]],
+  })
+  const scopus = useApiMutation<Record<string, never>, { job_id?: string }>("/api/admin/publications/scopus-sync", {
+    invalidates: [["admin", "publications", "status"]],
+  })
+
+  async function queue(which: "harvest" | "scopus") {
+    try {
+      const res = await (which === "harvest" ? harvest : scopus).mutateAsync({})
+      setQueuedAt(Date.now())
+      toast.ok(`Queued${res.job_id ? ` — job ${String(res.job_id).slice(0, 8)}` : ""}. It runs in the background.`)
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  const s = status.data
+  return (
+    <section className="space-y-4" aria-labelledby="harvest">
+      <div>
+        <SectionTitle>
+          <span id="harvest">Publication record</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          Refresh the college's papers from OpenAlex, or sync each member's Scopus author profile. Both
+          run in the background; the status below updates when they finish.
+        </Sub>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button kind="default" disabled={harvest.isPending} onClick={() => void queue("harvest")}>
+          <RefreshCw /> {harvest.isPending ? "Queuing…" : "Refresh from OpenAlex"}
+        </Button>
+        <Button kind="default" disabled={scopus.isPending} onClick={() => void queue("scopus")}>
+          <RefreshCw /> {scopus.isPending ? "Queuing…" : "Sync Scopus"}
+        </Button>
+      </div>
+      {status.isLoading ? (
+        <SkeletonText lines={2} />
+      ) : status.error ? (
+        <InlineError message={messageOf(status.error)} />
+      ) : s ? (
+        <div role="status" className="space-y-1 text-sm">
+          <p>
+            {nf(s.publications)} papers · {nf(s.college_matched)} of {nf(s.college_authorships)} college
+            authorships matched to a person · {nf(s.users_with_publications)} people with papers.
+          </p>
+          <Meta className="block">
+            {s.last_run
+              ? `Last run: ${s.last_run.action.replace(/_/g, " ").toLowerCase()}${
+                  s.last_run.at ? ` · ${new Date(s.last_run.at).toLocaleString("en-IN")}` : ""
+                }`
+              : "Never run from here."}
+          </Meta>
+        </div>
+      ) : null}
+    </section>
   )
 }
 
@@ -787,7 +876,40 @@ function CollegeSiteSection() {
           )}
         </ImportResult>
       ) : null}
+      <RecleanBios />
     </section>
+  )
+}
+
+/** Strip PDF table leftovers from bios the import filled — never ones a person wrote. */
+function RecleanBios() {
+  const [result, setResult] = useState<{ checked: number; changed: number } | null>(null)
+  const run = useApiMutation<Record<string, never>, { checked: number; changed: number }>(
+    "/api/admin/college-site/reclean-bios"
+  )
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+      <Button
+        kind="quiet"
+        disabled={run.isPending}
+        onClick={async () => {
+          try {
+            const r = await run.mutateAsync({})
+            setResult(r)
+            toast.ok(`${nf(r.changed)} imported bios cleaned`)
+          } catch (err) {
+            toast.fail(err)
+          }
+        }}
+      >
+        {run.isPending ? "Cleaning…" : "Re-clean imported bios"}
+      </Button>
+      <Meta>
+        {result
+          ? `${nf(result.changed)} of ${nf(result.checked)} imported bios changed.`
+          : "Removes leftover table text such as “Completion, Full, Time/Part”. Bios people wrote are left alone."}
+      </Meta>
+    </div>
   )
 }
 

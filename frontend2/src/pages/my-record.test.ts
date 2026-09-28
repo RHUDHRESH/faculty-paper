@@ -5,7 +5,7 @@ import type { RecordPaper } from "@/pages/papers"
 
 const paper = (over: Partial<RecordPaper>): RecordPaper => ({
   id: "p", title: "A, study", year: 2024, date: null, venue: "J", type: "Article", quartile: "Q1",
-  doi: "10.1/x", eid: null, openalex_id: null, citations: 3, source: "Scopus", author_position: 1,
+  doi: "10.1/x", eid: null, openalex_id: null, citations: 3, source: "openalex", scopus_indexed: true, author_position: 1,
   total_authors: 3, match_confidence: null,
   authors: [{ name: "Me", position: 1, user_id: "u", is_college: true, institution: null }],
   claim: null, eligible: true, ineligible_reason: null, ...over,

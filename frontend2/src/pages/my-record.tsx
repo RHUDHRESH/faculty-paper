@@ -44,7 +44,7 @@ export function appraisalCsv(name: string, rows: RecordPaper[]): string {
   const body = rows.map((p, i) =>
     [
       i + 1, p.title, p.authors.map((a) => a.name).join("; "), p.venue, p.year, p.type,
-      p.source ?? "", p.quartile ?? "", p.doi ? `https://doi.org/${p.doi}` : "", authorRole(p), p.citations ?? "",
+      p.scopus_indexed ? "Scopus" : "", p.quartile ?? "", p.doi ? `https://doi.org/${p.doi}` : "", authorRole(p), p.citations ?? "",
     ].map(csvCell).join(",")
   )
   return [`Publication list,${csvCell(name)}`, "", head.join(","), ...body].join("\n")
@@ -164,7 +164,7 @@ export function AppraisalList() {
                     <p className="text-fg-muted break-words">
                       <em>{p.venue ?? "Venue not recorded"}</em>
                       {p.type ? ` · ${p.type}` : ""}
-                      {p.source ? ` · Indexed in ${p.source}` : ""}
+                      {p.scopus_indexed ? " · Scopus indexed" : ""}
                       {p.quartile ? ` · ${p.quartile}` : ""}
                     </p>
                     <p className="text-fg-muted break-all">

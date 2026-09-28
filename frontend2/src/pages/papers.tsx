@@ -61,6 +61,7 @@ export type RecordPaper = {
   openalex_id: string | null
   citations: number | null
   source: string | null
+  scopus_indexed?: boolean
   author_position: number | null
   total_authors: number
   match_confidence: number | null

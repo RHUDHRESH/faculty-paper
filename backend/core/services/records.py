@@ -236,7 +236,24 @@ def collect(
 
     `include_unmatched` adds ledger rows whose staff id matches no account --
     the wall of fame shows those; a badge has nobody to go to.
+
+    The everybody case reads every claim and ledger row (~0.6 s on the real
+    record) for the wall, /reports and every home screen, and is the same for
+    all of them, so it is kept per data generation.
     """
+    if users is None:
+        from core.services.aggregate_cache import cached
+
+        return cached(
+            "records.collect", {"unmatched": include_unmatched},
+            lambda: _collect(None, include_unmatched=include_unmatched),
+        )
+    return _collect(users, include_unmatched=include_unmatched)
+
+
+def _collect(
+    users: Optional[Iterable[User]], *, include_unmatched: bool
+) -> list[PaperRecord]:
     people = list(users) if users is not None else list(User.objects.all())
     by_id = {u.id: u for u in people}
     by_staff: dict[str, list[User]] = defaultdict(list)

@@ -41,21 +41,39 @@ def _person(u: User) -> dict[str, Any]:
 
 # --------------------------------------------------------------------------- unmatched names
 
+def _groups() -> dict[str, dict[str, Any]]:
+    """Every unmatched college author name, grouped by `name_key`.
+
+    Normalising ~5k names took about a second on the real record and the
+    admin home screen asks for it on every load, so it is kept per data
+    generation (any write rebuilds it).
+    """
+    from core.services.aggregate_cache import cached
+
+    def build() -> dict[str, dict[str, Any]]:
+        groups: dict[str, dict[str, Any]] = {}
+        rows = Authorship.objects.filter(is_college=True, user__isnull=True).values_list(
+            "display_name", "publication_id"
+        )
+        for display, pub_id in rows:
+            key = name_key(display)
+            if not key:
+                continue
+            g = groups.setdefault(key, {"key": key, "names": {}, "papers": set()})
+            g["names"][display] = g["names"].get(display, 0) + 1
+            g["papers"].add(pub_id)
+        return groups
+
+    return cached("author_review.groups", {}, build)
+
+
 def unmatched_groups(*, status: str = "open", q: str = "", limit: int = 50, offset: int = 0) -> dict[str, Any]:
     """Unmatched college author names, grouped by normalised name, most papers first.
 
     `status` is "open" (no decision yet), "ambiguous" or "hidden" (not on roster).
     """
     decided = dict(AuthorAlias.objects.values_list("name_key", "status"))
-    groups: dict[str, dict[str, Any]] = {}
-    rows = Authorship.objects.filter(is_college=True, user__isnull=True).values_list("display_name", "publication_id")
-    for display, pub_id in rows:
-        key = name_key(display)
-        if not key:
-            continue
-        g = groups.setdefault(key, {"key": key, "names": {}, "papers": set()})
-        g["names"][display] = g["names"].get(display, 0) + 1
-        g["papers"].add(pub_id)
+    groups = _groups()
     want = {"open": None, "ambiguous": AuthorAlias.AMBIGUOUS, "hidden": AuthorAlias.NOT_ROSTER}.get(status)
     needle = q.strip().lower()
     picked = []

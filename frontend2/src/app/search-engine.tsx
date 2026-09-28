@@ -16,6 +16,7 @@ import {
   Ticket,
   UserRound,
   UsersRound,
+  LifeBuoy,
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
@@ -122,6 +123,7 @@ export const ACTIONS: SearchAction[] = [
   { id: "event", label: "Add calendar event", icon: CalendarDays, keywords: ["event", "calendar", "meeting", "deadline", "add"], suggestOn: ["/calendar"], run: (c) => c.navigate("/calendar") },
   { id: "gcal", label: "Subscribe calendar to Google", icon: CalendarDays, keywords: ["google", "subscribe", "ics", "feed"], suggestOn: ["/calendar"], run: (c) => c.navigate("/calendar?subscribe=1") },
   { id: "people", label: "Browse people", icon: UsersRound, keywords: ["colleagues", "directory", "people", "faculty"], run: (c) => c.navigate("/search?scope=people") },
+  { id: "help", label: "Help and guides", icon: LifeBuoy, keywords: ["help", "guide", "how do i", "how to", "manual", "support"], run: (c) => c.navigate("/help") },
   { id: "signout", label: "Sign out", icon: LogOut, keywords: ["sign out", "log out", "logout", "exit"], run: (c) => void c.signOut() },
 ]
 

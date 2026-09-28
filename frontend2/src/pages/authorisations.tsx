@@ -286,7 +286,7 @@ export function Authorisations() {
               onRetry={error?.status === 403 ? undefined : () => refetch()}
             />
           ) : rows.length === 0 ? (
-            <EmptyState
+            <EmptyState guide="authorise-the-month"
               // With a department chosen, "every approved claim has been
               // authorised" would be a claim about the whole college made
               // from one department's empty page.

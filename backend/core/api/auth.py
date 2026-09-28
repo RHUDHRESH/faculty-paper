@@ -410,6 +410,15 @@ def auth_me(request: HttpRequest):
     return _me_dict(request, u)
 
 
+@api.post("/auth/me/welcome-seen", auth=session_auth)
+def auth_welcome_seen(request: HttpRequest):
+    """Close the first-sign-in welcome for good."""
+    u = require_user(request)
+    if u.welcome_seen_at is None:
+        User.objects.filter(pk=u.pk).update(welcome_seen_at=timezone.now())
+    return {"ok": True}
+
+
 class ProfileUpdateIn(Schema):
     """Nothing on a profile is self-service any more.
 

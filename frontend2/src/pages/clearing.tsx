@@ -513,6 +513,7 @@ export function Clearing() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          guide="clear-a-claim"
           art="empty-queue"
           icon={Inbox}
           title="Nothing waiting"

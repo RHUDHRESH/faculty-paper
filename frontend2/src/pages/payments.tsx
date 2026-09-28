@@ -430,6 +430,7 @@ export function Payments() {
         />
       ) : rows.length === 0 ? (
         <EmptyState
+          guide="pay-claims"
           art="nothing-paid"
           icon={Banknote}
           title="Nothing waiting on Finance"

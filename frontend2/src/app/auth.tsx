@@ -23,6 +23,8 @@ export type Me = {
   /** Their own profile photo, set from their public profile. */
   photo_url?: string | null
   must_change_password?: boolean
+  /** False until they close the first-sign-in welcome. */
+  welcome_seen?: boolean
   /** Set while a super admin is viewing as this account. */
   impersonated_by?: { id: string; name: string; email: string } | null
 }

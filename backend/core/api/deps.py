@@ -87,6 +87,7 @@ def _me_dict(request: HttpRequest, u: User) -> dict[str, Any]:
     """The signed-in payload, plus who is really driving."""
     data = _user_dict(u)
     data["google"] = _google_link(u)
+    data["welcome_seen"] = u.welcome_seen_at is not None
     real = impersonator_of(request)
     if real:
         data["impersonated_by"] = {"id": real.id, "name": real.name, "email": real.email}

@@ -134,6 +134,10 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
     header_font = Font(bold=True, color="FFFFFFFF", size=11)
     header_fill = PatternFill("solid", fgColor=_HEADER_FILL)
     band_fill = PatternFill("solid", fgColor=_BAND_FILL)
+    # One style object each, shared by every cell: building a fresh
+    # Alignment per cell dominated a 17k-row accreditation pack.
+    right = Alignment(horizontal="right")
+    top = Alignment(vertical="top", wrap_text=False)
 
     # ---- cover -----------------------------------------------------------
     cover = wb.create_sheet("Cover")
@@ -190,12 +194,12 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
                     cell.fill = band_fill
                 if kind == "money":
                     cell.number_format = '\u20b9#,##0.00'
-                    cell.alignment = Alignment(horizontal="right")
+                    cell.alignment = right
                 elif kind == "number":
                     cell.number_format = "#,##0"
-                    cell.alignment = Alignment(horizontal="right")
+                    cell.alignment = right
                 else:
-                    cell.alignment = Alignment(vertical="top", wrap_text=False)
+                    cell.alignment = top
 
         for i, column in enumerate(columns, start=1):
             widest = max(

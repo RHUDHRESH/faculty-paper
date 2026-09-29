@@ -49,6 +49,15 @@ def _month_bounds(month: Optional[str]) -> Optional[tuple[int, int]]:
 
 def payments(year: Optional[int] = None, department: Optional[str] = None,
              month: Optional[str] = None) -> list[dict[str, Any]]:
+    """Cached `_payments`: the same for every reader, rebuilt on any write."""
+    from core.services.aggregate_cache import shared as cached
+
+    return cached("college_totals.payments", {"y": year, "d": department, "m": month},
+                  lambda: _payments(year, department, month))
+
+
+def _payments(year: Optional[int] = None, department: Optional[str] = None,
+              month: Optional[str] = None) -> list[dict[str, Any]]:
     """Every payment once: {month (date), department, amount, owner_id, name}."""
     ledger = PaidLedger.objects.annotate(
         dept=Coalesce(F("claim__owner__department"), F("department")),
@@ -95,6 +104,23 @@ def payout_months() -> list[str]:
 
 
 def papers(year: Optional[int] = None, department: Optional[str] = None) -> list[dict[str, Any]]:
+    """Cached `_papers`. Reading every college authorship costs seconds on the
+    real record; the answer is the same for every reader and any write moves
+    the aggregate generation, so it is worked out once per change."""
+    from core.services.aggregate_cache import shared as cached
+
+    # One unfiltered copy shared by every filter: the filters below are the
+    # same ones `_papers` applies last, and they cost milliseconds in Python.
+    out = cached("college_totals.papers", {}, lambda: _papers(None, None))
+    if year:
+        out = [p for p in out if p["year"] == year]
+    if department:
+        want = department.strip().casefold()
+        out = [p for p in out if any(d.casefold() == want for d in p["departments"])]
+    return out
+
+
+def _papers(year: Optional[int] = None, department: Optional[str] = None) -> list[dict[str, Any]]:
     """Every college paper once: {year, departments (set)}."""
     college = Q(is_college=True) | Q(user__isnull=False)
     depts: dict[str, set[str]] = defaultdict(set)

@@ -36,7 +36,7 @@ export function stageOf(status: string): StageInfo {
       return {
         step: null,
         label: "Draft",
-        who: "Not filed yet — finish it when you are ready.",
+        who: "Not filed yet. Finish it when you are ready.",
         tone: "neutral",
       }
     case "REJECTED":
@@ -51,7 +51,7 @@ export function stageOf(status: string): StageInfo {
       return {
         step: "Filed",
         label: "Awaiting check",
-        who: "With the research cell.",
+        who: "Being checked by the college.",
         tone: "progress",
       }
     case "CLEARED":
@@ -61,7 +61,7 @@ export function stageOf(status: string): StageInfo {
         label: "Checked",
         // Not "with Finance". Finance cannot see it until the Principal has
         // approved it, and saying otherwise sent people to the wrong desk.
-        who: "Waiting for the Principal to approve it.",
+        who: "Checked. Waiting to be approved.",
         tone: "progress",
       }
     case "PRINCIPAL_APPROVED":
@@ -72,7 +72,7 @@ export function stageOf(status: string): StageInfo {
         // last signature any more — the Director authorises it next, and a
         // claimant told to chase Finance at this point is sent to a desk
         // that cannot yet see their ticket.
-        who: "Waiting for the Director to authorise it.",
+        who: "Approved. Waiting to be authorised.",
         tone: "progress",
       }
     case "DIRECTOR_APPROVED":
@@ -80,13 +80,13 @@ export function stageOf(status: string): StageInfo {
       return {
         step: "Authorised",
         label: "Authorised",
-        who: "With Finance, who will process the payment.",
+        who: "Authorised. The payment is being made.",
         tone: "progress",
       }
     case "PAID":
       return { step: "Paid", label: "Paid", who: "Settled.", tone: "done" }
     default:
-      return { step: null, label: status.replace(/_/g, " "), who: "", tone: "neutral" }
+      return { step: null, label: "In progress", who: "", tone: "neutral" }
   }
 }
 

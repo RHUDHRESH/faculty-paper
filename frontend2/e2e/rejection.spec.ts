@@ -328,7 +328,7 @@ test.describe("A ticket sent back, and filed again", () => {
     // claimant ("Stage: Under review"). It never says whose desk it is on --
     // the college's rule -- so the old desk sentence must be gone.
     await expect(faculty.getByLabel("Stage: Under review")).toBeVisible()
-    await expect(faculty.getByText("With the research cell.")).toHaveCount(0)
+    await expect(faculty.getByText("Being checked by the college.")).toHaveCount(0)
     // And the sent-back callout is gone, because it no longer describes
     // anything the claimant has to do.
     await expect(

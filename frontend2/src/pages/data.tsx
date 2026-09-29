@@ -550,7 +550,7 @@ function EditCellDialog({
         value: value.trim() === "" ? null : value,
         reason: trimmed,
       })
-      toast.ok(`Corrected — ${column.label} is now “${value.trim() || "empty"}”`)
+      toast.ok(`Corrected. ${column.label} is now “${value.trim() || "empty"}”`)
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -649,7 +649,7 @@ function DeleteRowDialog({
   async function submit() {
     try {
       const result = await remove.mutateAsync({ reason: trimmed })
-      toast.ok(`Deleted — ${result.deleted}`)
+      toast.ok(`Deleted. ${result.deleted}`)
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -734,7 +734,7 @@ function WipeSection() {
       <SectionTitle className="text-critical">Empty the system</SectionTitle>
       <p className="max-w-2xl text-base text-fg-muted">
         Removes every publication, claim, payment record and ledger row. Accounts, the audit log,
-        the journal reference data and the payout policy all survive. There is no undo and no
+        the journal reference data and the incentive policy all survive. There is no undo and no
         backup taken on the way out.
       </p>
       <Button kind="danger" size="md" onClick={() => setOpen(true)}>
@@ -801,7 +801,7 @@ function WipeDialog({
         expect_rows: preview.total_rows,
         i_understand_payments_will_be_lost: acknowledged,
       })
-      toast.ok(`Emptied — ${preview.total_rows.toLocaleString("en-IN")} rows removed`)
+      toast.ok(`Emptied. ${preview.total_rows.toLocaleString("en-IN")} rows removed`)
       onClose()
     } catch (err) {
       toast.fail(err)

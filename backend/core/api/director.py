@@ -366,7 +366,7 @@ def principal_reject(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.CLEARED:
-            raise HttpError(400, "Only a cleared ticket can be sent back from here")
+            raise HttpError(400, "Only a cleared claim can be sent back from here")
         claim.status_note = note
         # The clearing goes with the status, as the Director's send-back takes
         # the Principal's approval with it: the desk will clear it again.
@@ -402,7 +402,7 @@ def research_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
 @api.post("/claims/{claim_id}/finance-approve", auth=session_auth)
 def finance_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
     """No separate finance approve hop — a cleared ticket is marked paid."""
-    raise HttpError(400, "Finance marks a cleared ticket paid directly")
+    raise HttpError(400, "Finance marks a cleared claim paid directly")
 
 
 def _mark_one_paid(
@@ -690,12 +690,12 @@ def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
         )
     note = (payload.note or "").strip()
     if len(note) < 10:
-        raise HttpError(400, "Add a reason (10+ characters) — it goes to the audit trail and the ledger")
+        raise HttpError(400, "Add a reason (10+ characters). It goes to the audit trail and the ledger")
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.PAID:
-            raise HttpError(400, "Only a paid ticket can be voided")
+            raise HttpError(400, "Only a paid claim can be voided")
         # Not "net > 0": a claim can legitimately be paid at zero — count-only
         # filings, and claims that fall short of the SEC-reference minimum, are
         # recorded as PAID carrying nothing. Refusing those left them stuck in
@@ -740,7 +740,7 @@ def override_status(request: HttpRequest, claim_id: str, payload: OverrideStatus
         raise HttpError(403, "Forbidden")
     allowed = (ClaimStatus.SUBMITTED, ClaimStatus.CLEARED, ClaimStatus.REJECTED)
     if payload.to_status not in allowed:
-        raise HttpError(400, "Status can only be overridden to SUBMITTED, CLEARED, or REJECTED")
+        raise HttpError(400, "A claim can only be moved back to awaiting check, checked, or sent back")
     note = (payload.note or "").strip()
     if len(note) < 10:
         raise HttpError(400, "Add a reason (10+ characters) explaining the override")
@@ -748,9 +748,9 @@ def override_status(request: HttpRequest, claim_id: str, payload: OverrideStatus
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         _refuse_own_claim(user, claim)
         if claim.status == ClaimStatus.PAID:
-            raise HttpError(400, "A paid ticket cannot be overridden — void the payment first")
+            raise HttpError(400, "A paid claim cannot be overridden. Void the payment first")
         if claim.status == payload.to_status:
-            raise HttpError(400, f"The ticket is already {payload.to_status}")
+            raise HttpError(400, "The claim is already at that step")
         if claim.claim_reason == ClaimReason.STUDENT_PROJECT and claim.team_id:
             # Every status reachable from here holds the team, so the rescue
             # must not become a way round "once per team": a withdrawn claim
@@ -775,7 +775,7 @@ def withdraw_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id, owner=user)
         if claim.status != ClaimStatus.SUBMITTED:
-            raise HttpError(400, "Only a submitted ticket can be withdrawn")
+            raise HttpError(400, "Only a submitted claim can be withdrawn")
         _transition(claim, user, ClaimStatus.DRAFT, "WITHDRAW", payload.note)
     return claim_to_dict(claim)
 
@@ -841,7 +841,7 @@ def _verify_claim(claim: Claim) -> Claim:
     # Re-verifying rewrites quartile, SNIP, and remuneration. Doing that after
     # payment silently diverges the claim from its PaidLedger row.
     if claim.status == ClaimStatus.PAID:
-        raise HttpError(400, "Claim is already paid — re-verifying would change a settled amount")
+        raise HttpError(400, "Claim is already paid. Re-verifying would change a settled amount")
     result = verify_publication(
         title=claim.paper_title or "",
         scopus_author_url=claim.scopus_author_url,
@@ -891,7 +891,7 @@ def set_verified_values(request: HttpRequest, claim_id: str, payload: ManualVeri
     claim = get_object_or_404(Claim, pk=claim_id)
     _refuse_own_claim(user, claim)
     if claim.status == ClaimStatus.PAID:
-        raise HttpError(400, "Claim is already paid — a settled amount cannot be changed")
+        raise HttpError(400, "Claim is already paid. A settled amount cannot be changed")
     note = (payload.note or "").strip()
     if len(note) < 10:
         raise HttpError(400, "Provide a source note (at least 10 characters) citing where the values come from")

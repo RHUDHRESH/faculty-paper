@@ -97,7 +97,7 @@ const ACTION_SENTENCES: Record<string, string> = {
   USER_CREATE: "created an account",
   USER_UPDATE: "updated an account",
   USER_RESET_PASSWORD: "reset an account's password",
-  FORMULA_UPDATE: "updated the payout formula",
+  FORMULA_UPDATE: "updated the incentive formula",
   SCIMAGO_IMPORT: "imported a Scimago dataset",
   SCIMAGO_SYNC: "synced Scimago data",
   PRIOR_PAYMENT_IMPORT: "imported prior-payment records",
@@ -608,7 +608,7 @@ export function Audit() {
           onKeyDown={(e) => {
             if (e.key === "Enter") setParam("claim", e.currentTarget.value.trim())
           }}
-          placeholder="Claim ticket or ID"
+          placeholder="Claim number or ID"
           aria-label="Filter by claim"
           className="w-full max-w-[12rem]"
         />

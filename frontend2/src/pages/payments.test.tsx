@@ -193,7 +193,7 @@ describe("paying one claim", () => {
       fakeApi({
         "/api/auth/me": () => FINANCE,
         "/api/admin/payouts": () => payoutsPage([{ ...PAYABLE, payout_month: "2025-09" } as typeof PAYABLE]),
-        "/api/claims/claim-1/mark-paid": failing(400, "Invalid status — the ticket must be authorised by the Director first"),
+        "/api/claims/claim-1/mark-paid": failing(400, "Invalid status — the claim must be authorised by the Director first"),
       })
     )
     renderWithProviders(<Payments />)

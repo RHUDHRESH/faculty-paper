@@ -144,14 +144,14 @@ describe("stageOf", () => {
     // One word covering two desks is what sent claimants to Finance while
     // their ticket was still on the Director's list.
     expect(stageOf("PRINCIPAL_APPROVED").step).toBe("Approved")
-    expect(stageOf("PRINCIPAL_APPROVED").who).toMatch(/Director/i)
+    expect(stageOf("PRINCIPAL_APPROVED").who).toMatch(/to be authorised/i)
     expect(stageOf("DIRECTOR_APPROVED").step).toBe("Authorised")
-    expect(stageOf("DIRECTOR_APPROVED").who).toMatch(/Finance/i)
+    expect(stageOf("DIRECTOR_APPROVED").who).toMatch(/payment is being made/i)
   })
 
   it("still says something for a status this build has never heard of", () => {
     const stage = stageOf("SOME_NEW_STATUS")
-    expect(stage.label).toBe("SOME NEW STATUS")
+    expect(stage.label).toBe("In progress")
   })
 })
 
@@ -167,7 +167,7 @@ describe("Stage", () => {
     expect(bar).toHaveAttribute("aria-valuemax", String(STAGES.length))
   })
 
-  it("shows no bar beside a settled ticket", () => {
+  it("shows no bar beside a settled claim", () => {
     // "Step 5 of 5" beside a badge already reading Paid is noise on every
     // settled row in the table.
     render(<Stage stage={stageOf("PAID")} />)

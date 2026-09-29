@@ -149,7 +149,7 @@ export function Receipt({
 
       {!countOnly && (
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-t-2 border-edge pt-3">
-          <span className="text-base font-medium">Estimated payout</span>
+          <span className="text-base font-medium">Estimated incentive</span>
           <span className="figure text-2xl">
             {calc?.remuneration != null ? money(calc.remuneration) : "—"}
           </span>

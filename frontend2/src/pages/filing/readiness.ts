@@ -162,7 +162,7 @@ export function readiness(
       kind: "check",
       label: `You entered ${enteredYear}; ${opts.indexedYearSource || "the index"} says ${opts.indexedYear}`,
       detail:
-        "The research cell checks the year against the index, and a mismatch is what sends a paper back. Online-first and print dates often differ — use the one the index carries if you can.",
+        "The college checks the year against the index, and a mismatch is what sends a paper back. Online-first and print dates often differ — use the one the index carries if you can.",
       step: 0,
     })
   }
@@ -230,7 +230,7 @@ export function readiness(
       always: true,
       label: "The article is indexed, but not on your Scopus author profile",
       detail:
-        "The rules require the paper to sit on your own profile, and the research cell checks it against the same source. Merge or link it with the Scopus Author Feedback Wizard before you file, or correct the profile link above if this is not your ID.",
+        "The rules require the paper to sit on your own profile, and the college checks it against the same source. Merge or link it with the Scopus Author Feedback Wizard before you file, or correct the profile link above if this is not your ID.",
       step: 2,
     })
   // The server refuses the final-year project scheme on anything but a conference paper.
@@ -267,7 +267,7 @@ export function readiness(
       always: true,
       label: `The paper lists you as author ${opts.lookupPosition}; this claim says ${form.authorPosition}`,
       detail:
-        "Your position is part of the amount, and the research cell checks it against the paper. Pick the right name in the author list.",
+        "Your position is part of the amount, and the college checks it against the paper. Pick the right name in the author list.",
       step: 2,
     })
   if (!form.affiliationOk)
@@ -294,7 +294,7 @@ export function readiness(
         always: true,
         label,
         detail:
-          "Read from the paper's published record. The affiliation printed on the article has to read the college's own name, and a different form of it is what the research cell sends papers back for.",
+          "Read from the paper's published record. The affiliation printed on the article has to read the college's own name, and a different form of it is what papers are sent back for.",
         step: 2,
       })
   }
@@ -313,7 +313,7 @@ export function readiness(
         kind: "check",
         label: "The published paper is a link on the claim, not an attached file",
         detail:
-          "That is enough to file — the submission check accepts either. Attach the article itself if you have it, so the research cell is not chasing a link.",
+          "That is enough to file — the submission check accepts either. Attach the article itself if you have it, so nobody has to chase a link.",
         step: 3,
       })
     else
@@ -417,7 +417,7 @@ export function readiness(
       label: `“${dupFile.filename}” is already attached to another paper`,
       detail: dupFile.duplicateOf.same_owner
         ? `It is on ${dupFile.duplicateOf.ticket_number || "another of your papers"}. That is allowed — the same reference can be cited by two papers — but attaching the same evidence twice is what a duplicate-payment check looks for, so make sure it is deliberate.`
-        : `It is on ${dupFile.duplicateOf.ticket_number || "a claim"} filed by ${dupFile.duplicateOf.owner_name}. That is allowed if the same paper is genuinely cited again; the research cell sees the same fingerprint from its side.`,
+        : `It is on ${dupFile.duplicateOf.ticket_number || "a claim"} filed by ${dupFile.duplicateOf.owner_name}. That is allowed if the same paper is genuinely cited again; the college sees the same fingerprint from its side.`,
       step: 3,
     })
 
@@ -474,7 +474,7 @@ export function readiness(
       label: "This works out to nothing",
       detail:
         opts.calc.note ||
-        "We may hold no SNIP or quartile for this journal. The research cell verifies it separately, and the figure can change.",
+        "We may hold no SNIP or quartile for this journal. The college checks it separately, and the figure can change.",
       step: 4,
     })
 

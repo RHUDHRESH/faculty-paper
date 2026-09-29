@@ -125,7 +125,7 @@ describe("the wording no longer promises a filing that will be refused", () => {
     const p = find(problems(formWith([{ numbered: true }])), "refs-few")
     expect(p).toBeDefined()
     expect(p!.detail ?? "").toMatch(/refused/i)
-    expect(p!.detail ?? "").not.toMatch(/the publication is recorded and the remuneration is/i)
+    expect(p!.detail ?? "").not.toMatch(/the publication is recorded and the incentive is/i)
   })
 })
 

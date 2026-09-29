@@ -119,23 +119,23 @@ export function Statements() {
 
   return (
     <div className="page space-y-8">
-      <PrintStamp title="Monthly payout statement" scope={s?.label ?? ""} />
+      <PrintStamp title="Monthly payment statement" scope={s?.label ?? ""} />
       <header className="page-head flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <PageTitle>Monthly statements</PageTitle>
           <Sub className="mt-1">
-            One payout month: what went out, to whom, whether it agrees with the ledger, and the
+            One month of payments: what went out, to whom, whether it agrees with the ledger, and the
             papers to sign and send to the bank.
           </Sub>
         </div>
         <div className="block print:hidden">
-          <ColumnLabel className="mb-1 block">Payout month</ColumnLabel>
+          <ColumnLabel className="mb-1 block">Month paid</ColumnLabel>
           <Combobox
             value={month}
             onChange={(v) => v && pick(v)}
             options={options}
             placeholder={months.isLoading ? "Loading…" : "Choose a month"}
-            aria-label="Payout month"
+            aria-label="Month paid"
             className="w-56 max-w-full"
           />
         </div>
@@ -298,15 +298,15 @@ function Reconciliation({ s }: { s: Statement }) {
     <section className="space-y-3">
       <SectionTitle>Against the ledger</SectionTitle>
       <dl className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Fact label="Tickets paid here" value={`${r.matched} of ${r.app_tickets} match`} note="Same amount on the ticket and its ledger row" />
-        <Fact label="From the ERP import" value={money(r.imported.amount)} note={`${r.imported.count} rows with no ticket in this app`} />
+        <Fact label="Claims paid here" value={`${r.matched} of ${r.app_tickets} match`} note="Same amount on the claim and its ledger row" />
+        <Fact label="From the ERP import" value={money(r.imported.amount)} note={`${r.imported.count} rows with no claim in this app`} />
         <Fact label="Reversals" value={money(r.reversals.amount)} note={`${r.reversals.count} voided payments, netted in the total`} />
         <Fact label="Ledger total" value={money(s.ledger_total)} note={agrees ? "Agrees with this statement" : "Differs from this statement"} />
       </dl>
       {r.balanced ? (
         <p className="flex items-center gap-2 text-sm text-positive">
           <CheckCircle2 className="size-4" aria-hidden />
-          Every ticket paid in {s.label} has one ledger row for the same amount.
+          Every claim paid in {s.label} has one ledger row for the same amount.
         </p>
       ) : (
         <div className="space-y-2 rounded-xl bg-caution-wash p-4">
@@ -317,10 +317,10 @@ function Reconciliation({ s }: { s: Statement }) {
             {r.issues.map((i) => (
               <li key={i.claim_id} className="flex flex-wrap justify-between gap-x-4">
                 <span>
-                  {i.ticket || "Ticket"}: {i.problem}
+                  {i.ticket || "Claim"}: {i.problem}
                 </span>
                 <span className="tabular text-fg-muted">
-                  ticket {money(i.claim)} · ledger {money(i.ledger)}
+                  claim {money(i.claim)} · ledger {money(i.ledger)}
                 </span>
               </li>
             ))}

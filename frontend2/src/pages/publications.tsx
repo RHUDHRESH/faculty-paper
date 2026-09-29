@@ -362,7 +362,7 @@ function GeneralQuery() {
           <Input
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Search title, ticket, DOI, ISSN, faculty…"
+            placeholder="Search title, claim, DOI, ISSN, faculty…"
             aria-label="Search publications"
             className="pl-8"
           />
@@ -453,7 +453,7 @@ function GeneralQuery() {
                 />
               )}
               <LabeledMonth
-                label="Payout month"
+                label="Month paid"
                 value={draft.month}
                 onChange={(v) => setDraft((d) => ({ ...d, month: v }))}
               />
@@ -607,7 +607,7 @@ function chipLabel(key: GeneralFilterKey, value: string): string {
     case "year_to":
       return `To ${value}`
     case "department":
-      return `Dept: ${value}`
+      return `Department: ${value}`
     case "engineering_class":
       return `Class: ${value}`
     case "publication_type":

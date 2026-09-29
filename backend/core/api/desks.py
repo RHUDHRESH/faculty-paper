@@ -106,9 +106,9 @@ def hold_claim(request: HttpRequest, claim_id: str, payload: HoldIn):
     with transaction.atomic():
         claim = _locked_at_own_desk(user, claim_id)
         if len(reason) < 10:
-            raise HttpError(400, "Say why it is on hold (10+ characters) — the desk reads it later")
+            raise HttpError(400, "Say why it is on hold (10+ characters). The desk reads it later")
         if claim.on_hold:
-            raise HttpError(409, f"{claim.ticket_number or 'This ticket'} is already on hold")
+            raise HttpError(409, f"{claim.ticket_number or 'This claim'} is already on hold")
         claim.on_hold = True
         claim.hold_reason = reason
         claim.held_by = user
@@ -126,7 +126,7 @@ def resume_claim(request: HttpRequest, claim_id: str):
     with transaction.atomic():
         claim = _locked_at_own_desk(user, claim_id)
         if not claim.on_hold:
-            raise HttpError(409, f"{claim.ticket_number or 'This ticket'} is not on hold")
+            raise HttpError(409, f"{claim.ticket_number or 'This claim'} is not on hold")
         _lift_hold(claim)
         claim.save(update_fields=["on_hold", "hold_reason", "held_by", "held_at", "updated_at"])
         _record(claim, user, "RESUME", None)

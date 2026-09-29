@@ -103,7 +103,7 @@ const KIND_LABEL: Record<string, string> = {
   USER: "Person",
   JOURNAL: "Journal",
   PAPER: "Paper",
-  DEPARTMENT: "Dept",
+  DEPARTMENT: "Department",
   AGENT: "Agent",
 }
 
@@ -210,7 +210,7 @@ export function Composer({
   label,
   hideLabel = false,
   placeholder = "Say something. Type @ to name a person, a journal or a paper — or @agent to ask the assistant.",
-  prompt = "Keep typing — a colleague's name, a journal, a ticket number, or agent to ask the assistant.",
+  prompt = "Keep typing — a colleague's name, a journal, a claim number, or agent to ask the assistant.",
   sendLabel = "Post",
   rows = 3,
   maxRows = 10,

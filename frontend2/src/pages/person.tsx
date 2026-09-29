@@ -1065,7 +1065,7 @@ function ResearchPostEditor({
         <SectionTitle className="text-base">Research post</SectionTitle>
         <Meta className="block">
           Only the research coordinator and the super admin see this box. A research post's first papers each
-          year, up to the quota, carry no remuneration; the rest are paid in full.
+          year, up to the quota, carry no incentive; the rest are paid in full.
           {isMe ? " This is your own account." : ""}
         </Meta>
       </div>

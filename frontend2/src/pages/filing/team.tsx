@@ -110,7 +110,7 @@ export function TeamPicker({
                 />
                 {heldByOther && t.claimed_by ? (
                   <Meta className="mt-1 block pl-6">
-                    Already claimed on ticket {t.claimed_by.ticket_number || "(not yet numbered)"} — the
+                    Already claimed on claim {t.claimed_by.ticket_number || "(not yet numbered)"} — the
                     scheme pays once per team.
                   </Meta>
                 ) : null}

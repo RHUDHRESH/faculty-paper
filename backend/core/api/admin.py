@@ -294,7 +294,7 @@ def admin_update_user(request: HttpRequest, user_id: str, payload: UserUpdateIn)
     # can leave the system with nobody able to manage users.
     if u.id == actor.id:
         if "role" in data and data["role"] != actor.role:
-            raise HttpError(400, "You cannot change your own role — ask another admin")
+            raise HttpError(400, "You cannot change your own role. Ask another admin")
         if data.get("active") is False:
             raise HttpError(400, "You cannot deactivate your own account")
     validation.as_http(validation.check_user_fields, data)

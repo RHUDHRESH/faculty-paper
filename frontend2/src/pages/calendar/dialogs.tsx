@@ -42,7 +42,7 @@ const KIND_CHOICES = [
   { value: "MEETING", label: "Meeting" },
   { value: "DEADLINE", label: "Deadline" },
   { value: "SUBMISSION_WINDOW", label: "Window" },
-  { value: "PAYOUT_RUN", label: "Payout run" },
+  { value: "PAYOUT_RUN", label: "Payment run" },
 ]
 
 const AUDIENCE: Record<Visibility, string> = {

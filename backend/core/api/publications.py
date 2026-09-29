@@ -578,7 +578,7 @@ def admin_queue_scopus_sync(request: HttpRequest, limit: Optional[int] = None):
 
     user = _super_admin(request)
     if not getattr(settings, "SCOPUS_API_KEY", ""):
-        raise HttpError(400, "SCOPUS_API_KEY is not set on this server.")
+        raise HttpError(400, "Scopus is not connected on this server. Ask the system admin to add the Scopus key.")
     from django_q.tasks import async_task
 
     job_id = async_task("core.tasks.sync_scopus_authors", limit, timeout=6 * 3600)

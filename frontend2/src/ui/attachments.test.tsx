@@ -176,7 +176,7 @@ describe("the gallery an approver reads", () => {
     expect(screen.queryByRole("button", { name: /view/i })).toBeNull()
   })
 
-  it("opens the viewer over the ticket rather than in a new tab", async () => {
+  it("opens the viewer over the claim rather than in a new tab", async () => {
     render(<AttachmentGallery files={[scan]} />)
     await userEvent.click(screen.getByRole("button", { name: /view/i }))
     const dialog = await screen.findByRole("dialog")
@@ -196,7 +196,7 @@ describe("the gallery an approver reads", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   })
 
-  it("distinguishes an empty ticket from a broken one", () => {
+  it("distinguishes an empty claim from a broken one", () => {
     // CONVENTIONS rule 5. Nothing attached is a sentence, not an alert.
     render(<AttachmentGallery files={[]} />)
     expect(screen.getByText(/no files are attached/i)).toBeInTheDocument()

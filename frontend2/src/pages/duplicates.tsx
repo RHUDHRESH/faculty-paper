@@ -502,7 +502,7 @@ function Comparison({ members }: { members: Member[] }) {
       render: (m) =>
         m.source === "claim" ? (
           <Link to={`/papers/${m.id}`} className="text-accent underline-offset-2 hover:underline">
-            {voucher(m.reference) || "Open the ticket"}
+            {voucher(m.reference) || "Open the claim"}
           </Link>
         ) : (
           <span>

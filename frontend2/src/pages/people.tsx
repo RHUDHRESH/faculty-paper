@@ -1490,7 +1490,7 @@ function AccountForm({
           onCheckedChange={(v) => set("faculty_type", v === true ? "RESEARCH" : "REGULAR")}
           disabled={!mayEditPost}
           label="Research faculty"
-          hint="Their first papers each year, up to the quota, carry no remuneration."
+          hint="Their first papers each year, up to the quota, carry no incentive."
         />
         {form.faculty_type === "RESEARCH" && (
           <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-[10rem_minmax(0,1fr)]">

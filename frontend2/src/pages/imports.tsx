@@ -214,7 +214,7 @@ function PublicationHarvestSection() {
     try {
       const res = await (which === "harvest" ? harvest : scopus).mutateAsync({})
       setQueuedAt(Date.now())
-      toast.ok(`Queued${res.job_id ? ` — job ${String(res.job_id).slice(0, 8)}` : ""}. It runs in the background.`)
+      toast.ok(`Queued${res.job_id ? `. Job ${String(res.job_id).slice(0, 8)}` : ""}. It runs in the background.`)
     } catch (err) {
       toast.fail(err)
     }
@@ -270,8 +270,8 @@ function PublicationHarvestSection() {
 const STAT_ROWS: { key: keyof ErpStats; label: string; about: string }[] = [
   { key: "faculty_master", label: "Faculty master", about: "Rows off the roster" },
   { key: "users", label: "Accounts", about: "People who can sign in" },
-  { key: "claims", label: "Papers", about: "Tickets of every status" },
-  { key: "claims_paid", label: "Paid", about: "Tickets settled" },
+  { key: "claims", label: "Papers", about: "Claims of every status" },
+  { key: "claims_paid", label: "Paid", about: "Claims settled" },
   { key: "prior_payments", label: "Prior payments", about: "History, pre-system" },
   { key: "paid_ledger", label: "Ledger rows", about: "What has gone out" },
   { key: "scimago", label: "SCImago", about: "Journals with a quartile" },
@@ -1156,7 +1156,7 @@ function WorkbookSection({ onImported }: { onImported: () => void }) {
       )
       setJobId(res.job_id)
       setFile(null)
-      toast.ok("Workbook accepted. It runs in the background — watch the job below.")
+      toast.ok("Workbook accepted. It runs in the background. Watch the job below.")
     } catch (err) {
       toast.fail(err)
     } finally {
@@ -1491,7 +1491,7 @@ function ProcessQueueSection() {
 
       <Callout tone="caution" title="Verifying rewrites what a paper is worth">
         A check pulls the paper's indexing, quartile and SNIP from Scopus and
-        recalculates the amount from them, replacing what is on the ticket
+        recalculates the amount from them, replacing what is on the claim
         now. A paper that has already been paid is refused outright by the
         server, so ticking one only puts a line in the failures list.
       </Callout>
@@ -1579,7 +1579,7 @@ function ProcessQueueSection() {
           title="Nothing waiting to be checked"
           message={
             status
-              ? "No paper at that status is still unconfirmed. Try another status, or the default, which covers drafts and submitted tickets."
+              ? "No paper at that status is still unconfirmed. Try another status, or the default, which covers drafts and submitted claims."
               : "Every draft and submitted paper has had its indexing confirmed. This is the queue being empty, not the request failing."
           }
         />

@@ -94,7 +94,7 @@ describe("the mentor's team picker", () => {
     expect(patchForm).toHaveBeenCalledWith({ teamCode: "PR26CH0001" })
   })
 
-  it("shows a claimed team with the ticket that holds it, and does not offer it", async () => {
+  it("shows a claimed team with the claim that holds it, and does not offer it", async () => {
     mount([
       team("PR26CH0001", {
         claimed_by: { claim_id: "c1", ticket_number: "SEC-2026-0042", status: "SUBMITTED" },

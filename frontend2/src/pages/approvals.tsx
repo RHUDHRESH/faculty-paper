@@ -471,7 +471,7 @@ export function Approvals() {
         <div>
           <PageTitle>Approvals</PageTitle>
           <Sub className="mt-1">
-            Cleared tickets waiting on you. Approve the spend, hold one, or send it back with a reason.
+            Cleared claims waiting on you. Approve the spend, hold one, or send it back with a reason.
           </Sub>
           <OwnPapersNote className="mt-1" />
         </div>
@@ -511,7 +511,7 @@ export function Approvals() {
             ref={searchRef}
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Search title, ticket or claimant"
+            placeholder="Search title, claim or claimant"
             aria-label="Search the queue"
             className="pl-8"
           />
@@ -538,7 +538,7 @@ export function Approvals() {
             onChange={(e) => setWaitingDraft(e.target.value)}
             placeholder="Waiting over"
             unit="days"
-            aria-label="Only tickets waiting longer than this many days"
+            aria-label="Only claims waiting longer than this many days"
             min={0}
           />
         </div>
@@ -636,7 +636,7 @@ export function Approvals() {
           message={
             filtered
               ? "Try widening the search, department or wait-time filter."
-              : "Every checked ticket has been approved or sent back."
+              : "Every checked claim has been approved or sent back."
           }
           action={filtered ? undefined : <ComingUp desk="principal" />}
         />
@@ -810,7 +810,7 @@ export function Approvals() {
  *  its ticket go into the name — that, plus the checkbox's own checked
  *  state, is how the selection is announced at all. */
 function selectLabel(c: QueueClaim): string {
-  const title = c.paper_title || "this ticket"
+  const title = c.paper_title || "this claim"
   return c.ticket_number ? `Select ${title}, ${c.ticket_number}` : `Select ${title}`
 }
 
@@ -1046,7 +1046,7 @@ function TicketSheet({
         ) : error ? (
           <>
             <SheetHeader>
-              <SheetTitle>Could not open this ticket</SheetTitle>
+              <SheetTitle>Could not open this claim</SheetTitle>
             </SheetHeader>
             <SheetBody>
               <ErrorState onRetry={() => void refetch()} />
@@ -1152,7 +1152,7 @@ function TicketSheet({
               )}
 
               <section className="space-y-3">
-                <SectionTitle>The payout</SectionTitle>
+                <SectionTitle>The incentive</SectionTitle>
                 <p className="text-2xl font-semibold tabular">
                   {claim.calc_error ? "—" : money(claim.remuneration)}
                 </p>
@@ -1271,7 +1271,7 @@ function TicketSheet({
               onOpenChange={setOutrightOpen}
               onDone={onClose}
               path={`/api/claims/${claim.id}/reject-outright`}
-              title="Reject this ticket outright?"
+              title="Reject this claim outright?"
               hint="Final: the claimant cannot edit or refile it. They see this reason."
               confirmLabel="Reject outright"
               doneToast="Rejected outright"
@@ -1696,7 +1696,7 @@ function actionSentence(a: ClaimAction): string {
 /** The approvals list as it is filtered on screen, for the Principal's own records. */
 function downloadApprovals(rows: QueueClaim[]) {
   const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
-  const head = ["Ticket", "Paper", "Claimant", "Department", "Journal", "Quartile", "Waiting days", "Amount (INR)"]
+  const head = ["Claim no.", "Paper", "Claimant", "Department", "Journal", "Quartile", "Waiting days", "Amount (INR)"]
   const lines = rows.map((c) =>
     [c.ticket_number, c.paper_title, c.owner_name, c.owner_department, c.journal_title, (c as { quartile?: string | null }).quartile, (c as { waiting_days?: number | null }).waiting_days, c.remuneration]
       .map(cell)

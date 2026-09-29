@@ -326,7 +326,7 @@ export function Clearing() {
       <div className="page py-8">
         <ErrorState
           title="Not open to this account"
-          message="Only the research cell and a super admin can clear tickets."
+          message="Only the research cell and a super admin can clear claims."
         />
       </div>
     )
@@ -360,7 +360,7 @@ export function Clearing() {
         return next
       })
       if (result.skipped.length === 0) {
-        toast.ok(`Cleared — ${result.cleared} ${result.cleared === 1 ? "ticket" : "tickets"} sent to the Principal`)
+        toast.ok(`Cleared. ${result.cleared} ${result.cleared === 1 ? "claim" : "claims"} sent to the Principal`)
       }
     } catch (err) {
       toast.fail(err)
@@ -374,7 +374,7 @@ export function Clearing() {
         <div>
           <PageTitle>Clearing queue</PageTitle>
           <Sub className="mt-1">
-            Submitted tickets, oldest first — the one that has waited longest is next.
+            Submitted claims, oldest first — the one that has waited longest is next.
           </Sub>
           <OwnPapersNote className="mt-1" />
         </div>
@@ -426,7 +426,7 @@ export function Clearing() {
               ref={searchRef}
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Filter by title, ticket, claimant or journal"
+              placeholder="Filter by title, claim, claimant or journal"
               aria-label="Filter the queue"
               className="max-w-sm"
             />
@@ -508,7 +508,7 @@ export function Clearing() {
       ) : all.length > 0 && rows.length === 0 ? (
         <EmptyState
           icon={Inbox}
-          title="No ticket matches these filters"
+          title="No claim matches these filters"
           message={`${all.length} are waiting in all.`}
         />
       ) : rows.length === 0 ? (
@@ -517,7 +517,7 @@ export function Clearing() {
           art="empty-queue"
           icon={Inbox}
           title="Nothing waiting"
-          message="Every submitted ticket has been checked. That is good news — come back when the next one lands."
+          message="Every submitted claim has been checked. That is good news — come back when the next one lands."
         />
       ) : (
         <>
@@ -571,7 +571,7 @@ export function Clearing() {
                   <ColumnLabel>Amount</ColumnLabel>
                 </th>
                 <th scope="col" className={cn(stickyHeadCell, "w-28")}>
-                  <ColumnLabel>Verified</ColumnLabel>
+                  <ColumnLabel>Figures confirmed</ColumnLabel>
                 </th>
               </tr>
             </thead>
@@ -694,7 +694,7 @@ export function Clearing() {
         open={bulkConfirmOpen}
         onOpenChange={setBulkConfirmOpen}
         title={`Clear ${selected.size} ${selected.size === 1 ? "ticket" : "tickets"}?`}
-        description={`${money(selectedTotal)} total. Each ticket is re-checked against its stored figures as it clears — a row whose amount has moved is skipped, not cleared at the wrong number.`}
+        description={`${money(selectedTotal)} total. Each claim is re-checked against its stored figures as it clears — a row whose amount has moved is skipped, not cleared at the wrong number.`}
         confirmLabel={`Clear — ${money(selectedTotal)}`}
         onConfirm={runBulkClear}
       />
@@ -719,7 +719,7 @@ export function Clearing() {
  *  its ticket go into the name — that, plus the checkbox's own checked
  *  state, is how the selection is announced at all. */
 function selectLabel(c: QueueClaim): string {
-  const title = c.paper_title || "this ticket"
+  const title = c.paper_title || "this claim"
   return c.ticket_number ? `Select ${title}, ${c.ticket_number}` : `Select ${title}`
 }
 
@@ -819,7 +819,7 @@ function issuesOf(c: QueueClaim): string[] {
 
 /** The queue as it stands on screen, for the office's own spreadsheet. */
 function downloadQueue(rows: QueueClaim[]) {
-  const head = ["Ticket", "Paper", "Claimant", "Department", "Journal", "Waiting days", "Amount", "Verified"]
+  const head = ["Claim no.", "Paper", "Claimant", "Department", "Journal", "Waiting days", "Amount", "Figures confirmed"]
   const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
   const body = rows.map((c) =>
     [c.ticket_number, c.paper_title, c.owner_name, c.owner_department, c.journal_title, c.waiting_days, c.remuneration, c.verification_ok === true ? "passed" : c.verification_ok === false ? "failed" : "not checked"]
@@ -906,7 +906,7 @@ function BulkResultDialog({
           </DialogTitle>
           <DialogDescription>
             {result.skipped.length === 0
-              ? "Every selected ticket cleared."
+              ? "Every selected claim cleared."
               : "The rest were skipped — each for its own reason, below. Nothing was cleared at a wrong figure."}
           </DialogDescription>
         </DialogHeader>
@@ -991,7 +991,7 @@ function TicketSheet({
         ) : error ? (
           <>
             <SheetHeader>
-              <SheetTitle>Could not open this ticket</SheetTitle>
+              <SheetTitle>Could not open this claim</SheetTitle>
             </SheetHeader>
             <SheetBody>
               <ErrorState onRetry={() => void refetch()} />
@@ -1014,10 +1014,10 @@ function TicketSheet({
 
             <SheetBody className="space-y-8">
               {/* Why it came back, before anything else.
-                  A ticket the Principal returned lands here, at SUBMITTED,
+                  A claim the Principal returned lands here, at SUBMITTED,
                   and the server writes their reason to `status_note`. The
                   Principal is required to give one — so not showing it meant
-                  the ticket simply reappeared in this queue with no
+                  the claim simply reappeared in this queue with no
                   explanation, and the reader had to guess what had been
                   wrong with it. */}
               <HoldNote claim={claim} />
@@ -1060,7 +1060,7 @@ function TicketSheet({
               <section className="space-y-2">
                 <SectionTitle>What the claimant confirmed</SectionTitle>
                 {!claim.confirmations || claim.confirmations.length === 0 ? (
-                  <p className="text-sm text-fg-muted">No confirmations on record for this ticket.</p>
+                  <p className="text-sm text-fg-muted">No confirmations on record for this claim.</p>
                 ) : (
                   <ul className="space-y-2">
                     {claim.confirmations.map((cf) => (
@@ -1125,7 +1125,7 @@ function TicketSheet({
               )}
 
               <section className="space-y-3">
-                <SectionTitle>The payout</SectionTitle>
+                <SectionTitle>The incentive</SectionTitle>
                 <p className="text-2xl font-semibold tabular">
                   {claim.calc_error ? "—" : money(claim.remuneration)}
                 </p>
@@ -1205,7 +1205,7 @@ function TicketSheet({
                   the Faults screen names this as the remedy. */}
               {(claim.status === "SUBMITTED" || claim.status === "CLEARED") && (
                 <Button kind="quiet" onClick={() => setVerifyOpen(true)}>
-                  Enter verified values
+                  Enter confirmed figures
                 </Button>
               )}
 
@@ -1269,7 +1269,7 @@ function TicketSheet({
               onOpenChange={setOutrightOpen}
               onDone={onFinished}
               path={`/api/claims/${claim.id}/reject-outright`}
-              title="Reject this ticket outright?"
+              title="Reject this claim outright?"
               hint="Final: the claimant cannot edit or refile it. They see this reason."
               confirmLabel="Reject outright"
               doneToast="Rejected outright"
@@ -1549,7 +1549,7 @@ function ClearDialog({
               {/* What confirming does, in the dialog rather than only in the
                   toast afterwards — by then it has already happened. */}
               <p className="text-sm text-fg-muted">
-                This clears {money(amount)} and sends the ticket to the Principal to approve. It
+                This clears {money(amount)} and sends the claim to the Principal to approve. It
                 leaves this queue.
               </p>
               <Field label="Note (optional)">
@@ -1622,7 +1622,7 @@ function RejectDialog({
     try {
       await reject.mutateAsync({ note: trimmed })
       rememberReason(trimmed)
-      toast.ok(`Sent back${claim.ticket_number ? ` — ${claim.ticket_number}` : ""}`)
+      toast.ok(`Sent back${claim.ticket_number ? `. ${claim.ticket_number}` : ""}`)
       onOpenChange(false)
       onRejected()
     } catch (err) {
@@ -1634,7 +1634,7 @@ function RejectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Send this ticket back?</DialogTitle>
+          <DialogTitle>Send this claim back?</DialogTitle>
           <DialogDescription>{claim.paper_title}</DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -1846,7 +1846,7 @@ function ManualVerifyDialog({
         quartile: quartile || undefined,
         note: trimmed,
       })
-      toast.ok("Verified values recorded — the amount has been recalculated")
+      toast.ok("Figures confirmed. The amount has been worked out again")
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)
@@ -1857,7 +1857,7 @@ function ManualVerifyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Enter verified values</DialogTitle>
+          <DialogTitle>Enter confirmed figures</DialogTitle>
           <DialogDescription>
             For a journal the index cannot confirm. What you enter is treated as
             verified and the amount is worked out from it.
@@ -1950,7 +1950,7 @@ function SecondSignatureDialog({
         note: note.trim() || undefined,
         expected_amount: claim.remuneration ?? undefined,
       })
-      toast.ok(`Second signature recorded — ${money(claim.remuneration)} can now be paid`)
+      toast.ok(`Second signature recorded. ${money(claim.remuneration)} can now be paid`)
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)
@@ -1968,7 +1968,7 @@ function SecondSignatureDialog({
         </DialogHeader>
         <DialogBody className="space-y-4">
           {selfCleared ? (
-            <Callout tone="critical" title="You cleared this ticket">
+            <Callout tone="critical" title="You cleared this claim">
               The second signature has to come from somebody else — that is the whole
               reason it is asked for. The server will refuse it from you.
             </Callout>
@@ -2039,7 +2039,7 @@ function OverrideStatusDialog({
   async function submit() {
     try {
       await override.mutateAsync({ to_status: to, note: trimmed })
-      toast.ok(`Moved to ${to.replace(/_/g, " ").toLowerCase()} — it can be worked on again`)
+      toast.ok(`Moved to ${to.replace(/_/g, " ").toLowerCase()}. It can be worked on again`)
       onOpenChange(false)
       onDone()
     } catch (err) {

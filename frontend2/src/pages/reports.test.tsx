@@ -329,8 +329,8 @@ describe("a breakdown that is almost all 'not recorded'", () => {
   it("is refused at nine in ten", () => {
     render(
       <RankedBars
-        title="Payout category"
-        dimension="Payout category"
+        title="Incentive category"
+        dimension="Incentive category"
         points={[
           { key: "Not recorded", count: 90 },
           { key: "Category I", count: 10 },
@@ -346,8 +346,8 @@ describe("a breakdown that is almost all 'not recorded'", () => {
   it("is still drawn just under it", () => {
     render(
       <RankedBars
-        title="Payout category"
-        dimension="Payout category"
+        title="Incentive category"
+        dimension="Incentive category"
         points={[
           { key: "Not recorded", count: 89 },
           { key: "Category I", count: 11 },
@@ -365,8 +365,8 @@ describe("a breakdown that is almost all 'not recorded'", () => {
   it("keeps the numbers even when it will not draw them", () => {
     render(
       <RankedBars
-        title="Payout category"
-        dimension="Payout category"
+        title="Incentive category"
+        dimension="Incentive category"
         points={[
           { key: "Not recorded", count: 3208 },
           { key: "Category I", count: 11 },
@@ -378,7 +378,7 @@ describe("a breakdown that is almost all 'not recorded'", () => {
     // set of rows. Only the picture of it lies, so only the picture is
     // withheld.
     expect(screen.getByText("Show the numbers")).toBeInTheDocument()
-    expect(columnHeaders()).toEqual(["Payout category", "Papers", "Share"])
+    expect(columnHeaders()).toEqual(["Incentive category", "Papers", "Share"])
     const cells = Array.from(document.querySelectorAll("td")).map((td) => td.textContent)
     expect(cells).toContain("3,208")
     expect(cells).toContain("Category II")
@@ -392,8 +392,8 @@ describe("a breakdown that is almost all 'not recorded'", () => {
     // cap be deleted without a test noticing.
     render(
       <RankedBars
-        title="Payout category"
-        dimension="Payout category"
+        title="Incentive category"
+        dimension="Incentive category"
         points={[
           { key: "Not recorded", count: 3216 },
           { key: "Category I", count: 10 },

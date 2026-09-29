@@ -310,7 +310,7 @@ export function RaiseFlagDialog({
     if (kind === "") return
     try {
       await raise.mutateAsync({ kind, note: trimmed })
-      toast.ok(`Flag raised — ${kindLabel(kind).toLowerCase()}. The claim carries on as normal.`)
+      toast.ok(`Flag raised. ${kindLabel(kind).toLowerCase()}. The claim carries on as normal.`)
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -352,7 +352,7 @@ export function RaiseFlagDialog({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={3}
-              placeholder="The SNIP on the ticket is not the journal's for that year"
+              placeholder="The SNIP on the claim is not the journal's for that year"
             />
           </Field>
         </DialogBody>
@@ -392,7 +392,7 @@ export function ResolveFlagDialog({
   async function submit() {
     try {
       await resolve.mutateAsync({ note: trimmed })
-      toast.ok(`Resolved — ${flag ? kindLabel(flag.kind).toLowerCase() : "flag"}`)
+      toast.ok(`Resolved. ${flag ? kindLabel(flag.kind).toLowerCase() : "flag"}`)
       onClose()
     } catch (err) {
       toast.fail(err)

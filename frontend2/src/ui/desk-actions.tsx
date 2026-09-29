@@ -78,7 +78,7 @@ export function ReasonActionDialog({
   async function submit() {
     try {
       await run.mutateAsync({ [field]: trimmed })
-      toast.ok(`${doneToast}${claim.ticket_number ? ` — ${claim.ticket_number}` : ""}`)
+      toast.ok(`${doneToast}${claim.ticket_number ? `. ${claim.ticket_number}` : ""}`)
       onOpenChange(false)
       onDone?.()
     } catch (err) {
@@ -155,7 +155,7 @@ export function HoldControl({ claim, onDone }: { claim: DeskClaim; onDone?: () =
         onDone={onDone}
         path={`/api/claims/${claim.id}/hold`}
         field="reason"
-        title="Put this ticket on hold?"
+        title="Put this claim on hold?"
         hint="It stays at this desk until someone resumes it. The claimant is told it is on hold."
         confirmLabel="Put on hold"
         doneToast="On hold"

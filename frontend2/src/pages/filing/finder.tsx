@@ -158,7 +158,7 @@ export function FoundCard({
 
       {res.already_filed && (
         <Callout tone="caution" title="You have already filed this paper">
-          {res.already_filed.is_draft ? "It is one of your drafts" : `It is ticket ${res.already_filed.ticket_number || "on your list"}`}
+          {res.already_filed.is_draft ? "It is one of your drafts" : `It is claim ${res.already_filed.ticket_number || "on your list"}`}
           .{" "}
           <Link
             to={res.already_filed.is_draft ? `/papers/${res.already_filed.id}/edit` : `/papers/${res.already_filed.id}`}

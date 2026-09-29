@@ -82,7 +82,7 @@ export function Setup() {
           <p className="mt-2 text-base text-fg-muted">
             The administrator account <strong>{adminEmail.trim()}</strong> is
             ready. Sign in with the password you just chose — everything else
-            (people, departments, the payout policy, journals) is set up from
+            (people, departments, the incentive policy, journals) is set up from
             inside.
           </p>
           <Button kind="primary" className="mt-6" onClick={() => navigate("/")}>
@@ -155,7 +155,7 @@ export function Setup() {
             </Field>
             <p className="text-sm text-fg-muted">
               This installation will belong to that institution: its accounts,
-              its papers, its payout policy. One installation per college.
+              its papers, its incentive policy. One installation per college.
             </p>
           </div>
         )}

@@ -27,7 +27,7 @@ const FILE: Guide = {
     "Pick the paper from your Scopus list, or search for it by title or DOI.",
     "Read the three conditions below and tick each one only if it is true.",
     "Attach the published article PDF and the cited reference PDFs, each with its reference number.",
-    "Check the estimate and press File it. You get a ticket number straight away.",
+    "Check the estimate and press File it. You get a claim number straight away.",
   ],
   notes: [
     "The paper must already be indexed in Scopus and show on your own Scopus author profile. If it is not indexed yet, wait: a claim filed early cannot be processed and has to be filed again.",
@@ -187,7 +187,7 @@ const AUTHORISE: Guide = {
 
 const SIGN_STATEMENT: Guide = {
   id: "payout-statement",
-  title: "Sign the monthly payout statement",
+  title: "Sign the monthly payment statement",
   when: "The month's payments are done and the accounts need a signed statement.",
   steps: [
     "Open Statements.",

@@ -60,7 +60,7 @@ export function EstimatePanel(props: EstimateProps) {
   const amount = calc?.remuneration
 
   return (
-    <section aria-label="Payout estimate" className="space-y-2 rounded-lg bg-sunken p-3">
+    <section aria-label="Incentive estimate" className="space-y-2 rounded-lg bg-sunken p-3">
       <span className="block text-sm text-fg-muted">{countOnly ? "Filing for the count" : "Your estimate"}</span>
       <Amount {...props} />
       {!countOnly && !calcFailed && (
@@ -118,7 +118,7 @@ export function EstimateBar(props: EstimateProps) {
   const unpaid = problems.filter((p) => p.kind === "unpaid")
   return (
     <section
-      aria-label="Payout estimate"
+      aria-label="Incentive estimate"
       className="sticky top-12 z-20 -mx-4 flex min-h-11 items-center justify-between gap-3 border-b border-line bg-bg/95 px-4 py-1.5 backdrop-blur sm:-mx-8 sm:px-8 md:top-0 md:mx-0 md:rounded-xl md:border md:px-4"
     >
       <span className="text-xs text-fg-muted">

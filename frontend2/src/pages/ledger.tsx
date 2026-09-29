@@ -230,12 +230,12 @@ export function Ledger() {
           </span>
         </label>
         <label className="block">
-          <ColumnLabel className="mb-1 block">Payout month</ColumnLabel>
+          <ColumnLabel className="mb-1 block">Month paid</ColumnLabel>
           <Input
             type="month"
             value={month}
             onChange={(e) => setFilter("month", e.target.value)}
-            aria-label="Filter by payout month"
+            aria-label="Filter by month paid"
             className="w-44"
           />
         </label>

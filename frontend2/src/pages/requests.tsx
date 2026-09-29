@@ -300,7 +300,7 @@ function ApproveDialog({
   async function confirm() {
     try {
       await decide.mutateAsync({ approve: true })
-      toast.ok(`Approved — ${request.label} → “${shown(request, request.proposed_value)}” for ${request.requested_by.name}`)
+      toast.ok(`Approved. ${request.label} → “${shown(request, request.proposed_value)}” for ${request.requested_by.name}`)
     } catch (err) {
       toast.fail(err)
       // Re-thrown so ConfirmDialog's own confirm() sees the failure and
@@ -364,7 +364,7 @@ function DeclineDialog({
   async function submit() {
     try {
       await decide.mutateAsync({ approve: false, note: trimmed })
-      toast.ok(`Declined — ${request.requested_by.name} will see why`)
+      toast.ok(`Declined. ${request.requested_by.name} will see why`)
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)

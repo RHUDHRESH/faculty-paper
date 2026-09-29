@@ -155,7 +155,7 @@ function monthKey(c: PayoutClaim): string {
 }
 
 function monthLabel(key: string): string {
-  if (key === "none") return "No payout month"
+  if (key === "none") return "No month paid"
   const [y, m] = key.split("-").map(Number)
   return new Date(y, m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" })
 }
@@ -435,7 +435,7 @@ export function Payments() {
           art="nothing-paid"
           icon={Banknote}
           title="Nothing waiting on Finance"
-          message="Every ticket the Director has authorised has already been paid."
+          message="Every claim the Director has authorised has already been paid."
           action={<ComingUp desk="finance" />}
         />
       ) : (
@@ -459,7 +459,7 @@ export function Payments() {
                           checked={selected.has(c.id)}
                           disabled={!payable}
                           onCheckedChange={() => toggleSelected(c)}
-                          aria-label={`Select ${c.paper_title || "this ticket"}`}
+                          aria-label={`Select ${c.paper_title || "this claim"}`}
                         />
                         <div className="min-w-0 flex-1 space-y-2">
                           <div>
@@ -540,7 +540,7 @@ export function Payments() {
                           checked={selected.has(c.id)}
                           disabled={!payable}
                           onCheckedChange={() => toggleSelected(c)}
-                          aria-label={`Select ${c.paper_title || "this ticket"}`}
+                          aria-label={`Select ${c.paper_title || "this claim"}`}
                         />
                       </td>
                       <td className="px-3 py-3 align-top">
@@ -691,7 +691,7 @@ function SinglePayDialog({
     setConfirmedAmount(expectedAmount)
     try {
       await pay.mutateAsync({ voucher_number: voucher.trim() || undefined, expected_amount: expectedAmount })
-      toast.ok(`Paid — ${money(expectedAmount)}${claim.ticket_number ? ` for ${claim.ticket_number}` : ""}`)
+      toast.ok(`Paid. ${money(expectedAmount)}${claim.ticket_number ? ` for ${claim.ticket_number}` : ""}`)
       onOpenChange(false)
       onPaid(claim.id)
     } catch (err) {
@@ -857,7 +857,7 @@ function BulkPayDialog({
       writeVouchers(next)
       onDone(r.paid_ids)
       if (r.skipped.length === 0) {
-        toast.ok(`Marked paid — ${r.paid} ${r.paid === 1 ? "claim" : "claims"}`)
+        toast.ok(`Marked paid. ${r.paid} ${r.paid === 1 ? "claim" : "claims"}`)
         onOpenChange(false)
       }
     } catch (err) {
@@ -886,7 +886,7 @@ function BulkPayDialog({
   /** The batch as a list for the bank or payroll: who, staff id, voucher, amount. */
   function downloadList() {
     downloadCsv(`payment-list-${new Date().toISOString().slice(0, 10)}.csv`, [
-      ["Staff id", "Name", "Department", "Ticket", "Payout month", "Voucher", "Amount (INR)"].map(csvCell).join(","),
+      ["Staff id", "Name", "Department", "Claim no.", "Month paid", "Voucher", "Amount (INR)"].map(csvCell).join(","),
       ...rows.map((c) =>
         [c.staff_id, c.owner_name, c.owner_department, c.ticket_number, monthLabel(monthKey(c)), vouchers[c.id] || "", c.remuneration ?? ""]
           .map(csvCell)
@@ -923,7 +923,7 @@ function BulkPayDialog({
                 <dd className="text-lg font-semibold tabular">{money(total)}</dd>
               </div>
               <div>
-                <dt className="text-xs text-fg-muted">Payout month</dt>
+                <dt className="text-xs text-fg-muted">Month paid</dt>
                 <dd className="text-lg font-semibold">{monthsOf(rows)}</dd>
               </div>
             </dl>
@@ -1062,7 +1062,7 @@ export function PaymentsDone() {
         if (p.results.length === 0 || all.length >= p.total) break
       }
       downloadCsv(`payments-done-${new Date().toISOString().slice(0, 10)}.csv`, [
-        ["Payout month", "Paid on", "Voucher", "Ticket", "Staff id", "Name", "Department", "Paper", "Amount (INR)"]
+        ["Month paid", "Paid on", "Voucher", "Claim no.", "Staff id", "Name", "Department", "Paper", "Amount (INR)"]
           .map(csvCell)
           .join(","),
         ...all.map((c) =>
@@ -1094,7 +1094,7 @@ export function PaymentsDone() {
 
   return (
     <div className="page space-y-6">
-      <PrintStamp title="Register of incentive payments" scope="every payout month" />
+      <PrintStamp title="Register of incentive payments" scope="every month paid" />
       <header className="page-head">
         <div>
           <Button kind="quiet" size="sm" asChild className="-ml-2 mb-1 print:hidden">
@@ -1105,7 +1105,7 @@ export function PaymentsDone() {
           </Button>
           <PageTitle>Paid</PageTitle>
           <Sub className="mt-1">
-            Every payment on record, by payout month. Nothing here is ever
+            Every payment on record, by month paid. Nothing here is ever
             deleted. A payment made in error is undone by a super admin, which
             writes a balancing ledger row.
           </Sub>
@@ -1135,7 +1135,7 @@ export function PaymentsDone() {
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Name, staff id, ticket or voucher"
+              placeholder="Name, staff id, claim or voucher"
             />
           </Field>
           {total > PAGE_SIZE && <Meta>Searches the {allRows.length} payments on this page.</Meta>}
@@ -1306,7 +1306,7 @@ function VoidDialog({
   async function submit() {
     try {
       await voidPayment.mutateAsync({ note: trimmed })
-      toast.ok(`Undone — ${claim.ticket_number || "the payment"} is back with the Principal's queue`)
+      toast.ok(`Undone. ${claim.ticket_number || "the payment"} is back with the Principal's queue`)
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)
@@ -1325,7 +1325,7 @@ function VoidDialog({
         <DialogBody className="space-y-4">
           <Callout tone="caution" title="This does not delete anything">
             A reversing entry is written to the ledger alongside the original
-            payment, and the ticket returns to Checked, waiting on the
+            payment, and the claim returns to Checked, waiting on the
             Principal to approve it again.
           </Callout>
           <p className="text-lg font-semibold tabular">{money(claim.remuneration)}</p>

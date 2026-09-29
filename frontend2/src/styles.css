@@ -835,3 +835,25 @@
     color: #444;
   }
 }
+/* The rupee sign, alone. U+20B9 sits in Fontsource's latin-ext range, so every
+   page showing money used to download Inter latin-ext (85 KB) and Source
+   Serif 4 latin-ext (42 KB) for one glyph. A face declared later wins for the
+   code points it covers, so these ~1.2 KB subsets (pyftsubset of the same
+   variable files, wght axis kept) are what the browser fetches instead. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(./assets/fonts/inter-rupee.woff2) format("woff2-variations");
+  unicode-range: U+20B9;
+}
+@font-face {
+  font-family: "Source Serif 4 Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url(./assets/fonts/source-serif-rupee.woff2) format("woff2-variations");
+  unicode-range: U+20B9;
+}
+

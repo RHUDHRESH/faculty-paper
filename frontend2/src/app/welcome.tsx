@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link } from "react-router-dom"
 import { ArrowRight } from "lucide-react"
 
+import { firstName } from "@/lib/names"
 import { useAuth, type Me } from "@/app/auth"
 import { ROLE_LABEL } from "@/app/account"
 import { guidesFor, ROLE_INTRO } from "@/app/guides"
@@ -31,7 +32,7 @@ export function Welcome() {
     void api("/api/auth/me/welcome-seen", { method: "POST" }).catch(() => {})
   }
   const top = guidesFor(me.role).slice(0, 3)
-  const first = me.name.split(/\s+/).find((w) => !/^(dr|prof|mr|mrs|ms)\.?$/i.test(w)) ?? me.name
+  const first = firstName(me.name) || me.name
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && close()}>

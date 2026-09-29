@@ -54,7 +54,7 @@ def _apply_request(req: ProfileChangeRequest, actor: User) -> Any:
 
     if field == "role":
         if u.pk == actor.pk:
-            raise HttpError(400, "You cannot change your own role — ask another super admin.")
+            raise HttpError(400, "You cannot change your own role. Ask another super admin.")
         _check_assignable_role(value)
         _check_privileged_assignment(actor, value)
         u.role = value
@@ -175,7 +175,7 @@ def decide_profile_request(
 
     note = (payload.note or "").strip()
     if not payload.approve and len(note) < 5:
-        raise HttpError(400, "Say why it is being declined — the person is told.")
+        raise HttpError(400, "Say why it is being declined. The person is told.")
 
     with transaction.atomic():
         if payload.approve:

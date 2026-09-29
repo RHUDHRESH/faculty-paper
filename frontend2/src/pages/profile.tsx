@@ -1205,7 +1205,7 @@ export function Interests() {
       {
         onSuccess: (data) => {
           setSelected(data.domains)
-          toast.ok(`Saved — ${data.domains.length} ${plural(data.domains.length, "domain", "domains")}`)
+          toast.ok(`Saved. ${data.domains.length} ${plural(data.domains.length, "domain", "domains")}`)
         },
         onError: (err) => toast.fail(err),
       }

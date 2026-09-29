@@ -222,7 +222,7 @@ export const ILLUSTRATIONS = {
   "w": 427,
   "h": 281,
   "c": "page-spot",
-  "alt": "Payouts / payments header",
+  "alt": "Incentives / payments header",
   "svg": true
  },
  "spot-people": {
@@ -390,7 +390,7 @@ export const ILLUSTRATIONS = {
   "w": 427,
   "h": 327,
   "c": "empty-state",
-  "alt": "No payouts yet",
+  "alt": "No incentives yet",
   "svg": true
  },
  "empty-archive": {

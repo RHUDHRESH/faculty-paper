@@ -246,7 +246,7 @@ def add_my_skill(request: HttpRequest, payload: SkillIn):
     if Skill.objects.filter(user=viewer, name__iexact=name).exists():
         raise HttpError(400, f"{name} is already on your profile.")
     if Skill.objects.filter(user=viewer).count() >= social_profile.MAX_SKILLS:
-        raise HttpError(400, f"List up to {social_profile.MAX_SKILLS} skills — remove one to add another.")
+        raise HttpError(400, f"List up to {social_profile.MAX_SKILLS} skills. Remove one to add another.")
     skill = Skill.objects.create(user=viewer, name=name)
     return {"id": skill.id, "name": skill.name, "count": 0, "coauthor_count": 0,
             "endorsed_by_me": False, "endorsers": [], "may_endorse": False}

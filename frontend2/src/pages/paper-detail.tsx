@@ -243,7 +243,7 @@ export function PaperDetail() {
               overwrites it with "this paper is not yours" sends a head to
               argue about ownership they never claimed. */}
           <ErrorState
-            title="You cannot open this ticket"
+            title="You cannot open this claim"
             message={
               error.message ||
               "You can only open a paper you filed, or one waiting in a queue you handle."
@@ -330,7 +330,7 @@ export function PaperDetail() {
 
   return (
     <div className="page space-y-10 py-8 print:space-y-6 print:py-0">
-      <PrintStamp title={`Incentive claim receipt${claim.ticket_number ? `, ticket ${claim.ticket_number}` : ""}`} scope={`status: ${claim.status.toLowerCase().replace(/_/g, " ")}`} />
+      <PrintStamp title={`Incentive claim receipt${claim.ticket_number ? `, claim no. ${claim.ticket_number}` : ""}`} scope={`status: ${claim.status.toLowerCase().replace(/_/g, " ")}`} />
       {/* The one sentence a sent-back paper's owner came here for, before
           anything else — including the back link. */}
       {showSendBack && (
@@ -384,8 +384,8 @@ export function PaperDetail() {
             <p className="mt-1 flex items-center gap-1 text-sm text-fg-muted">
               {claim.ticket_number ? (
                 <>
-                  Ticket {claim.ticket_number}
-                  <CopyButton value={claim.ticket_number} label="ticket number" />
+                  Claim no. {claim.ticket_number}
+                  <CopyButton value={claim.ticket_number} label="claim number" />
                 </>
               ) : (
                 "Not filed yet"
@@ -567,7 +567,7 @@ export function PaperDetail() {
           <Callout tone="caution" title="This is an estimate, not a decision">
             It is worked out from the SNIP and quartile reported on the form, not
             from figures anyone has checked. The research cell matches both
-            against Scopus and Scimago when they look at the ticket, and the
+            against Scopus and Scimago when they look at the claim, and the
             amount changes if either turns out to be different.
           </Callout>
         ) : handEntered.length > 0 && !settled ? (
@@ -586,7 +586,7 @@ export function PaperDetail() {
             the published Scopus and Scimago data yet, and the amount above rests
             on {handEntered.length === 1 ? "it" : "them"} being right. The research
             cell checks {handEntered.length === 1 ? "it" : "both"} before the
-            ticket moves on, and the amount changes if the published value turns
+            claim moves on, and the amount changes if the published value turns
             out to be different. Nothing for you to do unless somebody asks you
             for the journal's page.
           </Callout>
@@ -665,7 +665,7 @@ export function PaperDetail() {
           }
           emptyLabel={
             <>
-              No files are attached to this ticket.
+              No files are attached to this claim.
               {canEdit
                 ? " Use Edit to add the published paper and the pages showing your SEC-affiliated references."
                 : ""}
@@ -719,8 +719,8 @@ export function PaperDetail() {
           <>
             <p className="text-sm text-fg-muted">
               {claim.record?.imported
-                ? "No step-by-step record was kept for this ticket. It was brought across from the college's ERP workbook, which records what was decided but not when each desk acted. These are the dates it does carry."
-                : "No step-by-step record was kept for this ticket. It did not travel through this system one desk at a time. These are the dates the ticket itself carries, and they are all that is known about it."}
+                ? "No step-by-step record was kept for this claim. It was brought across from the college's ERP workbook, which records what was decided but not when each desk acted. These are the dates it does carry."
+                : "No step-by-step record was kept for this claim. It did not travel through this system one desk at a time. These are the dates the claim itself carries, and they are all that is known about it."}
             </p>
             <ul className="space-y-3 border-l border-line pl-4">
               {dates.map((d) => (
@@ -740,7 +740,7 @@ export function PaperDetail() {
           </>
         ) : (
           <p className="text-sm text-fg-muted">
-            Nothing has happened to this ticket yet. From the moment you file it,
+            Nothing has happened to this claim yet. From the moment you file it,
             every step, who moved it, when and anything they wrote, is listed
             here.
           </p>
@@ -752,7 +752,7 @@ export function PaperDetail() {
         onOpenChange={setConfirmWithdraw}
         title="Withdraw this paper?"
         description={`It goes back to a draft so you can fix it.${
-          claim.ticket_number ? ` Ticket ${claim.ticket_number} stays the same.` : ""
+          claim.ticket_number ? ` Claim no. ${claim.ticket_number} stays the same.` : ""
         }`}
         confirmLabel="Withdraw"
         onConfirm={async () => {
@@ -760,7 +760,7 @@ export function PaperDetail() {
             await withdraw.mutateAsync({})
             toast.ok(
               claim.ticket_number
-                ? `Withdrawn. Ticket ${claim.ticket_number} is back in your drafts`
+                ? `Withdrawn. Claim no. ${claim.ticket_number} is back in your drafts`
                 : "Withdrawn. It is back in your drafts"
             )
           } catch (err) {
@@ -832,7 +832,7 @@ function noWorkingReason(c: Claim, settled: boolean): string {
     )
   }
   if (c.remuneration == null) {
-    return "The amount has not been worked out yet. The research cell prices a ticket when they check it."
+    return "The amount has not been worked out yet. The research cell prices a claim when they check it."
   }
   return "The figures behind this amount are not on record."
 }
@@ -1292,14 +1292,14 @@ function Notes({ claimId }: { claimId: string }) {
 
   return (
     <section className="space-y-3">
-      <SectionTitle>Notes on this ticket</SectionTitle>
+      <SectionTitle>Notes on this claim</SectionTitle>
 
       {isLoading ? (
         <SkeletonText lines={2} />
       ) : error ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : notes.length === 0 ? (
-        <p className="text-sm text-fg-muted">Nothing has been raised on this ticket.</p>
+        <p className="text-sm text-fg-muted">Nothing has been raised on this claim.</p>
       ) : (
         <ul className="space-y-3 border-l border-line pl-4">
           {notes.map((n) => (
@@ -1336,7 +1336,7 @@ function Notes({ claimId }: { claimId: string }) {
             {
               onSuccess: () => {
                 setBody("")
-                toast.ok("Note added to the ticket")
+                toast.ok("Note added to the claim")
               },
               onError: (err: unknown) => toast.fail(err),
             }
@@ -1347,8 +1347,8 @@ function Notes({ claimId }: { claimId: string }) {
           className="field min-h-20 w-full"
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder="Raise something about this ticket"
-          aria-label="Note on this ticket"
+          placeholder="Raise something about this claim"
+          aria-label="Note on this claim"
         />
         <Button type="submit" disabled={body.trim().length < 3 || add.isPending}>
           {add.isPending ? "Adding…" : "Add note"}

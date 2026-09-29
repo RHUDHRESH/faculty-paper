@@ -630,7 +630,7 @@ function ScimagoPanel({
       <div>
         <SectionTitle>SCImago — where a quartile comes from</SectionTitle>
         <Sub className="mt-1">
-          Q1 to Q4 is a multiplier in the payout, and almost every quartile on
+          Q1 to Q4 is a multiplier in the incentive, and almost every quartile on
           the system was read out of this table rather than typed by a person.
           One row per journal per year.
         </Sub>

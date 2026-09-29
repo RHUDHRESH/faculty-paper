@@ -476,7 +476,7 @@ _ORCID_SHAPE = re.compile(r"^(\d{4})-?(\d{4})-?(\d{4})-?(\d{3}[\dX])$")
 def _clean_bio(raw: Optional[str]) -> Optional[str]:
     text = (raw or "").strip()
     if len(text) > BIO_MAX_CHARS:
-        raise HttpError(400, f"Keep it under {BIO_MAX_CHARS} characters — this one is {len(text)}.")
+        raise HttpError(400, f"Keep it under {BIO_MAX_CHARS} characters. This one is {len(text)}.")
     return text or None
 
 
@@ -500,7 +500,7 @@ def _clean_orcid(raw: Optional[str]) -> Optional[str]:
         total = (total + int(ch)) * 2
     check = (12 - total % 11) % 11
     if digits[-1] != ("X" if check == 10 else str(check)):
-        raise HttpError(400, "That ORCID iD does not add up — check it against orcid.org.")
+        raise HttpError(400, "That ORCID iD does not add up. Check it against orcid.org.")
     return "-".join(match.groups())
 
 

@@ -285,7 +285,7 @@ export const NAV: NavItem[] = [
     icon: CalendarDays,
     area: "time",
     pinned: true,
-    keywords: ["deadlines", "dates", "payout run"],
+    keywords: ["deadlines", "dates", "payment run"],
   },
 
   // ---- looking at the college -----------------------------------------

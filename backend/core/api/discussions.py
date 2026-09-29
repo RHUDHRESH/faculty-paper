@@ -377,7 +377,7 @@ def edit_post(request: HttpRequest, post_id: str, payload: PostEditIn):
         raise HttpError(400, "That post has been deleted.")
     body = (payload.body or "").strip()
     if not body:
-        raise HttpError(400, "A post cannot be emptied — delete it instead.")
+        raise HttpError(400, "A post cannot be emptied. Delete it instead.")
 
     with transaction.atomic():
         post.body = body

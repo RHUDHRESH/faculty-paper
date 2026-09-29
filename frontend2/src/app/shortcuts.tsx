@@ -14,7 +14,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: "Anywhere",
     keys: [
-      ["Ctrl K", "Jump to a page, a paper, a person or a ticket number"],
+      ["Ctrl K", "Jump to a page, a paper, a person or a claim number"],
       ["?", "Show this list"],
       ["Esc", "Close a dialog, a sheet or a menu"],
     ],
@@ -22,10 +22,10 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: "In a queue (clearing, approvals, authorisations, payments)",
     keys: [
-      ["j  /  ↓", "Next ticket"],
-      ["k  /  ↑", "Previous ticket"],
-      ["x", "Select or unselect the ticket"],
-      ["Enter", "Open the ticket"],
+      ["j  /  ↓", "Next claim"],
+      ["k  /  ↑", "Previous claim"],
+      ["x", "Select or unselect the claim"],
+      ["Enter", "Open the claim"],
       ["/", "Search the queue (clearing and approvals)"],
     ],
   },

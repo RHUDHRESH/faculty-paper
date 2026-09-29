@@ -820,7 +820,7 @@ function VenueFinder({ hosted }: { hosted: boolean }) {
                 <Callout tone="caution" title="Names we could not verify">
                   <p className="mb-2">
                     The model suggested these too, but we could not find them in our own journal
-                    data — no quartile, no SNIP, no payout, because attaching a number to a
+                    data — no quartile, no SNIP, no incentive, because attaching a number to a
                     journal we cannot identify is how somebody ends up submitting to a venue that
                     does not exist.
                   </p>
@@ -1078,7 +1078,7 @@ function Interests() {
       {
         onSuccess: (data) => {
           setSelected(data.domains)
-          toast.ok(`Saved — ${data.domains.length} domain${data.domains.length === 1 ? "" : "s"}`)
+          toast.ok(`Saved. ${data.domains.length} domain${data.domains.length === 1 ? "" : "s"}`)
         },
         onError: (err) => toast.fail(err),
       }

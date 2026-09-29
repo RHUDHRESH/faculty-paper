@@ -61,17 +61,17 @@ export function FiledReceipt({
             eager
           />
           <h1 className="display mt-4 text-3xl sm:text-[34px]">Filed. Your claim is on its way.</h1>
-          <p className="mt-2 text-fg-muted">Keep the ticket number. It is how you and the college refer to this claim.</p>
+          <p className="mt-2 text-fg-muted">Keep the claim number. It is how you and the college refer to this claim.</p>
           {claim.ticket_number ? (
             <div className="mt-5 inline-flex items-center gap-3 rounded-2xl border border-line bg-surface px-5 py-3">
-              <span className="text-sm text-fg-muted">Ticket</span>
+              <span className="text-sm text-fg-muted">Claim</span>
               <span className="font-mono text-2xl font-semibold tracking-wide sm:text-3xl" data-testid="filed-ticket">
                 {claim.ticket_number}
               </span>
-              <CopyButton value={claim.ticket_number} label="Copy ticket number" />
+              <CopyButton value={claim.ticket_number} label="Copy claim number" />
             </div>
           ) : (
-            <p className="mt-4 text-sm text-fg-muted">The ticket number will appear on the paper's page.</p>
+            <p className="mt-4 text-sm text-fg-muted">The claim number will appear on the paper's page.</p>
           )}
         </div>
 
@@ -86,7 +86,7 @@ export function FiledReceipt({
             )}
           </div>
           <div className="py-4">
-            <dt className="text-fg-muted">Estimated payout</dt>
+            <dt className="text-fg-muted">Estimated incentive</dt>
             <dd className="mt-1 text-xl font-semibold tabular">
               {countOnly ? "Counted only, no payment" : estimate != null ? money(estimate) : "Worked out on review"}
             </dd>

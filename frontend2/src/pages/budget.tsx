@@ -915,7 +915,7 @@ function AllocationDialog({
   async function deleteAllocation() {
     try {
       await remove.mutateAsync(undefined as never)
-      toast.ok(`Allocation removed — ${target} has no ceiling for FY ${fy}`)
+      toast.ok(`Allocation removed. ${target} has no ceiling for FY ${fy}`)
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)

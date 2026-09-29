@@ -120,7 +120,7 @@ export const RULE_FALLBACK: FilingRules = {
   attachment_limits: { PUBLISHED_PAPER: 10, SEC_REFERENCE: 50 },
   max_upload_bytes: 10 * 1024 * 1024,
   why: {
-    max_authors: "A paper with more than 9 authors carries no remuneration.",
+    max_authors: "A paper with more than 9 authors carries no incentive.",
     min_sec_references:
       "The policy requires 2 cited references that carry the college's affiliation.",
     student_project:

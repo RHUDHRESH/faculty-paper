@@ -40,7 +40,7 @@ function posted(path: string) {
 }
 
 describe("hold and resume", () => {
-  it("puts a ticket on hold only with a 10+ character reason", async () => {
+  it("puts a claim on hold only with a 10+ character reason", async () => {
     const user = userEvent.setup()
     stub(CELL)
     renderWithProviders(<HoldControl claim={CLAIM} />)
@@ -56,7 +56,7 @@ describe("hold and resume", () => {
     })
   })
 
-  it("offers Resume on a held ticket", async () => {
+  it("offers Resume on a held claim", async () => {
     const user = userEvent.setup()
     stub(CELL)
     renderWithProviders(<HoldControl claim={{ ...CLAIM, on_hold: true, hold_reason: "Waiting on proof" }} />)
@@ -83,7 +83,7 @@ describe("reject outright / send to the faculty member", () => {
         open
         onOpenChange={() => {}}
         path="/api/claims/c1/reject-outright"
-        title="Reject this ticket outright?"
+        title="Reject this claim outright?"
         hint="Final."
         confirmLabel="Reject outright"
         doneToast="Rejected outright"

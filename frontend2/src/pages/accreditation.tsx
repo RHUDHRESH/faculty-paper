@@ -570,7 +570,7 @@ function EditFieldDialog({
   async function submit() {
     try {
       await edit.mutateAsync({ field, value: value.trim(), reason: trimmed })
-      toast.ok(`Corrected — ${label} on “${short(row.paper_title)}”`)
+      toast.ok(`Corrected. ${label} on “${short(row.paper_title)}”`)
       onClose()
     } catch (err) {
       toast.fail(err)

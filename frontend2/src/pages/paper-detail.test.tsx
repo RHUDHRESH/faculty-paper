@@ -72,7 +72,7 @@ function historySection() {
   return screen.getByRole("heading", { name: "History" }).closest("section")!
 }
 
-describe("PaperDetail — an imported ticket's history", () => {
+describe("PaperDetail — an imported claim's history", () => {
   it("never tells the claimant they filed or were paid on the day of the import", async () => {
     mount(OWNER, claim(PROCESSED))
     await screen.findByText("An imported paper")
@@ -104,7 +104,7 @@ describe("PaperDetail — an imported ticket's history", () => {
     expect(history.queryByText(/^Paid$/)).toBeNull()
   })
 
-  it("names the payout month when one was recorded", async () => {
+  it("names the month paid when one was recorded", async () => {
     mount(OWNER, claim({ ...PROCESSED, paid_month: "2025-03" }))
     await screen.findByText("An imported paper")
     expect(within(historySection()).getByText(/Paid in March 2025/)).toBeInTheDocument()

@@ -66,7 +66,7 @@ def admin_edit_claim(request: HttpRequest, claim_id: str, payload: ClaimEditIn):
         raise HttpError(403, "Only a super admin may edit a claim directly")
     reason = (payload.reason or "").strip()
     if len(reason) < 10:
-        raise HttpError(400, "Give a reason (at least 10 characters) — it is kept with the change")
+        raise HttpError(400, "Give a reason (at least 10 characters). It is kept with the change")
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
@@ -216,7 +216,7 @@ def admin_impersonate(request: HttpRequest, user_id: str):
     if actor.role != Role.SUPER_ADMIN:
         raise HttpError(403, "Only a super admin may view as another user")
     if request.session.get(IMPERSONATOR_KEY):
-        raise HttpError(400, "Already viewing as somebody else — stop first")
+        raise HttpError(400, "Already viewing as somebody else. Stop first")
 
     target = get_object_or_404(User, pk=user_id)
     if target.id == actor.id:

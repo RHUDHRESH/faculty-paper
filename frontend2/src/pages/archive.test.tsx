@@ -74,7 +74,7 @@ describe("past claims", () => {
     expect(asked.some((p) => p.startsWith("/api/archive/claims") && p.includes("flagged=open"))).toBe(true)
   })
 
-  it("says an imported ticket came from the ERP, not that it was sent back", async () => {
+  it("says an imported claim came from the ERP, not that it was sent back", async () => {
     const imported = {
       ...ROW,
       status: "SUBMITTED",
@@ -100,7 +100,7 @@ describe("past claims", () => {
   it("writes what is filtered as CSV, quoting commas", () => {
     const csv = archiveCsv([{ ...ROW, paper_title: "Struts, lattices", origin: "Imported from the ERP" }])
     const [head, line] = csv.split("\r\n")
-    expect(head.startsWith("Ticket,Title")).toBe(true)
+    expect(head.startsWith("Claim no.,Title")).toBe(true)
     expect(line).toContain('"Struts, lattices"')
     expect(line).toContain("Paid")
     expect(line).toContain("Imported from the ERP")

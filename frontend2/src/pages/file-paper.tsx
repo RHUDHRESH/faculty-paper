@@ -1408,7 +1408,7 @@ export function FilePaper() {
         : step === STEPS.length - 1
           ? "Check and file"
           : editingExisting && ticketNumber
-            ? `Edit ticket ${ticketNumber}`
+            ? `Edit claim ${ticketNumber}`
             : filingFor
               ? `The details, for ${filingFor.name}`
               : "Add the details"
@@ -1660,7 +1660,7 @@ export function FilePaper() {
       {filingFor && (
         <Callout tone="info" title={`Filing on behalf of ${filingFor.name}`}>
           {filingFor.email}
-          {filingFor.department ? ` · ${filingFor.department}` : ""}. The ticket will be raised in their
+          {filingFor.department ? ` · ${filingFor.department}` : ""}. The claim will be raised in their
           name, and the payment goes to them.
         </Callout>
       )}
@@ -1815,7 +1815,7 @@ export function FilePaper() {
         description={
           scopusOff && contestNote.trim().length < 10
             ? "It goes to the college to be checked. Scopus is not connected here, so filing will ask for a one-line note; you can add it on the next screen."
-            : "Once filed it leaves your hands and goes to the college to be checked. A ticket number appears as soon as it is filed."
+            : "Once filed it leaves your hands and goes to the college to be checked. A claim number appears as soon as it is filed."
         }
         confirmLabel="File it"
         onConfirm={async () => {
@@ -2055,7 +2055,7 @@ function PaperStep({
           checked={form.claimReason === "INCENTIVE"}
           onChange={() => patchForm({ claimReason: "INCENTIVE" })}
           label="Faculty publication incentive"
-          hint="The usual case. This claims the remuneration."
+          hint="The usual case. This claims the incentive."
         />
         <Radio
           name="claim-reason"
@@ -2254,7 +2254,7 @@ function JournalStep({
       {!countOnly && (
         <section className="space-y-3" data-field="standing">
           <p className="text-base font-medium">The journal's quartile and SNIP</p>
-          <p className="-mt-2 text-sm text-fg-muted">The two figures the payout is worked out from.</p>
+          <p className="-mt-2 text-sm text-fg-muted">The two figures the incentive is worked out from.</p>
           {metrics?.found ? (
             <p className="text-sm">
               Our journal data{metrics.dataset_year ? ` (${metrics.dataset_year})` : ""} holds{" "}
@@ -2466,7 +2466,7 @@ function ClaimStep({
             spellCheck={false}
           />
         </Field>
-        <Field label="Your designation" hint="Optional. It appears on the ticket.">
+        <Field label="Your designation" hint="Optional. It appears on the claim.">
           <Input value={form.designation} onChange={(e) => patchForm({ designation: e.target.value })} />
         </Field>
       </section>

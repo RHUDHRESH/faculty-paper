@@ -805,7 +805,7 @@ def create_post(request: HttpRequest, payload: Form[PostForm], file: File[Upload
 
     body = (payload.body or "").strip()
     if len(body) > POST_MAX_CHARS:
-        raise HttpError(400, f"Keep a post under {POST_MAX_CHARS} characters — this one is {len(body)}.")
+        raise HttpError(400, f"Keep a post under {POST_MAX_CHARS} characters. This one is {len(body)}.")
     visibility = _clean_visibility(viewer, payload.visibility)
     link = _clean_link(payload.link_url)
 
@@ -888,7 +888,7 @@ def edit_post(request: HttpRequest, post_id: str, payload: PostEditIn):
         if len(body) > POST_MAX_CHARS:
             raise HttpError(400, f"Keep a post under {POST_MAX_CHARS} characters.")
         if not body and not post.paper_id and not post.publication_id and not post.attachment_name and not post.link_url:
-            raise HttpError(400, "A post cannot be emptied — delete it instead.")
+            raise HttpError(400, "A post cannot be emptied. Delete it instead.")
         before = set(social.mentioned_user_ids(post.mentions_json))
         post.body = body
         post.mentions_json = json.dumps(social.resolve_mentions(body))
@@ -990,7 +990,7 @@ def edit_comment(request: HttpRequest, comment_id: str, payload: CommentIn):
         raise HttpError(403, "You can only edit your own comments.")
     body = (payload.body or "").strip()
     if not body:
-        raise HttpError(400, "A comment cannot be emptied — delete it instead.")
+        raise HttpError(400, "A comment cannot be emptied. Delete it instead.")
     if len(body) > COMMENT_MAX_CHARS:
         raise HttpError(400, f"Keep a comment under {COMMENT_MAX_CHARS} characters.")
     comment.body = body
@@ -1023,7 +1023,7 @@ def report_post(request: HttpRequest, post_id: str, payload: ReasonIn):
     viewer = require_user(request)
     post = _readable(viewer, post_id)
     if post.author_id == viewer.id:
-        raise HttpError(400, "That is your own post — edit or delete it instead.")
+        raise HttpError(400, "That is your own post. Edit or delete it instead.")
     reason = (payload.reason or "").strip()[:REASON_MAX_CHARS] or "No reason given"
     _, created = PostReport.objects.get_or_create(
         post=post, reporter=viewer, status=PostReport.Status.OPEN, defaults={"reason": reason}

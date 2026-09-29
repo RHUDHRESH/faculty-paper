@@ -223,7 +223,7 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
         # for somebody who does.
         if rbac.can_clear_claims(user.role):
             raise HttpError(400, "Select a faculty member to submit on their behalf")
-        raise HttpError(403, "Only faculty can create tickets")
+        raise HttpError(403, "Only faculty can create claims")
 
     # Validate before any write, so a rejected attachment set cannot leave a
     # half-created claim behind.
@@ -872,7 +872,7 @@ def recalculate_claim(request: HttpRequest, claim_id: str, payload: Optional[Rec
     claim = get_object_or_404(Claim, pk=claim_id)
     _refuse_own_claim(user, claim)
     if claim.status == ClaimStatus.PAID:
-        raise HttpError(400, "Claim is already paid — re-verifying would change a settled amount")
+        raise HttpError(400, "Claim is already paid. Re-verifying would change a settled amount")
     previous = claim.remuneration
     _reverify_or_recalc(claim, user, skip_external=bool(payload and payload.skip_external))
     claim.save()
@@ -905,7 +905,7 @@ def clear_claim(request: HttpRequest, claim_id: str, payload: ActionIn):
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
         _refuse_own_claim(user, claim)
         if claim.status != ClaimStatus.SUBMITTED:
-            raise HttpError(400, "Only a submitted ticket can be cleared")
+            raise HttpError(400, "Only a submitted claim can be cleared")
         _refuse_if_held(claim)
         _guard_self_cleared_override(claim, user)
         _reverify_or_recalc(claim, user, skip_external=bool(payload.skip_external))
@@ -946,7 +946,7 @@ def bulk_clear(request: HttpRequest, payload: BulkClearIn):
         raise HttpError(403, "Forbidden")
     ids = list(dict.fromkeys(payload.claim_ids or []))[:200]
     if not ids:
-        raise HttpError(400, "Select at least one ticket")
+        raise HttpError(400, "Select at least one claim")
 
     cleared: list[str] = []
     skipped: list[dict[str, str]] = []

@@ -784,7 +784,7 @@ function AuthoriseDialog({ claim, onClose }: { claim: Claim; onClose: () => void
                 </Meta>
               </div>
 
-              <Field label="Note" hint="Optional. Kept on the ticket history.">
+              <Field label="Note" hint="Optional. Kept on the claim history.">
                 <Textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
@@ -858,7 +858,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
         </DialogHeader>
         <DialogBody className="space-y-4">
           <Callout tone="info" title="This goes back one step, not to the claimant">
-            The Principal's approval is withdrawn and the ticket returns to them. Nobody is
+            The Principal's approval is withdrawn and the claim returns to them. Nobody is
             asked to re-file a paper to answer a question about the budget.
           </Callout>
           <Field

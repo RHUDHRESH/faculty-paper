@@ -961,7 +961,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
     return {
       amount: null,
       working,
-      problem: `Papers with more than ${limit} authors are not eligible for remuneration, so this one pays nothing to anybody.`,
+      problem: `Papers with more than ${limit} authors are not eligible for incentive, so this one pays nothing to anybody.`,
     }
   }
 
@@ -1061,7 +1061,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
   } else {
     return {
       amount: 0,
-      category: "Not eligible for remuneration",
+      category: "Not eligible for incentive",
       working,
       problem: "This combination of indexing and publication type is not covered by the scheme.",
     }
@@ -1285,7 +1285,7 @@ function EditDialog({
   async function publish() {
     try {
       const result = await save.mutateAsync(payload)
-      toast.ok(`Published — ${result.name} v${result.version} now prices every claim`)
+      toast.ok(`Published. ${result.name} v${result.version} now prices every claim`)
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)

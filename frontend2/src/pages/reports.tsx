@@ -523,7 +523,7 @@ function CollegeReports() {
           onChange={(v) => setFilter("month", v)}
           options={monthOptions}
           placeholder="Every settled month"
-          aria-label="Filter by payout month"
+          aria-label="Filter by month paid"
           className="w-48"
         />
       </div>
@@ -1453,8 +1453,8 @@ function StuckPanel({
     <section className="min-w-0">
       <h3 className="text-lg font-semibold">Standing at a desk longest</h3>
       <p className="mt-0.5 text-sm text-fg-muted">
-        Counted from when the ticket arrived at the step it is at now, not from the last time
-        anybody edited it. Paid and returned tickets have stopped waiting and are not here.
+        Counted from when the claim arrived at the step it is at now, not from the last time
+        anybody edited it. Paid and returned claims have stopped waiting and are not here.
         {monthFiltered
           ? " The settled-month filter does not apply: nothing still waiting has been settled in any month."
           : ""}
@@ -1472,7 +1472,7 @@ function StuckPanel({
         />
       ) : rows.length === 0 ? (
         <p className="mt-4 rounded-md bg-positive-wash px-3 py-3 text-sm">
-          Nothing is standing at a desk. Every ticket in scope has been paid or sent back.
+          Nothing is standing at a desk. Every claim in scope has been paid or sent back.
         </p>
       ) : (
         <>
@@ -1486,7 +1486,7 @@ function StuckPanel({
               <>
                 <span className="font-medium">
                   {stuck.length.toLocaleString("en-IN")}{" "}
-                  {stuck.length === 1 ? "ticket has" : "tickets have"} waited more than a month.
+                  {stuck.length === 1 ? "claim has" : "claims have"} waited more than a month.
                 </span>{" "}
               </>
             ) : (
@@ -1543,7 +1543,7 @@ function StuckPanel({
               Open the whole queue
             </button>
             {capped
-              ? " More than 200 tickets are at one desk, so this lists the longest wait among the first 200 the server returned rather than the longest overall."
+              ? " More than 200 claims are at one desk, so this lists the longest wait among the first 200 the server returned rather than the longest overall."
               : ""}
           </p>
         </>
@@ -1719,7 +1719,7 @@ function DirectionPanel({
         </h3>
         <p className="mt-0.5 text-sm text-fg-muted">
           Each department’s publications this year beside its own last year. Compared on
-          publication year, not payout month: a department is judged on what it published, not
+          publication year, not month paid: a department is judged on what it published, not
           on when the college got round to paying for it.
         </p>
       </div>

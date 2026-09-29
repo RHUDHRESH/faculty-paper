@@ -89,7 +89,7 @@ export function isAgeBucket(v: string | null): v is AgeBucket {
 /** Home's read-only copy of the queue's ageing chips; each opens the queue filtered. */
 export function AgeingSplit({ rows }: { rows: { waiting_days?: number | null }[] }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5" aria-label="How long tickets have waited">
+    <div className="flex flex-wrap items-center gap-1.5" aria-label="How long claims have waited">
       <Meta>Waiting</Meta>
       {ageSplit(rows).map((b) => (
         <Link
@@ -174,7 +174,7 @@ export function SchemeRules({ c }: { c: DeskFields }) {
   if (!fyp && !research) return null
   return (
     <section className="space-y-2">
-      <SectionTitle>Scheme rules on this ticket</SectionTitle>
+      <SectionTitle>Scheme rules on this claim</SectionTitle>
       {fyp && (
         <p className="text-sm">
           Final-year project scheme: one claim per team, filed by the mentor, a fixed amount per conference paper
@@ -252,7 +252,7 @@ export function JournalWatchList() {
         <SectionTitle id="watch-h">Journal watch-list</SectionTitle>
         <p className="mt-1 text-sm text-fg-muted">
           Journals the research cell wants to look at twice: suspected clones, venues about to be discontinued,
-          publishers with complaints. Every ticket in one carries a warning, and batch clearing skips it.
+          publishers with complaints. Every claim in one carries a warning, and batch clearing skips it.
         </p>
       </div>
       <form onSubmit={submit} className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-[10rem_minmax(0,1fr)]">
@@ -382,7 +382,7 @@ export function MonthlyReport() {
           </dl>
           <div className="grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-2">
             <div>
-              <Meta className="block">How long the waiting tickets have waited</Meta>
+              <Meta className="block">How long the waiting claims have waited</Meta>
               <ul className="mt-1 text-sm">
                 {r.ageing.map((a) => (
                   <li key={a.bucket} className="flex justify-between border-b border-line py-1">

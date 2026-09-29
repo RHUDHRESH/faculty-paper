@@ -333,7 +333,7 @@ export function Shell({
               size="icon"
               className="ml-auto"
               onClick={onOpenPalette}
-              aria-label="Jump to a page or ticket"
+              aria-label="Jump to a page or claim"
             >
               <Search />
             </Button>

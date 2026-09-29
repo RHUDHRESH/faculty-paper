@@ -117,7 +117,7 @@ class ResolveFlagIn(Schema):
 def _note(text: str | None, what: str) -> str:
     note = (text or "").strip()
     if len(note) < MIN_NOTE:
-        raise HttpError(400, f"Say {what} ({MIN_NOTE}+ characters) — the next reader has only this to go on")
+        raise HttpError(400, f"Say {what} ({MIN_NOTE}+ characters). The next reader has only this to go on")
     return note
 
 

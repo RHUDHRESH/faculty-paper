@@ -236,7 +236,7 @@ export function ClaimsList() {
         <span className="block">
           <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
           <Meta className="mt-0.5 block truncate">
-            {c.ticket_number || (c.status === "DRAFT" ? "Not filed yet" : "No ticket number")}
+            {c.ticket_number || (c.status === "DRAFT" ? "Not filed yet" : "No claim number")}
           </Meta>
         </span>
       ),
@@ -308,7 +308,7 @@ export function ClaimsList() {
             approved, authorised, paid. A zero is an answer to a question
             somebody actually asks ("is anything of mine stuck at Approved?"),
             and a chip that vanishes cannot give it; the bar would also change
-            shape and length every time a ticket moved, so the control a
+            shape and length every time a claim moved, so the control a
             reader clicked yesterday would be somewhere else today.
             What an empty stage does not deserve is a click that can only
             land on "Nothing matches", so it is dimmed and disabled until it
@@ -357,7 +357,7 @@ export function ClaimsList() {
           <Input
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Search title or ticket number"
+            placeholder="Search title or claim number"
             aria-label="Search your papers"
             className="pl-8"
           />
@@ -617,7 +617,7 @@ function PaperCard({ claim }: { claim: Claim }) {
 async function downloadMine() {
   const res = await api<{ results: (Claim & Record<string, unknown>)[] }>("/api/claims?mine=1&limit=500")
   const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
-  const head = ["Ticket", "Paper", "Journal", "Year", "DOI", "Stage", "Amount (INR)", "Paid on"]
+  const head = ["Claim no.", "Paper", "Journal", "Year", "DOI", "Stage", "Amount (INR)", "Paid on"]
   const rows = res.results.map((c) =>
     [c.ticket_number, c.paper_title, c.journal_title, c.publication_year, c.doi, c.faculty_stage || facultyStage(c.status), c.remuneration, c.paid_at ? String(c.paid_at).slice(0, 10) : ""]
       .map(cell)

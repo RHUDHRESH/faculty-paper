@@ -219,7 +219,7 @@ export function PastClaims() {
           <Input
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Title, ticket, DOI, ISSN or faculty"
+            placeholder="Title, claim, DOI, ISSN or faculty"
             aria-label="Search past claims"
             className="pl-8"
           />
@@ -377,7 +377,7 @@ function PastRow({ row }: { row: Row }) {
 }
 
 const CSV_HEAD = [
-  "Ticket", "Title", "Journal", "Year", "Faculty", "Department", "Status",
+  "Claim no.", "Title", "Journal", "Year", "Faculty", "Department", "Status",
   "Origin", "Amount", "Paid on", "Files", "Open flags",
 ]
 

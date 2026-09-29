@@ -63,7 +63,7 @@ def setup(request: HttpRequest, payload: SetupIn):
     if User.objects.exists():
         # A system with accounts has an owner. Say so rather than 403, so the
         # sentence names the actual situation.
-        raise HttpError(409, "This system already has accounts — setup is finished.")
+        raise HttpError(409, "This system already has accounts. Setup is finished.")
 
     college_name = payload.college_name.strip()
     admin_name = payload.admin_name.strip()

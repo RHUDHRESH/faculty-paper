@@ -232,6 +232,7 @@ class _LedgerIndex:
         cond = Q(claim__owner=user) | Q(publications__authorships__user=user)
         for sid in {user.staff_id, getattr(user, "employee_id", None)} - {None, ""}:
             cond |= Q(staff_id__iexact=sid.strip())
+        self.user_id = user.id
         self.my_ids = {s.strip().lower() for s in {user.staff_id, getattr(user, "employee_id", None)} - {None, ""}}
         rows = {r.id: r for r in PaidLedger.objects.filter(cond).distinct()
                 .only("id", "claim_id", "payout_month", "paper_title", "raw_json", "amount", "staff_id")}
@@ -281,11 +282,11 @@ def claim_state(p: dict, index: _ClaimIndex, ledger: Optional[_LedgerIndex] = No
     if c is not None:
         paid = c.status == ClaimStatus.PAID
         since = None if paid or c.status == ClaimStatus.DRAFT else _waiting_since(c)
-        claim = {"id": c.id, "stage": c.status,
+        claim = {"id": c.id, "stage": c.status, "owner_id": c.owner_id,
                  "days_waiting": (timezone.now() - since).days if since else None,
                  **({"amount": c.remuneration} if paid else {})}
     elif ledger is not None and (row := ledger.find(p)) is not None:
-        claim = {"id": row.claim_id, "stage": ClaimStatus.PAID, "days_waiting": None,
+        claim = {"id": row.claim_id, "stage": ClaimStatus.PAID, "days_waiting": None, "owner_id": ledger.user_id,
                  **({"amount": row.amount} if ledger.is_mine(row) else {}),
                  "paid_month": row.payout_month.isoformat()[:7] if row.payout_month else None}
     return {"claim": claim, "eligible": eligible,

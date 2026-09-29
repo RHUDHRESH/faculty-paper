@@ -29,7 +29,7 @@ from typing import Any, Optional
 from django.db.models import Q
 
 from core.models import Authorship, Budget, Role, User
-from core.services import college_totals
+from core.services import college_totals, pdf_fonts
 from core.services.college_totals import NO_DEPARTMENT
 
 TEACHER_ROLES = (Role.FACULTY, Role.HOD)
@@ -234,14 +234,14 @@ def _inr(n: Optional[float], sign: str = "₹") -> str:
 
 def headline(b: dict[str, Any]) -> str:
     t, y = b["totals"], b["year"]
-    parts = [f"In {y} the college published {t['papers']} papers"]
+    parts = [f"In {y} the college published {pdf_fonts.group_in(t['papers'])} papers"]
     if t["change"] is not None and not b.get("partial"):
         word = "up" if t["change"] > 0 else "down" if t["change"] < 0 else "level"
         parts.append(
             f", {word} {abs(t['change']):g}% on {y - 1}" if word != "level" else f", the same as {y - 1}"
         )
     if t["per_teacher"] is not None:
-        parts.append(f": {t['per_teacher']:g} per teacher across {t['teachers']} teachers")
+        parts.append(f": {t['per_teacher']:g} per teacher across {pdf_fonts.group_in(t['teachers'])} teachers")
     s = "".join(parts) + "."
     if b.get("partial"):
         s = f"{y} is not over, so these are figures to date. " + s.replace(
@@ -283,7 +283,7 @@ def xlsx(b: dict[str, Any], college: str) -> bytes:
         for col in money_cols:
             for row in ws.iter_rows(min_row=5, min_col=col, max_col=col):
                 for c in row:
-                    c.number_format = "#,##,##0"
+                    c.number_format = pdf_fonts.INR_XLSX
         for i, w in enumerate(widths or [], start=1):
             ws.column_dimensions[chr(64 + i)].width = w
         ws.freeze_panes = "A5"
@@ -294,22 +294,29 @@ def xlsx(b: dict[str, Any], college: str) -> bytes:
         ["Teachers on roll (today)", t["teachers"], t["teachers"]],
         ["Papers per teacher", t["per_teacher"], t["per_teacher_prev"]],
         ["Share of papers in Q1/Q2 journals (%)", t["top_quartile_share"], t["top_quartile_share_prev"]],
-        [f"Incentives paid, FY (Rs)", t["paid"], t["paid_prev"]],
-        ["Budget, FY (Rs)", t["budget"], b["trend"][-2]["budget"]],
+        ["Incentives paid, FY (₹)", t["paid"], t["paid_prev"]],
+        ["Budget, FY (₹)", t["budget"], b["trend"][-2]["budget"]],
         ["Budget used (%)", t["budget_used"], None],
-        ["Cost per paper (Rs)", t["cost_per_paper"], None],
+        ["Cost per paper (₹)", t["cost_per_paper"], None],
         [],
         ["Headline", b["headline"]],
     ], widths=[40, 18, 18])
+    ws = wb.active
+    for r in (9, 10, 12):  # paid, budget, cost per paper
+        for col in "BC":
+            ws[f"{col}{r}"].number_format = pdf_fonts.INR_XLSX
+    ws.merge_cells("B14:C14")
+    ws["B14"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[14].height = 110
     sheet(wb.create_sheet(), "Five years", [
         "Year", "Papers", "Papers per teacher", "Q1/Q2 share (%)", "Financial year",
-        "Incentives paid (Rs)", "Budget (Rs)",
+        "Incentives paid (₹)", "Budget (₹)",
     ], [[r["year"], r["papers"], r["per_teacher"], r["top_quartile_share"], r["financial_year"],
          r["paid"], r["budget"]] for r in b["trend"]], money_cols=(6, 7), widths=[8, 10, 12, 12, 12, 16, 16])
     sheet(wb.create_sheet(), "Departments", [
         "Department", "Teachers", f"Papers {b['year']}", f"Papers {b['year'] - 1}", "Change (%)",
         "Papers per teacher", "Papers, five years", "Five-year papers per teacher",
-        f"Paid FY {b['financial_year']} (Rs)", "Budget (Rs)", "Cost per paper (Rs)",
+        f"Paid FY {b['financial_year']} (₹)", "Budget (₹)", "Cost per paper (₹)",
     ], [[d["department"], d["teachers"], d["papers"], d["papers_prev"], d["change"], d["per_teacher"],
          d["five_year"], d["five_year_per_teacher"], d["paid"], d["budget"], d["cost_per_paper"]]
         for d in b["departments"]], money_cols=(9, 10, 11), widths=[16, 9, 10, 10, 10, 11, 11, 12, 16, 14, 14])
@@ -339,11 +346,12 @@ def pdf(b: dict[str, Any], college: str) -> bytes:
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    SANS, SANS_BOLD = pdf_fonts.register()
     ss = getSampleStyleSheet()
-    body = ParagraphStyle("b", parent=ss["BodyText"], fontSize=9, leading=12)
+    body = ParagraphStyle("b", parent=ss["BodyText"], fontName=SANS, fontSize=9, leading=12)
     small = ParagraphStyle("s", parent=body, fontSize=7, leading=9, textColor=colors.HexColor("#555555"))
-    lead = ParagraphStyle("l", parent=body, fontName="Times-Roman", fontSize=12.5, leading=16)
-    h2 = ParagraphStyle("h", parent=body, fontName="Helvetica-Bold", fontSize=10, spaceBefore=6, spaceAfter=3)
+    lead = ParagraphStyle("l", parent=body, fontSize=11.5, leading=15.5)
+    h2 = ParagraphStyle("h", parent=body, fontName=SANS_BOLD, fontSize=10, spaceBefore=6, spaceAfter=3, keepWithNext=1)
     ink, accent, rule = colors.HexColor("#1F2430"), colors.HexColor("#C2410C"), colors.HexColor("#D9DCE1")
     t, y = b["totals"], b["year"]
 
@@ -353,13 +361,13 @@ def pdf(b: dict[str, Any], college: str) -> bytes:
         canvas.setFont("Times-Bold", 14)
         canvas.setFillColor(ink)
         canvas.drawString(15 * mm, h - 15 * mm, college)
-        canvas.setFont("Helvetica", 8)
+        canvas.setFont(SANS, 8)
         canvas.drawString(15 * mm, h - 20 * mm, "Research publications and incentive spend: brief for the Governing Council")
         canvas.drawRightString(w - 15 * mm, h - 15 * mm, f"Calendar year {y} · FY {b['financial_year']}")
         canvas.drawRightString(w - 15 * mm, h - 20 * mm, f"Prepared {date.today():%d %B %Y}")
         canvas.setStrokeColor(ink)
         canvas.line(15 * mm, h - 22.5 * mm, w - 15 * mm, h - 22.5 * mm)
-        canvas.setFont("Helvetica", 7)
+        canvas.setFont(SANS, 7)
         canvas.drawString(15 * mm, 9 * mm, "Papers from the publication record; money from the payment ledger. See the notes at the end.")
         canvas.drawRightString(w - 15 * mm, 9 * mm, f"Page {doc.page}")
         canvas.restoreState()
@@ -368,14 +376,16 @@ def pdf(b: dict[str, Any], college: str) -> bytes:
         if v is None:
             return "–"
         if money:
-            return _inr(v, "Rs ")
-        return f"{v:g}%" if pct else f"{v:g}" if isinstance(v, float) else str(v)
+            return _inr(v)
+        if pct:
+            return f"{v:g}%"
+        return f"{v:g}" if isinstance(v, float) and v != int(v) else pdf_fonts.group_in(v)
 
     def table(data, widths, align_right_from=1):
         tb = Table(data, colWidths=widths, repeatRows=1, hAlign="LEFT")
         tb.setStyle(TableStyle([
-            ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 7.5),
-            ("FONT", (0, 1), (-1, -1), "Helvetica", 7.5),
+            ("FONT", (0, 0), (-1, 0), SANS_BOLD, 7.5),
+            ("FONT", (0, 1), (-1, -1), SANS, 7.5),
             ("LINEBELOW", (0, 0), (-1, 0), 0.8, ink),
             ("LINEBELOW", (0, 1), (-1, -1), 0.25, rule),
             ("ALIGN", (align_right_from, 0), (-1, -1), "RIGHT"),
@@ -384,8 +394,8 @@ def pdf(b: dict[str, Any], college: str) -> bytes:
         ]))
         return tb
 
-    # The base PDF fonts carry no rupee glyph; "Rs" is what a printed return uses.
-    story: list[Any] = [Paragraph(b["headline"].replace("₹", "Rs "), lead), Spacer(1, 4 * mm)]
+    # DejaVu Sans carries the rupee glyph, so the headline prints as on screen.
+    story: list[Any] = [Paragraph(b["headline"], lead), Spacer(1, 4 * mm)]
     story.append(Paragraph("The year against the last", h2))
     story.append(table([
         ["", str(y), str(y - 1), "Change"],
@@ -401,7 +411,7 @@ def pdf(b: dict[str, Any], college: str) -> bytes:
     # Five years: papers as bars, labelled with their value.
     story.append(Paragraph("Five years: papers published and incentives paid", h2))
     d = Drawing(180 * mm, 42 * mm)
-    for i, (key, label, color) in enumerate((("papers", "Papers", accent), ("paid", "Paid (Rs lakh)", ink))):
+    for i, (key, label, color) in enumerate((("papers", "Papers", accent), ("paid", "Paid (₹ lakh)", ink))):
         ch = VerticalBarChart()
         ch.x, ch.y, ch.width, ch.height = 12 * mm + i * 92 * mm, 8 * mm, 76 * mm, 28 * mm
         vals = [r[key] / (100000 if key == "paid" else 1) for r in b["trend"]]
@@ -416,11 +426,11 @@ def pdf(b: dict[str, Any], college: str) -> bytes:
         ch.barLabels.fontSize = 6.5
         ch.barLabels.nudge = 5
         d.add(ch)
-        d.add(String(ch.x, 38 * mm, label, fontName="Helvetica-Bold", fontSize=7.5))
+        d.add(String(ch.x, 38 * mm, label, fontName=SANS_BOLD, fontSize=7.5))
     story.append(d)
 
     story.append(Paragraph(f"Departments, ranked by papers per teacher ({y})", h2))
-    hs = ParagraphStyle("th", parent=small, fontName="Helvetica-Bold", textColor=ink, alignment=2)
+    hs = ParagraphStyle("th", parent=small, fontName=SANS_BOLD, textColor=ink, alignment=2)
     rows = [[Paragraph(h, hs) for h in (
         "Department", "Teachers", f"Papers {y}", f"Papers {y - 1}", "Change", "Papers per teacher",
         "Five-year per teacher", f"Paid FY {b['financial_year']}", "Paid per paper")]]
@@ -429,14 +439,14 @@ def pdf(b: dict[str, Any], college: str) -> bytes:
         rows.append([r["department"], fmt(r["teachers"]), fmt(r["papers"]), fmt(r["papers_prev"]),
                      fmt(r["change"], pct=True), fmt(r["per_teacher"]), fmt(r["five_year_per_teacher"]),
                      fmt(r["paid"], money=True), fmt(r["cost_per_paper"], money=True)])
-    story.append(table(rows, [34 * mm, 15 * mm, 16 * mm, 13 * mm, 16 * mm, 18 * mm, 20 * mm, 24 * mm, 20 * mm]))
+    story.append(table(rows, [30 * mm, 17 * mm, 15 * mm, 15 * mm, 15 * mm, 18 * mm, 20 * mm, 26 * mm, 20 * mm]))
     if b["unassigned_papers"]:
-        story.append(Paragraph(f"{b['unassigned_papers']} papers of {y} carry no department and are not in this table.", small))
+        story.append(Paragraph(f"{pdf_fonts.group_in(b['unassigned_papers'])} papers of {y} carry no department and are not in this table.", small))
 
     n = b["naac_331"]
     story.append(Paragraph("NAAC metric 3.3.1", h2))
     story.append(Paragraph(
-        f"{n['papers']} papers from {n['from']} to {n['to']} over {n['teachers']} teachers: "
+        f"{pdf_fonts.group_in(n['papers'])} papers from {n['from']} to {n['to']} over {n['teachers']} teachers: "
         f"<b>{fmt(n['per_teacher'])} per teacher</b>, band {n['band']} of 4 on NAAC's scale "
         "(10 or more = 4; 5-10 = 3; 3-5 = 2; under 3 = 1). Upper bound until UGC-CARE listing is checked.", body))
     story.append(Spacer(1, 3 * mm))

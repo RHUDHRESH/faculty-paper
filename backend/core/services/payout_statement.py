@@ -291,19 +291,26 @@ def bank_csv(st: dict[str, Any]) -> bytes:
 
 def pdf(st: dict[str, Any], prepared_by: str) -> bytes:
     """A4 portrait: college header, month, rows, department subtotals, total, signatures."""
+    from xml.sax.saxutils import escape
+
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    def money(v: float) -> str:  # the built-in fonts have no rupee sign
-        return inr(v).replace("₹", "Rs. ")
+    from core.services import pdf_fonts
+
+    SANS, SANS_BOLD = pdf_fonts.register()  # DejaVu Sans prints a real rupee sign
+
+    def money(v: float) -> str:
+        return inr(v)
 
     ss = getSampleStyleSheet()
-    small = ParagraphStyle("s", parent=ss["Normal"], fontSize=8, leading=10)
-    head = ParagraphStyle("h", parent=ss["Title"], fontSize=15, spaceAfter=2)
-    sub = ParagraphStyle("u", parent=ss["Normal"], fontSize=10, alignment=1)
+    normal = ParagraphStyle("n", parent=ss["Normal"], fontName=SANS, fontSize=9.5, leading=12)
+    small = ParagraphStyle("s", parent=normal, fontSize=7.5, leading=9.5)
+    head = ParagraphStyle("h", parent=ss["Title"], fontName=SANS_BOLD, fontSize=15, spaceAfter=2)
+    sub = ParagraphStyle("u", parent=normal, fontSize=10, alignment=1)
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm,
                             topMargin=14 * mm, bottomMargin=16 * mm,
@@ -311,20 +318,23 @@ def pdf(st: dict[str, Any], prepared_by: str) -> bytes:
     story: list[Any] = [
         Paragraph(st["college"], head),
         Paragraph("Research publication incentive: monthly payout statement", sub),
-        Paragraph(f"<b>{st['label']}</b> &nbsp; {st['count']} payments to {st['people']} people", sub),
+        Paragraph(f"<b>{st['label']}</b> &nbsp; {st['count']} payments to {st['people']} people"
+                  + (f" &nbsp;·&nbsp; {len(st['rows'])} ledger rows listed, including ₹0 settlements"
+                     if len(st["rows"]) != st["count"] else ""), sub),
         Spacer(1, 6 * mm),
     ]
     data = [["#", "Staff id", "Name", "Dept", "Paper", "Voucher", "Amount"]]
     for i, r in enumerate(st["rows"], 1):
-        data.append([str(i), r["staff_id"] or "", Paragraph(r["name"], small), r["department"][:10],
-                     Paragraph((r["paper_title"] or "")[:140], small), r["voucher"] or "",
+        data.append([str(i), r["staff_id"] or "", Paragraph(escape(r["name"] or ""), small),
+                     Paragraph(escape(r["department"] or ""), small),
+                     Paragraph(escape(r["paper_title"] or ""), small), Paragraph(escape(r["voucher"] or ""), small),
                      money(r["amount"])])
     data.append(["", "", "", "", "Total", "", money(st["total"])])
-    t = Table(data, colWidths=[8 * mm, 18 * mm, 32 * mm, 16 * mm, 60 * mm, 26 * mm, 22 * mm],
+    t = Table(data, colWidths=[8 * mm, 17 * mm, 30 * mm, 18 * mm, 69 * mm, 18 * mm, 22 * mm],
               repeatRows=1)
     t.setStyle(TableStyle([
-        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8), ("FONT", (0, 1), (-1, -1), "Helvetica", 8),
-        ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 9),
+        ("FONT", (0, 0), (-1, 0), SANS_BOLD, 7.5), ("FONT", (0, 1), (-1, -1), SANS, 7.5),
+        ("FONT", (0, -1), (-1, -1), SANS_BOLD, 9),
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#efe9df")),
         ("LINEBELOW", (0, 0), (-1, -2), 0.25, colors.HexColor("#cfc6b8")),
         ("LINEABOVE", (0, -1), (-1, -1), 0.8, colors.black),
@@ -336,14 +346,14 @@ def pdf(st: dict[str, Any], prepared_by: str) -> bytes:
     ] + [["All departments", str(st["count"]), money(st["total"])]]
     dt = Table(dd, colWidths=[60 * mm, 25 * mm, 35 * mm], hAlign="LEFT")
     dt.setStyle(TableStyle([
-        ("FONT", (0, 0), (-1, -1), "Helvetica", 8.5), ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.5),
-        ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 8.5),
+        ("FONT", (0, 0), (-1, -1), SANS, 8.5), ("FONT", (0, 0), (-1, 0), SANS_BOLD, 8.5),
+        ("FONT", (0, -1), (-1, -1), SANS_BOLD, 8.5),
         ("LINEABOVE", (0, -1), (-1, -1), 0.8, colors.black),
         ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
     ]))
     rec = st["reconciliation"]
-    story += [dt, Spacer(1, 4 * mm),
-              Paragraph(f"<b>Total: {money(st['total'])}</b> ({st['total_in_words']})", ss["Normal"]),
+    tail: list[Any] = [dt, Spacer(1, 4 * mm),
+              Paragraph(f"<b>Total: {money(st['total'])}</b> ({st['total_in_words']})", normal),
               Paragraph(
                   f"Ledger reconciliation: {rec['matched']} of {rec['app_tickets']} app tickets match "
                   f"their ledger row; {rec['imported']['count']} rows from the ERP import; "
@@ -358,13 +368,15 @@ def pdf(st: dict[str, Any], prepared_by: str) -> bytes:
                 colWidths=[60 * mm, 60 * mm, 60 * mm])
     sig.setStyle(TableStyle([
         ("LINEABOVE", (0, 1), (0, 1), 0.6, colors.black), ("LINEABOVE", (1, 1), (1, 1), 0.6, colors.black),
-        ("LINEABOVE", (2, 1), (2, 1), 0.6, colors.black), ("FONT", (0, 0), (-1, -1), "Helvetica", 8.5),
-        ("FONT", (0, 1), (-1, 1), "Helvetica-Bold", 8.5), ("TOPPADDING", (0, 0), (-1, 0), 14),
+        ("LINEABOVE", (2, 1), (2, 1), 0.6, colors.black), ("FONT", (0, 0), (-1, -1), SANS, 8.5),
+        ("FONT", (0, 1), (-1, 1), SANS_BOLD, 8.5), ("TOPPADDING", (0, 0), (-1, 0), 14),
     ]))
-    story.append(sig)
+    tail.append(sig)
+    # The totals and the signature block never split from each other across a page.
+    story.append(KeepTogether(tail))
 
     def footer(canvas, _doc):
-        canvas.setFont("Helvetica", 7)
+        canvas.setFont(SANS, 7)
         canvas.drawString(14 * mm, 8 * mm, f"{st['college']}: payout statement {st['label']}. "
                                             "Figures from the payments ledger.")
         canvas.drawRightString(A4[0] - 14 * mm, 8 * mm, f"Page {_doc.page}")

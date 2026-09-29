@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { appraisalCsv, authorRole } from "@/pages/my-record"
+import { appraisalCsv, appraisalScope, authorRole } from "@/pages/my-record"
 import type { RecordPaper } from "@/pages/papers"
 
 const paper = (over: Partial<RecordPaper>): RecordPaper => ({
@@ -9,6 +9,14 @@ const paper = (over: Partial<RecordPaper>): RecordPaper => ({
   total_authors: 3, match_confidence: null,
   authors: [{ name: "Me", position: 1, user_id: "u", is_college: true, institution: null }],
   claim: null, eligible: true, ineligible_reason: null, ...over,
+})
+
+describe("appraisal scope", () => {
+  it("is empty when there are no years, so the header has no stray 0", () => {
+    expect(appraisalScope(0, 0)).toBe("")
+    expect(appraisalScope(2024, 2024)).toBe("2024")
+    expect(appraisalScope(2021, 2025)).toBe("2021 to 2025")
+  })
 })
 
 describe("appraisal list", () => {

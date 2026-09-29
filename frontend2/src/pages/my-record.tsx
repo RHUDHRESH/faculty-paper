@@ -64,6 +64,12 @@ function save(name: string, text: string, type: string) {
 const selectClass =
   "h-9 rounded-md bg-surface px-2 text-sm text-fg ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent outline-none"
 
+/** "2021 to 2025", "2024", or "" when the list is empty (no stray "· 0" in the header). */
+export function appraisalScope(from: number, to: number): string {
+  if (!from || !to) return ""
+  return from === to ? String(from) : `${from} to ${to}`
+}
+
 export function AppraisalList() {
   const [params, setParams] = useSearchParams()
   const q = useApi<Payload>(["my-publications", "appraisal"], "/api/me/publications?sort=year")
@@ -85,7 +91,7 @@ export function AppraisalList() {
     setParams(n, { replace: true })
   }
   const name = q.data?.user.name ?? ""
-  const scope = from === to ? String(from) : `${from} to ${to}`
+  const scope = appraisalScope(from, to)
   const tally = {
     journals: rows.filter(isJournal).length,
     first: rows.filter((p) => p.author_position === 1).length,

@@ -39,7 +39,7 @@ export function PrintStamp({ title, scope }: { title: string; scope: string }) {
         <span>Printed {today}</span>
       </div>
       <div className="text-sm">
-        {title} · {scope}
+        {title}{scope ? ` · ${scope}` : ""}
       </div>
     </div>
   )

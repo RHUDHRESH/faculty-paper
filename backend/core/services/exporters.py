@@ -85,6 +85,11 @@ _MONEY_WORDS = ("amount", "paid", "spent", "value", "remuneration", "total", "\u
 #: single most obvious way for an export to look careless.
 _COUNT_WORDS = ("count", "papers", "publications", "claims", "people", "number")
 
+#: Excel formats with Indian digit grouping (lakh, crore).
+INR_MONEY_XLSX = ('[>=10000000]"₹"##\\,##\\,##\\,##0.00;'
+                  '[>=100000]"₹"##\\,##\\,##0.00;"₹"#,##0.00')
+INR_COUNT_XLSX = '[>=10000000]##\\,##\\,##\\,##0;[>=100000]##\\,##\\,##0;#,##0'
+
 _HEADER_FILL = "FF1F2430"
 _BAND_FILL = "FFF6F7F9"
 _RULE = "FFD9DCE1"
@@ -98,6 +103,9 @@ def _column_kind(heading: str, rows: list, index: int) -> str:
     which is the tell that a spreadsheet was generated rather than made.
     """
     lowered = _text(heading).lower()
+    # "Year of publication" is a label: 2025, never "2,025".
+    if "year" in lowered and not any(w in lowered for w in ("per year", "papers", "count")):
+        return "year"
     if any(w in lowered for w in _MONEY_WORDS) and not any(
         w in lowered for w in _COUNT_WORDS
     ):
@@ -189,10 +197,17 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
                 if r_index % 2 == 0:
                     cell.fill = band_fill
                 if kind == "money":
-                    cell.number_format = '\u20b9#,##0.00'
+                    # Indian grouping: \u20b912,34,567.00, not \u20b91,234,567.00.
+                    cell.number_format = INR_MONEY_XLSX
                     cell.alignment = Alignment(horizontal="right")
                 elif kind == "number":
-                    cell.number_format = "#,##0"
+                    v = cell.value
+                    # A ratio (1.88 papers per head) must not round to "2".
+                    fractional = isinstance(v, float) and not float(v).is_integer()
+                    cell.number_format = "#,##0.00" if fractional else INR_COUNT_XLSX
+                    cell.alignment = Alignment(horizontal="right")
+                elif kind == "year":
+                    cell.number_format = "0"
                     cell.alignment = Alignment(horizontal="right")
                 else:
                     cell.alignment = Alignment(vertical="top", wrap_text=False)
@@ -302,15 +317,24 @@ def _pdf(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
         TableStyle,
     )
 
+    from xml.sax.saxutils import escape
+
+    from reportlab.lib.enums import TA_RIGHT
+
+    from core.services import pdf_fonts
+    from core.services.payout_statement import inr
+
+    sans, sans_bold = pdf_fonts.register()  # carries the ₹ glyph
     styles = getSampleStyleSheet()
     cell_style = ParagraphStyle(
-        "cell", parent=styles["BodyText"], fontSize=7, leading=8.5, alignment=TA_LEFT
+        "cell", parent=styles["BodyText"], fontName=sans, fontSize=7, leading=8.5, alignment=TA_LEFT
     )
+    num_style = ParagraphStyle("num", parent=cell_style, alignment=TA_RIGHT)
     head_style = ParagraphStyle(
-        "head", parent=cell_style, fontName="Helvetica-Bold", textColor=colors.white
+        "head", parent=cell_style, fontName=sans_bold, textColor=colors.white
     )
     note_style = ParagraphStyle(
-        "note", parent=styles["BodyText"], fontSize=8, textColor=colors.HexColor("#666666")
+        "note", parent=styles["BodyText"], fontName=sans, fontSize=8, textColor=colors.HexColor("#666666")
     )
 
     out = io.BytesIO()
@@ -323,15 +347,15 @@ def _pdf(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
         bottomMargin=12 * mm,
         title=title,
     )
-    story: list[Any] = [Paragraph(title, styles["Title"])]
+    story: list[Any] = [Paragraph(escape(title), ParagraphStyle("t", parent=styles["Title"], fontName=sans_bold))]
     if subtitle:
-        story.append(Paragraph(subtitle, note_style))
+        story.append(Paragraph(escape(subtitle), note_style))
     story.append(Spacer(1, 6 * mm))
 
     for i, (name, sheet) in enumerate(pack.items()):
         if i:
             story.append(PageBreak())
-        story.append(Paragraph(name, styles["Heading2"]))
+        story.append(Paragraph(escape(name), ParagraphStyle("h2", parent=styles["Heading2"], fontName=sans_bold)))
 
         columns = list(sheet["columns"])
         dropped = columns[_PDF_MAX_COLUMNS:]
@@ -358,11 +382,22 @@ def _pdf(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
             story.append(Paragraph("No rows.", note_style))
             continue
 
-        data = [[Paragraph(_text(c), head_style) for c in columns]]
+        kinds = [_column_kind(c, rows, i) for i, c in enumerate(columns)]
+
+        def shown_cell(v: Any, kind: str) -> Paragraph:
+            # Money as ₹12,34,567.50 and counts as 1,586 -- what the reader
+            # sees on screen -- rather than Python's 1234567.5.
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                if kind == "money":
+                    return Paragraph(inr(v), num_style)
+                if kind == "number":
+                    txt = f"{v:,.2f}" if isinstance(v, float) and not v.is_integer() else pdf_fonts.group_in(v)
+                    return Paragraph(txt, num_style)
+            return Paragraph(escape(_text(v)[:300]), cell_style)
+
+        data = [[Paragraph(escape(_text(c)), head_style) for c in columns]]
         for row in shown:
-            data.append(
-                [Paragraph(_text(v)[:300], cell_style) for v in list(row)[: len(columns)]]
-            )
+            data.append([shown_cell(v, k) for v, k in zip(list(row)[: len(columns)], kinds)])
         table = Table(data, repeatRows=1, hAlign="LEFT")
         table.setStyle(
             TableStyle(

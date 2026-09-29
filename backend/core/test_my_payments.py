@@ -87,10 +87,10 @@ class PaymentStatementTests(TestCase):
 
     def test_csv_download(self):
         r = self.c.get("/api/me/payments/statement?fy=2024&format=csv")
-        self.assertEqual(r["Content-Type"], "text/csv")
+        self.assertEqual(r["Content-Type"], "text/csv; charset=utf-8")
         self.assertIn("payment-statement-2024-25.csv", r["Content-Disposition"])
-        text = r.content.decode()
-        self.assertIn("Total,,,,,5000", text)
+        text = r.content.decode("utf-8-sig")
+        self.assertIn("Total,,,,,5000.00", text)
         self.assertNotIn(",99", text)
 
     def test_needs_sign_in(self):

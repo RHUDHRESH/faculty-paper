@@ -28,6 +28,7 @@ import { Picture, topicPicture } from "@/ui/picture"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonText } from "@/ui/state"
 import { Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { PrintStamp } from "@/pages/reports-print"
 
 /**
  * One paper, in full — what a claimant or an approver opens a ticket number
@@ -328,7 +329,8 @@ export function PaperDetail() {
   const topic = topicPicture(claim.paper_title, claim.journal_title)
 
   return (
-    <div className="page space-y-10 py-8">
+    <div className="page space-y-10 py-8 print:space-y-6 print:py-0">
+      <PrintStamp title={`Incentive claim receipt${claim.ticket_number ? `, ticket ${claim.ticket_number}` : ""}`} scope={`status: ${claim.status.toLowerCase().replace(/_/g, " ")}`} />
       {/* The one sentence a sent-back paper's owner came here for, before
           anything else — including the back link. */}
       {showSendBack && (
@@ -354,7 +356,7 @@ export function PaperDetail() {
       {isOwner || window.history.length <= 1 ? (
         <Link
           to={isOwner ? "/papers" : "/"}
-          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg print:hidden"
         >
           <ArrowLeft className="size-3.5" aria-hidden />
           {isOwner ? "My papers" : "Home"}
@@ -363,7 +365,7 @@ export function PaperDetail() {
         <button
           type="button"
           onClick={() => navigate(-1)}
-          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+          className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg print:hidden"
         >
           <ArrowLeft className="size-3.5" aria-hidden />
           Back

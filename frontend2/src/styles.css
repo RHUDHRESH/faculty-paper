@@ -234,6 +234,9 @@
   --color-area-time-line: #cfdbe1;
   /* Certificate surfaces only: impact plate, Wall of fame, "you were cited". */
   --color-paper: #fbf8f1;
+  /* The card a drawing or photo sits on in dark mode: charcoal lines on a
+     dark canvas vanish, so every illustration gets the same warm plate. */
+  --color-plate: #efe8dc;
   --color-gold: #c9a15a;
 
   /* Honour face. Fraunces, and only on honour moments (display-honour). */
@@ -751,8 +754,13 @@
    app around it: no sidebar, white paper, black text, links not underlined
    in blue. */
 @media print {
-  :root {
+  :root,
+  :root[data-theme="dark"] {
     color-scheme: light;
+    /* White paper: the cream page and panels print as a grey wash. */
+    --color-bg: #fff;
+    --color-surface: #fff;
+    --color-paper: #fff;
   }
   body {
     background: #fff !important;
@@ -768,5 +776,62 @@
   a {
     color: inherit !important;
     text-decoration: none !important;
+  }
+  /* The app around the page never reaches paper: sidebar, top bars, toasts,
+     skip link. Page-level buttons carry print:hidden themselves. */
+  nav[aria-label="Main"],
+  .no-print {
+    display: none !important;
+  }
+  /* Shadows and tinted panels print as grey mush; keep hairlines instead. */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  /* Entrance animations start when a print-only block turns visible, and
+     paper is captured on their first frame: list items came out blank. */
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  /* Tables: the header repeats on every page and a row is never cut. */
+  thead {
+    display: table-header-group;
+  }
+  tr,
+  li,
+  figure,
+  img,
+  svg {
+    break-inside: avoid;
+  }
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+  table {
+    border-collapse: collapse;
+  }
+  /* Scrolling containers would clip on paper. */
+  .overflow-x-auto,
+  .overflow-auto,
+  .overflow-y-auto {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+}
+
+/* A4 with a page number on every sheet. The per-page PrintStamp and the
+   quick guide set their own margins; this is the default for everything else. */
+@page {
+  size: A4;
+  margin: 14mm 14mm 16mm;
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font-size: 8pt;
+    color: #444;
   }
 }

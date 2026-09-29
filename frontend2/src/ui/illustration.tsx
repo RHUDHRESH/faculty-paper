@@ -42,7 +42,7 @@ export function Illustration({
     <picture
       className={cn(
         "inline-block shrink-0 select-none",
-        plate && "dark:rounded-2xl dark:bg-[#f5f0e8] dark:p-2",
+        plate && "dark:rounded-2xl dark:bg-plate dark:p-2",
         className
       )}
       data-illustration={name}

@@ -20,7 +20,7 @@ export function Picture({
 }) {
   const base = `/illustrations/generated/${name}`
   return (
-    <picture className={cn("block select-none dark:rounded-2xl dark:bg-[#EFE8DC] dark:p-2", className)}>
+    <picture className={cn("block select-none dark:rounded-2xl dark:bg-plate dark:p-2", className)}>
       <source srcSet={`${base}.webp`} type="image/webp" />
       <img
         src={`${base}.png`}

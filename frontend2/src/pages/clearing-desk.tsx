@@ -98,7 +98,7 @@ export function AgeingSplit({ rows }: { rows: { waiting_days?: number | null }[]
           className={cn(
             "rounded-full px-2.5 py-1 text-xs ring-1 ring-inset",
             b.n === 0
-              ? "bg-surface text-fg-muted ring-line opacity-60"
+              ? "bg-surface text-fg-subtle ring-line"
               : b.id === "older"
                 ? "bg-critical-wash text-critical ring-line"
                 : b.id === "month"

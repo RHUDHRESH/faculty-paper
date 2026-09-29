@@ -36,6 +36,7 @@ import { toast } from "@/ui/toast"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { HeaderSpot } from "@/ui/page-header"
 import type { StatementMonth } from "@/pages/statements"
+import { PrintStamp } from "@/pages/reports-print"
 
 /**
  * Where money actually leaves the college — the queue of tickets the
@@ -1093,9 +1094,10 @@ export function PaymentsDone() {
 
   return (
     <div className="page space-y-6">
+      <PrintStamp title="Register of incentive payments" scope="every payout month" />
       <header className="page-head">
         <div>
-          <Button kind="quiet" size="sm" asChild className="-ml-2 mb-1">
+          <Button kind="quiet" size="sm" asChild className="-ml-2 mb-1 print:hidden">
             <Link to="/payments">
               <ArrowLeft />
               Payments

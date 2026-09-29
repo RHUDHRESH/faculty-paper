@@ -5,6 +5,7 @@ import { CheckCircle2, Download, FileText } from "lucide-react"
 import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
+import { PrintStamp } from "@/pages/reports-print"
 import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
 import { Combobox } from "@/ui/combobox"
@@ -118,6 +119,7 @@ export function Statements() {
 
   return (
     <div className="page space-y-8">
+      <PrintStamp title="Monthly payout statement" scope={s?.label ?? ""} />
       <header className="page-head flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <PageTitle>Monthly statements</PageTitle>
@@ -126,7 +128,7 @@ export function Statements() {
             papers to sign and send to the bank.
           </Sub>
         </div>
-        <div className="block">
+        <div className="block print:hidden">
           <ColumnLabel className="mb-1 block">Payout month</ColumnLabel>
           <Combobox
             value={month}
@@ -162,7 +164,7 @@ export function Statements() {
               </Meta>
             </div>
             <p className="text-sm text-fg-muted">{s.total_in_words}</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 print:hidden">
               <Button kind="primary" size="md" asChild>
                 <a href={`/api/payouts/statement.pdf?month=${s.month}`} download>
                   <FileText />

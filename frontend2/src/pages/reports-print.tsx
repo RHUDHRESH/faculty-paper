@@ -34,7 +34,6 @@ export function PrintStamp({ title, scope }: { title: string; scope: string }) {
   })
   return (
     <div className="hidden border-b border-black pb-2 print:block">
-      <style>{"@page { size: A4; margin: 14mm; }"}</style>
       <div className="flex items-baseline justify-between gap-4 text-sm">
         <strong className="font-serif text-base">{college_name || "Research office"}</strong>
         <span>Printed {today}</span>

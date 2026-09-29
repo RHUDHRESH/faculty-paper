@@ -28,6 +28,7 @@ import { useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { PrintStamp } from "@/pages/reports-print"
 import { Distribution, RankedBars, Sparkline, Trend } from "@/ui/chart"
 import { HeroBand } from "@/ui/hero"
 import { departmentArt } from "@/ui/illustration"
@@ -257,6 +258,7 @@ export function Leaderboard() {
   return (
     <div className="page space-y-5">
       <style>{"@media print { @page { size: A4 landscape; margin: 12mm } }"}</style>
+      <div className="print:hidden">
       <HeroBand spot="leaderboard-honours"
         area="honours"
         eyebrow="Honours"
@@ -279,16 +281,10 @@ export function Leaderboard() {
           )
         }
       />
+      </div>
 
       {/* Print-only report header. */}
-      {b ? (
-        <div className="hidden print:block">
-          <p className="font-display text-xl">Saveetha Engineering College · Research leaderboard</p>
-          <p className="text-sm">
-            {b.label} · {b.period.label} · {b.scope ?? "Whole college"} · generated {new Date().toLocaleDateString("en-IN")}
-          </p>
-        </div>
-      ) : null}
+      {b ? <PrintStamp title="Research leaderboard" scope={`${b.label} · ${b.period.label} · ${b.scope ?? "Whole college"}`} /> : null}
 
       <nav aria-label="Views" className="flex gap-1 overflow-x-auto border-b border-line print:hidden">
         {VIEWS.map((v) => (

@@ -15,6 +15,18 @@
         var dark = t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)
         document.documentElement.dataset.theme = dark ? "dark" : "light"
       } catch (e) {}
+      // Paper is always light: a dark-mode user printing a statement gets
+      // black ink on white, then their theme back.
+      addEventListener("beforeprint", function () {
+        var el = document.documentElement
+        el.dataset.screenTheme = el.dataset.theme
+        el.dataset.theme = "light"
+      })
+      addEventListener("afterprint", function () {
+        var el = document.documentElement
+        if (el.dataset.screenTheme) el.dataset.theme = el.dataset.screenTheme
+        delete el.dataset.screenTheme
+      })
     </script>
     <!-- Who is signed in, and which college this is: asked now, while the
          JavaScript downloads, instead of after it has run. The app takes

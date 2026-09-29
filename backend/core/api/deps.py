@@ -328,8 +328,60 @@ def record_authorship(c: Claim) -> dict[str, Any]:
     }
 
 
+def record_authorships(claims: list[Claim]) -> dict[str, dict[str, Any]]:
+    """`record_authorship` for many claims in three queries, keyed by claim id.
+
+    The clearing queue called the one-claim version per row: up to four
+    queries each, so a 200-ticket queue was ~800 round trips.
+    """
+    from django.db.models.functions import Lower
+
+    from core.models import Authorship, Publication
+
+    empty = {"record_author_position": None, "record_total_authors": None, "record_has_authors": False}
+    pub_of: dict[str, str] = {}
+    for cid, pid in (
+        Publication.claims.through.objects.filter(claim_id__in=[c.id for c in claims])
+        .order_by("publication_id").values_list("claim_id", "publication_id")
+    ):
+        pub_of.setdefault(cid, pid)  # lowest id first, as `.first()` picks
+    want_doi = {c.doi.strip().lower() for c in claims if c.id not in pub_of and c.doi and c.doi.strip()}
+    by_doi: dict[str, str] = {}
+    if want_doi:
+        for pid, d in (
+            Publication.objects.annotate(d=Lower("doi")).filter(d__in=want_doi)
+            .order_by("id").values_list("id", "d")
+        ):
+            by_doi.setdefault(d, pid)
+    for c in claims:
+        if c.id not in pub_of and c.doi and c.doi.strip().lower() in by_doi:
+            pub_of[c.id] = by_doi[c.doi.strip().lower()]
+    totals: dict[str, int] = {}
+    positions: dict[tuple[str, str], int] = {}
+    for pid, uid, pos in Authorship.objects.filter(publication_id__in=set(pub_of.values())).values_list(
+        "publication_id", "user_id", "position"
+    ):
+        totals[pid] = totals.get(pid, 0) + 1
+        if uid and pos is not None and ((pid, uid) not in positions or pos < positions[(pid, uid)]):
+            positions[(pid, uid)] = pos
+    out: dict[str, dict[str, Any]] = {}
+    for c in claims:
+        pid = pub_of.get(c.id)
+        if pid is None:
+            out[c.id] = dict(empty)
+            continue
+        total = totals.get(pid, 0)
+        out[c.id] = {
+            "record_author_position": positions.get((pid, c.owner_id)),
+            "record_total_authors": total or None,
+            "record_has_authors": total > 0,
+        }
+    return out
+
+
 __all__ = [
     'record_authorship',
+    'record_authorships',
     '_format_payout_month',
     '_google_link',
     '_me_dict',

@@ -169,3 +169,35 @@ class CachedAggregateTests(_Base):
         self.papers(3)
         self.c.get("/api/reports/build")
         self.assertLessEqual(_queries(lambda: self.c.get("/api/reports/build")), 6)
+
+
+class ClearingQueueTests(_Base):
+    """The record's author position was up to four queries per queued ticket."""
+
+    def queue(self, count: int) -> None:
+        for _ in range(count):
+            self.n += 1
+            pub = Publication.objects.create(title=f"Q {self.n}", doi=f"10.9/Q{self.n}")
+            Authorship.objects.create(publication=pub, position=1, display_name="A", author_key=f"a{self.n}")
+            Authorship.objects.create(publication=pub, position=2, display_name="Me",
+                                      author_key=f"m{self.n}", user=self.fac)
+            linked = Claim.objects.create(owner=self.fac, status=ClaimStatus.SUBMITTED,
+                                          paper_title=f"Q {self.n}", ticket_number=f"Q-{self.n}")
+            pub.claims.add(linked)
+            # And one found by DOI alone, in a different case.
+            Claim.objects.create(owner=self.fac, status=ClaimStatus.SUBMITTED, paper_title=f"Q {self.n}",
+                                 doi=f"10.9/q{self.n}", ticket_number=f"QD-{self.n}")
+
+    def test_queue_queries_do_not_grow_with_tickets(self):
+        self.c.get("/api/admin/clearing-queue")
+        self.queue(2)
+        small = _queries(lambda: self.c.get("/api/admin/clearing-queue"))
+        self.queue(8)
+        rows = self.c.get("/api/admin/clearing-queue").json()
+        big = _queries(lambda: self.c.get("/api/admin/clearing-queue"))
+        # Sixteen more tickets; per-row lookups would add dozens. The formula
+        # threshold keeps its own clock and may add one either way.
+        self.assertLessEqual(abs(big - small), 1)
+        self.assertLessEqual(big, 10)
+        self.assertEqual(len(rows), 20)
+        self.assertTrue(all(r["record_author_position"] == 2 and r["record_total_authors"] == 2 for r in rows))

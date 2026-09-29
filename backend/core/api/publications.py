@@ -230,11 +230,9 @@ class _LedgerIndex:
 
     def __init__(self, user: User):
         self.user_id = user.id
-        self.user_id = user.id
         cond = Q(claim__owner=user) | Q(publications__authorships__user=user)
         for sid in {user.staff_id, getattr(user, "employee_id", None)} - {None, ""}:
             cond |= Q(staff_id__iexact=sid.strip())
-        self.user_id = user.id
         self.my_ids = {s.strip().lower() for s in {user.staff_id, getattr(user, "employee_id", None)} - {None, ""}}
         rows = {r.id: r for r in PaidLedger.objects.filter(cond).distinct()
                 .only("id", "claim_id", "payout_month", "paper_title", "raw_json", "amount", "staff_id")}

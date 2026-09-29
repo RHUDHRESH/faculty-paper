@@ -331,7 +331,7 @@ export function PaperDetail() {
 
   return (
     <div className="page space-y-10 py-8 print:space-y-6 print:py-0">
-      <PrintStamp title={`Incentive claim receipt${claim.ticket_number ? `, ticket ${claim.ticket_number}` : ""}`} scope={`status: ${claim.status.toLowerCase().replace(/_/g, " ")}`} />
+      <PrintStamp title={`Incentive claim receipt${claim.ticket_number ? `, ticket ${claim.ticket_number}` : ""}`} scope={`stage: ${(claim.faculty_stage || facultyStage(claimStatus(claim))).toLowerCase()}`} />
       {/* The one sentence a sent-back paper's owner came here for, before
           anything else — including the back link. */}
       {showSendBack && (

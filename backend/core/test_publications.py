@@ -443,10 +443,10 @@ class ApiTests(_Base):
         body = self.get("/api/me/publications", own_money=True)
         # The ledger paid Joyal for W1: filed and paid, his own amount shown.
         w1 = next(p for p in body["publications"] if (p["doi"] or "").lower() == "10.1/w1")
-        self.assertEqual((w1["claim"]["stage"], w1["claim"]["amount"]), (ClaimStatus.PAID, 5000))
+        self.assertEqual((w1["claim"]["stage"], w1["claim"]["amount"]), ("Paid", 5000))
         by_doi = {p["doi"]: p for p in body["publications"]}
         self.assertEqual(by_doi["10.1/w2"]["claim"]["id"], claim.id)
-        self.assertEqual(by_doi["10.1/w2"]["claim"]["stage"], ClaimStatus.SUBMITTED)
+        self.assertEqual(by_doi["10.1/w2"]["claim"]["stage"], "Under review")
         self.assertIsNone(by_doi["10.1/w5"]["claim"])
         self.assertTrue(by_doi["10.1/w5"]["eligible"])
         # W2 (my claim), W1 and the ledger-only paper (paid through the ledger) are filed.

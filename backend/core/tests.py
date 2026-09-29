@@ -1430,7 +1430,7 @@ class TrustBoundaryTests(TestCase):
             )
         self.assertEqual(r.status_code, 200, r.content)
         body = r.json()
-        self.assertEqual(body["status"], "SUBMITTED")
+        self.assertEqual(body["faculty_stage"], "Under review")
         self.assertIsNone(body["snip"], "self-declared SNIP must not become the verified value")
         self.assertEqual(body["self_reported_snip"], 30.0)
 

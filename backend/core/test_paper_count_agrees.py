@@ -86,4 +86,4 @@ class LedgerPaidIsNotUnclaimedTests(TestCase):
         self.assertEqual((mine["unclaimed"], pull["unclaimed"], home["unclaimed"]), (1, 1, 1))
         paid = next(p for p in mine["publications"] if p["title"] == "Paid long ago")
         self.assertEqual((paid["claim"]["stage"], paid["claim"]["id"], paid["claim"]["paid_month"]),
-                         ("PAID", None, "2023-03"))
+                         ("Paid", None, "2023-03"))

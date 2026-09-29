@@ -32,7 +32,7 @@ import { Button } from "@/ui/button"
 import { ErrorState, Skeleton } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { money } from "@/ui/paper"
-import { Journey, facultyStage } from "@/ui/journey"
+import { Journey, claimStatus, facultyStage } from "@/ui/journey"
 import { cn } from "@/lib/cn"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
@@ -64,7 +64,8 @@ type Claim = {
   paper_title: string
   doi?: string | null
   journal_title: string | null
-  status: string
+  /** Absent on a claimant's own copy: use claimStatus(). */
+  status?: string
   status_note?: string | null
   faculty_stage?: string | null
   days_waiting?: number | null
@@ -122,7 +123,7 @@ function onDate(iso: string | null | undefined): string | null {
 }
 
 function stageOfClaim(c: Claim): string {
-  return c.faculty_stage || facultyStage(c.status)
+  return c.faculty_stage || facultyStage(claimStatus(c))
 }
 
 function daysOf(c: Claim): number | null {
@@ -147,12 +148,12 @@ export function useOwnPapers() {
   const ledger = useApi<MyPayments>(HOME_DATA.myPayments.key, HOME_DATA.myPayments.path)
 
   const claims = query.data?.results || []
-  const paid = claims.filter((c) => c.status === "PAID")
+  const paid = claims.filter((c) => claimStatus(c) === "PAID")
   const moving = claims
     .filter((c) => MOVING.has(stageOfClaim(c)))
     .sort((a, b) => (daysOf(b) ?? -1) - (daysOf(a) ?? -1))
   const sentBack = claims.filter((c) => stageOfClaim(c) === "Sent back to you")
-  const drafts = claims.filter((c) => c.status === "DRAFT")
+  const drafts = claims.filter((c) => claimStatus(c) === "DRAFT")
   const received = paid.reduce((s, c) => s + (c.remuneration || 0), 0)
   const since = academicYearStart()
   const thisYear = paid
@@ -854,7 +855,7 @@ function Amount({ claim }: { claim: Claim }) {
     return <span className="w-24 shrink-0 text-right text-sm leading-snug text-fg-subtle">Not worked out yet</span>
   }
   return (
-    <span className={cn("figure shrink-0 text-base", claim.status === "PAID" && "text-positive")}>
+    <span className={cn("figure shrink-0 text-base", claimStatus(claim) === "PAID" && "text-positive")}>
       {claim.remuneration_is_estimate && <span className="mr-1 text-xs font-normal text-fg-subtle">about</span>}
       {money(claim.remuneration)}
     </span>

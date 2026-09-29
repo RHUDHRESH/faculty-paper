@@ -7,6 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer
 from core.api.common import _csv_row, _parse_payout_month, _require_admin_ops, api, rate_limit, session_auth
 from core.api.schemas import MonthlyCreateIn
 from core.api.deps import _format_payout_month
@@ -246,7 +247,7 @@ def admin_ledger_export(
     rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     qs = _ledger_queryset(month, department, scheme, q)
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv_writer(buf)
     w.writerow(
         [
             "payout_month",
@@ -409,7 +410,7 @@ def export_batch(request: HttpRequest, batch_id: str):
     rate_limit(request, "export", settings.EXPORT_HOURLY_LIMIT, "hour", what="exports")
     batch = get_object_or_404(MonthlyBatch, pk=batch_id)
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv_writer(buf)
     w.writerow(
         [
             "row",

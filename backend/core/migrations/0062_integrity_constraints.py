@@ -15,6 +15,9 @@ Postgres also gets trigram indexes for the substring searches (search_all,
 people search), if the pg_trgm extension can be created; SQLite has nothing
 equivalent and skips them.
 """
+import logging
+import sys
+
 from django.db import migrations, models
 from django.db.models.functions import Lower
 
@@ -93,7 +96,11 @@ def _adder(model_name, constraint, violations):
         n = violations(apps)
         if n:
             SKIPPED.add(constraint.name)
-            print(f"\n  0062: SKIPPED constraint {constraint.name}: {n} row(s) violate it; see /data/health")
+            # Loud, on stderr and in the log, not a quiet print lost in the
+            # deploy output: a missing constraint is a missing invariant.
+            msg = f"0062: SKIPPED constraint {constraint.name}: {n} row(s) violate it; see /data/health"
+            sys.stderr.write(f"\n  WARNING {msg}\n")
+            logging.getLogger("core.migrations").error(msg)
             return
         model = apps.get_model("core", model_name)
         # SQLite adds a CHECK by rebuilding the table from the model's own

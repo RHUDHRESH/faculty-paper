@@ -390,7 +390,8 @@ def _record(user: User, first: date, last: date) -> list[dict[str, Any]]:
     _gathered(out, "FILED", filed, college or head, "filed", link=not head)
 
     # ---- the college's payout runs, for a claimant: the month, no figures ----
-    if not college:
+    # Not for a head of department: the college's payout months are Finance's.
+    if not college and not head:
         for month in sorted({
             m for m, raw in ledger.values_list("payout_month", "raw_json") if ledger_month_recorded(raw)
         }):
@@ -497,7 +498,7 @@ def feed(request: HttpRequest, token: str):
     staff id ever leaves in it, whatever the record entry carries.
     """
     row = CalendarFeed.objects.filter(token=token).select_related("user").first()
-    if row is None or not row.user.is_active:
+    if row is None or not row.user.active:
         return HttpResponse("No such calendar.", status=404, content_type="text/plain")
     user = row.user
     today = timezone.localdate()

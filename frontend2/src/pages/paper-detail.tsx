@@ -20,7 +20,7 @@ import {
   StageTrack,
   stageOf,
 } from "@/ui/paper"
-import { Journey, facultyStage } from "@/ui/journey"
+import { Journey, claimStatus, facultyStage } from "@/ui/journey"
 import { CopyButton } from "@/ui/copy"
 import { When } from "@/ui/when"
 import { Avatar } from "@/ui/person"
@@ -64,8 +64,8 @@ type DuplicateMatch = {
 type ClaimAction = {
   id: string
   action: string
-  from_status: string | null
-  to_status: string
+  from_status?: string | null
+  to_status?: string
   note: string | null
   actor_name: string
   created_at: string
@@ -101,7 +101,8 @@ type Claim = {
   publication_year: number | null
   publication_date: string | null
   publication_type: string | null
-  status: string
+  /** Absent on a claimant's own copy: use claimStatus(). */
+  status?: string
   status_note: string | null
   owner_id: string
   owner_name: string
@@ -277,9 +278,9 @@ export function PaperDetail() {
     )
   }
 
-  const stage = stageOf(claim.status)
+  const stage = stageOf(claimStatus(claim))
   const isOwner = !!me && me.id === claim.owner_id
-  const canWithdraw = isOwner && claim.status === "SUBMITTED"
+  const canWithdraw = isOwner && claimStatus(claim) === "SUBMITTED"
   // A sent-back paper is editable, not just a draft.
   //
   // The brief this page was first built against said DRAFT only, and that was
@@ -288,7 +289,7 @@ export function PaperDetail() {
   // the button away and the page spends a paragraph explaining what to fix and
   // then offers no way to fix it — which is where the old app left people, and
   // the reason they emailed the research cell instead.
-  const canEdit = isOwner && (claim.status === "DRAFT" || claim.status === "REJECTED")
+  const canEdit = isOwner && (claimStatus(claim) === "DRAFT" || claimStatus(claim) === "REJECTED")
   const duplicateMatches = parseJsonArray<DuplicateMatch>(claim.duplicate_matches_json)
   const lastRejection = [...(claim.actions || [])]
     .reverse()
@@ -306,10 +307,10 @@ export function PaperDetail() {
   // A Principal's send-back to the office is internal: the claimant is only
   // shown a send-back that came to them.
   const showSendBack = Boolean(
-    claim.status_note && (claim.status === "REJECTED" || (sentBackByPrincipal && !isOwner))
+    claim.status_note && (claimStatus(claim) === "REJECTED" || (sentBackByPrincipal && !isOwner))
   )
 
-  const settled = claim.status === "PAID"
+  const settled = claimStatus(claim) === "PAID"
   const working = payoutWorking(claim)
   // Which of the two figures the amount rests on were typed in rather than
   // matched against a published dataset. Both are grounds for the research
@@ -337,7 +338,7 @@ export function PaperDetail() {
         <Callout
           tone="critical"
           title={
-            sentBackByPrincipal && claim.status !== "REJECTED"
+            sentBackByPrincipal && claimStatus(claim) !== "REJECTED"
               ? "The Principal sent this back to the research cell"
               : "Sent back to you: what to fix"
           }
@@ -402,7 +403,7 @@ export function PaperDetail() {
             // waited -- never whose desk it is on (the college's rule).
             <>
               <Journey
-                stage={claim.faculty_stage || facultyStage(claim.status)}
+                stage={claim.faculty_stage || facultyStage(claimStatus(claim))}
                 daysWaiting={claim.days_waiting ?? claim.waiting_days ?? null}
               />
             </>
@@ -420,7 +421,7 @@ export function PaperDetail() {
           {canEdit && (
             <Button kind="primary" asChild>
               <Link to={`/papers/${claim.id}/edit`}>
-                {claim.status === "REJECTED" ? "Fix and resend" : "Continue this draft"}
+                {claimStatus(claim) === "REJECTED" ? "Fix and resend" : "Continue this draft"}
               </Link>
             </Button>
           )}
@@ -440,13 +441,13 @@ export function PaperDetail() {
               Print receipt
             </Button>
           )}
-          {isOwner && claim.status !== "DRAFT" && claim.status !== "REJECTED" && (
+          {isOwner && claimStatus(claim) !== "DRAFT" && claimStatus(claim) !== "REJECTED" && (
             // The card says what the paper is -- never what it paid.
             <Button kind="default" asChild>
               <Link to={`/discussions?share=${claim.id}`}>Share to the feed</Link>
             </Button>
           )}
-          {isOwner && claim.journal_title && claim.status !== "DRAFT" && (
+          {isOwner && claim.journal_title && claimStatus(claim) !== "DRAFT" && (
             <Button kind="quiet" asChild>
               <Link to={`/papers/new?copy=${claim.id}`}>File another in this journal</Link>
             </Button>
@@ -680,7 +681,7 @@ export function PaperDetail() {
         <Confirmations rows={claim.confirmations} isOwner={isOwner} />
       )}
 
-      {reviewer && claim.status !== "DRAFT" && (
+      {reviewer && claimStatus(claim) !== "DRAFT" && (
         <ClaimFlagsPanel
           claimId={claim.id}
           review={review.data}
@@ -806,9 +807,9 @@ function parseJsonArray<T>(raw: string | null | undefined): T[] {
  */
 function amountCaption(c: Claim, settled: boolean): string {
   if (settled) return paidCaption(c)
-  if (c.status === "DRAFT") return "Estimated. This has not been filed yet"
-  if (c.status === "REJECTED") return "Worked out before it came back to you"
-  if (c.status === "DIRECTOR_APPROVED" || c.status === "FINANCE_APPROVED") {
+  if (claimStatus(c) === "DRAFT") return "Estimated. This has not been filed yet"
+  if (claimStatus(c) === "REJECTED") return "Worked out before it came back to you"
+  if (claimStatus(c) === "DIRECTOR_APPROVED" || claimStatus(c) === "FINANCE_APPROVED") {
     return "Authorised. This is what Finance will pay"
   }
   return "If it is approved exactly as filed"
@@ -920,8 +921,8 @@ function capitalise(s: string): string {
  * none of them above the history.
  */
 function waitingLine(c: Claim): string | null {
-  if (c.status === "DRAFT") return null
-  if (c.status === "PAID") return c.paid_at || c.record?.imported ? paidCaption(c) : null
+  if (claimStatus(c) === "DRAFT") return null
+  if (claimStatus(c) === "PAID") return c.paid_at || c.record?.imported ? paidCaption(c) : null
   // An imported ticket's `submitted_at` is the import's moment unless the
   // server vouches for it as a filing time.
   const filed = c.record?.imported ? c.record.filed_at : c.submitted_at
@@ -1179,7 +1180,7 @@ function actionSentence(a: ClaimAction): string {
       case "REJECT":
         return `${who} sent it back`
       case "STATUS_OVERRIDE":
-        return `${who} moved it to ${humanizeStatus(a.to_status)} directly`
+        return `${who} moved it to ${a.to_status ? humanizeStatus(a.to_status) : "another stage"} directly`
       case "VERIFY":
         return `${who} verified it`
       case "MANUAL_VERIFY":
@@ -1460,7 +1461,7 @@ function ClaimantHistory({ claim }: { claim: Claim }) {
  */
 function ImportedHistory({ claim, record }: { claim: Claim; record: ClaimRecord }) {
   const events: { id: string; text: string; note: string | null; at: string | null }[] = []
-  if (claim.status === "PAID") {
+  if (claimStatus(claim) === "PAID") {
     events.push({
       id: "paid",
       text: record.paid_month

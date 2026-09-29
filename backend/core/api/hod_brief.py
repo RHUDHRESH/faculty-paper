@@ -18,6 +18,7 @@ Two rules, both enforced here rather than trusted to the screen:
 
 from __future__ import annotations
 
+from core.services.cell_safe import safe_append
 import io
 import json
 from collections import Counter, defaultdict
@@ -593,16 +594,16 @@ def _report_xlsx(user: User, b: dict[str, Any]) -> bytes:
 
     def sheet(ws, title_lines: list[str], header: list[str], rows: list[list[Any]], widths: list[int]):
         for line in title_lines:
-            ws.append([line])
+            safe_append(ws, [line])
         ws["A1"].font = Font(bold=True, size=13)
-        ws.append([])
-        ws.append(header)
+        safe_append(ws, [])
+        safe_append(ws, header)
         hr = ws.max_row
         for c in ws[hr]:
             c.font, c.fill = head_font, head_fill
             c.alignment = Alignment(wrap_text=True, vertical="top")
         for r in rows:
-            ws.append(["" if v is None else v for v in r])
+            safe_append(ws, ["" if v is None else v for v in r])
         ws.freeze_panes = ws.cell(row=hr + 1, column=1)
         ws.auto_filter.ref = f"A{hr}:{get_column_letter(len(header))}{ws.max_row}"
         for i, w in enumerate(widths, 1):

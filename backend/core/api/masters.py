@@ -62,8 +62,17 @@ def admin_process_batch(request: HttpRequest, payload: BatchProcessIn):
     ids = list(dict.fromkeys(payload.claim_ids or []))[:500]
     if not ids:
         raise HttpError(400, "Select at least one claim")
+    # Nobody verifies their own paper: the single verify refuses it, and so
+    # does the batch (the task re-checks, for a list queued some other way).
+    from core.models import Claim
+
+    own = set(Claim.objects.filter(pk__in=ids, owner=user).values_list("id", flat=True))
+    own_ids = [i for i in ids if i in own or str(i) in {str(o) for o in own}]
+    ids = [i for i in ids if i not in own_ids]
+    if not ids:
+        raise HttpError(403, "You cannot verify your own paper.")
     job_id = async_task("core.tasks.run_bulk_verify", ids, user.id)
-    return {"queued": True, "job_id": job_id, "count": len(ids)}
+    return {"queued": True, "job_id": job_id, "count": len(ids), "skipped_own": own_ids}
 
 
 # ---------- SNIP / faculty master ----------

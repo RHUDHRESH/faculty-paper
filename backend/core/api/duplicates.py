@@ -137,23 +137,42 @@ def _add_faces(findings, rows_of) -> None:
     from django.conf import settings
     from core.models import User
 
-    ids, names = set(), set()
+    from django.db.models.functions import Lower
+
+    keys, names = set(), set()
     for f in findings:
         names.add((f.faculty_name or "").strip().lower())
         for r in rows_of[f.id]:
-            if r.get("source") == "claim" and r.get("person_key"):
-                ids.add(r["person_key"])
+            if r.get("person_key"):
+                keys.add(str(r["person_key"]).strip().lower())
             names.add((r.get("person") or "").strip().lower())
     names.discard("")
+    keys.discard("")
+    # A row's person_key is the staff id (lowercased) where there is one --
+    # the ERP's employee id for an imported row -- else the owner's user id.
+    # Staff id first: two people can share a name, never a staff id.
     by_id, by_name = {}, {}
-    for uid, name, photo in User.objects.filter(id__in=ids).values_list("id", "name", "photo"):
-        by_id[uid] = photo
+    uuid_keys = set()
+    for k in keys:
+        try:
+            import uuid as _uuid
+            uuid_keys.add(_uuid.UUID(k))
+        except ValueError:
+            pass
+    for uid, photo in User.objects.filter(id__in=uuid_keys).values_list("id", "photo"):
+        by_id[str(uid).lower()] = photo
+    for sid, photo in (User.objects.annotate(s=Lower("staff_id")).filter(s__in=keys)
+                       .values_list("s", "photo")):
+        by_id[sid] = photo
     if names:
-        from django.db.models.functions import Lower
+        seen: dict[str, int] = {}
         for name, photo in (User.objects.annotate(n=Lower("name")).filter(n__in=names)
-                            .exclude(photo="").exclude(photo__isnull=True)
                             .values_list("n", "photo")):
-            by_name.setdefault(name, photo)
+            seen[name] = seen.get(name, 0) + 1
+            if photo:
+                by_name.setdefault(name, photo)
+        # A name shared by two accounts identifies nobody.
+        by_name = {n: p for n, p in by_name.items() if seen.get(n) == 1}
 
     def url(p):
         return f"{settings.MEDIA_URL}{p}" if p else None
@@ -176,8 +195,13 @@ def _add_faces(findings, rows_of) -> None:
                 month = _sheet_month(raw.get(r["id"]))
                 if month:
                     r["when"] = month
-            photo = by_id.get(r.get("person_key")) if r.get("source") == "claim" else None
-            r["photo_url"] = url(photo or by_name.get((r.get("person") or "").strip().lower()))
+            key = str(r.get("person_key") or "").strip().lower()
+            if key in by_id:
+                # Matched by staff id / account: that person's photo or none,
+                # never a same-named colleague's.
+                r["photo_url"] = url(by_id[key])
+            else:
+                r["photo_url"] = url(by_name.get((r.get("person") or "").strip().lower()))
         f._photo_url = url(by_name.get((f.faculty_name or "").strip().lower())) or next(
             (r["photo_url"] for r in rows_of[f.id] if r["photo_url"]), None)
 

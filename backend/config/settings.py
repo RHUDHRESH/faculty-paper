@@ -19,8 +19,12 @@ except OSError:
     APP_VERSION = "dev"
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", os.getenv("AUTH_SECRET", "dev-insecure-change-me"))
-DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() in ("1", "true", "yes")
-if not DEBUG and SECRET_KEY in ("dev-insecure-change-me", "", "changeme"):
+# Off unless asked for: a deploy that forgets the variable must not serve
+# tracebacks. Local dev scripts set DJANGO_DEBUG=true explicitly.
+# `manage.py test` keeps the dev default so the suite needs no extra env.
+_RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == "test"
+DEBUG = os.getenv("DJANGO_DEBUG", "true" if _RUNNING_TESTS else "false").lower() in ("1", "true", "yes")
+if not DEBUG and not _RUNNING_TESTS and SECRET_KEY in ("dev-insecure-change-me", "", "changeme"):
     raise RuntimeError("DJANGO_SECRET_KEY must be set to a strong value when DJANGO_DEBUG=false")
 ALLOWED_HOSTS = [
     h.strip()
@@ -84,6 +88,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # A GET while viewing as somebody is rolled back: view-as writes nothing.
+    "core.viewas.ViewAsReadOnlyMiddleware",
     # Last, so it runs after the view: a write request makes the shared
     # college-wide figures stale (core/services/aggregate_cache.py).
     "core.services.aggregate_cache.BumpOnWriteMiddleware",

@@ -116,7 +116,7 @@ class FacultyFilingWorkflows(Flow):
     def test_faculty_files_a_paper_with_three_conditions_and_proof(self):
         r = self._j(self.faculty, "post", "/api/claims", self._payload())
         body = self.ok(r)
-        self.assertEqual(body["status"], ClaimStatus.SUBMITTED)
+        self.assertEqual(body["faculty_stage"], "Under review")
         self.assertTrue(body["ticket_number"])
 
     def test_faculty_cannot_file_without_the_conditions(self):
@@ -126,9 +126,9 @@ class FacultyFilingWorkflows(Flow):
 
     def test_faculty_saves_a_draft_then_files_it(self):
         d = self.ok(self._j(self.faculty, "post", "/api/claims", self._payload(submit=False, confirmations=None)))
-        self.assertEqual(d["status"], ClaimStatus.DRAFT)
+        self.assertEqual(d["faculty_stage"], "Draft")
         r = self._j(self.faculty, "patch", f"/api/claims/{d['id']}", self._payload())
-        self.assertEqual(self.ok(r)["status"], ClaimStatus.SUBMITTED)
+        self.assertEqual(self.ok(r)["faculty_stage"], "Under review")
 
     def test_faculty_pulls_a_paper_by_doi(self):
         from core.services import paper_lookup as pl
@@ -167,7 +167,7 @@ class FacultyFilingWorkflows(Flow):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.REJECTED)
         r = self._j(self.faculty, "patch", f"/api/claims/{claim.id}", self._payload())
-        self.assertEqual(self.ok(r)["status"], ClaimStatus.SUBMITTED)
+        self.assertEqual(self.ok(r)["faculty_stage"], "Under review")
 
     def test_faculty_withdraws_a_claim(self):
         claim = self._claim()

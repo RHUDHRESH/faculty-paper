@@ -28,8 +28,8 @@ describe("My papers", () => {
   it("files each paper under one claim state", () => {
     expect(tabOf(base)).toBe("unclaimed")
     expect(tabOf({ ...base, eligible: false })).toBe("ineligible")
-    expect(tabOf({ ...base, claim: { id: "c", stage: "SUBMITTED", days_waiting: 3 } })).toBe("progress")
-    expect(tabOf({ ...base, claim: { id: "c", stage: "PAID", days_waiting: null, amount: 10 } })).toBe("paid")
+    expect(tabOf({ ...base, claim: { id: "c", stage: "Under review", days_waiting: 3 } })).toBe("progress")
+    expect(tabOf({ ...base, claim: { id: "c", stage: "Paid", days_waiting: null, amount: 10 } })).toBe("paid")
   })
 
   it("exports CSV with quoting and BibTeX entries", () => {
@@ -42,7 +42,7 @@ describe("My papers", () => {
   })
 
   it("reports what a Scopus pull changed, in words", () => {
-    const paid: RecordPaper = { ...base, claim: { id: "c", stage: "PAID", days_waiting: null } }
+    const paid: RecordPaper = { ...base, claim: { id: "c", stage: "Paid", days_waiting: null } }
     expect(describeChange([base], [base])).toBe("nothing new")
     expect(describeChange([base], [paid, { ...base, id: "p2" }])).toBe("1 new paper, 1 now paid")
     expect(maxAuthors("More than 10 authors")).toBe(10)

@@ -171,12 +171,14 @@ export function Statements() {
                   Statement to sign (PDF)
                 </a>
               </Button>
-              <Button kind="default" size="md" asChild>
-                <a href={`/api/payouts/statement.csv?month=${s.month}`} download>
-                  <Download />
-                  Bank and accounts file (CSV)
-                </a>
-              </Button>
+              {(me?.role === "FINANCE" || me?.role === "SUPER_ADMIN") && (
+                <Button kind="default" size="md" asChild>
+                  <a href={`/api/payouts/statement.csv?month=${s.month}`} download>
+                    <Download />
+                    Bank and accounts file (CSV)
+                  </a>
+                </Button>
+              )}
               <Button kind="quiet" size="md" asChild>
                 <Link to={`/ledger?month=${s.month}`}>Open in the ledger</Link>
               </Button>

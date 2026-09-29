@@ -225,7 +225,8 @@ A job due while the free instance slept runs once when it wakes.
 ## ERP Excel → SQL
 
 ```bash
-# Local (SQLite): set DJANGO_USE_SQLITE=true
+# Local (SQLite): set DJANGO_USE_SQLITE=true and DJANGO_DEBUG=true
+# (DEBUG is off unless DJANGO_DEBUG=true is set explicitly)
 python manage.py import_erp_excel ../data/Publication_Processing_ERP_V3.0.xlsx
 python manage.py sync_faculty_users
 

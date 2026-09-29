@@ -32,8 +32,9 @@ desk would tell the claimant every time the paper changed hands. The names of
 staff come off it, the desk's own notes come off it (the hold reason, and the
 status note unless it is the reason the paper was sent back to them), and in
 its history every step taken by somebody else reads as "The college", under an
-action name that does not name a desk. The raw `status` stays, because the
-client screens are built on it.
+action name that does not name a desk. The raw `status`, the per-desk
+`waiting_days`, the desk hand-over timestamps and every step's raw
+`from_status`/`to_status` come off it too: each of them names the desk.
 
 **Everybody who files is the claimant on their own papers, and only there.**
 A head of department, a Principal, a research cell member, the coordinator,
@@ -94,7 +95,7 @@ _CONTEST_ACTIONS = {"CONTEST_FORWARD": "SUBMIT", "RESUBMIT": "RESUBMIT"}
 #: contest, the claimant because the doubt is about their own paper. The
 #: endpoints that carry them refuse everybody else anyway; this is the net
 #: under a future endpoint that forgets.
-FLAG_KEYS = frozenset({"flags", "open_flags", "file_checks"})
+FLAG_KEYS = frozenset({"flags", "open_flags", "file_checks", "journal_watch"})
 
 #: Audit entries a flag leaves behind.
 FLAG_AUDIT_ACTIONS = ("CLAIM_FLAG_RAISE", "CLAIM_FLAG_RESOLVE", "CLAIM_FILES_CHECK")
@@ -183,6 +184,13 @@ _STAFF_NAME_KEYS = (
     "override_by_name",
 )
 
+#: Keys that say which desk has the paper or when it changed hands.
+_DESK_KEYS = (
+    "status", "waiting_days", "cleared_at", "principal_approved_at",
+    "director_approved_at", "second_approved_at", "needs_second_approval",
+    "held_at", "manual_verified_at",
+)
+
 #: What a step taken by somebody else is called on the claimant's copy. The
 #: history's own names (CLEAR, PRINCIPAL_APPROVE, DIRECTOR_APPROVE, ...) name
 #: the desk; these name what happened to the paper.
@@ -235,6 +243,7 @@ def _is_claim(value: dict) -> bool:
 
 
 def _step_for_claimant(step: dict, owner_id: str | None) -> dict:
+    step = {k: v for k, v in step.items() if k not in ("from_status", "to_status")}
     if step.get("actor_id") is not None and step.get("actor_id") == owner_id:
         return step
     action = step.get("action")
@@ -274,6 +283,8 @@ def _claim_for_claimant(claim: dict) -> dict:
             _step_for_claimant(step, claim.get("owner_id")) if isinstance(step, dict) else step
             for step in claim["actions"]
         ]
+    for key in _DESK_KEYS:
+        claim.pop(key, None)
     return claim
 
 

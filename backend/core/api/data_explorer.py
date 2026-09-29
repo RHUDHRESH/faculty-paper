@@ -7,6 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer, safe_append
 from core import data_explorer as explorer
 from core.api.common import rate_limit, _csv_row, api, session_auth
 from core.api.common import require_user
@@ -238,11 +239,11 @@ def data_export(
         wb = Workbook()
         ws = wb.active
         ws.title = table.label[:31]
-        ws.append(headers)
+        safe_append(ws, headers)
         for cell in ws[1]:
             cell.font = Font(bold=True)
         for row in rows:
-            ws.append([
+            safe_append(ws, [
                 # A leading "=" is read as a formula by Excel.
                 f"'{row[h]}" if isinstance(row.get(h), str) and str(row[h]).startswith("=")
                 else row.get(h)
@@ -281,7 +282,7 @@ def data_export(
         return res
 
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv_writer(buf)
     writer.writerow(_csv_row(headers))
     for row in rows:
         writer.writerow(_csv_row([row.get(h) for h in headers]))
@@ -289,7 +290,7 @@ def data_export(
     body = buf.getvalue()
     if fmt == "tsv":
         buf = io.StringIO()
-        writer = csv.writer(buf, delimiter="\t")
+        writer = csv_writer(buf, delimiter="\t")
         writer.writerow(_csv_row(headers))
         for row in rows:
             writer.writerow(_csv_row([row.get(h) for h in headers]))

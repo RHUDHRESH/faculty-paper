@@ -7,6 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer
 from core.api.common import api, session_auth
 from core.api.schemas import FormulaIn, ResetPasswordByEmailIn, ResetPasswordIn, UserCreateIn, UserUpdateIn
 from core.api.deps import _user_dict, claim_to_dict, record_authorships
@@ -704,7 +705,7 @@ def admin_audit_csv(
         raise HttpError(403, "Forbidden")
     qs = _audit_queryset(user, q, action, person, claim, date_from, date_to)
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv_writer(buf)
     total = qs.count()
     truncated = total > AUDIT_CSV_CAP
     if truncated:

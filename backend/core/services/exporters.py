@@ -26,6 +26,7 @@ What each format is for, and what it costs:
 """
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer, safe_append
 import csv
 import io
 import json
@@ -175,7 +176,7 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
         rows = list(sheet["rows"])
         kinds = [_column_kind(c, rows, i) for i, c in enumerate(columns)]
 
-        ws.append(columns)
+        safe_append(ws, columns)
         for cell in ws[1]:
             cell.font = header_font
             cell.fill = header_fill
@@ -184,7 +185,7 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
         ws.row_dimensions[1].height = 26
 
         for r_index, row in enumerate(rows, start=2):
-            ws.append(list(row))
+            safe_append(ws, list(row))
             for c_index, kind in enumerate(kinds, start=1):
                 cell = ws.cell(row=r_index, column=c_index)
                 # Banding rather than a rule between every row: the eye needs
@@ -240,7 +241,7 @@ def _xlsx(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
 
 def _csv(pack: dict[str, dict[str, Any]], title: str, subtitle: str) -> bytes:
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv_writer(buf)
     names = list(pack)
     first = pack[names[0]]
     if len(names) > 1:

@@ -47,7 +47,7 @@ class FilingConditionsTests(TestCase):
     def test_a_draft_needs_no_confirmations(self):
         r = self._file(confirmations=None, submit=False)
         self.assertEqual(r.status_code, 200, r.content)
-        self.assertEqual(r.json()["status"], ClaimStatus.DRAFT)
+        self.assertEqual(r.json()["faculty_stage"], "Draft")
         self.assertFalse(ClaimConfirmation.objects.exists())
 
     def test_acceptance_is_recorded_with_who_what_when_where(self):

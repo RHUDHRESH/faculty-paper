@@ -229,6 +229,8 @@ class _LedgerIndex:
     or title. A paper paid through the ERP has no claim, but it is filed."""
 
     def __init__(self, user: User):
+        self.user_id = user.id
+        self.user_id = user.id
         cond = Q(claim__owner=user) | Q(publications__authorships__user=user)
         for sid in {user.staff_id, getattr(user, "employee_id", None)} - {None, ""}:
             cond |= Q(staff_id__iexact=sid.strip())
@@ -266,11 +268,6 @@ class _LedgerIndex:
                 or self.by_title.get(normalize_title(p.get("title") or "")))
 
 
-def _waiting_since(c):
-    stamps = [c.director_approved_at, c.principal_approved_at, c.cleared_at, c.submitted_at]
-    return next((s for s in stamps if s), None) or c.updated_at
-
-
 def claim_state(p: dict, index: _ClaimIndex, ledger: Optional[_LedgerIndex] = None) -> dict:
     """The claim fields for one of *my* papers. Money only once paid. A paper
     paid through the ledger (often before this app) is filed and paid -- the
@@ -281,13 +278,19 @@ def claim_state(p: dict, index: _ClaimIndex, ledger: Optional[_LedgerIndex] = No
     claim = None
     if c is not None:
         paid = c.status == ClaimStatus.PAID
-        since = None if paid or c.status == ClaimStatus.DRAFT else _waiting_since(c)
-        claim = {"id": c.id, "stage": c.status, "owner_id": c.owner_id,
-                 "days_waiting": (timezone.now() - since).days if since else None,
+        # The claimant's words, never the desk's status; days counted from
+        # filing, not from the last hand-over (core.visibility).
+        from core.visibility import days_waiting, faculty_stage
+        # owner_id: the caller's own claim, so its amount is theirs
+        # (hod.for_head keeps figures only on rows naming the viewer).
+        claim = {"id": c.id, "owner_id": c.owner_id,
+                 "stage": faculty_stage(c.status, rejected_outright=bool(c.rejected_outright),
+                                        ticket_number=c.ticket_number),
+                 "days_waiting": days_waiting(c.status, c.submitted_at),
                  **({"amount": c.remuneration} if paid else {})}
     elif ledger is not None and (row := ledger.find(p)) is not None:
-        claim = {"id": row.claim_id, "stage": ClaimStatus.PAID, "days_waiting": None, "owner_id": ledger.user_id,
-                 **({"amount": row.amount} if ledger.is_mine(row) else {}),
+        claim = {"id": row.claim_id, "stage": "Paid", "days_waiting": None,
+                 **({"amount": row.amount, "owner_id": ledger.user_id} if ledger.is_mine(row) else {}),
                  "paid_month": row.payout_month.isoformat()[:7] if row.payout_month else None}
     return {"claim": claim, "eligible": eligible,
             "ineligible_reason": None if eligible else f"More than {MAX_ELIGIBLE_AUTHORS} authors"}
@@ -340,7 +343,7 @@ def my_publications(request: HttpRequest, year: Optional[int] = None, year_from:
             # Known only from a recognised claim or the paid ledger: filed, never "unclaimed".
             p["eligible"], p["ineligible_reason"] = True, None
             if p["claim"] is None:
-                p["claim"] = {"id": None, "stage": ClaimStatus.PAID, "days_waiting": None}
+                p["claim"] = {"id": None, "stage": "Paid", "days_waiting": None}
     out["unclaimed"] = sum(1 for p in out["publications"] if p["claim"] is None and p["eligible"])
     return out
 

@@ -10,6 +10,7 @@ readers, and they are never shown one (core.visibility).
 """
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer
 import csv
 import io
 from collections import defaultdict
@@ -266,7 +267,7 @@ def bank_csv(st: dict[str, Any]) -> bytes:
     the statement instead.
     """
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv_writer(buf)
     w.writerow(BANK_HEADER)
     # A ticket paid and voided in the same month nets to nothing: nobody is owed it.
     net: dict[str, float] = defaultdict(float)

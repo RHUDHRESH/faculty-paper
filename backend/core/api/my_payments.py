@@ -22,7 +22,7 @@ from typing import Optional
 
 from django.http import HttpRequest, HttpResponse
 
-from core.api.common import api, require_user, session_auth
+from core.api.common import _csv_row, api, require_user, session_auth
 from core.api.deps import _format_payout_month
 from core.models import PaidLedger
 
@@ -120,12 +120,15 @@ def my_payment_statement(request: HttpRequest, fy: Optional[int] = None, format:
         w.writerow(["Financial year", label or "All years"])
         w.writerow([])
         w.writerow(["Month paid", "Financial year", "Paper", "Journal", "Voucher", "Amount (INR)"])
-        for r in out_rows:
-            w.writerow([r["payout_month"], r["financial_year"], r["paper_title"] or "",
-                        r["journal_title"] or "", r["voucher_number"] or "", r["amount"]])
+        for src, r in zip(rows, out_rows):
+            w.writerow(_csv_row([
+                src.payout_month.strftime("%b %Y") if src.payout_month else "", r["financial_year"],
+                r["paper_title"] or "", r["journal_title"] or "", r["voucher_number"] or "",
+                f"{r['amount'] or 0:.2f}"]))
         w.writerow([])
-        w.writerow(["Total", "", "", "", "", total])
-        resp = HttpResponse(buf.getvalue(), content_type="text/csv")
+        w.writerow(["Total", "", "", "", "", f"{total:.2f}"])
+        # BOM: Excel then reads the file as UTF-8 and keeps names and titles intact.
+        resp = HttpResponse(("﻿" + buf.getvalue()).encode("utf-8"), content_type="text/csv; charset=utf-8")
         resp["Content-Disposition"] = f'attachment; filename="payment-statement-{label or "all-years"}.csv"'
         return resp
     return {

@@ -660,7 +660,7 @@ class MoreWorkflows(Flow):
     def test_anyone_exports_the_leaderboard_csv(self):
         r = self._j(self.faculty, "get", "/api/leaderboard", {"fmt": "csv"})
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r["Content-Type"], "text/csv")
+        self.assertEqual(r["Content-Type"], "text/csv; charset=utf-8")
         self.assertNotIn(b"amount", r.content.lower())
         r = self._j(self.faculty, "get", "/api/leaderboard", {"fmt": "csv", "board": "departments"})
         self.assertEqual(r.status_code, 200)

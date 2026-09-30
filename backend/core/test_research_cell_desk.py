@@ -59,7 +59,7 @@ class ClearingReportTests(ChainBase):
         self.assertEqual(sum(x["count"] for x in body["ageing"]), 2)
 
         csv = self._as(self.cell).get("/api/admin/clearing-report?format=csv")
-        self.assertEqual(csv["Content-Type"], "text/csv")
+        self.assertEqual(csv["Content-Type"], "text/csv; charset=utf-8")
         self.assertIn("Affiliation missing", csv.content.decode())
 
     def test_closed_to_faculty_and_bad_month(self):

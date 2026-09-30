@@ -713,10 +713,11 @@ def admin_audit_csv(
             f"Truncated: this file holds the newest {AUDIT_CSV_CAP:,} of {total:,} "
             "matching rows. Narrow the dates to export the rest."
         ])
-    w.writerow(["When", "Who", "Email", "Action", "Record", "Record id", "Detail"])
+    w.writerow(["When (IST)", "Who", "Email", "Action", "Record", "Record id", "Detail"])
     for l in qs[:AUDIT_CSV_CAP]:
         w.writerow([
-            l.created_at.isoformat(),
+            # Local time a person reads, not a UTC ISO stamp with microseconds.
+            timezone.localtime(l.created_at).strftime("%Y-%m-%d %H:%M:%S"),
             l.actor.name if l.actor else "System",
             l.actor.email if l.actor else "",
             l.action,
@@ -724,7 +725,7 @@ def admin_audit_csv(
             l.entity_id or "",
             l.detail_json or "",
         ])
-    resp = HttpResponse(buf.getvalue(), content_type="text/csv; charset=utf-8")
+    resp = HttpResponse(("﻿" + buf.getvalue()).encode("utf-8"), content_type="text/csv; charset=utf-8")
     stamp = timezone.now().strftime("%Y-%m-%d")
     resp["Content-Disposition"] = f'attachment; filename="audit-log-{stamp}.csv"'
     resp["X-Total-Rows"] = str(total)

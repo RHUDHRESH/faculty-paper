@@ -62,7 +62,7 @@ class AuditSearchTests(TestCase):
         self.assertIn("1 of 2", first)
         r = self.c.get("/api/admin/audit.csv")
         self.assertEqual(r["X-Truncated"], "false")
-        self.assertTrue(r.content.decode().startswith("When,"))
+        self.assertTrue(r.content.decode("utf-8-sig").startswith("When (IST),"))
 
     def test_csv_refused_to_faculty(self):
         c = Client()

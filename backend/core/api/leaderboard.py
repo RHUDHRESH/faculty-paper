@@ -9,7 +9,7 @@ later cannot reach a reader either.
 
 from __future__ import annotations
 
-from core.services.cell_safe import dict_writer
+from core.services.cell_safe import csv_writer
 import csv
 import io
 from typing import Optional
@@ -85,6 +85,26 @@ def leaderboard(
     return hod.without_money(payload)
 
 
+_HEADINGS = {"q1": "Q1 papers", "first_author": "First-author papers", "joint": "Tied",
+             "movement": "Places moved", "per_head": "Per head"}
+
+
+def _internal(key: str) -> bool:
+    last = key.rsplit(".", 1)[-1]
+    return last in ("id", "me", "photo_url", "avatar_url", "url") or last.endswith("_id")
+
+
+def _heading(key: str) -> str:
+    last = key.rsplit(".", 1)[-1]
+    return _HEADINGS.get(last) or last.replace("_", " ").capitalize()
+
+
+def _cell(v):
+    if isinstance(v, bool):
+        return "Yes" if v else "No"
+    return "" if v is None else v
+
+
 def _csv(rows: list[dict], filename: str) -> HttpResponse:
     """The ranked rows as a spreadsheet: nested dicts flatten one level
     (`person.name`), lists are dropped. Built from the money-free payload."""
@@ -97,12 +117,16 @@ def _csv(rows: list[dict], filename: str) -> HttpResponse:
             elif not isinstance(v, list):
                 out[k] = v
         flat.append(out)
-    cols = list(dict.fromkeys(k for r in flat for k in r))
+    # Internal keys (ids, photo links, "is this me") mean nothing on paper.
+    cols = [k for k in dict.fromkeys(k for r in flat for k in r) if not _internal(k)]
+    cols.sort(key=lambda k: k != "rank")  # stable: rank first, the rest as they come
     buf = io.StringIO()
-    writer = dict_writer(buf, fieldnames=cols)
-    writer.writeheader()
-    writer.writerows(flat)
-    resp = HttpResponse(buf.getvalue(), content_type="text/csv")
+    w = csv_writer(buf)
+    w.writerow([_heading(k) for k in cols])
+    for r in flat:
+        w.writerow([_cell(r.get(k)) for k in cols])
+    # The BOM makes Excel read the file as UTF-8, so names keep their accents.
+    resp = HttpResponse(("﻿" + buf.getvalue()).encode("utf-8"), content_type="text/csv; charset=utf-8")
     resp["Content-Disposition"] = f'attachment; filename="{filename}"'
     return resp
 

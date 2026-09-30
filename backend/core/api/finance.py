@@ -276,14 +276,14 @@ def admin_ledger_export(
                     r.biometric_id,
                     r.paper_title,
                     r.journal_title,
-                    r.amount,
+                    f"{r.amount:.2f}" if r.amount is not None else "",
                     r.voucher_number,
                     r.claim_id,
                     _scheme_of(r),
                 ]
             )
         )
-    resp = HttpResponse(buf.getvalue(), content_type="text/csv")
+    resp = HttpResponse(("﻿" + buf.getvalue()).encode("utf-8"), content_type="text/csv; charset=utf-8")
     suffix = month or "all"
     resp["Content-Disposition"] = f'attachment; filename="ledger-{suffix}.csv"'
     return resp

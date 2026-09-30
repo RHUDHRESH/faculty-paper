@@ -21,7 +21,7 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 
-from core.api.common import api, require_user, session_auth
+from core.api.common import _csv_row, api, require_user, session_auth
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, JournalWatch
 from core.services import rbac
 from core.services.journal_watch import watch_dict
@@ -229,15 +229,16 @@ def admin_clearing_report(request: HttpRequest, month: Optional[str] = None, for
     w = csv_writer(buf)
     w.writerow(["Date", "Ticket", "Title", "Claimant", "Department", "Outcome", "By", "Days taken", "Amount", "Note"])
     for r in body["rows"]:
-        w.writerow([r["date"], r["ticket"], r["title"], r["claimant"], r["department"], r["outcome"], r["by"],
-                    r["days_taken"] if r["days_taken"] is not None else "", r["amount"] if r["amount"] is not None else "", r["note"]])
+        w.writerow(_csv_row([r["date"], r["ticket"], r["title"], r["claimant"], r["department"], r["outcome"], r["by"],
+                    r["days_taken"] if r["days_taken"] is not None else "",
+                    f"{r['amount']:.2f}" if r["amount"] is not None else "", r["note"]]))
     w.writerow([])
     w.writerow(["Received", body["received"]])
     w.writerow(["Cleared", body["cleared"]])
     w.writerow(["Sent back", body["sent_back"]])
     w.writerow(["Not accepted", body["not_accepted"]])
     w.writerow(["Median days to decide", body["median_days"] if body["median_days"] is not None else ""])
-    res = HttpResponse(buf.getvalue(), content_type="text/csv")
+    res = HttpResponse(("﻿" + buf.getvalue()).encode("utf-8"), content_type="text/csv; charset=utf-8")
     res["Content-Disposition"] = f'attachment; filename="clearing-{body["month"]}.csv"'
     return res
 

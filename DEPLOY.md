@@ -277,8 +277,12 @@ API equivalents: `POST /api/admin/backups` → `{job_id}`; poll
 4. Signed in as that account, upload the `.json.gz` to the restore endpoint
    (`POST /api/admin/restore`, form fields `file` and `confirm=RESTORE`; max
    90 MB). It refuses if the database already holds a claim. It runs on the
-   job queue; poll `GET /api/admin/jobs/{job_id}` until `done`. The default
-   formula made by setup is stood down in favour of the backup's own.
+   job queue and is streamed, saved after every batch and resumable: watch the
+   progress on *Set up -> Imports -> restore a full export*, or `GET /api/admin/restore/status`.
+   After a restart upload the same file again (or press *Continue*) and it
+   carries on. Accepts `.jsonl`, `.jsonl.gz`, `.json`, `.json.gz`. The default
+   formula made by setup is stood down in favour of the backup's own. For a move
+   between hosts use the portable export in `docs/ops/move-host.md`.
 5. Sign in with a restored account (passwords are restored as they were), run
    *Data health → Run now*, and compare counts with the old site. Deactivate
    the temporary restore account.

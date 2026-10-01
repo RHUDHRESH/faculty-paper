@@ -266,9 +266,7 @@ export function Imports() {
       </Section>
 
       {isSuper && (
-        <Details label="restore a full export (new installation only)">
-          <RestoreSection onImported={refreshStats} />
-        </Details>
+        <RestoreDetails onImported={refreshStats} />
       )}
     </div>
   )
@@ -1798,16 +1796,82 @@ function formatElapsed(seconds: number): string {
 /* Restore a full export into a fresh installation                          */
 /* ------------------------------------------------------------------------ */
 
+/** `GET /api/admin/restore/status`: where the streamed restore has got to. */
+type RestoreRun = {
+  filename: string
+  status: "queued" | "running" | "failed" | "done"
+  phase: "start" | "load" | "links" | "tidy" | "done"
+  done: number
+  total: number | null
+  loaded: number
+  kept_existing: number
+  model: string
+  links: number
+  dropped: Record<string, number>
+  chain: number
+  seconds: number
+  error: string
+  percent: number
+  stalled: boolean
+  file_kept: boolean
+  fixups: number
+}
+
+const RESTORE_KEY = ["admin", "restore"] as const
+
+/** The collapsed section; open from the start when a restore is unfinished, so
+ *  an interrupted one is never hidden behind a closed disclosure. */
+function RestoreDetails({ onImported }: { onImported: () => void }) {
+  const { data } = useApi<{ run: RestoreRun | null }>(RESTORE_KEY, "/api/admin/restore/status", { staleTime: 0 })
+  const open = restoreUnfinished(data?.run)
+  return (
+    <Details
+      key={open ? "unfinished" : "idle"}
+      label="restore a full export (new installation only)"
+      defaultOpen={open}
+    >
+      <RestoreSection onImported={onImported} />
+    </Details>
+  )
+}
+
+/** A run that has not finished and may be carried on (or is still going). */
+function restoreUnfinished(run: RestoreRun | null | undefined): boolean {
+  return !!run && run.status !== "done"
+}
+
 /**
  * Moving the college onto a new host with no shell: upload the dumpdata
  * export once, as the first super admin. The server refuses it as soon as the
- * installation holds any claim, so it cannot overwrite live data.
+ * installation holds any claim, so it cannot overwrite live data — except to
+ * continue an interrupted restore of the same file, which it recognises by
+ * its checksum. Progress is real (records done of the file's total), read
+ * from the server's own checkpoint, so it survives a restart of the host and
+ * of this page.
  */
 function RestoreSection({ onImported }: { onImported: () => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [confirm, setConfirm] = useState("")
   const [busy, setBusy] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(null)
+  const settled = useRef<string>("")
+  const { data, refetch } = useApi<{ run: RestoreRun | null }>(RESTORE_KEY, "/api/admin/restore/status", {
+    staleTime: 0,
+    // Live while it runs; nothing once it is done or has stopped.
+    refetchInterval: (q) => {
+      const r = q.state.data?.run
+      return r && (r.status === "queued" || r.status === "running") && !r.stalled ? 3000 : false
+    },
+  })
+  const run = data?.run ?? null
+  const live = !!run && (run.status === "queued" || run.status === "running") && !run.stalled
+  const resumable = !!run && (run.status === "failed" || run.stalled)
+
+  useEffect(() => {
+    if (run?.status === "done" && settled.current !== run.filename) {
+      settled.current = run.filename
+      onImported()
+    }
+  }, [run, onImported])
 
   async function start() {
     if (!file) return
@@ -1816,11 +1880,24 @@ function RestoreSection({ onImported }: { onImported: () => void }) {
       const body = new FormData()
       body.append("file", file)
       body.append("confirm", confirm)
-      const res = await api<{ job_id: string }>("/api/admin/restore", {
+      await api<{ job_id: string }>("/api/admin/restore", {
         method: "POST",
         body,
       } as unknown as Parameters<typeof api>[1])
-      setJobId(res.job_id)
+      setFile(null)
+      void refetch()
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function carryOn() {
+    setBusy(true)
+    try {
+      await api("/api/admin/restore/resume", { method: "POST" })
+      void refetch()
     } catch (err) {
       toast.fail(err)
     } finally {
@@ -1832,33 +1909,118 @@ function RestoreSection({ onImported }: { onImported: () => void }) {
     <section className="space-y-4">
       <p className="text-sm text-fg-muted">
         For a new installation only. It loads everything from a previous one (accounts, claims,
-        payments, reference data) and is refused once any claim exists here.
+        payments, reference data) and is refused once any claim exists here — except to
+        continue an interrupted restore of the same file.
       </p>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm">
-          <span className="mb-1 block font-medium">Export file (.json or .json.gz)</span>
-          <input
-            type="file"
-            accept=".json,.gz,application/json,application/gzip"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            aria-label="Export file"
-          />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block font-medium">Type RESTORE to confirm</span>
-          <input
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            className="h-9 rounded-md bg-surface px-2 ring-1 ring-inset ring-field"
-            aria-label="Type RESTORE to confirm"
-          />
-        </label>
-        <Button kind="primary" disabled={!file || confirm.trim().toUpperCase() !== "RESTORE" || busy} onClick={() => void start()}>
-          {busy ? "Uploading…" : "Restore"}
-        </Button>
-      </div>
-      {jobId && <JobProgress jobId={jobId} what="Restore" onSettled={onImported} />}
+      {run && <RestoreStatus run={run} live={live} />}
+      {resumable && (
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          {run.file_kept ? (
+            <Button kind="primary" disabled={busy} onClick={() => void carryOn()}>
+              {busy ? "Starting…" : "Continue where it stopped"}
+            </Button>
+          ) : (
+            <span>
+              The uploaded copy is gone from the server. Choose <strong>the same file</strong> again below; it
+              carries on from {nf(run.done)} of {run.total ? nf(run.total) : "?"} instead of starting over.
+            </span>
+          )}
+        </div>
+      )}
+      {!live && run?.status !== "done" && (
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Export file (.jsonl.gz, .jsonl, .json or .json.gz)</span>
+            <input
+              type="file"
+              accept=".jsonl,.json,.gz,application/json,application/gzip"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              aria-label="Export file"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Type RESTORE to confirm</span>
+            <input
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className="h-9 rounded-md bg-surface px-2 ring-1 ring-inset ring-field"
+              aria-label="Type RESTORE to confirm"
+            />
+          </label>
+          <Button
+            kind={resumable ? "default" : "primary"}
+            disabled={!file || confirm.trim().toUpperCase() !== "RESTORE" || busy}
+            onClick={() => void start()}
+          >
+            {busy ? "Uploading…" : resumable ? "Upload and continue" : "Restore"}
+          </Button>
+        </div>
+      )}
     </section>
+  )
+}
+
+const RESTORE_PHASE: Record<RestoreRun["phase"], string> = {
+  start: "Getting ready",
+  load: "Loading records",
+  links: "Linking records to each other",
+  tidy: "Finishing up",
+  done: "Finished",
+}
+
+function RestoreStatus({ run, live }: { run: RestoreRun; live: boolean }) {
+  const tone = run.status === "failed" || run.stalled ? "critical" : run.status === "done" ? "positive" : "info"
+  const title =
+    run.status === "done"
+      ? "Restore finished"
+      : run.status === "failed"
+        ? "Restore stopped"
+        : run.stalled
+          ? "Restore stalled — the server stopped working on it"
+          : RESTORE_PHASE[run.phase]
+  const dropped = Object.entries(run.dropped ?? {})
+  return (
+    <Callout tone={tone} title={title}>
+      {run.status !== "done" && (
+        <div className="space-y-1.5">
+          <div
+            role="progressbar"
+            aria-label="Restore progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={run.percent}
+            className="h-2 overflow-hidden rounded-full bg-sunken"
+          >
+            <div
+              className="h-full rounded-full bg-accent transition-[width] duration-[var(--dur-3)] ease-out"
+              style={{ width: `${run.percent}%` }}
+            />
+          </div>
+          <p className="tabular">
+            {run.total ? `${nf(run.done)} of ${nf(run.total)} records` : `${nf(run.done)} records`}
+            {run.phase === "load" && run.model ? ` — now ${run.model.replace("core.", "")}` : ""}
+            {run.phase === "links" ? ` — ${nf(run.links)} links so far` : ""}
+            {run.chain > 0 ? ` — continued in ${nf(run.chain)} follow-up job${run.chain === 1 ? "" : "s"}` : ""}.
+          </p>
+          {live && <p>Checked every three seconds. Nothing is lost if you leave: it runs on the server and saves its place.</p>}
+          {run.error && <p>{run.error}</p>}
+        </div>
+      )}
+      {run.status === "done" && (
+        <p className="tabular">
+          Loaded {nf(run.loaded)} records and {nf(run.links)} links from {run.filename}
+          {run.kept_existing ? `; kept ${nf(run.kept_existing)} account(s) that already existed here` : ""}.
+        </p>
+      )}
+      {dropped.length > 0 && (
+        <p className="mt-1">
+          Left out because they pointed at nothing in the file:{" "}
+          {dropped.map(([k, n]) => `${nf(n)} ${k.replace("core.", "")}`).join(", ")}. Run author re-matching to rebuild
+          what can be rebuilt.
+        </p>
+      )}
+      <Meta className="mt-1 block">{run.filename}</Meta>
+    </Callout>
   )
 }
 

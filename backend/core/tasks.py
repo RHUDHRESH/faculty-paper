@@ -255,45 +255,16 @@ def send_nudges() -> dict:
 
 
 def run_restore(saved_path: str, actor_id: str | None = None) -> dict:
-    """Load a dumpdata export into this (fresh) installation.
+    """Load an export into this (fresh) installation, or carry on with one.
 
-    Queued by POST /api/admin/restore. The file is removed on success and
-    kept on failure so it can be retried.
+    Queued by POST /api/admin/restore. Streamed and resumable
+    (core/services/restore.py): the place reached is saved after every batch,
+    and a job that nears the time limit queues itself again. The file is
+    removed on success and kept on failure so it can be continued.
     """
-    import os
+    from core.services import restore
 
-    from core.models import AuditLog, Claim, PaidLedger, User
-
-    from core.models import FormulaConfig
-
-    # First-run setup made a default active formula; the export carries the
-    # college's own, and only one may be active (constraint one_active_formula).
-    # Stand the default down for the load, and bring it back only if the
-    # export had none active.
-    stood_down = list(FormulaConfig.objects.filter(active=True).values_list("pk", flat=True))
-    FormulaConfig.objects.filter(pk__in=stood_down).update(active=False)
-    try:
-        call_command("loaddata", saved_path, verbosity=0)
-    except Exception:
-        FormulaConfig.objects.filter(pk__in=stood_down).update(active=True)
-        raise
-    if not FormulaConfig.objects.filter(active=True).exists():
-        FormulaConfig.objects.filter(pk__in=stood_down[:1]).update(active=True)
-    counts = {
-        "users": User.objects.count(),
-        "claims": Claim.objects.count(),
-        "ledger_rows": PaidLedger.objects.count(),
-    }
-    try:
-        os.remove(saved_path)
-    except OSError:
-        pass
-    actor = User.objects.filter(pk=actor_id).first() if actor_id else None
-    AuditLog.objects.create(
-        actor=actor, action="RESTORE_DONE", entity="Export", detail_json=str(counts)[:2000]
-    )
-    return {"ok": True, **counts}
-
+    return restore.execute(saved_path, actor_id)
 
 def run_scout(run_id: str) -> str:
     from core.services.scout import execute

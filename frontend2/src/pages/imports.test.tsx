@@ -216,3 +216,59 @@ describe("the publication harvest (super admin)", () => {
     expect(screen.queryByRole("region", { name: /publication record/i })).toBeNull()
   })
 })
+
+describe("restoring a full export (super admin)", () => {
+  const ADMIN: Me = { id: "u-sa", email: "sa@example.edu", name: "Admin", role: "SUPER_ADMIN", department: null }
+  const RUN = {
+    filename: "export.jsonl.gz", status: "running", phase: "load", done: 45000, total: 160524, loaded: 45000,
+    kept_existing: 0, model: "core.authorship", links: 0, dropped: {}, chain: 1, seconds: 20, error: "",
+    percent: 28, stalled: false, file_kept: true, fixups: 0,
+  }
+  const base = (run: unknown): ApiTable => ({
+    "/api/auth/me": () => ADMIN,
+    "/api/admin/erp-stats": () => STATS,
+    "/api/admin/faculty-master": () => [],
+    "/api/admin/process": () => [],
+    "/api/admin/restore/status": () => ({ run }),
+  })
+
+  it("opens by itself and shows real progress while a restore runs", async () => {
+    vi.mocked(api).mockImplementation(fakeApi(base(RUN)))
+    renderWithProviders(<Imports />, { route: "/imports" })
+    const bar = await screen.findByRole("progressbar", { name: /restore progress/i })
+    expect(bar).toHaveAttribute("aria-valuenow", "28")
+    expect(screen.getByText(/45,000 of 1,60,524 records/)).toBeInTheDocument()
+    expect(screen.getByText(/now authorship/)).toBeInTheDocument()
+    expect(screen.getByText(/1 follow-up job/)).toBeInTheDocument()
+    // no second upload while it is live
+    expect(screen.queryByLabelText(/export file/i)).toBeNull()
+  })
+
+  it("offers to continue a stopped restore from the kept file", async () => {
+    const user = userEvent.setup()
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        ...base({ ...RUN, status: "failed", error: "the host restarted" }),
+        "/api/admin/restore/resume": () => ({ ok: true, queued: true, job_id: "j" }),
+      })
+    )
+    renderWithProviders(<Imports />, { route: "/imports" })
+    expect(await screen.findByText("the host restarted")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: /continue where it stopped/i }))
+    await waitFor(() =>
+      expect(
+        vi.mocked(api).mock.calls.some(
+          ([p, o]) => p === "/api/admin/restore/resume" && (o as { method?: string })?.method === "POST"
+        )
+      ).toBe(true)
+    )
+  })
+
+  it("asks for the same file again when the server's copy is gone", async () => {
+    vi.mocked(api).mockImplementation(fakeApi(base({ ...RUN, status: "failed", file_kept: false })))
+    renderWithProviders(<Imports />, { route: "/imports" })
+    expect(await screen.findByText(/uploaded copy is gone/i)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /continue where it stopped/i })).toBeNull()
+    expect(screen.getByLabelText(/export file/i)).toBeInTheDocument()
+  })
+})

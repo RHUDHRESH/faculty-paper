@@ -32,12 +32,19 @@ describe("EmptyState and ErrorState are not the same thing", () => {
     // The distinction a sighted reader gets from across the room, and the
     // one that regressed: an error drawn on neutral `sunken` is an empty
     // state wearing an error's words.
+    // A compact empty state is a shelf and keeps its sunken ground; a region
+    // or a page stands on the paper with a mounted print. Either way it is
+    // never an error's ground.
     const { container: empty } = render(
-      <EmptyState title="Nothing filed yet" message="File a paper to start." />
+      <EmptyState size="compact" title="Nothing filed yet" message="File a paper to start." />
     )
     const emptyGround = empty.firstElementChild
     expect(emptyGround).toHaveClass("bg-sunken")
     expect(emptyGround).not.toHaveClass("bg-critical-wash")
+    const { container: region } = render(
+      <EmptyState title="Nothing filed yet" message="File a paper to start." />
+    )
+    expect(region.firstElementChild).not.toHaveClass("bg-critical-wash")
 
     const { container: failed } = render(<ErrorState />)
     const errorGround = failed.firstElementChild

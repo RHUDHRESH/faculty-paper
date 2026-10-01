@@ -58,14 +58,17 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
       <MenuTrigger
         aria-label={me?.name ? `Account: ${me.name}` : "Account"}
         className={cn(
-          "flex h-10 w-full items-center gap-2.5 rounded-control px-2 text-left text-sm",
+          "flex h-14 w-full items-center gap-3 rounded-control px-2 text-left text-sm",
           "hover:bg-hover data-[state=open]:bg-hover"
         )}
       >
-        <Avatar person={me ? { name: me.name, initials: initialsOf(me.name), photo_url: me.photo_url ?? null } : null} size="xs" className="size-7 shrink-0" />
+        <Avatar person={me ? { name: me.name, initials: initialsOf(me.name), photo_url: me.photo_url ?? null } : null} size="sm" className="shrink-0" />
         {!collapsed && (
           <>
-            <span className="min-w-0 flex-1 truncate">{me?.name}</span>
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="block truncate font-medium">{me?.name}</span>
+              {me && <span className="block truncate text-xs text-fg-muted">{ROLE_LABEL[me.role]}</span>}
+            </span>
             <ChevronsUpDown className="size-3.5 shrink-0 text-fg-subtle" aria-hidden />
           </>
         )}
@@ -173,11 +176,12 @@ export function Shell({
   // The browser tab says where you are, so a row of tabs is not ten copies
   // of the same name. Longest matching route wins (/reports/build over
   // /reports); detail pages fall back to their section.
+  const here = NAV.filter((n) => (n.to === "/" ? pathname === "/" : pathname.startsWith(n.to))).sort(
+    (a, b) => b.to.length - a.to.length
+  )[0]?.label
   useEffect(() => {
-    const hit = NAV.filter((n) => (n.to === "/" ? pathname === "/" : pathname.startsWith(n.to)))
-      .sort((a, b) => b.to.length - a.to.length)[0]
-    document.title = hit ? `${hit.label} · Publications` : "Publications"
-  }, [pathname])
+    document.title = here ? `${here} · Publications` : "Publications"
+  }, [here])
 
   const items = navFor(me?.role)
   const listed = items.filter((i) => !i.pinned)
@@ -305,7 +309,9 @@ export function Shell({
               </Button>
             </RadixDialog.Trigger>
             <Mark className="size-5 text-accent" />
-            <span className="text-sm font-semibold">Publications</span>
+            {/* Says where you are, not what the app is called: the page's own
+                name once there is one. */}
+            <span className="min-w-0 truncate font-display text-lg font-medium">{here ?? "Publications"}</span>
             <Button
               kind="quiet"
               size="icon"
@@ -321,7 +327,7 @@ export function Shell({
           {me?.impersonated_by && <ViewingAs name={me.name} role={me.role} />}
           {me && <Welcome key={me.id} />}
 
-          <main className="min-w-0 flex-1 pb-10 pt-6">
+          <main className="min-w-0 flex-1 pb-16 pt-6 sm:pt-8">
             <CrumbStrip />
             <Suspense fallback={<PageLoading />}>
               <PageTransition>
@@ -336,7 +342,7 @@ export function Shell({
           here. Radix keeps it mounted until the closing keyframes end (see
           `frame-drawer` in styles.css). */}
       <RadixDialog.Portal>
-        <RadixDialog.Overlay className="frame-overlay fixed inset-0 z-40 bg-black/25 md:hidden" />
+        <RadixDialog.Overlay className="frame-overlay fixed inset-0 z-40 bg-brand/45 md:hidden" />
         <RadixDialog.Content asChild aria-describedby={undefined}>
           <aside
             className={cn(
@@ -548,12 +554,14 @@ function NavList({
 /** What a badge says aloud: work waiting at a desk, or conversations with news. */
 /** A sidebar link. Active takes its area's wash (docs/ux/00 §9), not `selected`. */
 function navClass(isActive: boolean, _area?: Area): string {
-  // Claude-like: one calm warm-grey pill for the current page, whatever its area.
+  // The current page is lifted: a surface-coloured pill with a hairline, as a
+  // sheet of paper lies on the sunken rail. No stripe, no area colour, one
+  // calm shape whatever the area (DESIGN.md, "Components").
   return cn(
-    "relative flex h-9 items-center gap-2.5 rounded-control px-2.5 text-sm",
+    "relative flex h-10 items-center gap-3 rounded-control px-3 text-sm",
     "transition-colors duration-[var(--dur-1)]",
     isActive
-      ? "bg-active font-medium text-fg"
+      ? "bg-surface font-medium text-fg ring-1 ring-inset ring-edge"
       : "text-fg-muted hover:bg-hover hover:text-fg"
   )
 }

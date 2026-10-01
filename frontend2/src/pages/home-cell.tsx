@@ -118,7 +118,7 @@ export function CellHome() {
     <div className="page space-y-10">
       <HomeHead
         name={me?.name}
-        picture="spot-home-admin"
+        picture="spot-audit"
         sentence={
           !d
             ? "What to do first today."

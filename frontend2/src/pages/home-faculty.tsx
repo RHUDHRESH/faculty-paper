@@ -14,7 +14,7 @@ import {
   type MyAssignment,
 } from "@/pages/assignment-parts"
 import { amountView, filedSentence, SLOW_DAYS, stageWord, type PayoutOutlook } from "@/pages/claims-track"
-import { Answer } from "@/ui/answer"
+import { Answer, tieNumbers } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { ErrorState, Skeleton, Delayed } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
@@ -331,6 +331,7 @@ export function FacultyHome() {
       <PageHeader
         title={`${greeting()}${first ? `, ${first}` : ""}`}
         sub={[me?.designation, me?.department].filter(Boolean).join(", ") || undefined}
+        spot="spot-home-faculty"
         action={
           <Button asChild>
             <Link to="/papers/new">
@@ -346,13 +347,13 @@ export function FacultyHome() {
           <p
             role="status"
             data-testid="home-answer"
-            className="max-w-3xl text-pretty text-xl font-medium leading-snug tracking-tight text-fg sm:text-2xl"
+            className="display display-xl max-w-[24ch] text-fg sm:max-w-[28ch]"
           >
-            {sentence}
+            {tieNumbers(sentence)}
           </p>
         ) : (
           <Delayed>
-            <Skeleton className="h-7 max-w-xl" />
+            <Skeleton className="h-16 max-w-xl" />
           </Delayed>
         )}
         <Celebrations variant="line" />

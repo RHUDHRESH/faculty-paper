@@ -94,26 +94,38 @@ a ramp. If you cannot say which sentence applies, the answer is no shadow.
 
 ## Type
 
-The scale is 12 / 13 / 14 / 16 / 26 / 28 / 36. Body is 14; dense rows and
-secondary text are 13; metadata is 12.
+Two families (DESIGN.md, "Typography"). **Inter** for the whole interface;
+**Brygada 1918** (`--font-display`) for the page title, the one answer
+sentence on a page, and figures that are answers. Nothing else is set in it.
 
-**Two families.** Inter for the entire interface. `--font-display`
-(Newsreader) for **page titles only** — that is `PageTitle`, and nothing else.
-Size alone could not make a title win on a screen whose chrome is 13px and
-14px Inter from the sidebar to the last cell; family can, without shouting.
+The UI scale is 12 / 13 / 14 / 16 (`text-xs sm base lg`), with `text-lead` (18)
+for the one sentence under a title. Phones get a half-step up (the same names,
+different numbers, in `styles.css`). The display scale is `text-display`
+(32 to 40, fluid: the page title), `text-display-xl` (40 to 60, fluid: the
+answer sentence), `text-figure` (36) and `text-figure-xl` (56).
 
-7. **Never set a number in the display face.** Its figures do not line up in a
-   column, and a column that lines up is worth more here than a nice 7.
+**There is no size between 16 and 32.** A 22px heading is the lukewarm size
+that made every old page read at one volume. A step is a UI step or a display
+step. `text-xl`, `text-2xl` and `text-3xl` remain for older pages; new work does
+not reach for them.
+
+Classes: `.display` (page title), `.display-xl` (answer sentence; always pair
+with `.display`), `.figure` (a number that is an answer; tabular, lining).
+Emphasis in the display face is the italic (`<em>`) and nothing else, never
+bold.
+
+7. **Never set a number in a list in the display face.** A column of money is
+   Inter, right-aligned, tabular. Only a figure that is *the answer* is
+   `.figure`.
 8. **Never use the display face below 22px**, and never for a section heading,
-   a label, a button or body copy. One use, one place.
+   a label, a button or body copy.
 9. **Never use uppercase + letterspacing for a heading.** Use `<SectionTitle>`.
-   Uppercase is only for a column head in a data grid — use `<ColumnLabel>`.
+   Uppercase is only for a column head in a data grid, and the app no longer
+   draws those: column heads are sentence case (`<ColumnLabel>`).
 
-Weight is a real axis here, not three named steps. Both faces are variable and
-the values are chosen for the size they are set at: `.display` is `560`,
-`.figure` is `620`. If you need a weight between two named steps, use the
-number and say why in a comment.
-
+Weight is a real axis here. Both faces are variable; `.display` is 500,
+`.display-xl` is 450, `.figure` is 500. If you need a weight between two named
+steps, use the number and say why in a comment.
 ## Numbers
 
 This app is about money, so a figure is not a string that happens to be
@@ -153,21 +165,27 @@ digits.
 
 ## Tokens — the complete list
 
-Colour: `--color-bg --color-fg --color-fg-muted --color-fg-subtle
---color-surface --color-sunken --color-hover --color-active --color-selected
---color-line --color-edge --color-field --color-accent --color-accent-hover
---color-accent-fg --color-accent-wash --color-accent-line --color-positive
---color-positive-wash --color-caution --color-caution-wash --color-critical
---color-critical-wash`
+Colour (every one has one job; DESIGN.md names it): `--color-bg --color-fg
+--color-fg-muted --color-fg-subtle --color-surface --color-sunken
+--color-hover --color-active --color-selected --color-line --color-edge
+--color-field` (paper and ink); `--color-accent --color-accent-hover
+--color-accent-fg --color-accent-wash --color-accent-line` (clay: links, focus,
+"needs you"); `--color-action --color-action-hover --color-action-fg` (the
+primary button); `--color-navy --color-navy-wash --color-navy-line` (the
+record, the first chart series); `--color-positive[-wash|-line]
+--color-caution[-wash|-line] --color-critical[-wash|-line]` (state);
+`--color-area-*`, `--color-paper --color-plate --color-hero-paper
+--color-gold`; `--chart-1` to `--chart-6` (chart inks).
 
 Shape: `--radius-sm --radius-md --radius-lg --radius-xl`, and the two a page is
-built from, `--radius-control` and `--radius-panel` (see "Page anatomy" below)
+built from, `--radius-control` (10px) and `--radius-panel` (16px)
 Elevation: `--shadow-well --shadow-raise --shadow-lift --shadow-under
 --shadow-pop --shadow-modal`
-Motion: `--ease-out --ease-in-out --dur-1 --dur-2 --dur-3`
+Motion: `--ease-out --ease-in-out --dur-1 --dur-2 --dur-3 --dur-4 --dur-5`
+(80, 140, 220, 360 and 640ms)
 Type: `--font-sans --font-display --font-mono`,
-`text-xs text-sm text-base text-lg text-xl text-2xl text-3xl`
-
+`text-xs text-sm text-base text-lg text-lead text-display text-display-xl
+text-figure text-figure-xl` (and the older `text-xl text-2xl text-3xl`)
 Every one of those is declared in `@theme`, so Tailwind generates a real
 utility for it. Drop the `--color-` / `--radius-` / `--shadow-` prefix and
 write the plain name: `bg-hover`, `text-fg-muted`, `border-line`, `ring-field`,
@@ -183,8 +201,10 @@ generated utility and needs the function spelled out — `duration-[var(--dur-1)
 
 Utilities in `styles.css`: `.row` (hover wash), `.reveal` (actions that appear
 on row hover/focus), `.page` (the page column), `.tabular` (tabular numerals),
-`.panel` / `.panel-lead` / `.well` / `.hairline` (surfaces), `.display` (a page
-title), `.figure` (a number that is an answer), `.skeleton` (a placeholder).
+`.panel` / `.panel-lead` / `.well` / `.hairline` (surfaces), `.plate` (a print's
+mount), `.display` / `.display-xl` (titles), `.figure` (a number that is an
+answer), `.stamp`, `.thread-draw`, `.thread-pop` (the two authored motions),
+`.skeleton` (a placeholder).
 
 ## Page anatomy and the base (docs/ux/22)
 
@@ -222,8 +242,8 @@ always has "Try again" (it reloads if the page gave no retry).
 **Dividers and containers.** One hairline (`divide-y divide-line`, or `Rows`)
 between the rows of a list. Space, not a rule, between sections. No card inside
 a card; at most two levels of container on a view. **One radius for controls
-(`rounded-control`, 8 px)**: buttons, fields, sidebar links, filters. **One for
-panels (`rounded-panel`, 12 px)**: tables, menus, empty states, `.panel`.
+(`rounded-control`, 10 px)**: buttons, fields, sidebar links, filters. **One for
+panels (`rounded-panel`, 16 px)**: tables, menus, empty states, `.panel`.
 Chips are pills (`rounded-full`); a dialog is `--radius-xl`. Do not use
 `rounded-md` or `rounded-lg` on a new control or panel.
 
@@ -237,9 +257,10 @@ run `node audit/clarity.mjs --update` to lock it in.
 
 ## Sizes
 
-Controls are 28px (`sm`), 32px (`md`), 40px (`lg`) tall — match `button.tsx`.
-Body text is `text-base` (14px). Dense rows and secondary text are `text-sm`
-(13px). Metadata is `text-xs` (12px).
+Buttons are 32px (`sm`), 40px (`md`), 48px (`lg`) tall (44px for `md` on a
+phone); fields are 44px (48px on a phone). Body text is `text-base` (14px,
+15px on a phone). Dense rows and secondary text are `text-sm` (13px, 14px on a
+phone). Metadata is `text-xs` (12px).
 
 ## Behaviour
 
@@ -253,17 +274,17 @@ Body text is `text-base` (14px). Dense rows and secondary text are `text-sm`
 
 ## Fonts
 
-Both families come from `@fontsource-variable/*` over npm. Never link a CDN
-and never commit a font file by hand.
+Inter comes from `@fontsource-variable/inter` over npm. Brygada 1918 is
+self-hosted in `src/assets/fonts/` (SIL OFL, licence beside it): Latin, an
+italic, Latin extended, and a 900-byte rupee-only subset, declared by hand in
+`styles.css`. Both faces have a rupee subset because U+20B9 sits in the
+Latin-extended range, so without it every page showing money downloads 33 KB
+(Brygada) or 85 KB (Inter) for one glyph. Never link a CDN.
 
-The display face is declared by hand in `styles.css` rather than by importing
-the package stylesheet, because fontsource ships `font-display: swap` and a
-swap reflows every title on the screen a beat after the page paints.
-`optional` is the one value that cannot shift layout: the browser gives the
-file about 100ms, and if it is not ready it uses the fallback for that page
-load and never swaps. Any face added later gets the same treatment and a real
-fallback stack. A title is not worth a reflow.
-
+The display face is `font-display: swap`, with a fallback face (`Brygada
+Fallback`: Georgia scaled to Brygada's metrics) so the swap does not reflow a
+page. Any face added later gets the same treatment: a real fallback stack and,
+for a serif, a metric-matched local fallback.
 ## Writing
 
 - Every exported component gets a docstring saying **what it is for and what

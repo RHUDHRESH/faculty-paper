@@ -23,10 +23,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 355
     steps:
+      # The live address is a repository variable (Settings, Secrets and
+      # variables, Actions, Variables: SITE_URL), so moving host is one setting,
+      # not a code change. The site rewrites /api to the API, so one ping
+      # wakes both.
       - name: Keep the API and the site awake
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://saveetha-publications.onrender.com' }}
         run: |
           end=$(( $(date +%s) + 350*60 ))
           while [ "$(date +%s)" -lt "$end" ]; do
-            curl -fsS -m 90 -o /dev/null -w "$(date -u +%H:%M) api %{http_code} %{time_total}s\n" https://faculty-paper.onrender.com/api/health || echo "$(date -u +%H:%M) api unreachable"
+            curl -fsS -m 90 -o /dev/null -w "$(date -u +%H:%M) api %{http_code} %{time_total}s\n" "$SITE_URL/api/health" || echo "$(date -u +%H:%M) api unreachable"
             sleep 240
           done

@@ -1,10 +1,11 @@
 import { cn } from "@/lib/cn"
 import { Breadcrumbs, type Crumb } from "@/ui/breadcrumbs"
-import { Illustration, type IllustrationName } from "@/ui/illustration"
+import type { IllustrationName } from "@/ui/illustration"
+import { Plate } from "@/ui/plate"
 
-/** The small illustration at the right of a `.page-head` header. */
+/** The small mounted print at the right of a `.page-head` header. */
 export function HeaderSpot({ name }: { name: IllustrationName }) {
-  return <Illustration name={name} width={96} className="hidden sm:block" eager />
+  return <Plate name={name} width={120} className="hidden sm:block" eager />
 }
 
 /**
@@ -13,9 +14,10 @@ export function HeaderSpot({ name }: { name: IllustrationName }) {
  * primary action at the top right. Breadcrumbs sit above the title when the
  * view is a detail of something else.
  *
- * Without it every page invents its own top: a title with three buttons of
- * equal weight, a paragraph of instructions, or nothing, and a reader cannot
- * tell what the page is for until they have read the whole of it.
+ * The title is the display face at 32 to 40px (DESIGN.md, "Display"): the one
+ * thing on most pages set in it, and the only thing within 16px of its size,
+ * so a reader always knows where they are standing before they read anything
+ * else. The line under it is the lead, 18px, no wider than 40rem.
  *
  *   `sub`        the one line. A sentence, not a paragraph.
  *   `action`     the one primary action (a `Button kind="primary"`). Only one.
@@ -23,6 +25,10 @@ export function HeaderSpot({ name }: { name: IllustrationName }) {
  *                keep working, but a new page uses `action`.
  *   `breadcrumbs` for a page drawn outside the router. Routed pages get theirs
  *                from the shell (`app/crumbs.ts`); passing both draws two.
+ *   `spot`       a mounted print at the right. Home views, and a view whose
+ *                subject has a drawing. One per view (DESIGN.md).
+ *   `eyebrow`    deprecated: a kicker above a title is banned. Still drawn so
+ *                old pages keep working; a new page does not pass it.
  *
  * There is no rule under the header. Space separates it from the first
  * section; a hairline is for the rows of one list.
@@ -50,18 +56,20 @@ export function PageHeader({
 }) {
   const buttons = action ?? actions
   return (
-    <header className={cn("flex items-start gap-6 pb-2", className)}>
+    <header className={cn("flex items-start gap-8 pb-2", className)}>
       <div className="min-w-0 flex-1">
         {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} className="mb-2" />}
         {eyebrow && <p className="text-sm text-fg-muted">{eyebrow}</p>}
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <h1 className="display text-balance text-[1.75rem] leading-9 text-fg">{title}</h1>
-          {buttons && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:shrink-0 print:hidden">{buttons}</div>}
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <h1 className="display text-display text-balance text-fg">{title}</h1>
+          {buttons && (
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:mt-1 sm:shrink-0 print:hidden">{buttons}</div>
+          )}
         </div>
-        {sub && <div className="mt-1.5 max-w-prose text-pretty text-base text-fg-muted">{sub}</div>}
+        {sub && <div className="mt-2 max-w-[40rem] text-pretty text-lead text-fg-muted">{sub}</div>}
         {children}
       </div>
-      {spot && <Illustration name={spot} width={104} className="hidden sm:block print:hidden" eager />}
+      {spot && <Plate name={spot} width={120} className="hidden sm:block print:hidden" eager />}
     </header>
   )
 }

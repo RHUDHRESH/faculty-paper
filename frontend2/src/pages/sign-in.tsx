@@ -64,13 +64,13 @@ export function SignIn() {
   }
 
   const field = cn(
-    "h-11 w-full rounded-lg bg-surface px-3 text-base",
+    "h-12 w-full rounded-control bg-surface px-3.5 text-lg",
     "ring-1 ring-inset ring-field outline-none",
     "focus-visible:ring-2 focus-visible:ring-accent"
   )
 
   return (
-    <div className="grid min-h-svh bg-bg lg:grid-cols-[minmax(0,6fr)_minmax(0,5fr)]">
+    <div className="grid min-h-svh bg-bg lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
       <BrandPanel collegeName={collegeName} stats={stats} />
 
       {/* On a phone the form comes first: people are here to get in. */}
@@ -90,14 +90,14 @@ export function SignIn() {
             className="mb-8 h-auto w-full max-w-[22rem] dark:rounded-md dark:bg-white dark:p-2"
           />
 
-          <h1 className="display text-xl">Sign in</h1>
-          <p className="mt-1 text-base text-fg-muted">
+          <h1 className="display text-display">Sign in</h1>
+          <p className="mt-2 text-lead text-fg-muted">
             Use the email and password the research office gave you.
           </p>
 
           <form onSubmit={submit} className="mt-7 space-y-4">
             <div className="space-y-1.5">
-              <label htmlFor="email" className="text-sm font-medium">
+              <label htmlFor="email" className="text-base font-medium">
                 Email
               </label>
               <input
@@ -114,7 +114,7 @@ export function SignIn() {
 
             <div className="space-y-1.5">
               <div className="flex items-baseline justify-between">
-                <label htmlFor="password" className="text-sm font-medium">
+                <label htmlFor="password" className="text-base font-medium">
                   Password
                 </label>
                 <button
@@ -181,7 +181,7 @@ export function SignIn() {
                 type="checkbox"
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
-                className="size-4 accent-[var(--color-accent)]"
+                className="size-4"
               />
               Remember me on this device
             </label>
@@ -195,7 +195,7 @@ export function SignIn() {
               </p>
             )}
 
-            <Button kind="primary" size="lg" type="submit" disabled={busy} className="h-11 w-full">
+            <Button kind="primary" size="lg" type="submit" disabled={busy} className="w-full">
               {busy && <LoaderCircle className="animate-spin" />}
               {busy ? "Signing in…" : "Sign in"}
             </Button>
@@ -261,8 +261,11 @@ function StatsLine({ stats, className }: { stats: PublicStats; className?: strin
  */
 function BrandPanel({ collegeName, stats }: { collegeName: string; stats: PublicStats | null }) {
   return (
-    <aside className="relative flex flex-col overflow-hidden border-line bg-sunken px-5 pt-8 pb-6 text-fg lg:justify-between lg:border-r lg:p-12">
-
+    // The one place a picture is allowed to dominate (DESIGN.md): the panel is
+    // the colour of the painting's own paper, so the library window needs no
+    // frame and the headline sits on it as it would on a printed page. In dark
+    // mode the panel is night and the painting is a lit print on it.
+    <aside className="relative flex flex-col overflow-hidden bg-hero-paper px-5 pb-6 pt-8 text-fg dark:bg-sunken lg:justify-between lg:p-12 lg:pb-10">
       <div className="relative flex items-center gap-3">
         <Mark className="size-9" />
         <div className="leading-tight">
@@ -271,18 +274,17 @@ function BrandPanel({ collegeName, stats }: { collegeName: string; stats: Public
         </div>
       </div>
 
-      <div className="frame-rise relative mt-6 max-w-xl [animation-delay:50ms] lg:mt-0">
-        <p className="display text-[2rem] leading-[1.1] [text-wrap:balance] lg:text-honour">
-          Your research, on the record.
-        </p>
-        <p className="mt-3 hidden max-w-md text-base text-fg-muted sm:block">
+      <div className="frame-rise relative mt-8 [animation-delay:50ms] lg:mt-10">
+        <p className="display display-xl max-w-[13ch] lg:max-w-[14ch]">Your research, on the record.</p>
+        <p className="mt-4 hidden max-w-md text-lead text-fg-muted sm:block">
           Every paper you have published, where each claim stands, and who you could write with next.
         </p>
         <Illustration
           name="hero-sign-in"
-          width={480}
+          width={760}
           eager
-          className="mt-4 w-full max-w-[220px] overflow-hidden rounded-2xl lg:mt-10 lg:max-w-[480px]"
+          plate={false}
+          className="mt-6 w-full max-w-[22rem] overflow-hidden rounded-3xl lg:mt-8 lg:max-w-[47.5rem] [&_img]:!w-full"
         />
         {stats && <StatsLine stats={stats} className="mt-6 hidden text-fg-muted lg:block" />}
       </div>

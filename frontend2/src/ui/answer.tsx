@@ -48,7 +48,7 @@ export function Answer({ items, className }: { items: AnswerItem[]; className?: 
     <div
       role="group"
       aria-label="At a glance"
-      className={cn("grid grid-cols-2 gap-x-8 gap-y-5", COLS[shown.length], className)}
+      className={cn("grid grid-cols-2 gap-x-8 gap-y-6", COLS[shown.length], className)}
     >
       {shown.map((it, i) => (
         <Figure key={`${i}-${it.label}`} item={it} />
@@ -69,18 +69,19 @@ function Figure({ item }: { item: AnswerItem }) {
         aria-hidden
         className={cn(
           // Two to a row on a phone leaves about 170 px a figure. A long rupee
-          // amount ("₹12,34,56,789") at 28 px is wider than that and used to
+          // amount ("₹12,34,56,789") at 36 px is wider than that and used to
           // push the page sideways, so on a phone a long value is set smaller
           // and, as a last resort, allowed to wrap rather than overflow.
           "figure block text-figure [overflow-wrap:anywhere]",
-          text.length > 9 && "max-sm:text-lg",
+          text.length > 9 && "max-sm:text-xl",
+          text.length > 13 && "max-sm:text-lg",
           loading && "text-fg-subtle",
           isZero ? "text-fg-subtle" : !loading && TONE[tone]
         )}
       >
         {loading ? "–" : text}
       </span>
-      <span aria-hidden className="mt-0.5 block text-sm text-fg-muted">
+      <span aria-hidden className="mt-1.5 block text-sm text-fg-muted">
         {line}
       </span>
       {/* One phrase for a screen reader, in the order a person would say it. */}
@@ -89,14 +90,70 @@ function Figure({ item }: { item: AnswerItem }) {
       </span>
     </>
   )
+  // Each figure hangs from a short rule, like a column in a register: it
+  // says "this is one entry" without drawing a box round it.
   return to ? (
     <Link
       to={to}
-      className="block min-w-0 rounded-control hover:underline hover:decoration-1 hover:underline-offset-4"
+      className="block min-w-0 border-t border-edge pt-3 hover:border-fg-muted hover:[&_.figure]:underline hover:[&_.figure]:decoration-1 hover:[&_.figure]:underline-offset-4"
     >
       {body}
     </Link>
   ) : (
-    <div className="min-w-0">{body}</div>
+    <div className="min-w-0 border-t border-edge pt-3">{body}</div>
+  )
+}
+
+/**
+ * Keeps a number with the word that follows it ("1 claim", "14 days") so a
+ * sentence set at 60px never breaks between them and strands a lone "1" at the
+ * end of a line. A no-break space is a space to a reader and to a screen
+ * reader; use it on the sentence an `AnswerLine` shows.
+ */
+export function tieNumbers(text: string): string {
+  return text.replace(/(\d)\s+(?=\p{L})/gu, "$1 ")
+}
+
+/**
+ * The answer as a sentence: the biggest thing on the page (DESIGN.md,
+ * "Display XL"). "Nothing needs you. One claim is being checked." Use it on a
+ * Home view when the answer is a sentence; use `Answer` when it is figures.
+ * Never both on one view, and one per screen.
+ *
+ * Emphasis is the italic of the display face (`<em>`), and a live status can
+ * sit inside the sentence as an `AnswerWord`. Keep it to two short clauses.
+ */
+export function AnswerLine({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <p role="status" className={cn("display display-xl max-w-[22ch] text-fg sm:max-w-[26ch]", className)}>
+      {children}
+    </p>
+  )
+}
+
+const WORD_TONE = {
+  clay: "bg-accent-wash text-accent",
+  sage: "bg-positive-wash text-positive",
+  amber: "bg-caution-wash text-caution",
+  crimson: "bg-critical-wash text-critical",
+  navy: "bg-navy-wash text-navy",
+} as const
+
+/**
+ * A word of the answer set as a pill, at the sentence's own size: "One claim
+ * is [being checked]." The word still reads as text to a screen reader. Colour
+ * is the second signal; the word is the first.
+ */
+export function AnswerWord({
+  children,
+  tone = "navy",
+}: {
+  children: React.ReactNode
+  tone?: keyof typeof WORD_TONE
+}) {
+  return (
+    <span className={cn("mx-[0.06em] inline-block rounded-full px-[0.34em] pb-[0.06em] not-italic", WORD_TONE[tone])}>
+      {children}
+    </span>
   )
 }

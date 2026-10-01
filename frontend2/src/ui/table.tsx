@@ -97,10 +97,10 @@ export function EmptyCell({ text = NOT_RECORDED, className }: { text?: string; c
  *  Two changes from a plain sticky head, both of them about the fact that
  *  this thing is genuinely in front of the rows:
  *
- *  `bg-sunken` rather than `bg-surface`. The head sat on the same white as
- *  the body, so the column names read as row zero — and in a grid whose
- *  first row is often a total, that is a real misreading and not a stylistic
- *  one. A tinted ground makes the head chrome.
+ *  A hairline in `edge` under it and 13px muted type, so the column names
+ *  read as the head and not as row zero. (It was a sunken band; the band
+ *  made every table a box with a lid, and the hairline says the same thing
+ *  with less. The sticky head needs an opaque ground, so it is `surface`.)
  *
  *  `shadow-under` while, and only while, rows are actually passing beneath
  *  it. A permanent drop shadow under a head is decoration; one that appears
@@ -109,7 +109,7 @@ export function EmptyCell({ text = NOT_RECORDED, className }: { text?: string; c
  *  a pinned head otherwise hides completely. `TableScroller` sets the
  *  `data-scrolled` flag this reads. */
 export const stickyHeadCell = cn(
-  "sticky top-0 z-10 whitespace-nowrap bg-sunken px-3 py-2 text-left",
+  "sticky top-0 z-10 whitespace-nowrap bg-surface px-4 py-3 text-left",
   "border-b border-edge",
   "transition-shadow duration-[var(--dur-2)] ease-out",
   "group-data-[scrolled]/scroll:shadow-under"
@@ -396,7 +396,7 @@ export function Table<T>({
                       key={col.key}
                       data-label={stack ? columnLabel(col) : undefined}
                       className={cn(
-                        "px-3 py-2.5 align-middle",
+                        "px-4 py-3 align-middle",
                         // Right-aligned means numeric in every table in this
                         // app, and the numeric column is the one a reader
                         // came to scan. `font-medium` against the 400 of the
@@ -416,7 +416,7 @@ export function Table<T>({
                         <Link
                           to={link}
                           title={tip}
-                          className={cn("block min-w-0 px-3 py-2.5 max-sm:p-0", col.truncate && "sm:truncate")}
+                          className={cn("block min-w-0 px-4 py-3 max-sm:p-0", col.truncate && "sm:truncate")}
                         >
                           {content}
                         </Link>
@@ -442,7 +442,7 @@ export function Table<T>({
                   key={col.key}
                   data-label={stack ? columnLabel(col) : undefined}
                   className={cn(
-                    "px-3 py-2.5 align-middle font-medium",
+                    "px-4 py-3 align-middle font-medium",
                     // A stacked blank line under a total is just a label
                     // with nothing to say; hide it on a phone.
                     footer[col.key] == null && "max-sm:hidden",

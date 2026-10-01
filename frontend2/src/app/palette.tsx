@@ -158,7 +158,7 @@ export function Palette({ open, onClose }: { open: boolean; onClose: () => void 
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.12 }}
-                className="fixed inset-0 z-[100] bg-black/20"
+                className="fixed inset-0 z-[100] bg-brand/45"
               />
             </RadixDialog.Overlay>
             <div className="fixed inset-0 z-[100] p-4 pt-[12vh]">

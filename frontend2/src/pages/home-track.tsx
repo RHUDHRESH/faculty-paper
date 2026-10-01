@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom"
 
-import { useAuth } from "@/app/auth"
+import { useAuth, type Role } from "@/app/auth"
 import { homeTrack } from "@/app/home-data"
+import { Thread, THREAD_STAGES, type ThreadStage } from "@/ui/thread"
 import { cn } from "@/lib/cn"
 import { paperTitle } from "@/lib/names"
 import { useApi } from "@/lib/query"
@@ -12,7 +13,6 @@ import {
   type TrackPayload,
   type TrackStage,
 } from "@/pages/track-data"
-import { money } from "@/ui/paper"
 import { Avatar, initialsOf } from "@/ui/person"
 import { InlineError, Skeleton } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
@@ -36,6 +36,35 @@ import { Meta, SectionTitle } from "@/ui/text"
 /** Claims sitting at a desk longer than a month, across the stages that have a desk. */
 function overMonth(stages: TrackStage[]): number {
   return stages.reduce((n, s) => n + (s.ageing?.older ?? 0), 0)
+}
+
+/** The thread says "Filed"; Track's own key for that stage is "submitted". */
+const trackKey = (k: ThreadStage): string => (k === "filed" ? "submitted" : k)
+
+/** The station each desk works at (the same mapping as the sidebar badges). */
+const THREAD_DESK: Partial<Record<Role, ThreadStage>> = {
+  SUPER_ADMIN: "filed",
+  RESEARCH_CELL: "filed",
+  RESEARCH_COORDINATOR: "filed",
+  PRINCIPAL: "checked",
+  DIRECTOR: "approved",
+  FINANCE: "authorised",
+}
+
+function threadCounts(stages: TrackStage[]): Partial<Record<ThreadStage, number>> {
+  const by = new Map(stages.map((s) => [s.key, s]))
+  return Object.fromEntries(THREAD_STAGES.map((s) => [s.key, by.get(trackKey(s.key))?.count ?? 0]))
+}
+
+/** Of each station's claims, how many have waited past the fortnight. */
+function threadLate(stages: TrackStage[]): Partial<Record<ThreadStage, number>> {
+  const by = new Map(stages.map((s) => [s.key, s]))
+  return Object.fromEntries(
+    THREAD_STAGES.map((s) => {
+      const a = by.get(trackKey(s.key))?.ageing
+      return [s.key, a ? a.month + a.older : 0]
+    })
+  )
 }
 
 export function HomeTrack({ heading = "Where everything is" }: { heading?: string }) {
@@ -67,35 +96,16 @@ export function HomeTrack({ heading = "Where everything is" }: { heading?: strin
         <Skeleton className="h-16 w-full" />
       ) : (
         <>
-          <ol className="grid grid-cols-2 gap-x-6 gap-y-4 sm:flex sm:flex-wrap sm:gap-x-10">
-            {stages.map((s) => (
-              <li key={s.key} className="min-w-0">
-                <Link
-                  to={`/track?stage=${s.key}`}
-                  className="group block rounded-sm underline-offset-4"
-                  aria-label={`${s.label}: ${s.count} claims`}
-                >
-                  <span className="block text-sm text-fg-muted group-hover:text-fg">{s.label}</span>
-                  <span className="block text-2xl font-semibold tabular leading-tight">
-                    {s.count.toLocaleString("en-IN")}
-                  </span>
-                  <span
-                    className={cn(
-                      "block text-xs tabular text-fg-muted",
-                      (s.oldest_days ?? 0) > 30 && "font-medium text-critical",
-                      (s.oldest_days ?? 0) > 14 && (s.oldest_days ?? 0) <= 30 && "text-caution"
-                    )}
-                  >
-                    {s.oldest_days != null && s.ageing
-                      ? `Longest ${days(s.oldest_days)}`
-                      : data.sees_money && (s.amount ?? 0) > 0
-                        ? money(s.amount)
-                        : " "}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ol>
+          {/* The thread: five stations, the claims at each as dots, this
+              reader's desk ringed. Same numbers as the strip it replaced
+              (`/api/track`), so Track and Home agree. */}
+          <Thread
+            counts={threadCounts(stages)}
+            you={me?.role ? THREAD_DESK[me.role] : undefined}
+            to={Object.fromEntries(THREAD_STAGES.map((s) => [s.key, `/track?stage=${trackKey(s.key)}`]))}
+            late={threadLate(stages)}
+            caption="Each dot is a claim. Amber has waited over two weeks."
+          />
 
           <p className={cn("text-base", late > 0 ? "text-fg" : "text-fg-muted")} role="status">
             {late > 0

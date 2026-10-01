@@ -5,8 +5,6 @@
 @import "tailwindcss" source("../src");
 @source not "../src/**/*.md";
 @import "@fontsource-variable/inter";
-@import "@fontsource-variable/fraunces";
-@import "@fontsource-variable/source-serif-4";
 
 /* dark: follows the app's own theme choice (account menu), not only the OS. */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
@@ -14,264 +12,257 @@
 /**
  * Faculty Publication App — the ground rules.
  *
- * Three references, each for one thing:
+ * The art direction is "the well-kept register" (DESIGN.md, docs/design/):
+ * warm paper, navy ink, one thread that shows where every claim is, a face
+ * for every name, and the college's own drawings shown as mounted prints.
+ *
+ * Three references still carry the working rules:
  *   Notion  — the page. Hierarchy carried by type and space rather than by
  *             boxes; nothing boxed that did not need bounding.
  *   Linear  — the keyboard. Everything reachable without the mouse, motion
  *             that is fast and never in the way.
  *   Stripe  — the table. Dense, aligned, numerals that line up, quiet rules.
  *
- * The decision underneath all of it, as amended:
+ * And one rule underneath all of it:
  *
  *   **Borders and shadows are expensive. Whitespace is free. Depth is
  *   earned by the one object on a page that answers its question.**
  *
- * The first two clauses are the original rule and they still hold: nothing
- * here is boxed by default, hover is never a lift, and fifty rows in a list
- * are separated by a hairline and nothing else. The third clause is new, and
- * it exists because the original rule got applied to *everything* — which
- * left a page where the payout total, the filter bar and a paragraph of help
- * text all sat on identical white at identical weight, and a reader scanning
- * for the number had to read the page to find it.
+ * Every token is a sentence about its job. Colours:
+ *   ink     text, and the navy of the primary button
+ *   clay    links, focus, "needs you"            (never an error)
+ *   sage    done, paid, positive
+ *   crimson wrong, refused, destructive          (never clay)
+ *   gold    honours only
+ *   navy    the record, the first chart series, the thread
+ * If you cannot say which job a colour is doing, the element is ink on paper.
  *
- * So the ground is no longer paper-white. There are four tones now — sunken,
- * ground, surface, and an accent-tinted lead — and a six-step elevation scale
- * in which every step names the physical claim it makes:
- *
+ * Elevation is a six-step scale in which every step names the physical claim
+ * it makes (`src/ui/CONVENTIONS.md`):
  *   well    content sits *in* this          (a field)
  *   raise   you can press this              (a control)
  *   lift    this is the object that answers (one panel per page)
  *   under   content passes beneath this     (a pinned head, a sticky bar)
  *   pop     this left the page              (menu, popover, toast)
  *   modal   this took the page              (dialog, palette)
- *
- * A shadow that cannot name its claim is decoration and does not belong.
- * `src/ui/CONVENTIONS.md` carries the full rule, including what is still
- * forbidden — which is most things.
  */
 
 @theme {
   /* ---- type -----------------------------------------------------------
-     One family. Inter's variable axis carries titles, body and figures; a
-     serif for page titles made a working tool read like an article. */
+     Two faces. Inter carries the interface. Brygada 1918 (a revival of a
+     Polish book face, warm and slightly irregular like hand-set type) carries
+     the title, the one answer sentence and the figures that are answers.
+     Nothing else is set in it: the contrast between the two is the point. */
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
-  /* Page titles — see `.display` below. Kept as a token so a title face can
-     be swapped in one place. */
-  --font-display: "Source Serif 4 Variable", "Fraunces Variable", ui-serif, Georgia, serif;
+  --font-display: "Brygada 1918 Variable", "Brygada Fallback", Georgia, ui-serif, serif;
 
-  /* A scale with only the steps this app uses. Every extra step is one more
-     chance for two things that mean the same to look different. */
+  /* The UI scale: 12 / 13 / 14 / 16, then a deliberate jump. There is no
+     size between 16 and 32 (DESIGN.md, "the nothing-in-between rule"): a
+     22px heading was the lukewarm size that made every old page read at one
+     volume. Phones get a half-step up (see the media block below). */
   --text-xs: 0.75rem;      /* 12 — metadata, column heads */
   --text-xs--line-height: 1.125rem;
   --text-sm: 0.8125rem;    /* 13 — dense rows, secondary text */
   --text-sm--line-height: 1.25rem;
-  --text-base: 0.875rem;   /* 14 — body. Notion's body size. */
+  --text-base: 0.875rem;   /* 14 — body */
   --text-base--line-height: 1.5rem;
   --text-lg: 1rem;         /* 16 — section heading */
   --text-lg--line-height: 1.5rem;
-  /* 26 — page title. Was 22, which is only six points clear of a section
-     heading: on a screen whose chrome is entirely 13 and 14, a 22px title
-     read as "slightly larger bold text" rather than as the name of the place
-     the reader is standing in. */
-  --text-xl: 1.625rem;
+  --text-lead: 1.125rem;   /* 18 — the one sentence under a page title */
+  --text-lead--line-height: 1.75rem;
+  /* Kept so existing pages keep working; new work uses display/figure. */
+  --text-xl: 1.625rem;     /* 26 */
   --text-xl--line-height: 2rem;
-  --text-2xl: 1.75rem;     /* 28 — a number that is the answer */
+  --text-2xl: 1.75rem;     /* 28 — a number that is the answer (older pages) */
   --text-2xl--line-height: 2rem;
-  --text-3xl: 2.25rem;     /* 36 — the one figure on a page that matters */
+  --text-3xl: 2.25rem;     /* 36 */
   --text-3xl--line-height: 2.5rem;
 
-  /* ---- colour ---------------------------------------------------------
-     Near-greyscale, with a consistent hair of blue through every grey so
-     that they read as one family rather than as whatever the nearest hex
-     was. The accent is for things you can act on and things that carry
-     state; everything structural is grey, so colour reads as meaning rather
-     than as decoration. */
-  --color-fg: #2b2a27;
-  --color-fg-muted: #67645e; /* 4.5:1 or better on every step of the ladder, down to active (final sweep) */
-  --color-fg-subtle: #686560; /* 4.7:1 on selected, 4.5:1 on active (final sweep; was 4.2:1 on selected) */
+  /* The display scale. Fluid between a phone and a wide desktop. */
+  --text-display: clamp(2rem, 1.5rem + 1.6vw, 2.5rem);          /* page title */
+  --text-display--line-height: 1.1;
+  --text-display-xl: clamp(2.25rem, 1.5rem + 3.4vw, 3.75rem);    /* the answer sentence */
+  --text-display-xl--line-height: 1.04;
+  --text-honour: 2.75rem;
+  --text-honour--line-height: 3rem;
+  --text-figure-xl: 3.5rem;                                     /* a page's single hero number */
+  --text-figure-xl--line-height: 3.5rem;
+  --text-figure: 2.25rem;                                       /* an answer figure */
+  --text-figure--line-height: 2.5rem;
 
-  /* Surfaces, as a stack, and the order is the whole point: sunken is below
-     the ground, the ground is below a panel.
+  /* ---- colour: paper and ink -------------------------------------------
+     The ground is the colour of the paper the college's drawings were made
+     on; the ink is a navy-black, because a cool ink on warm paper reads as
+     printing and a brown-black on cream reads as a template.
 
-     `bg` is no longer pure white. That is the single change that answers
-     "it feels empty" without adding one box to one page: a table, a menu, a
-     dialog and a panel are all `surface`, and until the page underneath them
-     stopped being the same white, none of them was an object — every one was
-     a region of the same sheet, outlined. Two percent is enough. It is still,
-     by any measure, a white interface; it is simply no longer the *only*
-     white in the interface, which is what makes white mean something.
+     The five tones are a measured ladder (steps of roughly 2 in CIE L*) and
+     the order is the whole point: sunken is below the ground, the ground is
+     below a panel. Every text colour below holds 4.5:1 on every step. */
+  --color-fg: #1b1f2e;
+  --color-fg-muted: #55596b;
+  --color-fg-subtle: #595d70;
 
-     The five tones below are a measured ladder rather than five greys that
-     happened to be to hand. The figure in each comment is CIE L*, and the
-     steps between them are 2.1, 1.7, 1.4 and 3.2 — even through the middle,
-     where two of them regularly meet at an edge and have to be tellable
-     apart, and wider at the bottom, because "the pointer is down on this"
-     should not be a subtle claim. */
-  --color-surface: #fdfcfa;  /* L* 100.0 — a panel, a card, a row, a control */
-  --color-bg: #faf9f5;       /* L*  97.9 — the page */
-  --color-sunken: #f3f1ea;   /* L*  96.2 — a well, a sidebar, a table head */
-  --color-hover: #efece4;    /* L*  94.8 — the pointer is on this */
-  --color-active: #e6e2d8;   /* L*  91.6 — the pointer is down on this */
+  --color-surface: #fefcf8;  /* a panel, a table, a menu, a field */
+  --color-bg: #f8f5ee;       /* the page */
+  --color-sunken: #f0ece2;   /* a well, the sidebar, a table head */
+  --color-hover: #eae5d9;    /* the pointer is on this */
+  --color-active: #e1dbcc;   /* the pointer is down on this */
+  --color-selected: #e6e0d1; /* this one is chosen */
 
-  /* Selected is not a darker grey, it is the accent at its palest — because
-     "the pointer is here" and "this one is chosen" are different facts and a
-     reader has to be able to see both at once on the same row. Pulled a step
-     off `accent-wash` so it still separates from `hover`, which is now close
-     to it in lightness and differs from it only in hue. */
-  --color-selected: #ebe7de;  /* L* 93.2 */
+  /* Rules. `line` separates rows; `edge` bounds a region; `field` rings an
+     input. Three weights only. */
+  --color-line: #e7e1d3;
+  --color-edge: #dad3c2;
+  --color-field: #968d79;   /* 3.2:1 on a field's surface: a boundary people can see (WCAG 1.4.11) */
 
-  /* Rules. `line` separates rows; `edge` bounds a region. Two weights only. */
-  --color-line: #ece8df;
-  --color-edge: #e2ddd2;
-  --color-field: #d6d0c4;
-
-  /* One accent. Indigo rather than violet — it stays legible at small sizes
-     and against white, which the old purple did not at 13px. */
-  --color-accent: #a84f31; /* 4.7:1 on wash, 5.4:1 under white text (a11y audit; was #c96a4a, 3.5:1) */
-  --color-accent-hover: #92432a;
+  /* The one accent: clay. Links, the focus ring, the unread dot, "needs you",
+     the selected chip, the stamp. Not the primary button (that is `action`)
+     and never an error (that is `critical`, far from it in hue). */
+  --color-accent: #9e4527;      /* 5.8:1 on paper, 4.6:1 on the deepest tone */
+  --color-accent-hover: #873a20;
   --color-accent-fg: #ffffff;
-  --color-accent-wash: #f8ece6;
-  --color-accent-line: #ecc9ba;
+  --color-accent-wash: #f7e9e1;
+  --color-accent-line: #e8c5b4;
 
-  /* The brand ground: the one large field of colour (sign-in panel). Not
-     the accent, because the accent lightens in dark mode to stay legible as
-     text, and a lightened field reads as washed out. Saveetha's colour goes
-     here when the college supplies it. */
-  --color-brand: #2b2a27;
-  --color-brand-fg: #faf9f5;
+  /* The primary button, and the ink of the thread: navy. One per view. */
+  --color-action: #263050;
+  --color-action-hover: #1b2340;
+  --color-action-fg: #fbf8f1;
 
-  /* State. Held to 4.5:1 as text, because all three are rendered as words
-     and not only as fills. */
-  --color-positive: #3f7a4a;
-  --color-positive-wash: #eef4ec;
-  --color-caution: #8a5f10; /* 4.9:1 on caution-wash (a11y audit; was #9a6a14, 4.3:1) */
-  --color-caution-wash: #faf3e2;
-  --color-critical: #b23b2e;
-  --color-critical-wash: #fbecea;
+  /* The college's navy as a quiet voice: the "record" area, the first chart
+     series, a calm highlight. */
+  --color-navy: #34406a;
+  --color-navy-wash: #e9ebf2;
+  --color-navy-line: #cbd0e0;
 
-  /* Area: time (sky) -- the Calendar. docs/ux/00-design-language.md §1. */
-  --area-time: #4d6f86;
-  --area-time-wash: #eef2f3;
-  --area-time-line: #cfdbe1;
+  /* The brand ground: the sign-in panel's field of colour. */
+  --color-brand: #263050;
+  --color-brand-fg: #f8f5ee;
+
+  /* State. Held to 4.5:1 as text on the whole ladder. */
+  --color-positive: #366748;
+  --color-positive-wash: #e8f0e7;
+  --color-positive-line: #c5d8c9;
+  --color-caution: #82560a;
+  --color-caution-wash: #f8efd9;
+  --color-caution-line: #e8d4a6;
+  --color-critical: #b0233f;     /* crimson: 27 degrees of hue from clay on purpose */
+  --color-critical-wash: #fae8eb;
+  --color-critical-line: #edbbc4;
+
+  /* ---- areas -----------------------------------------------------------
+     One colour per area of the app, so a reader always knows where they
+     stand. Text tokens hold 4.5:1 on paper. Utilities: text-area-research,
+     bg-area-research-wash, border-area-research-line. Components that take
+     an `area` prop set `data-area`, which maps the generic `--area`,
+     `--area-wash`, `--area-line` (below the dark block) to that area. */
+  --color-area-record: #34406a;
+  --color-area-record-wash: #e9ebf2;
+  --color-area-record-line: #cbd0e0;
+  --color-area-research: #416553;
+  --color-area-research-wash: #e9f0eb;
+  --color-area-research-line: #c9dacf;
+  --color-area-people: #9e4527;
+  --color-area-people-wash: #f7e9e1;
+  --color-area-people-line: #e8c5b4;
+  --color-area-honours: #7a5b14;
+  --color-area-honours-fill: #d4a24a;
+  --color-area-honours-wash: #f6edd6;
+  --color-area-honours-line: #e6d5a8;
+  --color-area-time: #3b6577;
+  --color-area-time-wash: #e8eff1;
+  --color-area-time-line: #c9d9df;
+  --area-time: #3b6577;
+  --area-time-wash: #e8eff1;
+  --area-time-line: #c9d9df;
+  --area-people: #9e4527;
+  --area-people-wash: #f7e9e1;
+  --area-people-line: #e8c5b4;
+
+  /* Certificate surfaces only: impact plate, Wall of fame, "you were cited". */
+  --color-paper: #fbf8f1;
+  /* The mount a drawing sits on: a sand-coloured margin, like the paper
+     round a print in a bound volume. It stays light in dark mode, so a
+     cream-filled drawing reads as a print and not as a sticker. */
+  --color-plate: #efe8dc;
+  /* The flat paper inside the sign-in painting (public/illustrations/generated/
+     hero-sign-in.png fades into exactly this colour on its left), so the
+     sign-in panel can be this colour and the painting needs no frame. */
+  --color-hero-paper: #f6ede2;
+  --color-gold: #d4a24a;
+
+  /* Chart inks, in the order a chart uses them (DESIGN.md, "Charts"). At
+     most four series, direct labels, every one also differs in lightness. */
+  --chart-1: #34406a;  /* navy ink */
+  --chart-2: #b5603a;  /* clay */
+  --chart-3: #5b8a6f;  /* sage */
+  --chart-4: #a6801f;  /* gold (3.4:1 on paper, the lowest a mark may go) */
+  --chart-5: #4a7e92;  /* slate */
+  --chart-6: #7c5a86;  /* plum */
+
+  /* Honour face (display-honour). Same family as the title. */
+  --font-honour: var(--font-display);
 
   /* ---- shape ----------------------------------------------------------
-     Small. A 12px radius turns a panel into a lozenge; 6px reads as paper. */
+     Soft, not round: 10px on what you press, 16px on what holds things,
+     20px on what takes the page. */
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
-  --radius-xl: 0.875rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.5rem;
+
+  /* The two radii a page is built from (docs/ux/22, "one border radius for
+     controls, one for panels"). A control is anything you press, type into or
+     choose from: buttons, fields, sidebar links. A panel is anything that
+     holds other things: a table, a menu, an empty state, a `.panel`. */
+  --radius-control: 0.625rem;
+  --radius-panel: 1rem;
 
   /* ---- elevation ------------------------------------------------------
-     Six steps, and each one is a sentence about where a thing is rather than
-     a number on a ramp. If you cannot say which sentence applies, the answer
-     is no shadow. Read CONVENTIONS.md before reaching for one: four of the
-     six are restricted to a single kind of element.
-
-     The two large ones carry `0 0 0 1px` because something that has
-     genuinely left the page needs a contained edge as well as a cast
-     shadow, or it bleeds into whatever sits behind it. The small ones
-     deliberately do not — they pair with a hairline drawn in a real colour
-     token, so the edge stays part of the palette. */
-
-  /* Content sits *in* this. A text field; a well holding a control. */
+     Six steps, and each one is a sentence about where a thing is. If you
+     cannot say which sentence applies, the answer is no shadow. Four of the
+     six are restricted to a single kind of element (CONVENTIONS.md). */
   --shadow-well: 0 0 #0000;
-
-  /* You can press this. A filled or bordered control, and nothing else —
-     the shadow is the affordance, so putting it on something inert is a lie
-     about what happens when you click. */
   --shadow-raise: 0 0 #0000;
-
-  /* This is the object that answers the page's question. At most one per
-     view. Deliberately weak — it has no competition, so it does not need to
-     shout in order to win. */
   --shadow-lift: 0 0 #0000;
-
-  /* Content passes beneath this. A pinned table head, a sticky action bar.
-     Directional and asymmetric, because it describes an occlusion and not a
-     height, and it is only ever shown while something is actually underneath
-     — a permanent one is a drop shadow wearing a hat. */
-  --shadow-under: 0 1px 0 rgb(43 42 39 / 0.06);
-
-  /* This left the page: menu, popover, toast. */
-  --shadow-pop: 0 4px 20px -6px rgb(43 42 39 / 0.10), 0 0 0 1px rgb(43 42 39 / 0.06);
-
-  /* This took the page: dialog, palette. */
-  --shadow-modal: 0 16px 40px -12px rgb(43 42 39 / 0.16), 0 0 0 1px rgb(43 42 39 / 0.06);
+  --shadow-under: 0 1px 0 rgb(27 31 46 / 0.07);
+  --shadow-pop: 0 4px 20px -6px rgb(27 31 46 / 0.14), 0 0 0 1px rgb(27 31 46 / 0.07);
+  --shadow-modal: 0 16px 40px -12px rgb(27 31 46 / 0.22), 0 0 0 1px rgb(27 31 46 / 0.07);
 
   /* ---- motion ---------------------------------------------------------
-     Fast enough to feel like a response, not an animation. Linear's numbers:
-     nothing a pointer triggered lasts longer than 150ms. */
+     Exponential ease-out: arrives fast, settles slowly. Nothing a pointer
+     triggers lasts longer than 140ms; 220 for a drawer or menu; 360 for the
+     stamp and a sheet; 640 for the one authored moment (the thread draws). */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-1: 80ms;
   --dur-2: 140ms;
   --dur-3: 220ms;
-
-
-  /* ---- Convocation (docs/ux/00-design-language.md) --------------------
-     One colour per area of the app, so a reader always knows where they
-     stand. Text tokens hold 4.5:1 on white. Utilities: text-area-research,
-     bg-area-research-wash, border-area-research-line, and so on. Components
-     that take an `area` prop set `data-area`, which maps the generic
-     `--area`, `--area-wash`, `--area-line` (below the dark block) to that
-     area — use them as text-(--area), bg-(--area-wash). */
-  --color-area-record: #8a5a44;
-  --color-area-record-wash: #f5eee8;
-  --color-area-record-line: #e5d5ca;
-  --color-area-research: #4f7466;
-  --color-area-research-wash: #edf2ee;
-  --color-area-research-line: #cddbd2;
-  --color-area-people: #a35634;
-  --color-area-people-wash: #f8ece6;
-  --color-area-people-line: #ecc9ba;
-  --color-area-honours: #7d6024;
-  --color-area-honours-fill: #c9a15a;
-  --color-area-honours-wash: #f7f0e0;
-  --color-area-honours-line: #e6d6b0;
-  --color-area-time: #4d6f86;
-  --color-area-time-wash: #eef2f3;
-  --color-area-time-line: #cfdbe1;
-  /* Certificate surfaces only: impact plate, Wall of fame, "you were cited". */
-  --color-paper: #fbf8f1;
-  /* The card a drawing or photo sits on in dark mode: charcoal lines on a
-     dark canvas vanish, so every illustration gets the same warm plate. */
-  --color-plate: #efe8dc;
-  --color-gold: #c9a15a;
-
-  /* Honour face. Fraunces, and only on honour moments (display-honour). */
-  --font-honour: "Source Serif 4 Variable", "Fraunces Variable", ui-serif, Georgia, serif;
-
-  /* Convocation type scale: text-honour (44/48, with .honour for the face),
-     text-display (32/38), text-figure-xl (56/56), text-figure (28/32). */
-  --text-honour: 2.75rem;
-  --text-honour--line-height: 3rem;
-  --text-display: 2rem;
-  --text-display--line-height: 2.375rem;
-  --text-figure-xl: 3.5rem;
-  --text-figure-xl--line-height: 3.5rem;
-  --text-figure: 1.75rem;
-  --text-figure--line-height: 2rem;
-
-  --radius-2xl: 1rem;
-  --radius-3xl: 1.25rem;
-
-  /* The two radii a page is built from (docs/ux/22, "one border radius for
-     controls, one for panels"). A control is anything you press, type into or
-     choose from: buttons, fields, sidebar links, chips. A panel is anything
-     that holds other things: a table, a menu, an empty state, a `.panel`.
-     Twelve different corners on one screen read as twelve different hands. */
-  --radius-control: 0.5rem;
-  --radius-panel: 0.75rem;
+  --dur-4: 360ms;
+  --dur-5: 640ms;
 
   /* ---- layout ---------------------------------------------------------- */
   --sidebar-w: 16rem;
   --page-max: 68.75rem;
+}
 
-  /* ---- area: people (docs/ux/00 section 1) ---------------------------- */
-  --area-people: #a35634;
-  --area-people-wash: #f8ece6;
-  --area-people-line: #ecc9ba;
+/* Phones get a half-step up, because a lecturer reads this in a corridor
+   (DESIGN.md, "Typography"). The scale's names stay the same; only the
+   numbers move, so no page needs to know. Inputs are 16px so a phone does
+   not zoom the page when one is focused. */
+@media (max-width: 639px) {
+  :root {
+    --text-xs: 0.78125rem;
+    --text-sm: 0.875rem;
+    --text-sm--line-height: 1.3125rem;
+    --text-base: 0.9375rem;
+    --text-base--line-height: 1.5rem;
+    --text-lead: 1.0625rem;
+    --text-lead--line-height: 1.6875rem;
+  }
 }
 
 @layer base {
@@ -306,6 +297,32 @@
     font-weight: 600;
   }
 
+  /* The parts of the browser nobody drew, themed from the palette (the
+     cheapest signal that a page was built and not assembled): the caret, the
+     native checkbox and radio, the placeholder, the selection, the link
+     underline. */
+  input,
+  textarea,
+  select {
+    caret-color: var(--color-accent);
+    accent-color: var(--color-action);
+  }
+  ::placeholder {
+    color: var(--color-fg-subtle);
+    opacity: 1;
+  }
+  a {
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 1px;
+  }
+  @media (max-width: 639px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    textarea,
+    select {
+      font-size: 1rem;
+    }
+  }
+
   /* One focus ring, everywhere, and it is never removed — only replaced.
      :focus-visible so a mouse click does not draw it. */
   :focus-visible {
@@ -315,6 +332,10 @@
   }
 
   ::selection {
+    background: var(--color-accent-line);
+    color: var(--color-fg);
+  }
+  :root[data-theme="dark"] ::selection {
     background: var(--color-accent-wash);
   }
 
@@ -445,7 +466,7 @@
     width: 100%;
     max-width: var(--page-max);
     margin-inline: auto;
-    padding-inline: 2rem;
+    padding-inline: clamp(1rem, 0.4rem + 2.6vw, 2.5rem);
   }
   @media (max-width: 640px) {
     .page {
@@ -536,7 +557,28 @@
   .display {
     font-family: var(--font-display);
     font-weight: 500;
-    letter-spacing: -0.015em;
+    letter-spacing: -0.018em;
+    font-optical-sizing: auto;
+    font-kerning: normal;
+  }
+  /* The one answer sentence on a page, and the sign-in headline. Larger and a
+     touch lighter than a title, because at 60px weight 500 turns heavy. One
+     per screen (DESIGN.md, "Display XL"). */
+  .display-xl {
+    font-family: var(--font-display);
+    font-size: var(--text-display-xl);
+    line-height: var(--text-display-xl--line-height);
+    font-weight: 450;
+    letter-spacing: -0.022em;
+    font-optical-sizing: auto;
+    text-wrap: balance;
+  }
+  /* The italic of the display face is the only emphasis it takes: a name, or
+     one phrase of the answer. Never bold. */
+  .display em,
+  .display-xl em {
+    font-style: italic;
+    font-weight: inherit;
   }
 
   /* A figure that is the answer to something.
@@ -549,8 +591,74 @@
   .figure {
     font-family: var(--font-display);
     font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1;
     font-weight: 500;
     letter-spacing: -0.01em;
+  }
+
+  /* A mounted print (DESIGN.md, "The Mount Rule"). An illustration is never a
+     bare sticker: it sits on a sand-coloured margin with a hairline and the
+     panel radius, and carries a caption line. The mount stays light in dark
+     mode so a cream-filled drawing reads as a print. */
+  .plate {
+    background-color: var(--color-plate);
+    border-radius: var(--radius-panel);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-fg) 9%, transparent);
+  }
+  :root[data-theme="dark"] .plate {
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  }
+
+  /* The thread draws itself, once, left to right (DESIGN.md, "The Thread").
+     The dash length is the line's own length, set by the component. */
+  .thread-draw {
+    stroke-dasharray: var(--len, 1000);
+    stroke-dashoffset: var(--len, 1000);
+    animation: thread-draw var(--dur-5) var(--ease-out) 120ms forwards;
+  }
+  .thread-pop {
+    opacity: 0;
+    animation: thread-pop var(--dur-4) var(--ease-out) forwards;
+    animation-delay: calc(160ms + var(--i, 0) * 90ms);
+  }
+
+  /* The stamp (DESIGN.md, "The Stamp"): lands in 360ms, scale 1.14 to 1,
+     opacity 0 to 1, a 1px blur to sharp; multiplied into the paper. */
+  .stamp {
+    mix-blend-mode: multiply;
+    transform: rotate(-3deg);
+    animation: stamp-in var(--dur-4) var(--ease-out) both;
+  }
+  :root[data-theme="dark"] .stamp {
+    mix-blend-mode: normal;
+  }
+}
+
+@keyframes thread-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes thread-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes stamp-in {
+  from {
+    opacity: 0;
+    transform: rotate(-3deg) scale(1.14);
+    filter: blur(1px);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-3deg) scale(1);
+    filter: blur(0);
   }
 }
 
@@ -717,65 +825,98 @@
   }
 }
 
+/* Toasts (sonner) in the palette: a surface, a hairline, the interface face.
+   A toast is the only thing besides a menu that casts a shadow. */
+[data-sonner-toaster] {
+  --normal-bg: var(--color-surface);
+  --normal-text: var(--color-fg);
+  --normal-border: var(--color-edge);
+  --success-bg: var(--color-surface);
+  --success-text: var(--color-fg);
+  --success-border: var(--color-positive-line);
+  --error-bg: var(--color-critical-wash);
+  --error-text: var(--color-fg);
+  --error-border: var(--color-critical-line);
+  --border-radius: var(--radius-panel);
+  font-family: var(--font-sans);
+}
+
 /* ---------------------------------------------------------------------------
- * Dark theme. The same token names, redefined, so no page carries a colour of
- * its own and every screen follows. Chosen in the account menu (light, dark
- * or the system's setting) and applied before first paint by index.html.
+ * Night. The same token names, redefined, so no page carries a colour of its
+ * own and every screen follows. A navy-black night (not a charcoal): the ink
+ * of the day becomes the ground, the paper becomes the text. The primary
+ * button inverts to a paper-coloured button with navy text. Chosen in the
+ * account menu (light, dark or the system's setting) and applied before first
+ * paint by index.html.
  * ------------------------------------------------------------------------ */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --area-time: #9bb8cc;
-  --area-time-wash: #27302f;
-  --color-fg: #ece9e2;
-  --color-fg-muted: #b4b0a7;
-  --color-fg-subtle: #a8a49b;
-  --color-surface: #2c2c2a;
-  --color-bg: #262624;
-  --color-sunken: #1f1e1d;
-  --color-hover: #33322f;
-  --color-active: #3b3a37;
-  --color-selected: #3a3531;
-  --color-line: #353431;
-  --color-edge: #3e3d39;
-  --color-field: #4a4843;
-  --color-accent: #e08466;
-  --color-accent-hover: #e89a7f;
-  --color-accent-fg: #1f1e1d;
-  --color-accent-wash: #3a2c26;
-  --color-accent-line: #5a3d31;
-  --color-brand: #1f1e1d;
-  --color-brand-fg: #ece9e2;
-  --color-positive: #8fc39a;
-  --color-positive-wash: #263028;
-  --color-caution: #e0b86a;
-  --color-caution-wash: #332c1f;
-  --color-critical: #e8897b;
-  --color-critical-wash: #382522;
-  --color-area-record: #d9a88f;
-  --color-area-record-wash: #332b27;
-  --color-area-record-line: #4d3d34;
-  --color-area-research: #9cc2b0;
-  --color-area-research-wash: #26302b;
-  --color-area-research-line: #3a4a42;
-  --color-area-people: #e3a283;
-  --color-area-people-wash: #3a2c26;
-  --color-area-people-line: #5a3d31;
-  --color-area-honours: #e0c07e;
-  --color-area-honours-fill: #c9a15a;
-  --color-area-honours-wash: #332c1f;
+  --color-fg: #ede8dc;
+  --color-fg-muted: #b7b3a8;
+  --color-fg-subtle: #a6a398;
+  --color-surface: #222633;
+  --color-bg: #1a1d27;
+  --color-sunken: #141720;
+  --color-hover: #2a2f3e;
+  --color-active: #333949;
+  --color-selected: #2d3347;
+  --color-line: #2d3243;
+  --color-edge: #3a4054;
+  --color-field: #6b7391;
+  --color-accent: #e88f6e;
+  --color-accent-hover: #f0a387;
+  --color-accent-fg: #1a1d27;
+  --color-accent-wash: #3a2a28;
+  --color-accent-line: #5c3f36;
+  --color-action: #ede8dc;
+  --color-action-hover: #ffffff;
+  --color-action-fg: #1a1d27;
+  --color-navy: #a9b6ea;
+  --color-navy-wash: #262c45;
+  --color-navy-line: #3a4366;
+  --color-brand: #141720;
+  --color-brand-fg: #ede8dc;
+  --color-positive: #8fc4a0;
+  --color-positive-wash: #22302b;
+  --color-positive-line: #35483f;
+  --color-caution: #e3bd6f;
+  --color-caution-wash: #34301f;
+  --color-caution-line: #54492b;
+  --color-critical: #f08b97;
+  --color-critical-wash: #3a2228;
+  --color-critical-line: #5c3640;
+  --color-area-record: #a9b6ea;
+  --color-area-record-wash: #262c45;
+  --color-area-record-line: #3a4366;
+  --color-area-research: #9cc4b0;
+  --color-area-research-wash: #232f2b;
+  --color-area-research-line: #35483f;
+  --color-area-people: #e88f6e;
+  --color-area-people-wash: #3a2a28;
+  --color-area-people-line: #5c3f36;
+  --color-area-honours: #e3c27f;
+  --color-area-honours-fill: #d4a24a;
+  --color-area-honours-wash: #33301f;
   --color-area-honours-line: #51452c;
-  --color-area-time: #9bb8cc;
-  --color-area-time-wash: #27302f;
+  --color-area-time: #9cc1d2;
+  --color-area-time-wash: #233038;
   --color-area-time-line: #3b4a50;
-  --color-paper: #2a2825;
-  --shadow-well: 0 0 #0000;
-  --shadow-raise: 0 0 #0000;
-  --shadow-lift: 0 0 #0000;
-  --shadow-under: 0 1px 0 rgb(0 0 0 / 0.3);
-  --shadow-pop: 0 8px 24px -8px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.06);
-  --shadow-modal: 0 20px 48px -12px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.07);
-  --area-people: #e3a283;
-  --area-people-wash: #3a2c26;
+  --area-time: #9cc1d2;
+  --area-time-wash: #233038;
+  --area-time-line: #3b4a50;
+  --area-people: #e88f6e;
+  --area-people-wash: #3a2a28;
+  --area-people-line: #5c3f36;
+  --color-paper: #2b2f3e;
+  --chart-1: #a9b6ea;
+  --chart-2: #e49a78;
+  --chart-3: #86bd9d;
+  --chart-4: #e0b867;
+  --chart-5: #7fb2c6;
+  --chart-6: #c4a1cf;
+  --shadow-under: 0 1px 0 rgb(0 0 0 / 0.35);
+  --shadow-pop: 0 8px 24px -8px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.07);
+  --shadow-modal: 0 20px 48px -12px rgb(0 0 0 / 0.65), 0 0 0 1px rgb(255 255 255 / 0.08);
 }
 
 /* The current area. `data-area` on any component root (HeroBand, StatTile,
@@ -926,11 +1067,74 @@
     color: #444;
   }
 }
-/* The rupee sign, alone. U+20B9 sits in Fontsource's latin-ext range, so every
-   page showing money used to download Inter latin-ext (85 KB) and Source
-   Serif 4 latin-ext (42 KB) for one glyph. A face declared later wins for the
-   code points it covers, so these ~1.2 KB subsets (pyftsubset of the same
-   variable files, wght axis kept) are what the browser fetches instead. */
+
+/* ---------------------------------------------------------------------------
+ * Brygada 1918, self-hosted (SIL OFL, src/assets/fonts/BRYGADA-OFL.txt).
+ *
+ * Latin and an italic for the title and the figures; Latin extended for the
+ * odd diacritic in a name; and the rupee sign alone. U+20B9 sits in the
+ * Latin-extended range, so every page showing money would otherwise download
+ * the 33 KB extended file for one glyph. A face declared later wins for the
+ * code points it covers, so the 900-byte subset (pyftsubset of the same
+ * variable file, wght axis kept) is what the browser fetches instead.
+ * ------------------------------------------------------------------------ */
+/* Until the real face arrives the title is set in Georgia, scaled and
+   re-spaced to Brygada's metrics (average advance 106.8% of Georgia's), so the
+   swap does not reflow a page. Measured with fontTools on the two files. */
+@font-face {
+  font-family: "Brygada Fallback";
+  src: local("Georgia");
+  size-adjust: 106.8%;
+  ascent-override: 86.1%;
+  descent-override: 23.4%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "Brygada 1918 Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url(./assets/fonts/brygada-latin.woff2) format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Brygada 1918 Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url(./assets/fonts/brygada-latin-italic.woff2) format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Brygada 1918 Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url(./assets/fonts/brygada-latin-ext.woff2) format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Brygada 1918 Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url(./assets/fonts/brygada-rupee.woff2) format("woff2-variations");
+  unicode-range: U+20B9;
+}
+@font-face {
+  font-family: "Brygada 1918 Variable";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url(./assets/fonts/brygada-rupee.woff2) format("woff2-variations");
+  unicode-range: U+20B9;
+}
+/* The rupee sign in Inter, alone, for the same reason: U+20B9 sits in
+   Fontsource's latin-ext range, so every page showing money used to download
+   Inter latin-ext (85 KB) for one glyph. */
 @font-face {
   font-family: "Inter Variable";
   font-style: normal;
@@ -939,12 +1143,3 @@
   src: url(./assets/fonts/inter-rupee.woff2) format("woff2-variations");
   unicode-range: U+20B9;
 }
-@font-face {
-  font-family: "Source Serif 4 Variable";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 200 900;
-  src: url(./assets/fonts/source-serif-rupee.woff2) format("woff2-variations");
-  unicode-range: U+20B9;
-}
-

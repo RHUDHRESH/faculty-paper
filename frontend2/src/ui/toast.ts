@@ -42,6 +42,18 @@ export const toast = {
     void sonner().then((s) => s.toast(message))
   },
 
+  /**
+   * A decision, confirmed with the Stamp (`ui/stamp.tsx`): "Cleared",
+   * "Approved", "Authorised" or "Paid", then the receipt in words. The verb
+   * is the button's verb (docs/ux/19). Use it for those four and nothing
+   * else; everything else a person does is `ok`.
+   */
+  stamp(verb: string, message?: string) {
+    void Promise.all([sonner(), import("@/ui/stamp"), import("react")]).then(([s, m, react]) =>
+      s.toast.custom(() => react.createElement(m.StampToast, { verb, message }), { duration: 6000 })
+    )
+  },
+
   /** A note with an Undo button, for a quiet change that is easy to regret. */
   undoable(message: string, onUndo: () => void) {
     void sonner().then((s) => s.toast(message, { action: { label: "Undo", onClick: onUndo } }))

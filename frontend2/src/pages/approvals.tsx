@@ -224,7 +224,7 @@ export function Approvals() {
         return next
       })
       if (res.skipped.length === 0) {
-        toast.ok(`Approved. ${res.approved} ${res.approved === 1 ? "claim" : "claims"} sent to the Director`)
+        toast.stamp("Approved", `${res.approved} ${res.approved === 1 ? "claim" : "claims"} sent to the Director.`)
       } else {
         setResult({ result: res, lookup })
       }

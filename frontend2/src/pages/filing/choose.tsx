@@ -307,7 +307,7 @@ function Picker({
           {shown.map((p) => {
             const on = p.publication_id === selectedId
             return (
-              <li key={p.publication_id}>
+              <li key={p.publication_id} role="presentation">
                 <button
                   type="button"
                   role="radio"

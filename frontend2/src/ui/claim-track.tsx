@@ -95,7 +95,7 @@ export function ClaimTrack({
                 className={cn(
                   "absolute left-3 right-[-0.75rem] top-[0.4375rem] h-0.5 rounded-full",
                   small && "top-[0.3125rem]",
-                  steps[i + 1].state === "todo" ? "bg-active" : paid ? "bg-positive" : "bg-accent"
+                  steps[i + 1].state === "todo" ? "bg-active" : paid ? "bg-positive" : "bg-navy"
                 )}
               />
             )}
@@ -105,12 +105,12 @@ export function ClaimTrack({
                 "relative block rounded-full",
                 small ? "size-3" : "size-4",
                 tone === "positive" && "bg-positive",
-                tone === "accent" && "bg-accent",
+                tone === "accent" && (s.state === "current" ? "bg-accent" : "bg-navy"),
                 tone === "caution" && "bg-caution",
                 tone === "critical" && "bg-critical",
                 tone === "muted" && "bg-fg-subtle",
                 tone === "todo" && "bg-surface ring-2 ring-inset ring-active",
-                s.state === "current" && "ring-4 ring-accent/25 animate-[pulse_2.4s_ease-in-out_infinite]"
+                s.state === "current" && "ring-4 ring-accent/25"
               )}
             />
             <span

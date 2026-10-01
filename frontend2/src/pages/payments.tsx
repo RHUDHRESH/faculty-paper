@@ -673,7 +673,7 @@ function SinglePayDialog({
     setConfirmedAmount(expectedAmount)
     try {
       await pay.mutateAsync({ voucher_number: voucher.trim() || undefined, expected_amount: expectedAmount })
-      toast.ok(`Paid ${money(expectedAmount)} to ${claim.owner_name}${claim.ticket_number ? `, ${claim.ticket_number}` : ""}`)
+      toast.stamp("Paid", `${money(expectedAmount)} to ${claim.owner_name}${claim.ticket_number ? `, ${claim.ticket_number}` : ""}.`)
       onOpenChange(false)
       onPaid(claim.id)
     } catch (err) {
@@ -862,10 +862,11 @@ function BulkPayDialog({
       setVouchers(next)
       writeVouchers(next)
       onDone(r.paid_ids)
-      toast.ok(
-        `Paid ${formatCount(r.paid)} ${r.paid === 1 ? "claim" : "claims"}, ${money(
+      toast.stamp(
+        "Paid",
+        `${formatCount(r.paid)} ${r.paid === 1 ? "claim" : "claims"}, ${money(
           rows.filter((c) => r.paid_ids.includes(c.id)).reduce((s, c) => s + (c.remuneration || 0), 0)
-        )}`
+        )}.`
       )
     } catch (err) {
       setFrozen(null)

@@ -34,24 +34,26 @@ type Size = "sm" | "md" | "lg" | "icon"
  */
 const KIND: Record<Kind, string> = {
   primary:
-    "bg-accent text-accent-fg hover:bg-accent-hover " +
+    "bg-action text-action-fg hover:bg-action-hover " +
     "shadow-raise active:shadow-none " +
-    "disabled:shadow-none",
+    // A disabled primary is a flat, quiet shape, not a washed-out navy: half-
+    // opacity navy reads as broken, a flat well reads as "not yet".
+    "disabled:bg-hover disabled:text-fg-muted disabled:opacity-100 disabled:shadow-none",
   default:
     "bg-surface text-fg ring-1 ring-inset ring-edge font-medium " +
     "hover:bg-hover " +
     "shadow-raise active:shadow-none disabled:shadow-none",
   quiet: "text-fg-muted hover:bg-hover hover:text-fg",
   danger:
-    "text-critical ring-1 ring-inset ring-critical/25 " +
+    "text-critical ring-1 ring-inset ring-critical-line " +
     "hover:bg-critical-wash",
 }
 
 const SIZE: Record<Size, string> = {
-  sm: "h-7 max-sm:h-10 gap-1.5 px-2.5 text-xs rounded-control",
-  md: "h-9 max-sm:h-10 gap-1.5 px-3.5 text-sm rounded-control",
-  lg: "h-11 gap-2 px-5 text-base rounded-control",
-  icon: "size-9 max-sm:size-10 rounded-control",
+  sm: "h-8 max-sm:h-10 gap-1.5 px-3 text-sm rounded-control",
+  md: "h-10 max-sm:h-11 gap-2 px-4 text-sm rounded-control",
+  lg: "h-12 gap-2 px-6 text-base rounded-control",
+  icon: "size-10 max-sm:size-11 rounded-control",
 }
 
 export const Button = forwardRef<

@@ -81,7 +81,7 @@ export function SheetContent({
         <RadixDialog.Portal forceMount>
           <RadixDialog.Overlay asChild forceMount>
             <motion.div
-              className="fixed inset-0 z-50 bg-black/20"
+              className="fixed inset-0 z-50 bg-brand/45"
               variants={overlay}
               initial="hidden"
               animate="visible"

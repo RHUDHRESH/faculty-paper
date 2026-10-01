@@ -350,10 +350,9 @@ export function ClearDialog({
     setConfirmedAmount(amount)
     try {
       const result = await clear.mutateAsync({ note: note.trim() || undefined, expected_amount: amount })
-      toast.ok(
-        `Cleared — ${money(result.remuneration)} sent to the Principal${
-          claim.ticket_number ? ` for ${claim.ticket_number}` : ""
-        }`
+      toast.stamp(
+        "Cleared",
+        `${money(result.remuneration)} sent to the Principal${claim.ticket_number ? ` for ${claim.ticket_number}` : ""}.`
       )
       onOpenChange(false)
       onCleared()

@@ -116,3 +116,8 @@ supplied by the college. They are not covered by this CC0 dedication.
 | banner02 (hero) | 2026-09-28 | Banner variant (as banner01). Strip 1 (file a paper): a single paper sheet gliding like a paper plane over a desk toward an open folder, with a small dotted path. Strip 2 (calendar and deadlines): a gentle row of hills with small flags planted at intervals along a winding path, a sun low on the horizon. Strip 3 (messages and discussions): a few speech bubbles floating like lanterns above two empty chairs and a small round table. *Split with scripts/split-banner-strips.py; background kept.* | `banner-file-paper`, `banner-calendar`, `banner-messages` |
 
 <!-- generated-art:end -->
+
+## Fonts
+
+- **Inter Variable**: SIL Open Font License 1.1, from `@fontsource-variable/inter` (npm). A 1.2 KB rupee-only subset is in `frontend2/src/assets/fonts/inter-rupee.woff2`.
+- **Brygada 1918 Variable** (The Brygada 1918 Project Authors, SIL Open Font License 1.1): self-hosted in `frontend2/src/assets/fonts/` (Latin, Latin extended, Latin italic, and a 900-byte rupee-only subset made with `pyftsubset`), copied from the `@fontsource-variable/brygada-1918` package v5.3.0. The licence text is `BRYGADA-OFL.txt` beside the files. Chosen on 2026-10-01 for the page title and answer figures (DESIGN.md, "Typography").

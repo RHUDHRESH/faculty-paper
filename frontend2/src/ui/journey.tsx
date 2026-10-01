@@ -84,9 +84,10 @@ export function Journey({
                         ? "bg-caution"
                         : off?.tone === "critical" && i === at
                           ? "bg-critical"
-                          : "bg-accent"
-                    : "bg-active",
-                  current && "animate-[pulse_2.4s_ease-in-out_infinite]"
+                          : current
+                            ? "bg-accent"
+                            : "bg-navy"
+                    : "bg-active"
                 )}
               />
               {size === "md" && (

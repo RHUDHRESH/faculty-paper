@@ -247,10 +247,9 @@ export function ApproveDialog({
     setConfirmedAmount(amount)
     try {
       const result = await approve.mutateAsync({ note: note.trim() || undefined, expected_amount: amount })
-      toast.ok(
-        `Approved ${money(result.remuneration)}, sent to the Director${
-          claim.ticket_number ? ` for ${claim.ticket_number}` : ""
-        }`
+      toast.stamp(
+        "Approved",
+        `${money(result.remuneration)} sent to the Director${claim.ticket_number ? ` for ${claim.ticket_number}` : ""}.`
       )
       onOpenChange(false)
       onApproved()

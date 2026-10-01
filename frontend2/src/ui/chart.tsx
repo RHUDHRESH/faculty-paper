@@ -546,7 +546,7 @@ export function RankedBars({
 
                 <span className="block h-1.5 min-w-0 overflow-hidden rounded-full bg-line">
                   <span
-                    className="block h-full rounded-full bg-accent transition-[width] duration-500 ease-out"
+                    className="block h-full rounded-full bg-navy transition-[width] duration-500 ease-out"
                     style={{ width: `${(v / top) * 100}%` }}
                   />
                 </span>
@@ -603,7 +603,7 @@ export function MixBar({
   // Steps of the one accent rather than a set of hues. Eight arbitrary colours
   // means eight things to look up in a key; one colour fading means "more" and
   // "less", which is what the chart is about.
-  const SHADE = ["bg-accent", "bg-accent/75", "bg-accent/55", "bg-accent/40", "bg-accent/28"]
+  const SHADE = ["bg-navy", "bg-navy/75", "bg-navy/55", "bg-navy/40", "bg-navy/28"]
   const shadeOf = (i: number) => SHADE[Math.min(i, SHADE.length - 1)]
 
   return (
@@ -747,8 +747,8 @@ export function Trend({
               >
                 <defs>
                   <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--color-accent)" stopOpacity="0.16" />
-                    <stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0" />
+                    <stop offset="0%" stopColor="var(--color-navy)" stopOpacity="0.16" />
+                    <stop offset="100%" stopColor="var(--color-navy)" stopOpacity="0" />
                   </linearGradient>
                 </defs>
 
@@ -776,7 +776,7 @@ export function Trend({
                 <path
                   d={line}
                   fill="none"
-                  stroke="var(--color-accent)"
+                  stroke="var(--color-navy)"
                   strokeWidth="1.75"
                   strokeLinejoin="round"
                   strokeLinecap="round"
@@ -814,7 +814,7 @@ export function Trend({
                       cy={y(valueOf(points[at], unit))}
                       r="3.5"
                       fill="var(--color-bg)"
-                      stroke="var(--color-accent)"
+                      stroke="var(--color-navy)"
                       strokeWidth="2"
                     />
                   </>
@@ -905,7 +905,7 @@ export function Distribution({
                 <span
                   className={cn(
                     "block w-full rounded-t-sm transition-[height,background-color] duration-500 ease-out",
-                    p.key === mark ? "bg-(--area-fill,var(--color-accent))" : at === i ? "bg-accent" : "bg-accent/55"
+                    p.key === mark ? "bg-(--area-fill,var(--color-navy))" : at === i ? "bg-navy" : "bg-navy/55"
                   )}
                   style={{ height: `${Math.max(2, (v / ceiling) * 100)}%` }}
                 />

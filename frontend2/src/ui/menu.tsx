@@ -95,7 +95,7 @@ export function MenuItem({
   return (
     <RadixMenu.Item
       className={cn(
-        "flex h-7 cursor-pointer select-none items-center gap-2 rounded-sm px-2 text-sm outline-none",
+        "flex h-9 cursor-pointer select-none items-center gap-2 rounded-control px-2.5 text-sm outline-none",
         "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         danger
           ? "text-critical data-[highlighted]:bg-critical-wash"

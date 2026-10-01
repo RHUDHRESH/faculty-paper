@@ -2,6 +2,14 @@ import { useState } from "react";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 
 import { Button } from "@/ui/button";
+import { AnswerLine, AnswerWord } from "@/ui/answer";
+import { Chip } from "@/ui/chip";
+import { DotField } from "@/ui/dot-field";
+import { FaceStack, Portrait } from "@/ui/person";
+import { Plate } from "@/ui/plate";
+import { Stamp } from "@/ui/stamp";
+import { Tabs } from "@/ui/tabs";
+import { ClaimThread, Thread } from "@/ui/thread";
 import { Combobox } from "@/ui/combobox";
 import {
   ConfirmDialog,
@@ -140,6 +148,23 @@ const ROWS: Row[] = [
   },
 ];
 
+function GalleryTabs() {
+  const [tab, setTab] = useState("all");
+  return (
+    <Tabs
+      label="Papers"
+      value={tab}
+      onChange={setTab}
+      tabs={[
+        { id: "all", label: "All", count: 145 },
+        { id: "not-claimed", label: "Not claimed", count: 24 },
+        { id: "progress", label: "In progress", count: 1 },
+        { id: "paid", label: "Paid", count: 119 },
+      ]}
+    />
+  );
+}
+
 export function Gallery() {
   const [dept, setDept] = useState("");
   const [dialog, setDialog] = useState(false);
@@ -163,9 +188,85 @@ export function Gallery() {
           </Sub>
         </header>
 
+        <Block title="The answer, as a sentence">
+          <AnswerLine>
+            Nothing needs you. One claim is <AnswerWord tone="sage">being checked</AnswerWord>.
+          </AnswerLine>
+        </Block>
+
+        <Block title="The Thread (the chain, as a picture)">
+          <Thread
+            counts={{ filed: 14, checked: 3, approved: 1, authorised: 0, paid: 81 }}
+            you="filed"
+            late={{ filed: 6 }}
+            caption="Each dot is a claim. Amber has waited over two weeks."
+          />
+          <div className="mt-8 max-w-xl">
+            <ClaimThread at="approved" />
+          </div>
+        </Block>
+
+        <Block title="The Stamp (a decision)">
+          <div className="flex flex-wrap items-center gap-8">
+            <Stamp verb="Approved" date="1 Oct 2026" />
+            <Stamp verb="Authorised" date="1 Oct 2026" />
+            <Button kind="default" onClick={() => toast.stamp("Cleared", "12 papers sent to the Principal.")}>
+              Show the toast
+            </Button>
+          </div>
+        </Block>
+
+        <Block title="Plate (a mounted print) and faces">
+          <div className="flex flex-wrap items-start gap-8">
+            <Plate name="spot-home-faculty" width={168} caption="A desk, as it should be." />
+            <Plate name="spot-approvals" width={120} />
+            <div className="space-y-4">
+              <FaceStack
+                label="Co-authors"
+                people={[
+                  { name: "Dr. A. Kumar", initials: "AK", photo_url: null },
+                  { name: "P. Devi", initials: "PD", photo_url: null },
+                  { name: "R. Nair", initials: "RN", photo_url: null },
+                  { name: "S. Iyer", initials: "SI", photo_url: null },
+                  { name: "T. Rao", initials: "TR", photo_url: null },
+                  { name: "U. Das", initials: "UD", photo_url: null },
+                ]}
+              />
+              <div className="w-28">
+                <Portrait person={{ name: "Dr. A. Kumar", initials: "AK", photo_url: null }} />
+              </div>
+            </div>
+          </div>
+        </Block>
+
+        <Block title="Dot field (one dot per paper)">
+          <DotField
+            groups={[
+              { key: "q1", label: "Q1", count: 12, tone: "gold" },
+              { key: "q2", label: "Q2", count: 31, tone: "navy" },
+              { key: "q3", label: "Q3", count: 40, tone: "sage" },
+              { key: "other", label: "not indexed", count: 62, tone: "muted" },
+            ]}
+          />
+        </Block>
+
+        <Block title="Tabs and chips">
+          <GalleryTabs />
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Chip>Neutral</Chip>
+            <Chip tone="navy">Record</Chip>
+            <Chip tone="positive">Paid</Chip>
+            <Chip tone="caution">Taking longer</Chip>
+            <Chip tone="critical">Sent back</Chip>
+            <Chip tone="clay">Needs you</Chip>
+            <Chip tone="gold">Q1</Chip>
+          </div>
+        </Block>
+
         <Block title="Type">
           <div className="space-y-2">
-            <PageTitle>Page title — 22px</PageTitle>
+            <p className="display display-xl">Display XL, the answer</p>
+            <PageTitle>Page title, display 32 to 40px</PageTitle>
             <SectionTitle>Section title — 16px</SectionTitle>
             <p className="text-base">
               Body — 14px. The size most of the app is set in.

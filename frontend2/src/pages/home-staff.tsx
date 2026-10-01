@@ -28,6 +28,8 @@ import { type Brief, PushList } from "@/pages/principal-parts"
 import type { TrackPayload } from "@/pages/track-data"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Picture } from "@/ui/picture"
+import { Plate } from "@/ui/plate"
+import type { IllustrationName } from "@/ui/illustration"
 import { ComingUp } from "@/ui/coming-up"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { InlineError, Skeleton } from "@/ui/state"
@@ -238,13 +240,16 @@ export function HomeHead({
   actions?: React.ReactNode
 }) {
   return (
-    <header className="flex items-center justify-between gap-6">
+    <header className="flex items-start justify-between gap-8">
       <div className="min-w-0">
         <PageTitle>{greeting(name)}</PageTitle>
-        <Sub className="mt-1 max-w-xl">{sentence}</Sub>
-        {actions && <div className="mt-4 flex flex-wrap gap-2">{actions}</div>}
+        <Sub className="mt-2 max-w-xl">{sentence}</Sub>
+        {actions && <div className="mt-5 flex flex-wrap gap-2">{actions}</div>}
       </div>
-      <Picture name={picture} eager className="hidden w-[200px] shrink-0 md:block lg:w-[240px]" />
+      {/* The desk's own print, mounted (DESIGN.md, "The Mount Rule"): one
+          drawing per role, so Admin and the research office are never the
+          same picture. */}
+      <Plate name={picture as IllustrationName} width={168} eager className="hidden md:block" />
     </header>
   )
 }
@@ -408,7 +413,7 @@ function AdminHome() {
     <div className="page space-y-10">
       <HomeHead
         name={me?.name}
-        picture="spot-home-admin"
+        picture={isAdmin ? "spot-home-admin" : "spot-audit"}
         sentence={
           isAdmin
             ? "Whether everything is healthy, and what is waiting at the desks."

@@ -35,7 +35,7 @@ import { cn } from "@/lib/cn"
 export function PageTitle({ children, className }: React.ComponentProps<"h1">) {
   // `text-balance` so a two-line title breaks into two even lines rather
   // than a full line and one orphaned word.
-  return <h1 className={cn("display text-balance text-[1.75rem] leading-9", className)}>{children}</h1>
+  return <h1 className={cn("display text-display text-balance", className)}>{children}</h1>
 }
 
 /**
@@ -57,7 +57,7 @@ export function SectionTitle({ children, className, ...props }: React.ComponentP
 
 /** Secondary line under a title. Never a second sentence of instructions. */
 export function Sub({ children, className }: React.ComponentProps<"p">) {
-  return <p className={cn("text-pretty text-base text-fg-muted", className)}>{children}</p>
+  return <p className={cn("text-pretty text-lead text-fg-muted", className)}>{children}</p>
 }
 
 /** Metadata beside content — dates, counts, departments. */

@@ -21,7 +21,7 @@ export const AREA_DOT: Record<Area, string> = {
   time: "bg-area-time",
 }
 
-export type ChipTone = "neutral" | "area" | "gold" | "caution" | "positive"
+export type ChipTone = "neutral" | "area" | "gold" | "caution" | "positive" | "critical" | "navy" | "clay"
 
 const TONE: Record<ChipTone, string> = {
   neutral: "bg-hover text-fg-muted",
@@ -29,6 +29,9 @@ const TONE: Record<ChipTone, string> = {
   gold: "bg-area-honours-wash text-area-honours shadow-[inset_0_0_0_1px_var(--color-area-honours-line)]",
   caution: "bg-caution-wash text-caution",
   positive: "bg-positive-wash text-positive",
+  critical: "bg-critical-wash text-critical",
+  navy: "bg-navy-wash text-navy",
+  clay: "bg-accent-wash text-accent",
 }
 
 /**
@@ -55,7 +58,7 @@ export function Chip({
       data-area={area}
       title={title}
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-medium",
+        "inline-flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 text-xs font-medium",
         TONE[tone],
         className
       )}

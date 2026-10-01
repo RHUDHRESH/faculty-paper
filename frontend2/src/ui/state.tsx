@@ -2,7 +2,8 @@ import { useEffect, useState, type CSSProperties } from "react"
 import { AlertTriangle } from "lucide-react"
 
 import type { ArtName } from "@/ui/art"
-import { Illustration, type IllustrationName } from "@/ui/illustration"
+import type { IllustrationName } from "@/ui/illustration"
+import { Plate } from "@/ui/plate"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
 import { Link } from "react-router-dom"
@@ -188,6 +189,17 @@ export type EmptyStateProps = {
   action?: React.ReactNode
   /** A Help guide id (app/guides.ts): adds a quiet "How to" link to it. */
   guide?: string
+  /**
+   * `page` (a whole view is empty: a 260px print and a display sentence),
+   * `region` (a list or a section: 180px, the default) or `compact` (a shelf
+   * inside a table or a card: a 96px print on a sunken ground, a plain
+   * heading). Pick the largest that does not crowd the view; one plate per
+   * viewport (DESIGN.md).
+   */
+  size?: "page" | "region" | "compact"
+  /** The line under a plate at `region` and `page` size. Say something a person
+   *  would say ("Nothing on the desk."), or leave it out. */
+  caption?: React.ReactNode
   className?: string
 }
 
@@ -199,19 +211,31 @@ export function EmptyState({
   message,
   action,
   guide,
+  size = "region",
+  caption,
   className,
 }: EmptyStateProps) {
   const g = guide ? guideById(guide) : undefined
   const drawing = illustration ?? (art ? ART_ILLUSTRATION[art] : undefined)
+  const compact = size === "compact"
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-1.5 rounded-panel bg-sunken px-6 py-12 text-center",
+        "flex flex-col items-center gap-1.5 px-6 text-center",
+        // A compact empty state is a shelf inside a page and keeps its ground;
+        // a region or a page stands on the paper, and the mount gives the
+        // picture its own object-ness (DESIGN.md, "Empty, error and loading").
+        compact ? "rounded-panel bg-sunken py-10" : size === "page" ? "py-16" : "py-12",
         className
       )}
     >
       {drawing ? (
-        <Illustration name={drawing} width={132} className="mb-3" />
+        <Plate
+          name={drawing}
+          width={compact ? 96 : size === "page" ? 260 : 180}
+          caption={compact ? undefined : caption}
+          className="mb-4"
+        />
       ) : (
         Icon && (
           // A well, so the glyph is an object on the shelf rather than a grey
@@ -224,9 +248,15 @@ export function EmptyState({
           </span>
         )
       )}
-      <p className="text-lg font-semibold text-fg">{title}</p>
-      <p className="max-w-sm text-pretty text-base text-fg-muted">{message}</p>
-      {action && <div className="mt-4">{action}</div>}
+      {compact ? (
+        <p className="text-lg font-semibold text-fg">{title}</p>
+      ) : (
+        <p className="display text-display max-w-[20ch] text-balance text-fg">{title}</p>
+      )}
+      <p className={cn("text-pretty text-fg-muted", compact ? "max-w-sm text-base" : "mt-1 max-w-md text-lead")}>
+        {message}
+      </p>
+      {action && <div className="mt-5">{action}</div>}
       {g && (
         <Link to={`/help#${g.id}`} className="mt-3 text-sm text-fg-muted underline underline-offset-2 hover:text-fg">
           How to: {g.title.charAt(0).toLowerCase() + g.title.slice(1)}
@@ -288,7 +318,7 @@ export function ErrorState({
         className
       )}
     >
-      <Illustration name={ART_ILLUSTRATION[art]} width={132} className="mb-3" />
+      <Plate name={ART_ILLUSTRATION[art]} width={132} className="mb-3" />
       <p className="text-lg font-semibold text-fg">{title}</p>
       <p className="max-w-sm text-pretty text-base text-fg-muted">{message}</p>
       {onRetry !== false && (

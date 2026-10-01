@@ -763,10 +763,9 @@ function AuthoriseDialog({ claim, onClose }: { claim: Claim; onClose: () => void
         note: note.trim() || undefined,
         expected_amount: amount,
       })
-      toast.ok(
-        `Authorised: ${money(result.remuneration)} released to Finance${
-          claim.ticket_number ? ` for ${claim.ticket_number}` : ""
-        }`
+      toast.stamp(
+        "Authorised",
+        `${money(result.remuneration)} released to Finance${claim.ticket_number ? ` for ${claim.ticket_number}` : ""}.`
       )
       onClose()
     } catch (err) {
@@ -973,7 +972,7 @@ export function BulkAuthoriseDialog({
       })
       setResult(res)
       if (res.approved > 0) {
-        toast.ok(`Authorised ${res.approved} · ${money(res.total)} released to Finance`)
+        toast.stamp("Authorised", `${res.approved} ${res.approved === 1 ? "claim" : "claims"}, ${money(res.total)} released to Finance.`)
         onDone()
       }
       if (res.skipped.length === 0) onClose()

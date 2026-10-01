@@ -86,7 +86,7 @@ export function DialogContent({
         <RadixDialog.Portal forceMount>
           <RadixDialog.Overlay asChild forceMount>
             <motion.div
-              className="fixed inset-0 z-50 bg-black/20 print:hidden"
+              className="fixed inset-0 z-50 bg-brand/45 print:hidden"
               variants={overlay}
               initial="hidden"
               animate="visible"

@@ -1,5 +1,13 @@
 # 00 · Design language: Claude-like (supersedes "Convocation")
 
+> **Update 2026-10-01.** The palette, type, shape, motion and illustration rules below are
+> superseded by [`DESIGN.md`](../../DESIGN.md) (the art direction, with the reasons in
+> [`docs/design/art-direction.md`](../design/art-direction.md)). What still stands from this page:
+> the Claude-like manners, the page specs in this folder, the navigation grouping (§9), the icon
+> map (§3) and the shared component list (§8). Where this page and DESIGN.md disagree, DESIGN.md
+> wins.
+
+
 This is the direction for the frontend2 redesign. Every page spec in `docs/ux/` assumes it.
 It covers what the page looks like and which parts builders must reuse. It does not replace
 `frontend2/src/ui/CONVENTIONS.md` (elevation ladder, "a shadow must name its claim"). It adds to it.

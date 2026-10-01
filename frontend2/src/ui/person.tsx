@@ -29,8 +29,10 @@ export function initialsOf(name: string | null | undefined): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase()
 }
 
+/** Five sizes, and no others: 24, 32, 40, 64, 96 px. Initials are never below
+ *  12px, so a fallback at 24px is still readable (DESIGN.md, "Avatar"). */
 const SIZE = {
-  xs: "size-6 text-[10px] tracking-tight",
+  xs: "size-6 text-xs tracking-tight",
   sm: "size-8 text-xs",
   md: "size-10 text-sm",
   lg: "size-16 text-lg",
@@ -56,7 +58,9 @@ export function Avatar({
   className?: string
 }) {
   const base = cn(
+    // A 1px inner ring keeps a pale photograph from dissolving into the paper.
     "inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full",
+    "ring-1 ring-inset ring-fg/10",
     SIZE[size],
     className
   )
@@ -77,7 +81,98 @@ export function Avatar({
     )
   }
   return (
-    <span aria-hidden className={cn(base, "bg-accent-wash font-semibold text-accent")}>
+    <span aria-hidden className={cn(base, "bg-navy-wash font-semibold text-navy")}>
+      {person?.initials || initialsOf(person?.name)}
+    </span>
+  )
+}
+
+/**
+ * A few faces in a row, overlapping, with "+n" for the rest: the co-authors of
+ * a paper, the people at a desk, who has read a post. Four faces at most; the
+ * count of the others is a real number (never "99+").
+ *
+ * The group has one accessible name (`label`) and each face is decorative, so
+ * a screen reader hears "Co-authors: A, B, C and 3 more" once, not four
+ * unlabelled pictures.
+ */
+export function FaceStack({
+  people,
+  max = 4,
+  size = "sm",
+  label,
+  className,
+}: {
+  people: Pick<PersonBrief, "name" | "initials" | "photo_url">[]
+  max?: number
+  size?: "xs" | "sm" | "md"
+  label?: string
+  className?: string
+}) {
+  const shown = people.slice(0, max)
+  const rest = people.length - shown.length
+  const names = people.map((p) => p.name).join(", ")
+  return (
+    <span
+      role="group"
+      aria-label={label ? `${label}: ${names}` : names}
+      className={cn("inline-flex items-center", className)}
+    >
+      {shown.map((p, i) => (
+        <Avatar
+          key={`${i}-${p.name}`}
+          person={p}
+          size={size}
+          // Each face is cut from the one before it by a ring of the ground.
+          className={cn("ring-2 ring-bg", i > 0 && (size === "md" ? "-ml-3" : "-ml-2"))}
+        />
+      ))}
+      {rest > 0 && (
+        <span
+          className={cn(
+            "ml-1.5 text-xs font-medium text-fg-muted tabular",
+            size === "md" && "text-sm"
+          )}
+        >
+          +{rest}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/**
+ * A person as a portrait: 4:5, a 12px radius. For a profile, a person's card,
+ * "who to work with". The face fills it; the fallback is the initials, large,
+ * on the navy wash. (The round Avatar is for lists and rows.)
+ */
+export function Portrait({
+  person,
+  className,
+}: {
+  person: Pick<PersonBrief, "name" | "initials" | "photo_url"> | null | undefined
+  className?: string
+}) {
+  const [failed, setFailed] = useState<string | null>(null)
+  const photo = person?.photo_url && failed !== person.photo_url ? person.photo_url : null
+  const base = "relative block aspect-[4/5] w-full overflow-hidden rounded-lg ring-1 ring-inset ring-fg/10"
+  if (photo) {
+    return (
+      <img
+        src={photo}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(photo)}
+        className={cn(base, "bg-sunken object-cover", className)}
+      />
+    )
+  }
+  return (
+    <span
+      aria-hidden
+      className={cn(base, "grid place-items-center bg-navy-wash font-display text-5xl text-navy", className)}
+    >
       {person?.initials || initialsOf(person?.name)}
     </span>
   )

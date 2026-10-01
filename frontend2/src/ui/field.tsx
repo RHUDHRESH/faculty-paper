@@ -28,8 +28,8 @@ import { cn } from "@/lib/cn"
 type Size = "md" | "lg"
 
 const CONTROL_SIZE: Record<Size, string> = {
-  md: "h-9 max-sm:h-10 px-3 text-sm rounded-control",
-  lg: "h-11 px-3.5 text-base rounded-control",
+  md: "h-11 max-sm:h-12 px-3.5 text-base rounded-control",
+  lg: "h-12 px-4 text-lg rounded-control",
 }
 
 function mergeRefs<T>(...refs: Array<Ref<T> | undefined>) {
@@ -92,7 +92,7 @@ export function Field<
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      <label htmlFor={id} className="block text-sm font-medium">
+      <label htmlFor={id} className="block text-base font-medium">
         {label}
       </label>
       {control}
@@ -521,7 +521,7 @@ export const DateInput = forwardRef<
       ref={ref}
       type="date"
       className={cn(
-        "w-full bg-surface text-fg outline-none [color-scheme:light]",
+        "w-full bg-surface text-fg outline-none [color-scheme:light] dark:[color-scheme:dark]",
         "shadow-well ring-1 ring-inset ring-field",
         "focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",

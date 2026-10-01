@@ -50,7 +50,27 @@ if (dead.length) {
   process.exit(1)
 }
 
-console.log(`routes: ${navPaths.length} sidebar destinations, all routed`)
+// The other direction (docs/ux/22, "Ctrl-K finds every view by name"): every
+// routed view with a fixed address must be declared in nav.ts, sidebar or
+// find-only, or the palette cannot find it and the tab has no title. Views
+// with a parameter are records reached from a list, and are named in
+// `app/crumbs.tsx` instead.
+const anywhere = new Set([...nav.matchAll(/\bto:\s*"([^"]+)"/g)].map((m) => m[1]))
+// Not for people to look for: a dev-only gallery, and the first-run setup that
+// is a redirect once the college exists.
+const NOT_FOUND_BY_NAME = new Set(["/gallery", "/setup"])
+const unfindable = routePaths.filter(
+  (r) => !r.includes(":") && r !== "*" && !anywhere.has(r) && !NOT_FOUND_BY_NAME.has(r)
+)
+if (unfindable.length) {
+  console.error(`${unfindable.length} routed view(s) cannot be found by name in Ctrl K:\n`)
+  for (const p of unfindable) console.error(`  ${p}`)
+  console.error("\nAdd each to PAGES in src/app/nav.ts (findOnly: true keeps it out of the sidebar)")
+  console.error("with a label, a purpose and keywords for the job it does.")
+  process.exit(1)
+}
+
+console.log(`routes: ${navPaths.length} sidebar destinations, all routed; every fixed route findable by name`)
 if (orphans.length) {
   console.log(`  (${orphans.length} routed but not in the sidebar: ${orphans.join(", ")})`)
 }

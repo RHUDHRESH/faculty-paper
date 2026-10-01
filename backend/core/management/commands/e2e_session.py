@@ -46,7 +46,7 @@ from django.contrib.sessions.models import Session
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from core.models import AttachmentKind, Claim, ClaimAttachment, ClaimStatus, Role, User
+from core.models import AttachmentKind, Claim, ClaimAttachment, ClaimStatus, PaidLedger, Role, User
 
 #: Every throwaway account lives under this domain and nothing else does.
 #: `.invalid` is reserved by RFC 2606 and can never be a deliverable address,
@@ -151,6 +151,11 @@ class Command(BaseCommand):
         # every screen refuses (`require_user` 403s it) and whose first sight
         # is a modal. Neither is what a test is looking at.
         user.must_change_password = False
+        # The first-sign-in welcome dialog opens over the page and takes the
+        # first click of every test. It has its own spec; no other spec is
+        # looking at it, so the fixture has already seen it.
+        if user.welcome_seen_at is None:
+            user.welcome_seen_at = timezone.now()
         user.is_staff = False
         user.is_superuser = False
         # Only the two roles whose screens are scoped to one department need
@@ -278,6 +283,12 @@ class Command(BaseCommand):
         ids = [u.id for u in users]
         claims = Claim.objects.filter(owner_id__in=ids)
         n_claims = claims.count()
+        # A payment row outlives its claim (the link is SET_NULL, so the money
+        # record is never lost), which is right for a real payment and wrong
+        # here: a fixture's payments left behind show up as ledger rows "with
+        # no claim" and add to every month's total in the next run.
+        PaidLedger.objects.filter(claim__in=claims).delete()
+        PaidLedger.objects.filter(claim__isnull=True, faculty_name__startswith="E2E ").delete()
         claims.delete()
         # Sessions carry the user id inside an encoded blob, so they are found
         # by decoding rather than by a column.

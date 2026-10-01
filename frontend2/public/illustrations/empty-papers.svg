@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-labelledby="t">
+  <title id="t">A shelf of papers assembling itself</title>
+  <!-- Convocation house set. CC0. -->
+  <rect x="40" y="176" width="240" height="1.5" fill="#c8d3f7"/>
+  <rect x="70" y="160" width="180" height="16" rx="3" fill="#dfe5f7"/>
+  <g>
+    <rect x="84" y="96" width="44" height="64" rx="4" fill="#ffffff" stroke="#c8d3f7" stroke-width="2"/>
+    <rect x="92" y="108" width="28" height="4" rx="2" fill="#2b398f"/>
+    <rect x="92" y="118" width="22" height="3" rx="1.5" fill="#c8d3f7"/>
+    <rect x="92" y="126" width="26" height="3" rx="1.5" fill="#c8d3f7"/>
+    <rect x="138" y="88" width="44" height="72" rx="4" fill="#ffffff" stroke="#c8d3f7" stroke-width="2"/>
+    <rect x="146" y="100" width="28" height="4" rx="2" fill="#2b398f"/>
+    <rect x="146" y="110" width="20" height="3" rx="1.5" fill="#c8d3f7"/>
+    <rect x="146" y="118" width="26" height="3" rx="1.5" fill="#c8d3f7"/>
+    <circle cx="170" cy="146" r="7" fill="#e0a82e"/>
+    <path d="M166.5 146 l2.5 2.5 4.5-5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- incoming sheet, dashed -->
+  <g transform="rotate(12 214 90)">
+    <rect x="192" y="52" width="44" height="64" rx="4" fill="#ffffff" stroke="#2b398f" stroke-width="2" stroke-dasharray="5 4"/>
+    <rect x="200" y="64" width="28" height="4" rx="2" fill="#c8d3f7"/>
+  </g>
+  <path d="M214 124 v22" stroke="#2b398f" stroke-width="2" stroke-linecap="round" stroke-dasharray="2 5"/>
+  <path d="M208 142 l6 6 6-6" fill="none" stroke="#2b398f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

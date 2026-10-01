@@ -218,7 +218,7 @@ class HealthCoversBothModels(TestCase):
             state = ai.health()
         self.assertTrue(state["fast_ready"])
 
-    @override_settings(AI_PROVIDER="openai")
+    @override_settings(AI_PROVIDER="olama")
     def test_an_unknown_provider_is_refused_on_both_tiers(self):
         state = ai.health()
         self.assertEqual(state["code"], "misconfigured")

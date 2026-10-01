@@ -109,6 +109,9 @@ def get_json(
     Raising is right here: the caller is always a source function running
     inside `fan_out`, whose job is to turn the exception into a named failure.
     """
+    canned = _canned(url)
+    if canned is not _MISS:
+        return canned
     merged = {"User-Agent": user_agent(), "Accept": "application/json"}
     merged.update(headers or {})
     with httpx.Client(
@@ -117,6 +120,32 @@ def get_json(
         response = client.get(url, params=params)
         response.raise_for_status()
         return response.json()
+
+
+def _canned(url: str) -> Any:
+    """Recorded answers for a browser test, never for a live system.
+
+    With DEBUG on and `E2E_UPSTREAM_FIXTURES` naming a JSON file of
+    ``{"<url substring>": <payload>}``, every outbound GET is looked up in
+    that file first. A URL the file does not know goes out as usual, so the
+    hook changes nothing for any other spec. The year-long scenario spec uses
+    it so a DOI pulls the same paper every run, network or not.
+    """
+    import json
+    import os
+
+    path = os.getenv("E2E_UPSTREAM_FIXTURES")
+    if not (path and settings.DEBUG):
+        return _MISS
+    try:
+        with open(path, encoding="utf-8") as fh:
+            table = json.load(fh)
+    except (OSError, ValueError):
+        return _MISS
+    for fragment, payload in table.items():
+        if fragment in url:
+            return payload
+    return _MISS
 
 
 def cache_key(*parts: Any) -> str:

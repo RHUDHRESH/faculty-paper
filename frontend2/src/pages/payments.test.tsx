@@ -76,7 +76,7 @@ describe("the payable queue", () => {
 
     // Wait for the account to load first: until it does the page draws its
     // own "not open to this account" alert, which is a different alert.
-    await screen.findByRole("button", { name: /refresh/i })
+    await screen.findByText("Could not load payments")
 
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent("Could not load payments")
@@ -97,7 +97,7 @@ describe("the payable queue", () => {
       })
     )
     const { container } = renderWithProviders(<Payments />)
-    await screen.findByRole("button", { name: "Pay" })
+    await screen.findAllByRole("button", { name: "Pay" })
 
     // The row's select checkbox and the refresh button are both icon-only or
     // glyph-led; an unnamed one is announced as "button" and nothing else.
@@ -137,10 +137,10 @@ describe("paying one claim", () => {
     )
     renderWithProviders(<Payments />)
 
-    await user.click(await screen.findByRole("button", { name: "Pay" }))
+    await user.click((await screen.findAllByRole("button", { name: "Pay" }))[0]!)
 
     const dialog = await screen.findByRole("dialog")
-    const confirm = within(dialog).getByRole("button", { name: "Pay — ₹52,377.50" })
+    const confirm = within(dialog).getByRole("button", { name: "Pay ₹52,377.50" })
 
     await user.click(confirm)
 
@@ -175,9 +175,9 @@ describe("paying one claim", () => {
     )
     renderWithProviders(<Payments />)
 
-    await user.click(await screen.findByRole("button", { name: "Pay" }))
+    await user.click((await screen.findAllByRole("button", { name: "Pay" }))[0]!)
     const dialog = await screen.findByRole("dialog")
-    await user.click(within(dialog).getByRole("button", { name: "Pay — ₹52,377.50" }))
+    await user.click(within(dialog).getByRole("button", { name: "Pay ₹52,377.50" }))
 
     await waitFor(() => expect(markPaidCalls()).toHaveLength(1))
     const [, options] = markPaidCalls()[0]
@@ -186,9 +186,127 @@ describe("paying one claim", () => {
       json: { expected_amount: 52_377.5 },
     })
   })
+
+  it("refuses a second payment in plain words and offers no second Pay", async () => {
+    const user = userEvent.setup()
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => FINANCE,
+        "/api/admin/payouts": () => payoutsPage([{ ...PAYABLE, payout_month: "2025-09" } as typeof PAYABLE]),
+        "/api/claims/claim-1/mark-paid": failing(400, "Invalid status — the claim must be authorised by the Director first"),
+      })
+    )
+    renderWithProviders(<Payments />)
+
+    expect((await screen.findAllByText(/Sept? 2025/))[0]).toBeTruthy()
+    await user.click((await screen.findAllByRole("button", { name: "Pay" }))[0]!)
+    const dialog = await screen.findByRole("dialog")
+    await user.click(within(dialog).getByRole("button", { name: "Pay ₹52,377.50" }))
+
+    expect(await within(dialog).findByText("Already paid")).toBeTruthy()
+    expect(within(dialog).queryByRole("button", { name: /^Pay ₹/ })).toBeNull()
+  })
+
+  it("never shows Finance a flag or a duplicate warning", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => FINANCE,
+        "/api/admin/payouts": () =>
+          payoutsPage([{ ...PAYABLE, needs_second_approval: true, duplicate_warning: true, override_duplicate: true, override_by_name: "X" } as unknown as typeof PAYABLE]),
+      })
+    )
+    renderWithProviders(<Payments />)
+    expect(await screen.findByText(/Needs a second approver/)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/flag|duplicate|warning|history/i)
+  })
 })
 
 /** Every call the component made to the one endpoint that moves money. */
 function markPaidCalls() {
   return vi.mocked(api).mock.calls.filter(([path]) => String(path).includes("mark-paid"))
 }
+
+/* ------------------------------------------------------------------------ */
+/* The audit: what the screen must say                                       */
+/* ------------------------------------------------------------------------ */
+
+describe("the payments desk says what it is doing", () => {
+  const RESEARCH = {
+    ...PAYABLE,
+    id: "claim-2",
+    ticket_number: "PUB-2025-0042",
+    remuneration: 7_600,
+    threshold_absorbed: 10_000,
+    threshold_full_amount: 17_600,
+    quota_applied: true,
+    ledger_paid: 0,
+  }
+  const HELD = { ...PAYABLE, id: "claim-3", ticket_number: "PUB-2025-0043", needs_second_approval: true }
+
+  function load(results: unknown[], extra: Record<string, () => unknown> = {}) {
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => FINANCE,
+        "/api/admin/payouts": () => payoutsPage(results as (typeof PAYABLE)[]),
+        ...extra,
+      })
+    )
+  }
+
+  it("shows the research threshold on the claim it reduces, in rupees", async () => {
+    load([PAYABLE, RESEARCH])
+    renderWithProviders(<Payments />)
+    expect(await screen.findByText(/of ₹17,600; ₹10,000 held back by the research threshold/)).toBeInTheDocument()
+    // and once, in a sentence, for the whole queue
+    expect(screen.getByText(/research threshold holds back ₹10,000 on 1 claim/)).toBeInTheDocument()
+  })
+
+  it("keeps a claim awaiting a second signature out of the payable list", async () => {
+    load([PAYABLE, HELD])
+    renderWithProviders(<Payments />)
+    expect(await screen.findByRole("heading", { name: "Ready to pay (1)" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Held up (1)" })).toBeInTheDocument()
+    // only the one ready claim can be paid
+    expect(screen.getAllByRole("button", { name: "Pay" })).toHaveLength(1)
+  })
+
+  it("names the duplicate-payment check before the button can be pressed", async () => {
+    const user = userEvent.setup()
+    load([{ ...PAYABLE, ledger_paid: 0 }])
+    renderWithProviders(<Payments />)
+    await user.click((await screen.findAllByRole("button", { name: "Pay" }))[0]!)
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByText(/Not paid before/)).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Pay ₹52,377.50" })).toBeEnabled()
+  })
+
+  it("refuses to pay a claim the ledger already holds", async () => {
+    const user = userEvent.setup()
+    load([{ ...PAYABLE, ledger_paid: 52_377.5 }])
+    renderWithProviders(<Payments />)
+    await user.click((await screen.findAllByRole("button", { name: "Pay" }))[0]!)
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByText(/Already paid: ₹52,377.50 is on the ledger/)).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Pay ₹52,377.50" })).toBeDisabled()
+  })
+
+  it("confirms a batch with counts and totals, then points at the bank file", async () => {
+    const user = userEvent.setup()
+    const B = { ...PAYABLE, id: "claim-9", ticket_number: "PUB-2025-0049", remuneration: 10_000, payout_month: "2025-09" }
+    load([{ ...PAYABLE, payout_month: "2025-09" }, B], {
+      "/api/admin/bulk-mark-paid": () => ({ paid: 2, paid_ids: ["claim-1", "claim-9"], skipped: [] }),
+    })
+    renderWithProviders(<Payments />)
+    await user.click(await screen.findByRole("button", { name: /Select all 2/ }))
+    await user.click(screen.getByRole("button", { name: "Pay 2 claims" }))
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByRole("heading", { name: "Pay 2 claims?" })).toBeInTheDocument()
+    expect(within(dialog).getByText("₹62,377.50", { selector: "dd" })).toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", { name: "Pay 2 claims, ₹62,377.50" }))
+    expect(await within(dialog).findByRole("link", { name: /Bank file/ })).toHaveAttribute(
+      "href",
+      "/api/payouts/statement.csv?month=2025-09"
+    )
+    expect(within(dialog).getByRole("heading", { name: "Paid 2 of 2" })).toBeInTheDocument()
+  })
+})

@@ -198,7 +198,11 @@ test.describe("A claim whose cited references carry no numbers", () => {
      * painted on top.
      */
     const after = await getClaim(faculty, claimA.claim!.id)
-    expect(after.status, "a refused claim was filed anyway").toBe("REJECTED")
+    // The owner is shown a stage, never the desk status (core/visibility.py).
+    expect(
+      (after as unknown as { faculty_stage?: string }).faculty_stage,
+      "a refused claim was filed anyway"
+    ).toBe("Sent back to you")
   })
 
   test("is still refused one reference short, and says how far short", async () => {
@@ -238,8 +242,8 @@ test.describe("A claim whose cited references carry no numbers", () => {
       `a fully evidenced claim was refused: ${await response.text().catch(() => "")}`
     ).toBe(200)
 
-    const filed = (await response.json()) as { status: string; remuneration: number | null }
-    expect(filed.status).toBe("SUBMITTED")
+    const filed = (await response.json()) as { faculty_stage?: string; remuneration: number | null }
+    expect(filed.faculty_stage).toBe("Under review")
     // Not ₹0 — which is the number this whole rule exists to stop a claimant
     // being surprised by, and would be what a claim that filed with its
     // references uncounted was worth.

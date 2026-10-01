@@ -1,18 +1,21 @@
 import { useEffect, useState } from "react"
-import { toast } from "sonner"
 
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
-import { Input } from "@/ui/field"
+import { Field, Input } from "@/ui/field"
+import { PageHeader } from "@/ui/page-header"
+import { Section } from "@/ui/section"
 import { ErrorState, SkeletonRows } from "@/ui/state"
-import { PageTitle, Sub } from "@/ui/text"
+import { toast } from "@/ui/toast"
+
+import { ChangeHistory } from "./admin-b-parts"
 
 /**
  * The institution's own facts, editable by the office.
  *
  * A college's name is data, not code: this screen is where a second college
  * makes the same build theirs, and where the first one corrects a spelling
- * without a redeploy. The fields are the whole whitelist — identity strings
+ * without a redeploy. The fields are the whole whitelist: identity strings
  * the interface shows people. Secrets stay in the environment and the payout
  * rules stay in the versioned policy, because neither belongs to a form.
  */
@@ -42,14 +45,12 @@ export function InstitutionSettings() {
 
   const save = useApiMutation<Institution, Institution>("/api/admin/settings", {
     method: "PUT",
-    invalidates: [["institution"], ["institution-admin"]],
+    invalidates: [["institution"], ["institution-admin"], ["history"]],
   })
 
   const dirty =
     !!data &&
-    (collegeName !== data.college_name ||
-      signInNote !== data.sign_in_note ||
-      supportEmail !== data.support_email)
+    (collegeName !== data.college_name || signInNote !== data.sign_in_note || supportEmail !== data.support_email)
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -60,18 +61,20 @@ export function InstitutionSettings() {
         support_email: supportEmail.trim(),
       },
       {
-        onSuccess: () => toast.success("Saved", { description: "The college's name is updated everywhere it is shown." }),
-        onError: (err) => toast.error("Could not save", { description: err.message }),
+        onSuccess: () => toast.ok("Saved. The college's details are updated everywhere they are shown."),
+        onError: (err) => toast.fail(err, "Could not save. Nothing was changed."),
       }
     )
   }
 
+  const header = (
+    <PageHeader title="Institution" sub="The college's name and contact details, as people see them." spot="spot-settings" />
+  )
+
   if (isLoading) {
     return (
-      <div className="page space-y-6">
-        <header>
-          <PageTitle>Institution</PageTitle>
-        </header>
+      <div className="page space-y-10">
+        {header}
         <SkeletonRows rows={4} rowHeight={64} />
       </div>
     )
@@ -79,10 +82,8 @@ export function InstitutionSettings() {
 
   if (isError) {
     return (
-      <div className="page space-y-6">
-        <header>
-          <PageTitle>Institution</PageTitle>
-        </header>
+      <div className="page space-y-10">
+        {header}
         {error?.status === 403 ? (
           <ErrorState
             art="closed-gate"
@@ -92,7 +93,7 @@ export function InstitutionSettings() {
         ) : (
           <ErrorState
             title="Could not load the settings"
-            message="The server did not answer. Nothing has been lost."
+            message="The server did not answer. Nothing has been lost. Try again."
             onRetry={() => refetch()}
           />
         )}
@@ -100,69 +101,59 @@ export function InstitutionSettings() {
     )
   }
 
+  const shownName = collegeName.trim() || "Your college"
+
   return (
-    <div className="page max-w-2xl space-y-6">
-      <header>
-        <PageTitle>Institution</PageTitle>
-        <Sub className="mt-1">
-          The name and contact details this installation shows people — on the
-          sign-in screen, in the sidebar, and in the sentences the filing form
-          uses to describe the affiliation rule.
-        </Sub>
-      </header>
+    <div className="page space-y-10">
+      {header}
 
-      <form onSubmit={onSubmit} className="space-y-5">
-        <label className="block space-y-1.5">
-          <span className="block text-sm font-medium">College name</span>
-          <Input
-            value={collegeName}
-            onChange={(e) => setCollegeName(e.target.value)}
-            required
-            minLength={2}
-            maxLength={200}
-            className="max-w-md"
-          />
-          <span className="block text-sm text-fg-muted">
-            Appears on the sign-in screen, the sidebar, and every export.
-          </span>
-        </label>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)]">
+        <form onSubmit={onSubmit} className="space-y-5">
+          <Field label="College name" hint="On the sign-in screen, in the sidebar and on every export.">
+            <Input
+              value={collegeName}
+              onChange={(e) => setCollegeName(e.target.value)}
+              required
+              minLength={2}
+              maxLength={200}
+            />
+          </Field>
+          <Field label="Sign-in note (optional)" hint="One sentence under the college name on the sign-in screen, for what everybody asks anyway.">
+            <Input
+              value={signInNote}
+              onChange={(e) => setSignInNote(e.target.value)}
+              maxLength={300}
+              placeholder="Passwords are issued by the research cell. Call ext. 214 to reset."
+            />
+          </Field>
+          <Field label="Support email (optional)" hint="Shown where the app says to ask the research cell.">
+            <Input
+              type="email"
+              value={supportEmail}
+              onChange={(e) => setSupportEmail(e.target.value)}
+              placeholder="researchcell@college.edu"
+            />
+          </Field>
+          <div className="flex items-center gap-3">
+            <Button type="submit" kind="primary" disabled={!dirty || save.isPending}>
+              {save.isPending ? "Saving" : "Save changes"}
+            </Button>
+            {dirty && <span className="text-sm text-fg-muted">Unsaved changes</span>}
+          </div>
+        </form>
 
-        <label className="block space-y-1.5">
-          <span className="block text-sm font-medium">Sign-in note (optional)</span>
-          <Input
-            value={signInNote}
-            onChange={(e) => setSignInNote(e.target.value)}
-            maxLength={300}
-            placeholder="e.g. Passwords are issued by the research cell — call ext. 214 to reset"
-            className="max-w-md"
-          />
-          <span className="block text-sm text-fg-muted">
-            One sentence under the college name on the sign-in screen, for what
-            everybody asks anyway.
-          </span>
-        </label>
+        <Section title="How it reads" sub="The sign-in screen, as it will look with what is typed on the left.">
+          <div className="rounded-panel bg-sunken p-6 text-center shadow-well">
+            <p className="display text-2xl">{shownName}</p>
+            {signInNote.trim() && <p className="mt-2 text-sm text-fg-muted">{signInNote.trim()}</p>}
+            <p className="mt-4 text-sm text-fg-muted">
+              {supportEmail.trim() ? `Need help? Write to ${supportEmail.trim()}.` : "No support email is set."}
+            </p>
+          </div>
+        </Section>
+      </div>
 
-        <label className="block space-y-1.5">
-          <span className="block text-sm font-medium">Support email (optional)</span>
-          <Input
-            type="email"
-            value={supportEmail}
-            onChange={(e) => setSupportEmail(e.target.value)}
-            placeholder="researchcell@college.edu"
-            className="max-w-md"
-          />
-          <span className="block text-sm text-fg-muted">
-            Shown where the app says to ask the research cell.
-          </span>
-        </label>
-
-        <div className="flex items-center gap-3">
-          <Button type="submit" kind="primary" disabled={!dirty || save.isPending}>
-            Save changes
-          </Button>
-          {dirty && <span className="text-sm text-fg-muted">Unsaved changes</span>}
-        </div>
-      </form>
+      <ChangeHistory entity="system_setting" id="institution" />
     </div>
   )
 }

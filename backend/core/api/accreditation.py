@@ -8,8 +8,8 @@ order and must not be casually reordered.
 from __future__ import annotations
 
 from core.api.common import api, session_auth
-from core.api.common import require_user
-from core.api.claims import _assign_quota_position, _claims_queryset
+from core.api.common import _refuse_own_claim, require_user
+from core.api.claims import _claims_queryset
 from core.api.journals import _issn_variants
 from core.api.dashboard import reports
 
@@ -123,6 +123,21 @@ def pack_rows(
     # have no ISSN" is the number somebody plans an afternoon around, and a
     # per-page count would understate it by two orders of magnitude.
     rows = [_pack_row(c, listed_for(c)) for c in claims]
+    for row in rows:
+        row["source"] = "claim"
+    # Papers on the publication record that nobody claimed are still papers
+    # the college published; NAAC asks for every one of them.
+    if rbac.can_view_college_wide(user.role):
+        from core.services.reporting_pack import record_only_publications
+
+        for r in record_only_publications(year=year, q=q):
+            listed = "Not checked"
+            if have_ugc:
+                hit = next((ugc[v] for v in _issn_variants(r["issn"]) if v in ugc), None)
+                listed = "Yes" if hit else "No"
+            r.update({"ticket_number": None, "scopus_url": "", "ugc_care": listed, "source": "record"})
+            r["gaps"] = [label for field, label in PACK_REQUIRED.items() if not r.get(field)]
+            rows.append(r)
     gap_counts: dict[str, int] = {}
     for row in rows:
         for gap in row["gaps"]:
@@ -194,6 +209,8 @@ def pack_row_edit(request: HttpRequest, claim_id: str, payload: PackRowEditIn):
         raise HttpError(400, "Say why this is being changed.")
 
     claim = get_object_or_404(_claims_queryset(user), pk=claim_id)
+    # Nobody corrects the record of their own paper, from any screen.
+    _refuse_own_claim(user, claim)
     before = getattr(claim, field, None)
     value: Any = (payload.value or "").strip() or None
 
@@ -209,18 +226,8 @@ def pack_row_edit(request: HttpRequest, claim_id: str, payload: PackRowEditIn):
     if field == "doi" and value is not None:
         value = normalize_doi(value)
 
-    # A slot belongs to the year that issued it, so `Claim.save` drops it when
-    # the year is corrected. Nothing then handed the paper one in its new
-    # year: `_assign_quota_position` runs at submission and this paper was
-    # submitted long ago, so it sat in the new year unnumbered, counting
-    # against nobody's quota and taking a slot from nobody. Only a paper that
-    # actually held one gets a new one -- a draft still consumes no allowance.
-    held_a_slot = field == "publication_year" and claim.quota_position is not None
-
     setattr(claim, field, value)
     claim.save(update_fields=[field, "updated_at"])
-    if held_a_slot and claim.quota_position is None:
-        _assign_quota_position(claim)
 
     ClaimAction.objects.create(
         claim=claim, actor=user, action="PACK_CORRECT",

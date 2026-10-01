@@ -1,0 +1,181 @@
+"""Is "R. Subhashini" the same person as "Subhashini Ramesh"?
+
+Indian names reach us in every order and every degree of abbreviation: the
+roster says "Ms. S.S. Kiruthika", OpenAlex says "Kiruthika S S", a journal
+says "Kiruthika Sundaram". A name is reduced to its *full* tokens (two or more
+letters) and its *initials*, and two names are compared as follows:
+
+- they must share at least one full token (a given name);
+- every remaining full token on one side must be explained by an initial on
+  the other ("Ramesh" by "R.");
+- what is left over after that is *extra* detail. Extra detail on one side
+  only is missing information ("S. Joyal Isac" / "Joyal Isac": 0.85; a whole
+  missing name, "V. Sai Muthukumar" / "V. Muthukumar", 0.8). Extra
+  detail on both sides is a contradiction ("R. Subhashini" / "K. Subhashini":
+  0) -- two different people.
+
+A score is a similarity, not a decision. The matcher decides, and it only
+decides when exactly one person in the college scores highest.
+"""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+
+TITLES = frozenset({"dr", "mr", "mrs", "ms", "miss", "prof", "professor", "er", "sri", "smt", "thiru", "selvi"})
+#: Honorifics that are also given names. "Selvi" is Miss in Tamil and also the
+#: whole name of Dr. M. Selvi; it is dropped only when another name word
+#: remains, or "M. Selvi" has no name at all and can never be matched (real
+#: data: 28 papers stranded on the author-matches screen).
+NAME_OR_TITLE = frozenset({"selvi", "sri", "thiru"})
+
+
+def _ascii(value: str) -> str:
+    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+
+
+def name_parts(name: str | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(full tokens, initials), lower-case, titles dropped, order kept."""
+    raw = _ascii(name or "")
+    all_caps = raw.upper() == raw
+    full: list[str] = []
+    initials: list[str] = []
+    held: list[str] = []
+    for chunk in re.split(r"[\s.,_\-]+", raw):
+        token = re.sub(r"[^A-Za-z]", "", chunk)
+        if not token:
+            continue
+        low = token.lower()
+        if low in TITLES:
+            if low in NAME_OR_TITLE:
+                held.append(low)
+            continue
+        if len(token) == 1:
+            initials.append(low)
+        elif len(token) <= 3 and token.isupper() and not all_caps:
+            # "Gowri Ganesh NS": glued initials.
+            initials.extend(low)
+        else:
+            full.append(low)
+    if not full and held:
+        full = held
+    return tuple(full), tuple(initials)
+
+
+def name_key(name: str | None) -> str:
+    """A stable key for a name that is not anybody we know: sorted parts."""
+    full, initials = name_parts(name)
+    return " ".join(sorted(full) + sorted(initials))
+
+
+def _one_edit(x: str, y: str) -> bool:
+    """Same long name spelt one letter apart ("Subhashini" / "Subashini")."""
+    if min(len(x), len(y)) < 6 or abs(len(x) - len(y)) > 1 or x[0] != y[0]:
+        return False
+    if len(x) == len(y):
+        return sum(p != q for p, q in zip(x, y)) == 1
+    if len(x) > len(y):
+        x, y = y, x
+    return any(y[:i] + y[i + 1:] == x for i in range(len(y)))
+
+
+def name_score(a: str | None, b: str | None) -> float:
+    fa, ia = name_parts(a)
+    fb, ib = name_parts(b)
+    if not fa or not fb:
+        return 0.0
+    # A one-letter spelling difference on a long token counts as the same
+    # token, a little weaker than an exact match.
+    fuzz = 0.0
+    if not set(fa) & set(fb):
+        spelt = {t: s for t in fb for s in fa if _one_edit(s, t)}
+        if spelt:
+            fb = tuple(spelt.get(t, t) for t in fb)
+            fuzz = 0.05
+    score = _score(fa, ia, fb, ib)
+    return round(score - fuzz, 4) if score > 0 else 0.0
+
+
+def _score(fa: tuple[str, ...], ia: tuple[str, ...], fb: tuple[str, ...], ib: tuple[str, ...]) -> float:
+    if "".join(fa) == "".join(fb) and (fa != fb):
+        # "Joyalisac" / "Joyal Isac" -- unless their initials disagree
+        # ("Kamaladevi R" / "K. Kamala Devi").
+        if ia and ib and not set(ia) & set(ib):
+            return 0.0
+        return 0.9
+    common = set(fa) & set(fb)
+    if not common:
+        return 0.0
+    rest_a = [t for t in fa if t not in common]
+    rest_b = [t for t in fb if t not in common]
+    ia_left = list(ia)
+    ib_left = list(ib)
+    expanded = False
+    expanded_b = False
+    left_a: list[str] = []
+    for token in rest_a:
+        if token[0] in ib_left:
+            ib_left.remove(token[0])
+            expanded = True
+        else:
+            left_a.append(token)
+    left_b: list[str] = []
+    for token in rest_b:
+        if token[0] in ia_left:
+            ia_left.remove(token[0])
+            expanded_b = True
+        else:
+            left_b.append(token)
+    # Initials that match each other.
+    for letter in list(ia_left):
+        if letter in ib_left:
+            ia_left.remove(letter)
+            ib_left.remove(letter)
+    # An initial may abbreviate a shared token ("J. Isac" / "Joyal Isac").
+    extra_a = left_a + [x for x in ia_left if x not in {t[0] for t in fb}]
+    extra_b = left_b + [x for x in ib_left if x not in {t[0] for t in fa}]
+    if extra_a and extra_b:
+        return 0.0
+    extra = len(extra_a) + len(extra_b)
+    if extra:
+        # A missing initial is routine; a whole missing name ("V. Sai
+        # Muthukumar" / "V. Muthukumar") is weaker evidence, below the bar
+        # the name matcher acts on by itself.
+        whole = sum(1 for x in extra_a + extra_b if len(x) > 1)
+        return max(0.85 - 0.05 * (extra - 1) - (0.05 if whole else 0), 0.7)
+    if expanded and expanded_b:
+        # Each side's name explained only by the other's initial: "R. Monish
+        # Kumar" / "Rakesh Kumar M" share nothing but "Kumar". Too weak alone.
+        return 0.8
+    return 0.92 if (expanded or expanded_b) else 1.0
+
+
+#: Department codes on the roster, and words a raw affiliation uses for them.
+DEPARTMENT_WORDS: dict[str, tuple[str, ...]] = {
+    "EEE": ("electrical and electronics", "electrical & electronics", "eee"),
+    "ECE": ("electronics and communication", "electronics & communication", "ece"),
+    "EIE": ("electronics and instrumentation", "instrumentation"),
+    "CSE": ("computer science",),
+    "CSE - CS": ("cyber security", "cybersecurity"),
+    "CSE - IoT": ("internet of things", "iot"),
+    "IT": ("information technology",),
+    "AI&DS": ("artificial intelligence and data science", "data science"),
+    "AI&ML": ("artificial intelligence and machine learning", "machine learning"),
+    "MECH": ("mechanical",),
+    "CIVIL": ("civil",),
+    "CHEMICAL": ("chemical engineering",),
+    "BME": ("biomedical", "bio medical", "bio-medical"),
+    "MBA": ("management studies", "business administration", "mba"),
+    "AGRI": ("agricultur",),
+    "MED": ("medical electronics",),
+    "S&H-CHY": ("chemistry",),
+    "S&H-PHY": ("physics",),
+    "S&H-MATHS": ("mathematics", "maths"),
+    "S&H-ENGLISH": ("english",),
+}
+
+
+def departments_in(affiliation: str | None) -> set[str]:
+    text = (affiliation or "").lower()
+    return {code for code, words in DEPARTMENT_WORDS.items() if any(w in text for w in words)}

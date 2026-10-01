@@ -5,6 +5,8 @@ import { Coins, Pencil, Plus } from "lucide-react"
 import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
+import { BudgetBurn, type FinancialYear } from "@/pages/statements"
+import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
@@ -21,7 +23,10 @@ import { Field, Input, NumberInput } from "@/ui/field"
 import { money } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
-import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
+import { PageHeader } from "@/ui/page-header"
+import { Details } from "@/ui/section"
+import { Ago } from "@/ui/when"
 import { toast } from "@/ui/toast"
 
 /**
@@ -168,40 +173,27 @@ export function Budget() {
 
   return (
     <div className="page space-y-8">
-      <header className="space-y-4">
-        <div>
-          <PageTitle>Budget</PageTitle>
-          <Sub className="mt-1">
-            What the scheme was allocated this year, what has gone out, and what is already
-            owed but not yet paid.
-          </Sub>
-        </div>
-
-        {/* Outside the loading and error branches on purpose: a reader who
-            has landed on a year that will not load still needs a way off it,
-            and a retry button on its own cannot get them there. */}
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="Financial year" className="w-44 shrink-0">
-            <Combobox
-              value={fy}
-              onChange={selectYear}
-              options={yearOptions}
-              searchPlaceholder="Type a year…"
-            />
-          </Field>
-          {mayEdit && (
-            <Button
-              kind="primary"
-              size="md"
-              onClick={() => setAdding(true)}
-              className="w-full sm:w-auto"
-            >
-              <Plus />
-              Set an allocation
-            </Button>
-          )}
-        </div>
-      </header>
+      <PageHeader
+        title="Budget"
+        sub="Is the scheme within its allocation? What was allocated, what has gone out, and what is already owed but not yet paid."
+        spot="spot-budget"
+        action={
+          /* Outside the loading and error branches on purpose: a reader who
+             has landed on a year that will not load still needs a way off it,
+             and a retry button on its own cannot get them there. */
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Financial year" className="w-44 shrink-0">
+              <Combobox value={fy} onChange={selectYear} options={yearOptions} searchPlaceholder="Type a year" />
+            </Field>
+            {mayEdit && (
+              <Button kind="primary" size="md" onClick={() => setAdding(true)}>
+                <Plus aria-hidden />
+                Set an allocation
+              </Button>
+            )}
+          </div>
+        }
+      />
 
       {isLoading ? (
         <BudgetSkeleton />
@@ -213,7 +205,7 @@ export function Budget() {
               ? "Not allowed. Finance, the Principal and the research cell can read this."
               : "The server did not answer, so every figure below is unknown rather than zero. No allocation has been changed."
           }
-          onRetry={error?.status === 403 ? undefined : () => void refetch()}
+          onRetry={error?.status === 403 ? false : () => void refetch()}
         />
       ) : !data ? (
         // Deliberately an error and not an empty state. Nothing has been
@@ -221,7 +213,7 @@ export function Budget() {
         // is a claim the page has no evidence for.
         <ErrorState
           title={`Nothing came back for FY ${fy}`}
-          message="The request finished without any figures. Try again — no allocation has been changed."
+          message="The request finished without any figures. Try again. No allocation has been changed."
           onRetry={() => void refetch()}
         />
       ) : (
@@ -234,6 +226,8 @@ export function Budget() {
             mayEdit={mayEdit}
             onEdit={openEdit}
           />
+
+          <FyBurn fy={data.financial_year} />
 
           <section className="space-y-3">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -276,6 +270,8 @@ export function Budget() {
               </>
             )}
           </section>
+
+          <BudgetHistory />
         </>
       )}
 
@@ -300,6 +296,49 @@ export function Budget() {
         </>
       )}
     </div>
+  )
+}
+
+type BudgetEntry = {
+  id: string
+  created_at: string
+  who?: { user_id: string; name: string } | null
+  what?: string
+  context?: string | null
+  changes?: { label: string; from: string; to: string }[]
+  reason?: string | null
+}
+
+/** Who set or removed which allocation, from what to what. Below the fold:
+ *  it answers "who changed this figure?", which is asked rarely. */
+function BudgetHistory() {
+  const { data } = useApi<{ results: BudgetEntry[]; total: number }>(
+    ["audit", "budget"],
+    "/api/admin/audit?action=BUDGET&limit=20"
+  )
+  if (!data || data.results.length === 0) return null
+  return (
+    <Details label="who changed an allocation" count={data.total}>
+      <ul className="divide-y divide-line">
+        {data.results.map((e) => (
+          <li key={e.id} className="py-2.5 text-sm">
+            <p>
+              <span className="font-medium">{e.who?.name ?? "The system"}</span> {e.what ?? "changed an allocation"}
+              {e.context ? `: ${e.context}` : ""}
+              <Meta className="ml-2">
+                <Ago iso={e.created_at} />
+              </Meta>
+            </p>
+            {(e.changes ?? []).map((c) => (
+              <p key={c.label} className="mt-0.5 text-fg-muted">
+                {c.label}: <span className="line-through">{c.from}</span> to <span className="font-medium text-fg">{c.to}</span>
+              </p>
+            ))}
+            {e.reason && <p className="mt-0.5 text-fg-muted">Reason given: {e.reason}</p>}
+          </li>
+        ))}
+      </ul>
+    </Details>
   )
 }
 
@@ -356,21 +395,18 @@ function CollegePosition({
         </Meta>
       </div>
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-4">
-        <Figure label="Allocated" value={slice.allocated} muted={slice.allocated === null} />
-        <Figure label="Paid out" value={slice.spent} />
-        <Figure
-          label="Committed"
-          value={slice.committed}
-          hint="Approved, not yet paid — the college owes this"
-        />
-        <Figure
-          label={over ? "Over by" : "Left"}
-          value={slice.remaining === null ? null : Math.abs(slice.remaining)}
-          tone={over ? "critical" : slice.remaining === null ? undefined : "positive"}
-          muted={slice.remaining === null}
-        />
-      </div>
+      <Answer
+        items={[
+          { label: "Allocated for the year", value: slice.allocated === null ? "Not set" : money(slice.allocated) },
+          { label: "Paid out", value: money(slice.spent), to: "/ledger" },
+          { label: "Committed: approved, not yet paid, so the college owes it", value: money(slice.committed) },
+          {
+            label: over ? "Over the allocation by" : "Left in the allocation",
+            value: slice.remaining === null ? "Not set" : money(Math.abs(slice.remaining)),
+            tone: over ? "critical" : slice.remaining === null ? "neutral" : "positive",
+          },
+        ]}
+      />
 
       <UsedBar slice={slice} />
 
@@ -379,7 +415,7 @@ function CollegePosition({
       {slice.allocated === null && (
         <Callout tone="caution" title="No allocation is set for this year">
           Without one there is no ceiling to measure against, so nothing here can say whether
-          the college is within budget — only what it has spent and what it owes.
+          the college is within budget. It shows only what it has spent and what it owes.
         </Callout>
       )}
 
@@ -406,37 +442,6 @@ function CollegePosition({
         </Button>
       )}
     </section>
-  )
-}
-
-function Figure({
-  label,
-  value,
-  hint,
-  tone,
-  muted,
-}: {
-  label: string
-  value: number | null
-  hint?: string
-  tone?: "positive" | "critical"
-  muted?: boolean
-}) {
-  return (
-    <div>
-      <ColumnLabel className="block">{label}</ColumnLabel>
-      <p
-        className={cn(
-          "mt-1 text-xl font-semibold tabular sm:text-2xl",
-          tone === "positive" && "text-positive",
-          tone === "critical" && "text-critical",
-          muted && "text-fg-subtle"
-        )}
-      >
-        {value === null ? "Not set" : money(value)}
-      </p>
-      {hint && <Meta className="mt-0.5 block text-xs">{hint}</Meta>}
-    </div>
   )
 }
 
@@ -618,7 +623,7 @@ function DepartmentTable({
 
 function MoneyCell({
   value,
-  placeholder = "—",
+  placeholder = "None",
   strong,
 }: {
   value: number | null
@@ -644,7 +649,7 @@ function RemainingCell({ slice, strong }: { slice: BudgetSlice; strong?: boolean
       )}
     >
       {slice.remaining === null ? (
-        <Meta>—</Meta>
+        <Meta>Not set</Meta>
       ) : over ? (
         `over ${money(Math.abs(slice.remaining))}`
       ) : (
@@ -761,9 +766,10 @@ function DepartmentCard({
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
         <CardFigure term="Allocated" value={slice.allocated} placeholder="Not set" />
         <CardFigure term="Paid" value={slice.spent} />
-        <CardFigure term="Committed" value={slice.committed > 0 ? slice.committed : null} />
+        <CardFigure term="Committed" value={slice.committed > 0 ? slice.committed : null} placeholder="None" />
         <CardFigure
           term={over ? "Over by" : "Left"}
+          placeholder="Not set"
           value={slice.remaining === null ? null : Math.abs(slice.remaining)}
           tone={over ? "critical" : slice.remaining === null ? undefined : "positive"}
         />
@@ -781,7 +787,7 @@ function DepartmentCard({
 function CardFigure({
   term,
   value,
-  placeholder = "—",
+  placeholder = "None",
   tone,
 }: {
   term: string
@@ -865,7 +871,7 @@ function AllocationDialog({
     {
       value: "",
       label: "The college as a whole",
-      hint: collegeAllocated && !slice ? "already allocated — this replaces it" : undefined,
+      hint: collegeAllocated && !slice ? "already allocated, and this replaces it" : undefined,
     },
     ...(departmentsQuery.data || []).map((d) => ({
       value: d,
@@ -897,7 +903,7 @@ function AllocationDialog({
         note: note.trim() || undefined,
       })
       toast.ok(
-        `${result.created ? "Allocated" : "Updated"} — ${money(parsed)} to ${target} for FY ${fy}`
+        `${result.created ? "Allocated" : "Updated"}: ${money(parsed)} to ${target} for FY ${fy}`
       )
       onOpenChange(false)
     } catch (err) {
@@ -908,7 +914,7 @@ function AllocationDialog({
   async function deleteAllocation() {
     try {
       await remove.mutateAsync(undefined as never)
-      toast.ok(`Allocation removed — ${target} has no ceiling for FY ${fy}`)
+      toast.ok(`Allocation removed. ${target} has no ceiling for FY ${fy}`)
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)
@@ -956,7 +962,7 @@ function AllocationDialog({
               />
             </Field>
 
-            <Field label="Note" hint="Optional — where the figure came from, or what it covers.">
+            <Field label="Note" hint="Optional. Where the figure came from, or what it covers.">
               <Input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
@@ -1007,7 +1013,7 @@ function AllocationDialog({
         // Said plainly, because "delete the budget" sounds like it deletes
         // the spending. It does not: it removes the ceiling, and every
         // figure measured against that ceiling stops having an answer.
-        description={`This removes the ceiling, not the spending. Nothing that has been paid or committed changes — but ${target} will have no allocation to measure against for FY ${fy}, so "left" goes blank rather than to zero.`}
+        description={`${slice ? `The ${money(slice.allocated ?? 0)} allocation is removed. ` : ""}This removes the ceiling, not the spending. Nothing that has been paid or committed changes${slice ? ` (${money(slice.spent)} paid, ${money(slice.committed)} committed)` : ""}, but ${target} will have no allocation to measure against for FY ${fy}, so "left" goes blank rather than to zero.`}
         confirmLabel="Remove the allocation"
         onConfirm={deleteAllocation}
       />
@@ -1039,4 +1045,13 @@ function formatDay(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+}
+
+/** Month by month spend against the allocation, from the ledger. */
+function FyBurn({ fy }: { fy: string }) {
+  const burn = useApi<FinancialYear>(
+    ["payouts", "fy", fy],
+    `/api/payouts/financial-year?financial_year=${encodeURIComponent(fy)}`
+  )
+  return burn.data ? <BudgetBurn fy={burn.data} /> : null
 }

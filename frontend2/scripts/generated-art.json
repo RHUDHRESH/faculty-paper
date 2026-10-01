@@ -1,0 +1,1600 @@
+{
+  "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
+  "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
+  "variants": {
+    "sheet": "Sheet variant: background perfectly flat and untextured so items can be cut out; 3 columns x 2 rows, each item centred in its cell with wide empty gaps, no borders or dividers; every item in the same style.",
+    "hero": "Format: wide 16:9 illustration, composition weighted to the right with calm empty space on the left for a headline or card, flat untextured background.",
+    "icon": "Icon style (replaces the illustration style block): flat single-colour icon set, 2 colours max (charcoal #2B2B2B + clay #C96A4A accent), thick even strokes, rounded ends, plain flat white background, no texture, no text — suitable for vector tracing; 4 columns x 3 rows."
+  },
+  "processing": {
+    "sheet": "Split on the grid; background flood-filled from the border (pale low-chroma pixels only, so enclosed cream fills stay opaque); 5x5 darkest-neighbour colour on soft edges (no pale fringe in dark mode); cropped with 16px pad; PNG (quantised) + WebP at max 640px, both <=150 KB; SVG via vtracer (colour, spline, hard alpha) + svgo --multipass. Enclosed openings (e.g. gear holes) keep the canvas cream, so in dark mode place these on a light plate (same rule as the older illustrations).",
+    "hero": "Background kept (flat ~#F3EEE6, matches the canvas); WebP + quantised PNG at max 1600px, both <=150 KB; no SVG (too detailed to trace well).",
+    "icon": "Colour-to-alpha against the white background everywhere (interiors become transparent); 256px PNG/WebP; SVG via vtracer + svgo with the charcoal ink rewritten to currentColor (clay accent kept). currentColor only themes when the SVG is inlined or used as a CSS mask; as a plain <img> the ink renders black."
+  },
+  "sheets": [
+    {
+      "id": "sheet01",
+      "raw": "sheet01_empty_states.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Subjects (empty states, each a small scene with one gentle focal object): (1) an open empty folder with one blank sheet drifting out — 'no papers yet'; (2) an empty review tray with a small tick and a cup of tea beside it — 'nothing to review'; (3) a single quiet speech bubble with a tiny leaf sprouting from it — 'no messages'; (4) a magnifying glass over an empty dotted area — 'no results'; (5) a blank desk calendar page with a small sun beside it — 'calendar empty'; (6) a paper airplane landed beside a dashed path that stops abruptly — 'page not found'.",
+      "assets": [
+        {
+          "name": "empty-no-papers",
+          "category": "empty-state",
+          "purpose": "No papers filed yet",
+          "page": "My papers (empty)"
+        },
+        {
+          "name": "empty-nothing-to-review",
+          "category": "empty-state",
+          "purpose": "Review queue is clear",
+          "page": "Clearing / approvals (empty queue)"
+        },
+        {
+          "name": "empty-no-messages",
+          "category": "empty-state",
+          "purpose": "No messages or no thread selected",
+          "page": "Messages"
+        },
+        {
+          "name": "empty-no-results",
+          "category": "empty-state",
+          "purpose": "Search returned nothing",
+          "page": "Search, Discover, People"
+        },
+        {
+          "name": "empty-calendar",
+          "category": "empty-state",
+          "purpose": "No events or deadlines",
+          "page": "Calendar"
+        },
+        {
+          "name": "not-found-404",
+          "category": "error-state",
+          "purpose": "Page not found",
+          "page": "404 route"
+        }
+      ]
+    },
+    {
+      "id": "sheet02",
+      "raw": "sheet02_filing_leaderboard_discover_collab.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Subjects: (1) a hand-drawn index-card drawer with one card being lifted out and a small check — 'pick from an indexed database'; (2) a clipboard with a small chain-link symbol and a paper slip being pasted onto it — 'paste a DOI link'; (3) a fountain pen writing lines on a sheet with a small keyboard beside it — 'type details by hand'; (4) a simple three-step podium with a laurel wreath and a small star above — 'leaderboard and honours'; (5) an open notebook with a glowing lightbulb and small constellation dots rising from the pages — 'discover research ideas'; (6) two abstract figures (no faces) jointly placing puzzle pieces into a shared open book — 'collaboration'.",
+      "assets": [
+        {
+          "name": "file-from-index",
+          "category": "filing-method",
+          "purpose": "Filing option: pick the paper from the Scopus/indexed list",
+          "page": "File a paper (method tile 1)"
+        },
+        {
+          "name": "file-paste-doi",
+          "category": "filing-method",
+          "purpose": "Filing option: paste a DOI",
+          "page": "File a paper (method tile 2)"
+        },
+        {
+          "name": "file-by-hand",
+          "category": "filing-method",
+          "purpose": "Filing option: type the details by hand",
+          "page": "File a paper (method tile 3)"
+        },
+        {
+          "name": "leaderboard-honours",
+          "category": "page-spot",
+          "purpose": "Leaderboard / honours header",
+          "page": "Leaderboard, Wall of fame"
+        },
+        {
+          "name": "discover-ideas",
+          "category": "page-spot",
+          "purpose": "Discover / research ideas",
+          "page": "Discover, For you"
+        },
+        {
+          "name": "collaboration",
+          "category": "page-spot",
+          "purpose": "Collaboration / people working together",
+          "page": "Who to work with, Collaborate"
+        }
+      ]
+    },
+    {
+      "id": "hero01",
+      "raw": "hero01_research_scout.png",
+      "date": "2026-09-28",
+      "variant": "hero",
+      "subject": "Format: wide 16:9 page-header illustration, composition weighted to the right with calm empty space on the left for a headline, flat untextured background. Subject: 'research scout' — a small friendly paper-kite drone (abstract, no face) gliding over a gentle landscape made of stacked journals and open books, a dotted flight path linking small glowing idea points and a telescope on a hill; conveys an assistant that scouts the literature and brings back promising leads.",
+      "assets": [
+        {
+          "name": "hero-research-scout",
+          "category": "hero",
+          "purpose": "Research scout page header",
+          "page": "Research scout"
+        }
+      ]
+    },
+    {
+      "id": "hero02",
+      "raw": "hero02_signin_1.png, hero02_signin_2.png",
+      "date": "2026-09-28",
+      "variant": "hero",
+      "subject": "Format: wide 16:9 hero illustration for a sign-in page, composition weighted to the right with calm empty space on the left for a sign-in card, flat untextured background. Subject: a quiet, welcoming college library reading-room at golden hour seen as a simple stylised scene — tall arched window with warm light, a long wooden table with an open journal, a desk lamp, a small potted plant and a neat stack of bound research volumes; a gentle sense of arriving at one's scholarly home. No people.",
+      "note": "ChatGPT returned an A/B pair; both kept. More painterly/detailed than the line style.",
+      "assets": [
+        {
+          "name": "hero-sign-in",
+          "category": "hero",
+          "purpose": "Sign-in page scene (primary)",
+          "page": "Sign in"
+        },
+        {
+          "name": "hero-sign-in-alt",
+          "category": "hero",
+          "purpose": "Sign-in page scene (alternate)",
+          "page": "Sign in / Setup"
+        }
+      ]
+    },
+    {
+      "id": "sheet03",
+      "raw": "sheet03_page_spots_a.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Page-header spot illustrations, each a small still-life with one focal object: (1) a tidy faculty desk seen from the front — open journal, mug, small plant, desk lamp — 'faculty home'; (2) a small college building with a gentle bar-chart garden of growing plants in front — 'head of department overview'; (3) a calm control desk with a ledger, a ring of keys and a small bell — 'administration home'; (4) a magnifying glass resting on an open card-catalogue drawer — 'search'; (5) a neat stack of bound papers tied with a ribbon bookmark and a sprouting plant — 'my papers'; (6) a microscope beside an open notebook with a rising line graph — 'my research'.",
+      "assets": [
+        {
+          "name": "spot-home-faculty",
+          "category": "page-spot",
+          "purpose": "Faculty home header",
+          "page": "Home (faculty)"
+        },
+        {
+          "name": "spot-home-hod",
+          "category": "page-spot",
+          "purpose": "Head of department home header",
+          "page": "Home (HoD)"
+        },
+        {
+          "name": "spot-home-admin",
+          "category": "page-spot",
+          "purpose": "Administration home header",
+          "page": "Home (admin / office)"
+        },
+        {
+          "name": "spot-search",
+          "category": "page-spot",
+          "purpose": "Search header",
+          "page": "Search"
+        },
+        {
+          "name": "spot-my-papers",
+          "category": "page-spot",
+          "purpose": "My papers header",
+          "page": "My papers"
+        },
+        {
+          "name": "spot-my-research",
+          "category": "page-spot",
+          "purpose": "My research header",
+          "page": "My research"
+        }
+      ],
+      "note": "Drifted more detailed/painterly than sheets 01-02 (same chat as the library hero); raster only (traces >80 KB)."
+    },
+    {
+      "id": "sheet04",
+      "raw": "sheet04_page_spots_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Page-header spot illustrations, each a small still-life with one focal object: (1) two empty chairs pulled up to a small round table with one shared open notebook and two pens — 'who to work with'; (2) an identity card with an abstract faceless portrait silhouette and a small laurel sprig — 'profile'; (3) two overlapping speech bubbles beside a sealed envelope — 'messages'; (4) a round table seen from above with several small speech bubbles rising from it — 'discussions'; (5) a gallery wall of three simple frames holding a medal, a ribbon and a star — 'wall of fame'; (6) a wall calendar with one date circled and a small flag pin — 'calendar and deadlines'.",
+      "assets": [
+        {
+          "name": "spot-who-to-work-with",
+          "category": "page-spot",
+          "purpose": "Who to work with header",
+          "page": "Who to work with"
+        },
+        {
+          "name": "spot-profile",
+          "category": "page-spot",
+          "purpose": "Profile header",
+          "page": "Profiles"
+        },
+        {
+          "name": "spot-messages",
+          "category": "page-spot",
+          "purpose": "Messages header",
+          "page": "Messages"
+        },
+        {
+          "name": "spot-discussions",
+          "category": "page-spot",
+          "purpose": "Discussions header",
+          "page": "Discussions"
+        },
+        {
+          "name": "spot-wall-of-fame",
+          "category": "page-spot",
+          "purpose": "Wall of fame header",
+          "page": "Wall of fame"
+        },
+        {
+          "name": "spot-calendar",
+          "category": "page-spot",
+          "purpose": "Calendar header",
+          "page": "Calendar"
+        }
+      ]
+    },
+    {
+      "id": "sheet05",
+      "raw": "sheet05_page_spots_c.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Keep each item simple and minimal — few details, clear dark outlines, flat fills, no shading, no gradients, no paper texture. Page-header spot illustrations, one focal object each: (1) a small desk bell with a tiny leaf and two soft chime lines — 'notifications'; (2) two interlocking gears with a small potted sprout between them — 'settings'; (3) a rubber stamp resting beside a document with a tick mark — 'clearing and approvals'; (4) an old brass key lying across a signed document with a wax seal — 'authorisations'; (5) a sealed envelope with a plain round coin and a folded receipt, no currency symbols — 'payouts and payments'; (6) a row of four simple abstract faceless figures of different heights in palette colours — 'people directory'.",
+      "assets": [
+        {
+          "name": "spot-notifications",
+          "category": "page-spot",
+          "purpose": "Notifications header",
+          "page": "Notifications"
+        },
+        {
+          "name": "spot-settings",
+          "category": "page-spot",
+          "purpose": "Settings header",
+          "page": "Settings"
+        },
+        {
+          "name": "spot-approvals",
+          "category": "page-spot",
+          "purpose": "Clearing / approvals header",
+          "page": "Clearing, Approvals"
+        },
+        {
+          "name": "spot-authorisations",
+          "category": "page-spot",
+          "purpose": "Authorisations header",
+          "page": "Authorisations"
+        },
+        {
+          "name": "spot-payouts",
+          "category": "page-spot",
+          "purpose": "Payouts / payments header",
+          "page": "Payments, Payouts"
+        },
+        {
+          "name": "spot-people",
+          "category": "page-spot",
+          "purpose": "People directory header",
+          "page": "People"
+        }
+      ]
+    },
+    {
+      "id": "sheet06",
+      "raw": "sheet06_page_spots_d.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Keep each item simple and minimal (same clause as sheet05). Page-header spot illustrations, one focal object each: (1) an open cardboard box with sheets of paper flowing into it along a curved arrow — 'imports'; (2) a small pennant flag planted on the corner of a document — 'flags and follow-ups'; (3) two stacked archive boxes with round pull-holes and a small plant — 'archive'; (4) a magnifying glass over an open ledger with a column of tick marks — 'audit trail'; (5) a clipboard holding a simple bar chart and a pie chart — 'reports'; (6) a rosette ribbon seal on a blank certificate scroll — 'accreditation'.",
+      "assets": [
+        {
+          "name": "spot-imports",
+          "category": "page-spot",
+          "purpose": "Imports header",
+          "page": "Imports"
+        },
+        {
+          "name": "spot-flags",
+          "category": "page-spot",
+          "purpose": "Flags / follow-ups header",
+          "page": "Flags"
+        },
+        {
+          "name": "spot-archive",
+          "category": "page-spot",
+          "purpose": "Archive header",
+          "page": "Archive"
+        },
+        {
+          "name": "spot-audit",
+          "category": "page-spot",
+          "purpose": "Audit trail header",
+          "page": "Audit"
+        },
+        {
+          "name": "spot-reports",
+          "category": "page-spot",
+          "purpose": "Reports header",
+          "page": "Reports"
+        },
+        {
+          "name": "spot-accreditation",
+          "category": "page-spot",
+          "purpose": "Accreditation header",
+          "page": "Accreditation"
+        }
+      ]
+    },
+    {
+      "id": "sheet07",
+      "raw": "sheet07_page_spots_e.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Keep each item simple and minimal (same clause as sheet05). Page-header and error spot illustrations, one focal object each: (1) a glass jar of plain round coins beside a simple pie chart card, no currency symbols — 'budget'; (2) an open rule book with a ribbon bookmark and a small balance scale — 'policy'; (3) an open toolbox with a checklist card and a pencil — 'setup'; (4) a padlock inside a leaf-shaped shield — 'privacy'; (5) a friendly unplugged power cable with its plug lying loose and a small spark, calm not alarming — 'server error'; (6) a small cloud with a dotted line to a laptop broken in the middle — 'offline'.",
+      "assets": [
+        {
+          "name": "spot-budget",
+          "category": "page-spot",
+          "purpose": "Budget header",
+          "page": "Budget"
+        },
+        {
+          "name": "spot-policy",
+          "category": "page-spot",
+          "purpose": "Policy header",
+          "page": "Policy"
+        },
+        {
+          "name": "spot-setup",
+          "category": "page-spot",
+          "purpose": "Setup / first-run configuration header",
+          "page": "Setup"
+        },
+        {
+          "name": "spot-privacy",
+          "category": "page-spot",
+          "purpose": "Privacy header",
+          "page": "Privacy"
+        },
+        {
+          "name": "error-server",
+          "category": "error-state",
+          "purpose": "Server error (500) — unplugged cable",
+          "page": "500 / error boundary"
+        },
+        {
+          "name": "error-offline",
+          "category": "error-state",
+          "purpose": "Offline / connection lost (renders as a cracked laptop screen under a cloud; use with clear copy)",
+          "page": "Offline banner / network error"
+        }
+      ]
+    },
+    {
+      "id": "sheet08",
+      "raw": "sheet08_empty_states_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Empty-state spot illustrations, each a small quiet scene with one gentle focal object and lots of space: (1) a desk bell resting with a tiny 'z' breath curl and a leaf, calm — 'no notifications'; (2) an empty park bench under a small tree — 'no discussions yet'; (3) an empty wooden display shelf with one small star-shaped outline waiting — 'no badges yet'; (4) a single chair beside a small table with a second chair's dashed outline — 'no collaborators yet'; (5) a flagpole with the flag lowered and folded neatly at its base, sun behind — 'no flags, all clear'; (6) an empty open wooden crate with a single leaf inside — 'nothing imported yet'.",
+      "assets": [
+        {
+          "name": "empty-no-notifications",
+          "category": "empty-state",
+          "purpose": "No notifications",
+          "page": "Notifications"
+        },
+        {
+          "name": "empty-no-discussions",
+          "category": "empty-state",
+          "purpose": "No discussions yet",
+          "page": "Discussions"
+        },
+        {
+          "name": "empty-no-badges",
+          "category": "empty-state",
+          "purpose": "No badges earned yet",
+          "page": "Profile badge shelf"
+        },
+        {
+          "name": "empty-no-collaborators",
+          "category": "empty-state",
+          "purpose": "No collaborators yet",
+          "page": "Who to work with, Profile"
+        },
+        {
+          "name": "empty-no-flags",
+          "category": "empty-state",
+          "purpose": "No open flags — all clear",
+          "page": "Flags"
+        },
+        {
+          "name": "empty-no-imports",
+          "category": "empty-state",
+          "purpose": "Nothing imported yet",
+          "page": "Imports"
+        }
+      ]
+    },
+    {
+      "id": "sheet09",
+      "raw": "sheet09_empty_error_c.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Empty and error-state spot illustrations, each a small quiet scene with one gentle focal object: (1) a blank notepad with a pencil resting diagonally across it — 'no drafts'; (2) a closed arched wooden door with a small padlock and a potted plant beside it — 'access restricted'; (3) an hourglass with the sand run out and a small moon — 'session expired, please sign in again'; (4) a sheet of paper with a folded corner and a small cloud with a gentle curved return arrow — 'upload failed, try again'; (5) an empty open envelope with nothing inside and a leaf — 'no payouts yet'; (6) an empty archive box with its lid leaning against it — 'archive empty'.",
+      "assets": [
+        {
+          "name": "empty-no-drafts",
+          "category": "empty-state",
+          "purpose": "No drafts",
+          "page": "File a paper (drafts), My papers"
+        },
+        {
+          "name": "error-access-denied",
+          "category": "error-state",
+          "purpose": "Access restricted (403)",
+          "page": "403 / role-gated pages"
+        },
+        {
+          "name": "error-session-expired",
+          "category": "error-state",
+          "purpose": "Session expired — sign in again",
+          "page": "Auth expiry screen"
+        },
+        {
+          "name": "error-upload-failed",
+          "category": "error-state",
+          "purpose": "Upload failed — try again",
+          "page": "Attachments, File a paper"
+        },
+        {
+          "name": "empty-no-payouts",
+          "category": "empty-state",
+          "purpose": "No payouts yet",
+          "page": "Payouts"
+        },
+        {
+          "name": "empty-archive",
+          "category": "empty-state",
+          "purpose": "Archive is empty",
+          "page": "Archive"
+        }
+      ]
+    },
+    {
+      "id": "sheet10",
+      "raw": "sheet10_onboarding.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Onboarding / first-run illustrations, warm and encouraging, one focal object each: (1) an open arched doorway with warm light spilling out and a doormat with a leaf — 'welcome'; (2) a chain link joining a blank identity card to a closed book — 'link your author ID'; (3) a profile card with an abstract faceless silhouette and a short checklist being ticked by a pencil — 'complete your profile'; (4) a single sheet of paper with a small sprout growing from its top edge — 'file your first paper'; (5) a sealed envelope with two small hands reaching toward it from either side — 'invite a colleague'; (6) a small pennant flag on top of a gentle hill with a winding path leading up — 'you are all set'.",
+      "assets": [
+        {
+          "name": "onboard-welcome",
+          "category": "onboarding",
+          "purpose": "Welcome / first sign-in",
+          "page": "Setup step 1, first-run modal"
+        },
+        {
+          "name": "onboard-link-author-id",
+          "category": "onboarding",
+          "purpose": "Link your Scopus / author ID",
+          "page": "Setup, Profile"
+        },
+        {
+          "name": "onboard-complete-profile",
+          "category": "onboarding",
+          "purpose": "Complete your profile",
+          "page": "Setup, Profile"
+        },
+        {
+          "name": "onboard-first-paper",
+          "category": "onboarding",
+          "purpose": "File your first paper (tip)",
+          "page": "Home (faculty) first-run tip, File a paper"
+        },
+        {
+          "name": "onboard-invite-colleague",
+          "category": "onboarding",
+          "purpose": "Invite a colleague / co-author",
+          "page": "Who to work with, Setup"
+        },
+        {
+          "name": "onboard-all-set",
+          "category": "onboarding",
+          "purpose": "Setup complete",
+          "page": "Setup final step"
+        }
+      ]
+    },
+    {
+      "id": "sheet11",
+      "raw": "sheet11_celebrations.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Milestone and celebration illustrations, joyful but calm, one focal object each with a few confetti dots and small sparkles in palette colours: (1) a single research paper lifted up with confetti around it — 'first publication'; (2) a tall neat stack of bound papers with a star on top — 'ten papers milestone'; (3) a journal with a gold ribbon rosette pinned to its cover — 'top-quartile journal'; (4) a large pair of quotation marks with sparkles and a small upward arrow — 'first citation'; (5) a trophy cup with a small college building engraved as a simple shape and laurel leaves — 'department in the top ten'; (6) a paper lantern gently rising with a few stars — 'anniversary and thank-you'.",
+      "assets": [
+        {
+          "name": "celebrate-first-publication",
+          "category": "celebration",
+          "purpose": "First publication moment",
+          "page": "Filing receipt, Moments"
+        },
+        {
+          "name": "celebrate-ten-papers",
+          "category": "celebration",
+          "purpose": "Paper-count milestone (5/10/25)",
+          "page": "Moments, Profile"
+        },
+        {
+          "name": "celebrate-top-quartile",
+          "category": "celebration",
+          "purpose": "Q1 / top-quartile journal",
+          "page": "Moments, Filing receipt"
+        },
+        {
+          "name": "celebrate-first-citation",
+          "category": "celebration",
+          "purpose": "First citation",
+          "page": "Moments"
+        },
+        {
+          "name": "celebrate-top-department",
+          "category": "celebration",
+          "purpose": "Department in the top ten",
+          "page": "Leaderboard, HoD home"
+        },
+        {
+          "name": "celebrate-anniversary",
+          "category": "celebration",
+          "purpose": "Anniversary / thank-you",
+          "page": "Moments, Convocation"
+        }
+      ],
+      "note": "Retrieved from the ChatGPT Library after the conversation failed to load."
+    },
+    {
+      "id": "sheet12",
+      "raw": "sheet12_badges_a.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Badge variant: every item is a round medallion badge of identical size and construction — a sand-coloured disc with a charcoal outline, a thin inner ring, and a single simple emblem in the centre drawn in the palette colours; a small two-tail ribbon hangs below each medallion; no text, no numerals — show counts only as dots or stacked shapes. Six achievement badges: (1) an open book — 'first paper'; (2) a single bright star — 'first top-quartile journal'; (3) a small stack of five thin sheets shown as five layered lines — 'five papers'; (4) a taller stack of layered sheets with a small star above — 'ten papers'; (5) a large stack of layered sheets with a laurel sprig on either side — 'twenty-five papers'; (6) a fountain pen nib — 'first-author paper'.",
+      "assets": [
+        {
+          "name": "badge-first-paper",
+          "category": "badge",
+          "purpose": "Badge FIRST_PAPER",
+          "page": "Badge shelf (ui/badge-shelf.tsx)"
+        },
+        {
+          "name": "badge-first-q1",
+          "category": "badge",
+          "purpose": "Badge FIRST_Q1",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-papers-5",
+          "category": "badge",
+          "purpose": "Badge PAPERS_5",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-papers-10",
+          "category": "badge",
+          "purpose": "Badge PAPERS_10",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-papers-25",
+          "category": "badge",
+          "purpose": "Badge PAPERS_25",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-first-author",
+          "category": "badge",
+          "purpose": "Badge FIRST_AUTHOR",
+          "page": "Badge shelf"
+        }
+      ]
+    },
+    {
+      "id": "sheet13",
+      "raw": "sheet13_badges_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Badge variant (as sheet12). Six more achievement badges in exactly the same medallion construction as the previous sheet: (1) two small buildings joined by a curved bridge of dotted nodes — 'cross-department collaboration'; (2) a round target with an arrow in the centre — 'yearly target met'; (3) a small trophy cup with laurel — 'department in the top ten'; (4) a small calendar page with three tick marks in a row — 'three-month streak'; (5) a small calendar page with six tick marks in two rows — 'six-month streak'; (6) a pair of quotation marks — 'first citation'.",
+      "assets": [
+        {
+          "name": "badge-cross-department",
+          "category": "badge",
+          "purpose": "Badge CROSS_DEPARTMENT",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-quota-met",
+          "category": "badge",
+          "purpose": "Badge QUOTA_MET",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-top10-department",
+          "category": "badge",
+          "purpose": "Badge TOP10_DEPARTMENT",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-streak-3",
+          "category": "badge",
+          "purpose": "Badge STREAK_3",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-streak-6",
+          "category": "badge",
+          "purpose": "Badge STREAK_6",
+          "page": "Badge shelf"
+        },
+        {
+          "name": "badge-first-citation",
+          "category": "badge",
+          "purpose": "Badge FIRST_CITATION",
+          "page": "Badge shelf"
+        }
+      ]
+    },
+    {
+      "id": "sheet14",
+      "raw": "sheet14_departments_a.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Department variant: each item is one symbolic still-life object (no buildings with signs, no letters), sitting on a small soft sand-coloured ground ellipse, all items the same scale. Six engineering department emblems: (1) an open laptop whose screen shows a small graph of connected nodes — 'computer science'; (2) a microchip with an antenna emitting three curved signal waves — 'electronics and communication'; (3) a lightning bolt beside a wound copper coil and a small leaf — 'electrical and electronics'; (4) two meshing gears with a piston rod — 'mechanical'; (5) a car wheel with a small spanner resting against it — 'automobile'; (6) a small server rack with a cloud above it joined by dotted lines — 'information technology'.",
+      "assets": [
+        {
+          "name": "dept-cse",
+          "category": "department",
+          "purpose": "Department: CSE",
+          "page": "Department page, people/department filters"
+        },
+        {
+          "name": "dept-ece",
+          "category": "department",
+          "purpose": "Department: ECE",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-eee",
+          "category": "department",
+          "purpose": "Department: EEE",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-mech",
+          "category": "department",
+          "purpose": "Department: MECH",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-auto",
+          "category": "department",
+          "purpose": "Department: AUTO (Automobile)",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-it",
+          "category": "department",
+          "purpose": "Department: IT",
+          "page": "Department page"
+        }
+      ]
+    },
+    {
+      "id": "sheet15",
+      "raw": "sheet15_departments_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Department variant (as sheet14). Six more department emblems in exactly the same construction as the previous sheet: (1) a small arched bridge with a tower crane behind it — 'civil engineering'; (2) a bar chart with a scatter of data dots and a trend line — 'artificial intelligence and data science'; (3) a head-shaped outline filled with a small network of connected nodes — 'artificial intelligence and machine learning'; (4) a heart with a heartbeat line running through it beside a small microscope — 'biomedical engineering'; (5) a wheat stalk and a seedling with a water droplet under a small sun — 'agricultural engineering'; (6) a briefcase with a small rising arrow chart card — 'management studies'.",
+      "assets": [
+        {
+          "name": "dept-civil",
+          "category": "department",
+          "purpose": "Department: CIVIL",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-aids",
+          "category": "department",
+          "purpose": "Department: AI&DS",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-aiml",
+          "category": "department",
+          "purpose": "Department: AI&ML",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-bme",
+          "category": "department",
+          "purpose": "Department: BME",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-agri",
+          "category": "department",
+          "purpose": "Department: AGRI",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-mba",
+          "category": "department",
+          "purpose": "Department: MBA",
+          "page": "Department page"
+        }
+      ]
+    },
+    {
+      "id": "sheet16",
+      "raw": "sheet16_departments_c.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Department variant (as sheet14). Six more emblems in exactly the same construction as the previous two sheets: (1) an open book with a quill pen resting across it — 'English'; (2) a round-bottom flask with a small molecule model beside it — 'chemistry'; (3) an atom with three orbit rings beside a small pendulum — 'physics'; (4) a drawing compass with a triangle ruler and a circle — 'mathematics'; (5) a small observatory dome with a telescope and a few stars — 'research centre'; (6) three overlapping circles in sage, clay and navy with a small spark where they meet — 'interdisciplinary research'.",
+      "assets": [
+        {
+          "name": "dept-sh-english",
+          "category": "department",
+          "purpose": "Department: S&H-ENGLISH",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-sh-chemistry",
+          "category": "department",
+          "purpose": "Department: S&H-CHY",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-sh-physics",
+          "category": "department",
+          "purpose": "Department: S&H-PHY",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-sh-maths",
+          "category": "department",
+          "purpose": "Department: S&H-MATHS",
+          "page": "Department page"
+        },
+        {
+          "name": "dept-research-centre",
+          "category": "department",
+          "purpose": "Research centre (any non-teaching research unit)",
+          "page": "Department page, Research scout"
+        },
+        {
+          "name": "dept-interdisciplinary",
+          "category": "department",
+          "purpose": "Interdisciplinary / cross-department work",
+          "page": "Collaborate, Department fallback"
+        }
+      ]
+    },
+    {
+      "id": "sheet17",
+      "raw": "sheet17_topics_a.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant: each item is one symbolic object for a research area, in exactly the same construction as the department emblems (single still-life object on a small soft sand ground ellipse, same scale), no letters or code characters. Six research-topic emblems: (1) a small funnel turning scattered dots into a neat line of sorted dots — 'machine learning'; (2) three stacked layers of connected nodes like a layered network — 'deep learning'; (3) an eye shape inside a square camera viewfinder frame with corner brackets — 'computer vision'; (4) a speech bubble containing a tiny tree diagram of branching lines — 'natural language processing'; (5) a small house, a thermometer and a lightbulb each emitting a tiny signal arc toward a central hub — 'internet of things'; (6) a shield with a keyhole and a small circuit trace pattern — 'cybersecurity'.",
+      "assets": [
+        {
+          "name": "topic-machine-learning",
+          "category": "topic",
+          "purpose": "Topic: machine learning",
+          "page": "Discover, Research scout, paper cards"
+        },
+        {
+          "name": "topic-deep-learning",
+          "category": "topic",
+          "purpose": "Topic: deep learning",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-computer-vision",
+          "category": "topic",
+          "purpose": "Topic: computer vision / image processing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-nlp",
+          "category": "topic",
+          "purpose": "Topic: natural language processing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-iot",
+          "category": "topic",
+          "purpose": "Topic: Internet of Things",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-cybersecurity",
+          "category": "topic",
+          "purpose": "Topic: cybersecurity",
+          "page": "Discover, Research scout"
+        }
+      ],
+      "note": "Retrieved from the ChatGPT Library (conversation view did not refresh)."
+    },
+    {
+      "id": "sheet18",
+      "raw": "sheet18_topics_b.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six research-topic emblems: (1) a short chain of three linked cubes — 'blockchain'; (2) a cloud with three small stacked server blocks inside it — 'cloud computing'; (3) a small device at the edge of a network with a tiny chip and nearby signal arcs — 'edge computing'; (4) a large database cylinder with a magnifying glass and a small bar chart — 'big data analytics'; (5) a solar panel tilted toward a small sun — 'solar energy'; (6) a wind turbine on a small grassy hill — 'wind energy'.",
+      "assets": [
+        {
+          "name": "topic-blockchain",
+          "category": "topic",
+          "purpose": "Topic: blockchain",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-cloud-computing",
+          "category": "topic",
+          "purpose": "Topic: cloud computing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-edge-computing",
+          "category": "topic",
+          "purpose": "Topic: edge / fog computing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-big-data",
+          "category": "topic",
+          "purpose": "Topic: big data analytics",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-solar-energy",
+          "category": "topic",
+          "purpose": "Topic: solar / photovoltaics",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-wind-energy",
+          "category": "topic",
+          "purpose": "Topic: wind energy",
+          "page": "Discover, Research scout"
+        }
+      ]
+    },
+    {
+      "id": "sheet19",
+      "raw": "sheet19_topics_c.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheet: (1) a compact power converter box with a heat sink and a small lightning bolt — 'power electronics'; (2) a small rounded electric car plugged into a charging post — 'electric vehicles'; (3) a pylon linked by dotted lines to a house and a solar panel — 'smart grid'; (4) a slim cell tower with concentric signal arcs — 'wireless communication and 5G'; (5) a small dish antenna and a patch antenna tile with a radiation pattern arc — 'antennas and microwave'; (6) a silicon wafer disc with a grid of tiny chips — 'VLSI design'.",
+      "assets": [
+        {
+          "name": "topic-power-electronics",
+          "category": "topic",
+          "purpose": "Topic: power electronics",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-electric-vehicles",
+          "category": "topic",
+          "purpose": "Topic: electric vehicles",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-smart-grid",
+          "category": "topic",
+          "purpose": "Topic: smart grid",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-wireless-5g",
+          "category": "topic",
+          "purpose": "Topic: wireless communication / 5G",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-antennas",
+          "category": "topic",
+          "purpose": "Topic: antennas and microwave",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-vlsi",
+          "category": "topic",
+          "purpose": "Topic: VLSI design",
+          "page": "Discover, Research scout"
+        }
+      ]
+    },
+    {
+      "id": "sheet20",
+      "raw": "sheet20_topics_d.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheets: (1) a small microcontroller board with pin headers and one LED — 'embedded systems'; (2) a simple articulated robot arm holding a small cube — 'robotics'; (3) a closed feedback loop of arrows around a small dial — 'control systems'; (4) a noisy wave passing through a small box and coming out as a smooth sine wave — 'signal processing'; (5) a stylised scanner ring with a small cross-section image card beside it — 'biomedical imaging'; (6) a medical cross inside a heart shape with a few connected nodes — 'healthcare AI'.",
+      "assets": [
+        {
+          "name": "topic-embedded-systems",
+          "category": "topic",
+          "purpose": "Topic: embedded systems",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-robotics",
+          "category": "topic",
+          "purpose": "Topic: robotics / automation",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-control-systems",
+          "category": "topic",
+          "purpose": "Topic: control systems",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-signal-processing",
+          "category": "topic",
+          "purpose": "Topic: signal processing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-biomedical-imaging",
+          "category": "topic",
+          "purpose": "Topic: biomedical imaging",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-healthcare-ai",
+          "category": "topic",
+          "purpose": "Topic: healthcare AI / digital health",
+          "page": "Discover, Research scout"
+        }
+      ]
+    },
+    {
+      "id": "sheet21",
+      "raw": "sheet21_topics_e.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheets: (1) a petri dish with a small bone-shaped scaffold and a few cells — 'biomaterials'; (2) a hexagonal lattice sheet with a tiny magnifier over it — 'nanomaterials'; (3) layered sheets of different colours bonded in a stack, slightly fanned — 'composite materials'; (4) a metal fin block with wavy heat lines rising and a small thermometer — 'heat transfer and thermal engineering'; (5) an aerofoil wing shape with smooth flowing streamlines around it — 'fluid dynamics and CFD'; (6) a compact 3D printer printing a small cube — 'additive manufacturing'.",
+      "assets": [
+        {
+          "name": "topic-biomaterials",
+          "category": "topic",
+          "purpose": "Topic: biomaterials / tissue engineering",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-nanomaterials",
+          "category": "topic",
+          "purpose": "Topic: nanomaterials",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-composites",
+          "category": "topic",
+          "purpose": "Topic: composite materials",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-heat-transfer",
+          "category": "topic",
+          "purpose": "Topic: heat transfer / thermal engineering",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-cfd",
+          "category": "topic",
+          "purpose": "Topic: fluid dynamics / CFD",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-additive-manufacturing",
+          "category": "topic",
+          "purpose": "Topic: additive manufacturing / 3D printing",
+          "page": "Discover, Research scout"
+        }
+      ]
+    },
+    {
+      "id": "sheet22",
+      "raw": "sheet22_topics_f.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheets: (1) a steel I-beam frame with a small load arrow — 'structural engineering'; (2) a concrete block with visible aggregate dots and a small trowel — 'concrete technology'; (3) a water droplet above small wavy water lines and a tiny dam wall — 'water resources'; (4) a globe with a leaf and a small recycling loop of arrows — 'environmental engineering'; (5) a road curving into the distance with a small bus and a traffic light — 'transportation engineering'; (6) a small drone hovering above neat crop rows — 'precision agriculture'.",
+      "assets": [
+        {
+          "name": "topic-structural",
+          "category": "topic",
+          "purpose": "Topic: structural engineering",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-concrete",
+          "category": "topic",
+          "purpose": "Topic: concrete technology",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-water-resources",
+          "category": "topic",
+          "purpose": "Topic: water resources / hydraulics",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-environmental",
+          "category": "topic",
+          "purpose": "Topic: environmental engineering / sustainability",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-transportation",
+          "category": "topic",
+          "purpose": "Topic: transportation engineering",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-precision-agriculture",
+          "category": "topic",
+          "purpose": "Topic: precision agriculture / agri-tech",
+          "page": "Discover, Research scout"
+        }
+      ],
+      "note": "Slight drift: more scenic, adds a pale water blue outside the palette."
+    },
+    {
+      "id": "sheet23",
+      "raw": "sheet23_topics_g.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Topic variant (as sheet17). Six more research-topic emblems in exactly the same construction as the previous sheets: (1) a curved valley line with a small ball resting at its lowest point and a flag — 'optimisation and operations research'; (2) a sphere with a single arrow through it and a small orbiting dot, like a qubit diagram — 'quantum computing'; (3) three small computers linked through a central router by lines — 'computer networks'; (4) a tablet showing a simple lesson card beside a small graduation cap — 'education technology'; (5) a bowl of grain beside a small lab test tube and a leaf — 'food technology'; (6) a conveyor belt carrying small boxes past a sensor with a signal arc — 'Industry 4.0 and smart manufacturing'.",
+      "assets": [
+        {
+          "name": "topic-optimisation",
+          "category": "topic",
+          "purpose": "Topic: optimisation / operations research",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-quantum-computing",
+          "category": "topic",
+          "purpose": "Topic: quantum computing",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-computer-networks",
+          "category": "topic",
+          "purpose": "Topic: computer networks / SDN",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-edtech",
+          "category": "topic",
+          "purpose": "Topic: education technology / engineering education",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-food-technology",
+          "category": "topic",
+          "purpose": "Topic: food technology",
+          "page": "Discover, Research scout"
+        },
+        {
+          "name": "topic-industry-4",
+          "category": "topic",
+          "purpose": "Topic: Industry 4.0 / smart manufacturing",
+          "page": "Discover, Research scout"
+        }
+      ],
+      "note": "Retrieved from the ChatGPT Library."
+    },
+    {
+      "id": "sheet24",
+      "raw": "sheet24_icons_a.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Style: flat single-colour icon set, 2 colours max (charcoal #2B2B2B + clay #C96A4A accent), thick even strokes, rounded ends, plain flat white background, no texture, no shading, no text, no letters, no numbers, no logos — suitable for vector tracing. Grid: 4 columns x 3 rows of icons, every icon the same size and stroke weight, each centred in its cell with wide empty gaps, no borders, no dividers, no labels. Icons, in reading order left-to-right, top-to-bottom: (1) a single paper sheet with a folded corner and three lines — 'paper'; (2) a closed bound journal with a ribbon — 'journal'; (3) a pair of quotation marks — 'citation'; (4) four ascending bars with the tallest accented — 'quartile ranking'; (5) two chain links — 'DOI link'; (6) a single head-and-shoulders silhouette — 'author'; (7) two overlapping head-and-shoulders silhouettes — 'co-authors'; (8) a clock face with a small flag — 'deadline'; (9) a coin dropping into an open hand — 'payout'; (10) a badge with a check mark — 'verified'; (11) a pennant flag on a pole — 'flag'; (12) a magnifying glass — 'search'.",
+      "assets": [
+        {
+          "name": "icon-paper",
+          "category": "icon",
+          "purpose": "Icon: paper",
+          "page": "Paper cards, lists"
+        },
+        {
+          "name": "icon-journal",
+          "category": "icon",
+          "purpose": "Icon: journal",
+          "page": "Paper cards, journal pickers"
+        },
+        {
+          "name": "icon-citation",
+          "category": "icon",
+          "purpose": "Icon: citation",
+          "page": "Paper metrics"
+        },
+        {
+          "name": "icon-quartile",
+          "category": "icon",
+          "purpose": "Icon: quartile ranking",
+          "page": "Paper metrics, filters"
+        },
+        {
+          "name": "icon-doi",
+          "category": "icon",
+          "purpose": "Icon: DOI link",
+          "page": "File a paper, paper detail"
+        },
+        {
+          "name": "icon-author",
+          "category": "icon",
+          "purpose": "Icon: author",
+          "page": "Author chips"
+        },
+        {
+          "name": "icon-coauthors",
+          "category": "icon",
+          "purpose": "Icon: co-authors",
+          "page": "Author chips, collaborate"
+        },
+        {
+          "name": "icon-deadline",
+          "category": "icon",
+          "purpose": "Icon: deadline",
+          "page": "Calendar, clearing"
+        },
+        {
+          "name": "icon-payout",
+          "category": "icon",
+          "purpose": "Icon: payout",
+          "page": "Payouts"
+        },
+        {
+          "name": "icon-verified",
+          "category": "icon",
+          "purpose": "Icon: verified",
+          "page": "Status chips"
+        },
+        {
+          "name": "icon-flag",
+          "category": "icon",
+          "purpose": "Icon: flag",
+          "page": "Flags"
+        },
+        {
+          "name": "icon-search",
+          "category": "icon",
+          "purpose": "Icon: search",
+          "page": "Search inputs"
+        }
+      ]
+    },
+    {
+      "id": "sheet25",
+      "raw": "sheet25_icons_b.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Icon variant (as sheet24). Same icon set, same stroke weight and colours as the previous sheet. Icons, in reading order: (1) a paper kite with a short dotted trail — 'research scout'; (2) a lightbulb with two short rays — 'idea'; (3) a conical lab flask with two bubbles — 'lab'; (4) a lectern with a small microphone — 'conference'; (5) a scroll tied with a ribbon and a small coin — 'grant'; (6) a calendar page with one marked day — 'calendar'; (7) a bell — 'notifications'; (8) a single speech bubble — 'message'; (9) two overlapping speech bubbles — 'discussion'; (10) an ID card with a round portrait circle and two lines — 'profile'; (11) a small building with columns and a pediment — 'department'; (12) a three-step podium — 'leaderboard'.",
+      "assets": [
+        {
+          "name": "icon-scout",
+          "category": "icon",
+          "purpose": "Icon: research scout",
+          "page": "Nav, Research scout"
+        },
+        {
+          "name": "icon-idea",
+          "category": "icon",
+          "purpose": "Icon: idea",
+          "page": "Discover, For you"
+        },
+        {
+          "name": "icon-lab",
+          "category": "icon",
+          "purpose": "Icon: lab",
+          "page": "Research, profiles"
+        },
+        {
+          "name": "icon-conference",
+          "category": "icon",
+          "purpose": "Icon: conference",
+          "page": "Paper type chips, calendar"
+        },
+        {
+          "name": "icon-grant",
+          "category": "icon",
+          "purpose": "Icon: grant",
+          "page": "Budget, research"
+        },
+        {
+          "name": "icon-calendar",
+          "category": "icon",
+          "purpose": "Icon: calendar",
+          "page": "Nav, Calendar"
+        },
+        {
+          "name": "icon-bell",
+          "category": "icon",
+          "purpose": "Icon: notifications",
+          "page": "Nav"
+        },
+        {
+          "name": "icon-message",
+          "category": "icon",
+          "purpose": "Icon: message",
+          "page": "Nav, Messages"
+        },
+        {
+          "name": "icon-discussion",
+          "category": "icon",
+          "purpose": "Icon: discussion",
+          "page": "Nav, Discussions"
+        },
+        {
+          "name": "icon-profile",
+          "category": "icon",
+          "purpose": "Icon: profile",
+          "page": "Nav, Profiles"
+        },
+        {
+          "name": "icon-department",
+          "category": "icon",
+          "purpose": "Icon: department",
+          "page": "Department chips"
+        },
+        {
+          "name": "icon-leaderboard",
+          "category": "icon",
+          "purpose": "Icon: leaderboard",
+          "page": "Nav, Leaderboard"
+        }
+      ]
+    },
+    {
+      "id": "sheet26",
+      "raw": "sheet26_icons_c.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Icon variant (as sheet24). Same icon set, same stroke weight and colours as the previous sheets. Icons, in reading order: (1) a round medal on a ribbon — 'badge'; (2) a trophy cup — 'trophy'; (3) an arrow pointing up out of a tray — 'upload'; (4) an arrow pointing down into a tray — 'download'; (5) an arrow entering an open box — 'import'; (6) an arrow leaving an open box — 'export'; (7) an archive box with a slot — 'archive'; (8) a list with a magnifying glass over it — 'audit'; (9) a document with a small bar chart — 'report'; (10) a gear — 'settings'; (11) a padlock — 'privacy'; (12) a rubber stamp — 'approve'.",
+      "assets": [
+        {
+          "name": "icon-badge",
+          "category": "icon",
+          "purpose": "Icon: badge",
+          "page": "Badge shelf, profile"
+        },
+        {
+          "name": "icon-trophy",
+          "category": "icon",
+          "purpose": "Icon: trophy",
+          "page": "Leaderboard, wall of fame"
+        },
+        {
+          "name": "icon-upload",
+          "category": "icon",
+          "purpose": "Icon: upload",
+          "page": "Attachments"
+        },
+        {
+          "name": "icon-download",
+          "category": "icon",
+          "purpose": "Icon: download",
+          "page": "Reports, exports"
+        },
+        {
+          "name": "icon-import",
+          "category": "icon",
+          "purpose": "Icon: import",
+          "page": "Imports"
+        },
+        {
+          "name": "icon-export",
+          "category": "icon",
+          "purpose": "Icon: export",
+          "page": "Reports"
+        },
+        {
+          "name": "icon-archive",
+          "category": "icon",
+          "purpose": "Icon: archive",
+          "page": "Archive"
+        },
+        {
+          "name": "icon-audit",
+          "category": "icon",
+          "purpose": "Icon: audit",
+          "page": "Audit"
+        },
+        {
+          "name": "icon-report",
+          "category": "icon",
+          "purpose": "Icon: report",
+          "page": "Reports"
+        },
+        {
+          "name": "icon-settings",
+          "category": "icon",
+          "purpose": "Icon: settings",
+          "page": "Nav, Settings"
+        },
+        {
+          "name": "icon-privacy",
+          "category": "icon",
+          "purpose": "Icon: privacy",
+          "page": "Privacy, visibility toggles"
+        },
+        {
+          "name": "icon-approve",
+          "category": "icon",
+          "purpose": "Icon: approve",
+          "page": "Clearing, approvals"
+        }
+      ]
+    },
+    {
+      "id": "sheet27",
+      "raw": "sheet27_icons_d.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Icon variant (as sheet24). Same icon set, same stroke weight and colours as the previous sheets. Icons, in reading order: (1) a circle with an X — 'reject'; (2) an hourglass — 'pending'; (3) a pencil — 'edit'; (4) a waste bin — 'delete'; (5) a funnel — 'filter'; (6) an up arrow beside a down arrow — 'sort'; (7) three dots joined by two lines — 'share'; (8) a bookmark ribbon — 'bookmark'; (9) a five-point star — 'favourite'; (10) a heart — 'like'; (11) a speech bubble with three dots inside — 'comment'; (12) a paper clip — 'attachment'.",
+      "assets": [
+        {
+          "name": "icon-reject",
+          "category": "icon",
+          "purpose": "Icon: reject / returned",
+          "page": "Clearing status"
+        },
+        {
+          "name": "icon-pending",
+          "category": "icon",
+          "purpose": "Icon: pending",
+          "page": "Clearing status"
+        },
+        {
+          "name": "icon-edit",
+          "category": "icon",
+          "purpose": "Icon: edit",
+          "page": "Forms"
+        },
+        {
+          "name": "icon-delete",
+          "category": "icon",
+          "purpose": "Icon: delete",
+          "page": "Forms (destructive)"
+        },
+        {
+          "name": "icon-filter",
+          "category": "icon",
+          "purpose": "Icon: filter",
+          "page": "Lists, search"
+        },
+        {
+          "name": "icon-sort",
+          "category": "icon",
+          "purpose": "Icon: sort",
+          "page": "Tables"
+        },
+        {
+          "name": "icon-share",
+          "category": "icon",
+          "purpose": "Icon: share",
+          "page": "Paper detail, reactions"
+        },
+        {
+          "name": "icon-bookmark",
+          "category": "icon",
+          "purpose": "Icon: bookmark / save",
+          "page": "Discover, For you"
+        },
+        {
+          "name": "icon-favourite",
+          "category": "icon",
+          "purpose": "Icon: favourite",
+          "page": "Reactions"
+        },
+        {
+          "name": "icon-like",
+          "category": "icon",
+          "purpose": "Icon: like",
+          "page": "Reactions, Feed"
+        },
+        {
+          "name": "icon-comment",
+          "category": "icon",
+          "purpose": "Icon: comment",
+          "page": "Discussions, Feed"
+        },
+        {
+          "name": "icon-attachment",
+          "category": "icon",
+          "purpose": "Icon: attachment",
+          "page": "Attachments"
+        }
+      ]
+    },
+    {
+      "id": "sheet28",
+      "raw": "sheet28_icons_e.png",
+      "date": "2026-09-28",
+      "variant": "icon",
+      "subject": "Icon variant (as sheet24), re-sent in a new chat after the icon conversation stopped loading. Icons with rounded line style (outlined charcoal shapes with small clay accents), in reading order: (1) an envelope — 'email'; (2) a globe with meridian lines — 'web / international'; (3) an open padlock — 'open access'; (4) a line chart arrow rising to the upper right — 'impact'; (5) a stack of horizontal bars of decreasing length — 'h-index'; (6) a certificate with a ribbon seal — 'patent'; (7) an open book with a bookmark — 'book chapter'; (8) a graduation cap — 'thesis / student'; (9) a larger figure with a hand on a smaller figure's shoulder, simple silhouettes — 'mentor'; (10) two hands shaking — 'agreement'; (11) a simple house — 'home'; (12) a sparkle of three four-point stars — 'new / highlights'.",
+      "assets": [
+        {
+          "name": "icon-email",
+          "category": "icon",
+          "purpose": "Icon: email",
+          "page": "Profiles, invites"
+        },
+        {
+          "name": "icon-globe",
+          "category": "icon",
+          "purpose": "Icon: web / international",
+          "page": "Profiles, collaboration"
+        },
+        {
+          "name": "icon-open-access",
+          "category": "icon",
+          "purpose": "Icon: open access",
+          "page": "Paper metadata"
+        },
+        {
+          "name": "icon-impact",
+          "category": "icon",
+          "purpose": "Icon: impact / growth",
+          "page": "Metrics, reports"
+        },
+        {
+          "name": "icon-h-index",
+          "category": "icon",
+          "purpose": "Icon: h-index",
+          "page": "Profile metrics"
+        },
+        {
+          "name": "icon-patent",
+          "category": "icon",
+          "purpose": "Icon: patent",
+          "page": "Record kinds"
+        },
+        {
+          "name": "icon-book-chapter",
+          "category": "icon",
+          "purpose": "Icon: book chapter",
+          "page": "Record kinds"
+        },
+        {
+          "name": "icon-thesis",
+          "category": "icon",
+          "purpose": "Icon: thesis / student",
+          "page": "Record kinds, supervision"
+        },
+        {
+          "name": "icon-mentor",
+          "category": "icon",
+          "purpose": "Icon: mentor",
+          "page": "Who to work with"
+        },
+        {
+          "name": "icon-agreement",
+          "category": "icon",
+          "purpose": "Icon: agreement / MoU",
+          "page": "Collaborate"
+        },
+        {
+          "name": "icon-home",
+          "category": "icon",
+          "purpose": "Icon: home",
+          "page": "Nav"
+        },
+        {
+          "name": "icon-highlights",
+          "category": "icon",
+          "purpose": "Icon: new / highlights",
+          "page": "For you, Moments"
+        }
+      ]
+    },
+    {
+      "id": "sheet29",
+      "raw": "sheet29_decorative.png",
+      "date": "2026-09-28",
+      "variant": "sheet",
+      "subject": "Sheet variant, simple clear lines, flat fills. Small decorative elements for a calm academic web app: (1) a long thin horizontal divider — a hand-drawn line with a small leaf sprig in the middle; (2) a corner flourish — a quarter-circle of laurel leaves for a top-left page corner; (3) a small cluster of three sparkles and two dots, for accenting headings; (4) a long thin horizontal divider of small evenly spaced dots with a tiny star in the centre; (5) a square seamless-pattern tile of tiny scattered leaves, dots and small open books spaced far apart in sand and sage on the background; (6) a gentle hand-drawn underline swoosh in clay colour.",
+      "assets": [
+        {
+          "name": "deco-divider-leaf",
+          "category": "decorative",
+          "purpose": "Section divider with leaf sprig",
+          "page": "Section breaks, Moments"
+        },
+        {
+          "name": "deco-corner-laurel",
+          "category": "decorative",
+          "purpose": "Corner flourish (laurel)",
+          "page": "Wall of fame, convocation cards"
+        },
+        {
+          "name": "deco-sparkles",
+          "category": "decorative",
+          "purpose": "Heading accent sparkles",
+          "page": "Celebration headings, For you"
+        },
+        {
+          "name": "deco-divider-dots",
+          "category": "decorative",
+          "purpose": "Dotted divider with star",
+          "page": "Section breaks"
+        },
+        {
+          "name": "deco-scatter-leaves-books",
+          "category": "decorative",
+          "purpose": "Scatter cluster of leaves, dots and books (not a seamless tile)",
+          "page": "Empty-state backdrops, sign-in"
+        },
+        {
+          "name": "deco-underline-swoosh",
+          "category": "decorative",
+          "purpose": "Hand-drawn clay underline for a heading word",
+          "page": "Hero headings"
+        }
+      ],
+      "note": "Item 5 came out as a scatter cluster, not a seamless tile."
+    },
+    {
+      "id": "banner01",
+      "raw": "banner01.png",
+      "date": "2026-09-28",
+      "variant": "hero",
+      "subject": "Banner variant: three separate wide panoramic banner strips stacked vertically, each strip about 3:1, separated by generous empty bands of plain background, no borders or frames; in each strip the scene sits in the right two-thirds and fades softly into calm empty background on the left for a page title; flat untextured background; simple, minimal, few details, flat fills, clear outlines, no shading. Strip 1 (faculty home): a tidy desk by a window with a plant, an open journal and a small stack of papers, morning light. Strip 2 (discover): an open book on a hill with small paper boats and constellation dots drifting out toward the horizon. Strip 3 (leaderboard and wall of fame): three gentle podium blocks in sage, clay and sand with laurel sprigs and a few floating stars.",
+      "assets": [
+        {
+          "name": "banner-home-faculty",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1), title space on the left",
+          "page": "Home (faculty) header"
+        },
+        {
+          "name": "banner-discover",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "Discover header"
+        },
+        {
+          "name": "banner-leaderboard",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "Leaderboard, Wall of fame header"
+        }
+      ],
+      "note": "Returned as one 2172x724 image with three ~9:1 strips split on white bands (scripts/split-banner-strips.py); background kept."
+    },
+    {
+      "id": "banner02",
+      "raw": "banner02.png",
+      "date": "2026-09-28",
+      "variant": "hero",
+      "subject": "Banner variant (as banner01). Strip 1 (file a paper): a single paper sheet gliding like a paper plane over a desk toward an open folder, with a small dotted path. Strip 2 (calendar and deadlines): a gentle row of hills with small flags planted at intervals along a winding path, a sun low on the horizon. Strip 3 (messages and discussions): a few speech bubbles floating like lanterns above two empty chairs and a small round table.",
+      "assets": [
+        {
+          "name": "banner-file-paper",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "File a paper header"
+        },
+        {
+          "name": "banner-calendar",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "Calendar header"
+        },
+        {
+          "name": "banner-messages",
+          "category": "banner",
+          "purpose": "Wide page-header strip (~9:1)",
+          "page": "Messages, Discussions header"
+        }
+      ],
+      "note": "Split with scripts/split-banner-strips.py; background kept."
+    }
+  ]
+}

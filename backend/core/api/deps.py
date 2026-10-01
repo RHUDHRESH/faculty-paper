@@ -21,9 +21,10 @@ from core.api.common import (
 
 from datetime import date, datetime
 from typing import Any
+from django.conf import settings
 from django.http import HttpRequest
 from ninja.errors import HttpError
-from core.models import Claim, ClaimStatus, User
+from core.models import Claim, ClaimReason, ClaimStatus, User
 from core.services import rbac
 from core.services.scimago import lookup_scimago
 from core.services.scopus import author_profile_url
@@ -37,6 +38,21 @@ from core.services.scopus import author_profile_url
 def impersonator_of(request: HttpRequest) -> User | None:
     uid = request.session.get(IMPERSONATOR_KEY)
     return User.objects.filter(pk=uid).first() if uid else None
+
+
+def _user_threshold(u: User) -> dict[str, Any]:
+    """The rupee threshold on an account dict: the amount in force today, and
+    whether the old rule is all that is on record."""
+    if u.faculty_type != "RESEARCH":
+        return {"research_threshold": None, "research_threshold_unset": False, "old_quota_only": False}
+    from core.services import research_threshold as rt
+
+    amount = rt.threshold_on(rt.history(u.id), rt.today())
+    return {
+        "research_threshold": amount,
+        "research_threshold_unset": amount is None,
+        "old_quota_only": amount is None and bool(u.research_quota),
+    }
 
 
 def _user_dict(u: User) -> dict[str, Any]:
@@ -58,15 +74,38 @@ def _user_dict(u: User) -> dict[str, Any]:
         "must_change_password": u.must_change_password,
         "active": u.active,
         "faculty_type": u.faculty_type,
+        # The old papers-a-year rule. Read-only and decides nothing; shown as
+        # "old rule, please set a rupee threshold" until a threshold is set.
         "research_quota": u.research_quota,
         "research_quota_note": u.research_quota_note,
+        **_user_threshold(u),
+        "phone": u.phone,
+        "bio": u.bio,
+        "orcid_id": u.orcid_id,
+        "photo_url": f"{settings.MEDIA_URL}{u.photo}" if u.photo else None,
         "portal": rbac.portal_for_role(u.role),
+    }
+
+
+def _google_link(u: User) -> dict[str, Any] | None:
+    """Which Google account signs in to this one, or None.
+
+    Only ever on the signed-in person's own payload: the subject id stays on
+    the server, and which Gmail somebody uses is nobody else's business.
+    """
+    if not u.google_sub:
+        return None
+    return {
+        "email": u.google_email,
+        "linked_at": u.google_linked_at.isoformat() if u.google_linked_at else None,
     }
 
 
 def _me_dict(request: HttpRequest, u: User) -> dict[str, Any]:
     """The signed-in payload, plus who is really driving."""
     data = _user_dict(u)
+    data["google"] = _google_link(u)
+    data["welcome_seen"] = u.welcome_seen_at is not None
     real = impersonator_of(request)
     if real:
         data["impersonated_by"] = {"id": real.id, "name": real.name, "email": real.email}
@@ -82,6 +121,12 @@ def _format_payout_month(d: date | None) -> str | None:
     return d.strftime("%Y-%m")
 
 
+def _journal_watch(c: Claim) -> dict | None:
+    from core.services.journal_watch import watch_for
+
+    return watch_for(c.issn, c.journal_title)
+
+
 def claim_to_dict(c: Claim) -> dict[str, Any]:
     return {
         "id": c.id,
@@ -89,8 +134,16 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "owner_name": c.owner.name,
         "owner_email": c.owner.email,
         "owner_department": c.owner.department,
+        "owner_photo_url": f"{settings.MEDIA_URL}{c.owner.photo}" if c.owner.photo else None,
         "status": c.status,
         "status_note": c.status_note,
+        # Paused at its desk, not moved: `status` still says where it is.
+        "on_hold": c.on_hold,
+        "hold_reason": c.hold_reason,
+        "held_by_name": c.held_by.name if c.held_by_id else None,
+        "held_at": c.held_at.isoformat() if c.held_at else None,
+        # REJECTED either way; this says whether it can be fixed and refiled.
+        "rejected_outright": c.rejected_outright,
         "ticket_number": c.ticket_number,
         "contest_forward": c.contest_forward,
         "contest_note": c.contest_note,
@@ -189,8 +242,10 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         "manual_verified_by_name": c.manual_verified_by.name if c.manual_verified_by else None,
         "manual_verification_note": c.manual_verification_note,
         # A draft's amount may be computed from the claimant's own declarations;
-        # anything past submission is verified-values only.
+        # anything past submission is verified-values only. A student-project
+        # amount is fixed by the scheme and depends on neither.
         "remuneration_is_estimate": c.status == ClaimStatus.DRAFT
+        and c.claim_reason != ClaimReason.STUDENT_PROJECT
         and (c.snip is None or not c.quartile),
         "scimago_verified": c.scimago_verified,
         "scimago_sjr": c.scimago_sjr,
@@ -242,6 +297,20 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
         #: Whole days this ticket has sat where it is, for the queue that has
         #: to decide what to look at first.
         "waiting_days": _waiting_days(c),
+        # Scheme rules the research cell applies, shown rather than implied:
+        # a research faculty member's first N papers a year are unpaid, and
+        # a final-year project claim is paid per team to its mentor.
+        "quota_applied": c.quota_applied,
+        "quota_note": c.quota_note,
+        # The research threshold's effect on this claim, in rupees and in
+        # words: what counts against the owner's yearly threshold, what the
+        # policy said the claim was worth, and what is left to pay.
+        "threshold_absorbed": round(c.research_absorbed or 0, 2),
+        "threshold_full_amount": round((c.remuneration or 0) + (c.research_absorbed or 0), 2),
+        "threshold_note": c.quota_note,
+        "owner_faculty_type": c.owner.faculty_type,
+        **_owner_threshold(c),
+        "journal_watch": _journal_watch(c),
         "second_approved_at": c.second_approved_at.isoformat() if c.second_approved_at else None,
         "needs_second_approval": _needs_second_approval(
             c, _high_value_threshold(fresh=False)
@@ -258,10 +327,101 @@ def claim_to_dict(c: Claim) -> dict[str, Any]:
     }
 
 
+def _owner_threshold(c: Claim) -> dict[str, Any]:
+    """The claimant's research threshold as it stands, for a claim's reviewers.
+
+    Only for research faculty; everyone else gets nothing, so a regular
+    member's claim carries no trace of a rule that does not apply to them.
+    """
+    from core.services import research_threshold as rt
+
+    owner = c.owner
+    if owner is None or owner.faculty_type != "RESEARCH":
+        return {"owner_research_threshold": None, "owner_threshold_unset": False}
+    amount = rt.threshold_on(rt.history(owner.id), rt.today())
+    return {"owner_research_threshold": amount, "owner_threshold_unset": amount is None}
+
+
+def record_authorship(c: Claim) -> dict[str, Any]:
+    """Where the claimant sits on the stored publication's author list.
+
+    `author_position` is what the claimant typed; this reads the Authorship
+    rows of the linked Publication (by link, else by DOI) so the clearing
+    desk compares the claim with the record instead of repeating it.
+    """
+    from core.models import Authorship, Publication
+
+    pub = c.publications.first()
+    if pub is None and c.doi:
+        pub = Publication.objects.filter(doi__iexact=c.doi.strip()).first()
+    if pub is None:
+        return {"record_author_position": None, "record_total_authors": None, "record_has_authors": False}
+    rows = Authorship.objects.filter(publication=pub)
+    total = rows.count()
+    mine = rows.filter(user_id=c.owner_id, position__isnull=False).order_by("position").first()
+    return {
+        "record_author_position": mine.position if mine else None,
+        "record_total_authors": total or None,
+        "record_has_authors": total > 0,
+    }
+
+
+def record_authorships(claims: list[Claim]) -> dict[str, dict[str, Any]]:
+    """`record_authorship` for many claims in three queries, keyed by claim id.
+
+    The clearing queue called the one-claim version per row: up to four
+    queries each, so a 200-ticket queue was ~800 round trips.
+    """
+    from django.db.models.functions import Lower
+
+    from core.models import Authorship, Publication
+
+    empty = {"record_author_position": None, "record_total_authors": None, "record_has_authors": False}
+    pub_of: dict[str, str] = {}
+    for cid, pid in (
+        Publication.claims.through.objects.filter(claim_id__in=[c.id for c in claims])
+        .order_by("publication_id").values_list("claim_id", "publication_id")
+    ):
+        pub_of.setdefault(cid, pid)  # lowest id first, as `.first()` picks
+    want_doi = {c.doi.strip().lower() for c in claims if c.id not in pub_of and c.doi and c.doi.strip()}
+    by_doi: dict[str, str] = {}
+    if want_doi:
+        for pid, d in (
+            Publication.objects.annotate(d=Lower("doi")).filter(d__in=want_doi)
+            .order_by("id").values_list("id", "d")
+        ):
+            by_doi.setdefault(d, pid)
+    for c in claims:
+        if c.id not in pub_of and c.doi and c.doi.strip().lower() in by_doi:
+            pub_of[c.id] = by_doi[c.doi.strip().lower()]
+    totals: dict[str, int] = {}
+    positions: dict[tuple[str, str], int] = {}
+    for pid, uid, pos in Authorship.objects.filter(publication_id__in=set(pub_of.values())).values_list(
+        "publication_id", "user_id", "position"
+    ):
+        totals[pid] = totals.get(pid, 0) + 1
+        if uid and pos is not None and ((pid, uid) not in positions or pos < positions[(pid, uid)]):
+            positions[(pid, uid)] = pos
+    out: dict[str, dict[str, Any]] = {}
+    for c in claims:
+        pid = pub_of.get(c.id)
+        if pid is None:
+            out[c.id] = dict(empty)
+            continue
+        total = totals.get(pid, 0)
+        out[c.id] = {
+            "record_author_position": positions.get((pid, c.owner_id)),
+            "record_total_authors": total or None,
+            "record_has_authors": total > 0,
+        }
+    return out
 
 
 __all__ = [
+    'record_authorship',
+    'record_authorships',
     '_format_payout_month',
+    '_google_link',
     '_me_dict',
     '_user_dict',
     'claim_to_dict',

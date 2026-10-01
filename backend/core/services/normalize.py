@@ -146,3 +146,13 @@ def normalize_issn(issn: str | None) -> str | None:
     if len(cleaned) != 8:
         return issn.strip()
     return f"{cleaned[:4]}-{cleaned[4:]}"
+
+
+#: Venue text that says "no venue" rather than naming one.
+UNKNOWN_VENUES = frozenset({"", "-", "--", "—", "–", "n/a", "na", "n.a", "nil", "none", "null", "nan", "unknown", "0"})
+
+
+def clean_venue(value: object) -> str:
+    """A venue name, or "" when the text is a placeholder like "-" or "N/A"."""
+    text = " ".join(str(value if value is not None else "").split())
+    return "" if text.lower().rstrip(".") in UNKNOWN_VENUES else text

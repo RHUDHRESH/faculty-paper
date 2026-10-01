@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { Link } from "react-router-dom"
 import { cn } from "@/lib/cn"
 import { money } from "@/ui/paper"
+import { Avatar } from "@/ui/person"
 
 /**
  * Charts, without a charting library.
@@ -44,6 +45,8 @@ export type Point = {
   amount?: number
   /** Where this row lives, if it is a thing with a page of its own. */
   to?: string
+  /** A person: drawn with their face beside the name (RankedBars). */
+  face?: { name: string; initials: string; photo_url: string | null }
 }
 
 /** Which number the chart is drawing. */
@@ -202,7 +205,7 @@ function GapNotice({
 
   return (
     <div className="rounded-md bg-caution-wash px-3 py-3 text-sm leading-relaxed">
-      <p className="font-medium">Not drawn — this is a gap in the data, not a breakdown</p>
+      <p className="font-medium">Not drawn. This is a gap in the data, not a breakdown.</p>
       <p className="mt-1">
         {dimension} is not recorded on{" "}
         <span className="tabular font-medium">{missing.toLocaleString("en-IN")}</span> of{" "}
@@ -224,7 +227,7 @@ function GapNotice({
       <p className="mt-1.5 text-fg-muted">
         {knownCount.toLocaleString("en-IN")} carry a value
         {known.length
-          ? ` — ${known
+          ? `: ${known
               .slice(0, 4)
               .map((p) => `${p.label ?? p.key} ${p.count.toLocaleString("en-IN")}`)
               .join(" · ")}`
@@ -408,7 +411,7 @@ function Figure({
             </span>
             Show the numbers
           </summary>
-          <div className="mt-2 overflow-x-auto">
+          <div className="mt-2 overflow-x-auto" tabIndex={0} role="region" aria-label="The numbers">
             <table className="w-full min-w-[22rem] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-xs text-fg-muted">
@@ -422,13 +425,18 @@ function Figure({
                 {points.map((p) => (
                   <tr key={p.key} className="border-b border-line last:border-0">
                     <td className="py-1.5 pr-3">
-                      {p.to ? (
-                        <Link to={p.to} className="hover:text-accent hover:underline">
-                          {p.label ?? p.key}
-                        </Link>
-                      ) : (
-                        (p.label ?? p.key)
-                      )}
+                      {/* A row that is a person carries their face here too,
+                          not only in the bars above this table. */}
+                      <span className={p.face ? "flex items-center gap-2" : undefined}>
+                        {p.face && <Avatar person={p.face} size="xs" />}
+                        {p.to ? (
+                          <Link to={p.to} className="hover:text-accent hover:underline">
+                            {p.label ?? p.key}
+                          </Link>
+                        ) : (
+                          (p.label ?? p.key)
+                        )}
+                      </span>
                     </td>
                     <td className="py-1.5 pr-3 text-right tabular">
                       {p.count.toLocaleString("en-IN")}
@@ -437,7 +445,7 @@ function Figure({
                       <td className="py-1.5 pr-3 text-right tabular">{money(p.amount)}</td>
                     )}
                     <td className="py-1.5 text-right tabular text-fg-muted">
-                      {sum > 0 ? `${((valueOf(p, unit) / sum) * 100).toFixed(1)}%` : "—"}
+                      {sum > 0 ? `${((valueOf(p, unit) / sum) * 100).toFixed(1)}%` : "0%"}
                     </td>
                   </tr>
                 ))}
@@ -524,13 +532,15 @@ export function RankedBars({
                   <Link
                     to={p.to}
                     title={name}
-                    className="min-w-0 overflow-hidden text-sm hover:text-accent hover:underline"
+                    className="flex min-w-0 items-center gap-2 overflow-hidden text-sm hover:text-accent hover:underline"
                   >
-                    <span className="block truncate">{name}</span>
+                    {p.face && <Avatar person={p.face} size="xs" />}
+                    <span className="block min-w-0 truncate">{name}</span>
                   </Link>
                 ) : (
-                  <span className="min-w-0 overflow-hidden text-sm" title={name}>
-                    <span className="block truncate">{name}</span>
+                  <span className="flex min-w-0 items-center gap-2 overflow-hidden text-sm" title={name}>
+                    {p.face && <Avatar person={p.face} size="xs" />}
+                    <span className="block min-w-0 truncate">{name}</span>
                   </span>
                 )}
 
@@ -550,7 +560,7 @@ export function RankedBars({
 
       {sorted.length > limit && (
         <p className="mt-2 px-2 text-sm text-fg-muted">
-          {sorted.length - limit} more — in the numbers below.
+          {sorted.length - limit} more in the numbers below.
         </p>
       )}
     </Figure>
@@ -773,7 +783,11 @@ export function Trend({
                 />
 
                 {points.map((p, i) =>
-                  i % every === 0 || i === points.length - 1 ? (
+                  // The last label is right-aligned and always drawn, so the
+                  // step label before it gives way unless it is a step and a
+                  // half clear -- otherwise "19 Sept" and "24 Sept" overprint.
+                  (i % every === 0 && points.length - 1 - i >= Math.ceil(every * 1.5)) ||
+                  i === points.length - 1 ? (
                     <text
                       key={p.key}
                       x={x(i)}
@@ -842,6 +856,8 @@ export function Distribution({
   height = 160,
   showAmounts,
   gapWhy,
+  mark,
+  markLabel = "You",
   className,
 }: {
   title: string
@@ -854,6 +870,9 @@ export function Distribution({
   showAmounts?: boolean
   /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
   gapWhy?: ReactNode
+  /** The key of one column to mark ("you are here"), drawn in the area colour. */
+  mark?: string
+  markLabel?: string
   className?: string
 }) {
   const [at, setAt] = useState<number | null>(null)
@@ -886,7 +905,7 @@ export function Distribution({
                 <span
                   className={cn(
                     "block w-full rounded-t-sm transition-[height,background-color] duration-500 ease-out",
-                    at === i ? "bg-accent" : "bg-accent/55"
+                    p.key === mark ? "bg-(--area-fill,var(--color-accent))" : at === i ? "bg-accent" : "bg-accent/55"
                   )}
                   style={{ height: `${Math.max(2, (v / ceiling) * 100)}%` }}
                 />
@@ -894,10 +913,15 @@ export function Distribution({
               return (
                 <span
                   key={p.key}
-                  className="flex h-full min-w-0 flex-1 items-end"
                   onPointerEnter={() => setAt(i)}
-                  title={`${name} — ${fullLabel(v, unit)}`}
+                  title={`${name} — ${fullLabel(v, unit)}${p.key === mark ? ` · ${markLabel}` : ""}`}
+                  className={cn("relative flex h-full min-w-0 flex-1 items-end")}
                 >
+                  {p.key === mark && (
+                    <span className="absolute -top-5 inset-x-0 text-center text-xs font-semibold text-(--area,var(--color-accent))">
+                      {markLabel}
+                    </span>
+                  )}
                   {p.to ? (
                     <Link
                       to={p.to}
@@ -937,5 +961,46 @@ export function Distribution({
         </div>
       )}
     </Figure>
+  )
+}
+
+/**
+ * A 48×16 line for a stat tile (docs/ux/00 §8). Decorative next to its
+ * figure, so hidden from assistive tech unless given a `label`. Coloured
+ * with the current area (`--area`), never a rainbow.
+ */
+export function Sparkline({
+  values,
+  width = 48,
+  height = 16,
+  label,
+  className,
+}: {
+  values: number[]
+  width?: number
+  height?: number
+  label?: string
+  className?: string
+}) {
+  if (values.length < 2) return null
+  const max = Math.max(...values)
+  const min = Math.min(...values)
+  const span = max - min || 1
+  const step = width / (values.length - 1)
+  const d = values
+    .map((v, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - 1 - ((v - min) / span) * (height - 2)).toFixed(1)}`)
+    .join(" ")
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      role={label ? "img" : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
+      className={cn("shrink-0 overflow-visible text-(--area)", className)}
+    >
+      <path d={d} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }

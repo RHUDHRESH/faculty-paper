@@ -21,6 +21,7 @@ defensible when somebody asks a year later.
 """
 from __future__ import annotations
 
+from core.services.cell_safe import safe_append
 import io
 from datetime import date
 from typing import Any
@@ -97,7 +98,90 @@ def _quartile_of(claim_quartile: str | None) -> str:
     return q if q in {"Q1", "Q2", "Q3", "Q4"} else ""
 
 
-def build_pack(*, year: int | None, scope) -> dict[str, Any]:
+def record_only_publications(*, year: int | None = None, q: str | None = None, owner=None) -> list[dict[str, Any]]:
+    """Cached `_record_only_publications`: the same for every college-wide
+    reader, and rebuilt as soon as any write moves the aggregate generation."""
+    from core.services.aggregate_cache import shared as cached
+
+    if q and q.strip():
+        # A search is narrow and cheap, and caching every typed term would
+        # hold a few MB per term in a 512 MB process.
+        return _record_only_publications(year=year, q=q, owner=owner)
+    return cached(
+        "record_only_publications",
+        {"year": year, "owner": getattr(owner, "id", None)},
+        lambda: _record_only_publications(year=year, q=q, owner=owner),
+    )
+
+
+def _record_only_publications(*, year: int | None = None, q: str | None = None, owner=None) -> list[dict[str, Any]]:
+    """Papers on the college's publication record that no claim covers.
+
+    The accreditation tables were built from claims alone, so a paper nobody
+    filed for -- harvested from OpenAlex or the Scopus workbook, or written
+    before the scheme -- was missing from the NAAC 3.4.3 list, which asks for
+    every paper, not every paid one. These rows fill that gap: one per
+    publication with at least one matched college author and no non-draft
+    claim linked to it. `owner` narrows to one person's papers.
+    """
+    from core.models import Authorship, Publication
+
+    pubs = (
+        Publication.objects.filter(authorships__is_college=True, authorships__user__isnull=False)
+        .exclude(claims__status__in=[s for s in ClaimStatus.values if s != ClaimStatus.DRAFT])
+        .distinct()
+    )
+    if year:
+        pubs = pubs.filter(year=year)
+    if owner is not None:
+        pubs = pubs.filter(authorships__user=owner)
+    if q and q.strip():
+        t = q.strip()
+        pubs = pubs.filter(
+            Q(title__icontains=t) | Q(venue__icontains=t) | Q(issn__icontains=t)
+            | Q(authorships__user__name__icontains=t)
+        ).distinct()
+    # Plain values, not model instances: this reads up to five thousand
+    # papers and building a full `Publication` (and a full `User` per author)
+    # for each one cost ~4 s on the real record for five columns.
+    pubs = list(
+        pubs.order_by("-year", "title").values("id", "title", "venue", "year", "issn", "doi", "oa_url")[:5000]
+    )
+    authors: dict[str, list] = {}
+    for a in (
+        Authorship.objects.filter(
+            publication_id__in=[p["id"] for p in pubs], is_college=True, user__isnull=False
+        )
+        .order_by("publication_id", "position")
+        .values("publication_id", "user_id", "user__name", "user__department")
+    ):
+        authors.setdefault(a["publication_id"], []).append(a)
+    rows = []
+    for p in pubs:
+        # One row per college author, as NAAC 3.4.3 counts per teacher.
+        seen = set()
+        for u in authors.get(p["id"], []):
+            uid = u["user_id"]
+            if uid in seen or (owner is not None and uid != owner.id):
+                continue
+            seen.add(uid)
+            rows.append({
+                "id": f"{p['id']}:{uid}",
+                "publication_id": p["id"],
+                "paper_title": p["title"] or "",
+                "owner_id": uid,
+                "owner_name": u["user__name"],
+                "owner_department": u["user__department"] or "",
+                "journal_title": p["venue"] or "",
+                "publication_year": p["year"] or "",
+                "issn": normalize_issn(p["issn"]) or "",
+                "doi": p["doi"] or "",
+                "link": f"https://doi.org/{p['doi']}" if p["doi"] else (p["oa_url"] or ""),
+            })
+    return rows
+
+
+def build_pack(*, year: int | None, scope, include_record: bool = False) -> dict[str, Any]:
     """Every sheet, as rows, for one publication year (or all of them)."""
     claims = scope.exclude(status=ClaimStatus.DRAFT).select_related("owner")
     if year:
@@ -127,6 +211,16 @@ def build_pack(*, year: int | None, scope) -> dict[str, Any]:
             c.scopus_url or (f"https://doi.org/{c.doi}" if c.doi else ""),
             listed,
         ])
+    if include_record:
+        for r in record_only_publications(year=year):
+            listed = "Not checked"
+            if have_ugc:
+                hit = next((ugc[v] for v in issn_variants(r["issn"]) if v in ugc), None)
+                listed = "Yes" if hit else "No"
+            naac.append([
+                len(naac) + 1, r["paper_title"], r["owner_name"], r["owner_department"],
+                r["journal_title"], r["publication_year"], r["issn"], r["link"], listed,
+            ])
 
     # ---- NIRF: counts by year, no citation metrics -----------------------
     nirf: list[list[Any]] = []
@@ -218,7 +312,12 @@ def build_pack(*, year: int | None, scope) -> dict[str, Any]:
         ["Generated", date.today().isoformat()],
         ["Publication year", str(year) if year else "All years on record"],
         ["Rows", str(len(naac))],
-        ["Source", "Claims filed in the publication-remuneration portal, drafts excluded"],
+        ["Source", (
+            "Claims filed in the publication-remuneration portal, drafts excluded, "
+            "then papers on the college publication record (OpenAlex, Scopus) that no claim covers"
+            if include_record else
+            "Claims filed in the publication-remuneration portal, drafts excluded"
+        )],
         ["", ""],
         ["What is counted", "One row per claim. A paper with several SEC authors appears once per author, which is how NAAC 3.4.3 asks for it (per teacher)."],
         ["Quartile", "As verified against the Scimago dump for the year of publication where that year is held, otherwise the nearest year available."],
@@ -246,13 +345,13 @@ def pack_workbook(pack: dict[str, Any]) -> bytes:
     wb.remove(wb.active)
     for name, table in pack.items():
         ws = wb.create_sheet(title=name[:31])
-        ws.append(table["columns"])
+        safe_append(ws, table["columns"])
         for cell in ws[1]:
             cell.font = Font(bold=True)
             cell.alignment = Alignment(vertical="top", wrap_text=True)
         for row in table["rows"]:
             # A leading "=" would be read as a formula by Excel.
-            ws.append([
+            safe_append(ws, [
                 f"'{v}" if isinstance(v, str) and v.startswith("=") else v for v in row
             ])
         ws.freeze_panes = "A2"

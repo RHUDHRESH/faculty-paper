@@ -5,6 +5,11 @@
 @import "tailwindcss" source("../src");
 @source not "../src/**/*.md";
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/fraunces";
+@import "@fontsource-variable/source-serif-4";
+
+/* dark: follows the app's own theme choice (account menu), not only the OS. */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 /**
  * Faculty Publication App — the ground rules.
@@ -45,57 +50,15 @@
  * forbidden — which is most things.
  */
 
-/* Newsreader, for page titles only.
- *
- * Declared here by hand rather than by importing the package's stylesheet,
- * for one reason: fontsource ships `font-display: swap`, and a swap reflows
- * every title on the screen a beat after the page has painted. `optional` is
- * the one value that cannot shift layout — the browser gives the file about
- * 100ms, and if it is not ready it uses the fallback for that page load and
- * never swaps. The face is cached from the first visit onward, so in practice
- * it is there; it is simply never allowed to arrive late enough to move
- * anything. A title is not worth a reflow.
- *
- * Latin and latin-ext only. Titles in this app are English, and the
- * `unicode-range` means anything outside it is drawn by the body face, which
- * is what should happen anyway.
- */
-@font-face {
-  font-family: "Newsreader Variable";
-  font-style: normal;
-  font-display: optional;
-  font-weight: 200 800;
-  src: url("@fontsource-variable/newsreader/files/newsreader-latin-wght-normal.woff2")
-    format("woff2-variations");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
-    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
-    U+2212, U+2215, U+FEFF, U+FFFD;
-}
-@font-face {
-  font-family: "Newsreader Variable";
-  font-style: normal;
-  font-display: optional;
-  font-weight: 200 800;
-  src: url("@fontsource-variable/newsreader/files/newsreader-latin-ext-wght-normal.woff2")
-    format("woff2-variations");
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
-    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
-    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
-
 @theme {
   /* ---- type -----------------------------------------------------------
-     Two families, each with exactly one job. Inter's variable axis does the
-     work inside the interface that a second family would; Newsreader does
-     the one job Inter cannot, which is to make a page title look unlike
-     every other piece of bold text on the screen. */
+     One family. Inter's variable axis carries titles, body and figures; a
+     serif for page titles made a working tool read like an article. */
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
-  /* Page titles only — see `.display` below and rule 8 in CONVENTIONS.md.
-     Never a number: Newsreader's figures are lovely and do not line up in a
-     column, and a column that lines up is worth more here than a nice 7. */
-  --font-display: "Newsreader Variable", "Iowan Old Style", "Palatino Linotype",
-    Palatino, Georgia, serif;
+  /* Page titles — see `.display` below. Kept as a token so a title face can
+     be swapped in one place. */
+  --font-display: "Source Serif 4 Variable", "Fraunces Variable", ui-serif, Georgia, serif;
 
   /* A scale with only the steps this app uses. Every extra step is one more
      chance for two things that mean the same to look different. */
@@ -124,9 +87,9 @@
      was. The accent is for things you can act on and things that carry
      state; everything structural is grey, so colour reads as meaning rather
      than as decoration. */
-  --color-fg: #1f2023;
-  --color-fg-muted: #6b6f76;
-  --color-fg-subtle: #9096a0;
+  --color-fg: #2b2a27;
+  --color-fg-muted: #67645e; /* 4.5:1 or better on every step of the ladder, down to active (final sweep) */
+  --color-fg-subtle: #686560; /* 4.7:1 on selected, 4.5:1 on active (final sweep; was 4.2:1 on selected) */
 
   /* Surfaces, as a stack, and the order is the whole point: sunken is below
      the ground, the ground is below a panel.
@@ -145,47 +108,59 @@
      where two of them regularly meet at an edge and have to be tellable
      apart, and wider at the bottom, because "the pointer is down on this"
      should not be a subtle claim. */
-  --color-surface: #ffffff;  /* L* 100.0 — a panel, a card, a row, a control */
-  --color-bg: #f8f9fb;       /* L*  97.9 — the page */
-  --color-sunken: #f3f4f8;   /* L*  96.2 — a well, a sidebar, a table head */
-  --color-hover: #eef0f5;    /* L*  94.8 — the pointer is on this */
-  --color-active: #e4e7ee;   /* L*  91.6 — the pointer is down on this */
+  --color-surface: #fdfcfa;  /* L* 100.0 — a panel, a card, a row, a control */
+  --color-bg: #faf9f5;       /* L*  97.9 — the page */
+  --color-sunken: #f3f1ea;   /* L*  96.2 — a well, a sidebar, a table head */
+  --color-hover: #efece4;    /* L*  94.8 — the pointer is on this */
+  --color-active: #e6e2d8;   /* L*  91.6 — the pointer is down on this */
 
   /* Selected is not a darker grey, it is the accent at its palest — because
      "the pointer is here" and "this one is chosen" are different facts and a
      reader has to be able to see both at once on the same row. Pulled a step
      off `accent-wash` so it still separates from `hover`, which is now close
      to it in lightness and differs from it only in hue. */
-  --color-selected: #e6ebfd;  /* L* 93.2 */
+  --color-selected: #ebe7de;  /* L* 93.2 */
 
   /* Rules. `line` separates rows; `edge` bounds a region. Two weights only. */
-  --color-line: #ebedf0;
-  --color-edge: #dee0e6;
-  --color-field: #ced2da;
+  --color-line: #ece8df;
+  --color-edge: #e2ddd2;
+  --color-field: #d6d0c4;
 
   /* One accent. Indigo rather than violet — it stays legible at small sizes
      and against white, which the old purple did not at 13px. */
-  --color-accent: #4f46e5;
-  --color-accent-hover: #4338ca;
+  --color-accent: #a84f31; /* 4.7:1 on wash, 5.4:1 under white text (a11y audit; was #c96a4a, 3.5:1) */
+  --color-accent-hover: #92432a;
   --color-accent-fg: #ffffff;
-  --color-accent-wash: #eef2ff;
-  --color-accent-line: #c7d2fe;
+  --color-accent-wash: #f8ece6;
+  --color-accent-line: #ecc9ba;
+
+  /* The brand ground: the one large field of colour (sign-in panel). Not
+     the accent, because the accent lightens in dark mode to stay legible as
+     text, and a lightened field reads as washed out. Saveetha's colour goes
+     here when the college supplies it. */
+  --color-brand: #2b2a27;
+  --color-brand-fg: #faf9f5;
 
   /* State. Held to 4.5:1 as text, because all three are rendered as words
      and not only as fills. */
-  --color-positive: #15803d;
-  --color-positive-wash: #f0fdf4;
-  --color-caution: #a16207;
-  --color-caution-wash: #fefce8;
-  --color-critical: #b91c1c;
-  --color-critical-wash: #fef2f2;
+  --color-positive: #3f7a4a;
+  --color-positive-wash: #eef4ec;
+  --color-caution: #8a5f10; /* 4.9:1 on caution-wash (a11y audit; was #9a6a14, 4.3:1) */
+  --color-caution-wash: #faf3e2;
+  --color-critical: #b23b2e;
+  --color-critical-wash: #fbecea;
+
+  /* Area: time (sky) -- the Calendar. docs/ux/00-design-language.md §1. */
+  --area-time: #4d6f86;
+  --area-time-wash: #eef2f3;
+  --area-time-line: #cfdbe1;
 
   /* ---- shape ----------------------------------------------------------
      Small. A 12px radius turns a panel into a lozenge; 6px reads as paper. */
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 0.875rem;
 
   /* ---- elevation ------------------------------------------------------
      Six steps, and each one is a sentence about where a thing is rather than
@@ -200,31 +175,29 @@
      token, so the edge stays part of the palette. */
 
   /* Content sits *in* this. A text field; a well holding a control. */
-  --shadow-well: inset 0 1px 2px rgb(16 17 20 / 0.05);
+  --shadow-well: 0 0 #0000;
 
   /* You can press this. A filled or bordered control, and nothing else —
      the shadow is the affordance, so putting it on something inert is a lie
      about what happens when you click. */
-  --shadow-raise: 0 1px 1px rgb(16 17 20 / 0.05), 0 1px 2px rgb(16 17 20 / 0.04);
+  --shadow-raise: 0 0 #0000;
 
   /* This is the object that answers the page's question. At most one per
      view. Deliberately weak — it has no competition, so it does not need to
      shout in order to win. */
-  --shadow-lift: 0 1px 2px rgb(16 17 20 / 0.04), 0 4px 12px -4px rgb(16 17 20 / 0.08);
+  --shadow-lift: 0 0 #0000;
 
   /* Content passes beneath this. A pinned table head, a sticky action bar.
      Directional and asymmetric, because it describes an occlusion and not a
      height, and it is only ever shown while something is actually underneath
      — a permanent one is a drop shadow wearing a hat. */
-  --shadow-under: 0 4px 8px -6px rgb(16 17 20 / 0.28);
+  --shadow-under: 0 1px 0 rgb(43 42 39 / 0.06);
 
   /* This left the page: menu, popover, toast. */
-  --shadow-pop: 0 1px 2px rgb(16 17 20 / 0.04), 0 8px 24px -6px rgb(16 17 20 / 0.12),
-    0 0 0 1px rgb(16 17 20 / 0.05);
+  --shadow-pop: 0 4px 20px -6px rgb(43 42 39 / 0.10), 0 0 0 1px rgb(43 42 39 / 0.06);
 
   /* This took the page: dialog, palette. */
-  --shadow-modal: 0 2px 4px rgb(16 17 20 / 0.04), 0 24px 48px -12px rgb(16 17 20 / 0.18),
-    0 0 0 1px rgb(16 17 20 / 0.05);
+  --shadow-modal: 0 16px 40px -12px rgb(43 42 39 / 0.16), 0 0 0 1px rgb(43 42 39 / 0.06);
 
   /* ---- motion ---------------------------------------------------------
      Fast enough to feel like a response, not an animation. Linear's numbers:
@@ -235,9 +208,70 @@
   --dur-2: 140ms;
   --dur-3: 220ms;
 
+
+  /* ---- Convocation (docs/ux/00-design-language.md) --------------------
+     One colour per area of the app, so a reader always knows where they
+     stand. Text tokens hold 4.5:1 on white. Utilities: text-area-research,
+     bg-area-research-wash, border-area-research-line, and so on. Components
+     that take an `area` prop set `data-area`, which maps the generic
+     `--area`, `--area-wash`, `--area-line` (below the dark block) to that
+     area — use them as text-(--area), bg-(--area-wash). */
+  --color-area-record: #8a5a44;
+  --color-area-record-wash: #f5eee8;
+  --color-area-record-line: #e5d5ca;
+  --color-area-research: #4f7466;
+  --color-area-research-wash: #edf2ee;
+  --color-area-research-line: #cddbd2;
+  --color-area-people: #a35634;
+  --color-area-people-wash: #f8ece6;
+  --color-area-people-line: #ecc9ba;
+  --color-area-honours: #7d6024;
+  --color-area-honours-fill: #c9a15a;
+  --color-area-honours-wash: #f7f0e0;
+  --color-area-honours-line: #e6d6b0;
+  --color-area-time: #4d6f86;
+  --color-area-time-wash: #eef2f3;
+  --color-area-time-line: #cfdbe1;
+  /* Certificate surfaces only: impact plate, Wall of fame, "you were cited". */
+  --color-paper: #fbf8f1;
+  /* The card a drawing or photo sits on in dark mode: charcoal lines on a
+     dark canvas vanish, so every illustration gets the same warm plate. */
+  --color-plate: #efe8dc;
+  --color-gold: #c9a15a;
+
+  /* Honour face. Fraunces, and only on honour moments (display-honour). */
+  --font-honour: "Source Serif 4 Variable", "Fraunces Variable", ui-serif, Georgia, serif;
+
+  /* Convocation type scale: text-honour (44/48, with .honour for the face),
+     text-display (32/38), text-figure-xl (56/56), text-figure (28/32). */
+  --text-honour: 2.75rem;
+  --text-honour--line-height: 3rem;
+  --text-display: 2rem;
+  --text-display--line-height: 2.375rem;
+  --text-figure-xl: 3.5rem;
+  --text-figure-xl--line-height: 3.5rem;
+  --text-figure: 1.75rem;
+  --text-figure--line-height: 2rem;
+
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.25rem;
+
+  /* The two radii a page is built from (docs/ux/22, "one border radius for
+     controls, one for panels"). A control is anything you press, type into or
+     choose from: buttons, fields, sidebar links, chips. A panel is anything
+     that holds other things: a table, a menu, an empty state, a `.panel`.
+     Twelve different corners on one screen read as twelve different hands. */
+  --radius-control: 0.5rem;
+  --radius-panel: 0.75rem;
+
   /* ---- layout ---------------------------------------------------------- */
-  --sidebar-w: 15rem;
-  --page-max: 76rem;
+  --sidebar-w: 16rem;
+  --page-max: 68.75rem;
+
+  /* ---- area: people (docs/ux/00 section 1) ---------------------------- */
+  --area-people: #a35634;
+  --area-people-wash: #f8ece6;
+  --area-people-line: #ecc9ba;
 }
 
 @layer base {
@@ -356,6 +390,56 @@
     }
   }
 
+  /* Phone tap targets: nothing you press is shorter than 40px (a11y audit,
+     docs/jtbd/a11y-mobile-speed-audit.md). The pages draw plenty of raw
+     `h-7`/`h-8` buttons, tabs and selects that are fine under a mouse and a
+     miss under a thumb; min-height grows them without touching their width
+     or the desktop layout. Explicitly sized glyph controls (`size-*`) are
+     left alone — they get their own hit area where they are drawn. */
+  @media (max-width: 639px) {
+    :where(button, [role="button"], [role="tab"], select, a.inline-flex):not([class*="size-"]):not(.tap-exempt):not(.min-w-0) {
+      /* A control that says min-w-0 is a bar in a chart row; widening it to
+         40px pushed the ledger 890px past a phone screen (real-data QA). */
+      min-height: 2.5rem;
+      min-width: 2.5rem;
+    }
+    /* Standalone text links ("See all", "Open the record") are tap targets
+       too. Padding rather than min-height so an inline one keeps its place
+       in the line; links inside a sentence are exempt (WCAG 2.5.8). */
+    :where(a.text-accent, a.hover\:underline, button.hover\:underline, a.text-fg-muted):not(p *):not(.block):not(.flex):not(.inline-flex):not(.tap-exempt) {
+      display: inline-block;
+      padding-block: 0.625rem;
+    }
+    :where(a.block.hover\:underline):not(.tap-exempt) {
+      min-height: 2.5rem;
+    }
+    /* A disclosure line ("Show the numbers") is a control too. */
+    summary:where(:not(.tap-exempt)) {
+      min-height: 2.5rem;
+      align-content: center;
+    }
+    /* Glyph controls (a 16px checkbox, a 24px copy button, a 28px close) keep
+       their drawn size; their press area grows to 40px with an invisible
+       frame, so nothing reflows. Nothing already 40px or more changes. */
+    :where(:is(button, [role="button"], [role="checkbox"])[class*="size-"]:not(.tap-exempt)) {
+      position: relative;
+    }
+    :where(:is(button, [role="button"], [role="checkbox"])[class*="size-"]:not(.tap-exempt))::after {
+      content: "";
+      position: absolute;
+      inset: calc(max(0px, (2.5rem - 100%) / 2) * -1);
+    }
+  }
+
+  /* A link inside a sentence is not told apart by colour alone (WCAG 1.4.1,
+     axe `link-in-text-block`): the accent and the muted body text are too
+     close in lightness, so the link carries an underline as well. */
+  :where(p, .text-fg-muted) a:where(.text-accent) {
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+  }
+
   /* The page column. Wide enough for a table, narrow enough to read. */
   .page {
     width: 100%;
@@ -367,6 +451,22 @@
     .page {
       padding-inline: 1rem;
     }
+  }
+  /* The calm page header (docs/ux/00): serif title and muted sentence on
+     the left, actions, then a small spot illustration. No rule under it: the
+     header is separated from the first section by space, and a hairline is
+     kept for rows of one list (docs/ux/22, "dividers and containers"). */
+  .page-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem 1.5rem;
+    padding-bottom: 0.5rem;
+  }
+  .page-head > :first-child {
+    min-width: 0;
+    flex: 1 1 18rem;
   }
 }
 
@@ -387,7 +487,7 @@
      step does the work; the hairline only finishes the edge. */
   .panel {
     background-color: var(--color-surface);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-panel);
     box-shadow: inset 0 0 0 1px var(--color-line);
   }
 
@@ -400,13 +500,8 @@
      entire justification for it existing. A second one cancels the first. */
   .panel-lead {
     background-color: var(--color-surface);
-    background-image: linear-gradient(
-      to bottom,
-      var(--color-accent-wash) 0,
-      var(--color-surface) 5.5rem
-    );
-    border-radius: var(--radius-lg);
-    box-shadow: inset 0 0 0 1px var(--color-accent-line), var(--shadow-lift);
+    border-radius: var(--radius-panel);
+    box-shadow: inset 0 0 0 1px var(--color-edge);
   }
 
   /* A well: a ground that something sits *in* rather than *on* — a toolbar
@@ -415,7 +510,7 @@
      one kind of depth that cannot be mistaken for "this floats". */
   .well {
     background-color: var(--color-sunken);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-control);
     box-shadow: var(--shadow-well), inset 0 0 0 1px var(--color-line);
   }
 
@@ -436,17 +531,12 @@
     );
   }
 
-  /* A page title. The one place the display face is used.
-     `font-weight: 560` rather than 600: Newsreader is a variable font and
-     its axis is continuous, so the weight can be chosen for how it looks at
-     26px instead of rounded to the nearest named step. 600 sets too dark
-     above 14px body copy; 500 goes limp. Tracking is pulled back to near
-     zero because the global -0.018em on headings is tuned for Inter and
-     closes a serif's counters up. */
+  /* A page title: heavier and tighter than a section heading, so the name of
+     the place you are standing in is never mistaken for bold body text. */
   .display {
     font-family: var(--font-display);
-    font-weight: 560;
-    letter-spacing: -0.008em;
+    font-weight: 500;
+    letter-spacing: -0.015em;
   }
 
   /* A figure that is the answer to something.
@@ -457,9 +547,10 @@
      headings without tipping into bold, so a figure and a heading at the
      same size stay distinguishable. */
   .figure {
-    font-variant-numeric: tabular-nums;
-    font-weight: 620;
-    letter-spacing: -0.02em;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums lining-nums;
+    font-weight: 500;
+    letter-spacing: -0.01em;
   }
 }
 
@@ -484,8 +575,19 @@
   }
 }
 
+/* A skeleton is for data that is genuinely slow. Under 300 ms the eye reads
+ * a flash of grey boxes as a flicker, not as loading (docs/ux/22), so every
+ * skeleton is invisible for its first 300 ms and only then appears. It still
+ * holds its space from the first frame, so nothing jumps when data lands. */
+@keyframes skeleton-appear {
+  to {
+    opacity: 1;
+  }
+}
+
 @layer utilities {
   .skeleton {
+    opacity: 0;
     background-color: var(--color-hover);
     background-image: linear-gradient(
       90deg,
@@ -497,15 +599,352 @@
     );
     background-size: 200% 100%;
     background-repeat: no-repeat;
-    animation: skeleton-sweep 1.6s var(--ease-in-out) infinite;
+    animation:
+      skeleton-appear 1ms linear 300ms forwards,
+      skeleton-sweep 1.6s var(--ease-in-out) infinite;
   }
 
   /* The global reduce rule would leave the sweep frozen mid-travel, which
-     is a gradient nobody asked for. Flat grey instead. */
+     is a gradient nobody asked for. Flat grey instead, still after 300 ms. */
   @media (prefers-reduced-motion: reduce) {
     .skeleton {
       background-image: none;
-      animation: none;
+      animation: skeleton-appear 1ms linear 300ms forwards;
     }
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * A table on a phone (docs/ux/22, "on phones a table becomes stacked rows that
+ * keep the labels"). A grid with eight columns cannot sit in 390 px, and
+ * sideways scrolling hides the columns that matter. Under 640 px each row
+ * becomes a small block; every cell prints its own column heading in front of
+ * its value, so no number is ever separated from what it measures. The real
+ * heading row stays in the document for screen readers.
+ * ------------------------------------------------------------------------ */
+@layer components {
+  @media (max-width: 639px) {
+    .stack-table,
+    .stack-table tbody,
+    .stack-table tr {
+      display: block;
+    }
+    .stack-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .stack-table tr {
+      padding: 0.625rem 0.75rem;
+      border-bottom: 1px solid var(--color-line);
+    }
+    .stack-table tr:last-child {
+      border-bottom: 0;
+    }
+    .stack-table td {
+      display: grid;
+      grid-template-columns: 6.25rem minmax(0, 1fr);
+      gap: 0.75rem;
+      padding: 0.25rem 0 !important;
+      text-align: left !important;
+    }
+    .stack-table td::before {
+      content: attr(data-label);
+      color: var(--color-fg-muted);
+      font-size: 0.8125rem;
+      line-height: 1.25rem;
+    }
+    /* A cell with no label of its own (an actions column) has nothing to
+       print, so it spans the row. */
+    .stack-table td[data-label=""] {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .stack-table td[data-label=""]::before {
+      content: none;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * The frame's own movement, in CSS rather than `motion/react`.
+ *
+ * The sidebar, the phone drawer and the sign-in card are on screen before any
+ * page is, so whatever animates them is on the path to the first paint. Done
+ * with the animation library, that path carried ~120 KB of JavaScript for three
+ * entrances. Radix keeps the drawer mounted for its closing animation when it
+ * is a real `@keyframes` (it waits for `animationend`), so these are keyframes,
+ * timed from the same tokens as everything else. The global reduced-motion
+ * rule above squashes all of them.
+ * ------------------------------------------------------------------------ */
+@keyframes frame-drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes frame-drawer-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+@keyframes frame-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes frame-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes frame-rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@layer utilities {
+  .frame-drawer {
+    animation: frame-drawer-in var(--dur-3) var(--ease-out);
+  }
+  .frame-drawer[data-state="closed"] {
+    animation: frame-drawer-out var(--dur-2) var(--ease-out);
+  }
+  .frame-overlay {
+    animation: frame-fade-in var(--dur-2) var(--ease-out);
+  }
+  .frame-overlay[data-state="closed"] {
+    animation: frame-fade-out var(--dur-1) var(--ease-out);
+  }
+  .frame-rise {
+    animation: frame-rise-in 280ms var(--ease-out) both;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Dark theme. The same token names, redefined, so no page carries a colour of
+ * its own and every screen follows. Chosen in the account menu (light, dark
+ * or the system's setting) and applied before first paint by index.html.
+ * ------------------------------------------------------------------------ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --area-time: #9bb8cc;
+  --area-time-wash: #27302f;
+  --color-fg: #ece9e2;
+  --color-fg-muted: #b4b0a7;
+  --color-fg-subtle: #a8a49b;
+  --color-surface: #2c2c2a;
+  --color-bg: #262624;
+  --color-sunken: #1f1e1d;
+  --color-hover: #33322f;
+  --color-active: #3b3a37;
+  --color-selected: #3a3531;
+  --color-line: #353431;
+  --color-edge: #3e3d39;
+  --color-field: #4a4843;
+  --color-accent: #e08466;
+  --color-accent-hover: #e89a7f;
+  --color-accent-fg: #1f1e1d;
+  --color-accent-wash: #3a2c26;
+  --color-accent-line: #5a3d31;
+  --color-brand: #1f1e1d;
+  --color-brand-fg: #ece9e2;
+  --color-positive: #8fc39a;
+  --color-positive-wash: #263028;
+  --color-caution: #e0b86a;
+  --color-caution-wash: #332c1f;
+  --color-critical: #e8897b;
+  --color-critical-wash: #382522;
+  --color-area-record: #d9a88f;
+  --color-area-record-wash: #332b27;
+  --color-area-record-line: #4d3d34;
+  --color-area-research: #9cc2b0;
+  --color-area-research-wash: #26302b;
+  --color-area-research-line: #3a4a42;
+  --color-area-people: #e3a283;
+  --color-area-people-wash: #3a2c26;
+  --color-area-people-line: #5a3d31;
+  --color-area-honours: #e0c07e;
+  --color-area-honours-fill: #c9a15a;
+  --color-area-honours-wash: #332c1f;
+  --color-area-honours-line: #51452c;
+  --color-area-time: #9bb8cc;
+  --color-area-time-wash: #27302f;
+  --color-area-time-line: #3b4a50;
+  --color-paper: #2a2825;
+  --shadow-well: 0 0 #0000;
+  --shadow-raise: 0 0 #0000;
+  --shadow-lift: 0 0 #0000;
+  --shadow-under: 0 1px 0 rgb(0 0 0 / 0.3);
+  --shadow-pop: 0 8px 24px -8px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(255 255 255 / 0.06);
+  --shadow-modal: 0 20px 48px -12px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.07);
+  --area-people: #e3a283;
+  --area-people-wash: #3a2c26;
+}
+
+/* The current area. `data-area` on any component root (HeroBand, StatTile,
+   Chip...) points the generic --area tokens at that area's colours, so a
+   component colours itself without knowing where it is. Default: record. */
+:root {
+  --area: var(--color-area-record);
+  --area-fill: var(--color-area-record);
+  --area-wash: var(--color-area-record-wash);
+  --area-line: var(--color-area-record-line);
+}
+[data-area="record"] {
+  --area: var(--color-area-record);
+  --area-fill: var(--color-area-record);
+  --area-wash: var(--color-area-record-wash);
+  --area-line: var(--color-area-record-line);
+}
+[data-area="research"] {
+  --area: var(--color-area-research);
+  --area-fill: var(--color-area-research);
+  --area-wash: var(--color-area-research-wash);
+  --area-line: var(--color-area-research-line);
+}
+[data-area="people"] {
+  --area: var(--color-area-people);
+  --area-fill: var(--color-area-people);
+  --area-wash: var(--color-area-people-wash);
+  --area-line: var(--color-area-people-line);
+}
+[data-area="honours"] {
+  --area: var(--color-area-honours);
+  --area-fill: var(--color-area-honours-fill);
+  --area-wash: var(--color-area-honours-wash);
+  --area-line: var(--color-area-honours-line);
+}
+[data-area="time"] {
+  --area: var(--color-area-time);
+  --area-fill: var(--color-area-time);
+  --area-wash: var(--color-area-time-wash);
+  --area-line: var(--color-area-time-line);
+}
+
+@layer utilities {
+  /* Hero gradient per area. The record hero on Home/Landing is solid navy. */
+  .hero-wash {
+    background-image: none;
+  }
+  /* Gold ribbon: a 3px top border on honour surfaces and nowhere else. */
+  .ribbon {
+    background-image: linear-gradient(90deg, var(--color-gold), var(--color-gold));
+  }
+  /* display-honour: pair with text-honour. Honour moments only. */
+  .honour {
+    font-family: var(--font-honour);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  /* Column heads: small, sentence case (no shouting; docs/ux/17). */
+  .caps {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    font-weight: 500;
+  }
+}
+
+/* Printing a ticket, the paid register or a report prints the page, not the
+   app around it: no sidebar, white paper, black text, links not underlined
+   in blue. */
+@media print {
+  :root,
+  :root[data-theme="dark"] {
+    color-scheme: light;
+    /* White paper: the cream page and panels print as a grey wash. */
+    --color-bg: #fff;
+    --color-surface: #fff;
+    --color-paper: #fff;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  main {
+    padding-block: 0 !important;
+  }
+  .page {
+    max-width: none;
+    padding-inline: 0;
+  }
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+  /* The app around the page never reaches paper: sidebar, top bars, toasts,
+     skip link. Page-level buttons carry print:hidden themselves. */
+  nav[aria-label="Main"],
+  .no-print {
+    display: none !important;
+  }
+  /* Shadows and tinted panels print as grey mush; keep hairlines instead. */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  /* Entrance animations start when a print-only block turns visible, and
+     paper is captured on their first frame: list items came out blank. */
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  /* Tables: the header repeats on every page and a row is never cut. */
+  thead {
+    display: table-header-group;
+  }
+  tr,
+  li,
+  figure,
+  img,
+  svg {
+    break-inside: avoid;
+  }
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+  table {
+    border-collapse: collapse;
+  }
+  /* Scrolling containers would clip on paper. */
+  .overflow-x-auto,
+  .overflow-auto,
+  .overflow-y-auto {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+}
+
+/* A4 with a page number on every sheet. The per-page PrintStamp and the
+   quick guide set their own margins; this is the default for everything else. */
+@page {
+  size: A4;
+  margin: 14mm 14mm 16mm;
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font-size: 8pt;
+    color: #444;
+  }
+}
+/* The rupee sign, alone. U+20B9 sits in Fontsource's latin-ext range, so every
+   page showing money used to download Inter latin-ext (85 KB) and Source
+   Serif 4 latin-ext (42 KB) for one glyph. A face declared later wins for the
+   code points it covers, so these ~1.2 KB subsets (pyftsubset of the same
+   variable files, wght axis kept) are what the browser fetches instead. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(./assets/fonts/inter-rupee.woff2) format("woff2-variations");
+  unicode-range: U+20B9;
+}
+@font-face {
+  font-family: "Source Serif 4 Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url(./assets/fonts/source-serif-rupee.woff2) format("woff2-variations");
+  unicode-range: U+20B9;
+}
+

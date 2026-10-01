@@ -1,0 +1,180 @@
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
+
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>()
+  return { ...actual, api: vi.fn() }
+})
+
+import { api } from "@/lib/api"
+import { navFor } from "@/app/nav"
+import { Leaderboard, rankText, standing, toCsv, type HonoursBoard } from "@/pages/leaderboard"
+import { FACULTY, HOD, failing, fakeApi, renderWithProviders } from "@/test/harness"
+
+function row(id: string, name: string, rank: number | null, value: number, over: Record<string, unknown> = {}) {
+  return {
+    rank, joint: false,
+    person: { id, name, initials: "XX", photo_url: null, department: "ECE", designation: null },
+    value, papers: value, score: value * 2, q1: 1, first: 1, cited: 3, h_index: 1,
+    breakdown: { Q1: 1 }, spark: [0, 1, 2, 1, value], move: null, new: false,
+    ...over,
+  }
+}
+
+const SPAN = { key: "academic", label: "This academic year (2026–27)", from: "2026-06-01", to: "2027-05-31" }
+
+function board(over: Partial<HonoursBoard> = {}): HonoursBoard {
+  const rows = [
+    row("u-ravi", "Dr Ravi Kumar", 1, 9, { move: 2 }),
+    row("u-lila", "Dr Lila Rao", 2, 7),
+    row("u-joe", "Dr Joe Paul", 3, 4),
+    row(FACULTY.id, FACULTY.name, 4, 3, { move: -1 }),
+    row("u-mina", "Dr Mina Das", null, 0),
+  ]
+  return {
+    measure: "papers", label: "Most papers", unit: "papers",
+    period: { ...SPAN, compared_with: null }, periods: [SPAN], scope: null,
+    departments_list: ["CSE", "ECE"], filters: { topic: null, journal: null },
+    podium: rows.slice(0, 3), rows, ranked: 4, population: 5,
+    distribution: [{ bucket: "0", lo: null, hi: 0, count: 1 }, { bucket: "1–9", lo: 1, hi: 9, count: 4 }],
+    departments: [{
+      department: "ECE", faculty: 5, value: 23, per_faculty: 4.6, papers: 23, papers_per_faculty: 4.6,
+      score_per_faculty: 9.2, rank: 1, rank_per_faculty: 1, trend: [{ year: 2026, papers: 23 }],
+    }],
+    college_trend: [{ year: 2025, papers: 10 }, { year: 2026, papers: 23 }],
+    top_topics: [], top_journals: [], topic_options: ["AI"], journal_options: ["IEEE Access"],
+    totals: { papers: 23, people: 5, people_with_papers: 4 }, spark_years: [2022, 2023, 2024, 2025, 2026],
+    method: { weights: { Q1: 4, Q2: 3, Q3: 2, Q4: 1, other: 1 }, source: "publication record", papers_in_record: 40, newcomer_months: 24, updated: "" },
+    me: { id: FACULTY.id, rank: 4, joint: false, of: 4, population: 5, dept_rank: 4, dept_of: 4, department: "ECE", percentile: 100, move: -1, value: 3, alltime_rank: null },
+    ...over,
+  }
+}
+
+function mount(data: HonoursBoard | ReturnType<typeof failing> = board(), route = "/leaderboard") {
+  vi.mocked(api).mockReset()
+  vi.mocked(api).mockImplementation(
+    fakeApi({
+      "/api/auth/me": () => FACULTY,
+      "/api/leaderboard": typeof data === "function" ? data : () => data,
+      "/api/wall": () => ({ month: "2026-09", months: [], cards: [], departments: [] }),
+    })
+  )
+  renderWithProviders(<Leaderboard />, { route })
+}
+
+const asked = () => vi.mocked(api).mock.calls.map((c) => String(c[0])).filter((p) => p.includes("/leaderboard"))
+
+describe("Leaderboard", () => {
+  it("is in the sidebar for every role", () => {
+    for (const role of ["FACULTY", "HOD", "PRINCIPAL", "DIRECTOR", "FINANCE", "SUPER_ADMIN", "RESEARCH_CELL"] as const) {
+      expect(navFor(role).map((i) => i.to)).toContain("/leaderboard")
+    }
+  })
+
+  it("shows a podium, the reader's place, and marks their row", async () => {
+    mount()
+    expect(await screen.findByRole("list", { name: "Podium" })).toBeInTheDocument()
+    const answer = screen.getByRole("group", { name: "At a glance" })
+    expect(within(answer).getByText(/4 of 4 in the college/)).toBeInTheDocument()
+    expect(within(answer).getByRole("link", { name: /Top 100% of the college/ })).toHaveAttribute("href", "/leaderboard?view=chart")
+    const mine = document.querySelector('tr[aria-current="true"]') as HTMLElement
+    expect(within(mine).getByText(/Dr Asha Menon/)).toBeInTheDocument()
+  })
+
+  it("never calls a running year a fall: last year's place is a fact, up and down only for a finished period", async () => {
+    const then = { key: "last_academic", label: "2025–26", from: "2025-06-01", to: "2026-05-31" }
+    const running = board({
+      period: { ...SPAN, to: "2999-05-31", compared_with: then },
+      me: { ...board().me!, rank: 4, move: -21 },
+    })
+    expect(standing(running)).toContain("last year #-17 (final place in 2025–26)")
+    expect(standing(running)).not.toMatch(/down|up \d/)
+    const done = board({ period: { ...SPAN, to: "2020-05-31", compared_with: then }, me: { ...board().me!, rank: 4, move: -21 } })
+    expect(standing(done)).toContain("down 21 places since 2025–26")
+  })
+
+  it("shows the reader's last-year place in the answer while the year runs, with no arrow", async () => {
+    const then = { key: "last_academic", label: "2025–26", from: "2025-06-01", to: "2026-05-31" }
+    mount(board({ period: { ...SPAN, to: "2999-05-31", compared_with: then }, me: { ...board().me!, rank: 22, move: -21 } }))
+    expect(await screen.findByText(/is still running, so places are not compared/)).toBeInTheDocument()
+    const answer = screen.getByRole("group", { name: "At a glance" })
+    expect(answer).toHaveTextContent(/#1\s*Last year: your final place in 2025–26/)
+    expect(answer).not.toHaveTextContent(/Down 21/)
+  })
+
+  it("never gives a zero a rank", async () => {
+    mount()
+    await screen.findByRole("list", { name: "Podium" })
+    const row = screen.getAllByText("Dr Mina Das")[0].closest("tr")!
+    expect(within(row).getByText("Not ranked yet")).toBeInTheDocument()
+    expect(within(row).getByTitle("Nothing counted for them in this period yet.")).toBeInTheDocument()
+    expect(within(row).queryByText("—")).toBeNull()
+    expect(rankText(null, true)).toBe("Not ranked yet")
+    expect(rankText(4, true)).toBe("=4")
+  })
+
+  it("does not contradict the table when the reader has nothing counted", () => {
+    const b = board({ me: { ...board().me!, rank: null, value: 0, percentile: null, alltime_rank: 12 } })
+    expect(standing(b)).toBe("No papers counted for you in this academic year (2026–27) yet. Your all-time rank is #12.")
+  })
+
+  it("says the list is filtered, not that the reader is uncounted, outside their department", () => {
+    expect(standing(board({ me: null, scope: "AIDS" }))).toBe("Showing AIDS. You are not in this list.")
+    expect(standing(board({ me: null }))).not.toContain("—")
+  })
+
+  it("asks for the chosen category and period", async () => {
+    mount()
+    await screen.findByRole("list", { name: "Podium" })
+    fireEvent.click(screen.getByRole("button", { name: /Q1/ }))
+    fireEvent.change(screen.getByLabelText("Period"), { target: { value: "last12" } })
+    await screen.findByRole("list", { name: "Podium" })
+    expect(asked().some((p) => p.includes("category=q1") && p.includes("period=last12"))).toBe(true)
+  })
+
+  it("shows departments per faculty member", async () => {
+    mount(board(), "/leaderboard?view=departments")
+    expect(await screen.findByText(/per faculty member/i, { selector: "h2,h3,figcaption,p,span,div" })).toBeInTheDocument()
+  })
+
+  it("exports CSV without money", () => {
+    const csv = toCsv(board())
+    expect(csv.split("\n")[0]).toContain("Rank,Name,Department")
+    expect(csv).not.toMatch(/₹|amount/i)
+  })
+
+  it("links Download CSV to the server export with the current filters", async () => {
+    mount(board(), "/leaderboard?category=q1&department=ECE")
+    const link = await screen.findByRole("link", { name: /Download CSV/ })
+    const href = link.getAttribute("href") ?? ""
+    expect(href).toContain("/api/leaderboard?")
+    expect(href).toContain("fmt=csv")
+    expect(href).toContain("category=q1")
+    expect(href).toContain("department=ECE")
+  })
+
+  it("never prints a rupee figure", async () => {
+    mount()
+    await screen.findByRole("list", { name: "Podium" })
+    expect(document.body.textContent).not.toMatch(/₹/)
+  })
+
+  it("shows a failure as a failure", async () => {
+    mount(failing())
+    expect(await screen.findByText("Could not load the leaderboard.")).toBeInTheDocument()
+  })
+})
+
+describe("Leaderboard for a head of department", () => {
+  it("opens on their own department, and the whole college is a choice", async () => {
+    vi.mocked(api).mockReset()
+    vi.mocked(api).mockImplementation(
+      fakeApi({ "/api/auth/me": () => HOD, "/api/leaderboard": () => board() })
+    )
+    renderWithProviders(<Leaderboard />)
+    await screen.findByRole("list", { name: "Podium" })
+    expect(asked().some((p) => p.includes("department=Physics"))).toBe(true)
+    fireEvent.change(screen.getByLabelText("Scope"), { target: { value: "" } })
+    await waitFor(() => expect(asked().at(-1)).not.toContain("department="))
+  })
+})

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { Combobox } from "@/ui/combobox"
-import { Checkbox, Field, Input, PasswordInput, Switch } from "@/ui/field"
+import { Checkbox, Field, Input, PasswordInput, Select, Switch } from "@/ui/field"
 
 /**
  * The accessibility wiring that typechecks whether or not it is there.
@@ -86,6 +86,28 @@ describe("Field", () => {
 /* ------------------------------------------------------------------------ */
 /* Field + Combobox — the regression                                         */
 /* ------------------------------------------------------------------------ */
+
+describe("Select", () => {
+  it("is a native select: it takes a label, reports the chosen option and can be disabled", async () => {
+    const onChange = vi.fn()
+    render(
+      <>
+        <Select aria-label="Quartile" defaultValue="" onChange={(e) => onChange(e.target.value)}>
+          <option value="">Choose</option>
+          <option value="Q1">Q1</option>
+        </Select>
+        <Select aria-label="Locked" disabled size="sm">
+          <option>x</option>
+        </Select>
+      </>
+    )
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Quartile" }), "Q1")
+    expect(onChange).toHaveBeenCalledWith("Q1")
+    expect(screen.getByRole("combobox", { name: "Locked" })).toBeDisabled()
+    // 32 px for a filter bar, 40 px on a phone.
+    expect(screen.getByRole("combobox", { name: "Locked" })).toHaveClass("h-8", "max-sm:h-10")
+  })
+})
 
 describe("Combobox inside a Field", () => {
   it("takes the label as its accessible name", () => {

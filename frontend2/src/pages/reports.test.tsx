@@ -1,5 +1,6 @@
 import type { ComponentType } from "react"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
+import { Route, Routes } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -50,7 +51,7 @@ import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
 import { Reports } from "@/pages/reports"
 import { DATA_GAP_THRESHOLD, RankedBars } from "@/ui/chart"
-import { FINANCE, fakeApi, failing, renderWithProviders } from "@/test/harness"
+import { FINANCE, fakeApi, renderWithProviders } from "@/test/harness"
 
 beforeEach(() => {
   chartPoints.length = 0
@@ -94,36 +95,6 @@ const columnHeaders = () =>
 /* ------------------------------------------------------------------------ */
 /* What the server actually sends                                            */
 /* ------------------------------------------------------------------------ */
-
-/** Shaped exactly like `hod_overview`: `amount: 0` on every row of every
- *  breakdown. That placeholder is the bug, so the fixture keeps it. */
-const HOD_OVERVIEW = {
-  department: "ECE",
-  years_on_record: [2024, 2023],
-  totals: {
-    publications: 312,
-    faculty_in_department: 40,
-    faculty_who_published: 22,
-    q1: 10,
-    first_author: 8,
-    under_review: 3,
-  },
-  by_year: [
-    { key: "2023", count: 12, amount: 0 },
-    { key: "2024", count: 300, amount: 0 },
-  ],
-  by_quartile: [
-    { key: "Q1", count: 10, amount: 0 },
-    { key: "Q2", count: 302, amount: 0 },
-  ],
-  by_type: [{ key: "Journal", count: 312, amount: 0 }],
-  by_journal: [{ key: "IEEE Access", count: 40, amount: 0 }],
-  by_indexing: [{ key: "Scopus", count: 300, amount: 0 }],
-  people: [
-    { id: "p1", name: "A Kumar", designation: null, publications: 200, first_author: 1, q1: 1 },
-    { id: "p2", name: "B Selvi", designation: null, publications: 112, first_author: 1, q1: 1 },
-  ],
-}
 
 const REPORTS = {
   totals: {
@@ -215,71 +186,6 @@ const COLLEGE_API = {
   }),
 }
 
-const hodApi = () =>
-  fakeApi({
-    "/api/auth/me": () => HOD,
-    "/api/hod/overview": () => HOD_OVERVIEW,
-  }) as typeof api
-
-/* ------------------------------------------------------------------------ */
-/* Money-blindness                                                           */
-/* ------------------------------------------------------------------------ */
-
-describe("a head of department is shown no money, by any route", () => {
-  it("renders no rupee sign anywhere in the document", async () => {
-    vi.mocked(api).mockImplementation(hodApi())
-    renderWithProviders(<Reports />, { route: "/reports" })
-
-    await waitFor(() => expect(screen.getByText(/ECE — publications/)).toBeInTheDocument())
-
-    // Deliberately the whole document rather than a named chart. The rule is
-    // "not by any route", and a per-chart assertion only ever covers the
-    // charts that existed on the day it was written.
-    expect(document.body.textContent).not.toMatch(/₹/)
-  })
-
-  it("gives no chart a Paid column, because the amount never reaches one", async () => {
-    vi.mocked(api).mockImplementation(hodApi())
-    renderWithProviders(<Reports />, { route: "/reports" })
-
-    await waitFor(() => expect(screen.getByText(/ECE — publications/)).toBeInTheDocument())
-
-    // Not vacuous: the numbers tables are there, they simply have no money
-    // column in them.
-    expect(columnHeaders()).toContain("Papers")
-    expect(columnHeaders()).not.toContain("Paid")
-  })
-
-  it("hands every chart a point with no amount key at all", async () => {
-    vi.mocked(api).mockImplementation(hodApi())
-    renderWithProviders(<Reports />, { route: "/reports" })
-
-    await waitFor(() => expect(screen.getByText(/ECE — publications/)).toBeInTheDocument())
-
-    // The fixture carries `amount: 0` on every row, exactly as the server
-    // does, so this can only pass if the page took the key off.
-    expect(chartPoints.length).toBeGreaterThan(0)
-    const carrying = chartPoints.filter((p) => Object.hasOwn(p, "amount"))
-    expect(carrying).toEqual([])
-
-    // `toBeFalsy` is the assertion that would have let the original bug
-    // through, and it is written out here so nobody reaches for it later:
-    // zero is falsy, and zero was the leak.
-    expect(chartPoints.every((p) => !p.amount)).toBe(true)
-  })
-
-  it("draws a failed overview as an error, not as a department with nothing in it", async () => {
-    vi.mocked(api).mockImplementation(
-      fakeApi({ "/api/auth/me": () => HOD, "/api/hod/overview": failing(500) }) as typeof api
-    )
-    renderWithProviders(<Reports />, { route: "/reports" })
-
-    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument())
-    expect(screen.getByText(/Could not load the report/)).toBeInTheDocument()
-    expect(screen.queryByText(/Nothing recorded yet/)).toBeNull()
-  })
-})
-
 describe("zero is not null", () => {
   /**
    * The trap, made executable.
@@ -329,8 +235,8 @@ describe("a breakdown that is almost all 'not recorded'", () => {
   it("is refused at nine in ten", () => {
     render(
       <RankedBars
-        title="Payout category"
-        dimension="Payout category"
+        title="Incentive category"
+        dimension="Incentive category"
         points={[
           { key: "Not recorded", count: 90 },
           { key: "Category I", count: 10 },
@@ -346,8 +252,8 @@ describe("a breakdown that is almost all 'not recorded'", () => {
   it("is still drawn just under it", () => {
     render(
       <RankedBars
-        title="Payout category"
-        dimension="Payout category"
+        title="Incentive category"
+        dimension="Incentive category"
         points={[
           { key: "Not recorded", count: 89 },
           { key: "Category I", count: 11 },
@@ -365,8 +271,8 @@ describe("a breakdown that is almost all 'not recorded'", () => {
   it("keeps the numbers even when it will not draw them", () => {
     render(
       <RankedBars
-        title="Payout category"
-        dimension="Payout category"
+        title="Incentive category"
+        dimension="Incentive category"
         points={[
           { key: "Not recorded", count: 3208 },
           { key: "Category I", count: 11 },
@@ -378,7 +284,7 @@ describe("a breakdown that is almost all 'not recorded'", () => {
     // set of rows. Only the picture of it lies, so only the picture is
     // withheld.
     expect(screen.getByText("Show the numbers")).toBeInTheDocument()
-    expect(columnHeaders()).toEqual(["Payout category", "Papers", "Share"])
+    expect(columnHeaders()).toEqual(["Incentive category", "Papers", "Share"])
     const cells = Array.from(document.querySelectorAll("td")).map((td) => td.textContent)
     expect(cells).toContain("3,208")
     expect(cells).toContain("Category II")
@@ -392,8 +298,8 @@ describe("a breakdown that is almost all 'not recorded'", () => {
     // cap be deleted without a test noticing.
     render(
       <RankedBars
-        title="Payout category"
-        dimension="Payout category"
+        title="Incentive category"
+        dimension="Incentive category"
         points={[
           { key: "Not recorded", count: 3216 },
           { key: "Category I", count: 10 },
@@ -500,5 +406,47 @@ describe("the three questions a review meeting asks", () => {
     expect(screen.getByText(/1 in 2023/)).toBeInTheDocument()
     // And the whole-panel refusal is correctly absent this time.
     expect(screen.queryByText(/the earlier year is not an earlier year/i)).toBeNull()
+  })
+})
+
+/* ------------------------------------------------------------------------ */
+/* Scopus figures per department                                             */
+/* ------------------------------------------------------------------------ */
+
+describe("citations and Scopus publications per department", () => {
+  it("are tabulated for the college, from the imported profiles", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        ...COLLEGE_API,
+        "/api/reports": () => ({
+          ...REPORTS,
+          scopus_by_department: [
+            { department: "ECE", people_with_profile: 1, publications: 49, citations: 170,
+              highest_h_index: 6 },
+            { department: "EEE", people_with_profile: 1, publications: 26, citations: 166,
+              highest_h_index: 8 },
+          ],
+        }),
+      }) as typeof api
+    )
+    renderWithProviders(<Reports />, { route: "/reports" })
+    const region = await screen.findByRole("region", { name: /on scopus, by department/i })
+    const eee = within(region).getByRole("row", { name: /EEE/ })
+    expect(within(eee).getByText("166")).toBeInTheDocument()
+    expect(within(eee).getByText("26")).toBeInTheDocument()
+  })
+})
+
+describe("a head of department", () => {
+  it("is sent to their own Department page, not shown a claim-based analysis", async () => {
+    vi.mocked(api).mockImplementation(fakeApi({ "/api/auth/me": () => HOD }) as typeof api)
+    renderWithProviders(
+      <Routes>
+        <Route path="/reports" element={<Reports />} />
+        <Route path="/department" element={<p>The department page</p>} />
+      </Routes>,
+      { route: "/reports" }
+    )
+    expect(await screen.findByText("The department page")).toBeInTheDocument()
   })
 })

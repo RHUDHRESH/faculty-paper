@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 
-import { api, forgetCsrf } from "@/lib/api"
+import { api, bootAnswer, forgetCsrf } from "@/lib/api"
 
 export type Role =
   | "FACULTY"
@@ -20,7 +20,13 @@ export type Me = {
   department?: string | null
   designation?: string | null
   staff_id?: string | null
+  /** Their own profile photo, set from their public profile. */
+  photo_url?: string | null
   must_change_password?: boolean
+  /** False until they close the first-sign-in welcome. */
+  welcome_seen?: boolean
+  /** Set while a super admin is viewing as this account. */
+  impersonated_by?: { id: string; name: string; email: string } | null
 }
 
 type Ctx = {
@@ -43,7 +49,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      setMe(await api<Me>("/api/auth/me"))
+      // The first ask is usually already in flight from index.html.
+      setMe(await (bootAnswer<Me>("/api/auth/me") ?? api<Me>("/api/auth/me")))
     } catch {
       setMe(null)
     } finally {
@@ -125,8 +132,22 @@ export function can(role: Role | undefined) {
   const office =
     r === "SUPER_ADMIN" || r === "RESEARCH_CELL" || r === "RESEARCH_COORDINATOR"
   return {
-    /** Money is not a head of department's business, anywhere. */
+    /**
+     * Money across the college or the department. Not a head of department's
+     * business -- except on their own papers, which the server leaves the
+     * figures on (`hod.for_head`) and which the screens built on `/api/claims`
+     * show whatever this says.
+     */
     seeMoney: !!r && r !== "HOD",
+    /**
+     * `rbac.CLAIMANT_ROLES`: files, edits, withdraws and tracks their own
+     * papers. Everybody on the staff but the super admin: a head of
+     * department is faculty who also heads the department, and an officer --
+     * the research cell, the coordinator, the Principal, the Director,
+     * Finance -- may be an academic too, who "must be able to do both". On
+     * their own papers they are the claimant, never the desk.
+     */
+    fileOwnPapers: !!r && r !== "SUPER_ADMIN",
 
     // These four mirror named functions in `backend/core/services/rbac.py`
     // and `api.py`. Where they disagree, the screen hides a control the

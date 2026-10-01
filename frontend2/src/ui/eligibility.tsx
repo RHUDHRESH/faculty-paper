@@ -1,5 +1,7 @@
 import { useId, useRef, useState, type ReactNode } from "react"
-import { AlertTriangle, ExternalLink, ShieldCheck } from "lucide-react"
+import * as CheckboxPrimitive from "@radix-ui/react-checkbox"
+import { AlertTriangle, CopyX, ExternalLink, FileStack, ShieldCheck, type LucideIcon } from "lucide-react"
+import { motion, useReducedMotion } from "motion/react"
 
 import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
@@ -12,8 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/ui/dialog"
-import { Checkbox } from "@/ui/field"
-import { SectionTitle, Sub } from "@/ui/text"
+import { SectionTitle } from "@/ui/text"
 
 /**
  * The Author Feedback Wizard — the only supported way to merge or move a
@@ -71,7 +72,7 @@ export function claimRules(minReferences: number): ClaimRule[] {
       title: "Duplicate claim prevention",
       body: (
         <>
-          Make sure no incentive claim has been filed for this article before — by you or by a
+          Make sure no incentive claim has been filed for this article before, by you or by a
           co-author. Duplicates are traced against the paid ledger and sent back.
         </>
       ),
@@ -84,15 +85,15 @@ export function claimRules(minReferences: number): ClaimRule[] {
           Pick the claim reason that matches what you are filing:
           <ul className="mt-1.5 space-y-1">
             <li>
-              <strong>Incentive</strong> — an ordinary faculty publication claim, which is
+              <strong>Incentive</strong>: an ordinary faculty publication claim, which is
               priced and paid.
             </li>
             <li>
-              <strong>For the record only</strong> — the publication is counted and no money is
+              <strong>For the record only</strong>: the publication is counted and no money is
               claimed. Typically a final-year student project outcome.
             </li>
             <li>
-              <strong>Student project</strong> — counted against a named project team.
+              <strong>Student project</strong>: counted against a named project team.
             </li>
           </ul>
           <p className="mt-1.5">
@@ -239,13 +240,17 @@ type Confirmation = {
   hint: string
   /** What to do about it instead of giving up — see `ClaimEligibilityGate`. */
   stuck: ReactNode
+  /** What the reviewer will check, in the reviewer's own terms. */
+  check: ReactNode
+  /** How the claimant can be sure before ticking. */
+  sure: ReactNode
 }
 
 /**
  * The three things that have to be true before a claim is worth filing, each
  * of which is otherwise found out weeks later as a rejection reason.
  */
-function confirmations(minReferences: number): Confirmation[] {
+export function confirmations(minReferences: number): Confirmation[] {
   return [
     {
       id: "indexed",
@@ -263,10 +268,13 @@ function confirmations(minReferences: number): Confirmation[] {
             Scopus Author Feedback Wizard
             <ExternalLink className="size-3" aria-hidden />
           </a>
-          . If it is not indexed yet, there is nothing to fix — come back when it is. Nothing has
+          . If it is not indexed yet, there is nothing to fix; come back when it is. Nothing has
           been saved, so leaving now costs you nothing.
         </>
       ),
+      check:
+        "The reviewer opens your Scopus Author Profile and looks for this article under your name, with the same title and DOI as your claim.",
+      sure: "Search the title on scopus.com and open the result. Your name should be among its authors, and the article should be listed on your own profile. If it sits under a second profile, merge the two in the Author Feedback Wizard first.",
     },
     {
       id: "no-duplicate",
@@ -279,6 +287,9 @@ function confirmations(minReferences: number): Confirmation[] {
           than starting a second.
         </>
       ),
+      check:
+        "The reviewer compares your title and DOI with every claim already filed or paid at the college, including claims by your co-authors.",
+      sure: "Search My claims for the title, and ask each co-author at the college whether they have claimed it. A claim that was sent back is still that claim, so fix it instead of filing a second one.",
     },
     {
       id: "documents",
@@ -288,21 +299,127 @@ function confirmations(minReferences: number): Confirmation[] {
       stuck: (
         <>
           Gather the files first. The form saves itself as you type, so you can start now and
-          attach them later — but a claim filed with fewer than {minReferences} numbered
+          attach them later, but a claim filed with fewer than {minReferences} numbered
           references is recorded and paid nothing, which is worse than waiting.
         </>
       ),
+      check:
+        "The reviewer searches the article's PDF for the line “Saveetha Engineering College” under an author's name, then opens each reference PDF to see its number and a college author.",
+      sure: "Open each PDF and press Ctrl+F to search for “Saveetha”. Save PDFs from the publisher's site rather than scanning them, so the text can be searched. Write down each reference's number from your article's reference list.",
     },
   ]
 }
 
 /**
- * The gate in front of the claim wizard.
+ * What the reviewer will check for one condition, and how to be sure it is
+ * true before ticking. Folded away by default so the three cards stay short,
+ * but always one press from the card it belongs to.
+ */
+export function ConditionHelp({ item, className }: { item: Pick<Confirmation, "check" | "sure">; className?: string }) {
+  return (
+    <details className={cn("group text-sm", className)}>
+      <summary className="cursor-pointer select-none font-medium text-accent">
+        What the reviewer checks, and how to be sure
+      </summary>
+      <div className="mt-2 space-y-2 border-l-2 border-line pl-3 leading-relaxed text-fg-muted">
+        <p>
+          <span className="font-medium text-fg">The reviewer checks. </span>
+          {item.check}
+        </p>
+        <p>
+          <span className="font-medium text-fg">To be sure. </span>
+          {item.sure}
+        </p>
+      </div>
+    </details>
+  )
+}
+
+/**
+ * The three conditions as a plain list of boxes, for the places that ask
+ * again without the big cards (sending a fixed claim back). Each box is
+ * ticked by the person, one at a time, and stamps its own time; nothing is
+ * ticked for them and nothing remembers an earlier filing.
+ */
+export function ConditionTickList({
+  minReferences = 2,
+  ticks,
+  onChange,
+}: {
+  minReferences?: number
+  ticks: Ticks
+  onChange: (next: Ticks) => void
+}) {
+  return (
+    <ol className="space-y-3" data-area="record">
+      {confirmations(minReferences).map((c, i) => {
+        const on = !!ticks[c.id]
+        return (
+          <li key={c.id} data-condition={c.id} data-ticked={on ? "true" : undefined}>
+            <label
+              htmlFor={`tick-${c.id}`}
+              className={cn(
+                "flex min-h-14 cursor-pointer items-start gap-3 rounded-xl px-4 py-3 text-base transition-colors duration-[var(--dur-1)]",
+                on ? "bg-positive-wash" : "bg-sunken hover:bg-hover"
+              )}
+            >
+              <CheckboxPrimitive.Root
+                id={`tick-${c.id}`}
+                checked={on}
+                onCheckedChange={(v) => {
+                  const next = { ...ticks }
+                  if (v === true) next[c.id] = new Date().toISOString()
+                  else delete next[c.id]
+                  onChange(next)
+                }}
+                className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-surface ring-2 ring-inset ring-field outline-none focus-visible:ring-accent focus-visible:ring-offset-2 data-[state=checked]:bg-positive data-[state=checked]:ring-positive"
+              >
+                <CheckboxPrimitive.Indicator forceMount className="text-white">
+                  <TickMark on={on} />
+                </CheckboxPrimitive.Indicator>
+              </CheckboxPrimitive.Root>
+              <span className="min-w-0">
+                <span className="font-medium">
+                  {i + 1}. {c.label}
+                </span>
+                <span className="mt-0.5 block text-sm text-fg-muted">I confirm this is true for this article.</span>
+              </span>
+            </label>
+            <ConditionHelp item={c} className="mt-1.5 px-4" />
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+/** The icon each condition card carries (docs/ux/04, Step 2). */
+const CONDITION_ICON: Record<string, LucideIcon> = {
+  indexed: ShieldCheck,
+  "no-duplicate": CopyX,
+  documents: FileStack,
+}
+
+/** What we found about one condition. Read-only: it never ticks a box. */
+export type ConditionEvidence = {
+  tone: "positive" | "neutral" | "critical"
+  text: ReactNode
+}
+
+/** One box ticked, and when — sent with the filing as the legal record. */
+export type Ticks = Record<string, string>
+
+/** The condition ids, in the order the server expects them. */
+export const CONDITION_IDS = ["indexed", "no-duplicate", "documents"] as const
+
+/**
+ * The gate in front of the claim form: three large cards, each a condition
+ * about *this* article, each ticked by the person themselves.
  *
- * The conditions are not advisory: each of the three is a reason a ticket is
- * refused, so the form stays shut until all three are ticked, and the
- * acknowledgement is per-article rather than remembered across tickets —
- * "I ticked this last year" is exactly how a duplicate claim gets filed.
+ * Shown in full every time — nothing folds away after a first filing, nothing
+ * is pre-ticked and nothing is remembered. The ticks and their times are
+ * handed to `onAcknowledge` and sent with the filing, where the server
+ * records them as the college's evidence of acceptance.
  *
  * The primary button is deliberately **not** disabled while boxes are
  * unticked. A disabled button is unfocusable, says nothing about why, and
@@ -311,27 +428,37 @@ function confirmations(minReferences: number): Confirmation[] {
  */
 export function ClaimEligibilityGate({
   minReferences = 2,
+  paper,
+  evidence = {},
+  blocked,
   onAcknowledge,
   onCancel,
   cancelLabel = "Not yet",
 }: {
   minReferences?: number
-  onAcknowledge: () => void
+  /** The article being confirmed, shown above the cards. */
+  paper?: ReactNode
+  evidence?: Partial<Record<string, ConditionEvidence>>
+  /** Evidence that contradicts a condition: shown, and Start refuses. */
+  blocked?: ReactNode
+  onAcknowledge: (ticks: Ticks) => void
   onCancel?: () => void
   cancelLabel?: string
 }) {
   const items = confirmations(minReferences)
-  const [ticked, setTicked] = useState<Record<string, boolean>>({})
+  const [ticked, setTicked] = useState<Ticks>({})
   const [showStuck, setShowStuck] = useState(false)
   const alertRef = useRef<HTMLDivElement>(null)
   const alertId = useId()
 
   const outstanding = items.filter((c) => !ticked[c.id])
   const allTicked = outstanding.length === 0
+  const count = items.length - outstanding.length
 
   function start() {
+    if (blocked) return
     if (allTicked) {
-      onAcknowledge()
+      onAcknowledge(ticked)
       return
     }
     setShowStuck(true)
@@ -341,81 +468,194 @@ export function ClaimEligibilityGate({
   }
 
   return (
-    <div className="space-y-5">
-      <ClaimRulesPanel minReferences={minReferences} />
+    <div className="space-y-5" data-area="record">
+      {paper}
 
-      <section className="panel-lead p-4 sm:p-5">
-        <SectionTitle>Confirm before you start</SectionTitle>
-        <Sub className="mt-1">
-          All three have to be true. Ticking them opens the claim form.
-        </Sub>
-
-        <ul className="mt-4 space-y-3">
-          {items.map((c) => (
-            <li key={c.id} className="rounded-md bg-sunken p-3">
-              <Checkbox
-                id={`ack-${c.id}`}
-                checked={!!ticked[c.id]}
-                onCheckedChange={(v) => setTicked((s) => ({ ...s, [c.id]: v === true }))}
-                label={c.label}
-                hint={c.hint}
-              />
+      <ol className="space-y-4">
+        {items.map((c, i) => {
+          const Icon = CONDITION_ICON[c.id] ?? ShieldCheck
+          const on = !!ticked[c.id]
+          const ev = evidence[c.id]
+          return (
+            <li
+              key={c.id}
+              data-condition={c.id}
+              data-ticked={on ? "true" : undefined}
+              className={cn(
+                "flex min-h-[120px] flex-col gap-4 rounded-2xl bg-surface p-5 shadow-[inset_0_0_0_1px_var(--color-line)] transition-colors duration-[var(--dur-1)] sm:flex-row",
+                on && "shadow-[inset_0_0_0_2px_var(--color-positive)]"
+              )}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "inline-flex size-[88px] shrink-0 items-center justify-center rounded-3xl transition-colors duration-[var(--dur-1)]",
+                  on ? "bg-positive-wash text-positive" : "bg-(--area-wash) text-(--area)"
+                )}
+              >
+                <Icon className="size-12" strokeWidth={1.5} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="flex items-baseline gap-2 text-lg font-semibold text-fg">
+                  <span className="figure text-(--area) tabular">{i + 1}</span>
+                  <span>{c.label}</span>
+                </h3>
+                <p className="mt-1 text-sm leading-relaxed text-fg-muted">{c.hint}</p>
+                <p className="mt-1 text-sm leading-relaxed text-fg-muted">{c.stuck}</p>
+                <ConditionHelp item={c} className="mt-2" />
+                {ev && (
+                  <p
+                    className={cn(
+                      "mt-2 flex items-start gap-1.5 text-sm",
+                      ev.tone === "positive" ? "text-positive" : ev.tone === "critical" ? "text-critical" : "text-fg-muted"
+                    )}
+                  >
+                    <span className="font-medium">Evidence we found:</span>
+                    <span className="min-w-0">{ev.text}</span>
+                  </p>
+                )}
+                <label
+                  htmlFor={`ack-${c.id}`}
+                  className={cn(
+                    "mt-3 flex min-h-14 cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-base font-medium transition-colors duration-[var(--dur-1)]",
+                    on ? "bg-positive-wash text-fg" : "bg-sunken hover:bg-hover"
+                  )}
+                >
+                  <CheckboxPrimitive.Root
+                    id={`ack-${c.id}`}
+                    checked={on}
+                    onCheckedChange={(v) =>
+                      setTicked((s) => {
+                        const next = { ...s }
+                        if (v === true) next[c.id] = new Date().toISOString()
+                        else delete next[c.id]
+                        return next
+                      })
+                    }
+                    aria-describedby={showStuck && !on ? alertId : undefined}
+                    className="grid size-6 shrink-0 place-items-center rounded-md bg-surface ring-2 ring-inset ring-field outline-none focus-visible:ring-accent focus-visible:ring-offset-2 data-[state=checked]:bg-positive data-[state=checked]:ring-positive"
+                  >
+                    <CheckboxPrimitive.Indicator forceMount className="text-white">
+                      <TickMark on={on} />
+                    </CheckboxPrimitive.Indicator>
+                  </CheckboxPrimitive.Root>
+                  I confirm this is true for this article
+                </label>
+              </div>
             </li>
-          ))}
-        </ul>
+          )
+        })}
+      </ol>
 
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button
-            kind="primary"
-            size="lg"
-            type="button"
-            onClick={start}
-            aria-describedby={showStuck && !allTicked ? alertId : undefined}
-          >
-            <ShieldCheck aria-hidden />
-            Start the claim
-          </Button>
-          {onCancel && (
-            <Button kind="quiet" size="lg" type="button" onClick={onCancel}>
-              {cancelLabel}
-            </Button>
-          )}
-          {/* Polite, so a reader ticking three boxes in a row is told the
-              count each time without being interrupted mid-word. */}
-          <span role="status" aria-live="polite" className="text-sm text-fg-muted">
-            {allTicked
-              ? "All three confirmed"
-              : `${outstanding.length} confirmation${outstanding.length === 1 ? "" : "s"} left`}
-          </span>
+      <details className="panel p-4 [&[open]>summary]:mb-3">
+        <summary className="cursor-pointer text-sm font-medium text-accent">
+          Read the full filing rules (claim reason and SNIP, affiliation)
+        </summary>
+        <ClaimRulesPanel minReferences={minReferences} />
+      </details>
+
+      {blocked && (
+        <div role="alert" className="rounded-xl bg-critical-wash p-4">
+          {blocked}
         </div>
+      )}
 
-        {/* Only after the button is pressed. Spelling out how to get unstuck
-            from all three the moment the page loads buries the three
-            sentences that actually have to be read. */}
-        {showStuck && !allTicked && (
-          <div
-            id={alertId}
-            ref={alertRef}
-            role="alert"
-            tabIndex={-1}
-            className="mt-4 rounded-md bg-critical-wash p-3"
-          >
-            <p className="text-base font-medium">
-              {outstanding.length === 1
-                ? "One of these is not confirmed yet, so the form has not opened"
-                : `${outstanding.length} of these are not confirmed yet, so the form has not opened`}
-            </p>
-            <ul className="mt-2 space-y-2.5">
-              {outstanding.map((c) => (
-                <li key={c.id}>
-                  <p className="text-sm font-medium">{c.label}</p>
-                  <p className="mt-0.5 text-sm leading-relaxed text-fg-muted">{c.stuck}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
+      <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-3 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
+        <Button
+          kind={allTicked ? "primary" : "default"}
+          size="lg"
+          type="button"
+          onClick={start}
+          disabled={!!blocked}
+          aria-describedby={showStuck && !allTicked ? alertId : undefined}
+        >
+          <ShieldCheck aria-hidden />
+          Start the claim
+        </Button>
+        {/* Polite, so a reader ticking three boxes in a row is told the
+            count each time without being interrupted mid-word. */}
+        <span role="status" aria-live="polite" className="text-sm font-medium text-fg-muted tabular">
+          {count} of {items.length} confirmed
+        </span>
+        {onCancel && (
+          <Button kind="quiet" size="lg" type="button" onClick={onCancel}>
+            {cancelLabel}
+          </Button>
         )}
-      </section>
+      </div>
+
+      {/* Only after the button is pressed. Spelling out how to get unstuck
+          from all three the moment the page loads buries the three
+          sentences that actually have to be read. */}
+      {showStuck && !allTicked && (
+        <div id={alertId} ref={alertRef} role="alert" tabIndex={-1} className="rounded-xl bg-critical-wash p-4">
+          <p className="text-base font-medium">
+            {outstanding.length === 1
+              ? "One of these is not confirmed yet, so the form has not opened"
+              : `${outstanding.length} of these are not confirmed yet, so the form has not opened`}
+          </p>
+          <ul className="mt-2 space-y-2.5">
+            {outstanding.map((c) => (
+              <li key={c.id}>
+                <p className="text-sm font-medium">{c.label}</p>
+                <p className="mt-0.5 text-sm leading-relaxed text-fg-muted">{c.stuck}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
+  )
+}
+
+/** The check draws its stroke with the 180ms spring (docs/ux/00 §5). */
+function TickMark({ on }: { on: boolean }) {
+  const reduce = useReducedMotion()
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={3} aria-hidden>
+      <motion.path
+        d="M5 12.5l4.5 4.5L19 7.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        initial={false}
+        animate={{ pathLength: on ? 1 : 0, opacity: on ? 1 : 0 }}
+        transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 30 }}
+      />
+    </svg>
+  )
+}
+
+/**
+ * The three confirmations read back on the last step, with when each was
+ * ticked. Read-only: changing one means going back to the gate.
+ */
+export function ConfirmedConditions({ ticks, minReferences = 2 }: { ticks: Ticks; minReferences?: number }) {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleString("en-IN", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", year: "numeric" })
+  return (
+    <section className="space-y-3" data-area="record" aria-labelledby="confirmed-conditions">
+      <h3 id="confirmed-conditions" className="text-base font-semibold">
+        What you confirmed about this article
+      </h3>
+      <ul className="space-y-2">
+        {confirmations(minReferences).map((c) => {
+          const Icon = CONDITION_ICON[c.id] ?? ShieldCheck
+          return (
+            <li key={c.id} className="flex items-start gap-3 rounded-xl bg-positive-wash/60 p-3">
+              <Icon aria-hidden className="mt-0.5 size-5 shrink-0 text-positive" strokeWidth={1.75} />
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{c.label}</p>
+                <p className="text-xs text-fg-muted">
+                  {ticks[c.id] ? `Confirmed ${fmt(ticks[c.id])}` : "Not confirmed"}
+                </p>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      <p className="text-sm text-fg-muted">
+        By filing you declare these are true. They are stored with the claim.
+      </p>
+    </section>
   )
 }

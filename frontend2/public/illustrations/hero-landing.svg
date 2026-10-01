@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" role="img" aria-labelledby="t">
+  <title id="t">Papers rising from a portico into a constellation</title>
+  <!-- Convocation house set. CC0. Inks: navy #2b398f, mass #dfe5f7, paper #fff, gold #e0a82e. Ground y=176. -->
+  <g fill="none" stroke="#c8d3f7" stroke-width="1.5" stroke-linecap="round">
+    <path d="M160 58 L214 34 L262 50 L240 20"/>
+    <path d="M160 58 L112 30 L70 44"/>
+    <path d="M112 30 L128 12"/>
+  </g>
+  <g fill="#ffffff">
+    <circle cx="214" cy="34" r="4"/><circle cx="262" cy="50" r="3"/><circle cx="240" cy="20" r="3"/>
+    <circle cx="112" cy="30" r="4"/><circle cx="70" cy="44" r="3"/><circle cx="128" cy="12" r="2.5"/>
+  </g>
+  <circle cx="160" cy="58" r="7" fill="#e0a82e"/>
+  <circle cx="160" cy="58" r="12" fill="none" stroke="#e0a82e" stroke-width="1.5" opacity=".6"/>
+  <!-- rising sheets -->
+  <g>
+    <rect x="148" y="72" width="24" height="30" rx="3" fill="#ffffff" transform="rotate(-8 160 87)"/>
+    <rect x="152" y="80" width="14" height="2.5" rx="1.25" fill="#c8d3f7" transform="rotate(-8 160 87)"/>
+    <rect x="152" y="86" width="10" height="2.5" rx="1.25" fill="#c8d3f7" transform="rotate(-8 160 87)"/>
+    <rect x="120" y="92" width="22" height="28" rx="3" fill="#ffffff" opacity=".85" transform="rotate(10 131 106)"/>
+    <rect x="178" y="96" width="22" height="28" rx="3" fill="#ffffff" opacity=".85" transform="rotate(-14 189 110)"/>
+  </g>
+  <!-- portico -->
+  <path d="M96 176 V128 h128 v48" fill="#dfe5f7" opacity=".25"/>
+  <path d="M90 128 h140 l-10 -10 H100z" fill="#ffffff"/>
+  <path d="M120 176 v-40 a40 40 0 0 1 80 0 v40 h-12 v-40 a28 28 0 0 0 -56 0 v40z" fill="#ffffff"/>
+  <rect x="84" y="174" width="152" height="4" rx="2" fill="#ffffff"/>
+  <rect x="40" y="176" width="240" height="1.5" fill="#c8d3f7"/>
+</svg>

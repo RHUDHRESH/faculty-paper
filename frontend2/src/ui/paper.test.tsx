@@ -1,7 +1,42 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { money, Stage, stageOf, STAGES } from "@/ui/paper"
+import { categoryLabel, money, payoutWorking, Stage, stageOf, STAGES } from "@/ui/paper"
+
+/**
+ * A final-year project claim is paid a fixed amount under its own scheme, so
+ * it has no author-position share to multiply by -- and it must still say
+ * why the amount is what it is, rather than showing no working at all.
+ */
+describe("the final-year project scheme's amount", () => {
+  const fyp = {
+    remuneration: 15000,
+    base_amount: 15000,
+    qf_amount: 0,
+    author_point: null,
+    snip: null,
+    quartile: null,
+    author_position: 3,
+    total_authors: 5,
+    remuneration_category: "FYP",
+  }
+
+  it("names the scheme in words", () => {
+    expect(categoryLabel("FYP")).toMatch(/final-year project scheme/i)
+  })
+
+  it("shows the fixed amount as the whole working, not split by author position", () => {
+    const lines = payoutWorking(fyp)
+    expect(lines).toHaveLength(1)
+    expect(lines[0].value).toBe("₹15,000")
+    expect(lines[0].label).toMatch(/fixed amount/i)
+    expect(lines.some((l) => /author-position/i.test(l.label))).toBe(false)
+  })
+
+  it("shows no working for a student project that pays nothing", () => {
+    expect(payoutWorking({ ...fyp, remuneration: 0, base_amount: 0 })).toEqual([])
+  })
+})
 
 /**
  * The two pure functions every screen that shows money or progress goes
@@ -19,8 +54,8 @@ describe("money", () => {
     // The whole point. "Not calculated yet" and "you are owed ₹0" are
     // different sentences, and a claimant reading the second one when the
     // first is true concludes their paper is worth nothing.
-    expect(money(null)).toBe("—")
-    expect(money(undefined)).toBe("—")
+    expect(money(null)).toBe("Not recorded")
+    expect(money(undefined)).toBe("Not recorded")
     expect(money(null)).not.toBe(money(0))
   })
 
@@ -109,14 +144,14 @@ describe("stageOf", () => {
     // One word covering two desks is what sent claimants to Finance while
     // their ticket was still on the Director's list.
     expect(stageOf("PRINCIPAL_APPROVED").step).toBe("Approved")
-    expect(stageOf("PRINCIPAL_APPROVED").who).toMatch(/Director/i)
+    expect(stageOf("PRINCIPAL_APPROVED").who).toMatch(/to be authorised/i)
     expect(stageOf("DIRECTOR_APPROVED").step).toBe("Authorised")
-    expect(stageOf("DIRECTOR_APPROVED").who).toMatch(/Finance/i)
+    expect(stageOf("DIRECTOR_APPROVED").who).toMatch(/payment is being made/i)
   })
 
   it("still says something for a status this build has never heard of", () => {
     const stage = stageOf("SOME_NEW_STATUS")
-    expect(stage.label).toBe("SOME NEW STATUS")
+    expect(stage.label).toBe("In progress")
   })
 })
 
@@ -132,7 +167,7 @@ describe("Stage", () => {
     expect(bar).toHaveAttribute("aria-valuemax", String(STAGES.length))
   })
 
-  it("shows no bar beside a settled ticket", () => {
+  it("shows no bar beside a settled claim", () => {
     // "Step 5 of 5" beside a badge already reading Paid is noise on every
     // settled row in the table.
     render(<Stage stage={stageOf("PAID")} />)

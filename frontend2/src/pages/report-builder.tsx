@@ -1,5 +1,6 @@
+import { paperTitle } from "@/lib/names"
 import { useMemo } from "react"
-import { useLocation, useSearchParams } from "react-router-dom"
+import { Link, useLocation, useSearchParams } from "react-router-dom"
 import { BarChart3, Download, Table2, X } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
@@ -19,7 +20,9 @@ import {
   SkeletonRows,
 } from "@/ui/state"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
-import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
+import { Answer, PrintButton, PrintStamp } from "./reports-print"
+import { PageHeader } from "@/ui/page-header"
 
 /**
  * Build a report, read it on screen, take it away if you want it.
@@ -74,11 +77,6 @@ type BuildPayload = {
   years: number[]
 }
 
-/** `/api/reports/search` with `limit=1`: the count and the sum over everything
- *  that matches, which is the one figure both the page and the reader need
- *  before any breakdown makes sense. Its filters run through the same
- *  queryset as `/api/reports/build`, so the two cannot disagree. */
-type ScopeTotals = { total: number; total_amount: number }
 
 type AreaCoverage = {
   coverage: { classified: number; total: number; unclassified: number; fraction: number }
@@ -199,7 +197,7 @@ function importReachNote(points: Point[]): string | null {
   const priorTotal = sum(prior)
   if (isComparable(recentTotal, priorTotal)) return null
   return (
-    `${priorTotal.toLocaleString("en-IN")} publications are recorded for ` +
+    `${priorTotal.toLocaleString("en-IN")} papers are recorded for ` +
     `${prior[0].key}–${prior[prior.length - 1].key} against ` +
     `${recentTotal.toLocaleString("en-IN")} for ${recent[0].key}–${recent[recent.length - 1].key}. ` +
     "The climb on the left of this chart is where the import stops reaching back, not where " +
@@ -298,11 +296,37 @@ export function ReportBuilder() {
   const scopeQuery = new URLSearchParams({ limit: "1" })
   if (year) scopeQuery.set("year", year)
   if (department) scopeQuery.set("department", department)
-  const scope = useApi<ScopeTotals>(
-    ["reports", "scope", year, department],
-    `/api/reports/search?${scopeQuery.toString()}`,
+  // The papers in scope and what was paid for them come from the same
+  // sources as the breakdowns below (the publication record and the ledger).
+  // They used to come from the claim search, so a report of 8,466 papers
+  // opened on "ECE leads with 1,744 of 95 publications": a count from the
+  // record set against a total of the few months of claims.
+  const papersInScope = useApi<{ total: number }>(
+    ["reports", "scope-papers", year, department],
+    `/api/reports/papers?${scopeQuery.toString()}`,
     { enabled: allowed, placeholderData: (prev) => prev }
   )
+  const moneyInScope = useApi<{ totals: { paid_amount: number; committed_amount: number } }>(
+    ["reports", year, department, ""],
+    `/api/reports?${new URLSearchParams(Object.fromEntries([...(year ? [["year", year]] : []), ...(department ? [["department", department]] : [])])).toString()}`,
+    { enabled: allowed, placeholderData: (prev) => prev }
+  )
+  const scope = {
+    data:
+      papersInScope.data && moneyInScope.data
+        ? {
+            total: papersInScope.data.total,
+            paid: moneyInScope.data.totals.paid_amount,
+            committed: moneyInScope.data.totals.committed_amount,
+          }
+        : undefined,
+    isLoading: papersInScope.isLoading || moneyInScope.isLoading,
+    isError: papersInScope.isError || moneyInScope.isError,
+    refetch: () => {
+      void papersInScope.refetch()
+      void moneyInScope.refetch()
+    },
+  }
 
   const departments = useApi<string[]>(["meta", "departments"], "/api/meta/departments", {
     enabled: allowed,
@@ -334,8 +358,13 @@ export function ReportBuilder() {
       <div className="page py-8">
         <ErrorState
           title="Not open to this account"
-          message="Reports are college-wide. A head of department sees their own department's publications instead."
+          message="Reports are college-wide. A head of department sees their own department's papers instead."
         />
+        <div className="mt-4 flex justify-center">
+          <Button kind="default" size="sm" asChild>
+            <Link to="/reports">Open your department's report</Link>
+          </Button>
+        </div>
       </div>
     )
   }
@@ -367,105 +396,99 @@ export function ReportBuilder() {
 
   return (
     <div className="page space-y-8">
-      <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        <div className="min-w-0">
-          <PageTitle>Build a report</PageTitle>
-          <Sub className="mt-1">
-            Choose what to break the figures down by. The report is on this page; the file is
-            the same thing in an envelope.
-          </Sub>
-        </div>
-
-        {/* Secondary by placement and by weight: the report is already on
-            screen, so these are for taking it somewhere else. */}
-        <div className="min-w-0">
-          <ColumnLabel className="mb-1 block">Also download as</ColumnLabel>
-          <div className="flex flex-wrap gap-1">
-            {FORMATS.map((fmt) => (
-              <Button key={fmt.key} kind="quiet" size="sm" asChild>
+      <PrintStamp
+        title="Custom report"
+        scope={[year || "all years", department || "every department"].join(" · ")}
+      />
+      <PageHeader
+        title="Build a report"
+        sub="Choose what to count, how to group it and which slice to look at. The preview below is the report; the files carry exactly the same rows."
+        spot="spot-reports"
+        action={
+          <span className="flex flex-wrap items-center gap-1 print:hidden">
+            {FORMATS.filter((f) => f.key !== "csv" || chosen.length === 1).map((fmt, i) => (
+              <Button key={fmt.key} kind={i === 0 ? "default" : "quiet"} asChild>
                 <a href={`/api/reports/build?${downloadQuery.toString()}&fmt=${fmt.key}`} download>
-                  {fmt.key === "xlsx" && <Download />}
-                  {fmt.label}
+                  {i === 0 && <Download />}
+                  {i === 0 ? `Download as ${fmt.label}` : fmt.label}
                 </a>
               </Button>
             ))}
-          </div>
-        </div>
-      </header>
+            <PrintButton />
+          </span>
+        }
+      />
 
-      {/* ---- what to break it down by ---- */}
-      <section className="space-y-2">
-        <ColumnLabel className="block">Break down by</ColumnLabel>
-        {data ? (
-          <div className="flex flex-wrap gap-1" role="group" aria-label="Break down by">
-            {data.available.map((d) => (
-              <Chip
-                key={d.key}
-                active={chosen.includes(d.key)}
-                onClick={() => toggleDimension(d.key)}
-              >
-                {d.label}
-              </Chip>
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {[6, 8, 5, 7, 6, 9].map((w, i) => (
-              <Skeleton key={i} className="h-7" style={{ width: `${w}rem` }} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ---- filters and presentation ---- */}
-      <div className="flex flex-wrap items-end gap-3 border-y border-line py-3">
-        <div>
-          <ColumnLabel className="mb-1 block">Publication year</ColumnLabel>
-          <Combobox
-            value={year}
-            onChange={(v) => setParam("year", v)}
-            options={yearOptions}
-            aria-label="Publication year"
-            className="w-44"
-          />
-        </div>
-        <div>
-          <ColumnLabel className="mb-1 block">Department</ColumnLabel>
-          <Combobox
-            value={department}
-            onChange={(v) => setParam("department", v)}
-            options={departmentOptions}
-            placeholder={departments.isLoading ? "Loading…" : "Every department"}
-            disabled={departments.isLoading}
-            aria-label="Department"
-            className="w-52"
-          />
-        </div>
-        <div>
-          <ColumnLabel className="mb-1 block">Measure</ColumnLabel>
-          <div className="flex gap-1">
+      {/* ---- the three steps: what to count, how to group, which slice ---- */}
+      <section
+        aria-label="Build the report"
+        className="grid grid-cols-[minmax(0,1fr)] gap-6 rounded-panel border border-line bg-surface p-5 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,15rem)] print:hidden"
+      >
+        <Step n={1} title="What to count">
+          <div className="flex flex-wrap gap-1" role="group" aria-label="What to count">
             <Chip active={measure === "count"} onClick={() => setParam("measure", "count")}>
-              Publications
+              Papers
             </Chip>
             <Chip active={measure === "amount"} onClick={() => setParam("measure", "amount")}>
-              Amount
+              Amount paid
             </Chip>
           </div>
-        </div>
-        <div>
-          <ColumnLabel className="mb-1 block">As</ColumnLabel>
-          <div className="flex gap-1">
-            <Chip active={view === "bars"} onClick={() => setParam("view", "bars")}>
-              <BarChart3 className="size-3.5" aria-hidden />
-              Chart
-            </Chip>
-            <Chip active={view === "table"} onClick={() => setParam("view", "table")}>
-              <Table2 className="size-3.5" aria-hidden />
-              Table
-            </Chip>
+          <div className="mt-4">
+            <ColumnLabel className="mb-1 block">Show as</ColumnLabel>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Show as">
+              <Chip active={view === "bars"} onClick={() => setParam("view", "bars")}>
+                <BarChart3 className="size-3.5" aria-hidden />
+                Chart
+              </Chip>
+              <Chip active={view === "table"} onClick={() => setParam("view", "table")}>
+                <Table2 className="size-3.5" aria-hidden />
+                Table
+              </Chip>
+            </div>
           </div>
-        </div>
-      </div>
+        </Step>
+        <Step n={2} title="How to group" hint="Pick one or more. Each becomes its own breakdown.">
+          {data ? (
+            <div className="flex flex-wrap gap-1" role="group" aria-label="How to group">
+              {data.available.map((d) => (
+                <Chip
+                  key={d.key}
+                  active={chosen.includes(d.key)}
+                  onClick={() => toggleDimension(d.key)}
+                >
+                  {d.label}
+                </Chip>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {[6, 8, 5, 7, 6, 9].map((w, i) => (
+                <Skeleton key={i} className="h-7" style={{ width: `${w}rem` }} />
+              ))}
+            </div>
+          )}
+        </Step>
+        <Step n={3} title="Which slice">
+          <div className="space-y-3">
+            <Combobox
+              value={year}
+              onChange={(v) => setParam("year", v)}
+              options={yearOptions}
+              aria-label="Year"
+              className="w-full"
+            />
+            <Combobox
+              value={department}
+              onChange={(v) => setParam("department", v)}
+              options={departmentOptions}
+              placeholder={departments.isLoading ? "Loading…" : "Every department"}
+              disabled={departments.isLoading}
+              aria-label="Department"
+              className="w-full"
+            />
+          </div>
+        </Step>
+      </section>
 
       {/* ---- what is currently narrowing the figures, and how to undo it ---- */}
       {filtered && (
@@ -484,28 +507,35 @@ export function ReportBuilder() {
       )}
 
       {/* ---- the answer, before any breakdown of it ---- */}
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+      {data && scope.data && !nothingMatches && (
+        <Answer>{builderAnswer(data.tables[0], scope.data.total, measure, year, department)}</Answer>
+      )}
+      <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2">
         <Headline
-          label="Publications in scope"
-          value={scope.data ? scope.data.total.toLocaleString("en-IN") : "—"}
+          label="Papers in scope"
+          value={scope.data ? scope.data.total.toLocaleString("en-IN") : "Loading"}
           hint={
             filtered
-              ? "Everything matching the filters above, excluding drafts"
-              : "Everything filed and past draft, all years, every department"
+              ? "Every paper matching the filters above"
+              : "Every paper on record, all years, every department"
           }
           loading={scope.isLoading && !scope.data}
         />
         <Headline
-          label="Paid and committed"
-          value={scope.data ? money(scope.data.total_amount) : "—"}
-          hint="Every claim in scope, settled or still travelling. Each paper counted once."
+          label="Paid"
+          value={scope.data ? money(Math.round(scope.data.paid)) : "Loading"}
+          hint={
+            scope.data && scope.data.committed > 0
+              ? `Every payment in scope. ${money(Math.round(scope.data.committed))} more is awaiting payment.`
+              : "Every payment in scope. Nothing is awaiting payment."
+          }
           loading={scope.isLoading && !scope.data}
         />
       </section>
 
       {scope.isError && (
         <InlineError
-          message="Could not total the publications in scope. The breakdowns below are unaffected."
+          message="Could not total the papers in scope. The breakdowns below are unaffected."
           onRetry={() => scope.refetch()}
         />
       )}
@@ -522,14 +552,14 @@ export function ReportBuilder() {
               ? "Not allowed. Reports are open to the office, the Principal, the Director and Finance."
               : error?.message || "The server did not answer. Nothing has been lost."
           }
-          onRetry={error?.status === 403 ? undefined : () => refetch()}
+          onRetry={error?.status === 403 ? false : () => refetch()}
         />
       ) : nothingMatches ? (
         <EmptyState
           title={filtered ? "Nothing matches these filters" : "Nothing recorded yet"}
           message={
             filtered
-              ? "No publication falls under this year and department. Widen one of them and the figures come back."
+              ? "No paper falls under this year and department. Widen one of them and the figures come back."
               : "Figures appear here once a paper has been filed and moved past draft."
           }
           action={
@@ -565,7 +595,7 @@ export function ReportBuilder() {
                 <SheetTitle>{drill.label}</SheetTitle>
                 <SheetDescription>
                   {drillQuery.data
-                    ? `${drillQuery.data.total.toLocaleString("en-IN")} publication${
+                    ? `${drillQuery.data.total.toLocaleString("en-IN")} paper${
                         drillQuery.data.total === 1 ? "" : "s"
                       } · ${money(drillQuery.data.total_amount)}`
                     : "Loading…"}
@@ -600,7 +630,7 @@ export function ReportBuilder() {
                 ) : (
                   <EmptyState
                     title="Nothing matches"
-                    message="No publication falls under this row once the filters above are applied too."
+                    message="No paper falls under this row once the filters above are applied too."
                   />
                 )}
               </SheetBody>
@@ -657,28 +687,36 @@ function Breakdown({
       // The row's own value wins over the page filter of the same name, which
       // is what "click the 2023 bar on a report already narrowed to 2023"
       // should mean and also what it should mean when they differ.
-      to: linkable
-        ? drillHref({
-            label,
-            note: scopeNote,
-            filters: { ...scopeFilters, [param]: r.key },
-          })
-        : undefined,
+      // Year, department and quartile open the list of papers the bar counts
+      // (the same service as the count); the rest fall back to the claim sheet.
+      to:
+        paperLink(table.key, r.key, scopeFilters) ??
+        (linkable
+          ? drillHref({
+              label,
+              note: scopeNote,
+              filters: { ...scopeFilters, [param]: r.key },
+            })
+          : undefined),
     }
   })
+
+  // The running year is a part year: its short bar is not a fall.
+  const thisYear = String(new Date().getFullYear())
+  const running = table.key === "year" && points.some((p) => p.key === thisYear)
 
   const shape = shapeOf(table.key)
   const gap = isMostlyMissing(points)
   const reach = table.key === "year" ? importReachNote(points) : null
-  const countWord = table.overlapping ? "appearances" : "publications"
+  const countWord = table.overlapping ? "appearances" : "papers"
   // The chart's own heading names the quantity, because the measure toggle is
   // at the top of a long page and a reader who has scrolled past it otherwise
   // has no way to tell rupees from papers.
   const chartTitle = table.overlapping
-    ? "Publications, counted once per row"
+    ? "Papers, counted once per row"
     : drawn === "amount"
       ? "Amount paid"
-      : "Publications"
+      : "Papers"
 
   return (
     <section className="min-w-0 space-y-3">
@@ -690,11 +728,25 @@ function Breakdown({
           {!table.overlapping && table.totals.amount != null
             ? ` · ${money(table.totals.amount)}`
             : ""}
+          {" · "}
+          {/* A CSV holds one table, so each breakdown carries its own: the
+              file is exactly the rows on screen here. */}
+          <a
+            className="font-medium text-accent underline-offset-2 hover:underline print:hidden"
+            href={`/api/reports/build?${new URLSearchParams({
+              ...scopeFilters,
+              dimensions: table.key,
+              fmt: "csv",
+            }).toString()}`}
+            download
+          >
+            CSV of this table
+          </a>
         </Meta>
       </div>
 
       {table.overlapping && (
-        <Callout tone="caution" title="Counts only — one paper can sit in several rows here">
+        <Callout tone="caution" title="Counts only: one paper can sit in several rows here">
           A paper spanning several {table.label.toLowerCase()}s is counted under each, so these
           rows add to more than the number of papers and the amounts cannot be added at all —
           the same rupee would be counted once per row. The chart therefore draws counts
@@ -707,10 +759,27 @@ function Breakdown({
         <Callout tone="info" title="This describes the papers we could classify, not all of them">
           Subject areas come from the journal, and only{" "}
           {coverage.classified.toLocaleString("en-IN")} of{" "}
-          {coverage.total.toLocaleString("en-IN")} publications in scope (
+          {coverage.total.toLocaleString("en-IN")} papers in scope (
           {Math.round(coverage.fraction * 100)}%) sit in a journal we could match. The other{" "}
           {coverage.unclassified.toLocaleString("en-IN")} are absent from every row below rather
           than spread across them.
+        </Callout>
+      )}
+
+      {table.key === "year" && points.some((p) => !/^\d{4}$/.test(p.key)) && view !== "table" && (
+        <Meta className="block">
+          {points
+            .filter((p) => !/^\d{4}$/.test(p.key))
+            .reduce((sum, p) => sum + p.count, 0)
+            .toLocaleString("en-IN")}{" "}
+          papers have no year recorded. They are in the table and the download, not on the line.
+        </Meta>
+      )}
+
+      {running && (
+        <Callout tone="info" title={`${thisYear} is not over`}>
+          The last point is a part year, so the line ending lower than the year before is not a fall. The year brief
+          leaves a running year out of its comparisons for the same reason.
         </Callout>
       )}
 
@@ -727,7 +796,7 @@ function Breakdown({
           in the one view that would not otherwise get it. */}
       {gap && view === "table" && (
         <Callout tone="caution" title="Almost nothing in scope has this recorded">
-          These rows are real, but they describe a small remainder rather than the publications
+          These rows are real, but they describe a small remainder rather than the papers
           in scope, and the total below is mostly one row. {GAP_WHY[table.key] ?? ""}
         </Callout>
       )}
@@ -741,7 +810,7 @@ function Breakdown({
 
       {table.rows.length === 0 ? (
         <p className="border-y border-line py-10 text-center text-sm text-fg-muted">
-          No publication in scope has a {table.label.toLowerCase()} recorded.
+          No paper in scope has a {table.label.toLowerCase()} recorded.
         </p>
       ) : view === "table" ? (
         <Rows table={table} />
@@ -750,7 +819,7 @@ function Breakdown({
           title={chartTitle}
           dimension={table.label}
           unit={unit}
-          points={points}
+          points={points.filter((p) => table.key !== "year" || /^\d{4}$/.test(p.key))}
           gapWhy={GAP_WHY[table.key]}
         />
       ) : shape === "mix" ? (
@@ -786,7 +855,7 @@ function Rows({ table }: { table: BuiltTable }) {
               <ColumnLabel>{table.label}</ColumnLabel>
             </th>
             <th scope="col" className={cn(stickyHeadCell, "w-32 text-right")}>
-              <ColumnLabel>Publications</ColumnLabel>
+              <ColumnLabel>Papers</ColumnLabel>
             </th>
             <th scope="col" className={cn(stickyHeadCell, "w-40 text-right")}>
               <ColumnLabel>Amount</ColumnLabel>
@@ -842,7 +911,7 @@ function ClaimRow({ claim: c }: { claim: SearchClaim }) {
       <a href={`/papers/${c.id}`} className="block px-1 py-3">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+            <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
             <Meta className="mt-0.5 block truncate">
               {[c.owner_name, c.owner_department, c.journal_title, c.publication_year]
                 .filter(Boolean)
@@ -953,4 +1022,65 @@ function BuilderSkeleton() {
       ))}
     </div>
   )
+}
+
+function Step({
+  n,
+  title,
+  hint,
+  children,
+}: {
+  n: number
+  title: string
+  hint?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-2 flex items-baseline gap-2">
+        <span className="grid size-5 shrink-0 place-items-center rounded-full bg-accent-wash text-xs font-medium text-accent tabular">
+          {n}
+        </span>
+        <span className="text-sm font-medium text-fg">{title}</span>
+      </div>
+      {hint && <Meta className="mb-2 block">{hint}</Meta>}
+      {children}
+    </div>
+  )
+}
+
+/** The list of papers a bar counts, for the dimensions that list can filter by. */
+function paperLink(dimension: string, key: string, scope: Record<string, string>): string | undefined {
+  const p = new URLSearchParams(scope)
+  if (dimension === "year") {
+    if (!/^\d{4}$/.test(key)) return undefined
+    p.set("year", key)
+  } else if (dimension === "department") {
+    p.set("department", key)
+  } else if (dimension === "quartile") {
+    p.set("quartile", /^Q[1-4]$/.test(key) ? key : "none")
+  } else {
+    return undefined
+  }
+  return `/reports/papers?${p.toString()}`
+}
+
+/** One sentence: the leader of the first grouping, against the whole. */
+function builderAnswer(
+  table: BuiltTable | undefined,
+  total: number,
+  measure: Measure,
+  year: string,
+  department: string
+): string {
+  const where = [department, year ? `in ${year}` : ""].filter(Boolean).join(" ")
+  const all = `${total.toLocaleString("en-IN")} paper${total === 1 ? "" : "s"}${where ? ` ${where}` : ""}`
+  if (!table || table.rows.length === 0) return `${all[0].toUpperCase()}${all.slice(1)} in scope.`
+  const useAmount = measure === "amount" && !table.overlapping
+  const top = [...table.rows].sort((a, b) =>
+    useAmount ? b.amount - a.amount : b.count - a.count
+  )[0]
+  const name = top.key
+  const figure = useAmount ? money(top.amount) : `${top.count.toLocaleString("en-IN")}`
+  return `By ${table.label.toLowerCase()}, ${name} leads with ${figure} of ${all}.`
 }

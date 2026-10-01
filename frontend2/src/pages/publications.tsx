@@ -1,3 +1,5 @@
+import { paperTitle } from "@/lib/names"
+import { HodPapers } from "@/pages/hod-papers"
 import { useEffect, useId, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import {
@@ -11,13 +13,15 @@ import {
 
 import { can, useAuth } from "@/app/auth"
 import { useApi } from "@/lib/query"
+import { Avatar, initialsOf } from "@/ui/person"
 import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Input, NumberInput } from "@/ui/field"
 import { Table, type Column } from "@/ui/table"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { Meta, PageTitle, Sub } from "@/ui/text"
+import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Meta } from "@/ui/text"
+import { PageHeader } from "@/ui/page-header"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import {
@@ -54,7 +58,7 @@ export function Publications() {
     )
   }
 
-  return me.role === "HOD" ? <HodQuery department={me.department ?? null} /> : <GeneralQuery />
+  return me.role === "HOD" ? <HodPapers /> : <GeneralQuery />
 }
 
 const PAGE_SIZE = 20
@@ -72,6 +76,7 @@ type SearchRow = {
   status: string
   owner_name: string
   owner_department: string | null
+  owner_photo_url?: string | null
   quartile: string | null
   remuneration: number | null
   remuneration_is_estimate: boolean
@@ -293,8 +298,10 @@ function GeneralQuery() {
       className: "max-w-[20rem]",
       cell: (r) => (
         <span className="block">
-          <span className="block truncate text-base">{r.paper_title || "Untitled"}</span>
-          <Meta className="mt-0.5 block truncate">{r.ticket_number || "—"}</Meta>
+          <span className="block truncate text-base">{paperTitle(r.paper_title)}</span>
+          <Meta className="mt-0.5 block truncate" title={r.ticket_number?.startsWith("ERP-") ? "A claim number imported from the old ERP spreadsheet" : undefined}>
+            {r.ticket_number ? (r.ticket_number.startsWith("ERP-") ? `Old ERP, ${r.ticket_number.replace(/^ERP-/, "")}` : r.ticket_number) : "No claim number"}
+          </Meta>
         </span>
       ),
     },
@@ -303,9 +310,15 @@ function GeneralQuery() {
       header: "Faculty",
       className: "max-w-[14rem]",
       cell: (r) => (
-        <span className="block truncate text-sm">
-          {r.owner_name}
-          {r.owner_department && <Meta className="ml-1.5">{r.owner_department}</Meta>}
+        <span className="flex min-w-0 items-center gap-2 text-sm">
+          <Avatar
+            person={{ name: r.owner_name, initials: initialsOf(r.owner_name), photo_url: r.owner_photo_url ?? null }}
+            size="xs"
+          />
+          <span className="min-w-0 truncate">
+            {r.owner_name}
+            {r.owner_department && <Meta className="ml-1.5">{r.owner_department}</Meta>}
+          </span>
         </span>
       ),
     },
@@ -313,10 +326,10 @@ function GeneralQuery() {
       key: "journal",
       header: "Journal",
       className: "max-w-[13rem]",
-      cell: (r) => <span className="line-clamp-2 text-sm text-fg-muted">{r.journal_title || "—"}</span>,
+      cell: (r) => (r.journal_title ? <span className="line-clamp-2 text-sm text-fg-muted">{r.journal_title}</span> : null),
     },
-    { key: "year", header: "Year", className: "w-16", cell: (r) => <span className="tabular">{r.publication_year ?? "—"}</span> },
-    { key: "quartile", header: "Quartile", className: "w-20", cell: (r) => <span className="text-sm">{r.quartile || "—"}</span> },
+    { key: "year", header: "Year", className: "w-16", cell: (r) => (r.publication_year ? <span className="tabular">{r.publication_year}</span> : null) },
+    { key: "quartile", header: "Quartile", className: "w-20", cell: (r) => (r.quartile ? <span className="text-sm">{r.quartile}</span> : null) },
     { key: "stage", header: "Stage", className: "w-32", cell: (r) => <Stage stage={stageOf(r.status)} /> },
     ...(seeMoney
       ? [
@@ -332,20 +345,27 @@ function GeneralQuery() {
 
   return (
     <div className="page space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <PageTitle>Publications</PageTitle>
-          <Sub className="mt-1">
-            Every publication across the college that this account may see, queried directly.
-          </Sub>
-        </div>
-        <Button kind="default" asChild>
-          <a href={`/api/reports/search/export?${exportParams.toString()}`} target="_blank" rel="noreferrer">
-            <Download />
-            Export
-          </a>
-        </Button>
-      </header>
+      <PageHeader
+        title="Publications"
+        sub={
+          <>
+            Every claim filed under the incentive scheme, and where it stands. For every paper the college has
+            published, see{" "}
+            <Link to="/reports/papers" className="text-accent underline-offset-4 hover:underline">
+              Papers
+            </Link>
+            .
+          </>
+        }
+        action={
+          <Button asChild>
+            <a href={`/api/reports/search/export?${exportParams.toString()}`} target="_blank" rel="noreferrer">
+              <Download />
+              Download {data ? `these ${total.toLocaleString("en-IN")} claims` : "these claims"}
+            </a>
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">
@@ -353,8 +373,8 @@ function GeneralQuery() {
           <Input
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Search title, ticket, DOI, ISSN, faculty…"
-            aria-label="Search publications"
+            placeholder="Search title, claim, DOI, ISSN, faculty…"
+            aria-label="Search claims"
             className="pl-8"
           />
         </div>
@@ -444,7 +464,7 @@ function GeneralQuery() {
                 />
               )}
               <LabeledMonth
-                label="Payout month"
+                label="Month paid"
                 value={draft.month}
                 onChange={(v) => setDraft((d) => ({ ...d, month: v }))}
               />
@@ -470,7 +490,7 @@ function GeneralQuery() {
         <div role="status" aria-live="polite">
           {!isLoading && !isError && (
             <Meta className="tabular">
-              {total === 1 ? "1 result" : `${total} results`}
+              {total === 1 ? "1 claim" : `${total.toLocaleString("en-IN")} claims`}
               {filtered ? " matching these filters" : ""}
               {seeMoney && data && total > 0 ? ` · ${money(data.total_amount)} total` : ""}
             </Meta>
@@ -512,7 +532,7 @@ function GeneralQuery() {
           title={filtered ? "No results for this query" : "Nothing has been filed yet"}
           message={
             filtered
-              ? "No publication matches this search and these filters. Try loosening one of them."
+              ? "No claim matches this search and these filters. Try loosening one of them."
               : "Once faculty start filing papers, they will show up here."
           }
           action={
@@ -557,10 +577,16 @@ function SearchCard({ row, seeMoney }: { row: SearchRow; seeMoney: boolean }) {
       <Link to={`/papers/${row.id}`} className="block px-1 py-3">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
-            <Meta className="mt-0.5 block truncate">
-              {[row.owner_name, row.owner_department, row.ticket_number].filter(Boolean).join(" · ")}
-            </Meta>
+            <span className="block truncate text-base">{paperTitle(row.paper_title)}</span>
+            <span className="mt-0.5 flex min-w-0 items-center gap-1.5">
+              <Avatar
+                person={{ name: row.owner_name, initials: initialsOf(row.owner_name), photo_url: row.owner_photo_url ?? null }}
+                size="xs"
+              />
+              <Meta className="block truncate">
+                {[row.owner_name, row.owner_department, row.ticket_number].filter(Boolean).join(" · ")}
+              </Meta>
+            </span>
           </span>
           {seeMoney && (
             <span className="shrink-0 text-right">
@@ -569,7 +595,7 @@ function SearchCard({ row, seeMoney }: { row: SearchRow; seeMoney: boolean }) {
           )}
         </div>
         <Meta className="mt-1 block truncate">
-          {[row.journal_title, row.publication_year, row.quartile].filter(Boolean).join(" · ") || "—"}
+          {[row.journal_title, row.publication_year, row.quartile].filter(Boolean).join(" · ") || "Journal, year and quartile not recorded"}
         </Meta>
         <div className="mt-2">
           <Stage stage={stageOf(row.status)} className="w-[8rem]" />
@@ -592,7 +618,7 @@ function chipLabel(key: GeneralFilterKey, value: string): string {
     case "year_to":
       return `To ${value}`
     case "department":
-      return `Dept: ${value}`
+      return `Department: ${value}`
     case "engineering_class":
       return `Class: ${value}`
     case "publication_type":
@@ -610,6 +636,11 @@ function chipLabel(key: GeneralFilterKey, value: string): string {
 function AmountCell({ row }: { row: SearchRow }) {
   if (row.calc_error) {
     return <span className="text-xs text-critical">Could not calculate</span>
+  }
+  // Rows brought in from the old ERP spreadsheet were paid through the ledger
+  // and carry no amount of their own; "₹0" beside "Paid" read as unpaid.
+  if (row.remuneration === 0) {
+    return <span className="text-xs text-fg-muted">Not recorded</span>
   }
   return (
     <span className="inline-flex flex-col items-end">
@@ -771,388 +802,3 @@ function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
     </span>
   )
 }
-
-/* ------------------------------------------------------------------------ */
-/* The department-scoped, money-blind query — an HOD                       */
-/* ------------------------------------------------------------------------ */
-
-type HodRow = {
-  id: string
-  ticket_number: string | null
-  paper_title: string
-  journal_title: string | null
-  publication_year: number | null
-  quartile: string | null
-  snip: number | null
-  indexing_level: string | null
-  publication_type: string | null
-  owner_name: string
-  progress: string
-}
-
-type HodPayload = {
-  total: number
-  limit: number
-  offset: number
-  department: string
-  results: HodRow[]
-}
-
-const HOD_SORT_OPTIONS: ComboboxOption[] = [
-  { value: "recent", label: "Most recently updated" },
-  { value: "year", label: "Publication year" },
-  { value: "title", label: "Title" },
-  { value: "person", label: "Faculty name" },
-  { value: "journal", label: "Journal" },
-]
-
-const HOD_PROGRESS_TONE: Record<string, string> = {
-  "Not yet filed": "text-fg-muted",
-  "Under review": "text-fg",
-  Approved: "text-fg",
-  Completed: "text-positive",
-  "Sent back": "text-critical",
-}
-
-/**
- * A head of department gets exactly one publication, exactly one department
- * and never a rupee — `/api/hod/publications`, not `/api/reports/search`.
- * The two screens share a shape (search, sort, filter sheet, chips, table,
- * pagination) but not a query surface: the general query's filter keys and
- * sort values do not exist on this endpoint, so nothing is shared beyond the
- * small display pieces (`Chip`, `Pagination`) redeclared for this branch.
- */
-function HodQuery({ department }: { department: string | null }) {
-  const [searchParams, setSearchParams] = useSearchParams()
-
-  const q = searchParams.get("q") ?? ""
-  const year = searchParams.get("year") ?? ""
-  const quartile = searchParams.get("quartile") ?? ""
-  const sort = searchParams.get("sort") ?? "recent"
-  const page = Math.max(0, Number.parseInt(searchParams.get("page") ?? "0", 10) || 0)
-
-  const [searchDraft, setSearchDraft] = useState(q)
-  useEffect(() => setSearchDraft(q), [q])
-  useEffect(() => {
-    if (searchDraft === q) return
-    const t = setTimeout(() => {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev)
-          if (searchDraft) next.set("q", searchDraft)
-          else next.delete("q")
-          next.delete("page")
-          return next
-        },
-        { replace: true }
-      )
-    }, 250)
-    return () => clearTimeout(t)
-  }, [searchDraft, q, setSearchParams])
-
-  const [sheetOpen, setSheetOpen] = useState(false)
-  const [draftYear, setDraftYear] = useState(year)
-  const [draftQuartile, setDraftQuartile] = useState(quartile)
-  useEffect(() => {
-    if (sheetOpen) {
-      setDraftYear(year)
-      setDraftQuartile(quartile)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheetOpen])
-
-  function applyDraft() {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (draftYear) next.set("year", draftYear)
-      else next.delete("year")
-      if (draftQuartile) next.set("quartile", draftQuartile)
-      else next.delete("quartile")
-      next.delete("page")
-      return next
-    })
-    setSheetOpen(false)
-  }
-
-  function clearAll() {
-    setSearchDraft("")
-    setDraftYear("")
-    setDraftQuartile("")
-    // Sort is not a filter; see the same note in `GeneralQuery`.
-    setSearchParams((prev) => {
-      const next = new URLSearchParams()
-      const keepSort = prev.get("sort")
-      if (keepSort) next.set("sort", keepSort)
-      return next
-    })
-    setSheetOpen(false)
-  }
-
-  function clearSearch() {
-    setSearchDraft("")
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      next.delete("q")
-      next.delete("page")
-      return next
-    })
-  }
-
-  function removeFilter(key: "year" | "quartile") {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      next.delete(key)
-      next.delete("page")
-      return next
-    })
-  }
-
-  function setSort(next: string) {
-    setSearchParams((prev) => {
-      const params = new URLSearchParams(prev)
-      if (next && next !== "recent") params.set("sort", next)
-      else params.delete("sort")
-      params.delete("page")
-      return params
-    })
-  }
-
-  function goToPage(next: number) {
-    setSearchParams((prev) => {
-      const params = new URLSearchParams(prev)
-      if (next > 0) params.set("page", String(next))
-      else params.delete("page")
-      return params
-    })
-  }
-
-  const queryParams = new URLSearchParams()
-  if (q) queryParams.set("q", q)
-  if (year) queryParams.set("year", year)
-  if (quartile) queryParams.set("quartile", quartile)
-  if (sort !== "recent") queryParams.set("sort", sort)
-  queryParams.set("limit", String(PAGE_SIZE))
-  queryParams.set("offset", String(page * PAGE_SIZE))
-
-  const { data, isLoading, isError, error, refetch } = useApi<HodPayload>(
-    ["hod-publications", queryParams.toString()],
-    `/api/hod/publications?${queryParams.toString()}`,
-    { placeholderData: (prev) => prev }
-  )
-
-  useEffect(() => {
-    if (!data) return
-    const maxPage = Math.max(0, Math.ceil(data.total / PAGE_SIZE) - 1)
-    if (page > maxPage) goToPage(maxPage)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data])
-
-  const rows = data?.results ?? []
-  const total = data?.total ?? 0
-  const activeFilters: { key: "year" | "quartile"; label: string }[] = [
-    ...(year ? [{ key: "year" as const, label: `Year: ${year}` }] : []),
-    ...(quartile ? [{ key: "quartile" as const, label: `Quartile: ${optionLabel(QUARTILE_OPTIONS, quartile)}` }] : []),
-  ]
-  const filtered = Boolean(q) || activeFilters.length > 0
-
-  const exportParams = new URLSearchParams(queryParams)
-  exportParams.delete("limit")
-  exportParams.delete("offset")
-  exportParams.set("fmt", "xlsx")
-
-  const columns: Column<HodRow>[] = [
-    {
-      key: "paper",
-      header: "Paper",
-      className: "max-w-[20rem]",
-      cell: (r) => (
-        <span className="block">
-          <span className="block truncate text-base">{r.paper_title || "Untitled"}</span>
-          <Meta className="mt-0.5 block truncate">{r.ticket_number || "—"}</Meta>
-        </span>
-      ),
-    },
-    { key: "faculty", header: "Faculty", className: "max-w-[13rem]", cell: (r) => <span className="block truncate text-sm">{r.owner_name}</span> },
-    { key: "journal", header: "Journal", className: "max-w-[13rem]", cell: (r) => <span className="line-clamp-2 text-sm text-fg-muted">{r.journal_title || "—"}</span> },
-    { key: "year", header: "Year", className: "w-16", cell: (r) => <span className="tabular">{r.publication_year ?? "—"}</span> },
-    { key: "quartile", header: "Quartile", className: "w-20", cell: (r) => <span className="text-sm">{r.quartile || "—"}</span> },
-    { key: "indexing", header: "Indexed in", className: "max-w-[10rem]", cell: (r) => <span className="truncate text-sm text-fg-muted">{r.indexing_level || "—"}</span> },
-    {
-      key: "progress",
-      header: "Progress",
-      className: "w-32",
-      cell: (r) => <span className={cn("text-sm", HOD_PROGRESS_TONE[r.progress] ?? "text-fg-muted")}>{r.progress}</span>,
-    },
-  ]
-
-  return (
-    <div className="page space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <PageTitle>Publications</PageTitle>
-          <Sub className="mt-1">
-            Every publication filed in {department || "your department"}, one row each.
-          </Sub>
-        </div>
-        <Button kind="default" asChild>
-          <a href={`/api/hod/export?${exportParams.toString()}`} target="_blank" rel="noreferrer">
-            <Download />
-            Export
-          </a>
-        </Button>
-      </header>
-
-      <Callout tone="info" title="Payment figures are not shown for this role">
-        As a head of department you can see what your department has published, not what anyone was
-        paid for it — this list, and its export, never carry a rupee figure.
-      </Callout>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
-          <Input
-            value={searchDraft}
-            onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Search title, journal or faculty"
-            aria-label="Search department publications"
-            className="pl-8"
-          />
-        </div>
-
-        <Combobox value={sort} onChange={setSort} options={HOD_SORT_OPTIONS} aria-label="Sort by" className="w-52" />
-
-        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-          <SheetTrigger asChild>
-            <Button kind="default">
-              <SlidersHorizontal />
-              Filters
-              {activeFilters.length > 0 && <span className="tabular">{activeFilters.length}</span>}
-            </Button>
-          </SheetTrigger>
-          <SheetContent>
-            <SheetHeader>
-              <SheetTitle>Filters</SheetTitle>
-            </SheetHeader>
-            <SheetBody className="space-y-4">
-              <LabeledNumber label="Year" value={draftYear} onChange={setDraftYear} />
-              <LabeledCombobox label="Quartile" value={draftQuartile} onChange={setDraftQuartile} options={QUARTILE_OPTIONS} />
-            </SheetBody>
-            <SheetFooter>
-              <Button kind="quiet" size="sm" onClick={clearAll}>
-                Clear all
-              </Button>
-              <Button kind="primary" size="sm" onClick={applyDraft}>
-                Apply
-              </Button>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
-      </div>
-
-      <div className="flex min-h-7 flex-wrap items-center gap-2">
-        <div role="status" aria-live="polite">
-          {!isLoading && !isError && (
-            <Meta className="tabular">
-              {total === 1 ? "1 result" : `${total} results`}
-              {filtered ? " matching these filters" : ""}
-            </Meta>
-          )}
-        </div>
-        {q && <Chip label={`Search: ${q}`} onRemove={clearSearch} />}
-        {activeFilters.map((f) => (
-          <Chip key={f.key} label={f.label} onRemove={() => removeFilter(f.key)} />
-        ))}
-        {filtered && (
-          <Button kind="quiet" size="sm" onClick={clearAll}>
-            Clear all
-          </Button>
-        )}
-      </div>
-
-      {isLoading ? (
-        <>
-          <SkeletonRows rows={8} rowHeight={48} className="hidden md:block" />
-          <SkeletonRows rows={5} rowHeight={84} className="md:hidden" />
-        </>
-      ) : isError ? (
-        error?.status === 403 ? (
-          <ErrorState
-            title="Not available for this account"
-            message="This department view is only open to heads of department."
-          />
-        ) : (
-          <ErrorState
-            title="Could not run this query"
-            message="The server did not answer. Nothing has been lost."
-            onRetry={() => refetch()}
-          />
-        )
-      ) : rows.length === 0 ? (
-        <EmptyState
-          art="no-results"
-          icon={filtered ? SearchX : FileSearch}
-          title={filtered ? "No results for this query" : "Nothing filed in this department yet"}
-          message={
-            filtered
-              ? "No publication matches this search and these filters. Try loosening one of them."
-              : "Once your faculty start filing papers, they will show up here."
-          }
-          action={
-            filtered ? (
-              <Button kind="default" size="sm" onClick={clearAll}>
-                Clear filters
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <>
-          <Table
-            className="hidden md:block"
-            rows={rows}
-            getKey={(r) => r.id}
-            rowLink={(r) => `/papers/${r.id}`}
-            minWidth="52rem"
-            columns={columns}
-          />
-
-          <ul className="divide-y divide-line border-y border-line md:hidden">
-            {rows.map((r) => (
-              <HodCard key={r.id} row={r} />
-            ))}
-          </ul>
-
-          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
-        </>
-      )}
-    </div>
-  )
-}
-
-/** The department row restacked for a narrow screen — the same fields, and
- *  still no rupee figure, because this branch never has one to leak. */
-function HodCard({ row }: { row: HodRow }) {
-  return (
-    <li className="row">
-      <Link to={`/papers/${row.id}`} className="block px-1 py-3">
-        <span className="block truncate text-base">{row.paper_title || "Untitled"}</span>
-        <Meta className="mt-0.5 block truncate">
-          {[row.owner_name, row.ticket_number].filter(Boolean).join(" · ")}
-        </Meta>
-        <Meta className="mt-1 block truncate">
-          {[row.journal_title, row.publication_year, row.quartile, row.indexing_level]
-            .filter(Boolean)
-            .join(" · ") || "—"}
-        </Meta>
-        <span className={cn("mt-2 block text-sm", HOD_PROGRESS_TONE[row.progress] ?? "text-fg-muted")}>
-          {row.progress}
-        </span>
-      </Link>
-    </li>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* Shared display pieces                                                    */
-/* ------------------------------------------------------------------------ */
-

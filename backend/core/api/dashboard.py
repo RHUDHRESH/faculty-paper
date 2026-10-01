@@ -7,6 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer, safe_append
 from core.api.common import _csv_row, _waiting_days, api, rate_limit, session_auth
 from core.api.deps import _format_payout_month, claim_to_dict
 from core.api.common import require_user
@@ -18,21 +19,30 @@ import json
 import re
 import time
 from typing import Any, Optional
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Min, Q, Sum
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from django.conf import settings
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimReason, ClaimStatus, PAYABLE_STATUSES, User
-from core.services import rbac
+from core.models import AuditLog, Claim, ClaimReason, ClaimStatus, PAYABLE_STATUSES, PaidLedger, Role, User
+from core.services import claim_numbers, rbac
 from core.services import exporters
+from core.services.aggregate_cache import shared as cached
 from core.services.remuneration import CATEGORY_LABELS
+from core.services.scopus_profiles import department_totals
+from core.services import college_totals
 
 # ---------- dashboard ----------
 
 
 @api.get("/dashboard", auth=session_auth)
-def dashboard(request: HttpRequest):
+def dashboard(request: HttpRequest, recent: int = 10):
+    """Counts by stage, the latest `recent` tickets, and what has been paid.
+
+    `recent=0` is for the homes that print the totals and not the list (the
+    Principal's, the Director's): ten serialised tickets were a third of this
+    response and most of its work, thrown away on arrival.
+    """
     user = require_user(request)
     # Returns total_paid and a remuneration on every recent row. /claims and
     # /claims/{id} both refuse a head here and this one did not, which held
@@ -42,11 +52,23 @@ def dashboard(request: HttpRequest):
     qs = _claims_queryset(user)
     counts = {row["status"]: row["n"] for row in qs.values("status").annotate(n=Count("id"))}
     by_status = {s: counts.get(s, 0) for s in ClaimStatus.values}
-    recent = [claim_to_dict(c) for c in qs.order_by("-updated_at")[:10]]
+    n = max(0, min(int(recent), 50))
+    recent = [claim_to_dict(c) for c in qs.order_by("-updated_at")[:n]] if n else []
     total_paid = (
         qs.filter(status=ClaimStatus.PAID).aggregate(total=Sum("remuneration"))["total"] or 0
     )
-    return {"by_status": by_status, "recent": recent, "total_paid": total_paid}
+    out = {"by_status": by_status, "recent": recent, "total_paid": total_paid}
+    # The college-wide figure the office homes print. Claims carry money only
+    # for what this app processed; the ledger also holds every payment made
+    # before it, which is the number a principal means by "paid to date".
+    if user.role in LEDGER_ROLES:
+        agg = PaidLedger.objects.aggregate(total=Sum("amount"), since=Min("payout_month"))
+        out["ledger_total"] = round(agg["total"] or 0, 2)
+        out["ledger_since"] = _format_payout_month(agg["since"])
+    return out
+
+
+LEDGER_ROLES = {Role.RESEARCH_CELL, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE, Role.SUPER_ADMIN}
 
 
 def _reports_queryset(
@@ -155,6 +177,10 @@ def _people_rows(source) -> list[dict[str, Any]]:
         {
             "key": r["owner__name"] or "Unknown",
             "id": r["owner_id"],
+            # With `id` and `department`, this is a person-shaped dict: the
+            # renderer adds `photo_url` and `initials` (core/faces.py), so a
+            # ranking of people can be drawn with their faces.
+            "name": r["owner__name"] or "Unknown",
             "department": r["owner__department"],
             "count": r["n"],
             "amount": round(r["total"] or 0, 2),
@@ -189,9 +215,10 @@ def _per_paper(paid_qs) -> dict[str, Any]:
     times what it pays a Q4 one, so the average sits above almost every actual
     payment. The median is the figure that describes a typical claim.
     """
-    amounts = sorted(
-        a for a in paid_qs.values_list("remuneration", flat=True) if a is not None
-    )
+    # A queryset of claims, or plain amounts (the ledger's payments), so the
+    # "typical" figure can be read from the same rows as the count beside it.
+    values = paid_qs.values_list("remuneration", flat=True) if hasattr(paid_qs, "values_list") else paid_qs
+    amounts = sorted(a for a in values if a is not None)
     if not amounts:
         return {"count": 0, "mean": 0, "median": 0, "min": 0, "max": 0}
     mid = len(amounts) // 2
@@ -306,7 +333,7 @@ def _year_on_year_rows(qs) -> list[dict[str, Any]]:
 
     def counts_for(year: int) -> dict[str, int]:
         return {
-            (r["owner__department"] or "No department"): r["n"]
+            (r["owner__department"] or "Department not recorded"): r["n"]
             for r in qs.filter(publication_year=year)
             .values("owner__department")
             .annotate(n=Count("id"))
@@ -363,7 +390,20 @@ def reports(
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
+    if month:
+        _reports_queryset(user, None, None, month)  # a malformed month is a 400, cached or not
+    # The same figures for every role allowed to read them (none of them files
+    # claims, so none has drafts of their own to add), so they are shared
+    # until something is written (core/services/aggregate_cache.py).
+    return cached(
+        "reports",
+        # Lower-cased because the filter is `iexact`; not stripped, because it is not.
+        {"year": year, "department": (department or "").lower(), "month": month},
+        lambda: _report(user, year, department, month),
+    )
 
+
+def _report(user: User, year: Optional[int], department: Optional[str], month: Optional[str]):
     qs = _reports_queryset(user, year, department, month)
     paid = qs.filter(status=ClaimStatus.PAID)
     payable = qs.filter(status__in=PAYABLE_STATUSES)
@@ -428,32 +468,70 @@ def reports(
         for y in range(min(year_rows), max(year_rows) + 1)
     ] if year_rows else []
 
-    by_month = []
-    for r in (
-        paid.exclude(payout_month__isnull=True)
-        .values("payout_month")
-        .annotate(count=Count("id"), amount=Sum("remuneration"))
-        .order_by("payout_month")
-    ):
-        by_month.append(
-            {
-                "key": r["payout_month"].strftime("%Y-%m"),
-                "count": r["count"],
-                "amount": round(r["amount"] or 0, 2),
-            }
+    # Money from the ledger, papers from the publication record: the claims
+    # alone describe only what this app processed (core/services/college_totals.py).
+    pays = college_totals.payments(year, department, month)
+    months: dict[str, dict[str, Any]] = {}
+    # A payment whose month nobody recorded is not charted under the import's
+    # month (it made a false spike); it is stated once as `month_unrecorded`.
+    unrecorded = [p for p in pays if not p.get("month_recorded", True)]
+    for p in (p for p in pays if p["month"] and p.get("month_recorded", True)):
+        k = p["month"].strftime("%Y-%m")
+        slot = months.setdefault(k, {"key": k, "count": 0, "amount": 0.0})
+        slot["count"] += 1
+        slot["amount"] += p["amount"]
+    by_month = [
+        {**months[k], "amount": round(months[k]["amount"], 2)} for k in sorted(months)
+    ]
+    # Under a payout-month filter the question is about that run, so papers
+    # stay the claims settled in it; otherwise the whole record.
+    record = None if month else college_totals.papers(year, department)
+    publications = qs.count() if record is None else len(record)
+
+    dept_rows: dict[str, dict[str, Any]] = {}
+    if record is None:
+        for r in rows("owner__department", label_blank="Department not recorded"):
+            dept_rows[r["key"].casefold()] = {**r, "amount": 0.0}
+    else:
+        for paper in record:
+            for d in paper["departments"]:
+                slot = dept_rows.setdefault(d.casefold(), {"key": d, "count": 0, "amount": 0.0})
+                slot["count"] += 1
+    for p in pays:
+        slot = dept_rows.setdefault(
+            p["department"].casefold(), {"key": p["department"], "count": 0, "amount": 0.0}
         )
+        slot["amount"] += p["amount"]
+    by_department = sorted(
+        ({**r, "amount": round(r["amount"], 2)} for r in dept_rows.values()),
+        key=lambda r: (-r["count"], -r["amount"]),
+    )
+    if record is not None:
+        paid_by_year: dict[int, float] = {}
+        for p in (p for p in pays if p["month"]):
+            paid_by_year[p["month"].year] = paid_by_year.get(p["month"].year, 0) + p["amount"]
+        count_by_year: dict[int, int] = {}
+        for paper in record:
+            if paper["year"]:
+                count_by_year[paper["year"]] = count_by_year.get(paper["year"], 0) + 1
+        span = set(count_by_year) | set(paid_by_year)
+        by_year = [
+            {"key": str(y), "count": count_by_year.get(y, 0), "amount": round(paid_by_year.get(y, 0), 2)}
+            for y in range(min(span), max(span) + 1)
+        ] if span else []
 
     return {
         "filters": {"year": year, "department": department},
         "totals": {
-            "publications": qs.count(),
+            "publications": publications,
             "count_only": count_only,
-            "paid_claims": paid.count(),
-            "paid_amount": round(paid.aggregate(s=Sum("remuneration"))["s"] or 0, 2),
+            # A void writes a reversing row; it cancels the payment it reverses.
+            "paid_claims": sum(1 if p["amount"] > 0 else -1 if p["amount"] < 0 else 0 for p in pays),
+            "paid_amount": round(sum(p["amount"] for p in pays), 2),
             "awaiting_payment": payable.count(),
             "committed_amount": round(payable.aggregate(s=Sum("remuneration"))["s"] or 0, 2),
         },
-        "by_department": rows("owner__department", label_blank="No department"),
+        "by_department": by_department,
         "by_quartile": rows("quartile", label_blank="No quartile"),
         "by_category": [
             {**r, "label": CATEGORY_LABELS.get(str(r["key"]), str(r["key"]))}
@@ -462,6 +540,7 @@ def reports(
         "by_engineering": rows("engineering_class", label_blank="Unclassified"),
         "by_status": rows("status"),
         "by_month": by_month,
+        "month_unrecorded": {"count": len(unrecorded), "amount": round(sum(p["amount"] for p in unrecorded), 2)},
         "by_year": by_year,
         "by_type": rows("aggregation_type", label_blank="Not stated"),
         "by_indexing": _multi_rows(qs, "indexing_level"),
@@ -481,7 +560,9 @@ def reports(
         "top_by_amount": _capped(
             sorted(_people_rows(paid), key=lambda r: -r["amount"]), 15
         ),
-        "per_paper": _per_paper(paid),
+        # Over the ledger's payments, which is what `paid_claims` counts; the
+        # median of app claims alone sat beside a count of every payment.
+        "per_paper": _per_paper([p["amount"] for p in pays if p["amount"] > 0]),
         "pipeline": _pipeline_stages(qs),
         "years": sorted(
             {
@@ -495,7 +576,11 @@ def reports(
         ),
         # The months the college has actually settled in, so the picker offers
         # real ones rather than a calendar of mostly-empty options.
-        "payout_months": _payout_months(user),
+        "payout_months": college_totals.payout_months(),
+        # What Scopus holds for each department's people, from the office's
+        # profile import. Career totals, so the year filter does not apply;
+        # the department filter does.
+        "scopus_by_department": department_totals(department),
     }
 
 
@@ -504,8 +589,13 @@ def _search_queryset(user: User, **f):
     qs = _claims_queryset(user).exclude(status=ClaimStatus.DRAFT).select_related("owner")
     if f.get("q"):
         term = f["q"].strip()
+        # A claim number typed loosely ("fp 2026 123") is still that number.
+        numbers = Q()
+        for form in claim_numbers.variants(term):
+            numbers |= Q(ticket_number__iexact=form)
         qs = qs.filter(
-            Q(paper_title__icontains=term)
+            numbers
+            | Q(paper_title__icontains=term)
             | Q(journal_title__icontains=term)
             | Q(ticket_number__icontains=term)
             | Q(doi__icontains=term)
@@ -693,6 +783,31 @@ def _build_rows(qs, dimension: str) -> list[dict[str, Any]]:
     return ordered
 
 
+def _college_rows(key: str, year, department, month) -> list[dict[str, Any]]:
+    """Department or year from the record and the ledger, as `/reports` counts them.
+
+    Papers by publication year, money by payout year; see college_totals.
+    """
+    buckets: dict[str, dict[str, Any]] = {}
+
+    def slot(k: str) -> dict[str, Any]:
+        return buckets.setdefault(k.casefold(), {"key": k, "count": 0, "amount": 0.0})
+
+    if not month:
+        for paper in college_totals.papers(year, department):
+            if key == "department":
+                for d in paper["departments"]:
+                    slot(d)["count"] += 1
+            else:
+                slot(str(paper["year"]) if paper["year"] else "Not recorded")["count"] += 1
+    for p in college_totals.payments(year, department, month):
+        slot(p["department"] if key == "department" else (str(p["month"].year) if p["month"] else "Not recorded"))["amount"] += p["amount"]
+    ordered = sorted(buckets.values(), key=lambda r: (-r["count"], r["key"]))
+    if key == "year":
+        ordered.sort(key=lambda r: r["key"])
+    return ordered
+
+
 @api.get("/reports/build", auth=session_auth)
 def reports_build(
     request: HttpRequest,
@@ -746,7 +861,11 @@ def reports_build(
     tables = []
     for key in wanted:
         label, _field = REPORT_DIMENSIONS[key]
-        rows = _build_rows(qs, key)
+        rows = (
+            _college_rows(key, year, department, month)
+            if key in ("department", "year")
+            else _build_rows(qs, key)
+        )
         overlapping = key in OVERLAPPING_DIMENSIONS
         tables.append({
             "key": key,
@@ -829,10 +948,10 @@ def reports_areas(
 ):
     """What the college researches, by subject area.
 
-    Nothing else in the system answers this. `subject_category` is a column
-    that exists and is empty on every one of the 3,226 filed claims; the real
-    answer lives in `subjects_json`, which Scimago fills in for a journal we
-    recognise.
+    Nothing else in the system answers this. The answer lives in
+    `subjects_json`, which Scimago fills in for a journal we recognise, and --
+    for a claim brought across from the ERP -- in `subject_category`, where the
+    import keeps the workbook's own "Subject Area" in the same form.
 
     Which is exactly why `coverage` is returned and must be shown. Subjects
     are only known for a paper whose journal we could match, so an area chart
@@ -847,12 +966,17 @@ def reports_areas(
         raise HttpError(403, "Forbidden")
 
     qs = _reports_queryset(user, year, department)
-    rows = list(qs.values_list("subjects_json", "remuneration", "publication_year"))
+    rows = list(
+        qs.values_list("subjects_json", "subject_category", "remuneration", "publication_year")
+    )
 
     areas: dict[str, dict[str, Any]] = {}
     classified = 0
-    for raw, amount, _pub_year in rows:
-        parsed = _split_subjects(raw)
+    for raw, erp_area, amount, _pub_year in rows:
+        # Scimago's classification where it matched the journal; otherwise the
+        # ERP workbook's own "Subject Area", which the import keeps in
+        # `subject_category` in the same "Area (Q1); Area (Q2)" form.
+        parsed = _split_subjects(raw) or _split_subjects(erp_area)
         if not parsed:
             continue
         classified += 1
@@ -987,11 +1111,11 @@ def _claims_file(rows, stem: str, fmt: str) -> HttpResponse:
         wb = Workbook()
         ws = wb.active
         ws.title = "Publications"
-        ws.append(_EXPORT_HEADERS)
+        safe_append(ws, _EXPORT_HEADERS)
         for c in rows:
             # openpyxl treats a leading "=" as a formula, so the same
             # injection guard as the CSV path applies.
-            ws.append(["" if v is None else v for v in _csv_row(_export_row(c))])
+            safe_append(ws, ["" if v is None else v for v in _csv_row(_export_row(c))])
         ws.freeze_panes = "A2"
         # Enough width to read a paper title without widening every column by
         # hand, which is what the office did to every export it received.
@@ -1007,7 +1131,7 @@ def _claims_file(rows, stem: str, fmt: str) -> HttpResponse:
         return res
 
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csv_writer(buf)
     w.writerow(_csv_row(_EXPORT_HEADERS))
     for c in rows:
         w.writerow(_csv_row(_export_row(c)))

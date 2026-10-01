@@ -10,13 +10,22 @@ whitenoise>=6.7
 django-q2>=1.7
 # Uploaded evidence lives in Google Cloud Storage — a Cloud Run container
 # filesystem is discarded with the instance.
-django-storages[google]>=1.14
+django-storages[google,s3]>=1.14
 
 # Reports leave this system in five shapes. Excel and CSV are for people who
 # will do more arithmetic; PDF is for the ones who will sign it, and DOCX for
 # the ones who will paste it into a submission with a covering paragraph.
 reportlab>=4.2
 python-docx>=1.1
+
+# Draws the shareable research impact card (core/services/impact_card.py).
+# Already installed as a reportlab dependency; declared because this code
+# imports it directly, and a dependency that arrives by luck leaves by luck.
+Pillow>=10.1
+
+# Reads the text of every PDF attached to a claim so it can be compared with
+# what the claim says (core/services/content_check.py). Pure Python.
+pypdf>=6.0
 
 # Sign-in providers. Both verify a token against the issuer's published keys
 # rather than holding a secret, so neither needs a credential in settings.
@@ -28,6 +37,13 @@ python-docx>=1.1
 google-auth>=2.35
 PyJWT[crypto]>=2.9
 requests>=2.32
+anthropic>=0.75
+
+# Re-encodes profile photos and pictures shared in the feed, which drops the
+# camera metadata (and any GPS position) before colleagues see them. It was
+# already installed through reportlab; declared because the feed now depends
+# on it directly.
+Pillow>=10.0
 
 # Property-based testing for the money logic (core/test_logic.py). Test-only;
 # the runtime never imports it. Example budgets there are bounded and
@@ -37,3 +53,5 @@ hypothesis>=6.100
 # Django's --parallel test runner needs tblib to reassemble tracebacks from
 # worker subprocesses. Test-only; the runtime never imports it.
 tblib>=3.0
+# QR code on the impact card (pure Python, BSD-3). Draws the verify link.
+segno>=1.6

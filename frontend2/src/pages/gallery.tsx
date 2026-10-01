@@ -338,7 +338,7 @@ export function Gallery() {
             <Button
               kind="quiet"
               onClick={() =>
-                toast.ok("Cleared — 12 papers sent to the Principal")
+                toast.ok("Cleared. 12 papers sent to the Principal")
               }
             >
               Toast
@@ -356,7 +356,7 @@ export function Gallery() {
               setFurthest((f) => Math.max(f, i));
             }}
             onFinish={() =>
-              toast.ok("Filed — it is with the research cell now")
+              toast.ok("Filed. The college will check it next")
             }
             finishLabel="File it"
             validate={(i) =>
@@ -450,7 +450,7 @@ export function Gallery() {
               <div className="mt-2">
                 <EmptyState
                   title="Nothing filed yet"
-                  message="File a paper and it goes to the research cell to be checked."
+                  message="File a paper and it goes to the college to be checked."
                 />
               </div>
             </div>
@@ -488,7 +488,7 @@ export function Gallery() {
             <DialogHeader>
               <DialogTitle>Correct this row</DialogTitle>
               <DialogDescription>
-                One field, one reason, recorded against the ticket.
+                One field, one reason, recorded against the claim.
               </DialogDescription>
             </DialogHeader>
             <DialogBody>
@@ -516,7 +516,7 @@ export function Gallery() {
           confirmLabel="Empty the system"
           requirePhrase="DELETE EVERYTHING"
           reasonLabel="Why is the system being emptied?"
-          onConfirm={() => toast.ok("Nothing happened — this is the gallery")}
+          onConfirm={() => toast.ok("Nothing happened. This is the gallery")}
         />
 
         <Sheet open={sheet} onOpenChange={setSheet}>

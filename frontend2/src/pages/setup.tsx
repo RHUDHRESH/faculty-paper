@@ -59,10 +59,10 @@ export function Setup() {
       <Frame>
         <Card>
           <CheckCircle2 className="size-10 text-ok" />
-          <h1 className="mt-4 text-xl font-semibold">Already set up</h1>
+          <h1 className="display mt-4 text-[1.75rem] leading-9">Already set up</h1>
           <p className="mt-2 text-base text-fg-muted">
             This system has accounts in it, so setup is finished. Sign in as one
-            of them — the college's name can be changed afterwards under
+            of them. The college's name can be changed afterwards under
             Institution in the office settings.
           </p>
           <Button kind="primary" className="mt-6" onClick={() => navigate("/")}>
@@ -78,11 +78,11 @@ export function Setup() {
       <Frame>
         <Card>
           <CheckCircle2 className="size-10 text-ok" />
-          <h1 className="mt-4 text-xl font-semibold">{collegeName.trim()} is set up</h1>
+          <h1 className="display mt-4 text-[1.75rem] leading-9">{collegeName.trim()} is set up</h1>
           <p className="mt-2 text-base text-fg-muted">
             The administrator account <strong>{adminEmail.trim()}</strong> is
-            ready. Sign in with the password you just chose — everything else
-            (people, departments, the payout policy, journals) is set up from
+            ready. Sign in with the password you just chose. Everything else
+            (people, departments, the incentive policy, journals) is set up from
             inside.
           </p>
           <Button kind="primary" className="mt-6" onClick={() => navigate("/")}>
@@ -129,7 +129,13 @@ export function Setup() {
   return (
     <Frame>
       <Card>
-        <h1 className="text-xl font-semibold">Set up your college</h1>
+        {/* One form around the fields and the buttons: with the fields outside
+            it, pressing Enter in a field did nothing at all. */}
+        <form onSubmit={submit}>
+        <p className="text-sm text-fg-muted">Step {step + 1} of 3</p>
+        <h1 className="display text-[1.75rem] leading-9">
+          {step === 0 ? "Set up your college" : step === 1 ? "The first administrator" : "Check and create"}
+        </h1>
         <ol className="mt-2 flex gap-1.5" aria-label="Progress">
           {[0, 1, 2].map((i) => (
             <li
@@ -155,7 +161,7 @@ export function Setup() {
             </Field>
             <p className="text-sm text-fg-muted">
               This installation will belong to that institution: its accounts,
-              its papers, its payout policy. One installation per college.
+              its papers, its incentive policy. One installation per college.
             </p>
           </div>
         )}
@@ -172,7 +178,7 @@ export function Setup() {
             </Field>
             <Field
               label="Administrator email"
-              hint="Used to sign in. Accounts are never created by signing up — this is the one this system makes for you."
+              hint="Used to sign in. Accounts are never created by signing up. This is the one account the system makes for you."
             >
               <Input
                 type="email"
@@ -208,11 +214,34 @@ export function Setup() {
           </div>
         )}
 
-        {error && (
-          <p className="mt-4 rounded-md bg-caution-wash px-3 py-2 text-sm">{error}</p>
+        {step === 2 && (
+          <dl className="mt-6 divide-y divide-line text-base">
+            <div className="py-3">
+              <dt className="text-sm text-fg-muted">College</dt>
+              <dd>{collegeName.trim()}</dd>
+            </div>
+            <div className="py-3">
+              <dt className="text-sm text-fg-muted">Administrator</dt>
+              <dd>{adminName.trim()}</dd>
+            </div>
+            <div className="py-3">
+              <dt className="text-sm text-fg-muted">Sign-in email</dt>
+              <dd className="break-all">{adminEmail.trim()}</dd>
+            </div>
+            <div className="py-3">
+              <dt className="text-sm text-fg-muted">Password</dt>
+              <dd>The one you chose, {password.length} characters</dd>
+            </div>
+          </dl>
         )}
 
-        <form onSubmit={submit} className="mt-6 flex items-center gap-3">
+        {error && (
+          <p role="alert" className="mt-4 rounded-control bg-caution-wash px-3 py-2 text-sm">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
           {step > 0 && (
             <Button type="button" kind="quiet" onClick={() => setStep(step - 1)}>
               Back
@@ -222,9 +251,7 @@ export function Setup() {
             {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
             {step === 2 ? "Create the system" : "Continue"}
           </Button>
-          <span className="text-sm text-fg-muted">
-            {3 - step} step{3 - step === 1 ? "" : "s"} left
-          </span>
+        </div>
         </form>
       </Card>
     </Frame>
@@ -245,5 +272,5 @@ function Frame({ children }: { children: React.ReactNode }) {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-lg bg-surface p-6 shadow-sm">{children}</div>
+  return <div className="panel p-6">{children}</div>
 }

@@ -68,6 +68,26 @@ describe("EmptyState and ErrorState are not the same thing", () => {
   })
 })
 
+describe("docs/ux/22 states", () => {
+  it("an error names what failed and always has a retry, even if the page forgot one", () => {
+    render(<ErrorState what="the import history" />)
+    expect(screen.getByText("Could not load the import history")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument()
+  })
+
+  it("an empty state says what would be here and offers the one thing to do", () => {
+    render(
+      <EmptyState
+        title="No imports yet"
+        message="Each file you bring in is listed here."
+        action={<button>Import a file</button>}
+      />
+    )
+    expect(screen.getByText("No imports yet")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Import a file" })).toBeInTheDocument()
+  })
+})
+
 describe("InlineError", () => {
   it("is an alert too, for a failure inside one section of a page", () => {
     render(<InlineError message="Could not load the totals." />)

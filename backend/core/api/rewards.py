@@ -1,0 +1,464 @@
+"""Badges, celebrations, goals and the wall of fame.
+
+Everything here is about work people have already done, and everything here
+may be seen by people other than its owner -- a colleague looking at a badge
+shelf, a head reading the department's goals. So none of it carries money, and the records it is built from
+(`core.services.records`) never read an amount in the first place.
+
+Two kinds of visibility:
+
+- **Anyone signed in**: a person's badges, the wall of fame.
+- **The person themselves**: their celebrations, their goals.
+  A head sees the department's goals as counts and nothing else.
+"""
+from __future__ import annotations
+
+import json
+import re
+from collections import defaultdict
+from datetime import date
+from typing import Any, Optional
+
+from django.db import transaction
+from django.http import HttpRequest
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from ninja import Schema
+from ninja.errors import HttpError
+
+from core import hod
+from core.api.common import api, rate_limit_for, require_user, session_auth
+from core.api.hod_planning import _acting_department
+from core.models import (
+    AuditLog,
+    Badge,
+    Celebration,
+    ResearchGoal,
+    Role,
+    User,
+    WallCheer,
+    WallPin,
+)
+from core.services import achievements, records
+
+# ---------- badges ----------
+
+
+def _catalogue() -> list[dict[str, str]]:
+    return [
+        {"kind": kind, "label": label, "description": description}
+        for kind, (label, description) in achievements.CATALOGUE.items()
+    ]
+
+
+@api.get("/me/badges", auth=session_auth)
+def my_badges(request: HttpRequest):
+    user = require_user(request)
+    return {
+        "badges": [
+            achievements.badge_dict(b, for_owner=True)
+            for b in Badge.objects.filter(user=user)
+        ],
+        "catalogue": _catalogue(),
+    }
+
+
+@api.get("/users/{user_id}/badges", auth=session_auth)
+def user_badges(request: HttpRequest, user_id: str):
+    """Somebody's badge shelf, as any colleague may see it."""
+    viewer = require_user(request)
+    person = get_object_or_404(User, pk=user_id)
+    return {
+        "user": {"id": person.id, "name": person.name, "department": person.department},
+        "badges": [
+            achievements.badge_dict(b, for_owner=person.id == viewer.id)
+            for b in Badge.objects.filter(user=person)
+        ],
+        "catalogue": _catalogue(),
+    }
+
+
+@api.post("/admin/badges/run", auth=session_auth)
+def run_badges(request: HttpRequest):
+    """Run the hourly job now. Super admin only; safe to repeat."""
+    user = require_user(request)
+    if user.role != Role.SUPER_ADMIN:
+        raise HttpError(403, "Forbidden")
+    return achievements.run_all()
+
+
+# ---------- celebrations ----------
+
+
+class SeenIn(Schema):
+    ids: list[str] = []
+
+
+def _celebration_dict(c: Celebration) -> dict[str, Any]:
+    return {
+        "id": c.id,
+        "kind": c.kind,
+        "title": c.title,
+        "body": c.body,
+        "created_at": c.created_at.isoformat(),
+        "badge": achievements.badge_dict(c.badge, for_owner=True) if c.badge_id else None,
+    }
+
+
+@api.get("/me/celebrations", auth=session_auth)
+def my_celebrations(request: HttpRequest):
+    """What is waiting to be celebrated on this person's home screen."""
+    user = require_user(request)
+    rows = (
+        Celebration.objects.filter(user=user, seen_at__isnull=True)
+        .select_related("badge")
+        .order_by("created_at")[:6]
+    )
+    return {"celebrations": [_celebration_dict(c) for c in rows]}
+
+
+@api.post("/me/celebrations/seen", auth=session_auth)
+def mark_celebrations_seen(request: HttpRequest, payload: SeenIn):
+    """Shown once: marked the moment the screen has shown it."""
+    user = require_user(request)
+    marked = Celebration.objects.filter(
+        user=user, id__in=payload.ids[:50], seen_at__isnull=True
+    ).update(seen_at=timezone.now())
+    return {"ok": True, "marked": marked}
+
+
+# ---------- goals ----------
+
+_METRICS = {m.value: m.label for m in ResearchGoal.Metric}
+MAX_GOAL = 1000
+
+
+class GoalItem(Schema):
+    metric: str
+    target: int
+
+
+class GoalsIn(Schema):
+    year: int
+    goals: list[GoalItem]
+
+
+def _progress(recs: list[records.PaperRecord], all_recs: list[records.PaperRecord], metric: str):
+    """How far along a goal is: this year's papers, or citations to date."""
+    if metric == ResearchGoal.Metric.Q1:
+        return sum(1 for r in recs if r.quartile == "Q1")
+    if metric == ResearchGoal.Metric.FIRST_AUTHOR:
+        return sum(1 for r in recs if r.first_author)
+    if metric == ResearchGoal.Metric.CITATIONS:
+        known = [r.citations for r in all_recs if r.citations is not None]
+        return sum(known) if known else None
+    return len(recs)
+
+
+def _goal_row(metric: str, target: int, done: Optional[int], *, built_in=False, label=None):
+    return {
+        "metric": metric,
+        "label": label or _METRICS.get(metric, metric),
+        "target": target,
+        "done": done,
+        "available": done is not None,
+        "fraction": round(done / target, 4) if done is not None and target else None,
+        "met": done is not None and done >= target,
+        "built_in": built_in,
+    }
+
+
+def _this_year() -> int:
+    return timezone.localdate().year
+
+
+@api.get("/me/goals", auth=session_auth)
+def my_goals(request: HttpRequest, year: Optional[int] = None):
+    """A person's own goals for a year, with where each one stands."""
+    user = require_user(request)
+    year = year or _this_year()
+    all_recs = records.paper_records([user])[user.id]
+    recs = [r for r in all_recs if r.year == year]
+
+    rows = []
+    order = list(_METRICS)
+    goals = sorted(ResearchGoal.objects.filter(user=user, year=year), key=lambda g: order.index(g.metric))
+    for g in goals:
+        rows.append(_goal_row(g.metric, g.target, _progress(recs, all_recs, g.metric)))
+
+    years = set(ResearchGoal.objects.filter(user=user).values_list("year", flat=True))
+    years |= {_this_year(), year}
+    return {
+        "year": year,
+        "years": sorted(years, reverse=True),
+        "goals": rows,
+        "metrics": [{"key": k, "label": v} for k, v in _METRICS.items()],
+        "citations_available": any(r.citations is not None for r in all_recs),
+    }
+
+
+@api.put("/me/goals", auth=session_auth)
+def set_my_goals(request: HttpRequest, payload: GoalsIn):
+    """Set this year's goals. A target of 0 takes a goal away."""
+    user = require_user(request)
+    now = _this_year()
+    if not now - 1 <= payload.year <= now + 1:
+        raise HttpError(400, f"Goals can be set for {now - 1} to {now + 1}.")
+    for item in payload.goals:
+        if item.metric not in _METRICS:
+            raise HttpError(400, f"A goal is one of: {', '.join(_METRICS.values())}.")
+        if not 0 <= item.target <= MAX_GOAL:
+            raise HttpError(400, f"A goal is a number from 0 to {MAX_GOAL}.")
+    with transaction.atomic():
+        for item in payload.goals:
+            if item.target == 0:
+                ResearchGoal.objects.filter(user=user, year=payload.year, metric=item.metric).delete()
+            else:
+                ResearchGoal.objects.update_or_create(
+                    user=user, year=payload.year, metric=item.metric,
+                    defaults={"target": item.target},
+                )
+    return my_goals(request, year=payload.year)
+
+
+@api.get("/hod/goals", auth=session_auth)
+def hod_goals(request: HttpRequest, year: Optional[int] = None, department: Optional[str] = None):
+    """The department's goals as counts: who set one, and how many are met.
+
+    Never whose goal is whose. A goal is a private intention; a head who could
+    read each person's would be reading a to-do list somebody wrote for
+    themselves.
+    """
+    user = require_user(request)
+    chosen = _acting_department(user, department)
+    year = year or _this_year()
+    members = list(User.objects.filter(department__iexact=chosen, active=True))
+    goals = list(ResearchGoal.objects.filter(user__in=members, year=year))
+    all_recs = records.paper_records(members)
+
+    per_metric: dict[str, dict[str, Any]] = {}
+    for g in goals:
+        mine = all_recs.get(g.user_id, [])
+        done = _progress([r for r in mine if r.year == year], mine, g.metric)
+        slot = per_metric.setdefault(g.metric, {
+            "metric": g.metric, "label": _METRICS.get(g.metric, g.metric),
+            "people": 0, "target_total": 0, "done_total": 0, "met": 0,
+        })
+        slot["people"] += 1
+        slot["target_total"] += g.target
+        slot["done_total"] += done or 0
+        slot["met"] += 1 if done is not None and done >= g.target else 0
+
+    return hod.without_money({
+        "department": chosen,
+        "year": year,
+        "people_in_department": len(members),
+        "people_with_goals": len({g.user_id for g in goals}),
+        "metrics": [per_metric[m] for m in _METRICS if m in per_metric],
+    })
+
+
+# ---------- the wall of fame ----------
+
+_MONTH = re.compile(r"^(\d{4})-(\d{2})$")
+
+
+class PinIn(Schema):
+    department: str = ""
+    month: str
+    key: str
+
+
+def _month(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    m = _MONTH.match(value.strip())
+    if not m or not 1 <= int(m.group(2)) <= 12:
+        raise HttpError(400, "A month is written YYYY-MM.")
+    return date(int(m.group(1)), int(m.group(2)), 1)
+
+
+def _month_key(d: date) -> str:
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+def _papers() -> dict[str, list[records.PaperRecord]]:
+    """Every college paper, grouped across its authors by normalised title."""
+    grouped: dict[str, list[records.PaperRecord]] = defaultdict(list)
+    for r in records.collect(include_unmatched=True):
+        grouped[r.key].append(r)
+    return grouped
+
+
+def _card(key: str, group: list[records.PaperRecord], pinned_key: Optional[str]) -> dict[str, Any]:
+    quartiles = [r.quartile for r in group if r.quartile]
+    lead = min(group, key=lambda r: (r.claim_id is None, r.on))
+    authors: dict[str, dict[str, Any]] = {}
+    for r in group:
+        who = r.user_id or f"name:{r.author_name.lower()}"
+        authors.setdefault(who, {"id": r.user_id, "name": r.author_name, "department": r.department})
+    departments = sorted({(r.department or "").strip() for r in group if (r.department or "").strip()}, key=str.lower)
+    return {
+        "key": key,
+        "title": lead.title,
+        "journal": lead.journal,
+        "quartile": min(quartiles) if quartiles else None,
+        "year": lead.year,
+        "doi": lead.doi,
+        "claim_id": lead.claim_id,
+        "authors": sorted(authors.values(), key=lambda a: a["name"].lower()),
+        "departments": departments,
+        "pinned": key == pinned_key,
+        "featured": key == pinned_key,
+    }
+
+
+def _with_cheers(board: dict[str, Any], viewer: User) -> dict[str, Any]:
+    """Each card's congratulations: how many, and whether the reader gave one."""
+    keys = [c["key"] for c in board["cards"]]
+    counts: dict[str, int] = defaultdict(int)
+    mine: set[str] = set()
+    for key, uid in WallCheer.objects.filter(paper_key__in=keys).values_list("paper_key", "user_id"):
+        counts[key] += 1
+        if uid == viewer.id:
+            mine.add(key)
+    for c in board["cards"]:
+        c["reaction_count"] = counts[c["key"]]
+        c["me_reacted"] = c["key"] in mine
+    return board
+
+
+def _wall(department: str, month: Optional[date]) -> dict[str, Any]:
+    dept = department.strip().lower()
+    by_month: dict[str, list[tuple[str, list[records.PaperRecord]]]] = defaultdict(list)
+    for key, group in _papers().items():
+        if dept and not any(r.department.lower() == dept for r in group):
+            continue
+        # A paper appears once, in the month the college first recognised it.
+        first = min(r.on for r in group)
+        by_month[_month_key(first)].append((key, group))
+
+    months = sorted(by_month, reverse=True)
+    chosen = _month_key(month) if month else (months[0] if months else _month_key(timezone.localdate()))
+    y, mo = map(int, chosen.split("-"))
+    pin = WallPin.objects.filter(department__iexact=department.strip(), month=date(y, mo, 1)).first()
+    pinned_key = pin.paper_key if pin else None
+
+    cards = [_card(k, g, pinned_key) for k, g in by_month.get(chosen, [])]
+    order = {"Q1": 0, "Q2": 1, "Q3": 2, "Q4": 3}
+    cards.sort(key=lambda c: (not c["pinned"], order.get(c["quartile"] or "", 4), c["title"].lower()))
+    return {
+        "department": department.strip(),
+        "month": chosen,
+        "months": [{"month": m, "count": len(by_month[m])} for m in months],
+        "pinned": next((c for c in cards if c["pinned"]), None),
+        "cards": cards,
+    }
+
+
+def _departments() -> list[str]:
+    seen: dict[str, str] = {}
+    for d in User.objects.filter(active=True).exclude(department__isnull=True).values_list("department", flat=True):
+        d = (d or "").strip()
+        if d and d.lower() not in seen:
+            seen[d.lower()] = d
+    return sorted(seen.values(), key=str.lower)
+
+
+@api.get("/wall", auth=session_auth)
+def wall(request: HttpRequest, department: str = "", month: Optional[str] = None):
+    """A month of new publications, for one department or the whole college."""
+    user = require_user(request)
+    board = _with_cheers(_wall(department, _month(month)), user)
+    return hod.without_money({**board, "departments": _departments()})
+
+
+class CheerIn(Schema):
+    key: str
+
+
+def _cheer_state(key: str, viewer: User) -> dict[str, Any]:
+    rows = WallCheer.objects.filter(paper_key=key)
+    return {"key": key, "reaction_count": rows.count(), "me_reacted": rows.filter(user=viewer).exists()}
+
+
+@api.post("/wall/cheer", auth=session_auth)
+def cheer_paper(request: HttpRequest, payload: CheerIn):
+    """Congratulate the authors of a wall paper. Once per person; again is a no-op."""
+    user = require_user(request)
+    key = (payload.key or "").strip()
+    if not key or key not in _papers():
+        raise HttpError(404, "That paper is not on the wall.")
+    rate_limit_for(user, "wall_cheer", 300, "hour", what="congratulating")
+    WallCheer.objects.get_or_create(paper_key=key, user=user)
+    return _cheer_state(key, user)
+
+
+@api.delete("/wall/cheer", auth=session_auth)
+def uncheer_paper(request: HttpRequest, key: str):
+    user = require_user(request)
+    WallCheer.objects.filter(paper_key=key.strip(), user=user).delete()
+    return _cheer_state(key.strip(), user)
+
+
+def _may_pin(user: User, department: str) -> bool:
+    if user.role == Role.SUPER_ADMIN:
+        return True
+    if not department.strip():
+        return user.role == Role.PRINCIPAL
+    return user.role == Role.HOD and hod.department_of(user).lower() == department.strip().lower()
+
+
+@api.post("/wall/pin", auth=session_auth)
+def pin_paper(request: HttpRequest, payload: PinIn):
+    """Choose the paper of the month: a head for their department, the
+    Principal for the college."""
+    user = require_user(request)
+    if not _may_pin(user, payload.department):
+        raise HttpError(403, "Only the department's head chooses its paper of the month.")
+    month = _month(payload.month)
+    if month is None:
+        raise HttpError(400, "Say which month the paper is for: YYYY-MM.")
+    board = _wall(payload.department, month)
+    card = next((c for c in board["cards"] if c["key"] == payload.key), None)
+    if card is None:
+        raise HttpError(400, "That paper is not on this wall for that month.")
+    # One pin per department and month however the department is spelt:
+    # the wall reads pins case-insensitively, so it must write them that way.
+    department = payload.department.strip()
+    pin = WallPin.objects.filter(department__iexact=department, month=month).first()
+    if pin is None:
+        pin = WallPin(department=department, month=month)
+    pin.paper_key, pin.title, pin.pinned_by = card["key"], card["title"], user
+    pin.save()
+    AuditLog.objects.create(
+        actor=user, action="WALL_PIN", entity="WallPin", entity_id=pin.id,
+        detail_json=json.dumps({"department": pin.department, "month": payload.month, "title": card["title"]}),
+    )
+    return {"ok": True}
+
+
+@api.delete("/wall/pin", auth=session_auth)
+def unpin_paper(request: HttpRequest, month: str, department: str = ""):
+    user = require_user(request)
+    if not _may_pin(user, department):
+        raise HttpError(403, "Only the department's head chooses its paper of the month.")
+    WallPin.objects.filter(department__iexact=department.strip(), month=_month(month)).delete()
+    return {"ok": True}
+
+
+__all__ = [
+    "my_badges",
+    "user_badges",
+    "run_badges",
+    "my_celebrations",
+    "mark_celebrations_seen",
+    "my_goals",
+    "set_my_goals",
+    "hod_goals",
+    "wall",
+    "pin_paper",
+    "cheer_paper",
+    "uncheer_paper",
+    "unpin_paper",
+]

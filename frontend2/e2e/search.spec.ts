@@ -109,15 +109,15 @@ test.describe("The search page", () => {
 
       // Offered to everybody, so it has to work for everybody — this is the
       // only route in the sidebar with no role condition on it at all.
-      await expect(page.getByRole("heading", { name: "Search", level: 1 })).toBeVisible()
+      await expect(page.getByRole("heading", { name: "Find anything", level: 1 })).toBeVisible()
       await expect(
-        page.getByRole("searchbox", { name: "Search papers, journals, people and claims" })
+        page.getByRole("combobox", { name: "Find anything" })
       ).toBeVisible()
 
       // An empty box is not an empty result. Saying "nothing found" before
       // anybody has asked is a lie with consequences on the screen people use
       // to check whether a paper has already been claimed.
-      await expect(page.getByText("Search for anything")).toBeVisible()
+      await expect(page.getByText(/Paste a DOI to see whether a paper is already in the record/)).toBeVisible()
       await expect(
         page.getByText(/no results|nothing found/i),
         "the page reported an empty result before anything was searched"
@@ -130,26 +130,25 @@ test.describe("The search page", () => {
     })
   }
 
-  test("finds a claim this college has already filed, and prices it", async ({ browser }) => {
+  test("finds a claim this college has already filed, and prices it nowhere", async ({ browser }) => {
     const page = await asRole(browser, "RESEARCH_CELL")
     await searchFor(page, seeded.claim!.title)
 
     // The section exists only when it has results in it — `Group` renders
     // nothing at count zero — so finding it by name is finding the results.
-    const filed = page.getByRole("region", { name: "Claims filed here" })
+    const filed = page.getByRole("region", { name: /claims/i })
     await expect(
       filed,
       "searching a filed paper's own title did not find the claim"
     ).toBeVisible()
     await expect(filed).toContainText(seeded.claim!.title)
 
-    // And for somebody allowed to see money, the amount is there — which is
-    // what makes the head-of-department test below mean anything. Without
-    // this, a page that showed no amount to anybody would pass it.
-    await expect(
-      filed,
-      "the claim was found but carries no amount for a role that may see one"
-    ).toContainText(new RegExp(`${RUPEE}\\s*[\\d,]+`))
+    // docs/ux/02-search.md: /api/search/all carries no amount to anybody, so
+    // even a role allowed to see money is shown none here. That makes the
+    // head-of-department sweep below a check on the whole page, not a
+    // role-specific omission.
+    const offenders = await rupeeSightings(page)
+    expect(offenders, "the search page showed an amount:\n" + offenders.join("\n")).toEqual([])
 
     await done(page)
   })
@@ -168,7 +167,7 @@ test.describe("The search page", () => {
      * meant to be able to look a paper up; they are only not meant to be told
      * what it paid.
      */
-    const filed = page.getByRole("region", { name: "Claims filed here" })
+    const filed = page.getByRole("region", { name: /claims/i })
     await expect(
       filed,
       "a head of department cannot find a filed claim by its title"

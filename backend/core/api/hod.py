@@ -7,6 +7,7 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer, safe_append
 from core.api.common import _csv_row, _hod_scope, api, rate_limit, session_auth
 from core.api.common import require_user
 
@@ -14,6 +15,7 @@ import csv
 import io
 import json
 import time
+from datetime import date
 from typing import Any, Optional
 from django.db.models import Count, Q
 from django.http import HttpRequest, HttpResponse
@@ -24,6 +26,8 @@ from django.conf import settings
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimStatus, DepartmentTarget, Role, User
 from core import hod
+from core.services import hod_record, rbac
+from core.services.scopus_profiles import department_totals, linked_profiles, profile_dict, profile_for
 
 # ---------- head of department ----------
 
@@ -54,9 +58,11 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
         return sorted(out.values(), key=lambda r: -r["count"])
 
     # Members of the department, whether or not they have published: a head
-    # needs to see who has nothing as much as who has most.
+    # needs to see who has nothing as much as who has most. The head is one of
+    # them -- faculty who also heads the department, filing their own papers,
+    # which the totals below already count.
     people = User.objects.filter(
-        role=Role.FACULTY, department__iexact=hod.department_of(user)
+        role__in=rbac.CLAIMANT_ROLES, department__iexact=hod.department_of(user)
     ).order_by("name")
     counts = {
         row["owner_id"]: row["n"]
@@ -92,6 +98,26 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
         for part in [p.strip() for p in (raw or "").split(",") if p.strip()] or ["Not stated"]:
             indexing[part] = indexing.get(part, 0) + 1
 
+    # What Scopus holds for the department's people, from the office's profile
+    # import: career totals, not this year's, so they ignore the year filter.
+    # The totals are the department's current faculty, counted by the same
+    # function the college report uses, so the two screens agree.
+    staff = list(people)
+    staff_ids = {s.id for s in staff}
+    profiles = {u.id: p for u, p in linked_profiles() if u.id in staff_ids}
+    counted = department_totals(hod.department_of(user))
+    scopus = {
+        "people_with_profile": counted[0]["people_with_profile"] if counted else 0,
+        "publications": counted[0]["publications"] if counted else 0,
+        "citations": counted[0]["citations"] if counted else 0,
+        "highest_h_index": counted[0]["highest_h_index"] if counted else None,
+        "last_imported_at": max(
+            (p.imported_at for p in profiles.values()), default=None
+        ),
+    }
+    if scopus["last_imported_at"]:
+        scopus["last_imported_at"] = scopus["last_imported_at"].isoformat()
+
     return hod.without_money({
         "department": hod.department_of(user),
         "years_on_record": sorted(
@@ -109,6 +135,7 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
                 status__in=(ClaimStatus.SUBMITTED, ClaimStatus.CLEARED)
             ).count(),
         },
+        "scopus": scopus,
         "by_year": by_year,
         "by_quartile": bucket("quartile", "Not recorded"),
         "by_type": bucket("aggregation_type", "Not stated"),
@@ -127,8 +154,18 @@ def hod_overview(request: HttpRequest, year: Optional[int] = None):
                 "first_author": first_author.get(p.id, 0),
                 "q1": q1.get(p.id, 0),
                 "active": p.active,
+                # None, not 0, where no profile is loaded: "not imported" and
+                # "never cited" are different answers.
+                "scopus_id": profiles[p.id].scopus_id if p.id in profiles else None,
+                "scopus_publications": (
+                    profiles[p.id].total_publications if p.id in profiles else None
+                ),
+                "scopus_citations": (
+                    profiles[p.id].total_citations if p.id in profiles else None
+                ),
+                "scopus_h_index": profiles[p.id].h_index if p.id in profiles else None,
             }
-            for p in people
+            for p in staff
         ],
     })
 
@@ -143,6 +180,8 @@ class TargetIn(Schema):
     #: Omitted or null sets the target on the department as a whole.
     person_id: Optional[str] = None
     note: Optional[str] = None
+    #: When it should be reached by. Omitted or null means "within the year".
+    due_date: Optional[date] = None
 
 
 def _target_progress(qs, metric: str, person_id: str | None) -> int:
@@ -173,15 +212,26 @@ def hod_targets(request: HttpRequest, year: Optional[int] = None):
     department = hod.department_of(user)
     year = year or timezone.now().year
 
-    qs = _hod_scope(user).filter(publication_year=year)
+    # Counted from the college's publication record, the one definition of a
+    # paper the Principal's pages use, and not from the department's incentive
+    # claims: a claim is a request for money, and counting them told a head of
+    # ECE the department had 19 papers when the record holds 373.
+    snap = hod_record.snapshot(department, year, timezone.localdate())
+    by_person = {s.user.id: s for s in snap.people}
     rows = (
         DepartmentTarget.objects.filter(department__iexact=department, year=year)
         .select_related("person", "set_by")
         .order_by("person__name", "metric")
     )
 
+    def progress(t: DepartmentTarget) -> int:
+        if t.person_id is None:
+            return hod_record.metric_done(snap, t.metric)
+        who = by_person.get(t.person_id)
+        return hod_record.person_done(who, t.metric) if who else 0
+
     def as_dict(t: DepartmentTarget) -> dict[str, Any]:
-        done = _target_progress(qs, t.metric, t.person_id)
+        done = progress(t)
         return {
             "id": t.id,
             "year": t.year,
@@ -195,6 +245,7 @@ def hod_targets(request: HttpRequest, year: Optional[int] = None):
             "person_id": t.person_id,
             "person_name": t.person.name if t.person_id else None,
             "note": t.note,
+            "due_date": t.due_date.isoformat() if t.due_date else None,
             "set_by": t.set_by.name if t.set_by_id else None,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
         }
@@ -251,6 +302,7 @@ def hod_set_target(request: HttpRequest, payload: TargetIn):
         defaults={
             "target": payload.target,
             "note": (payload.note or "").strip() or None,
+            "due_date": payload.due_date,
             "set_by": user,
         },
     )
@@ -259,6 +311,7 @@ def hod_set_target(request: HttpRequest, payload: TargetIn):
         detail_json=json.dumps({
             "department": department, "year": payload.year, "metric": payload.metric,
             "target": payload.target, "person": person.id if person else None,
+            "due_date": payload.due_date.isoformat() if payload.due_date else None,
             "created": created,
         }),
     )
@@ -341,7 +394,8 @@ def hod_person(request: HttpRequest, user_id: str):
             "metric_label": DepartmentTarget.Metric(t.metric).label,
             "target": t.target,
             "done": _target_progress(
-                claims.filter(publication_year=t.year), t.metric, person.id
+                claims.filter(publication_year=t.year).exclude(rejected_outright=True),
+                t.metric, person.id,
             ),
         }
         for t in DepartmentTarget.objects.filter(
@@ -379,6 +433,8 @@ def hod_person(request: HttpRequest, user_id: str):
         "by_year": by_year,
         "by_quartile": bucket("quartile", "Not recorded"),
         "by_journal": bucket("journal_title", "Not recorded")[:10],
+        # Academic figures, not money, so a head sees them too.
+        "scopus_profile": profile_dict(profile_for(person)),
         "targets": targets,
         "papers": [
             {
@@ -444,9 +500,9 @@ def hod_standing(request: HttpRequest, year: Optional[int] = None):
     college_total = sum(per_department.values())
 
     heads = User.objects.filter(
-        role=Role.FACULTY, department__iexact=department, active=True
+        role__in=rbac.CLAIMANT_ROLES, department__iexact=department, active=True
     ).count()
-    college_heads = User.objects.filter(role=Role.FACULTY, active=True).count()
+    college_heads = User.objects.filter(role__in=rbac.CLAIMANT_ROLES, active=True).count()
 
     mine_rates = rates(mine)
     college_rates = rates(college)
@@ -503,8 +559,9 @@ def hod_opportunities(request: HttpRequest, year: Optional[int] = None):
         ]
 
     members = list(
-        User.objects.filter(role=Role.FACULTY, department__iexact=department, active=True)
-        .order_by("name")
+        User.objects.filter(
+            role__in=rbac.CLAIMANT_ROLES, department__iexact=department, active=True
+        ).order_by("name")
     )
     filed = set(qs.values_list("owner_id", flat=True))
     with_q1 = set(qs.filter(quartile__iexact="Q1").values_list("owner_id", flat=True))
@@ -674,6 +731,121 @@ def hod_publications(
     })
 
 
+def _hod_record_paper(user: User, pub, Authorship) -> dict[str, Any]:
+    """One paper of the college record, when somebody in the head's department wrote it.
+
+    The record's own facts only: no claim, no money, no review notes. A paper
+    with no author from the department is a 404, the same answer as a claim id
+    that does not exist, so ids cannot be probed.
+    """
+    import json as _json
+
+    canon = hod_record.department_name
+    mine = canon(hod.department_of(user))
+    auths = list(
+        Authorship.objects.filter(publication=pub).select_related("user").order_by("position", "id")
+    )
+    dept_authors = [a for a in auths if a.user_id and canon(a.user.department or "") == mine]
+    if not dept_authors:
+        raise HttpError(404, "No paper from your department has that id")
+    authors = [
+        {
+            "name": a.user.name if a.user_id else a.display_name,
+            "position": a.position,
+            "user_id": a.user_id,
+            "is_college": bool(a.is_college or a.user_id),
+            "in_department": bool(a.user_id and canon(a.user.department or "") == mine),
+            "photo_url": f"{settings.MEDIA_URL}{a.user.photo}" if a.user_id and a.user.photo else None,
+        }
+        for a in auths
+    ]
+    try:
+        topics = [t for t in _json.loads(pub.topics_json or "[]") if isinstance(t, str)]
+    except ValueError:
+        topics = []
+    return hod.without_money({
+        "source": "record",
+        "id": pub.id,
+        "ticket_number": None,
+        "paper_title": pub.title,
+        "journal_title": pub.venue,
+        "issn": pub.issn or None,
+        "doi": pub.doi or None,
+        "publication_year": pub.year,
+        "publication_date": pub.date.isoformat() if pub.date else None,
+        "quartile": (pub.quartile or "").strip().upper() or None,
+        "snip": None,
+        "indexing_level": "Scopus" if pub.scopus_indexed else None,
+        "publication_type": pub.type or None,
+        "author_position": min((a.position for a in dept_authors if a.position), default=None),
+        "total_authors": len(auths),
+        "owner_id": dept_authors[0].user_id,
+        "owner_name": dept_authors[0].user.name,
+        "owner_department": dept_authors[0].user.department,
+        "scopus_url": (
+            f"https://www.scopus.com/record/display.uri?eid={pub.eid}&origin=resultslist" if pub.eid else None
+        ),
+        "progress": None,
+        "citations": pub.citations,
+        "scopus_citations": pub.scopus_citations,
+        "oa_url": pub.oa_url or None,
+        "topics": topics[:6],
+        "authors": authors,
+    })
+
+
+@api.get("/hod/papers/{claim_id}", auth=session_auth)
+def hod_paper(request: HttpRequest, claim_id: str):
+    """One department colleague's paper, as a publication: title, journal,
+    authors, indexing, citations. Never the claim's money, its review notes,
+    its attachments or its chain -- the claim page stays the claimant's and
+    the office's (it answers a head 403 for anybody else's paper)."""
+    user = _require_hod(request)
+    from core.models import Authorship, Publication
+
+    pub = Publication.objects.filter(pk=claim_id).first()
+    if pub is not None:
+        return _hod_record_paper(user, pub, Authorship)
+    c = _hod_scope(user).filter(pk=claim_id).first()
+    if c is None:
+        raise HttpError(404, "No paper from your department has that id")
+    from core.api.publications import _claim_authors
+
+    record = c.publications.prefetch_related("authorships").first()
+    authors = []
+    if record is not None:
+        for a in sorted(record.authorships.all(), key=lambda a: (a.position is None, a.position or 0)):
+            authors.append({"name": a.display_name, "position": a.position, "user_id": a.user_id,
+                            "is_college": a.is_college or bool(a.user_id)})
+    else:
+        for r in _claim_authors(c):
+            authors.append({"name": r.get("name") or "", "position": r.get("position"), "user_id": r.get("user_id"),
+                            "is_college": bool(r.get("user_id"))})
+    return hod.without_money({
+        "id": c.id,
+        "ticket_number": c.ticket_number,
+        "paper_title": c.paper_title,
+        "journal_title": c.journal_title or (record.venue if record else ""),
+        "issn": c.issn,
+        "doi": c.doi or (record.doi if record else None),
+        "publication_year": c.publication_year or (record.year if record else None),
+        "quartile": c.quartile,
+        "snip": c.snip,
+        "indexing_level": c.indexing_level,
+        "publication_type": c.publication_type,
+        "author_position": c.author_position,
+        "total_authors": c.total_authors,
+        "owner_id": c.owner_id,
+        "owner_name": c.owner.name,
+        "owner_department": c.owner.department,
+        "scopus_url": c.scopus_url,
+        "progress": hod.progress_of(c.status),
+        "citations": record.citations if record else None,
+        "oa_url": (record.oa_url or None) if record else None,
+        "authors": authors,
+    })
+
+
 _HOD_EXPORT_HEADERS = [
     "Ticket", "Faculty", "Paper title", "Journal", "ISSN", "DOI",
     "Year of publication", "Quartile", "SNIP", "Indexed in",
@@ -732,7 +904,7 @@ def hod_export(
 
     if fmt == "csv":
         buf = io.StringIO()
-        writer = csv.writer(buf)
+        writer = csv_writer(buf)
         writer.writerow(_csv_row(_HOD_EXPORT_HEADERS))
         for row in rows:
             writer.writerow(_csv_row(row))
@@ -746,11 +918,11 @@ def hod_export(
     wb = Workbook()
     ws = wb.active
     ws.title = "Publications"
-    ws.append(_HOD_EXPORT_HEADERS)
+    safe_append(ws, _HOD_EXPORT_HEADERS)
     for cell in ws[1]:
         cell.font = Font(bold=True)
     for row in rows:
-        ws.append(["" if v is None else v for v in _csv_row(row)])
+        safe_append(ws, ["" if v is None else v for v in _csv_row(row)])
     ws.freeze_panes = "A2"
     for column, width in zip(ws.columns, [14, 24, 60, 36, 14, 28, 10, 9, 8, 18, 18, 9, 9, 14]):
         ws.column_dimensions[column[0].column_letter].width = width

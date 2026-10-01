@@ -21,6 +21,46 @@ from core.models import SnipSource
 from core.services import ai, discover
 
 
+class patch_api:
+    """Patch a name everywhere the API package looks it up.
+
+    core/api.py became a package of modules that each import their service
+    functions directly, so patching `core.api.<name>` no longer intercepts
+    anything. This patches the name in every `core.api.*` module that holds
+    it, with one shared mock, and behaves like `patch` (context manager or
+    start/stop) so call sites keep their assertions.
+    """
+
+    def __init__(self, name, **kwargs):
+        import importlib, pkgutil
+        from unittest.mock import MagicMock
+        import core.api as pkg
+        self.mock = MagicMock(**kwargs)
+        self._patches = []
+        for info in pkgutil.iter_modules(pkg.__path__):
+            mod = importlib.import_module(f"core.api.{info.name}")
+            if hasattr(mod, name):
+                self._patches.append(patch.object(mod, name, self.mock))
+        if not self._patches:
+            raise AttributeError(f"no core.api module uses {name}")
+
+    def start(self):
+        for p in self._patches:
+            p.start()
+        return self.mock
+
+    def stop(self):
+        for p in reversed(self._patches):
+            p.stop()
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *exc):
+        self.stop()
+        return False
+
+
 def _model_ready():
     """Pretend the local model service is up with the model installed.
 
@@ -95,6 +135,15 @@ from core.services.uploads import sniff
 from core.services.tickets import next_ticket_number
 from core.services.remuneration import DEFAULT_AUTHOR_POINTS
 import json
+
+from core.services.filing_conditions import CONDITION_IDS as _CONDITION_IDS, CONDITIONS_VERSION as _CONDITIONS_VERSION
+
+#: The three eligibility conditions, ticked -- a filing without them is refused.
+CONFIRMED = [
+    {"id": _cid, "text_version": _CONDITIONS_VERSION, "ticked_at": "2026-09-24T14:02:11+05:30"}
+    for _cid in _CONDITION_IDS
+]
+
 
 
 User = get_user_model()
@@ -227,7 +276,7 @@ class TicketHierarchyTests(TestCase):
             role=Role.SUPER_ADMIN,
         )
         self.client = Client()
-        verify_patch = patch("core.api.verify_publication", side_effect=_echo_verified)
+        verify_patch = patch_api("verify_publication", side_effect=_echo_verified)
         verify_patch.start()
         self.addCleanup(verify_patch.stop)
 
@@ -446,10 +495,13 @@ class TicketHierarchyTests(TestCase):
             titles = [c["paper_title"] for c in self.client.get("/api/claims").json()["results"]]
             self.assertNotIn("Half-written idea", titles, f"{viewer.role} saw a draft")
 
-        # A head reaches neither this list nor their own department screens
-        # with a draft in them: an unfinished ticket is not output.
+        # A head's claim list is their own papers (a head files like any
+        # faculty member), and neither it nor their department screens carry
+        # somebody else's draft: an unfinished ticket is not output.
         self._login(self.hod)
-        self.assertEqual(self.client.get("/api/claims").status_code, 403)
+        r = self.client.get("/api/claims")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("Half-written idea", [c["paper_title"] for c in r.json()["results"]])
         self.hod.department = "CSE"
         self.hod.save()
         self._login(self.hod)
@@ -466,8 +518,9 @@ class TicketHierarchyTests(TestCase):
 
     def test_a_head_of_department_is_kept_away_from_the_money_screens(self):
         """The role is live again, with its own department portal. What it must
-        never reach is anything carrying a remuneration -- and the claim list
-        carries one on every row."""
+        never reach is anybody else's remuneration -- and the claim list carries
+        one on every row. A head is also a claimant now (2026-09-23), so the
+        list answers them, with their own papers only."""
         other = User.objects.create_user(
             email="o@test.edu",
             password="pass",
@@ -475,16 +528,21 @@ class TicketHierarchyTests(TestCase):
             role=Role.FACULTY,
             department="CSE",  # same department the old HoD used to oversee
         )
-        Claim.objects.create(
+        theirs = Claim.objects.create(
             owner=other,
             paper_title="CSE Paper",
             status=ClaimStatus.SUBMITTED,
             ticket_number="FP-2026-000002",
             quartile="Q2",
+            remuneration=64321.5,
         )
         self._login(self.hod)
         r = self.client.get("/api/claims")
-        self.assertEqual(r.status_code, 403, "the claim list carries the remuneration")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["results"], [], "a colleague's claim is not on a head's list")
+        self.assertNotIn("64321.5", r.content.decode())
+        r = self.client.get(f"/api/claims/{theirs.id}")
+        self.assertEqual(r.status_code, 403, "nor can it be opened by id")
         self.assertIn("no payment details", r.json()["detail"])
 
         # They land in their own portal, not somebody else's.
@@ -732,6 +790,7 @@ class ClaimSubmissionRuleTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
             "contest_forward": True,
             "contest_note": "Submitting with faculty-provided journal details.",
         }
@@ -1237,6 +1296,21 @@ class MoneyIntegrityTests(TestCase):
         self.assertEqual(r.json()["version"], 2)
         self.assertEqual(FormulaConfig.objects.filter(active=True).count(), 1)
 
+    def test_the_first_saved_policy_is_v2_after_the_built_in_v1(self):
+        """The editor promises "retires v1, makes v2 active" over the built-in
+        rates and asks for v2 to be typed; the row it saves must be v2."""
+        FormulaConfig.objects.all().delete()
+        self.client.force_login(self.admin)
+        shown = self.client.get("/api/admin/formula").json()
+        self.assertEqual(shown["version"], 1)
+        r = self.client.put(
+            "/api/admin/formula",
+            data=json.dumps(self._formula_payload(qf_q4=8000)),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["version"], 2)
+
     def test_paid_claim_cannot_be_reverified(self):
         claim = Claim.objects.create(
             owner=self.faculty, status=ClaimStatus.PAID,
@@ -1346,16 +1420,17 @@ class TrustBoundaryTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
             "contest_forward": True,
             "contest_note": "Submitting with faculty-provided journal details.",
         }
-        with patch("core.api.verify_publication", return_value=dict(_VERIFY_MISS)):
+        with patch_api("verify_publication", return_value=dict(_VERIFY_MISS)):
             r = self.client.post(
                 "/api/claims", data=json.dumps(payload), content_type="application/json"
             )
         self.assertEqual(r.status_code, 200, r.content)
         body = r.json()
-        self.assertEqual(body["status"], "SUBMITTED")
+        self.assertEqual(body["faculty_stage"], "Under review")
         self.assertIsNone(body["snip"], "self-declared SNIP must not become the verified value")
         self.assertEqual(body["self_reported_snip"], 30.0)
 
@@ -1682,7 +1757,7 @@ class PaymentLifecycleTests(TestCase):
             role=Role.DIRECTOR,
         )
         self.client = Client()
-        verify_patch = patch("core.api.verify_publication", side_effect=_echo_verified)
+        verify_patch = patch_api("verify_publication", side_effect=_echo_verified)
         verify_patch.start()
         self.addCleanup(verify_patch.stop)
 
@@ -1751,7 +1826,7 @@ class PaymentLifecycleTests(TestCase):
     def test_recalculate_refreshes_from_scopus(self):
         claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-RC")
         self.client.force_login(self.admin)
-        with patch("core.api.verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
+        with patch_api("verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
             r = self.client.post(
                 f"/api/claims/{claim.id}/recalculate",
                 data=json.dumps({}),
@@ -1784,7 +1859,7 @@ class PaymentLifecycleTests(TestCase):
     def test_clear_refuses_when_reverify_changes_the_amount(self):
         claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-RV")
         self.client.force_login(self.admin)
-        with patch("core.api.verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
+        with patch_api("verify_publication", return_value=_verify_hit(snip=2.0, quartile="Q1")):
             r = self.client.post(
                 f"/api/claims/{claim.id}/clear",
                 data=json.dumps({"expected_amount": 85000.0}),
@@ -1814,10 +1889,11 @@ class PaymentLifecycleTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.DIRECTOR_APPROVED)
 
-    def test_clear_scopus_down_leaves_status_untouched(self):
+    def test_clear_scopus_down_leaves_an_unverified_claim_untouched(self):
         claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-502")
+        Claim.objects.filter(pk=claim.pk).update(snip_source=None, quartile_source=None)
         self.client.force_login(self.admin)
-        with patch("core.api.verify_publication", return_value={"ok": False}):
+        with patch_api("verify_publication", return_value={"ok": False}):
             r = self.client.post(
                 f"/api/claims/{claim.id}/clear",
                 data=json.dumps({"expected_amount": 85000.0}),
@@ -1827,6 +1903,25 @@ class PaymentLifecycleTests(TestCase):
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.SUBMITTED)
         self.assertEqual(claim.remuneration, 85000.0)
+
+    def test_clear_scopus_down_uses_stored_verified_values(self):
+        """An outage (or no Scopus key) must not stop the office when the
+        claim already carries server-verified values; it is recomputed from
+        them, still guarded by the confirmed amount, and audited."""
+        claim = self._claim(status=ClaimStatus.SUBMITTED, remuneration=85000.0, ticket="LC-503")
+        Claim.objects.filter(pk=claim.pk).update(snip_source="SCOPUS", quartile_source="SCIMAGO")
+        claim.refresh_from_db()
+        self.client.force_login(self.admin)
+        with patch_api("verify_publication", return_value={"ok": False}):
+            r = self.client.post(
+                f"/api/claims/{claim.id}/clear",
+                data=json.dumps({"expected_amount": float(claim.remuneration)}),
+                content_type="application/json",
+            )
+        claim.refresh_from_db()
+        self.assertIn(r.status_code, (200, 409), r.content)
+        self.assertTrue(AuditLog.objects.filter(
+            action="CLAIM_RECALC_STORED_VALUES", entity_id=claim.id).exists())
 
     def test_mark_paid_does_not_depend_on_scopus(self):
         """Payment recomputes from stored verified values, so an outage cannot
@@ -1839,7 +1934,7 @@ class PaymentLifecycleTests(TestCase):
         """
         claim = self._claim(status=ClaimStatus.DIRECTOR_APPROVED, remuneration=85000.0, ticket="LC-P502")
         self.client.force_login(self.finance)
-        with patch("core.api.verify_publication", return_value={"ok": False}) as called:
+        with patch_api("verify_publication", return_value={"ok": False}) as called:
             r = self.client.post(
                 f"/api/claims/{claim.id}/mark-paid",
                 data=json.dumps({"expected_amount": 85000.0}),
@@ -1955,7 +2050,8 @@ class PaymentLifecycleTests(TestCase):
 
     def test_void_writes_a_reversing_ledger_row_and_returns_to_cleared(self):
         claim = self._paid_claim()
-        self.client.force_login(self.finance)
+        # A super admin's power: Finance only pays (core/test_chain_rules.py).
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/void-payment",
             data=json.dumps({"note": "Paid against the wrong voucher"}),
@@ -1983,7 +2079,7 @@ class PaymentLifecycleTests(TestCase):
             claim=claim, payout_month=date(2026, 8, 1), amount=0.0,
             faculty_name=self.faculty.name, voucher_number="V-ZERO",
         )
-        self.client.force_login(self.finance)
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/void-payment",
             data=json.dumps({"note": "Paid at zero against the wrong ticket"}),
@@ -2017,7 +2113,7 @@ class PaymentLifecycleTests(TestCase):
 
     def test_void_requires_a_reason_and_a_paid_claim(self):
         claim = self._paid_claim("LC-PAID2")
-        self.client.force_login(self.finance)
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/void-payment",
             data=json.dumps({"note": "oops"}),
@@ -2034,7 +2130,7 @@ class PaymentLifecycleTests(TestCase):
 
     def test_void_then_repay_is_allowed(self):
         claim = self._paid_claim("LC-PAID3")
-        self.client.force_login(self.finance)
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/void-payment",
             data=json.dumps({"note": "Wrong amount was disbursed"}),
@@ -2047,6 +2143,7 @@ class PaymentLifecycleTests(TestCase):
         # exactly the case where a second look is worth the friction.
         claim.refresh_from_db()
         self.assertEqual(claim.status, ClaimStatus.CLEARED)
+        self.client.force_login(self.finance)
         r = self.client.post(
             f"/api/claims/{claim.id}/mark-paid",
             data=json.dumps({"voucher_number": "V101", "expected_amount": 85000.0}),
@@ -2371,6 +2468,39 @@ class SuperAdminPowersTests(TestCase):
                       {"fields": {"remuneration": 999999}, "reason": "trying it on"})
         self.assertEqual(r.status_code, 403)
 
+    def test_an_edit_cannot_move_a_claim_through_the_chain(self):
+        """Status and approval columns move only through their own actions;
+        an edit that set PAID would skip the Director and write no ledger."""
+        unpaid = Claim.objects.create(
+            owner=self.alice, status=ClaimStatus.SUBMITTED, ticket_number="PWR-2",
+            paper_title="Unpaid", remuneration=1000,
+        )
+        self.client.force_login(self.admin)
+        for fields in ({"status": "PAID"}, {"director_approved_at": "2026-01-01T00:00:00Z"},
+                       {"override_duplicate": True}, {"snip": 9.9}):
+            r = self.post(f"/api/admin/claims/{unpaid.id}/edit",
+                          {"fields": fields, "reason": "Trying to skip the chain"})
+            self.assertEqual(r.status_code, 400, (fields, r.content))
+        unpaid.refresh_from_db()
+        self.assertEqual(unpaid.status, ClaimStatus.SUBMITTED)
+
+    def test_an_unpaid_amount_cannot_be_set_by_hand(self):
+        unpaid = Claim.objects.create(
+            owner=self.alice, status=ClaimStatus.CLEARED, ticket_number="PWR-3",
+            paper_title="Unpaid", remuneration=1000,
+        )
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/claims/{unpaid.id}/edit",
+                      {"fields": {"remuneration": 99999}, "reason": "Setting the amount by hand"})
+        self.assertEqual(r.status_code, 400, r.content)
+
+    def test_an_edit_rejects_a_value_of_the_wrong_type(self):
+        self.client.force_login(self.admin)
+        r = self.post(f"/api/admin/claims/{self.claim.id}/edit",
+                      {"fields": {"publication_year": "not a year"},
+                       "reason": "Year was wrong in the import"})
+        self.assertEqual(r.status_code, 400, r.content)
+
     # ---- reassignment ----
 
     def test_reassigning_moves_the_claim_and_its_ledger(self):
@@ -2404,6 +2534,29 @@ class SuperAdminPowersTests(TestCase):
         blocked = self.post("/api/claims", {"paper_title": "Filed as Alice"})
         self.assertEqual(blocked.status_code, 403)
         self.assertIn("Stop impersonating", blocked.json()["detail"])
+
+    def test_viewing_as_somebody_who_owes_a_password_change_still_shows_their_record(self):
+        # Every imported account starts owing one; the view must not go blank.
+        self.alice.must_change_password = True
+        self.alice.save()
+        self.client.force_login(self.admin)
+        self.post(f"/api/admin/impersonate/{self.alice.id}", {})
+        self.assertEqual(self.client.get("/api/claims").status_code, 200)
+        # Alice herself is still held to it.
+        own = Client()
+        own.force_login(self.alice)
+        self.assertEqual(own.get("/api/claims").status_code, 403)
+
+    def test_stopping_works_after_viewing_somebody_who_owes_a_password_change(self):
+        self.alice.must_change_password = True
+        self.alice.save()
+        self.client.force_login(self.admin)
+        self.post(f"/api/admin/impersonate/{self.alice.id}", {})
+        self.client.get("/api/claims")
+        r = self.post("/api/admin/stop-impersonating", {})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(self.client.get("/api/auth/me").json()["email"], "power-admin@test.edu")
+
 
     def test_stopping_returns_the_admin_to_themselves(self):
         self.client.force_login(self.admin)
@@ -2469,12 +2622,14 @@ class FaultsReportTests(TestCase):
         self.assertIn("STUCK-1", found["stale_submitted"]["sample"])
 
     def test_a_payment_with_no_amount_is_reported(self):
+        # Counted by the one data-fix service, which looks at claims brought
+        # across from the old ERP (their numbers start ERP-).
         fac = User.objects.create_user(
             email="zero@test.edu", password="p", name="Zero", role=Role.FACULTY,
             biometric_id="BIO-2", department="ECE", scopus_author_id="2",
         )
         Claim.objects.create(
-            owner=fac, status=ClaimStatus.PAID, ticket_number="ZERO-1",
+            owner=fac, status=ClaimStatus.PAID, ticket_number="ERP-PROCESSED-1",
             paper_title="Paid nothing", remuneration=0,
         )
         found, _ = self.faults()
@@ -2733,7 +2888,7 @@ class QualityOfLifeTests(TestCase):
         # The refusal tells the person how long, and how to get unlocked now.
         detail = r.json()["detail"]
         self.assertIn("minute", detail)
-        self.assertIn("research cell", detail)
+        self.assertIn("research office", detail)
         cache.clear()
 
     def test_repeated_failures_hint_at_password_reset(self):
@@ -2748,7 +2903,7 @@ class QualityOfLifeTests(TestCase):
                 content_type="application/json",
             )
         self.assertEqual(last.status_code, 401)
-        self.assertIn("research cell", last.json()["detail"])
+        self.assertIn("research office", last.json()["detail"])
         cache.clear()
 
     def test_admin_password_reset_unlocks_a_locked_account(self):
@@ -2992,7 +3147,7 @@ class JobInfraTests(TestCase):
         stale.save(update_fields=["heartbeat_at"])
 
         self.client.force_login(self.admin)
-        with patch("core.api.start_batch_async") as started:
+        with patch_api("start_batch_async") as started:
             r = self.client.post(f"/api/monthly/{fresh.id}/start")
             self.assertEqual(r.status_code, 400, "a heartbeating batch is genuinely running")
             r = self.client.post(f"/api/monthly/{stale.id}/start")
@@ -3173,13 +3328,21 @@ class IdentityBoundaryTests(TestCase):
         self.assertIsNone(self.faculty.scopus_author_url)
 
     def test_an_unknown_field_cannot_be_requested(self):
+        # The role used to be the example here. It is requestable now -- to a
+        # super admin only, see AccountChangeRequestTests -- so these are the
+        # fields that are still not a request's business at all.
         self.client.force_login(self.faculty)
-        r = self.client.post(
-            "/api/auth/profile/correction",
-            data=json.dumps({"field": "role", "proposed": "SUPER_ADMIN"}),
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 400, r.content)
+        for field, proposed in (
+            ("is_staff", "true"), ("active", "true"), ("email", "x@test.edu"),
+            ("google_sub", "123"), ("password", "hunter22"),
+        ):
+            r = self.client.post(
+                "/api/auth/profile/correction",
+                data=json.dumps({"field": field, "proposed": proposed}),
+                content_type="application/json",
+            )
+            self.assertEqual(r.status_code, 400, (field, r.content))
+        self.assertFalse(ProfileChangeRequest.objects.exists())
 
     def test_a_super_admin_editing_a_profile_is_audited(self):
         from core.models import AuditLog
@@ -3538,6 +3701,7 @@ class RetractionFlagTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
         }
         payload.update(overrides)
         return self.client.post(
@@ -3639,8 +3803,7 @@ class DuplicateOverrideGuardTests(TestCase):
             )
             return out
 
-        verify_patch = patch(
-            "core.api.verify_publication", side_effect=_no_scopus_but_real_duplicate_check
+        verify_patch = patch_api("verify_publication", side_effect=_no_scopus_but_real_duplicate_check
         )
         verify_patch.start()
         self.addCleanup(verify_patch.stop)
@@ -3673,6 +3836,7 @@ class DuplicateOverrideGuardTests(TestCase):
             "author_position": 1,
             "affiliation_ok": True,
             "submit": True,
+            "confirmations": CONFIRMED,
         }
         payload.update(overrides)
         return self.client.post(
@@ -3910,7 +4074,7 @@ class FiveStepChainTests(TestCase):
         # Clearing re-verifies against the index; replaying the stored values
         # keeps the amount steady so the guard does not fire on a figure that
         # is not what this test is about.
-        with patch("core.api.verify_publication", side_effect=_echo_verified):
+        with patch_api("verify_publication", side_effect=_echo_verified):
             r = self.client.post(
                 f"/api/claims/{claim.id}/clear",
                 data=json.dumps({"expected_amount": 105000.0}),
@@ -3975,19 +4139,20 @@ class FiveStepChainTests(TestCase):
         )
         self.assertIn(Role.FINANCE, told)
 
-    def test_the_claimant_is_told_where_their_ticket_actually_is(self):
-        """It said "with Finance" at a point where Finance could not pay it."""
-        title, body = api_module._faculty_status_copy(ClaimStatus.CLEARED)
-        self.assertIn("Principal", title + body)
-        self.assertNotIn("with Finance", body)
-
-        # Approved is not "with Finance" either: the director has it.
-        title, body = api_module._faculty_status_copy(ClaimStatus.PRINCIPAL_APPROVED)
-        self.assertIn("Director", title + body)
-        self.assertNotIn("with Finance", body)
-
-        title, body = api_module._faculty_status_copy(ClaimStatus.DIRECTOR_APPROVED)
-        self.assertIn("Finance", body)
+    def test_the_claimant_is_told_the_stage_and_never_the_desk(self):
+        """It once said "with Finance" where Finance could not pay, and then
+        named every desk correctly. The college has since decided a claimant is
+        not told whose desk their paper is on at all (core/test_chain_rules.py)."""
+        for status, stage in (
+            (ClaimStatus.CLEARED, "Under review"),
+            (ClaimStatus.PRINCIPAL_APPROVED, "Under review"),
+            (ClaimStatus.DIRECTOR_APPROVED, "Approved for payment"),
+            (ClaimStatus.PAID, "Paid"),
+        ):
+            title, body = api_module._faculty_status_copy(status)
+            self.assertEqual(title, stage, status)
+            for desk in ("Principal", "Director", "Finance", "research cell"):
+                self.assertNotIn(desk, title + body, status)
 
     def test_approved_is_still_not_payable_until_the_director_authorises(self):
         claim = self._cleared("CH-2")
@@ -4309,6 +4474,26 @@ class DuplicateSweepTests(TestCase):
         )
         call_command("find_duplicate_payments", verbosity=0)
         self.assertEqual(DuplicateFinding.objects.count(), 0)
+
+    def test_a_payment_here_and_the_same_one_in_the_erp_is_one_person_paid_twice(self):
+        """Paid in this app, and paid again per the ERP sheet under the same
+        staff id: the same person, not two co-authors."""
+        from django.core.management import call_command
+
+        self.a.staff_id = "SEC0042"
+        self.a.save()
+        self._paid(self.a, "A Paper Paid Twice", 74500, "FP-2026-000001", doi="10.1/x")
+        PriorPayment.objects.create(
+            faculty_name="PERSON A", employee_id="sec0042", paper_title="A Paper Paid Twice",
+            normalized_title=normalize_title("A Paper Paid Twice"), doi="10.1/x",
+            amount_paid=74500, claim_ref="ERP-77", raw_json="{}",
+        )
+        call_command("find_duplicate_payments", verbosity=0)
+        f = DuplicateFinding.objects.get(kind=DuplicateFinding.Kind.SAME_PERSON)
+        self.assertEqual((f.payment_count, f.extra_amount), (2, 74500))
+        self.assertFalse(
+            DuplicateFinding.objects.filter(kind=DuplicateFinding.Kind.CROSS_PERSON).exists()
+        )
 
     def test_a_finding_is_reviewed_and_the_decision_is_recorded(self):
         from django.core.management import call_command
@@ -4886,25 +5071,34 @@ class PermissionMatrixTests(TestCase):
 
         client = Client()
         client.force_login(self.users["SUPER_ADMIN"])
+        # MECH, not CSE: CSE already has its head (`users["HOD"]`), and a
+        # department has one.
         r = client.patch(
             f"/api/admin/users/{self.target.id}",
-            data=json.dumps({"role": "HOD", "department": "CSE"}),
+            data=json.dumps({"role": "HOD", "department": "MECH"}),
             content_type="application/json",
         )
         self.assertEqual(r.status_code, 200, r.content)
         self.target.refresh_from_db()
         self.assertEqual(self.target.role, Role.HOD)
 
-    def test_a_head_holds_no_capability_that_touches_money(self):
-        """The whole point of the role. Every door it can open must be one of
-        its own department screens."""
-        from core.permission_matrix import CAPABILITIES, HOD
+    def test_a_head_holds_no_capability_that_touches_anybody_else_s_money(self):
+        """The whole point of the role. Every door it can open is one of its
+        own department screens -- which carry no money -- or a door every
+        claimant has, which answers with their own papers only (a head files
+        their own since 2026-09-23)."""
+        from core.permission_matrix import CAPABILITIES, FACULTY, HOD
 
         for capability in CAPABILITIES:
             if HOD in capability.allowed:
+                department_screen = capability.path.startswith("/api/hod/")
+                claimant_door = (
+                    FACULTY in capability.allowed and capability.path.startswith("/api/claims")
+                )
                 self.assertTrue(
-                    capability.path.startswith("/api/hod/"),
-                    f"a head may reach {capability.path}, which is not a department screen",
+                    department_screen or claimant_door,
+                    f"a head may reach {capability.path}, which is neither a department "
+                    "screen nor a door every claimant has",
                 )
 
     def test_a_real_role_is_still_accepted(self):
@@ -5008,9 +5202,9 @@ class DataExplorerTests(TestCase):
 
     # ---- who gets in ----------------------------------------------------
 
-    def test_the_admin_and_the_principal_may_browse_and_nobody_else(self):
+    def test_only_the_super_admin_may_browse(self):
         for who, allowed in (
-            (self.admin, True), (self.cell, True), (self.head, True),
+            (self.admin, True), (self.cell, False), (self.head, False),
             (self.finance, False), (self.faculty, False),
         ):
             self.client.force_login(who)
@@ -5333,12 +5527,19 @@ class HeadOfDepartmentTests(TestCase):
             "/api/admin/payouts?limit=1",
             "/api/admin/data/Claim?limit=1",
             "/api/principal/queue",
-            "/api/claims?limit=1",
             f"/api/claims/{self.paid.id}",
             "/api/admin/duplicate-findings",
         ):
             r = self.client.get(path)
             self.assertIn(r.status_code, (403, 404), f"{path}: {r.status_code}")
+
+        # The claim list answers a head now -- they file their own papers --
+        # with their own papers only. This head has none; the colleague's paid
+        # claim is not among them.
+        r = self.client.get("/api/claims?limit=50")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["results"], [])
+        self.assertNotIn("90000", r.content.decode())
 
     def test_nobody_else_can_use_the_department_screens(self):
         """They answer for the signed-in person's own department, so another
@@ -5357,9 +5558,12 @@ class HeadOfDepartmentTests(TestCase):
         self.assertEqual(totals["publications"], 1)
         self.assertEqual(totals["q1"], 1)
         self.assertEqual(totals["first_author"], 1)
-        self.assertEqual(totals["faculty_in_department"], 1)
+        # The head is one of the department's faculty (2026-09-23): they file
+        # their own papers, which the totals count, so they are counted too.
+        self.assertEqual(totals["faculty_in_department"], 2)
         names = {p["name"] for p in body["people"]}
         self.assertIn("CSE Person", names)
+        self.assertIn("Head of CSE", names)
         self.assertNotIn("ECE Person", names)
 
     def test_a_head_with_no_department_is_told_rather_than_shown_everything(self):
@@ -5570,7 +5774,7 @@ class ScopusCandidateSearchTests(TestCase):
             return [entries[0]] if author_id else entries
 
         self.client.force_login(self.faculty)
-        with patch("core.api.search_candidates", side_effect=fake):
+        with patch_api("search_candidates", side_effect=fake):
             r = self.client.post(
                 "/api/lookup/candidates",
                 data=json.dumps({"title": "Mine", "scopus_author_url": self.faculty.scopus_author_url}),
@@ -5591,8 +5795,7 @@ class ScopusCandidateSearchTests(TestCase):
 
     def test_endpoint_reports_unknown_linkage_without_an_author_id(self):
         self.client.force_login(self._faculty_without_scopus())
-        with patch(
-            "core.api.search_candidates",
+        with patch_api("search_candidates",
             return_value=[parse_search_entry(self._entry("Mine", "2-s2.0-mine"))],
         ):
             r = self.client.post(
@@ -5706,7 +5909,7 @@ class AuthorProfileBrowseTests(TestCase):
             seen.update({"author_id": author_id, "sort": sort, "title": title})
             return [self._paper("Newest", "2-s2.0-1"), self._paper("Older", "2-s2.0-2")]
 
-        with patch("core.api.search_candidates", side_effect=fake):
+        with patch_api("search_candidates", side_effect=fake):
             r = self.client.post(
                 "/api/lookup/candidates", data=json.dumps({}), content_type="application/json"
             )
@@ -5723,8 +5926,7 @@ class AuthorProfileBrowseTests(TestCase):
             owner=self.faculty, paper_title="Newest", doi="10.1000/mine",
             status=ClaimStatus.SUBMITTED,
         )
-        with patch(
-            "core.api.search_candidates",
+        with patch_api("search_candidates",
             return_value=[
                 self._paper("Newest", "2-s2.0-1", "10.1000/mine"),
                 self._paper("Other", "2-s2.0-2", "10.1000/other"),
@@ -5742,8 +5944,7 @@ class AuthorProfileBrowseTests(TestCase):
             owner=self.faculty, paper_title="Newest", doi="10.1000/mine",
             status=ClaimStatus.REJECTED,
         )
-        with patch(
-            "core.api.search_candidates",
+        with patch_api("search_candidates",
             return_value=[self._paper("Newest", "2-s2.0-1", "10.1000/mine")],
         ):
             r = self.client.post(
@@ -5759,8 +5960,7 @@ class AuthorProfileBrowseTests(TestCase):
             owner=other, paper_title="Theirs", doi="10.1000/theirs",
             status=ClaimStatus.SUBMITTED,
         )
-        with patch(
-            "core.api.search_candidates",
+        with patch_api("search_candidates",
             return_value=[self._paper("Theirs", "2-s2.0-9", "10.1000/theirs")],
         ):
             r = self.client.post(
@@ -5794,9 +5994,19 @@ class ZeroPayoutExplanationTests(TestCase):
         self.assertIn("publication count only", body["note"])
 
     def test_a_paying_combination_carries_no_note(self):
-        body = self._calc(snip=1.5, quartile="Q1", total_authors=1, author_position=1)
+        body = self._calc(snip=1.5, quartile="Q1", total_authors=1, author_position=1,
+                          engineering_class="Engineering")
         self.assertGreater(body["remuneration"], 0)
         self.assertIsNone(body["note"])
+
+    def test_an_unclassified_journal_is_not_given_the_quartile_incentive(self):
+        """The college's rule: QFA only for a journal classified Engineering;
+        one whose subject area is not known yet is paid without it, and says why."""
+        classified = self._calc(snip=1.5, quartile="Q1", total_authors=1, author_position=1,
+                                engineering_class="Engineering")
+        pending = self._calc(snip=1.5, quartile="Q1", total_authors=1, author_position=1)
+        self.assertAlmostEqual(classified["remuneration"] - pending["remuneration"], 50000, places=2)
+        self.assertIn("not classified", pending["note"])
 
 
 PNG_BYTES = (
@@ -5994,7 +6204,7 @@ class ReportsAndBulkClearTests(TestCase):
         self.client.force_login(self.admin)
         body = self.client.get("/api/reports").json()
         t = body["totals"]
-        self.assertEqual(t["publications"], 3)  # the draft is excluded
+        self.assertEqual(t["publications"], 1)  # only the recognised (paid) one; drafts and submitted are not papers yet
         self.assertEqual(t["paid_claims"], 1)
         self.assertEqual(t["paid_amount"], 250.0)
         # Submitted-but-not-cleared is neither paid nor committed.
@@ -6004,7 +6214,9 @@ class ReportsAndBulkClearTests(TestCase):
         self.client.force_login(self.admin)
         body = self.client.get("/api/reports").json()
         depts = {r["key"]: r["count"] for r in body["by_department"]}
-        self.assertEqual(depts, {"CSE": 2, "ECE": 1})
+        # Papers are the record plus recognised claims; two SUBMITTED claims are
+        # not papers of the college yet (core/services/college_totals.py).
+        self.assertEqual(depts, {"ECE": 1})
         cats = {r["key"]: r["count"] for r in body["by_category"]}
         self.assertEqual(cats["I"], 2)
         self.assertTrue(
@@ -6015,7 +6227,7 @@ class ReportsAndBulkClearTests(TestCase):
     def test_filters_narrow_the_figures(self):
         self.client.force_login(self.admin)
         body = self.client.get("/api/reports?department=CSE").json()
-        self.assertEqual(body["totals"]["publications"], 2)
+        self.assertEqual(body["totals"]["publications"], 0)  # submitted, not yet recognised
         self.assertEqual(body["totals"]["paid_amount"], 0)
 
     def test_export_is_one_row_per_publication(self):
@@ -6126,7 +6338,10 @@ class FourRoleModelTests(TestCase):
         )
         self.assertTrue(rbac.can_view_reports(Role.PRINCIPAL))
         self.assertFalse(rbac.can_clear_claims(Role.PRINCIPAL))
-        self.assertFalse(rbac.can_issue_claims(Role.PRINCIPAL))
+        # Files their own papers, as an academic (the owner's rule on dual
+        # roles) -- which is not acting on anybody else's, and never at a
+        # desk on their own (`test_dual_roles`).
+        self.assertTrue(rbac.can_file_own_papers(Role.PRINCIPAL))
         self.assertFalse(rbac.can_approve_as_finance(Role.PRINCIPAL))
         self.client.force_login(principal)
         self.assertEqual(self.client.get("/api/reports/search").status_code, 200)
@@ -6454,7 +6669,7 @@ class PolicyUseCaseTests(TestCase):
             )
 
         c = Client()
-        with patch("core.api.verify_publication", side_effect=_echo_verified):
+        with patch_api("verify_publication", side_effect=_echo_verified):
             c.force_login(admin)
             r = c.post(
                 f"/api/claims/{claim.id}/clear",
@@ -6537,7 +6752,7 @@ class PolicyUseCaseTests(TestCase):
 
         c = Client()
         c.force_login(finance)
-        with patch("core.api.verify_publication", side_effect=AssertionError(
+        with patch_api("verify_publication", side_effect=AssertionError(
             "payment must not call Scopus"
         )):
             r = c.post(
@@ -7709,6 +7924,206 @@ class ProfileCorrectionTests(TestCase):
         self.assertEqual(self.fc.get("/api/admin/profile-requests").status_code, 403)
 
 
+class SelfServiceDetailsTests(TestCase):
+    """The few details that are nobody's business but the person's own.
+
+    Everything that decides who gets paid stays behind a request. What is left
+    -- a phone number -- is edited directly, because making somebody ask a
+    super admin to change their own phone number is the kind of process that
+    guarantees it is never kept up to date.
+    """
+
+    def setUp(self):
+        self.person = User.objects.create_user(
+            email="ss-person@test.edu", password="pass", name="SS Person",
+            role=Role.FACULTY, department="CSE", staff_id="STF-SS",
+        )
+        self.client = Client()
+        self.client.force_login(self.person)
+
+    def patch_self(self, body, client=None):
+        return (client or self.client).patch(
+            "/api/auth/profile/self",
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+    def test_a_person_can_set_their_own_phone(self):
+        r = self.patch_self({"phone": " +91 98400 12345 "})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["phone"], "+91 98400 12345")
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.phone, "+91 98400 12345")
+        self.assertEqual(self.client.get("/api/auth/me").json()["phone"], "+91 98400 12345")
+
+    def test_the_change_is_audited_without_the_number_itself(self):
+        self.patch_self({"phone": "044-2680 1234"})
+        log = AuditLog.objects.get(action="PROFILE_SELF_UPDATE", entity_id=self.person.id)
+        self.assertEqual(json.loads(log.detail_json)["fields"], ["phone"])
+        self.assertNotIn("2680", log.detail_json)
+
+    def test_saving_what_it_already_says_writes_no_audit_row(self):
+        self.patch_self({"phone": "9840012345"})
+        self.patch_self({"phone": "9840012345"})
+        self.assertEqual(AuditLog.objects.filter(action="PROFILE_SELF_UPDATE").count(), 1)
+
+    def test_a_phone_can_be_cleared(self):
+        self.patch_self({"phone": "9840012345"})
+        r = self.patch_self({"phone": ""})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertFalse(self.person.phone)
+
+    def test_something_that_is_not_a_phone_number_is_refused(self):
+        for bad in ("call me", "12345", "+91 98400 12345 12345 12345", "98400<script>"):
+            r = self.patch_self({"phone": bad})
+            self.assertEqual(r.status_code, 400, (bad, r.content))
+        self.person.refresh_from_db()
+        self.assertFalse(self.person.phone)
+
+    def test_identity_cannot_ride_along_with_a_phone_number(self):
+        r = self.patch_self({"phone": "9840012345", "staff_id": "STF-SELF", "role": "SUPER_ADMIN"})
+        self.assertIn(r.status_code, (400, 422), r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.staff_id, "STF-SS")
+        self.assertEqual(self.person.role, Role.FACULTY)
+        self.assertFalse(self.person.phone)
+
+    def test_the_identity_route_is_still_closed(self):
+        r = self.client.patch(
+            "/api/auth/profile",
+            data=json.dumps({"name": "Somebody Else"}),
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 403, r.content)
+
+    def test_it_needs_a_session(self):
+        self.assertEqual(self.patch_self({"phone": "9840012345"}, client=Client()).status_code, 401)
+
+
+class AccountChangeRequestTests(TestCase):
+    """Role, head of department, faculty type and quota: asked for, not typed.
+
+    These were admin-only with no way to ask. Being wrongly marked research
+    faculty zeroes papers, so a person needs a route to say so -- and the route
+    goes to a super admin, with the same checks the account editor applies,
+    because approving a role from a queue must not be a way round them.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="acr-admin@test.edu", password="pass", name="Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        self.cell = User.objects.create_user(
+            email="acr-cell@test.edu", password="pass", name="Cell",
+            role=Role.RESEARCH_CELL,
+        )
+        self.person = User.objects.create_user(
+            email="acr-fac@test.edu", password="pass", name="ACR Person",
+            role=Role.FACULTY, department="ECE",
+            faculty_type="RESEARCH", research_quota=4,
+        )
+        self.fc = Client()
+        self.fc.force_login(self.person)
+        self.ac = Client()
+        self.ac.force_login(self.admin)
+
+    def ask(self, field, proposed, client=None):
+        return (client or self.fc).post(
+            "/api/auth/profile/correction",
+            data=json.dumps({"field": field, "proposed": proposed, "note": "changed post"}),
+            content_type="application/json",
+        )
+
+    def decide(self, approve=True, note="checked", client=None):
+        rid = ProfileChangeRequest.objects.get(status="PENDING").id
+        return (client or self.ac).post(
+            f"/api/admin/profile-requests/{rid}",
+            data=json.dumps({"approve": approve, "note": note}),
+            content_type="application/json",
+        )
+
+    def test_a_role_change_is_listed_for_a_super_admin_and_applied_on_approval(self):
+        self.assertEqual(self.ask("role", "HOD").status_code, 200)
+        row = self.ac.get("/api/admin/profile-requests").json()["results"][0]
+        self.assertEqual((row["field"], row["label"]), ("role", "Role"))
+        self.assertEqual((row["current_value"], row["proposed_value"]), ("FACULTY", "HOD"))
+        self.assertTrue(row["identity"])
+        r = self.decide()
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.role, Role.HOD)
+
+    def test_a_role_nothing_recognises_cannot_be_asked_for(self):
+        self.assertEqual(self.ask("role", "EMPEROR").status_code, 400)
+        self.assertFalse(ProfileChangeRequest.objects.exists())
+
+    def test_a_role_request_goes_only_to_a_super_admin(self):
+        self.ask("role", "HOD")
+        told = set(
+            Notification.objects.filter(title__startswith="Profile correction")
+            .values_list("user__email", flat=True)
+        )
+        self.assertEqual(told, {self.admin.email})
+        cc = Client()
+        cc.force_login(self.cell)
+        self.assertEqual(self.decide(client=cc).status_code, 403)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.role, Role.FACULTY)
+
+    def test_approving_a_second_head_is_refused_and_the_request_stays_open(self):
+        User.objects.create_user(
+            email="acr-head@test.edu", password="pass", name="Head In Post",
+            role=Role.HOD, department="ECE",
+        )
+        self.ask("role", "HOD")
+        r = self.decide()
+        self.assertEqual(r.status_code, 409, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.role, Role.FACULTY)
+        self.assertEqual(ProfileChangeRequest.objects.get().status, "PENDING")
+
+    def test_a_head_moving_department_is_held_to_one_head_per_department(self):
+        """The account editor checks this on a department change; approving
+        the same change from the queue must not skip it."""
+        User.objects.create_user(
+            email="acr-head-cse@test.edu", password="pass", name="CSE Head",
+            role=Role.HOD, department="CSE",
+        )
+        self.person.role = Role.HOD
+        self.person.save()
+        self.assertEqual(self.ask("department", "CSE").status_code, 200)
+        r = self.decide()
+        self.assertEqual(r.status_code, 409, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.department, "ECE")
+        self.assertEqual(ProfileChangeRequest.objects.get().status, "PENDING")
+
+    def test_a_super_admin_cannot_approve_their_own_role(self):
+        self.ask("role", "FACULTY", client=self.ac)
+        r = self.decide()
+        self.assertEqual(r.status_code, 400, r.content)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.role, Role.SUPER_ADMIN)
+
+    def test_regular_faculty_on_approval_drops_the_quota(self):
+        self.assertEqual(self.ask("faculty_type", "REGULAR").status_code, 200)
+        self.assertEqual(self.decide().status_code, 200)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.faculty_type, "REGULAR")
+        self.assertIsNone(self.person.research_quota)
+
+    def test_a_faculty_type_must_be_regular_or_research(self):
+        self.assertEqual(self.ask("faculty_type", "VISITING").status_code, 400)
+
+    def test_the_person_sees_what_came_of_it(self):
+        self.ask("faculty_type", "REGULAR")
+        self.decide(approve=False, note="the post is a research post")
+        mine = self.fc.get("/api/auth/profile/corrections").json()["results"]
+        self.assertEqual((mine[0]["field"], mine[0]["status"]), ("faculty_type", "DECLINED"))
+
+
 class CollaborationGraphTests(TestCase):
     """Who has written with whom, inferred rather than entered.
 
@@ -8723,7 +9138,7 @@ class DirectorChainTests(TestCase):
             role=Role.FINANCE,
         )
         self.client = Client()
-        verify_patch = patch("core.api.verify_publication", side_effect=_echo_verified)
+        verify_patch = patch_api("verify_publication", side_effect=_echo_verified)
         verify_patch.start()
         self.addCleanup(verify_patch.stop)
 
@@ -8906,7 +9321,9 @@ class DirectorChainTests(TestCase):
         claim = self._claim(
             status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="D-6"
         )
-        self.client.force_login(self.director)
+        # The Director is forward-only now; the send-back is a super admin's
+        # rescue (core/test_chain_rules.py ForwardOnlyTests).
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/director-reject",
             data=json.dumps({"note": "Past the quarter's allocation"}),
@@ -8926,7 +9343,7 @@ class DirectorChainTests(TestCase):
         claim = self._claim(
             status=ClaimStatus.PRINCIPAL_APPROVED, remuneration=85000.0, ticket="D-7"
         )
-        self.client.force_login(self.director)
+        self.client.force_login(self.admin)
         r = self.client.post(
             f"/api/claims/{claim.id}/director-reject",
             data=json.dumps({"note": "no"}),
@@ -8987,11 +9404,14 @@ class DirectorChainTests(TestCase):
     # ---- what the claimant is told --------------------------------------
 
     def test_the_claimant_is_not_sent_to_finance_a_step_early(self):
+        # In the claimant's own words now, which name no desk
+        # (core/test_chain_rules.py): approved by the Principal is still under
+        # review; only the Director's authorisation is approval for payment.
         title, body = api_module._faculty_status_copy(ClaimStatus.PRINCIPAL_APPROVED)
-        self.assertIn("Director", title + body)
-        self.assertNotIn("Finance", title)
+        self.assertEqual(title, "Under review")
+        self.assertNotIn("payment", (title + body).lower())
         title, body = api_module._faculty_status_copy(ClaimStatus.DIRECTOR_APPROVED)
-        self.assertIn("Finance", title + body)
+        self.assertEqual(title, "Approved for payment")
 
 
 class ReportBuilderTests(TestCase):
@@ -9100,28 +9520,56 @@ class ProgrammeTests(TestCase):
 
         self.client.force_login(self.me)
         body = self.client.get("/api/programme/me").json()
-
         self.assertEqual(
             {a["key"] for a in body["areas"]}, {"Signal Processing", "Computer Science"}
         )
-        self.assertEqual([c["name"] for c in body["colleagues"]], ["Programme Other"])
+
+        # Who else is nearby is the college's picture, not "my research".
+        around = self.client.get("/api/programme/around").json()
+        self.assertEqual([c["name"] for c in around["colleagues"]], ["Programme Other"])
         # Matched on the shared area only -- their marine biology paper is not
         # what makes them a colleague.
-        self.assertEqual(body["colleagues"][0]["areas"], ["Computer Science"])
+        self.assertEqual(around["colleagues"][0]["areas"], ["Computer Science"])
+
+    def test_my_research_is_only_my_own_work(self):
+        """The owner's rule: "X's research" shows X's work and nobody else's."""
+        self._paper(self.me, "PG-6", "Computer Science")
+        self._paper(self.other, "PG-7", "Computer Science")
+
+        self.client.force_login(self.me)
+        body = self.client.get("/api/programme/me").json()
+        raw = json.dumps(body)
+        self.assertNotIn("Programme Other", raw)
+        self.assertNotIn("PG PG-7", raw)
+        self.assertNotIn("colleagues", body)
+        self.assertNotIn("live", body)
+        self.assertEqual([p["title"] for p in body["papers"]], ["PG PG-6"])
+        self.assertEqual(body["counts"]["papers"], 1)
+
+    def test_a_refused_paper_is_not_counted_as_their_work(self):
+        self._paper(self.me, "PG-8", "Computer Science")
+        refused = self._paper(self.me, "PG-9", "Marine Biology")
+        Claim.objects.filter(pk=refused.pk).update(status=ClaimStatus.REJECTED)
+
+        self.client.force_login(self.me)
+        body = self.client.get("/api/programme/me").json()
+        self.assertEqual(body["totals"]["my_papers"], 1)
+        self.assertEqual([a["key"] for a in body["areas"]], ["Computer Science"])
 
     def test_it_carries_no_money_at_all(self):
         """A claimant sees their own amounts and nobody else's.
 
-        This page is entirely about other people, so an amount anywhere in the
-        payload is a colleague's payout leaking through the back door.
+        The college half is entirely about other people, so an amount anywhere
+        in either payload is a colleague's payout leaking through the back door.
         """
         self._paper(self.me, "PG-4", "Computer Science")
         self._paper(self.other, "PG-5", "Computer Science")
 
         self.client.force_login(self.me)
-        raw = self.client.get("/api/programme/me").content.decode()
-        for word in ("remuneration", "payout", "amount"):
-            self.assertNotIn(word, raw, f"{word!r} must not appear in the programme payload")
+        for path in ("/api/programme/me", "/api/programme/around"):
+            raw = self.client.get(path).content.decode()
+            for word in ("remuneration", "payout", "amount", "50000"):
+                self.assertNotIn(word, raw, f"{word!r} must not appear in {path}")
 
     def test_somebody_with_no_papers_gets_an_empty_picture_not_an_error(self):
         self.client.force_login(self.me)
@@ -9129,8 +9577,10 @@ class ProgrammeTests(TestCase):
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertEqual(body["areas"], [])
-        self.assertEqual(body["colleagues"], [])
+        self.assertEqual(body["papers"], [])
         self.assertEqual(body["totals"]["my_papers"], 0)
+        around = self.client.get("/api/programme/around").json()
+        self.assertEqual(around["colleagues"], [])
 
 
 class HodTargetsTests(TestCase):
@@ -9162,7 +9612,7 @@ class HodTargetsTests(TestCase):
             owner=owner, status=ClaimStatus.PAID, ticket_number=ticket,
             paper_title=f"HT {ticket}", journal_title="A Journal",
             quartile=quartile, author_position=position, total_authors=2,
-            publication_year=year, remuneration=amount, issn="1111-0000", doi="10.1/x",
+            publication_year=year, remuneration=amount, issn="1111-0000", doi=f"10.1/{ticket}",
         )
 
     # ---- targets -------------------------------------------------------
@@ -9310,9 +9760,13 @@ class HodTargetsTests(TestCase):
         body = self.client.get("/api/hod/opportunities").json()
         groups = {g["key"]: g for g in body["groups"]}
 
-        # Somebody with nothing filed is named, not just counted.
-        self.assertEqual(groups["silent"]["count"], 1)
-        self.assertEqual(groups["silent"]["people"][0]["name"], "Quiet Physicist")
+        # Somebody with nothing filed is named, not just counted -- the head
+        # included, who is faculty too (2026-09-23) and has filed nothing here.
+        self.assertEqual(groups["silent"]["count"], 2)
+        self.assertEqual(
+            {p["name"] for p in groups["silent"]["people"]},
+            {"Quiet Physicist", "Head of Physics"},
+        )
         self.assertNotIn(quiet.id, [p["id"] for p in groups["no_q1"]["people"]])
 
         # Publishing but never in a Q1 journal.
@@ -10184,8 +10638,14 @@ class CalendarTests(TestCase):
         self.assertEqual(r.status_code, 400, r.content)
 
     def test_an_event_follows_the_same_visibility_rule_as_a_thread(self):
-        self._add(self.faculty, title="A CSE-only date", visibility="DEPARTMENT",
-                  department="CSE")
+        # Faculty add only private reminders now; a head tells the department.
+        head = User.objects.create_user(
+            email="cal-head@test.edu", password="pass", name="Cal Head",
+            role=Role.HOD, department="CSE",
+        )
+        r = self._add(head, title="A CSE-only date", visibility="DEPARTMENT",
+                      department="CSE")
+        self.assertEqual(r.status_code, 200, r.content)
         other = User.objects.create_user(
             email="cal-other@test.edu", password="pass", name="Other Dept",
             role=Role.FACULTY, department="MECH",
@@ -10218,341 +10678,6 @@ class CalendarTests(TestCase):
         event_id = self._add(self.office).json()["id"]
         self.client.force_login(self.faculty)
         self.assertEqual(self.client.delete(f"/api/calendar/{event_id}").status_code, 403)
-
-
-class ResearchQuotaTests(TestCase):
-    """Research faculty are paid only for what exceeds their quota.
-
-    They are already paid to do research, so the scheme rewards the surplus
-    rather than the expectation: papers up to the quota carry no remuneration
-    and only the ones beyond it are reimbursed.
-    """
-
-    def setUp(self):
-        FormulaConfig.objects.create(
-            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
-            snip_multiplier=55000, qf_q1=50000,
-        )
-        self.researcher = User.objects.create_user(
-            email="rq-res@test.edu", password="pass", name="Research Faculty",
-            role=Role.FACULTY, department="CSE",
-            faculty_type="RESEARCH", research_quota=2,
-        )
-        self.regular = User.objects.create_user(
-            email="rq-reg@test.edu", password="pass", name="Regular Faculty",
-            role=Role.FACULTY, department="CSE",
-        )
-
-    def _paper(self, owner, ticket, year=2026):
-        claim = Claim.objects.create(
-            owner=owner, status=ClaimStatus.SUBMITTED, ticket_number=ticket,
-            paper_title=f"Quota {ticket}", publication_year=year,
-            quartile="Q1", quartile_source="SCIMAGO", snip=1.0, snip_source="SCOPUS",
-            total_authors=1, author_position=1, indexing_level="Scopus",
-            publication_type="Journal", engineering_class="Engineering",
-        )
-        for n in ("14", "15"):
-            ClaimAttachment.objects.create(
-                claim=claim, kind=AttachmentKind.SEC_REFERENCE,
-                url=f"/media/claims/{'q' * 31}{n[-1]}.pdf", ref_number=n,
-            )
-        # Mirrors `_submit_claim`: the paper takes its slot in the year, then
-        # the amount is worked out. Pricing without assigning first was how the
-        # original bug hid — every paper computed as "paper 1" and paid nothing,
-        # and a test that skipped this step never saw it.
-        api_module._assign_quota_position(claim)
-        api_module._apply_calc(claim)
-        claim.save()
-        return claim
-
-    def _in_order(self, claims):
-        """Filing order, which is what `quota_position` records.
-
-        This used to sort on `(created_at, id)` — the very key the production
-        code was changed away from, because `auto_now_add` reads a clock
-        coarser than the loop and the id is a random uuid. So the test agreed
-        with the code only when the uuids happened to fall the right way, and
-        the full suite eventually dealt a run where they did not.
-        """
-        return sorted(claims, key=lambda c: (c.quota_position or 0, c.id))
-
-    def test_papers_inside_the_quota_pay_nothing_and_the_surplus_pays_in_full(self):
-        made = self._in_order([self._paper(self.researcher, f"RQ-{i}") for i in range(4)])
-        amounts = [c.remuneration for c in made]
-        self.assertEqual(amounts[:2], [0.0, 0.0], "the quota carries no remuneration")
-        self.assertTrue(all(a and a > 0 for a in amounts[2:]), f"the surplus is paid: {amounts}")
-
-    def test_the_ticket_still_shows_what_the_paper_was_worth(self):
-        """Zeroed, not unpriced. A paper that looks unpriceable reads as a bug."""
-        first = self._in_order([self._paper(self.researcher, f"RQ-W{i}") for i in range(2)])[0]
-        self.assertEqual(first.remuneration, 0.0)
-        self.assertTrue(first.quota_applied)
-        self.assertIn("quota", (first.quota_note or "").lower())
-        # The working the policy did is still on the ticket.
-        self.assertIsNotNone(first.base_amount)
-        self.assertIsNotNone(first.author_point)
-
-    def test_a_regular_faculty_member_is_untouched(self):
-        made = self._in_order([self._paper(self.regular, f"RG-{i}") for i in range(3)])
-        for claim in made:
-            self.assertFalse(claim.quota_applied)
-            self.assertTrue(claim.remuneration and claim.remuneration > 0)
-
-    def test_the_quota_is_counted_per_year(self):
-        """Last year's output does not spend this year's quota.
-
-        Three papers in 2025 already exceed a quota of two. If the years ran
-        together the first 2026 paper would be the fourth and be paid; because
-        they do not, it is the first of a fresh two and carries none.
-        """
-        self._in_order([self._paper(self.researcher, f"RY-{i}", year=2025) for i in range(3)])
-        fresh = self._paper(self.researcher, "RY-NEW", year=2026)
-        self.assertTrue(fresh.quota_applied, "a new year starts the quota again")
-        self.assertEqual(fresh.quota_position, 1)
-        self.assertIn("Paper 1 of a 2-paper", fresh.quota_note)
-
-    def test_research_faculty_with_no_quota_set_are_paid_normally(self):
-        self.researcher.research_quota = None
-        self.researcher.save()
-        claim = self._paper(self.researcher, "RQ-NONE")
-        self.assertFalse(claim.quota_applied)
-        self.assertTrue(claim.remuneration and claim.remuneration > 0)
-
-    def test_a_count_only_paper_does_not_spend_the_quota(self):
-        """It asks for no money, so it cannot use up the allowance for money."""
-        for i in range(3):
-            c = self._paper(self.researcher, f"RC-{i}")
-            c.claim_reason = ClaimReason.COUNT_ONLY
-            c.save()
-        after = self._paper(self.researcher, "RC-PAID")
-        self.assertFalse(after.quota_applied)
-
-    def test_the_order_is_total_so_two_papers_never_share_a_position(self):
-        """`auto_now_add` reads a clock coarser than a loop, so several claims
-        share a timestamp to the microsecond. On `created_at` alone every one
-        of them counts the same number before it -- and at the quota boundary
-        that decides whether a paper pays nothing or pays in full."""
-        made = [self._paper(self.researcher, f"RT-{i}") for i in range(5)]
-        inside = [c for c in made if c.quota_applied]
-        self.assertEqual(len(inside), 2, "exactly the quota falls inside it")
-        # And they are the first two filed, not whichever drew a low uuid.
-        self.assertEqual([c.ticket_number for c in inside], ["RT-0", "RT-1"])
-        self.assertEqual([c.quota_position for c in made], [1, 2, 3, 4, 5])
-
-
-class ResearchQuotaSlotTests(TestCase):
-    """Handing out, keeping and reading a research-quota slot.
-
-    The number itself is `ResearchQuotaTests` above. This is the column's
-    plumbing: that two submits landing together cannot lose one, that a paper
-    whose year is corrected takes a place in the new year rather than sitting
-    in it unnumbered, and what the stored number is allowed to mean.
-    """
-
-    def setUp(self):
-        FormulaConfig.objects.create(
-            author_point_json=json.dumps(DEFAULT_AUTHOR_POINTS), active=True,
-            snip_multiplier=55000, qf_q1=50000,
-        )
-        self.researcher = User.objects.create_user(
-            email="rqs-res@test.edu", password="pass", name="Research Faculty",
-            role=Role.FACULTY, department="CSE",
-            faculty_type="RESEARCH", research_quota=2,
-        )
-        self.cell = User.objects.create_user(
-            email="rqs-cell@test.edu", password="pass", name="Cell",
-            role=Role.RESEARCH_CELL,
-        )
-        self.client = Client()
-
-    def _paper(self, ticket, year=2026, **extra):
-        base = dict(
-            owner=self.researcher, status=ClaimStatus.SUBMITTED, ticket_number=ticket,
-            paper_title=f"Slot {ticket}", publication_year=year,
-            quartile="Q1", quartile_source="SCIMAGO", snip=1.0, snip_source="SCOPUS",
-            total_authors=1, author_position=1, indexing_level="Scopus",
-            publication_type="Journal", engineering_class="Engineering",
-        )
-        base.update(extra)
-        return Claim.objects.create(**base)
-
-    # ---- 1. two submits in the same instant ------------------------------
-
-    def test_a_slot_lost_to_a_concurrent_submit_is_taken_again(self):
-        """MAX + 1 is read in one statement and written in another, so two
-        submits for one author and year can be handed the same number. The
-        unique constraint now refuses the second write, which is the better of
-        the two failures and still a failure: the claimant got a 500 and their
-        submission did not happen. Retry under the bucket lock instead.
-
-        Simulated rather than threaded -- the suite runs on SQLite, where the
-        lock is a no-op and two real connections cannot interleave. What is
-        exercised is the thing the constraint actually does to this code path:
-        raise IntegrityError out of the save.
-        """
-        from django.db import IntegrityError
-
-        claim = self._paper("SLOT-RACE")
-        collided = {"once": False}
-        real_save = Claim.save
-
-        def save_that_loses_the_first_race(inner, *args, **kwargs):
-            if inner.pk == claim.pk and not collided["once"]:
-                collided["once"] = True
-                raise IntegrityError("uniq_claim_quota_slot_per_owner_year")
-            return real_save(inner, *args, **kwargs)
-
-        with patch.object(Claim, "save", save_that_loses_the_first_race):
-            api_module._assign_quota_position(claim)
-
-        self.assertTrue(collided["once"], "the collision was never reached")
-        claim.refresh_from_db()
-        self.assertEqual(claim.quota_position, 1, "the slot has to end up stored")
-
-    def test_the_position_is_written_not_left_on_the_instance(self):
-        """A number the constraint has not seen is a number nothing protects."""
-        claim = self._paper("SLOT-WRITE")
-        api_module._assign_quota_position(claim)
-        self.assertEqual(
-            Claim.objects.values_list("quota_position", flat=True).get(pk=claim.pk), 1
-        )
-
-    def test_a_second_paper_takes_the_next_slot(self):
-        first = self._paper("SLOT-A")
-        api_module._assign_quota_position(first)
-        second = self._paper("SLOT-B")
-        api_module._assign_quota_position(second)
-        self.assertEqual([first.quota_position, second.quota_position], [1, 2])
-
-    # ---- 2. a corrected year ---------------------------------------------
-
-    def test_correcting_the_year_moves_the_paper_into_the_new_year_s_sequence(self):
-        """`Claim.save` drops the slot when the year changes, because a slot
-        belongs to the year that issued it. Nothing then gave the paper one in
-        its new year: `_assign_quota_position` runs at submission and this
-        paper was submitted long ago, so it sat in 2025 unnumbered -- counting
-        against nobody's quota and spending none of it."""
-        existing = self._paper("SLOT-2025", year=2025)
-        api_module._assign_quota_position(existing)
-        moving = self._paper("SLOT-MOVED", year=2026)
-        api_module._assign_quota_position(moving)
-        self.assertEqual(moving.quota_position, 1)
-
-        self.client.force_login(self.cell)
-        r = self.client.patch(
-            f"/api/reports/pack/rows/{moving.id}",
-            data=json.dumps({
-                "field": "publication_year", "value": "2025",
-                "reason": "Published online in 2025, not 2026.",
-            }),
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 200, r.content)
-
-        moving.refresh_from_db()
-        self.assertEqual(moving.publication_year, 2025)
-        self.assertIsNotNone(
-            moving.quota_position, "a filed paper cannot sit in a year unnumbered"
-        )
-        self.assertEqual(moving.quota_position, 2, "behind the paper already in 2025")
-
-    def test_correcting_something_else_leaves_the_slot_alone(self):
-        claim = self._paper("SLOT-TITLE")
-        api_module._assign_quota_position(claim)
-        self.client.force_login(self.cell)
-        r = self.client.patch(
-            f"/api/reports/pack/rows/{claim.id}",
-            data=json.dumps({
-                "field": "paper_title", "value": "A Better Title",
-                "reason": "The publisher corrected the title.",
-            }),
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 200, r.content)
-        claim.refresh_from_db()
-        self.assertEqual(claim.quota_position, 1)
-
-    def test_a_correction_re_takes_a_slot_and_never_hands_out_a_first_one(self):
-        """Every paper filed before the quota column existed has no position,
-        which is all of them today. A year corrected on one of those must not
-        be the moment it starts spending somebody's allowance -- the slot is
-        handed out at filing, and this only replaces one the correction
-        dropped."""
-        legacy = self._paper("SLOT-LEGACY")
-        self.assertIsNone(legacy.quota_position)
-
-        self.client.force_login(self.cell)
-        r = self.client.patch(
-            f"/api/reports/pack/rows/{legacy.id}",
-            data=json.dumps({
-                "field": "publication_year", "value": "2025",
-                "reason": "Corrected against the publisher's page.",
-            }),
-            content_type="application/json",
-        )
-        self.assertEqual(r.status_code, 200, r.content)
-        legacy.refresh_from_db()
-        self.assertEqual(legacy.publication_year, 2025)
-        self.assertIsNone(
-            legacy.quota_position, "a correction is not a filing"
-        )
-
-    # ---- 3. what the stored number is allowed to mean ---------------------
-
-    def test_a_gap_protecting_a_paid_paper_is_read_as_it_stands(self):
-        """The one bucket where the stored position and the paper's rank in
-        its year disagree, and the reason `_quota_state` reads the number
-        rather than ranking.
-
-        `Claim._close_quota_gap` refuses to renumber a year when a paper that
-        would move down has already been paid, because moving it down moves it
-        from outside the quota to inside it and claws back money that has gone
-        out. Ranking in `_quota_state` would do exactly that, one layer later:
-        the paid paper would be counted as the year's second and zeroed.
-        """
-        first = self._paper("GAP-1")
-        api_module._assign_quota_position(first)
-        second = self._paper("GAP-2")
-        api_module._assign_quota_position(second)
-        third = self._paper("GAP-3", status=ClaimStatus.PAID)
-        api_module._assign_quota_position(third)
-        self.assertEqual(
-            [first.quota_position, second.quota_position, third.quota_position],
-            [1, 2, 3],
-        )
-        third.paid_at = timezone.now()
-        third.save(update_fields=["paid_at"])
-
-        # The middle paper leaves the year. Renumbering would pull the paid
-        # paper from 3 to 2, so the model leaves the gap open on purpose.
-        second.delete()
-        third.refresh_from_db()
-        self.assertEqual(third.quota_position, 3, "the gap is deliberate")
-
-        inside, why = api_module._quota_state(third)
-        self.assertFalse(
-            inside,
-            "ranking would call this the year's second paper and zero money "
-            "that has already been paid",
-        )
-        self.assertIn("beyond the 2-paper research quota", why)
-
-    def test_an_unbroken_sequence_reads_the_same_either_way(self):
-        """Which is the rest of the time, and why the rank query would buy
-        nothing: the sequence is kept hole-free everywhere else."""
-        made = [self._paper(f"RANK-{i}") for i in range(4)]
-        for claim in made:
-            api_module._assign_quota_position(claim)
-        for n, claim in enumerate(made, start=1):
-            rank = (
-                Claim.objects.filter(
-                    owner=self.researcher, publication_year=claim.publication_year,
-                    quota_position__lt=claim.quota_position,
-                ).count()
-                + 1
-            )
-            self.assertEqual(claim.quota_position, n)
-            self.assertEqual(rank, claim.quota_position)
 
 
 class SearchRouteTests(TestCase):
@@ -10658,7 +10783,7 @@ class SearchRouteTests(TestCase):
         from unittest.mock import ANY
 
         self.client.force_login(self.faculty)
-        with patch("core.api.run_search", return_value={"ok": True}) as ran:
+        with patch_api("run_search", return_value={"ok": True}) as ran:
             r = self.client.get(
                 "/api/search",
                 {"q": "graphene", "kinds": "venues, people", "limit": "3",
@@ -10676,23 +10801,29 @@ class SearchRouteTests(TestCase):
         from unittest.mock import ANY
 
         self.client.force_login(self.faculty)
-        with patch("core.api.run_search", return_value={"ok": True}) as ran:
+        with patch_api("run_search", return_value={"ok": True}) as ran:
             self.client.get("/api/search", {"q": "graphene", "kinds": ""})
         self.assertEqual(
-            ran.call_args.kwargs["kinds"], list(api_module.SEARCH_KINDS)
+            ran.call_args.kwargs["kinds"], list(__import__("core.services.search", fromlist=["KINDS"]).KINDS)
         )
 
 
 class StudentProjectTeamTests(TestCase):
-    """The team behind a student project claim."""
+    """The team behind a student project claim.
+
+    Written by the office. These used to sign in as a faculty member, because
+    anybody could create a team; under the final-year project scheme a team is
+    what a fixed payment is claimed against, so writing one is the office's
+    (see test_fyp_scheme.TeamWritesAreTheOfficesTests for the refusal).
+    """
 
     def setUp(self):
-        self.faculty = User.objects.create_user(
-            email="tm-fac@test.edu", password="pass", name="Team Faculty",
-            role=Role.FACULTY, department="CSE",
+        self.office = User.objects.create_user(
+            email="tm-office@test.edu", password="pass", name="Team Office",
+            role=Role.RESEARCH_CELL, department="CSE",
         )
         self.client = Client()
-        self.client.force_login(self.faculty)
+        self.client.force_login(self.office)
 
     def _make(self, **kw):
         payload = {
@@ -10928,6 +11059,7 @@ class WalkthroughTest(TestCase):
                  "ref_title": "SEC thermal imaging study"},
             ],
             "submit": True,
+            "confirmations": CONFIRMED,
             # Scopus has not indexed it yet and the reference tables in a test
             # database are empty, so auto-confirmation fails -- which is the
             # ordinary case for a recent paper. The claimant sends it anyway
@@ -11528,20 +11660,41 @@ class MoneyBlindnessSweepTests(TestCase):
         )
         # A head who owns a paid claim. Without this the sweep passes for the
         # wrong reason: `_claims_queryset` scopes a head to their own claims,
-        # they normally own none, and an unguarded endpoint returns an empty
-        # list that looks like a refusal.
+        # and an unguarded endpoint returns an empty list that looks like a
+        # refusal. A head files their own papers (2026-09-23) and sees their
+        # own amount on it; the sweep checks that is the only figure they get.
         self.paid = Claim.objects.create(
             owner=self.hod, paper_title="A Head's Own Paper", journal_title="J",
             status=ClaimStatus.PAID, remuneration=90000, publication_year=2025,
             ticket_number="FP-2025-000001",
         )
+        # And a colleague in the same department with a paid claim of their
+        # own, whose figure must reach the head by no route at all.
+        Claim.objects.create(
+            owner=self.faculty, paper_title="A Colleague's Paper", journal_title="J",
+            status=ClaimStatus.PAID, remuneration=61803.25, publication_year=2025,
+            ticket_number="FP-2025-000002",
+        )
         self.client = Client()
         self.client.force_login(self.hod)
 
-    def test_no_get_route_hands_a_head_a_rupee_figure(self):
+    def _money_outside_own_rows(self, node, where, found):
+        """Every money key that is not inside a row naming the head as owner."""
         from core.hod import MONEY_KEYS
 
-        checked, leaked = 0, []
+        if isinstance(node, dict):
+            if node.get("owner_id") == self.hod.id:
+                return  # their own claim: its figures are theirs to see
+            for key, value in node.items():
+                if key in MONEY_KEYS:
+                    found.append(f"{where} -> {key}")
+                self._money_outside_own_rows(value, where, found)
+        elif isinstance(node, list):
+            for item in node:
+                self._money_outside_own_rows(item, where, found)
+
+    def test_no_get_route_hands_a_head_a_rupee_figure_that_is_not_theirs(self):
+        checked, leaked, own_seen = 0, [], False
         for _prefix, router in api_module.api._routers:
             for path, view in router.path_operations.items():
                 methods = {m for op in view.operations for m in op.methods}
@@ -11556,11 +11709,17 @@ class MoneyBlindnessSweepTests(TestCase):
                     continue
                 checked += 1
                 raw = res.content.decode("utf-8", errors="ignore")
-                for key in MONEY_KEYS:
-                    if f'"{key}"' in raw:
-                        leaked.append(f"{url} -> {key}")
+                if "61803.25" in raw:
+                    leaked.append(f"{url} -> the colleague's figure")
+                own_seen = own_seen or "90000" in raw
+                try:
+                    body = res.json()
+                except ValueError:
+                    continue  # a file; its columns are checked by the export tests
+                self._money_outside_own_rows(body, url, leaked)
         self.assertGreater(checked, 10, "the sweep did not actually reach any route")
         self.assertEqual(leaked, [], f"money reached a head of department: {leaked}")
+        self.assertTrue(own_seen, "the head's own amount should reach them on /claims")
 
     def test_the_named_readers_refuse_a_head(self):
         """The ones the sweep cannot reach, because they need an argument."""
@@ -11818,7 +11977,7 @@ class LocalInferenceTests(TestCase):
     def test_the_provider_is_local_by_default(self):
         self.assertEqual(ai.provider_name(), "ollama")
 
-    @override_settings(AI_PROVIDER="openai")
+    @override_settings(AI_PROVIDER="olama")
     def test_an_unknown_provider_is_refused_rather_than_resolved(self):
         """A typo in a deployment variable must stop the feature, not quietly
         change where a faculty member's unpublished abstract is sent."""
@@ -12344,9 +12503,11 @@ class StudentProjectClaimTests(TestCase):
         self.assertEqual(Claim.objects.get(pk=res.json()["id"]).team_id, self.team.id)
 
     def test_an_unknown_code_is_refused_and_says_what_to_do(self):
+        # It used to say "Create the team first". A claimant can no longer
+        # create one: teams come from the office's roster import.
         res = self.create(team_code="NOPE-1")
         self.assertEqual(res.status_code, 404)
-        self.assertIn("Create the team first", res.json()["detail"])
+        self.assertIn("roster", res.json()["detail"])
 
     def test_the_ticket_carries_the_team_and_its_students(self):
         res = self.create(team_code="CSE-24-011")
@@ -12496,7 +12657,7 @@ class GoogleSignInTests(TestCase):
                     content_type="application/json",
                 )
         self.assertEqual(r.status_code, 403, r.content)
-        self.assertIn("no account", r.json()["detail"].lower())
+        self.assertIn("not linked", r.json()["detail"].lower())
         self.assertFalse(User.objects.filter(email="a-stranger@gmail.com").exists())
 
     def test_a_known_address_signs_into_the_account_that_already_has_it(self):
@@ -12538,8 +12699,8 @@ class GoogleSignInTests(TestCase):
                 )
         self.assertEqual(r.status_code, 403)
 
-    def test_a_hosted_domain_can_be_required(self):
-        claims = {"email": "gs-person@test.edu", "email_verified": True, "hd": "elsewhere.com"}
+    def test_an_address_nobody_here_has_is_refused_whatever_the_domain(self):
+        claims = {"email": "gs-other@elsewhere.com", "email_verified": True, "hd": "elsewhere.com"}
         with override_settings(
             GOOGLE_OAUTH_CLIENT_ID="test-client-id", GOOGLE_HOSTED_DOMAIN="saveetha.ac.in"
         ):
@@ -12550,7 +12711,216 @@ class GoogleSignInTests(TestCase):
                     content_type="application/json",
                 )
         self.assertEqual(r.status_code, 403)
-        self.assertIn("saveetha.ac.in", r.json()["detail"])
+        self.assertIn("email and password", r.json()["detail"])
+
+
+@override_settings(GOOGLE_OAUTH_CLIENT_ID="test-client-id", GOOGLE_HOSTED_DOMAIN="college.edu")
+class GoogleLinkTests(TestCase):
+    """Linking a Google account from a session that already signed in by password.
+
+    Every account has an email and a password; Google is something a person
+    adds afterwards. About fourteen staff have only a personal Gmail, so the
+    hosted-domain rule that guards sign-in by email does not apply to a link:
+    the person proved who they are with their password before choosing it.
+    """
+
+    SUB = "google-sub-1001"
+
+    def setUp(self):
+        self.person = User.objects.create_user(
+            email="gl-person@college.edu", password="pass", name="GL Person",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.other = User.objects.create_user(
+            email="gl-other@college.edu", password="pass", name="GL Other",
+            role=Role.FACULTY, department="CSE",
+        )
+        self.client = Client()
+        self.client.force_login(self.person)
+
+    def claims(self, **over):
+        return {
+            "sub": self.SUB,
+            "email": "gl.person.personal@gmail.com",
+            "email_verified": True,
+            **over,
+        }
+
+    def link(self, claims=None, client=None):
+        with patch(
+            "google.oauth2.id_token.verify_oauth2_token",
+            return_value=claims if claims is not None else self.claims(),
+        ):
+            return (client or self.client).post(
+                "/api/auth/google/link",
+                data=json.dumps({"credential": "x"}),
+                content_type="application/json",
+            )
+
+    def sign_in_with_google(self, claims):
+        with patch("google.oauth2.id_token.verify_oauth2_token", return_value=claims):
+            return Client().post(
+                "/api/auth/google",
+                data=json.dumps({"credential": "x"}),
+                content_type="application/json",
+            )
+
+    # ---- linking ------------------------------------------------------
+
+    def test_a_personal_gmail_can_be_linked_without_the_hosted_domain(self):
+        r = self.link()
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.google_sub, self.SUB)
+        self.assertEqual(self.person.google_email, "gl.person.personal@gmail.com")
+        self.assertIsNotNone(self.person.google_linked_at)
+        self.assertEqual(r.json()["google"]["email"], "gl.person.personal@gmail.com")
+        log = AuditLog.objects.get(action="GOOGLE_LINKED", entity_id=self.person.id)
+        self.assertEqual(json.loads(log.detail_json)["google_email"], "gl.person.personal@gmail.com")
+
+    def test_me_carries_the_link_or_says_there_is_none(self):
+        self.assertIsNone(self.client.get("/api/auth/me").json()["google"])
+        self.link()
+        google = self.client.get("/api/auth/me").json()["google"]
+        self.assertEqual(google["email"], "gl.person.personal@gmail.com")
+        self.assertTrue(google["linked_at"])
+
+    def test_a_google_account_linked_to_somebody_else_is_refused(self):
+        self.other.google_sub = self.SUB
+        self.other.google_email = "shared@gmail.com"
+        self.other.save()
+        r = self.link()
+        self.assertEqual(r.status_code, 409, r.content)
+        # Says it is taken, never by whom.
+        self.assertNotIn("gl-other", r.json()["detail"])
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
+        self.assertFalse(AuditLog.objects.filter(action="GOOGLE_LINKED").exists())
+
+    def test_somebody_else_s_college_address_cannot_be_linked(self):
+        """Otherwise that colleague pressing "Continue with Google" with their
+        own college account would land in this one."""
+        r = self.link(self.claims(email="gl-other@college.edu", hd="college.edu"))
+        self.assertEqual(r.status_code, 409, r.content)
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
+
+    def test_an_unverified_google_email_cannot_be_linked(self):
+        r = self.link(self.claims(email_verified=False))
+        self.assertEqual(r.status_code, 403, r.content)
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
+
+    def test_a_token_that_fails_to_verify_is_refused_without_saying_why(self):
+        with patch(
+            "google.oauth2.id_token.verify_oauth2_token",
+            side_effect=ValueError("Token has wrong audience other-app"),
+        ):
+            r = self.client.post(
+                "/api/auth/google/link",
+                data=json.dumps({"credential": "x"}),
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 401, r.content)
+        self.assertNotIn("audience", r.json()["detail"].lower())
+
+    def test_linking_needs_a_session(self):
+        r = self.link(client=Client())
+        self.assertEqual(r.status_code, 401, r.content)
+
+    def test_linking_is_refused_while_off(self):
+        with override_settings(GOOGLE_OAUTH_CLIENT_ID=""):
+            r = self.link()
+        self.assertEqual(r.status_code, 503, r.content)
+
+    # ---- unlinking ----------------------------------------------------
+
+    def test_unlinking_clears_the_link_and_is_audited(self):
+        self.link()
+        r = self.client.delete("/api/auth/google/link")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertIsNone(r.json()["google"])
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
+        self.assertIsNone(self.person.google_email)
+        self.assertIsNone(self.person.google_linked_at)
+        log = AuditLog.objects.get(action="GOOGLE_UNLINKED", entity_id=self.person.id)
+        self.assertEqual(json.loads(log.detail_json)["google_email"], "gl.person.personal@gmail.com")
+        self.assertIsNone(self.client.get("/api/auth/me").json()["google"])
+
+    def test_an_unlinked_google_account_no_longer_signs_in(self):
+        self.link()
+        self.client.delete("/api/auth/google/link")
+        r = self.sign_in_with_google(self.claims())
+        self.assertEqual(r.status_code, 403, r.content)
+
+    # ---- signing in ---------------------------------------------------
+
+    def test_a_linked_personal_gmail_signs_in_despite_the_hosted_domain(self):
+        self.link()
+        r = self.sign_in_with_google(self.claims())
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["email"], "gl-person@college.edu")
+        self.assertTrue(
+            AuditLog.objects.filter(action="LOGIN_GOOGLE", entity_id=self.person.id).exists()
+        )
+
+    def test_the_first_sign_in_by_address_links_the_account(self):
+        # The address on record is the link: the first Google sign-in with it
+        # records the Google account, so later sign-ins go by its id.
+        r = self.sign_in_with_google(
+            {"sub": "first-time", "email": "gl-person@college.edu", "email_verified": True}
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.google_sub, "first-time")
+        self.assertEqual(r.json()["google"]["email"], "gl-person@college.edu")
+
+    def test_a_personal_gmail_on_record_signs_in_and_links(self):
+        self.person.email = "gl.person@gmail.com"
+        self.person.save()
+        r = self.sign_in_with_google(
+            {"sub": "gmail-sub", "email": "gl.person@gmail.com", "email_verified": True}
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.person.refresh_from_db()
+        self.assertEqual(self.person.google_sub, "gmail-sub")
+
+    def test_an_unknown_gmail_is_told_to_sign_in_with_a_password_and_link(self):
+        r = self.sign_in_with_google(
+            {"sub": "nobody", "email": "someone-else@gmail.com", "email_verified": True}
+        )
+        self.assertEqual(r.status_code, 403, r.content)
+        self.assertIn("link google from your profile", r.json()["detail"].lower())
+
+    def test_the_college_account_still_signs_in_by_email(self):
+        r = self.sign_in_with_google({
+            "sub": "college-sub", "email": "gl-person@college.edu",
+            "email_verified": True, "hd": "college.edu",
+        })
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["email"], "gl-person@college.edu")
+
+    def test_a_linked_account_that_is_switched_off_cannot_sign_in(self):
+        self.link()
+        self.person.active = False
+        self.person.save()
+        r = self.sign_in_with_google(self.claims())
+        self.assertEqual(r.status_code, 403, r.content)
+
+    def test_a_viewer_impersonating_cannot_link_their_google_to_the_account(self):
+        admin = User.objects.create_user(
+            email="gl-admin@college.edu", password="pass", name="GL Admin",
+            role=Role.SUPER_ADMIN,
+        )
+        ac = Client()
+        ac.force_login(admin)
+        ac.post(f"/api/admin/impersonate/{self.person.id}", data="{}",
+                content_type="application/json")
+        r = self.link(client=ac)
+        self.assertEqual(r.status_code, 403, r.content)
+        self.person.refresh_from_db()
+        self.assertIsNone(self.person.google_sub)
 
 
 # --------------------------------------------------------------------------- #

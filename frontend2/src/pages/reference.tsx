@@ -6,9 +6,12 @@ import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
 import { Field, Input } from "@/ui/field"
+import { Answer } from "@/ui/answer"
+import { PageHeader } from "@/ui/page-header"
+import { Details, Section } from "@/ui/section"
 import { Callout, EmptyState, ErrorState, InlineError, SkeletonText } from "@/ui/state"
 import { Table } from "@/ui/table"
-import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
 /**
@@ -173,20 +176,15 @@ export function Reference() {
   }, [scimago.data, snip.data, claimed.data])
 
   return (
-    <div className="page space-y-8">
-      <header>
-        <PageTitle>Reference data</PageTitle>
-        <Sub className="mt-1">
-          The two journal tables every amount is worked out against. Both are
-          keyed by year, and a paper whose year is not loaded is priced against
-          a different year's ranking without anybody being told.
-        </Sub>
-      </header>
+    <div className="page space-y-10">
+      <PageHeader
+        title="Reference data"
+        sub="The journal quartiles and SNIP figures every amount is worked out against. Are the years your papers were published in loaded?"
+        spot="spot-imports"
+      />
 
       {loading ? (
-        <div className="panel space-y-3 p-5">
-          <SkeletonText lines={3} />
-        </div>
+        <SkeletonText lines={3} />
       ) : failed ? (
         <ErrorState
           title="Could not read the coverage"
@@ -236,110 +234,76 @@ function CoveragePanel({
       <EmptyState
         icon={TriangleAlert}
         title="Neither table has been loaded"
-        message={`All ${NUM(coverage.papers)} papers on record are being priced with no quartile and no SNIP — that is the flat conference rate, whatever the journal. Load a year with the steps below.`}
+        message={`All ${NUM(coverage.papers)} papers on record are being priced with no quartile and no SNIP, which is the flat conference rate whatever the journal. Load a year with the steps below.`}
       />
     )
   }
 
+  const gaps = coverage.rows.filter((r) => r.papers > 0 && (!r.scimago || !r.snip))
   return (
-    <section className="panel-lead space-y-5 p-5">
-      <div>
-        <SectionTitle>Years you are short of</SectionTitle>
-        <Sub className="mt-1">
-          Measured against the {NUM(coverage.papers)} papers on record, not
-          against the calendar.
-        </Sub>
-      </div>
-
+    <section aria-label="The answer" className="space-y-4">
+      <Answer
+        items={[
+          {
+            value: coverage.scimagoGap,
+            label: "Papers priced on another year's quartile",
+            to: "#scimago",
+            tone: "caution",
+            zero: "Every paper's year has a quartile",
+          },
+          {
+            value: coverage.snipGap,
+            label: "Papers priced on another year's SNIP",
+            to: "#snip",
+            tone: "caution",
+            zero: "Every paper's year has a SNIP",
+          },
+          { value: scimagoCount, label: "Quartile rows held", to: "#scimago" },
+          { value: snipCount, label: "SNIP rows held", to: "#snip" },
+        ]}
+      />
       {complete ? (
-        <p className="flex items-start gap-2 text-base">
-          <CircleCheck
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-positive"
-          />
-          <span>
-            Every publication year on record has a row in both tables. Nothing
-            here is falling back to another year's figures.
-          </span>
+        <p className="flex items-start gap-2 text-sm text-fg-muted">
+          <CircleCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-positive" />
+          Every publication year on record has a row in both tables. Nothing here is falling back to another
+          year's figures.
         </p>
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Gap
-            label="Priced on the wrong year's quartile"
-            count={coverage.scimagoGap}
-            missing={coverage.scimagoMissing}
-            explanation={
-              coverage.scimagoNewest === null
-                ? "No SCImago year is loaded at all, so none of these papers has a quartile."
-                : `Their years are not in the SCImago table, so each one falls back to the newest ranking that journal has — ${coverage.scimagoNewest} for most of them. A journal that moved between Q1 and Q2 in the meantime is being paid at the wrong rate.`
-            }
-          />
-          <Gap
-            label="Priced on the wrong year's SNIP"
-            count={coverage.snipGap}
-            missing={coverage.snipMissing}
-            explanation={
-              coverage.snipNewest === null
-                ? "No SNIP year is loaded at all, so these fall back to the flat rate."
-                : "The SNIP lookup does not filter by year at all — it takes whichever row matches the ISSN, from whatever years are loaded. Unlike the quartile, nothing on the claim records that it did."
-            }
-          />
-        </div>
+        <p className="text-sm text-fg-muted">
+          {coverage.scimagoWorst !== null && (
+            <>
+              Load <span className="font-medium text-fg">{coverage.scimagoWorst}</span> first: it holds the most
+              papers with no quartile.{" "}
+            </>
+          )}
+          A paper whose year is not loaded is priced on the newest ranking that journal has, and nothing on the
+          claim says so. A journal that moved between Q1 and Q2 in the meantime is paid at the wrong rate.
+        </p>
       )}
-
       {coverage.undated > 0 && (
         <Meta className="block">
-          {NUM(coverage.undated)}{" "}
-          {coverage.undated === 1 ? "paper carries" : "papers carry"} no
-          publication year, so no year of either table can be the right one for{" "}
-          {coverage.undated === 1 ? "it" : "them"}. Loading more data will not
-          fix that; the year has to go on the claim.
+          {NUM(coverage.undated)} {coverage.undated === 1 ? "paper carries" : "papers carry"} no publication year,
+          so no year of either table can be the right one for {coverage.undated === 1 ? "it" : "them"}. The year
+          has to go on the claim.
         </Meta>
       )}
 
-      <hr className="hairline" />
-
-      <CoverageTable coverage={coverage} />
-
-      <Meta className="block">
-        {NUM(scimagoCount)} SCImago rows and {NUM(snipCount)} SNIP rows in
-        total, across the years above.
-      </Meta>
+      <Section title="Which years are loaded" sub={`Measured against the ${NUM(coverage.papers)} papers on record, not against the calendar.`}>
+        <CoverageTable coverage={coverage} />
+        {gaps.length > 0 && (
+          <Details
+            label="the years with papers and no ranking"
+            count={gaps.length}
+            className="mt-3"
+          >
+            <p className="text-sm text-fg-muted">
+              Quartile missing for {listYears(coverage.scimagoMissing) || "no year"}. SNIP missing for{" "}
+              {listYears(coverage.snipMissing) || "no year"}.
+            </p>
+          </Details>
+        )}
+      </Section>
     </section>
-  )
-}
-
-function Gap({
-  label,
-  count,
-  missing,
-  explanation,
-}: {
-  label: string
-  count: number
-  missing: number[]
-  explanation: string
-}) {
-  const clean = count === 0
-  return (
-    <div className="space-y-1.5">
-      <ColumnLabel>{label}</ColumnLabel>
-      {/* Tone is never the only signal — the label above says what a high
-          number here means, in words. */}
-      <Figure tone={clean ? "positive" : "caution"} className="block">
-        {NUM(count)}
-      </Figure>
-      {clean ? (
-        <p className="text-sm text-fg-muted">Every year on record is loaded.</p>
-      ) : (
-        <p className="text-sm text-fg-muted">
-          <span className="font-medium text-fg">
-            Missing: {listYears(missing)}.
-          </span>{" "}
-          {explanation}
-        </p>
-      )}
-    </div>
   )
 }
 
@@ -431,7 +395,7 @@ function LastLoaded({ action, label }: { action: string; label: string }) {
       <InlineError
         message={
           error instanceof ApiError && error.status === 403
-            ? `This page cannot tell you when the ${label} table was last refreshed — reading the audit trail is not permitted for your role.`
+            ? `This page cannot tell you when the ${label} table was last refreshed. Reading the audit trail is not permitted for your role.`
             : `Could not read when the ${label} table was last refreshed. The table itself is fine; only this date is missing.`
         }
         onRetry={() => void refetch()}
@@ -484,7 +448,7 @@ function describeImport(row: AuditRow): string {
   if (typeof rows === "number") bits.push(`${NUM(rows)} rows`)
   if (year !== null) bits.push(`for ${year}`)
   if (row.action.endsWith("_SYNC")) bits.push("by automatic download")
-  return bits.length ? ` — ${bits.join(" ")}` : ""
+  return bits.length ? `, ${bits.join(" ")}` : ""
 }
 
 /* ------------------------------------------------------------------------ */
@@ -585,7 +549,7 @@ function ImportForm({
         // left exactly as they are. Nothing is deleted, and no other year is
         // touched. Saying "this wipes the year" would be a lie in the
         // frightening direction, which is still a lie.
-        description={`Every journal in this file replaces the ${parsed} figures already held for it, and any journal not yet held is added. Rows for ${parsed} that the file does not mention are left alone — nothing is deleted, and no other year is touched. Papers already paid keep the amount they were paid; anything still being checked is repriced against whatever is here afterwards.`}
+        description={`Every journal in this file replaces the ${parsed} figures already held for it, and any journal not yet held is added. Rows for ${parsed} that the file does not mention are left alone. Nothing is deleted, and no other year is touched. Papers already paid keep the amount they were paid; anything still being checked is repriced against whatever is here afterwards.`}
         confirmLabel={`Replace ${parsed}`}
         cancelLabel="Leave it as it is"
         onConfirm={run}
@@ -626,19 +590,31 @@ function ScimagoPanel({
   }
 
   return (
-    <section className="panel space-y-5 p-5">
-      <div>
-        <SectionTitle>SCImago — where a quartile comes from</SectionTitle>
-        <Sub className="mt-1">
-          Q1 to Q4 is a multiplier in the payout, and almost every quartile on
-          the system was read out of this table rather than typed by a person.
-          One row per journal per year.
-        </Sub>
-      </div>
+    <Section
+      id="scimago"
+      title="SCImago: where a quartile comes from"
+      sub="Q1 to Q4 is a multiplier in the incentive, and almost every quartile on the system was read out of this table. One row per journal per year."
+      className="space-y-5"
+    >
+      {/* The server cannot fetch this (SCImago answers a server with a
+          403 challenge page -- checked 2026-09-23), but a browser can: this
+          opens SCImago's own export for the year, which the browser saves,
+          ready for the upload below. */}
+      <p className="text-sm">
+        <a
+          className="font-medium text-accent underline underline-offset-2"
+          href={`https://www.scimagojr.com/journalrank.php?year=${suggested}&out=xls`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Download the {suggested} rankings from SCImago
+        </a>
+        <span className="text-fg-muted"> (opens in your browser and saves the file; upload it below with the same year).</span>
+      </p>
 
       <Steps
-        title="Getting the file"
-        note="There is no button here that fetches it for you, and there should not be: SCImago fronts its portal with a bot-protection challenge that only a browser can answer, so a server asking for the file gets the challenge page instead of the CSV. Every time, not intermittently."
+        title="how to get the file by hand"
+        note="There is no button here that fetches it for you, and there should not be: SCImago fronts its portal with a bot-protection challenge that only a browser can answer, so a server asking for the file gets the challenge page instead of the CSV, every time."
         steps={[
           <>
             Open{" "}
@@ -683,7 +659,7 @@ function ScimagoPanel({
       />
 
       <LastLoaded action="SCIMAGO" label="quartile" />
-    </section>
+    </Section>
   )
 }
 
@@ -714,19 +690,15 @@ function SnipPanel({
   }
 
   return (
-    <section className="panel space-y-5 p-5">
-      <div>
-        <SectionTitle>SNIP — citation impact</SectionTitle>
-        <Sub className="mt-1">
-          The figure the amount is multiplied by. A journal with no SNIP here
-          falls back to a flat conference or book-chapter rate, whatever the
-          journal actually is.
-        </Sub>
-      </div>
-
+    <Section
+      id="snip"
+      title="SNIP: citation impact"
+      sub="The figure the amount is multiplied by. A journal with no SNIP here falls back to a flat conference or book-chapter rate, whatever the journal actually is."
+      className="space-y-5"
+    >
       <Callout tone="caution" title="This lookup ignores the year">
         The quartile lookup at least records that it used another year's
-        ranking. The SNIP lookup does not filter by year at all — it takes
+        ranking. The SNIP lookup does not filter by year at all: it takes
         whichever row matches the ISSN, from whatever years are loaded.
         {held.length > 0 && (
           <>
@@ -741,7 +713,7 @@ function SnipPanel({
       </Callout>
 
       <Steps
-        title="Getting the file"
+        title="how to get the file"
         note="Where the college's existing file came from is not recorded anywhere in this system, so check with whoever loaded it before assuming a source. What the importer needs is fixed, and it is listed below."
         steps={[
           <>
@@ -786,7 +758,7 @@ function SnipPanel({
       </Meta>
 
       <LastLoaded action="SNIP_IMPORT" label="SNIP" />
-    </section>
+    </Section>
   )
 }
 
@@ -805,23 +777,24 @@ function Steps({
   steps: React.ReactNode[]
 }) {
   return (
-    <div className="space-y-3">
-      <ColumnLabel>{title}</ColumnLabel>
-      <p className="text-sm text-fg-muted">{note}</p>
-      <ol className="space-y-2.5">
-        {steps.map((step, i) => (
-          <li key={i} className="flex gap-3 text-base">
-            <span
-              aria-hidden="true"
-              className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-sm bg-hover text-xs font-medium tabular text-fg-muted"
-            >
-              {i + 1}
-            </span>
-            <span className="min-w-0 text-pretty">{step}</span>
-          </li>
-        ))}
-      </ol>
-    </div>
+    <Details label={title}>
+      <div className="space-y-3">
+        <p className="text-sm text-fg-muted">{note}</p>
+        <ol className="space-y-2.5">
+          {steps.map((step, i) => (
+            <li key={i} className="flex gap-3 text-base">
+              <span
+                aria-hidden="true"
+                className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-sm bg-hover text-xs font-medium tabular text-fg-muted"
+              >
+                {i + 1}
+              </span>
+              <span className="min-w-0 text-pretty">{step}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </Details>
   )
 }
 

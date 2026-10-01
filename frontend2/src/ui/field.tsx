@@ -28,8 +28,8 @@ import { cn } from "@/lib/cn"
 type Size = "md" | "lg"
 
 const CONTROL_SIZE: Record<Size, string> = {
-  md: "h-8 px-2.5 text-sm rounded-md",
-  lg: "h-10 px-3 text-base rounded-md",
+  md: "h-9 max-sm:h-10 px-3 text-sm rounded-control",
+  lg: "h-11 px-3.5 text-base rounded-control",
 }
 
 function mergeRefs<T>(...refs: Array<Ref<T> | undefined>) {
@@ -255,7 +255,7 @@ export const Textarea = forwardRef<
       }}
       style={{ maxHeight, ...style } as CSSProperties}
       className={cn(
-        "w-full resize-none rounded-md bg-surface px-3 py-2 text-base text-fg outline-none",
+        "w-full resize-none rounded-control bg-surface px-3 py-2 text-base text-fg outline-none",
         "shadow-well ring-1 ring-inset ring-field",
         "placeholder:text-fg-subtle",
         "focus-visible:ring-2 focus-visible:ring-accent",
@@ -484,11 +484,13 @@ export const NumberInput = forwardRef<
           // right-aligned unit sitting beside it — the field draws its own
           // affordance for "this is a number" via alignment instead.
           "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
-          unit && "pr-9",
           CONTROL_SIZE[size],
           className
         )}
+        // Room for the unit however long it is: a fixed pr-9 fitted "₹" and
+        // let a right-aligned "Waiting over" run underneath "days".
         {...props}
+        style={unit ? { paddingRight: `calc(${unit.length}ch + 1.25rem)`, ...props.style } : props.style}
       />
       {unit && (
         <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-fg-subtle">
@@ -525,6 +527,42 @@ export const DateInput = forwardRef<
         "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
         "aria-invalid:ring-critical",
         CONTROL_SIZE[size],
+        className
+      )}
+      {...props}
+    />
+  )
+})
+
+/* ------------------------------------------------------------------------ */
+/* Select                                                                    */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * A native `<select>` in the house colours, and nothing more.
+ *
+ * The browser's own list is the one that works with a keyboard, a screen
+ * reader and a phone's wheel picker, so this keeps it and styles only the
+ * closed control. Without it every page pastes its own height, radius and
+ * ring onto a raw `<select>` (nine variants at the last count), and a filter
+ * bar ends up with three different heights side by side. `sm` is the 32 px
+ * height for a filter bar; every size grows to 40 px on a phone so the tap
+ * target is big enough.
+ */
+export const Select = forwardRef<
+  HTMLSelectElement,
+  Omit<React.ComponentProps<"select">, "size"> & { size?: "sm" | Size }
+>(function Select({ className, size = "md", ...props }, ref) {
+  return (
+    <select
+      ref={ref}
+      className={cn(
+        "w-full min-w-0 bg-surface text-fg outline-none",
+        "shadow-well ring-1 ring-inset ring-field",
+        "focus-visible:ring-2 focus-visible:ring-accent",
+        "disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-50",
+        "aria-invalid:ring-critical",
+        size === "sm" ? "h-8 max-sm:h-10 px-2 text-sm rounded-control" : CONTROL_SIZE[size],
         className
       )}
       {...props}

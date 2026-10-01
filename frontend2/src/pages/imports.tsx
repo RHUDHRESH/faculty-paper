@@ -1,5 +1,6 @@
+import { paperTitle } from "@/lib/names"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import type { UseQueryResult } from "@tanstack/react-query"
 import { FileSpreadsheet, RefreshCw, Search, Upload, Users } from "lucide-react"
 
@@ -9,7 +10,7 @@ import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
-import { Checkbox, Field, Input, NumberInput } from "@/ui/field"
+import { Checkbox, Field, Input, NumberInput, Select } from "@/ui/field"
 import { Table, type Column } from "@/ui/table"
 import {
   Callout,
@@ -19,7 +20,11 @@ import {
   SkeletonRows,
   SkeletonText,
 } from "@/ui/state"
-import { ColumnLabel, Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { ColumnLabel, Meta } from "@/ui/text"
+import { Answer } from "@/ui/answer"
+import { PageHeader } from "@/ui/page-header"
+import { Details, Rows, Section } from "@/ui/section"
+import { ImportTask } from "./import-task"
 import { toast } from "@/ui/toast"
 
 /**
@@ -132,6 +137,8 @@ export function Imports() {
   const stats = useApi<ErpStats>(["admin", "erp-stats"], "/api/admin/erp-stats", {
     enabled: allowed,
   })
+  const [params] = useSearchParams()
+  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set(params.get("open")?.split(",").filter(Boolean)))
 
   if (!allowed) {
     return (
@@ -146,24 +153,200 @@ export function Imports() {
   }
 
   const refreshStats = () => void stats.refetch()
+  const s = stats.data
+  const isSuper = me?.role === "SUPER_ADMIN"
+
+  /** Each importer opens in place. `?open=workbook` opens one from a link. */
+  const toggle = (id: string) =>
+    setOpenIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const task = (id: string) => ({ id, open: openIds.has(id), onToggle: () => toggle(id) })
 
   return (
     <div className="page space-y-10">
-      <header>
-        <PageTitle>Imports</PageTitle>
-        <Sub className="mt-1">
-          The roster, the payment history and the ERP workbook — the three
-          files this system is built out of, and the queue that checks what
-          they brought in against Scopus.
-        </Sub>
-      </header>
+      <PageHeader
+        title="Imports"
+        sub="Bring in a file, see what it changes, then check that it landed."
+        spot="spot-imports"
+        action={
+          <Button kind="default" onClick={refreshStats} disabled={stats.isFetching}>
+            <RefreshCw aria-hidden className={cn(stats.isFetching && "animate-spin")} />
+            {stats.isFetching ? "Counting" : "Recount"}
+          </Button>
+        }
+      />
 
       <AlreadyLoaded query={stats} />
-      <FacultyMasterSection onImported={refreshStats} />
-      <PriorPaymentsSection stats={stats.data} onImported={refreshStats} />
-      <WorkbookSection onImported={refreshStats} />
-      <ProcessQueueSection />
+
+      <Section title="Load a file" sub="The three files this system is built from. Each one asks before it changes anything.">
+        <Rows>
+          <ImportTask
+            {...task("workbook")}
+            title="The ERP workbook"
+            purpose="The roster, the payment history, the journal tables and every paper, in one Excel file."
+            summary={s ? `${nf(s.claims)} papers, ${nf(s.claims_paid)} paid` : undefined}
+          >
+            <WorkbookSection stats={s} onImported={refreshStats} />
+          </ImportTask>
+          <ImportTask
+            {...task("prior")}
+            title="Payment history"
+            purpose="What the college paid before this system. It stops the same paper being paid twice."
+            summary={s ? `${nf(s.prior_payments)} payments held` : undefined}
+          >
+            <PriorPaymentsSection stats={s} onImported={refreshStats} />
+          </ImportTask>
+          <ImportTask
+            {...task("faculty-master")}
+            title="Faculty roster"
+            purpose="The list every name is matched against. A paper by someone not on it appears in nobody's figures."
+            summary={s ? `${nf(s.faculty_master)} on the roster` : undefined}
+          >
+            <FacultyMasterSection onImported={refreshStats} />
+          </ImportTask>
+        </Rows>
+      </Section>
+
+      <Section title="Fill in what the workbook does not carry">
+        <Rows>
+          <ImportTask
+            {...task("scopus-ids")}
+            title="Scopus author IDs"
+            purpose="Set every account's Scopus ID from the workbook. A different ID already on an account is listed, never overwritten."
+          >
+            <ScopusIdsSection />
+          </ImportTask>
+          <ImportTask
+            {...task("scopus-profiles")}
+            title="Scopus author profiles"
+            purpose="Publications, citations and h-index for each author, matched to an account by Scopus ID."
+          >
+            <ScopusProfilesSection />
+          </ImportTask>
+          <ImportTask
+            {...task("fyp-roster")}
+            title="Final-year project teams"
+            purpose="The department's project teams. Only a team's mentor can claim for it."
+          >
+            <FypRosterSection />
+          </ImportTask>
+          <ImportTask
+            {...task("college-site")}
+            title="Photos and bios from the college website"
+            purpose="Fills only what people left empty, once per person."
+          >
+            <CollegeSiteSection />
+          </ImportTask>
+        </Rows>
+      </Section>
+
+      <Section title="Check what came in">
+        <Rows>
+          <ImportTask
+            {...task("queue")}
+            title="Papers waiting to be checked against Scopus"
+            purpose="A check sets the quartile and SNIP, and so what the paper is worth."
+          >
+            <ProcessQueueSection />
+          </ImportTask>
+          {isSuper && (
+            <ImportTask
+              {...task("harvest")}
+              title="Refresh the publication record"
+              purpose="Pull the college's papers from OpenAlex, or sync each author's Scopus profile."
+            >
+              <PublicationHarvestSection />
+            </ImportTask>
+          )}
+        </Rows>
+      </Section>
+
+      {isSuper && (
+        <Details label="restore a full export (new installation only)">
+          <RestoreSection onImported={refreshStats} />
+        </Details>
+      )}
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Publication harvest (super admin)                                         */
+/* ------------------------------------------------------------------------ */
+
+type PublicationStatus = {
+  publications: number
+  authorships: number
+  college_authorships: number
+  college_matched: number
+  users_with_publications: number
+  unmatched_college_names: string[]
+  last_run: { action: string; at: string | null; detail: Record<string, unknown> } | null
+}
+
+/**
+ * The OpenAlex harvest and the Scopus author sync. Both run as queued jobs
+ * (production has no shell); this shows what the record holds and the last
+ * run, and refreshes itself while a job is fresh.
+ */
+function PublicationHarvestSection() {
+  const [queuedAt, setQueuedAt] = useState<number | null>(null)
+  const status = useApi<PublicationStatus>(["admin", "publications", "status"], "/api/admin/publications/status", {
+    refetchInterval: queuedAt && Date.now() - queuedAt < 10 * 60_000 ? 15_000 : false,
+  })
+  const harvest = useApiMutation<Record<string, never>, { job_id?: string }>("/api/admin/publications/harvest", {
+    invalidates: [["admin", "publications", "status"]],
+  })
+  const scopus = useApiMutation<Record<string, never>, { job_id?: string }>("/api/admin/publications/scopus-sync", {
+    invalidates: [["admin", "publications", "status"]],
+  })
+
+  async function queue(which: "harvest" | "scopus") {
+    try {
+      const res = await (which === "harvest" ? harvest : scopus).mutateAsync({})
+      setQueuedAt(Date.now())
+      toast.ok(`Queued${res.job_id ? `. Job ${String(res.job_id).slice(0, 8)}` : ""}. It runs in the background.`)
+    } catch (err) {
+      toast.fail(err)
+    }
+  }
+
+  const s = status.data
+  return (
+    <section className="space-y-4">
+      <p className="text-sm text-fg-muted">Both run in the background. The status below updates when they finish.</p>
+      <div className="flex flex-wrap gap-2">
+        <Button kind="default" disabled={harvest.isPending} onClick={() => void queue("harvest")}>
+          <RefreshCw /> {harvest.isPending ? "Queuing…" : "Refresh from OpenAlex"}
+        </Button>
+        <Button kind="default" disabled={scopus.isPending} onClick={() => void queue("scopus")}>
+          <RefreshCw /> {scopus.isPending ? "Queuing…" : "Sync Scopus"}
+        </Button>
+      </div>
+      {status.isLoading ? (
+        <SkeletonText lines={2} />
+      ) : status.error ? (
+        <InlineError message={messageOf(status.error)} />
+      ) : s ? (
+        <div role="status" className="space-y-1 text-sm">
+          <p>
+            {nf(s.publications)} papers · {nf(s.college_matched)} of {nf(s.college_authorships)} college
+            authorships matched to a person · {nf(s.users_with_publications)} people with papers.
+          </p>
+          <Meta className="block">
+            {s.last_run
+              ? `Last run: ${s.last_run.action.replace(/_/g, " ").toLowerCase()}${
+                  s.last_run.at ? ` · ${new Date(s.last_run.at).toLocaleString("en-IN")}` : ""
+                }`
+              : "Never run from here."}
+          </Meta>
+        </div>
+      ) : null}
+    </section>
   )
 }
 
@@ -174,8 +357,8 @@ export function Imports() {
 const STAT_ROWS: { key: keyof ErpStats; label: string; about: string }[] = [
   { key: "faculty_master", label: "Faculty master", about: "Rows off the roster" },
   { key: "users", label: "Accounts", about: "People who can sign in" },
-  { key: "claims", label: "Papers", about: "Tickets of every status" },
-  { key: "claims_paid", label: "Paid", about: "Tickets settled" },
+  { key: "claims", label: "Papers", about: "Claims of every status" },
+  { key: "claims_paid", label: "Paid", about: "Claims settled" },
   { key: "prior_payments", label: "Prior payments", about: "History, pre-system" },
   { key: "paid_ledger", label: "Ledger rows", about: "What has gone out" },
   { key: "scimago", label: "SCImago", about: "Journals with a quartile" },
@@ -183,88 +366,67 @@ const STAT_ROWS: { key: keyof ErpStats; label: string; about: string }[] = [
 ]
 
 /**
- * The state of the database before anybody changes it.
- *
- * The one region on this page carrying an answer, because every question
- * below it ("do I need to load the roster again?") is answered by a number
- * here. Without it the page would be four upload boxes with no way to tell
- * whether the last upload worked.
+ * The answer to "did my import land?": four figures, then the last import in
+ * words, then every count one step away. Read before you upload anything.
  */
 function AlreadyLoaded({ query }: { query: UseQueryResult<ErpStats, ApiError> }) {
-  const { data, isLoading, error, refetch, isFetching } = query
+  const { data, isLoading, error, refetch } = query
+  const origins = useApi<{ events: { at: string | null; title: string; detail: string; by: string | null }[] }>(
+    ["audit", "origins"],
+    "/api/admin/audit/origins"
+  )
+  const last = origins.data?.events.find((e) => e.at && !/flag/i.test(e.title))
+
+  if (isLoading) return <SkeletonText lines={3} />
+  if (error)
+    return (
+      <ErrorState
+        title="Could not count what is loaded"
+        message="The counts did not come back, so this page cannot say whether an earlier import worked. Nothing has been changed. Try again."
+        onRetry={() => void refetch()}
+      />
+    )
+  if (!data) return null
 
   return (
-    <section className="space-y-3" aria-labelledby="already-loaded">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <SectionTitle>
-            <span id="already-loaded">What is already loaded</span>
-          </SectionTitle>
-          <Sub className="mt-1">
-            Read this before you upload anything. It is the only place that
-            says whether an import landed.
-          </Sub>
-        </div>
-        <Button
-          kind="quiet"
-          size="sm"
-          onClick={() => void refetch()}
-          disabled={isFetching}
-        >
-          <RefreshCw />
-          {isFetching ? "Counting…" : "Recount"}
-        </Button>
-      </div>
-
-      {isLoading ? (
-        <div className="panel p-5">
-          <SkeletonText lines={4} />
-        </div>
-      ) : error ? (
-        <ErrorState
-          title="Could not count what is loaded"
-          message="The counts did not come back, so nothing on this page can tell you whether an earlier import worked. Nothing has been changed."
-          onRetry={() => void refetch()}
-        />
-      ) : data ? (
-        <div className="panel-lead p-5 sm:p-6">
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
-            {STAT_ROWS.map((s) => (
-              <div key={s.key}>
-                <dt>
-                  <ColumnLabel>{s.label}</ColumnLabel>
-                </dt>
-                <dd className="mt-1">
-                  <Figure
-                    className="text-xl sm:text-2xl"
-                    tone={data[s.key] === 0 ? "caution" : "neutral"}
-                  >
-                    {nf(data[s.key])}
-                  </Figure>
-                  <Meta className="mt-0.5 block">
-                    {data[s.key] === 0 ? `None — ${s.about.toLowerCase()}` : s.about}
-                  </Meta>
-                </dd>
-              </div>
-            ))}
-          </dl>
-
-          <hr className="hairline my-5" />
-
-          <Meta className="block">
-            These are counts and nothing else — <code>/api/admin/erp-stats</code>{" "}
-            returns no timestamps, so this screen cannot honestly tell you when
-            each import last ran. The{" "}
-            <Link to="/audit" className="underline underline-offset-2">
-              audit log
-            </Link>{" "}
-            does: every import writes a row there
-            (<code>FACULTY_MASTER_IMPORT</code>,{" "}
-            <code>PRIOR_PAYMENT_IMPORT</code>, <code>ERP_XLSX_IMPORT</code>)
-            with who ran it and when.
-          </Meta>
-        </div>
-      ) : null}
+    <section aria-label="What is loaded" className="space-y-3">
+      <Answer
+        items={[
+          { value: data.faculty_master, label: "People on the roster", to: "?open=faculty-master", zero: "The roster is empty" },
+          { value: data.claims, label: "Papers claimed", to: "/papers", zero: "No papers loaded yet" },
+          { value: data.claims_paid, label: "Paid", to: "/archive", zero: "Nothing is marked paid" },
+          { value: data.prior_payments, label: "Earlier payments held", to: "/ledger", zero: "No payment history loaded" },
+        ]}
+      />
+      <p className="text-sm text-fg-muted">
+        {last?.at ? (
+          <>
+            Last import: {last.title.toLowerCase()}, {new Date(last.at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+            {last.by ? ` by ${last.by}` : ""}.{" "}
+          </>
+        ) : null}
+        <Link to="/audit?q=IMPORT" className="underline underline-offset-2">
+          Every import in the audit log
+        </Link>
+        {" and "}
+        <Link to="/jobs" className="underline underline-offset-2">
+          jobs still running
+        </Link>
+        .
+      </p>
+      <Details label="every count" count={STAT_ROWS.length}>
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+          {STAT_ROWS.map((s) => (
+            <div key={s.key}>
+              <dt className="text-sm text-fg-muted">{s.label}</dt>
+              <dd>
+                <span className="figure tabular text-xl">{nf(data[s.key])}</span>
+                <Meta className="block">{data[s.key] === 0 ? `None yet. ${s.about}` : s.about}</Meta>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </Details>
     </section>
   )
 }
@@ -342,6 +504,26 @@ function WhyDisabled({ reason }: { reason: string | null }) {
   return <Meta className="block">{reason}</Meta>
 }
 
+/** How many data rows a CSV holds (lines less the heading), so a confirmation can say it. */
+function useCsvRows(file: File | null): number | null {
+  const [rows, setRows] = useState<number | null>(null)
+  useEffect(() => {
+    let live = true
+    setRows(null)
+    if (!file) return
+    void file
+      .text()
+      .then((t) => {
+        if (live) setRows(Math.max(0, t.split(/\r?\n/).filter((l) => l.trim() !== "").length - 1))
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [file])
+  return rows
+}
+
 function messageOf(err: unknown): string {
   if (err instanceof Error) return err.message
   return "The server did not answer."
@@ -367,6 +549,7 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const fileRows = useCsvRows(file)
 
   const departments = useMemo(() => {
     const set = new Set<string>()
@@ -441,18 +624,7 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
   const reason = busy ? "Importing." : !file ? "Choose a CSV first." : null
 
   return (
-    <section className="space-y-4" aria-labelledby="faculty-master">
-      <div>
-        <SectionTitle>
-          <span id="faculty-master">Faculty master</span>
-        </SectionTitle>
-        <Sub className="mt-1">
-          The roster the whole system matches names against. A paper filed by
-          somebody who is not in here has no department, and so appears in
-          nobody's figures.
-        </Sub>
-      </div>
-
+    <section className="space-y-4">
       {list.isLoading ? (
         <SkeletonText lines={2} />
       ) : list.error ? (
@@ -469,27 +641,24 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
       )}
 
       <Callout tone="caution" title="This one replaces rows it already has">
-        Every row is matched on its staff id. A staff id already in the table
-        is <strong>overwritten in every column</strong> — department,
-        biometric id, Scopus id, designation, email and phone — with whatever
-        the file says, including nothing at all. A partial export blanks the
-        columns it leaves out. Rows whose staff id is new are added.
+        Every row is matched on its staff ID. A staff ID already in the table is{" "}
+        <strong>overwritten in every column</strong> (department, biometric ID, Scopus ID,
+        designation, email and phone) with whatever the file says, including nothing at all. A
+        partial export blanks the columns it leaves out. Rows whose staff ID is new are added.
       </Callout>
 
-      <Callout tone="info" title="Which columns are read">
-        <strong>Required:</strong> <code>staff_id</code> / <code>Staff ID</code>{" "}
-        / <code>Staff_ID</code>, and <code>name</code> / <code>Name</code> /{" "}
-        <code>Faculty Name</code> — a row missing either is skipped in
-        silence.
-        <br />
-        <strong>Also read:</strong> <code>department</code> /{" "}
-        <code>Department</code>, <code>biometric_id</code> /{" "}
-        <code>Biometric ID</code>, <code>scopus_author_id</code> /{" "}
-        <code>Scopus Author ID</code>, <code>designation</code> /{" "}
-        <code>Designation</code>, <code>email</code> / <code>Email</code>,{" "}
-        <code>phone</code> / <code>Phone</code>. Every other column in the file
-        is kept verbatim on the row but is never read back.
-      </Callout>
+      <Details label="which columns are read">
+        <p className="text-sm text-fg-muted">
+          <strong>Required:</strong> <code>staff_id</code> / <code>Staff ID</code> /{" "}
+          <code>Staff_ID</code>, and <code>name</code> / <code>Name</code> /{" "}
+          <code>Faculty Name</code>. A row missing either is skipped without a message.
+          <br />
+          <strong>Also read:</strong> <code>department</code>, <code>biometric_id</code> /{" "}
+          <code>Biometric ID</code>, <code>scopus_author_id</code> / <code>Scopus Author ID</code>,{" "}
+          <code>designation</code>, <code>email</code>, <code>phone</code>. Every other column is kept
+          on the row but never read back.
+        </p>
+      </Details>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
         <Field label="Roster CSV" hint="A comma-separated export, not the ERP workbook.">
@@ -515,9 +684,7 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
         onOpenChange={setConfirming}
         danger
         title="Replace the rows this file matches?"
-        description={`Every row in ${
-          file?.name || "the file"
-        } whose staff id is already held will have all of its columns replaced by what the file says — including columns the file leaves out, which are set to nothing. Faculty not named in the file are untouched. There is no undo.`}
+        description={`${file?.name || "The file"} has ${fileRows == null ? "some" : nf(fileRows)} rows. The roster holds ${nf(rows.length)} now. Every row whose staff ID is already held will have all of its columns replaced by what the file says, including columns the file leaves out, which are set to nothing. People not named in the file are untouched. There is no undo.`}
         confirmLabel="Replace and import"
         onConfirm={() => run()}
       />
@@ -657,6 +824,160 @@ function FacultyLookup() {
  * is worth saying but is not the kind of thing that needs a confirmation
  * dialog in front of it.
  */
+/* ------------------------------------------------------------------------ */
+/* The college website                                                       */
+/* ------------------------------------------------------------------------ */
+
+export type CollegeSiteReport = {
+  scraped: number
+  matched: number
+  unmatched_count: number
+  photos: number
+  bios: number
+  designations: number
+  interests: number
+  departments: number
+  unmatched: { name: string; department: string }[]
+  conflicts: { name: string; department: string; reason: string }[]
+  dry_run: boolean
+}
+
+/**
+ * Photos, bios and designations off the college's public website, from a zip
+ * of the scrape folder. Fills only what people left empty, once per person.
+ */
+function CollegeSiteSection() {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [report, setReport] = useState<CollegeSiteReport | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+
+  async function run(dryRun: boolean) {
+    if (!file) return
+    setBusy(true)
+    setFailure(null)
+    try {
+      const body = new FormData()
+      body.append("file", file)
+      body.append("dry_run", dryRun ? "true" : "false")
+      const res = await api<CollegeSiteReport>("/api/admin/college-site/import", {
+        method: "POST",
+        body,
+      } as unknown as Parameters<typeof api>[1])
+      setReport(res)
+      if (!dryRun) {
+        toast.ok(`${nf(res.matched)} people matched; ${nf(res.photos)} photos added.`)
+        setFile(null)
+      }
+    } catch (err) {
+      setFailure(messageOf(err))
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const reason = busy ? "Importing." : !file ? "Choose the zip first." : null
+
+  return (
+    <section className="space-y-4">
+      <p className="text-sm text-fg-muted">
+        Faculty photos, qualifications and designations, and department descriptions, taken from the
+        college's public website. Upload the zip of the scrape folder. A photo, bio or designation
+        somebody set is never replaced, and each is filled for a person once, so a photo somebody
+        removes stays removed when this is run again. Matching is by email, then Scopus author ID,
+        then an unambiguous name in the same department.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field label="Scrape zip" hint="faculty.json, departments.json, photos/ and images/.">
+          <FileInput accept=".zip,application/zip" file={file} onPick={setFile} disabled={busy} />
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <Button kind="default" disabled={reason !== null} onClick={() => void run(true)}>
+            Preview
+          </Button>
+          <Button kind="primary" disabled={reason !== null} onClick={() => void run(false)}>
+            <Upload />
+            {busy ? "Importing…" : "Import"}
+          </Button>
+        </div>
+      </div>
+      <WhyDisabled reason={reason} />
+      {failure ? (
+        <InlineError message={failure} />
+      ) : report ? (
+        <ImportResult>
+          <p>
+            {report.dry_run ? "Preview — nothing saved. " : ""}
+            {nf(report.scraped)} on the website, {nf(report.matched)} matched to accounts,{" "}
+            {nf(report.unmatched_count)} unmatched. Filled {nf(report.photos)} photos,{" "}
+            {nf(report.bios)} bios, {nf(report.designations)} designations,{" "}
+            {nf(report.interests)} research-interest sets; {nf(report.departments)} departments
+            updated.
+          </p>
+          {report.conflicts.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer">{nf(report.conflicts.length)} left alone</summary>
+              <ul className="mt-1 list-disc pl-5">
+                {report.conflicts.slice(0, 50).map((c, i) => (
+                  <li key={i}>
+                    {c.name} ({c.department}): {c.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {report.unmatched.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer">{nf(report.unmatched_count)} not matched</summary>
+              <ul className="mt-1 list-disc pl-5">
+                {report.unmatched.slice(0, 50).map((c, i) => (
+                  <li key={i}>
+                    {c.name} ({c.department})
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </ImportResult>
+      ) : null}
+      <RecleanBios />
+    </section>
+  )
+}
+
+/** Strip PDF table leftovers from bios the import filled — never ones a person wrote. */
+function RecleanBios() {
+  const [result, setResult] = useState<{ checked: number; changed: number } | null>(null)
+  const run = useApiMutation<Record<string, never>, { checked: number; changed: number }>(
+    "/api/admin/college-site/reclean-bios"
+  )
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+      <Button
+        kind="quiet"
+        disabled={run.isPending}
+        onClick={async () => {
+          try {
+            const r = await run.mutateAsync({})
+            setResult(r)
+            toast.ok(`${nf(r.changed)} imported bios cleaned`)
+          } catch (err) {
+            toast.fail(err)
+          }
+        }}
+      >
+        {run.isPending ? "Cleaning…" : "Re-clean imported bios"}
+      </Button>
+      <Meta>
+        {result
+          ? `${nf(result.changed)} of ${nf(result.checked)} imported bios changed.`
+          : "Removes leftover table text such as “Completion, Full, Time/Part”. Bios people wrote are left alone."}
+      </Meta>
+    </div>
+  )
+}
+
 function PriorPaymentsSection({
   stats,
   onImported,
@@ -668,6 +989,8 @@ function PriorPaymentsSection({
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const fileRows = useCsvRows(file)
 
   async function run() {
     if (!file) return
@@ -701,64 +1024,51 @@ function PriorPaymentsSection({
   const reason = busy ? "Importing." : !file ? "Choose a CSV first." : null
 
   return (
-    <section className="space-y-4" aria-labelledby="prior">
-      <div>
-        <SectionTitle>
-          <span id="prior">Prior payment history</span>
-        </SectionTitle>
-        <Sub className="mt-1">
-          What the college paid before this system. Every row here blocks a
-          future claim for the same paper as a duplicate, which is the whole
-          point of loading it.
-        </Sub>
-      </div>
-
-      {stats ? (
-        <p className="text-sm">
-          <span className="text-lg font-medium tabular">{nf(stats.prior_payments)}</span>{" "}
-          prior payments held.
-        </p>
-      ) : null}
-
+    <section className="space-y-4">
       <Callout tone="info" title="This one adds, it never replaces">
-        Every row in the file becomes a new record under a fresh batch.
-        Nothing already held is matched, changed or removed — so importing
-        the same file twice leaves two copies of that history, and papers
-        matching it will be flagged as duplicates twice over. Check the count
-        above before and after.
+        Every row in the file becomes a new record under a fresh batch. Nothing already held is
+        matched, changed or removed, so importing the same file twice leaves two copies of that
+        history, and papers matching it are flagged as duplicates twice over.{" "}
+        {stats ? `${nf(stats.prior_payments)} payments are held now.` : ""} A bad amount stops the whole
+        file: nothing is half-loaded, and the error names the line.
       </Callout>
 
-      <Callout tone="info" title="Which columns are read">
-        <strong>Title</strong> from <code>paper_title</code>,{" "}
-        <code>title</code> or <code>Paper Title</code>;{" "}
-        <strong>DOI</strong> from <code>doi</code> or <code>DOI</code>;{" "}
-        <strong>amount</strong> from <code>amount</code> only;{" "}
-        <strong>who</strong> from <code>faculty_name</code> or{" "}
-        <code>name</code>, plus <code>employee_id</code>; and the journal from{" "}
-        <code>issn</code> and <code>journal</code>. Note the amount column has
-        no alternative spelling — a file whose amount is under{" "}
-        <code>Amount</code> or <code>amount_paid</code> imports as history
-        with no money on it, and nothing says so.
-      </Callout>
-
-      <Callout tone="caution" title="A bad amount stops the whole file">
-        Amounts are read with commas stripped. If any one of them is not a
-        number the import is rolled back entirely and the server names the
-        line — nothing is half-loaded.
-      </Callout>
+      <Details label="which columns are read">
+        <p className="text-sm text-fg-muted">
+          <strong>Title</strong> from <code>paper_title</code>, <code>title</code> or{" "}
+          <code>Paper Title</code>; <strong>DOI</strong> from <code>doi</code> or <code>DOI</code>;{" "}
+          <strong>amount</strong> from <code>amount</code> only; <strong>who</strong> from{" "}
+          <code>faculty_name</code> or <code>name</code>, plus <code>employee_id</code>; and the
+          journal from <code>issn</code> and <code>journal</code>. The amount column has no other
+          spelling: a file whose amount is under <code>Amount</code> or <code>amount_paid</code>{" "}
+          imports as history with no money on it, and nothing says so. Amounts are read with commas
+          removed.
+        </p>
+      </Details>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
         <Field label="History CSV" hint="One row per payment already made.">
           <FileInput accept=".csv,text/csv" file={file} onPick={setFile} disabled={busy} />
         </Field>
         <div className="space-y-1.5">
-          <Button kind="default" disabled={reason !== null} onClick={() => void run()}>
+          <Button kind="default" disabled={reason !== null} onClick={() => setConfirming(true)}>
             <Upload />
             {busy ? "Importing…" : "Add to the history"}
           </Button>
           <WhyDisabled reason={reason} />
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Add these payments to the history?"
+        description={`${file?.name || "The file"} has ${fileRows == null ? "some" : nf(fileRows)} rows. ${
+          stats ? `The history holds ${nf(stats.prior_payments)} payments now, and will hold ${fileRows == null ? "more" : nf(stats.prior_payments + fileRows)}. ` : ""
+        }Nothing already held is changed. Adding the same file twice doubles it.`}
+        confirmLabel="Add to the history"
+        onConfirm={() => run()}
+      />
 
       {failure ? (
         <InlineError message={failure} />
@@ -770,7 +1080,7 @@ function PriorPaymentsSection({
 }
 
 /* ------------------------------------------------------------------------ */
-/* 4. The ERP workbook                                                       */
+/* 4. The ERP workbook                                                     */
 /* ------------------------------------------------------------------------ */
 
 type WorkbookOptions = {
@@ -812,7 +1122,7 @@ const MAX_BYTES = 40 * 1024 * 1024
  * It runs on the job queue rather than in the request, because the import is
  * 754 lines of workbook and used to be raced against the gunicorn timeout.
  */
-function WorkbookSection({ onImported }: { onImported: () => void }) {
+function WorkbookSection({ stats, onImported }: { stats: ErpStats | undefined; onImported: () => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [opts, setOpts] = useState<WorkbookOptions>(DEFAULT_OPTIONS)
   const [busy, setBusy] = useState(false)
@@ -862,11 +1172,11 @@ function WorkbookSection({ onImported }: { onImported: () => void }) {
         )
       if (opts.sjr)
         out.push(
-          `SJR_Data → SCImago. Every SCImago row for ${opts.year} is DELETED first, then reloaded from the sheet.`
+          `SJR_Data → SCImago. Every SCImago row for ${opts.year} is deleted first, then reloaded from the sheet.`
         )
       if (opts.snip)
         out.push(
-          `SNIP_2025 → SNIP. Every SNIP row for ${opts.year} is DELETED first, then reloaded from the sheet.`
+          `SNIP_2025 → SNIP. Every SNIP row for ${opts.year} is deleted first, then reloaded from the sheet.`
         )
     }
     if (opts.claims)
@@ -903,7 +1213,7 @@ function WorkbookSection({ onImported }: { onImported: () => void }) {
       )
       setJobId(res.job_id)
       setFile(null)
-      toast.ok("Workbook accepted. It runs in the background — watch the job below.")
+      toast.ok("Workbook accepted. It runs in the background. Watch the job below.")
     } catch (err) {
       toast.fail(err)
     } finally {
@@ -912,26 +1222,13 @@ function WorkbookSection({ onImported }: { onImported: () => void }) {
   }
 
   return (
-    <section className="space-y-4" aria-labelledby="workbook">
-      <div>
-        <SectionTitle>
-          <span id="workbook">The ERP workbook</span>
-        </SectionTitle>
-        <Sub className="mt-1">
-          <code>Publication_Processing_ERP.xlsx</code> — the roster, the
-          accounts history, the journal tables and every paper, in one file.
-          It is the way a whole year gets loaded at once.
-        </Sub>
-      </div>
-
+    <section className="space-y-4">
       <Callout tone="critical" title="This overwrites records that are already here">
-        The workbook is not an addition to the database, it is a statement
-        about what the database should say. The roster is replaced row for
-        row, papers already filed are overwritten by any cell the sheet
-        fills, and if the two journal sheets are switched on the entire
-        SCImago and SNIP tables <strong>for the chosen year are deleted</strong>{" "}
-        before being rebuilt. Both of those are off by default here for the
-        same reason they are off by default on the server.
+        <code>Publication_Processing_ERP.xlsx</code> is a statement about what the database should
+        say, not an addition to it. The roster is replaced row for row, papers already filed are
+        overwritten by any cell the sheet fills, and if the two journal sheets are switched on the
+        entire SCImago and SNIP tables <strong>for the chosen year are deleted</strong> before
+        being rebuilt. Both are off by default here, as they are on the server.
       </Callout>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -1044,7 +1341,13 @@ function WorkbookSection({ onImported }: { onImported: () => void }) {
             ? `Delete the ${opts.year} journal tables and rebuild them?`
             : "Overwrite what the workbook covers?"
         }
-        description={`${effects.join(" ")}${
+        description={`${file ? `${file.name}, ${(file.size / 1024 / 1024).toFixed(1)} MB, dataset year ${opts.year}. ` : ""}${
+          stats
+            ? `The database holds ${nf(stats.faculty_master)} roster rows, ${nf(stats.claims)} papers (${nf(stats.claims_paid)} paid), ${nf(stats.prior_payments)} earlier payments${
+                wipesReference ? `, ${nf(stats.scimago)} SCImago rows and ${nf(stats.snip)} SNIP rows` : ""
+              } now. `
+            : ""
+        }${effects.join(" ")}${
           wipesReference
             ? ` Deleting a year of journal data re-prices every paper not yet paid, because a journal missing from those tables is worth a flat rate. There is no undo.`
             : " There is no undo."
@@ -1179,7 +1482,7 @@ function ProcessQueueSection() {
       className: "max-w-[22rem]",
       cell: (c) => (
         <span className="block">
-          <span className="block truncate text-sm">{c.paper_title || "Untitled"}</span>
+          <span className="block truncate text-sm">{paperTitle(c.paper_title)}</span>
           <Meta className="block truncate">
             {[c.ticket_number, c.owner_name, c.owner_department]
               .filter(Boolean)
@@ -1224,23 +1527,11 @@ function ProcessQueueSection() {
   ]
 
   return (
-    <section className="space-y-4" aria-labelledby="queue">
-      <div>
-        <SectionTitle>
-          <span id="queue">The verification queue</span>
-        </SectionTitle>
-        <Sub className="mt-1">
-          Papers whose indexing has not been confirmed. Queueing one sends it
-          to Scopus, which is where its quartile and SNIP — and therefore what
-          it is worth — come from.
-        </Sub>
-      </div>
-
-      <Callout tone="caution" title="Verifying rewrites what a paper is worth">
-        A check pulls the paper's indexing, quartile and SNIP from Scopus and
-        recalculates the amount from them, replacing what is on the ticket
-        now. A paper that has already been paid is refused outright by the
-        server, so ticking one only puts a line in the failures list.
+    <section className="space-y-4">
+      <Callout tone="caution" title="Checking a paper rewrites what it is worth">
+        A check pulls the paper's indexing, quartile and SNIP from Scopus and recalculates the
+        amount from them, replacing what is on the claim now. A paper that has already been paid is
+        refused by the server, so ticking one only puts a line in the failures list.
       </Callout>
 
       <div className="well flex flex-wrap items-end gap-3 p-3">
@@ -1249,20 +1540,13 @@ function ProcessQueueSection() {
           hint="Whatever you pick, papers already marked Indexed are left out — that is what this queue is."
           className="min-w-0 flex-1 sm:max-w-md"
         >
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className={cn(
-              "h-8 w-full rounded-md bg-surface px-2.5 text-sm text-fg outline-none",
-              "ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent"
-            )}
-          >
+          <Select size="sm" value={status} onChange={(e) => setStatus(e.target.value)}>
             {STATUS_FILTERS.map((f) => (
               <option key={f.value || "default"} value={f.value}>
                 {f.label}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Button
           kind="quiet"
@@ -1326,7 +1610,7 @@ function ProcessQueueSection() {
           title="Nothing waiting to be checked"
           message={
             status
-              ? "No paper at that status is still unconfirmed. Try another status, or the default, which covers drafts and submitted tickets."
+              ? "No paper at that status is still unconfirmed. Try another status, or the default, which covers drafts and submitted claims."
               : "Every draft and submitted paper has had its indexing confirmed. This is the queue being empty, not the request failing."
           }
         />
@@ -1442,7 +1726,7 @@ function jobTitle(job: Job | undefined, what: string): string {
     case "queued":
       return "Waiting for a worker"
     case "running_or_unknown":
-      return "Running, probably"
+      return "In progress, probably"
     default:
       return `Asking about ${what}`
   }
@@ -1508,4 +1792,595 @@ function formatElapsed(seconds: number): string {
   const s = seconds % 60
   if (m < 60) return `${m}m ${String(s).padStart(2, "0")}s`
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`
+}
+
+/* ------------------------------------------------------------------------ */
+/* Restore a full export into a fresh installation                          */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Moving the college onto a new host with no shell: upload the dumpdata
+ * export once, as the first super admin. The server refuses it as soon as the
+ * installation holds any claim, so it cannot overwrite live data.
+ */
+function RestoreSection({ onImported }: { onImported: () => void }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [confirm, setConfirm] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [jobId, setJobId] = useState<string | null>(null)
+
+  async function start() {
+    if (!file) return
+    setBusy(true)
+    try {
+      const body = new FormData()
+      body.append("file", file)
+      body.append("confirm", confirm)
+      const res = await api<{ job_id: string }>("/api/admin/restore", {
+        method: "POST",
+        body,
+      } as unknown as Parameters<typeof api>[1])
+      setJobId(res.job_id)
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="space-y-4">
+      <p className="text-sm text-fg-muted">
+        For a new installation only. It loads everything from a previous one (accounts, claims,
+        payments, reference data) and is refused once any claim exists here.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Export file (.json or .json.gz)</span>
+          <input
+            type="file"
+            accept=".json,.gz,application/json,application/gzip"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            aria-label="Export file"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="mb-1 block font-medium">Type RESTORE to confirm</span>
+          <input
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className="h-9 rounded-md bg-surface px-2 ring-1 ring-inset ring-field"
+            aria-label="Type RESTORE to confirm"
+          />
+        </label>
+        <Button kind="primary" disabled={!file || confirm.trim().toUpperCase() !== "RESTORE" || busy} onClick={() => void start()}>
+          {busy ? "Uploading…" : "Restore"}
+        </Button>
+      </div>
+      {jobId && <JobProgress jobId={jobId} what="Restore" onSettled={onImported} />}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Final-year project teams                                                  */
+/* ------------------------------------------------------------------------ */
+
+/** A team whose roster "Faculty ID" matched no account's staff id. */
+type UnmatchedMentor = {
+  code: string
+  faculty_id: string | null
+  mentor_name: string | null
+  department: string | null
+}
+
+/** `fyp_teams_summary`. */
+type FypSummary = {
+  teams: number
+  imported: number
+  academic_years: string[]
+  last_imported_at: string | null
+  claimed: number
+  mentors_unmatched: UnmatchedMentor[]
+}
+
+/** `import_roster`, as `/api/admin/fyp-teams/import` returns it. */
+type FypImport = {
+  sheet: string
+  academic_year: string | null
+  teams: number
+  created: number
+  updated: number
+  unchanged: number
+  mentors_unmatched: UnmatchedMentor[]
+  skipped: string[]
+}
+
+/** Upload one workbook to one importer, through `api()` so CSRF comes with it. */
+function uploadWorkbook<T>(path: string, file: File): Promise<T> {
+  const body = new FormData()
+  body.append("file", file)
+  // `api()`'s options type has no `body` — every other call it makes is
+  // JSON — so this widens it the way the other upload sections here do.
+  return api<T>(path, { method: "POST", body } as unknown as Parameters<typeof api>[1])
+}
+
+/**
+ * The final-year project roster: one team per row of the department's
+ * workbook, and the mentor who alone may claim the scheme's fixed amount for
+ * it.
+ *
+ * Not behind a confirmation, unlike the faculty master: a team is found again
+ * by its Team ID and changes only where the row says something different, so
+ * loading a corrected copy twice changes nothing the second time. What stays
+ * on the page is the list of teams whose mentor matched no account — those
+ * teams are loaded, and nobody can claim for them until an account carries
+ * that Faculty ID as its staff id.
+ */
+function FypRosterSection() {
+  const summary = useApi<FypSummary>(["admin", "fyp-teams"], "/api/admin/fyp-teams")
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<FypImport | null>(null)
+
+  async function run() {
+    if (!file) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await uploadWorkbook<FypImport>("/api/admin/fyp-teams/import", file)
+      setResult(res)
+      toast.ok(`${nf(res.teams)} teams read from the roster.`)
+      setFile(null)
+      void summary.refetch()
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const unmatched = summary.data?.mentors_unmatched ?? []
+  const columns: Column<UnmatchedMentor>[] = [
+    { key: "code", header: "Team", cell: (m) => m.code },
+    { key: "fid", header: "Faculty ID", cell: (m) => m.faculty_id || "—" },
+    {
+      key: "name",
+      header: "Mentor, as the roster names them",
+      className: "max-w-[16rem]",
+      cell: (m) => <span className="block truncate">{m.mentor_name || "—"}</span>,
+    },
+    { key: "dept", header: "Department", cell: (m) => m.department || "—" },
+  ]
+  const reason = busy ? "Importing." : !file ? "Choose the roster workbook first." : null
+
+  return (
+    <section className="space-y-4">
+
+      {summary.isLoading ? (
+        <SkeletonText lines={2} />
+      ) : summary.error ? (
+        <InlineError
+          message="Could not read the roster. The importer below still works, but you will not see the result of it here."
+          onRetry={() => void summary.refetch()}
+        />
+      ) : summary.data ? (
+        <p className="text-sm tabular">
+          {nf(summary.data.teams)} teams loaded
+          {summary.data.academic_years.length
+            ? ` (${summary.data.academic_years.join(", ")})`
+            : ""}
+          . {nf(summary.data.claimed)} claimed so far.
+        </p>
+      ) : null}
+
+      <Details label="which columns are read">
+        <p className="text-sm text-fg-muted">
+          The first sheet with a <code>Team ID</code> column, its header row found wherever it is:{" "}
+          <code>Department</code>, <code>Team ID</code>, <code>Name</code> (the mentor),{" "}
+          <code>Faculty ID</code>, <code>Reg No - 1</code> to <code>Reg No - 4</code> with{" "}
+          <code>Name - 1</code> to <code>Name - 4</code>, and <code>Project Title</code>. The academic
+          year is read off the sheet name (<code>25-26</code> is 2025-26). A row with no Team ID is
+          skipped and said so. A second copy of the file changes nothing.
+        </p>
+      </Details>
+
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field label="Roster workbook" hint="The .xlsx the department sends, not a CSV export of it.">
+          <FileInput
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            file={file}
+            onPick={setFile}
+            disabled={busy}
+          />
+        </Field>
+        <div className="space-y-1.5">
+          <Button kind="default" disabled={reason !== null} onClick={() => void run()}>
+            <FileSpreadsheet />
+            {busy ? "Importing…" : "Import the teams"}
+          </Button>
+          <WhyDisabled reason={reason} />
+        </div>
+      </div>
+
+      {result ? (
+        <ImportResult>
+          {nf(result.teams)} teams read from sheet {result.sheet}
+          {result.academic_year ? ` (${result.academic_year})` : ""}: {nf(result.created)} created,{" "}
+          {nf(result.updated)} updated, {nf(result.unchanged)} unchanged.{" "}
+          {result.mentors_unmatched.length
+            ? `${nf(result.mentors_unmatched.length)} mentors matched no account — listed below.`
+            : "Every mentor matched an account."}
+          {result.skipped.length ? ` ${result.skipped.join(" ")}` : ""}
+        </ImportResult>
+      ) : null}
+
+      {unmatched.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-sm">
+            <span className="font-medium">Mentors with no account.</span> These teams are
+            loaded, and cannot be claimed for until an account carries the Faculty ID as its staff
+            id. Create or correct the account, then import the roster again.
+          </p>
+          <Table
+            rows={unmatched}
+            columns={columns}
+            getKey={(m) => m.code}
+            caption="Teams whose mentor matched no account"
+            maxHeight="20rem"
+            minWidth="36rem"
+          />
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Scopus author profiles                                                    */
+/* ------------------------------------------------------------------------ */
+
+/** `import_profiles`, as `/api/admin/scopus-profiles/import` returns it. */
+type ScopusImport = {
+  sheets: number
+  created: number
+  updated: number
+  linked: number
+  unmatched: { scopus_id: string; sheet: string; author_name: string | null }[]
+  ambiguous: { scopus_id: string; sheet: string; accounts: string[] }[]
+  warnings: string[]
+}
+
+type ProfileRow = {
+  scopus_id: string
+  url: string | null
+  sheet: string
+  author_name: string | null
+  publications: number | null
+  citations: number | null
+}
+
+type PersonRow = {
+  user_id: string
+  name: string
+  email: string
+  department: string | null
+  staff_id: string | null
+}
+
+/** `verification_report`. */
+type ScopusVerification = {
+  profiles: number
+  last_imported_at: string | null
+  profiles_without_account: ProfileRow[]
+  ambiguous: (ProfileRow & { accounts: PersonRow[] })[]
+  faculty_without_scopus: (PersonRow & { faculty_master_scopus_id: string | null })[]
+  name_mismatches: (PersonRow & {
+    stored_scopus_id: string | null
+    sheet_scopus_id: string
+    sheet: string
+    sheet_url: string | null
+  })[]
+}
+
+function ScopusLink({ id, url }: { id: string; url: string | null }) {
+  return url ? (
+    <a href={url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+      {id}
+    </a>
+  ) : (
+    <>{id}</>
+  )
+}
+
+function PersonLink({ person }: { person: PersonRow }) {
+  return (
+    <Link to={`/people/${person.user_id}`} className="underline underline-offset-2">
+      {person.name}
+    </Link>
+  )
+}
+
+type ScopusIdLink = {
+  entries: number
+  set: number
+  same: number
+  conflicts: { user: string; staff_id: string | null; account: string; erp: string; source: string }[]
+  unmatched: { staff_id: string; bio_id: string; name: string; scopus_id: string }[]
+}
+
+/**
+ * Everybody's Scopus author id, from the ERP workbook's Faculty_Data sheet
+ * (and its paper sheets for anyone the roster leaves blank). Matched by
+ * staff id, then biometric id, then email; a different id already on an
+ * account is listed as a conflict and left alone. Safe to run again.
+ */
+export function ScopusIdsSection() {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<ScopusIdLink | null>(null)
+
+  async function run() {
+    if (!file) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await uploadWorkbook<ScopusIdLink>("/api/admin/scopus-ids/link", file)
+      setResult(res)
+      toast.ok(`${nf(res.set)} Scopus IDs set.`)
+      setFile(null)
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const reason = busy ? "Linking." : !file ? "Choose the ERP workbook first." : null
+
+  return (
+    <section className="space-y-4">
+      <p className="text-sm text-fg-muted">
+        Read from the workbook's Faculty_Data sheet and matched by staff ID, then biometric ID, then
+        email. Safe to run again.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field label="ERP workbook" hint="Publication_Processing_ERP .xlsx">
+          <FileInput
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            file={file}
+            onPick={setFile}
+            disabled={busy}
+            aria-label="ERP workbook for Scopus IDs"
+          />
+        </Field>
+        <div className="space-y-1.5">
+          <Button kind="default" disabled={reason !== null} onClick={() => void run()}>
+            <Upload />
+            {busy ? "Linking…" : "Link Scopus IDs"}
+          </Button>
+          <WhyDisabled reason={reason} />
+        </div>
+      </div>
+      {result ? (
+        <ImportResult>
+          {nf(result.entries)} people carry a Scopus ID in the workbook: {nf(result.set)} set,{" "}
+          {nf(result.same)} already the same, {nf(result.conflicts.length)} conflicts,{" "}
+          {nf(result.unmatched.length)} with no account.
+          {result.conflicts.length ? (
+            <ul className="mt-2 list-disc pl-5">
+              {result.conflicts.map((c) => (
+                <li key={`${c.staff_id}-${c.erp}`}>
+                  {c.user} ({c.staff_id || "no staff ID"}): account has {c.account}, workbook says{" "}
+                  {c.erp}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </ImportResult>
+      ) : null}
+    </section>
+  )
+}
+
+/**
+ * The Scopus profile workbook, and the three lists the office works through
+ * after loading it.
+ *
+ * Profiles are matched to accounts by Scopus id and never by name, so what
+ * the import cannot do on its own is said here as work to do: a profile no
+ * account claims, a faculty account carrying no id at all, and an account
+ * whose stored id is not the one on the sheet named after them. Each list
+ * says what fixes it.
+ */
+function ScopusProfilesSection() {
+  const report = useApi<ScopusVerification>(
+    ["admin", "scopus-verification"],
+    "/api/admin/scopus-profiles/verification"
+  )
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<ScopusImport | null>(null)
+
+  async function run() {
+    if (!file) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const res = await uploadWorkbook<ScopusImport>("/api/admin/scopus-profiles/import", file)
+      setResult(res)
+      toast.ok(`${nf(res.sheets)} profiles read.`)
+      setFile(null)
+      void report.refetch()
+    } catch (err) {
+      toast.fail(err)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const data = report.data
+  const reason = busy ? "Importing." : !file ? "Choose the profile workbook first." : null
+
+  const orphanColumns: Column<ProfileRow>[] = [
+    { key: "id", header: "Scopus ID", cell: (p) => <ScopusLink id={p.scopus_id} url={p.url} /> },
+    { key: "sheet", header: "Sheet", cell: (p) => p.sheet || "—" },
+    { key: "pubs", header: "Publications", align: "right", cell: (p) => (p.publications ?? "—").toString() },
+    { key: "cites", header: "Citations", align: "right", cell: (p) => (p.citations ?? "—").toString() },
+  ]
+  const bareColumns: Column<ScopusVerification["faculty_without_scopus"][number]>[] = [
+    { key: "name", header: "Faculty member", cell: (p) => <PersonLink person={p} /> },
+    { key: "dept", header: "Department", cell: (p) => p.department || "—" },
+    { key: "staff", header: "Staff ID", cell: (p) => p.staff_id || "—" },
+    {
+      key: "hint",
+      header: "Faculty master says",
+      cell: (p) =>
+        p.faculty_master_scopus_id ? `Scopus ID ${p.faculty_master_scopus_id}` : "Nothing either",
+    },
+  ]
+  const mismatchColumns: Column<ScopusVerification["name_mismatches"][number]>[] = [
+    { key: "name", header: "Account", cell: (p) => <PersonLink person={p} /> },
+    { key: "stored", header: "Stored Scopus ID", cell: (p) => p.stored_scopus_id || "None" },
+    {
+      key: "sheet-id",
+      header: "On the sheet named for them",
+      cell: (p) => <ScopusLink id={p.sheet_scopus_id} url={p.sheet_url} />,
+    },
+    { key: "sheet", header: "Sheet", cell: (p) => p.sheet },
+  ]
+
+  return (
+    <section className="space-y-4">
+      <p className="text-sm text-fg-muted">
+        One sheet per author: publications, citations, h-index and the document list. Each profile
+        is matched to an account by its Scopus ID (the account's own, or the roster's for that staff
+        ID) and shown on the person's profile, their record, and the department and report screens.
+      </p>
+
+      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <Field
+          label="Profile workbook"
+          hint="The .xlsx with a sheet per author and a Scopus ID at the top of each."
+        >
+          <FileInput
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            file={file}
+            onPick={setFile}
+            disabled={busy}
+          />
+        </Field>
+        <div className="space-y-1.5">
+          <Button kind="default" disabled={reason !== null} onClick={() => void run()}>
+            <Upload />
+            {busy ? "Importing…" : "Import the profiles"}
+          </Button>
+          <WhyDisabled reason={reason} />
+        </div>
+      </div>
+
+      {result ? (
+        <ImportResult>
+          {nf(result.sheets)} profile sheets read: {nf(result.created)} created,{" "}
+          {nf(result.updated)} updated, {nf(result.linked)} linked to an account.{" "}
+          {result.unmatched.length
+            ? `No account carries ${result.unmatched.map((u) => u.scopus_id).join(", ")}.`
+            : "Every profile matched an account."}
+          {result.ambiguous.length
+            ? ` ${result.ambiguous.map((a) => `${a.scopus_id} is on ${a.accounts.join(" and ")}`).join("; ")} — linked to neither.`
+            : ""}
+          {result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}
+        </ImportResult>
+      ) : null}
+
+      {report.isLoading ? (
+        <SkeletonRows rows={4} rowHeight={40} />
+      ) : report.error ? (
+        <InlineError
+          message="Could not work out what needs putting right. The importer above still works."
+          onRetry={() => void report.refetch()}
+        />
+      ) : data ? (
+        <div className="space-y-6">
+          <p className="text-sm tabular">
+            {nf(data.profiles)} profiles held
+            {data.last_imported_at
+              ? `, last imported ${new Date(data.last_imported_at).toLocaleDateString("en-IN")}`
+              : ""}
+            .
+          </p>
+
+          <div className="space-y-2">
+            <ColumnLabel className="block">Profiles no account claims</ColumnLabel>
+            {data.profiles_without_account.length === 0 ? (
+              <Meta className="block">None. Every profile matched an account.</Meta>
+            ) : (
+              <>
+                <Meta className="block">
+                  Set this Scopus ID on the right person's account (People, then the account), and
+                  the profile shows on their record straight away.
+                </Meta>
+                <Table
+                  rows={data.profiles_without_account}
+                  columns={orphanColumns}
+                  getKey={(p) => p.scopus_id}
+                  caption="Profiles whose Scopus ID matches no account"
+                  maxHeight="18rem"
+                  minWidth="32rem"
+                />
+              </>
+            )}
+            {data.ambiguous.length > 0 ? (
+              <Meta className="block">
+                On more than one account, so linked to none:{" "}
+                {data.ambiguous
+                  .map((a) => `${a.scopus_id} (${a.accounts.map((p) => p.name).join(", ")})`)
+                  .join("; ")}
+                .
+              </Meta>
+            ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <ColumnLabel className="block">Stored Scopus ID differs from the sheet named for them</ColumnLabel>
+            {data.name_mismatches.length === 0 ? (
+              <Meta className="block">None found.</Meta>
+            ) : (
+              <>
+                <Meta className="block">
+                  The sheet carries this person's name and a different ID from the one on their
+                  account. One of the two is wrong — check the Scopus link before changing either.
+                </Meta>
+                <Table
+                  rows={data.name_mismatches}
+                  columns={mismatchColumns}
+                  getKey={(p) => `${p.user_id}-${p.sheet_scopus_id}`}
+                  caption="Accounts whose Scopus ID differs from their sheet"
+                  maxHeight="18rem"
+                  minWidth="36rem"
+                />
+              </>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <ColumnLabel className="block">
+              Faculty accounts with no Scopus ID ({nf(data.faculty_without_scopus.length)})
+            </ColumnLabel>
+            {data.faculty_without_scopus.length === 0 ? (
+              <Meta className="block">None. Every faculty account carries one.</Meta>
+            ) : (
+              <Table
+                rows={data.faculty_without_scopus}
+                columns={bareColumns}
+                getKey={(p) => p.user_id}
+                caption="Faculty accounts with no Scopus ID"
+                maxHeight="20rem"
+                minWidth="36rem"
+              />
+            )}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
 }

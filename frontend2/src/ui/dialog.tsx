@@ -70,8 +70,13 @@ export function DialogContent({
   className,
   size = "md",
   children,
+  dismissible = true,
   ...props
-}: React.ComponentProps<typeof RadixDialog.Content> & { size?: keyof typeof WIDTH }) {
+}: React.ComponentProps<typeof RadixDialog.Content> & {
+  size?: keyof typeof WIDTH
+  /** false for a dialog that must be completed (the forced password change): no close button. */
+  dismissible?: boolean
+}) {
   const open = useContext(OpenContext)
   const overlay = useMotionVariants(overlayVariants)
   const surface = useMotionVariants(dialogVariants)
@@ -81,14 +86,14 @@ export function DialogContent({
         <RadixDialog.Portal forceMount>
           <RadixDialog.Overlay asChild forceMount>
             <motion.div
-              className="fixed inset-0 z-50 bg-black/20"
+              className="fixed inset-0 z-50 bg-black/20 print:hidden"
               variants={overlay}
               initial="hidden"
               animate="visible"
               exit="hidden"
             />
           </RadixDialog.Overlay>
-          <div className="fixed inset-0 z-50 grid place-items-center p-4">
+          <div className="fixed inset-0 z-50 grid place-items-center p-4 print:hidden">
             <RadixDialog.Content asChild forceMount {...props}>
               <motion.div
                 variants={surface}
@@ -96,14 +101,14 @@ export function DialogContent({
                 animate="visible"
                 exit="hidden"
                 className={cn(
-                  "relative flex max-h-[85vh] w-full flex-col overflow-hidden rounded-xl",
+                  "relative flex max-h-[85vh] w-full flex-col overflow-hidden rounded-2xl",
                   "bg-surface shadow-modal",
                   WIDTH[size],
                   className
                 )}
               >
                 {children}
-                <RadixDialog.Close
+                {dismissible && <RadixDialog.Close
                   aria-label="Close"
                   className={cn(
                     "absolute right-3 top-3 grid size-7 place-items-center rounded-sm",
@@ -111,7 +116,7 @@ export function DialogContent({
                   )}
                 >
                   <X className="size-4" aria-hidden />
-                </RadixDialog.Close>
+                </RadixDialog.Close>}
               </motion.div>
             </RadixDialog.Content>
           </div>
@@ -137,7 +142,7 @@ export function DialogTitle({
   className,
   ...props
 }: React.ComponentProps<typeof RadixDialog.Title>) {
-  return <RadixDialog.Title className={cn("text-base font-semibold", className)} {...props} />
+  return <RadixDialog.Title className={cn("display text-lg", className)} {...props} />
 }
 
 export function DialogDescription({
@@ -192,6 +197,7 @@ export function ConfirmDialog({
   requirePhrase,
   reasonLabel,
   onConfirm,
+  children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -203,6 +209,8 @@ export function ConfirmDialog({
   requirePhrase?: string
   reasonLabel?: string
   onConfirm: (reason?: string) => void | Promise<void>
+  /** What the action will do, shown above the typed confirmation. */
+  children?: React.ReactNode
 }) {
   const [phrase, setPhrase] = useState("")
   const [reason, setReason] = useState("")
@@ -240,8 +248,9 @@ export function ConfirmDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        {(requirePhrase || reasonLabel) && (
+        {(requirePhrase || reasonLabel || children) && (
           <DialogBody className="space-y-3.5">
+            {children}
             {reasonLabel && (
               <label className="block space-y-1.5">
                 <span className="text-sm font-medium">{reasonLabel}</span>
@@ -250,7 +259,7 @@ export function ConfirmDialog({
                   onChange={(e) => setReason(e.target.value)}
                   rows={2}
                   className={cn(
-                    "w-full resize-none rounded-md bg-surface px-3 py-2 text-sm",
+                    "w-full resize-none rounded-control bg-surface px-3 py-2 text-sm",
                     "ring-1 ring-inset ring-field outline-none",
                     "focus-visible:ring-2 focus-visible:ring-accent"
                   )}
@@ -269,7 +278,7 @@ export function ConfirmDialog({
                   autoComplete="off"
                   spellCheck={false}
                   className={cn(
-                    "h-9 w-full rounded-md bg-surface px-3 text-sm",
+                    "h-9 w-full rounded-control bg-surface px-3 text-sm",
                     "ring-1 ring-inset ring-field outline-none",
                     "focus-visible:ring-2 focus-visible:ring-accent"
                   )}

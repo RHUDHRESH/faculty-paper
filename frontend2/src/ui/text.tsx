@@ -35,7 +35,7 @@ import { cn } from "@/lib/cn"
 export function PageTitle({ children, className }: React.ComponentProps<"h1">) {
   // `text-balance` so a two-line title breaks into two even lines rather
   // than a full line and one orphaned word.
-  return <h1 className={cn("display text-balance text-xl", className)}>{children}</h1>
+  return <h1 className={cn("display text-balance text-[1.75rem] leading-9", className)}>{children}</h1>
 }
 
 /**
@@ -47,8 +47,12 @@ export function PageTitle({ children, className }: React.ComponentProps<"h1">) {
  * had to read the page rather than skim it. The scale reserves 16 for exactly
  * this — `--text-lg` is commented "section heading" in `styles.css`.
  */
-export function SectionTitle({ children, className }: React.ComponentProps<"h2">) {
-  return <h2 className={cn("text-lg font-semibold", className)}>{children}</h2>
+export function SectionTitle({ children, className, ...props }: React.ComponentProps<"h2">) {
+  return (
+    <h2 className={cn("text-lg font-semibold", className)} {...props}>
+      {children}
+    </h2>
+  )
 }
 
 /** Secondary line under a title. Never a second sentence of instructions. */
@@ -62,7 +66,7 @@ export function Meta({ children, className }: React.ComponentProps<"span">) {
 }
 
 /** A machine category: a column head, a field name in a grid. The only place
- *  uppercase is used, because here it genuinely is a label and not a phrase.
+ *  sentence case like every other label (docs/ux/17: no ALL-CAPS labels).
  *
  *  `fg-muted`, not `fg-subtle`: subtle is a 12px uppercase word at under 3:1
  *  against the page, which is the contrast of a disabled control, and these
@@ -73,7 +77,7 @@ export function ColumnLabel({ children, className }: React.ComponentProps<"span"
   return (
     <span
       className={cn(
-        "text-xs font-medium uppercase tracking-[0.04em] text-fg-muted",
+        "text-sm font-medium text-fg-muted",
         className
       )}
     >

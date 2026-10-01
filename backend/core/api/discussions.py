@@ -20,10 +20,10 @@ from django.utils import timezone
 from ninja import Schema
 from django.conf import settings
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, Mention, Notification, Post, Thread, ThreadParticipant, ThreadSubscription, User
+from core.models import AuditLog, Claim, FeedPost, Mention, Post, Thread, ThreadParticipant, ThreadSubscription, User
 from core.services import rbac
 from core.services import thread_agent
-from core import discussions
+from core import discussions, social, social_notify
 
 # ---------- notifications ----------
 
@@ -98,6 +98,10 @@ def _thread_dict(t: Thread, user: User) -> dict[str, Any]:
         "journal_title": t.journal_title,
         "created_by": t.created_by.name if t.created_by_id else None,
         "created_by_id": t.created_by_id,
+        # A face beside every asker: the Threads tab draws it, and a name
+        # alone is what the college asked us to stop showing.
+        "created_by_photo_url": social.photo_url(t.created_by) if t.created_by_id else None,
+        "created_by_initials": social.initials(t.created_by.name) if t.created_by_id else "?",
         "created_at": t.created_at.isoformat(),
         "last_post_at": t.last_post_at.isoformat(),
         "post_count": t.post_count,
@@ -115,7 +119,11 @@ def _write_post(thread: Thread, author: User | None, body: str, *, kind: str,
     post = Post.objects.create(
         thread=thread, author=author, body=body, kind=kind, reply_to=reply_to
     )
-    for row in discussions.parse_mentions(body):
+    for row in discussions.parse_mentions(body, viewer=author):
+        # An assistant reply has no author, so no papers: it names only what
+        # somebody who may see it asked about.
+        if author is None and row["kind"] == Mention.Kind.PAPER:
+            continue
         Mention.objects.create(post=post, **row)
     Thread.objects.filter(pk=thread.pk).update(
         last_post_at=timezone.now(), post_count=models.F("post_count") + 1
@@ -132,9 +140,11 @@ def _notify_thread(thread: Thread, post: Post, actor: User) -> None:
     two -- and neither ever reaches the person who caused it.
     """
     recipients: set[str] = set()
+    mentioned: set[str] = set()
     for m in post.mentions.filter(kind=Mention.Kind.USER).select_related("user"):
         if m.user_id and discussions.may_read(m.user, thread):
             recipients.add(m.user_id)
+            mentioned.add(m.user_id)
     for sub in thread.subscriptions.select_related("user").filter(muted=False):
         if discussions.may_read(sub.user, thread):
             recipients.add(sub.user_id)
@@ -144,11 +154,12 @@ def _notify_thread(thread: Thread, post: Post, actor: User) -> None:
 
     excerpt = (post.body or "")[:200]
     for uid in recipients:
-        Notification.objects.create(
-            user_id=uid,
-            title=f"{actor.name} in “{thread.title[:80]}”",
-            body=excerpt,
-            href=f"/discussions/{thread.id}",
+        # Named in it, a mention; otherwise a reply in a thread they follow,
+        # a comment -- so their switch for that kind holds here too.
+        social_notify.notify(
+            uid, "mention" if uid in mentioned else "comment",
+            f"{actor.name} in “{thread.title[:80]}”", excerpt,
+            f"/discussions/{thread.id}", actor=actor,
         )
 
 
@@ -166,6 +177,7 @@ def list_threads(
     visibility: Optional[str] = None,
     mine: bool = False,
     unresolved: bool = False,
+    claim: Optional[str] = None,
     limit: int = 30,
     offset: int = 0,
 ):
@@ -183,6 +195,9 @@ def list_threads(
         qs = qs.filter(
             Q(created_by=user) | Q(subscriptions__user=user) | Q(posts__author=user)
         ).distinct()
+    if claim:
+        # A clearing ticket opens the claimant's office thread about it.
+        qs = qs.filter(claim_id=claim)
     if unresolved:
         qs = qs.filter(resolved=False)
 
@@ -231,6 +246,11 @@ def create_thread(request: HttpRequest, payload: ThreadIn):
 
     claim = None
     if payload.claim_id:
+        if payload.visibility in (Thread.Visibility.PUBLIC, Thread.Visibility.DEPARTMENT):
+            # A thread carries its claim's ticket number and link in every
+            # response; on a thread everybody (or a whole department) can
+            # open, that would put one person's claim on the wall.
+            raise HttpError(400, "A question about a paper goes to the research office, not to everybody.")
         claim = Claim.objects.filter(pk=payload.claim_id).first()
         if claim is None:
             raise HttpError(404, "No such paper")
@@ -312,12 +332,19 @@ def get_thread(request: HttpRequest, thread_id: str):
     if subscription:
         subscription.last_read_at = timezone.now()
         subscription.save(update_fields=["last_read_at"])
+    # A direct thread read here is read in Messages too (`api/dm.py`).
+    ThreadParticipant.objects.filter(thread=thread, user=user).update(last_read_at=timezone.now())
 
     return {
         **_thread_dict(thread, user),
         "posts": [_post_dict(p) for p in posts],
         "following": bool(subscription and not subscription.muted),
         "followers": thread.subscriptions.count(),
+        # An open thread from before the feed now lives in it as a post. Old
+        # links and notifications still arrive here, and are sent on.
+        "feed_post_id": FeedPost.objects.filter(legacy_thread=thread)
+        .values_list("id", flat=True)
+        .first(),
     }
 
 
@@ -363,7 +390,7 @@ def edit_post(request: HttpRequest, post_id: str, payload: PostEditIn):
         raise HttpError(400, "That post has been deleted.")
     body = (payload.body or "").strip()
     if not body:
-        raise HttpError(400, "A post cannot be emptied — delete it instead.")
+        raise HttpError(400, "A post cannot be emptied. Delete it instead.")
 
     with transaction.atomic():
         post.body = body
@@ -371,7 +398,7 @@ def edit_post(request: HttpRequest, post_id: str, payload: PostEditIn):
         post.save(update_fields=["body", "edited_at"])
         # The mentions are part of the text, so they are rewritten with it.
         post.mentions.all().delete()
-        for row in discussions.parse_mentions(body):
+        for row in discussions.parse_mentions(body, viewer=user):
             Mention.objects.create(post=post, **row)
 
     return _post_dict(post)

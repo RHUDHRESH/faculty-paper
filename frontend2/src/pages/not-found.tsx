@@ -1,8 +1,9 @@
-import { Link, useLocation } from "react-router-dom"
+import { useState } from "react"
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
 
 import { useAuth } from "@/app/auth"
-import { NAV, navFor } from "@/app/nav"
-import { Art } from "@/ui/art"
+import { NAV, pagesFor } from "@/app/nav"
+import { Illustration } from "@/ui/illustration"
 import { Button } from "@/ui/button"
 import { Meta, PageTitle, Sub } from "@/ui/text"
 
@@ -29,13 +30,15 @@ import { Meta, PageTitle, Sub } from "@/ui/text"
 export function NotFound() {
   const { me } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
+  const [query, setQuery] = useState("")
 
   const path = location.pathname
   // Matched against every declared destination, not just this role's — that
-  // is the whole point: a hit here that is absent from `navFor(role)` means
+  // is the whole point: a hit here that is absent from `pagesFor(role)` means
   // the page exists and is somebody else's.
   const declared = NAV.find((item) => item.to === path)
-  const mine = navFor(me?.role).some((item) => item.to === path)
+  const mine = pagesFor(me?.role).some((item) => item.to === path)
   const forbidden = Boolean(declared) && !mine
 
   const home = me?.role === "FACULTY" ? "your papers" : "your home page"
@@ -48,16 +51,23 @@ export function NotFound() {
             belongs to somebody else gets the college's own portico with a
             bar across it; an address that is nothing at all gets a signpost
             with nothing written on it. */}
-        <Art name={forbidden ? "closed-gate" : "no-page"} className="mx-auto" />
+        <Illustration name={forbidden ? "error-access-denied" : "not-found-404"} width={240} className="mx-auto w-full max-w-[240px]" eager />
 
         <div>
           <PageTitle>{forbidden ? "Not open to this account" : "No page at this address"}</PageTitle>
           <Sub className="mt-1">
             {forbidden ? (
               <>
-                <span className="font-medium text-fg">{declared?.label}</span> is a real page, but
-                it is not one this account may open. Nothing is broken and nothing has been
-                lost — ask the research cell if you think it should be yours.
+                {/* Naming the page tells a member of staff what they were sent to;
+                    to a faculty member it would only be the name of somebody else's desk. */}
+                {me?.role !== "FACULTY" && (
+                  <>
+                    <span className="font-medium text-fg">{declared?.label}</span> is a real page, but{" "}
+                  </>
+                )}
+                {me?.role === "FACULTY" ? "That page is not one this account may open. " : "it is not one this account may open. "}
+                Nothing is broken and nothing has been lost. Ask the research office if you think it
+                should be yours.
               </>
             ) : (
               <>
@@ -72,16 +82,70 @@ export function NotFound() {
             to somebody and ask what happened. */}
         <Meta className="block break-all rounded-md bg-sunken px-3 py-1.5 font-mono">{path}</Meta>
 
-        <div className="flex justify-center gap-2 pt-2">
+        {me && (
+          <form
+            role="search"
+            className="flex gap-2 pt-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const q = query.trim()
+              navigate(q ? "/search?q=" + encodeURIComponent(q) : "/search")
+            }}
+          >
+            <label htmlFor="nf-search" className="sr-only">
+              Search papers, journals and people
+            </label>
+            <input
+              id="nf-search"
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search papers, journals, people"
+              className="h-10 min-w-0 flex-1 rounded-lg bg-surface px-3 text-base ring-1 ring-inset ring-field outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
+            <Button kind="default" type="submit" className="h-10">
+              Search
+            </Button>
+          </form>
+        )}
+
+        <div className="flex flex-wrap justify-center gap-2 pt-2">
           <Button kind="primary" asChild>
             <Link to="/">Go to {home}</Link>
           </Button>
+          {/* A stale link is usually one click from where the reader was. */}
+          {window.history.length > 1 && (
+            <Button kind="default" onClick={() => navigate(-1)}>
+              Go back
+            </Button>
+          )}
         </div>
 
-        <Meta className="block pt-2">Ctrl-K searches every page you can open.</Meta>
+        {me && <Meta className="block pt-2">Ctrl-K opens every page you can reach.</Meta>}
       </div>
     </div>
   )
+}
+
+/**
+ * A faculty member who types (or is sent) the address of an office page is
+ * shown the plain "not open to this account" screen, before the page loads.
+ *
+ * Without it the page opened, asked the server, was refused, and printed the
+ * server's own sentence: "Only Finance can see or process payments". That
+ * names a desk to somebody the college keeps the chain from, and it came with
+ * a "Try again" button for a refusal no retry will change. Only faculty are
+ * gated here, and only on a path the nav declares for other roles alone, so a
+ * path the nav does not list is never blocked by a guess.
+ */
+export function RoleGate() {
+  const { me } = useAuth()
+  const { pathname } = useLocation()
+  if (me?.role === "FACULTY") {
+    const declared = NAV.find((item) => item.to === pathname)
+    if (declared?.roles && !declared.roles.includes("FACULTY")) return <NotFound />
+  }
+  return <Outlet />
 }
 
 /**
@@ -108,7 +172,7 @@ export function NotBuilt({
     <div className="page py-16">
       <div className="mx-auto max-w-lg space-y-4 text-center">
         <PageTitle>{name}</PageTitle>
-        <Sub>Not built yet — and not simply waiting its turn.</Sub>
+        <Sub>Not built yet, and not simply waiting its turn.</Sub>
         <p className="text-base text-fg-muted">{needs}</p>
         {meanwhile && <p className="text-base">{meanwhile}</p>}
         <div className="flex justify-center gap-2 pt-2">

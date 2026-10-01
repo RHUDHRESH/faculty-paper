@@ -32,9 +32,12 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import NinjaAPI, Schema, UploadedFile, File, Form
 from ninja.errors import HttpError
+from ninja.renderers import JSONRenderer
 from ninja.security import SessionAuth
 
 logger = logging.getLogger("core.api")
+
+from core.services import research_threshold
 
 from core.models import (
     ClaimNote,
@@ -88,10 +91,11 @@ from core.services.remuneration import (
     MAX_ELIGIBLE_AUTHORS,
     MIN_SEC_REFERENCES,
     calculate_remuneration,
+    calculate_student_project,
     formula_from_model,
     snapshot_formula,
 )
-from core.services.notify_email import send_optional_email
+from core.services.notify import notify
 from core.services.scimago import lookup_scimago
 from core.services.scimago_sync import (
     SCIMAGO_RANK_URL,
@@ -118,6 +122,28 @@ from core.services.retraction import looks_retracted
 from core.services.uploads import ACCEPTED_LABEL, sniff
 from core.services.verify import apply_verify_to_claim, check_already_paid, verify_publication
 
+class ViewerAwareRenderer(JSONRenderer):
+    """Every JSON response, shaped for whoever is signed in, on its way out.
+
+    The rules about what a seat in the chain must not see live in
+    `core.visibility`. Applying them here rather than at each endpoint is the
+    point: a new endpoint that returns a claim is covered by default. Files
+    (CSV, workbooks) are HttpResponses and do not pass through a renderer;
+    their columns carry none of the fields in question.
+    """
+
+    def render(self, request: HttpRequest, data: Any, *, response_status: int) -> Any:
+        from core import visibility
+
+        user = getattr(request, "user", None)
+        if getattr(user, "is_authenticated", False):
+            data = visibility.for_viewer(user, data)
+            from core import faces
+
+            data = faces.fill(data)
+        return super().render(request, data, response_status=response_status)
+
+
 api = NinjaAPI(
     title="Faculty Remuneration",
     version="1.0.0",
@@ -125,10 +151,15 @@ api = NinjaAPI(
     # stay off outside development.
     docs_url="/docs" if settings.DEBUG else None,
     openapi_url="/openapi.json" if settings.DEBUG else None,
+    renderer=ViewerAwareRenderer(),
 )
 session_auth = SessionAuth()
 
 IMPERSONATOR_KEY = "impersonator_id"
+
+#: POSTs a viewer may still make: leaving the view, and the payout
+#: calculator, which works a figure out and stores nothing.
+_WRITES_ALLOWED_WHILE_VIEWING = {"/api/admin/stop-impersonating", "/api/calculate"}
 
 _PASSWORD_CHANGE_EXEMPT = {"/api/auth/change-password", "/api/auth/me"}
 
@@ -182,18 +213,16 @@ def rate_limit(request: HttpRequest, bucket: str, limit: int, window: str, *, wh
 
 
 def _csv_safe(value: Any) -> Any:
-    """Neutralise spreadsheet formula injection in exported free text.
+    """Neutralise spreadsheet formula injection (core.services.cell_safe)."""
+    from core.services.cell_safe import safe_cell
 
-    Paper titles and faculty names are user-supplied and land straight in a file
-    someone opens in Excel, where a leading = + - or @ is executed as a formula.
-    """
-    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
-        return "'" + value
-    return value
+    return safe_cell(value)
 
 
 def _csv_row(values: list[Any]) -> list[Any]:
-    return [_csv_safe(v) for v in values]
+    from core.services.cell_safe import safe_row
+
+    return safe_row(values)
 
 
 def _require_admin_ops(user: User) -> None:
@@ -264,8 +293,15 @@ def health(request: HttpRequest):
     # health check is the one place it can be noticed before someone looks for
     # a proof that is no longer there.
     bucket = getattr(settings, "GS_BUCKET_NAME", "")
+    s3_bucket = getattr(settings, "S3_BUCKET_NAME", "")
     if bucket:
         media_backend = f"gs://{bucket}"
+        media_is_ephemeral = False
+    elif s3_bucket:
+        media_backend = f"s3://{s3_bucket}"
+        media_is_ephemeral = False
+    elif getattr(settings, "MEDIA_IN_DATABASE", False):
+        media_backend = "database"
         media_is_ephemeral = False
     else:
         media_backend = str(Path(settings.MEDIA_ROOT).resolve())
@@ -294,7 +330,7 @@ def health(request: HttpRequest):
     if media_is_ephemeral:
         payload["warnings"] = [
             "Uploads are on the container filesystem and will be lost on the "
-            "next deploy. Set GS_BUCKET_NAME to a Google Cloud Storage bucket."
+            "next deploy. Set GS_BUCKET_NAME (Google Cloud Storage) or S3_BUCKET_NAME (S3 / Cloudflare R2)."
         ]
         logger.warning("media_storage_ephemeral backend=%s", media_backend)
     if not db_ok:
@@ -334,30 +370,60 @@ def _verification_issues(result: dict[str, Any], claim: Claim) -> list[str]:
 
 
 def _notify_admin_users(
-    title: str, body: str, href: str, *, super_admin_only: bool = False
+    title: str,
+    body: str,
+    href: str,
+    *,
+    super_admin_only: bool = False,
+    claim_id: str | None = None,
 ) -> None:
-    """An admin notification that is not about a particular ticket."""
+    """An admin notification, about one ticket when `claim_id` says which."""
     roles = (Role.SUPER_ADMIN,) if super_admin_only else rbac.ADMIN_ROLES
-    for u in User.objects.filter(role__in=roles, active=True):
-        Notification.objects.create(user=u, title=title, body=body, href=href)
-        send_optional_email(u.email, title, body)
+    people = User.objects.filter(role__in=roles, active=True)
+    if claim_id:
+        # About one paper: never its owner, who is its claimant.
+        people = people.exclude(claims__pk=claim_id)
+    for u in people:
+        notify(u, "desk", title, body, href, claim_id=claim_id)
+
+
+#: What anybody is told who tries to decide their own paper. The queue pages
+#: say the same sentence, so the refusal is never a surprise.
+OWN_PAPER = "Your own paper — another officer or the super admin decides it."
+
+
+def _refuse_own_claim(user: User, claim: Claim) -> None:
+    """Nobody decides their own paper, at any desk (`rbac.is_own_claim`).
+
+    Called by every action that moves, holds, prices, flags or rescues a
+    paper, after the role check and before anything is read or written.
+    """
+    if rbac.is_own_claim(user, claim):
+        raise HttpError(403, OWN_PAPER)
+
+
+def _desk_people(claim: Claim, roles):
+    """Who is told a paper is waiting at a desk: whoever holds it but the owner.
+
+    A Principal who files a paper is its claimant, not its approver, so the
+    paper goes to another Principal -- and, when there is none, to the super
+    admin, who stands in at every desk and may decide anybody's paper but
+    their own.
+    """
+    people = User.objects.filter(role__in=roles, active=True).exclude(pk=claim.owner_id)
+    if not people.exists():
+        people = User.objects.filter(role=Role.SUPER_ADMIN, active=True).exclude(
+            pk=claim.owner_id
+        )
+    return people
 
 
 def _notify_admins(claim: Claim, title: str, body: str) -> None:
     """A submitted ticket waits on admin clearing, so admins are who hear about it."""
-    for u in User.objects.filter(
-        role__in=rbac.ADMIN_ROLES, active=True
-    ):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            # /admin is the overview, which ignores ?claim — the clearing queue
-            # is the page that actually opens the ticket.
-            href=f"/admin/clearing?claim={claim.id}",
-            claim_id=claim.id,
-        )
-        send_optional_email(u.email, title, body)
+    for u in _desk_people(claim, rbac.ADMIN_ROLES):
+        # /admin is the overview, which ignores ?claim — the clearing queue
+        # is the page that actually opens the ticket.
+        notify(u, "desk", title, body, f"/admin/clearing?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_principal(claim: Claim, title: str, body: str) -> None:
@@ -368,38 +434,19 @@ def _notify_principal(claim: Claim, title: str, body: str) -> None:
     being told about money it could not release, and the person who actually
     had to act was not told at all.
     """
-    for u in User.objects.filter(role=Role.PRINCIPAL, active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/principal?claim={claim.id}",
-            claim_id=claim.id,
-        )
-        send_optional_email(u.email, title, body)
+    for u in _desk_people(claim, (Role.PRINCIPAL,)):
+        notify(u, "desk", title, body, f"/principal?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_director(claim: Claim, title: str, body: str) -> None:
     """Everyone who can authorise: the Director, and a super admin standing in."""
-    for u in User.objects.filter(role__in=(Role.DIRECTOR, Role.SUPER_ADMIN), active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/authorisations?claim={claim.id}",
-            claim_id=claim.id,
-        )
+    for u in _desk_people(claim, (Role.DIRECTOR, Role.SUPER_ADMIN)):
+        notify(u, "desk", title, body, f"/authorisations?claim={claim.id}", claim_id=claim.id)
 
 
 def _notify_finance(claim: Claim, title: str, body: str) -> None:
-    for u in User.objects.filter(role=Role.FINANCE, active=True):
-        Notification.objects.create(
-            user=u,
-            title=title,
-            body=body,
-            href=f"/finance?claim={claim.id}",
-            claim_id=claim.id,
-        )
+    for u in _desk_people(claim, (Role.FINANCE,)):
+        notify(u, "desk", title, body, f"/finance?claim={claim.id}", claim_id=claim.id)
 
 
 
@@ -435,6 +482,62 @@ def _require_may_see_money(request: HttpRequest) -> User:
             "standing of a journal is on the journal's own page.",
         )
     return user
+#: "Ask the database": the default for `price_claim`'s `sec_refs`.
+_COUNT_SEC_REFS = object()
+
+
+def price_claim(
+    claim: Claim, cfg, *, allow_self_reported: bool = False, sec_refs=_COUNT_SEC_REFS
+):
+    """Price one claim under `cfg` (None = the defaults) without the quota
+    and without writing anything. `_apply_calc` and the policy preview share
+    it, so the preview prices a paper exactly the way the chain would.
+
+    `sec_refs` lets a caller that prices thousands of claims (the incentive
+    calculator's "check many") hand in the evidenced-citation count it already
+    fetched in one query, instead of one query per claim. Left out, it is
+    counted here, exactly as before."""
+    # publication_type carries the full set; aggregation_type is the ERP's single
+    # value and would hide a second type from the category rules.
+    pub_type = claim.publication_type or claim.aggregation_type
+    # Only citations the claimant actually evidenced count towards the minimum.
+    if sec_refs is _COUNT_SEC_REFS:
+        sec_refs = (
+            claim.attachments.filter(kind=AttachmentKind.SEC_REFERENCE)
+            .exclude(ref_number__isnull=True)
+            .exclude(ref_number="")
+            .count()
+            if claim.pk
+            else None
+        )
+    snip = claim.snip
+    quartile = claim.quartile
+    if allow_self_reported:
+        if snip is None:
+            snip = claim.self_reported_snip
+        if not quartile:
+            quartile = claim.self_reported_quartile
+    if claim.claim_reason == ClaimReason.STUDENT_PROJECT:
+        # A scheme of its own, outside Step 8: a fixed amount per team per
+        # conference paper. `_quota_state` below leaves it alone too -- the
+        # research quota belongs to the faculty scheme.
+        result = calculate_student_project(pub_type, cfg)
+    else:
+        result = calculate_remuneration(
+            snip,
+            quartile,
+            claim.total_authors,
+            claim.author_position,
+            cfg,
+            is_student_publication=claim.is_student_publication,
+            publication_type=pub_type,
+            indexing_level=claim.indexing_level,
+            engineering_class=claim.engineering_class,
+            sec_reference_count=sec_refs,
+        )
+    return result
+
+
 def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
     """Recompute the money columns.
 
@@ -444,46 +547,19 @@ def _apply_calc(claim: Claim, *, allow_self_reported: bool = False) -> None:
     """
     cfg_obj = FormulaConfig.objects.filter(active=True).order_by("-updated_at").first()
     cfg = formula_from_model(cfg_obj) if cfg_obj else None
-    # publication_type carries the full set; aggregation_type is the ERP's single
-    # value and would hide a second type from the category rules.
-    pub_type = claim.publication_type or claim.aggregation_type
-    # Only citations the claimant actually evidenced count towards the minimum.
-    sec_refs = (
-        claim.attachments.filter(kind=AttachmentKind.SEC_REFERENCE)
-        .exclude(ref_number__isnull=True)
-        .exclude(ref_number="")
-        .count()
-        if claim.pk
-        else None
-    )
-    snip = claim.snip
-    quartile = claim.quartile
-    if allow_self_reported:
-        if snip is None:
-            snip = claim.self_reported_snip
-        if not quartile:
-            quartile = claim.self_reported_quartile
-    result = calculate_remuneration(
-        snip,
-        quartile,
-        claim.total_authors,
-        claim.author_position,
-        cfg,
-        is_student_publication=claim.is_student_publication,
-        publication_type=pub_type,
-        indexing_level=claim.indexing_level,
-        engineering_class=claim.engineering_class,
-        sec_reference_count=sec_refs,
-    )
-    # The quota zeroes the payable amount and nothing else. base_amount, qf and
-    # the author point stay exactly as the policy computed them, so the ticket
-    # still shows what the paper was worth and why it came to nothing --
-    # rather than looking like a paper the formula could not price.
-    inside_quota, quota_why = _quota_state(claim)
-    claim.quota_applied = inside_quota
-    claim.quota_note = quota_why
-    if inside_quota:
-        result = replace(result, remuneration=0.0, note=quota_why)
+    result = price_claim(claim, cfg, allow_self_reported=allow_self_reported)
+    # A research faculty member's threshold takes its part off the payable
+    # amount and nothing else. base_amount, qf and the author point stay
+    # exactly as the policy computed them, so the claim still shows what the
+    # paper was worth and why less (or nothing) is paid -- rather than looking
+    # like a paper the formula could not price. The split is decided by
+    # `research_threshold` for the whole year at once, so every screen agrees.
+    effect = research_threshold.effect_for(claim, result.remuneration or 0.0)
+    claim.research_absorbed = effect.absorbed
+    claim.quota_applied = effect.absorbed > 0.005
+    claim.quota_note = effect.note
+    if abs(effect.payable - (result.remuneration or 0.0)) > 0.005:
+        result = replace(result, remuneration=effect.payable)
     claim.base_amount = result.base
     claim.author_point = result.point
     claim.remuneration = result.remuneration
@@ -595,12 +671,12 @@ def _hod_scope(user: User):
 
 __all__ = [
     'IMPERSONATOR_KEY',
+    'ViewerAwareRenderer',
     '_PASSWORD_CHANGE_EXEMPT',
     '_THRESHOLD_CACHE',
     '_THRESHOLD_TTL_SECONDS',
     '_invalidate_threshold_cache',
     'require_user',
-    '_quota_state',
     '_quartile_year_note',
     '_snip_year_note',
     '_apply_calc',
@@ -614,7 +690,10 @@ __all__ = [
     '_notify_director',
     '_notify_finance',
     '_notify_principal',
+    'OWN_PAPER',
+    '_desk_people',
     '_parse_payout_month',
+    '_refuse_own_claim',
     '_require_admin_ops',
     '_require_may_see_money',
     '_verification_issues',
@@ -635,7 +714,14 @@ def require_user(request: HttpRequest) -> User:
         raise HttpError(403, "Inactive")
     # must_change_password used to be advertised in the profile payload and
     # enforced only by the frontend, so an API client could ignore it entirely.
-    if user.must_change_password and request.path not in _PASSWORD_CHANGE_EXEMPT:
+    # A super admin viewing as somebody is not that person, and cannot change
+    # their password anyway (impersonation is read-only below): holding the
+    # view hostage to it made every account nobody had signed in to yet blank.
+    if (
+        user.must_change_password
+        and not request.session.get(IMPERSONATOR_KEY)
+        and request.path not in _PASSWORD_CHANGE_EXEMPT
+    ):
         raise HttpError(403, "Set a new password before continuing")
     # Impersonation is for seeing, not for doing. Enforced here rather than on
     # each route, because "we forgot to guard that one endpoint" is exactly how
@@ -643,94 +729,13 @@ def require_user(request: HttpRequest) -> User:
     if request.session.get(IMPERSONATOR_KEY) and request.method not in (
         "GET", "HEAD", "OPTIONS",
     ):
-        if request.path != "/api/admin/stop-impersonating":
+        if request.path not in _WRITES_ALLOWED_WHILE_VIEWING:
             raise HttpError(
                 403,
                 "You are viewing as another user. Stop impersonating before making "
                 "any change.",
             )
     return user
-
-
-def _quota_state(claim: Claim) -> tuple[bool, str | None]:
-    """Whether this paper falls inside a research faculty member's quota.
-
-    Research faculty are already paid to do research, so the scheme rewards
-    what exceeds the expectation rather than the expectation itself: papers up
-    to the quota carry no remuneration and only the surplus is reimbursed.
-
-    Position is **handed out once and stored**, in `quota_position`. Deriving
-    it was tried and does not work: `created_at` comes from a clock coarser
-    than the loop that writes the rows, so several claims share a timestamp to
-    the microsecond, and the id is a random uuid, so breaking that tie on the
-    id orders papers arbitrarily. With the amount recomputed at creation, a
-    paper filed fifth could take first place and be zeroed while an earlier
-    one was paid — four of five papers landed inside a quota of two before
-    this was a stored number.
-
-    A draft gets a provisional position and keeps none: an unfinished paper
-    must not consume somebody's allowance.
-
-    Returns (inside_the_quota, why).
-    """
-    owner = claim.owner
-    if owner is None or owner.faculty_type != "RESEARCH":
-        return False, None
-    quota = owner.research_quota
-    if not quota:
-        return False, None
-    if claim.claim_reason == ClaimReason.COUNT_ONLY:
-        # It asks for no money, so it cannot spend the allowance for money.
-        return False, None
-
-    year = claim.publication_year
-    if not year:
-        # No year, no bucket to count against. Left payable rather than
-        # zeroed: refusing money over a missing field somebody else is
-        # supposed to verify is the wrong way round.
-        return False, None
-
-    position = claim.quota_position
-    if position is None:
-        # The next slot, not the number of slots taken. `count()` gives the
-        # same answer only while the sequence has no gaps -- and a paper whose
-        # year is corrected leaves one, after which two papers share a slot.
-        highest = (
-            Claim.objects.filter(
-                owner=owner, publication_year=year, quota_position__isnull=False
-            )
-            .exclude(pk=claim.pk)
-            .aggregate(top=Max("quota_position"))["top"]
-            or 0
-        )
-        position = highest + 1
-        # Assigned by `_assign_quota_position` at submission, not here: at the
-        # moment this runs during a submit the claim is still DRAFT, so a
-        # status test here never fires. This function only *reads*.
-
-    # The stored number decides, not this paper's rank among the year's.
-    # Ranking -- count the year's papers below this one, add one -- was
-    # considered, because "a quota of 2" means "the year's first two papers"
-    # and the two readings differ the moment the sequence has a hole. They
-    # differ in exactly one bucket: the one `Claim._close_quota_gap` refuses
-    # to renumber because a paper that would move down has already been paid.
-    # Ranking there would move that paper from outside the quota to inside it
-    # and reprice settled money downward -- which is the thing the model
-    # declines to do, so doing it here would only be doing it later and in
-    # another file. Everywhere else the sequence is kept hole-free and the two
-    # readings agree, so the rank query would buy nothing and cost a COUNT on
-    # every pass of `_apply_calc` -- every create, patch, submit, re-verify,
-    # bulk clear and monthly batch row.
-    if position <= quota:
-        return True, (
-            f"Paper {position} of a {quota}-paper research quota for {year}. "
-            "The quota is what the post already expects, so it carries no "
-            "remuneration — only papers beyond it are reimbursed."
-        )
-    return False, (
-        f"Paper {position} for {year}, beyond the {quota}-paper research "
-        "quota, so it is reimbursed in full."
-    )
 
 
 def _quartile_year_note(c: Claim) -> str | None:

@@ -1,13 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
-import { Bell } from "lucide-react"
+import { Link, useNavigate } from "react-router-dom"
+import {
+  Award,
+  Bell,
+  CalendarDays,
+  Clock,
+  FileCheck2,
+  FilePen,
+  FileText,
+  FileX2,
+  Handshake,
+  Inbox,
+  IndianRupee,
+  MessageSquare,
+  Quote,
+  ShieldCheck,
+  Target,
+  type LucideIcon,
+} from "lucide-react"
 
+import { useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
+import { formatCount } from "@/lib/count"
 import { api } from "@/lib/api"
 import { useApi } from "@/lib/query"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/ui/button"
+import { Avatar } from "@/ui/person"
+import { Picture } from "@/ui/picture"
+import { toDisplay } from "@/ui/mention-text"
 import { Meta } from "@/ui/text"
+import { toast } from "@/ui/toast"
 
 /**
  * The bell, and what is behind it.
@@ -38,13 +61,57 @@ import { Meta } from "@/ui/text"
  *   review, because whichever mount you are looking at is the one that works.
  */
 
-type Notification = {
+export type Notification = {
   id: string
   title: string
   body: string | null
   href: string | null
   read: boolean
   created_at: string
+  /** The kind of alert (core.services.notify.KINDS) and the tab it sits under. */
+  kind?: string
+  section?: string
+  /** How many things one grouped line stands for: "Asha and 2 others ...". */
+  count?: number
+  /** Whoever did it most recently, with a face; null for system lines. */
+  actor?: { user_id: string; name: string; initials: string; photo_url: string | null } | null
+  /** Set on "Approved for payment" and "Paid" for your own paper: offer to share it. */
+  share_paper_id?: string | null
+}
+
+/** The filter tabs, shared by the bell and the notifications screen. */
+export const SECTION_TABS: { key: string; label: string }[] = [
+  { key: "", label: "All" },
+  { key: "papers", label: "Papers" },
+  { key: "people", label: "People" },
+  { key: "work", label: "Work" },
+  { key: "updates", label: "Updates" },
+]
+
+/**
+ * The tabs a person can use. "Work" holds the alerts about papers reaching a
+ * queue somebody works from; a faculty member has no queue, so an always-empty
+ * tab would only ask them what it means.
+ */
+export function sectionTabsFor(role: string | undefined): { key: string; label: string }[] {
+  return role === "FACULTY" ? SECTION_TABS.filter((t) => t.key !== "work") : SECTION_TABS
+}
+
+export function listPath(section: string): string {
+  return section ? `/api/notifications?section=${section}` : "/api/notifications"
+}
+
+/** The number a grouped line stands for, beside its title. */
+export function GroupCount({ count }: { count?: number }) {
+  if (!count || count < 2) return null
+  return (
+    <span
+      title={`${count} in this line`}
+      className="shrink-0 rounded-full bg-sunken px-1.5 text-xs font-medium tabular-nums text-fg-muted"
+    >
+      {count}
+    </span>
+  )
 }
 
 /** How often the unread count is refetched while the app is open. */
@@ -64,7 +131,7 @@ const DESTINATIONS: Record<string, string> = {
   "/admin": "/",
 }
 
-function destinationFor(href: string | null): string | null {
+export function destinationFor(href: string | null): string | null {
   if (!href) return null
   const [path, query] = href.split("?")
   // Walk up the path so an unlisted child of a section that moved lands on the
@@ -86,7 +153,7 @@ function destinationFor(href: string | null): string | null {
   return query ? `${to}?${query}` : to
 }
 
-function relative(iso: string): string {
+export function relative(iso: string): string {
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) return ""
   const seconds = Math.round((Date.now() - then) / 1000)
@@ -102,6 +169,8 @@ function relative(iso: string): string {
 
 export function NotificationBell({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
+  const [section, setSection] = useState("")
+  const { me } = useAuth()
   const rootRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const bellRef = useRef<HTMLButtonElement>(null)
@@ -120,7 +189,7 @@ export function NotificationBell({ className }: { className?: string }) {
   // actually opened: polling fifty rows every forty-five seconds to render one
   // number is fifty rows nobody looked at. While it is open it polls alongside
   // the count, so the badge and the rows beneath it cannot disagree.
-  const listQuery = useApi<Notification[]>(["notifications", "list"], "/api/notifications", {
+  const listQuery = useApi<Notification[]>(["notifications", "list", section], listPath(section), {
     enabled: open,
     refetchInterval: open ? POLL_MS : false,
     refetchOnMount: "always",
@@ -206,8 +275,9 @@ export function NotificationBell({ className }: { className?: string }) {
     try {
       await api("/api/notifications/read-all", { method: "POST" })
       await qc.invalidateQueries({ queryKey: ["notifications"] })
-    } catch {
-      // Nothing is lost by a failed mark-all; the rows are still there.
+      toast.ok("Marked all read.")
+    } catch (err) {
+      toast.fail(err)
     }
   }
 
@@ -233,7 +303,7 @@ export function NotificationBell({ className }: { className?: string }) {
                 "rounded-full bg-critical px-1 text-[10px] font-semibold leading-4 text-accent-fg"
               )}
             >
-              {unread > 99 ? "99+" : unread}
+              {formatCount(unread)}
             </span>
           )}
         </span>
@@ -279,6 +349,29 @@ export function NotificationBell({ className }: { className?: string }) {
             )}
           </div>
 
+          <div
+            role="tablist"
+            aria-label="Which notifications"
+            className="flex gap-0.5 overflow-x-auto border-b border-line px-2 py-1.5"
+          >
+            {sectionTabsFor(me?.role).map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={section === t.key}
+                onClick={() => setSection(t.key)}
+                className={cn(
+                  "h-6 shrink-0 rounded-sm px-2 text-xs font-medium transition-colors",
+                  "duration-[var(--dur-1)] ease-out",
+                  section === t.key ? "bg-sunken text-fg" : "text-fg-muted hover:text-fg"
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
           <div className="max-h-96 overflow-y-auto">
             {listQuery.isLoading ? (
               <p className="px-3 py-8 text-center text-sm text-fg-muted">Loading…</p>
@@ -287,47 +380,161 @@ export function NotificationBell({ className }: { className?: string }) {
                 Could not load these. Nothing has been lost.
               </p>
             ) : items.length === 0 ? (
-              <p className="px-3 py-8 text-center text-sm text-fg-muted">
-                Nothing yet. You will hear when a ticket needs you.
-              </p>
+              <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
+                <Picture name="empty-no-notifications" className="w-28" />
+                <p className="text-sm text-fg-muted">
+                  {section
+                    ? "Nothing in this tab. Try All."
+                    : "You are all caught up. You will hear here when something concerns you."}
+                </p>
+              </div>
             ) : (
+              <>
+              {groupByDay(items).map(([label, group]) => (
+              <div key={label}>
+              <p className="sticky top-0 z-10 bg-surface px-3 pb-1 pt-2 text-xs font-medium text-fg-subtle">
+                {label}
+              </p>
               <ul className="divide-y divide-line">
-                {items.map((item) => (
+                {group.map((item) => (
                   <li key={item.id}>
                     <button
                       type="button"
                       data-row=""
                       onClick={() => follow(item)}
                       className={cn(
-                        "block w-full px-3 py-2.5 text-left transition-colors",
+                        "block w-full px-3 py-2.5 text-left transition-colors outline-none",
                         "duration-[var(--dur-1)] ease-out hover:bg-hover",
+                        "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
                         !item.read && "bg-accent-wash"
                       )}
                     >
-                      <span className="flex items-baseline gap-2">
-                        <span
-                          className={cn(
-                            "min-w-0 flex-1 truncate text-sm",
-                            !item.read && "font-medium"
-                          )}
-                        >
-                          {item.title}
-                        </span>
-                        <Meta className="shrink-0 text-xs">{relative(item.created_at)}</Meta>
-                      </span>
-                      {item.body && (
-                        <span className="mt-0.5 line-clamp-2 block text-sm text-fg-muted">
-                          {item.body}
-                        </span>
-                      )}
+                      <NotificationLine item={item} compact />
                     </button>
+                    {item.share_paper_id && (
+                      // Outside the row's button: a control inside a control is
+                      // two targets a screen reader announces as one.
+                      <div className="pb-2 pl-14 pr-3">
+                        <Button
+                          kind="default"
+                          size="sm"
+                          onClick={() => {
+                            if (!item.read) void markRead(item.id)
+                            close(false)
+                            navigate(`/discussions?share=${item.share_paper_id}`)
+                          }}
+                        >
+                          Share to the feed
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
+              </div>
+              ))}
+              </>
             )}
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-2 text-sm">
+            <Link
+              to="/notifications"
+              onClick={() => close(false)}
+              className="text-fg-muted underline-offset-2 hover:text-fg hover:underline"
+            >
+              See all
+            </Link>
+            <Link
+              to="/settings/notifications"
+              onClick={() => close(false)}
+              className="text-fg-muted underline-offset-2 hover:text-fg hover:underline"
+            >
+              Settings
+            </Link>
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+/** Today, Earlier this week, Older -- in that order, empty groups left out.
+ *  "This week" starts on Monday, as the weekly summary does. */
+export function groupByDay<T extends { created_at: string }>(
+  items: T[],
+  now: Date = new Date()
+): [string, T[]][] {
+  const start = new Date(now)
+  start.setHours(0, 0, 0, 0)
+  const today = start.getTime()
+  const monday = today - ((start.getDay() + 6) % 7) * 86_400_000
+  const groups: Record<string, T[]> = { Today: [], "Earlier this week": [], Older: [] }
+  for (const item of items) {
+    const t = new Date(item.created_at).getTime()
+    groups[t >= today ? "Today" : t >= monday ? "Earlier this week" : "Older"].push(item)
+  }
+  return (["Today", "Earlier this week", "Older"] as const)
+    .filter((k) => groups[k].length)
+    .map((k) => [k, groups[k]])
+}
+
+/** A small glyph for what the line is about, when no person did it. */
+const KIND_ICONS: Record<string, LucideIcon> = {
+  claim_approved: FileCheck2,
+  claim_paid: IndianRupee,
+  claim_sent_back: FilePen,
+  claim_not_accepted: FileX2,
+  claim_status: FileText,
+  citation: Quote,
+  digest: CalendarDays,
+  nudge_cutoff: Clock,
+  nudge_quota: Clock,
+  desk: Inbox,
+  message: MessageSquare,
+  collab: Handshake,
+  badge: Award,
+  target: Target,
+  moderation: ShieldCheck,
+}
+
+/** The face of whoever did it, or the kind's glyph. */
+export function NotificationLead({ item }: { item: Notification }) {
+  if (item.actor) return <Avatar person={item.actor} size="sm" />
+  const Icon = (item.kind && KIND_ICONS[item.kind]) || Bell
+  return (
+    <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-sunken">
+      <Icon className="size-4 text-fg-muted" />
+    </span>
+  )
+}
+
+/** One line: lead, what happened, when, and a dot while unread. */
+export function NotificationLine({ item, compact }: { item: Notification; compact?: boolean }) {
+  return (
+    <span className="flex items-start gap-3">
+      <NotificationLead item={item} />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          <span className={cn("min-w-0 flex-1 text-sm", compact && "truncate", !item.read && "font-medium")}>
+            {item.title}
+          </span>
+          <GroupCount count={item.count} />
+          <Meta className="shrink-0 text-xs">{relative(item.created_at)}</Meta>
+        </span>
+        {item.body && (
+          <span
+            className={cn(
+              "mt-0.5 block text-sm text-fg-muted",
+              compact ? "line-clamp-2" : "line-clamp-3 whitespace-pre-line"
+            )}
+          >
+            {toDisplay(item.body).text}
+          </span>
+        )}
+      </span>
+      <span className="flex h-5 w-2 shrink-0 items-center">
+        {!item.read && <span role="img" aria-label="Unread" className="size-2 rounded-full bg-accent" />}
+      </span>
+    </span>
   )
 }

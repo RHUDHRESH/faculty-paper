@@ -1,6 +1,6 @@
 import * as RadixMenu from "@radix-ui/react-dropdown-menu"
 
-import { menuPop, popKeyframes } from "@/ui/motion"
+import { menuPop, popKeyframes } from "@/ui/pop"
 import { cn } from "@/lib/cn"
 
 /**
@@ -48,7 +48,7 @@ export function MenuContent({
             ...style,
           }}
           className={cn(
-            "z-50 min-w-[10rem] overflow-hidden rounded-md bg-surface p-1",
+            "z-50 min-w-[10rem] overflow-hidden rounded-panel bg-surface p-1",
             "shadow-pop",
             menuPop,
             className

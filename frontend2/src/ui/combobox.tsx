@@ -171,7 +171,7 @@ export function Combobox({
         aria-invalid={ariaInvalid}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-8 w-full items-center justify-between gap-2 rounded-md bg-surface px-2.5 text-sm",
+          "flex h-8 w-full items-center justify-between gap-2 rounded-control bg-surface px-2.5 text-sm",
           "ring-1 ring-inset ring-field outline-none",
           "focus-visible:ring-2 focus-visible:ring-accent",
           "disabled:pointer-events-none disabled:opacity-50"
@@ -184,7 +184,7 @@ export function Combobox({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[14rem] rounded-lg bg-surface shadow-pop">
+        <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[14rem] rounded-panel bg-surface shadow-pop">
           <div className="border-b border-line p-1.5">
             <input
               ref={searchRef}

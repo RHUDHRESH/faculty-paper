@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
-import { useSearchParams } from "react-router-dom"
-import { CircleCheck, Download, Pencil, Search } from "lucide-react"
+import { Link, useSearchParams } from "react-router-dom"
+import { AlertTriangle, CircleCheck, Download, Pencil, Search } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
@@ -18,10 +18,16 @@ import {
 } from "@/ui/dialog"
 import { Field, Input, Textarea } from "@/ui/field"
 import { Pagination } from "@/ui/pagination"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { stickyHeadCell, TableScroller } from "@/ui/table"
-import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
+import { EmptyState, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
+import { stickyHeadCell, Table, TableScroller } from "@/ui/table"
+import { ColumnLabel, Meta, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { Answer } from "@/ui/answer"
+import { PageHeader } from "@/ui/page-header"
+import { Details, Rows, Section } from "@/ui/section"
+import { n, papersUrl } from "@/pages/principal-parts"
+import { Avatar, initialsOf } from "@/ui/person"
+import { unshout } from "@/lib/names"
 
 /**
  * The NAAC / NIRF submission, and — the part that makes it a screen rather
@@ -63,6 +69,9 @@ type PackRow = {
   link: string
   /** "Yes" | "No" | "Not checked" — the last when no UGC-CARE list is loaded. */
   ugc_care: string
+  /** "claim" (editable here) or "record": a paper on the publication record nobody claimed. */
+  source?: "claim" | "record"
+  owner_photo_url?: string | null
   /** Human labels for what this row is missing. Empty means it is complete. */
   gaps: string[]
 }
@@ -80,7 +89,8 @@ type PackRowsPayload = {
   editable: Record<string, string>
 }
 
-const EXPORT_FORMATS = ["xlsx", "csv", "json", "pdf", "docx"] as const
+// The workbook (xlsx) is the header's one download; these are the same rows in the other formats an office is asked for.
+const EXPORT_FORMATS = ["csv", "json", "pdf", "docx"] as const
 
 /* ------------------------------------------------------------------------ */
 /* Page                                                                      */
@@ -169,15 +179,28 @@ export function Accreditation() {
   ]
 
   return (
-    <div className="page space-y-6">
-      <header>
-        <PageTitle>Accreditation</PageTitle>
-        <Sub className="mt-1">
-          The NAAC and NIRF tables, built from what the system already holds — and the rows an
-          assessor would send back.
-        </Sub>
-      </header>
+    <div className="page space-y-10">
+      <PageHeader
+        title="Accreditation"
+        sub="Where the college stands for NAAC Criterion 3 and NIRF, and the paper list an assessor would check."
+        spot="spot-accreditation"
+        action={
+          <Button kind="primary" asChild>
+            <a href={`/api/reports/pack?${new URLSearchParams({ ...(year ? { year } : {}), fmt: "xlsx" }).toString()}`} download>
+              <Download />
+              Download the NAAC and NIRF workbook
+            </a>
+          </Button>
+        }
+      />
 
+      <Standing year={year} ugcLoaded={data?.ugc_list_loaded} gaps={gaps} />
+
+      <Section
+        title="The paper list"
+        sub="One row for each college author of each paper, in the order NAAC 3.4.3 asks. The workbook above carries all of it; here you find what an assessor would send back."
+      >
+      <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <ColumnLabel className="mb-1 block">Publication year</ColumnLabel>
@@ -208,14 +231,6 @@ export function Accreditation() {
         </div>
       </div>
 
-      {data && !data.ugc_list_loaded && (
-        <Callout tone="caution" title="No UGC-CARE list is loaded">
-          Every row's UGC-CARE column reads “Not checked”, which is not the same as “not
-          listed”. Import the list before submitting, or that column says nothing an assessor
-          can use.
-        </Callout>
-      )}
-
       {/* Withheld when the request failed with nothing cached behind it.
           `gaps` falls back to an empty array, and an empty `gaps` is what
           `GapStrip` reads as "clean" — so a failed request rendered "0 rows
@@ -243,7 +258,7 @@ export function Accreditation() {
               ? "Not allowed. The submission is open to the office, the Principal and Finance."
               : "The server did not answer. Nothing has been changed."
           }
-          onRetry={error?.status === 403 ? undefined : () => refetch()}
+          onRetry={error?.status === 403 ? false : () => refetch()}
         />
       ) : rows.length === 0 ? (
         <EmptyState
@@ -301,7 +316,193 @@ export function Accreditation() {
           onClose={() => setEditing(null)}
         />
       )}
+      </div>
+      </Section>
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Where we stand                                                            */
+/* ------------------------------------------------------------------------ */
+
+type Summary = {
+  year: number
+  teachers: number
+  naac_331: { from: number; to: number; papers: number; teachers: number; per_teacher: number | null; band: number }
+  table: {
+    year: number
+    papers: number
+    per_teacher: number | null
+    record_papers: number
+    scopus: number
+    top_quartile: number
+    retraction_signals: number
+  }[]
+  scopus_share: number
+  retraction_signals: number
+  retraction_examples: { id: string; year: number; title: string; phrase: string }[]
+  ugc_list_loaded: boolean
+}
+
+/**
+ * The answer before the rows (docs/jtbd/principal.md, Q4).
+ *
+ * The Principal is asked one thing of this page: "where do we stand for NAAC
+ * 3.3.1 and NIRF, and what would weaken it?" The rows below answer a different
+ * question, the research cell's ("which entries would an assessor send
+ * back?"), and led the page, so the answer sat under a 6,330-row list. The
+ * figures are the brief's own (one service), plus what NIRF reads: Scopus
+ * listing, the top-quartile share, and papers whose title carries a
+ * retraction notice, which NIRF now penalises.
+ */
+function Standing({
+  year,
+  ugcLoaded,
+  gaps,
+}: {
+  year: string
+  ugcLoaded: boolean | undefined
+  gaps: { key: string; count: number }[]
+}) {
+  const s = useApi<Summary>(["reports", "accreditation", year], `/api/reports/accreditation${year ? `?year=${year}` : ""}`)
+  const d = s.data
+  if (s.isError) return <InlineError message="Could not load where the college stands." onRetry={() => s.refetch()} />
+  const missing = (label: string) => gaps.find((g) => g.key === label)?.count ?? 0
+  const last = d?.table[d.table.length - 1]
+  const perTeacher = d?.naac_331.per_teacher
+  const loaded = d?.ugc_list_loaded ?? ugcLoaded
+
+  return (
+    <div className="space-y-8">
+      <Answer
+        items={[
+          {
+            value: d ? (perTeacher == null ? "None" : String(perTeacher)) : null,
+            label: d
+              ? `papers per teacher, ${d.naac_331.from} to ${d.naac_331.to} (NAAC 3.3.1, band ${d.naac_331.band} of 4)`
+              : "NAAC 3.3.1",
+            to: d ? `/reports/brief?year=${d.year}#departments` : undefined,
+          },
+          {
+            value: d ? `${d.scopus_share}%` : null,
+            label: "of the record's papers are listed in Scopus, which NIRF reads",
+            to: d ? papersUrl({ year: d.year }) : undefined,
+          },
+          {
+            value: last && last.record_papers ? `${Math.round((100 * last.top_quartile) / last.record_papers)}%` : d ? "None" : null,
+            label: d ? `of ${d.year}'s papers are in Q1 or Q2 journals, the NIRF quality measure` : "in Q1 or Q2 journals",
+            to: d ? papersUrl({ year: d.year, quartile: "top" }) : undefined,
+          },
+          {
+            value: d ? d.retraction_signals : null,
+            label: "papers with a retraction notice in the title",
+            zero: "No retraction notice in a title",
+            tone: d && d.retraction_signals > 0 ? "critical" : "neutral",
+          },
+        ]}
+      />
+
+      <Section title="What would weaken it" sub="Each is a check the college can settle before the IQAC submits.">
+        <Rows>
+          <Check
+            ok={loaded === true}
+            label="The UGC-CARE list is loaded"
+            detail={
+              loaded
+                ? "Loaded, so the UGC-CARE column answers yes or no."
+                : "Not loaded. NAAC 3.3.1 counts UGC-CARE journals only, so the figure above is a ceiling, and every row's UGC-CARE column reads “Not checked”, which is not the same as “not listed”."
+            }
+            to={loaded ? undefined : "/reference"}
+          />
+          <Check
+            ok={missing("No ISSN") === 0}
+            label="Every row has an ISSN"
+            detail={missing("No ISSN") ? `${missing("No ISSN").toLocaleString("en-IN")} rows have no ISSN, so an assessor cannot check the journal.` : "Every row has one."}
+          />
+          <Check
+            ok={missing("No link to the paper") === 0}
+            label="Every row links to the paper"
+            detail={
+              missing("No link to the paper")
+                ? `${missing("No link to the paper").toLocaleString("en-IN")} rows have no link. NAAC does not count a paper it cannot open.`
+                : "Every row has one."
+            }
+          />
+          <Check
+            ok={(d?.retraction_signals ?? 0) === 0}
+            label="No paper looks retracted"
+            detail={
+              d?.retraction_signals
+                ? `${d.retraction_signals} titles carry a retraction or withdrawal notice. NIRF takes marks off for retracted papers.`
+                : "No title carries a retraction notice. A quiet retraction would not show here."
+            }
+            to={d?.retraction_signals ? "/reports/papers?q=retract" : undefined}
+          />
+        </Rows>
+        {d && d.retraction_examples.length > 0 && (
+          <Details className="mt-2" count={d.retraction_examples.length} label="titles with a notice">
+            <Rows>
+              {d.retraction_examples.map((r) => (
+                <li key={r.id} className="px-1 py-2 text-sm sm:px-2">
+                  {unshout(r.title)} <Meta>({r.year})</Meta>
+                </li>
+              ))}
+            </Rows>
+          </Details>
+        )}
+      </Section>
+
+      <Section
+        title="Five years, as the assessors ask"
+        sub="Papers and the rate per teacher come from the year brief. Scopus, Q1 or Q2 and retraction columns count the papers on the publication record."
+      >
+        <Table
+          rows={d ? [...d.table].reverse() : []}
+          columns={[
+            { key: "year", header: "Year", cell: (r) => String(r.year) },
+            { key: "papers", header: "Papers", align: "right", cell: (r) => (
+              <Link to={papersUrl({ year: r.year })} className="underline-offset-4 hover:underline">{n(r.papers)}</Link>
+            ) },
+            { key: "per", header: "Per teacher", align: "right", cell: (r) => n(r.per_teacher) },
+            { key: "scopus", header: "In Scopus", align: "right", empty: "None", cell: (r) => (r.scopus ? n(r.scopus) : null) },
+            { key: "top", header: "In Q1 or Q2", align: "right", empty: "None", cell: (r) => (r.top_quartile ? n(r.top_quartile) : null) },
+            { key: "ret", header: "Retraction notices", align: "right", empty: "None", cell: (r) => (r.retraction_signals ? n(r.retraction_signals) : null) },
+          ]}
+          getKey={(r) => String(r.year)}
+          maxHeight="none"
+          caption="Five years of papers for NAAC and NIRF"
+          empty={{ title: "No papers on record", message: "Nothing has been published in these years." }}
+        />
+        <Sub className="mt-2 text-sm">
+          Teachers are today&apos;s roll of {d ? n(d.teachers) : "…"}; earlier years are divided by it, because no headcount history is kept.
+        </Sub>
+      </Section>
+    </div>
+  )
+}
+
+function Check({ ok, label, detail, to }: { ok: boolean; label: string; detail: string; to?: string }) {
+  return (
+    <li className="flex items-start gap-3 px-1 py-2.5 sm:px-2">
+      {ok ? (
+        <CircleCheck className="mt-0.5 size-4 shrink-0 text-positive" aria-hidden />
+      ) : (
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-caution" aria-hidden />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block text-base">
+          {label}
+          <span className={cn("ml-2 text-sm", ok ? "text-positive" : "text-caution")}>{ok ? "Ready" : "To settle"}</span>
+        </span>
+        <span className="block text-sm text-fg-muted">{detail}</span>
+      </span>
+      {to && (
+        <Link to={to} className="shrink-0 text-sm text-accent underline-offset-4 hover:underline">
+          Open
+        </Link>
+      )}
+    </li>
   )
 }
 
@@ -336,7 +537,7 @@ function GapStrip({
   const clean = gaps.length === 0
 
   return (
-    <div className="space-y-2 border-y border-line py-3">
+    <div className="space-y-2">
       <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
         <div>
           <ColumnLabel className="block">
@@ -350,8 +551,8 @@ function GapStrip({
           </Meta>
         ) : (
           <Meta>
-            {incomplete.toLocaleString("en-IN")} would be sent back — each chip below is the
-            list of rows to fix, across the whole filter rather than this page
+            {incomplete.toLocaleString("en-IN")} would be sent back. Each button below is the
+            list of rows to fix, across the whole filter rather than this page.
           </Meta>
         )}
       </div>
@@ -447,7 +648,7 @@ function PackTable({
                 // shown in their words, in the critical colour, in place of
                 // the empty string.
                 const gap = gapFor(c.field, row)
-                const canEdit = mayEdit && Boolean(editable[editableFieldFor(c.field)])
+                const canEdit = mayEdit && row.source !== "record" && Boolean(editable[editableFieldFor(c.field)])
 
                 return (
                   <td key={c.field} className="max-w-[24rem] px-3 py-2 align-middle">
@@ -473,8 +674,21 @@ function PackTable({
                           >
                             {value}
                           </span>
+                        ) : c.field === "owner_name" && value ? (
+                          <span className="flex min-w-0 items-center gap-2">
+                            <Avatar
+                              person={{ name: value, initials: initialsOf(value), photo_url: row.owner_photo_url ?? null }}
+                              size="xs"
+                            />
+                            <span className="truncate">{value}</span>
+                          </span>
+                        ) : c.field === "paper_title" && row.source === "record" ? (
+                          <span title="On the college publication record; nobody has filed a claim for it">
+                            {value}
+                            <Meta className="ml-1.5">not claimed</Meta>
+                          </span>
                         ) : (
-                          value || "—"
+                          value || "Not recorded"
                         )}
                       </span>
                       {canEdit && (
@@ -549,7 +763,7 @@ function EditFieldDialog({
   async function submit() {
     try {
       await edit.mutateAsync({ field, value: value.trim(), reason: trimmed })
-      toast.ok(`Corrected — ${label} on “${short(row.paper_title)}”`)
+      toast.ok(`Corrected. ${label} on “${short(row.paper_title)}”`)
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -611,7 +825,7 @@ function EditFieldDialog({
 function ExportMenu({ filters }: { filters: URLSearchParams }) {
   return (
     <div className="flex items-center gap-1">
-      <Meta className="mr-1">Download</Meta>
+      <Meta className="mr-1">Also download as</Meta>
       {EXPORT_FORMATS.map((fmt) => {
         const query = new URLSearchParams(filters)
         query.delete("q")
@@ -619,7 +833,6 @@ function ExportMenu({ filters }: { filters: URLSearchParams }) {
         return (
           <Button key={fmt} kind="quiet" size="sm" asChild>
             <a href={`/api/reports/pack?${query.toString()}`} download>
-              {fmt === "xlsx" && <Download />}
               {fmt}
             </a>
           </Button>

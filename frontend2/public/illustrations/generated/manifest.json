@@ -1,0 +1,4016 @@
+{
+  "source": "ChatGPT image generation (Create image tool) on the project owner's ChatGPT account, requested by the owner",
+  "style": "Style: minimal editorial illustration, soft hand-drawn ink line with gentle flat colour fills, warm off-white paper background (#F5F0E8), limited warm palette — clay/terracotta accent (#C96A4A), muted sage (#8FA58A), soft ink navy (#2F3A5C), warm sand (#E8DCC8), charcoal lines (#2B2B2B); calm, optimistic, academic; plenty of negative space; no text, no letters, no numbers, no logos, no brand marks, no real people's likenesses; consistent line weight.",
+  "count": 213,
+  "assets": [
+    {
+      "name": "empty-no-papers",
+      "category": "empty-state",
+      "purpose": "No papers filed yet",
+      "page": "My papers (empty)",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-papers.svg",
+        "webp": "/illustrations/generated/empty-no-papers.webp",
+        "png": "/illustrations/generated/empty-no-papers.png"
+      },
+      "bytes": {
+        "svg": 44630,
+        "webp": 20438,
+        "png": 19387
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-nothing-to-review",
+      "category": "empty-state",
+      "purpose": "Review queue is clear",
+      "page": "Clearing / approvals (empty queue)",
+      "files": {
+        "svg": "/illustrations/generated/empty-nothing-to-review.svg",
+        "webp": "/illustrations/generated/empty-nothing-to-review.webp",
+        "png": "/illustrations/generated/empty-nothing-to-review.png"
+      },
+      "bytes": {
+        "svg": 40640,
+        "webp": 16684,
+        "png": 13669
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-messages",
+      "category": "empty-state",
+      "purpose": "No messages or no thread selected",
+      "page": "Messages",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-messages.svg",
+        "webp": "/illustrations/generated/empty-no-messages.webp",
+        "png": "/illustrations/generated/empty-no-messages.png"
+      },
+      "bytes": {
+        "svg": 16209,
+        "webp": 12262,
+        "png": 7892
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-results",
+      "category": "empty-state",
+      "purpose": "Search returned nothing",
+      "page": "Search, Discover, People",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-results.svg",
+        "webp": "/illustrations/generated/empty-no-results.webp",
+        "png": "/illustrations/generated/empty-no-results.png"
+      },
+      "bytes": {
+        "svg": 22449,
+        "webp": 16736,
+        "png": 13580
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-calendar",
+      "category": "empty-state",
+      "purpose": "No events or deadlines",
+      "page": "Calendar",
+      "files": {
+        "svg": "/illustrations/generated/empty-calendar.svg",
+        "webp": "/illustrations/generated/empty-calendar.webp",
+        "png": "/illustrations/generated/empty-calendar.png"
+      },
+      "bytes": {
+        "svg": 43888,
+        "webp": 20056,
+        "png": 14781
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "not-found-404",
+      "category": "error-state",
+      "purpose": "Page not found",
+      "page": "404 route",
+      "files": {
+        "svg": "/illustrations/generated/not-found-404.svg",
+        "webp": "/illustrations/generated/not-found-404.webp",
+        "png": "/illustrations/generated/not-found-404.png"
+      },
+      "bytes": {
+        "svg": 20128,
+        "webp": 13204,
+        "png": 8701
+      },
+      "sheet": "sheet01",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "file-from-index",
+      "category": "filing-method",
+      "purpose": "Filing option: pick the paper from the Scopus/indexed list",
+      "page": "File a paper (method tile 1)",
+      "files": {
+        "svg": "/illustrations/generated/file-from-index.svg",
+        "webp": "/illustrations/generated/file-from-index.webp",
+        "png": "/illustrations/generated/file-from-index.png"
+      },
+      "bytes": {
+        "svg": 69998,
+        "webp": 25996,
+        "png": 21684
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "file-paste-doi",
+      "category": "filing-method",
+      "purpose": "Filing option: paste a DOI",
+      "page": "File a paper (method tile 2)",
+      "files": {
+        "svg": "/illustrations/generated/file-paste-doi.svg",
+        "webp": "/illustrations/generated/file-paste-doi.webp",
+        "png": "/illustrations/generated/file-paste-doi.png"
+      },
+      "bytes": {
+        "svg": 57894,
+        "webp": 27242,
+        "png": 16300
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "file-by-hand",
+      "category": "filing-method",
+      "purpose": "Filing option: type the details by hand",
+      "page": "File a paper (method tile 3)",
+      "files": {
+        "svg": "/illustrations/generated/file-by-hand.svg",
+        "webp": "/illustrations/generated/file-by-hand.webp",
+        "png": "/illustrations/generated/file-by-hand.png"
+      },
+      "bytes": {
+        "svg": 74765,
+        "webp": 37062,
+        "png": 21405
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "leaderboard-honours",
+      "category": "page-spot",
+      "purpose": "Leaderboard / honours header",
+      "page": "Leaderboard, Wall of fame",
+      "files": {
+        "svg": "/illustrations/generated/leaderboard-honours.svg",
+        "webp": "/illustrations/generated/leaderboard-honours.webp",
+        "png": "/illustrations/generated/leaderboard-honours.png"
+      },
+      "bytes": {
+        "svg": 36644,
+        "webp": 23992,
+        "png": 18261
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "discover-ideas",
+      "category": "page-spot",
+      "purpose": "Discover / research ideas",
+      "page": "Discover, For you",
+      "files": {
+        "svg": "/illustrations/generated/discover-ideas.svg",
+        "webp": "/illustrations/generated/discover-ideas.webp",
+        "png": "/illustrations/generated/discover-ideas.png"
+      },
+      "bytes": {
+        "svg": 50744,
+        "webp": 30686,
+        "png": 19516
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "collaboration",
+      "category": "page-spot",
+      "purpose": "Collaboration / people working together",
+      "page": "Who to work with, Collaborate",
+      "files": {
+        "svg": "/illustrations/generated/collaboration.svg",
+        "webp": "/illustrations/generated/collaboration.webp",
+        "png": "/illustrations/generated/collaboration.png"
+      },
+      "bytes": {
+        "svg": 76307,
+        "webp": 33254,
+        "png": 20413
+      },
+      "sheet": "sheet02",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "hero-research-scout",
+      "category": "hero",
+      "purpose": "Research scout page header",
+      "page": "Research scout",
+      "files": {
+        "webp": "/illustrations/generated/hero-research-scout.webp",
+        "png": "/illustrations/generated/hero-research-scout.png"
+      },
+      "bytes": {
+        "webp": 82564,
+        "png": 118232
+      },
+      "sheet": "hero01",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "hero-sign-in",
+      "category": "hero",
+      "purpose": "Sign-in page scene (primary)",
+      "page": "Sign in",
+      "files": {
+        "webp": "/illustrations/generated/hero-sign-in.webp",
+        "png": "/illustrations/generated/hero-sign-in.png"
+      },
+      "bytes": {
+        "webp": 134226,
+        "png": 143981
+      },
+      "sheet": "hero02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "hero-sign-in-alt",
+      "category": "hero",
+      "purpose": "Sign-in page scene (alternate)",
+      "page": "Sign in / Setup",
+      "files": {
+        "webp": "/illustrations/generated/hero-sign-in-alt.webp",
+        "png": "/illustrations/generated/hero-sign-in-alt.png"
+      },
+      "bytes": {
+        "webp": 138198,
+        "png": 121392
+      },
+      "sheet": "hero02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "spot-home-faculty",
+      "category": "page-spot",
+      "purpose": "Faculty home header",
+      "page": "Home (faculty)",
+      "files": {
+        "webp": "/illustrations/generated/spot-home-faculty.webp",
+        "png": "/illustrations/generated/spot-home-faculty.png"
+      },
+      "bytes": {
+        "webp": 35126,
+        "png": 30773
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-home-hod",
+      "category": "page-spot",
+      "purpose": "Head of department home header",
+      "page": "Home (HoD)",
+      "files": {
+        "webp": "/illustrations/generated/spot-home-hod.webp",
+        "png": "/illustrations/generated/spot-home-hod.png"
+      },
+      "bytes": {
+        "webp": 36694,
+        "png": 36052
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-home-admin",
+      "category": "page-spot",
+      "purpose": "Administration home header",
+      "page": "Home (admin / office)",
+      "files": {
+        "webp": "/illustrations/generated/spot-home-admin.webp",
+        "png": "/illustrations/generated/spot-home-admin.png"
+      },
+      "bytes": {
+        "webp": 35922,
+        "png": 34588
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-search",
+      "category": "page-spot",
+      "purpose": "Search header",
+      "page": "Search",
+      "files": {
+        "webp": "/illustrations/generated/spot-search.webp",
+        "png": "/illustrations/generated/spot-search.png"
+      },
+      "bytes": {
+        "webp": 32818,
+        "png": 30286
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-my-papers",
+      "category": "page-spot",
+      "purpose": "My papers header",
+      "page": "My papers",
+      "files": {
+        "webp": "/illustrations/generated/spot-my-papers.webp",
+        "png": "/illustrations/generated/spot-my-papers.png"
+      },
+      "bytes": {
+        "webp": 39824,
+        "png": 36740
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-my-research",
+      "category": "page-spot",
+      "purpose": "My research header",
+      "page": "My research",
+      "files": {
+        "webp": "/illustrations/generated/spot-my-research.webp",
+        "png": "/illustrations/generated/spot-my-research.png"
+      },
+      "bytes": {
+        "webp": 40366,
+        "png": 34875
+      },
+      "sheet": "sheet03",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-who-to-work-with",
+      "category": "page-spot",
+      "purpose": "Who to work with header",
+      "page": "Who to work with",
+      "files": {
+        "webp": "/illustrations/generated/spot-who-to-work-with.webp",
+        "png": "/illustrations/generated/spot-who-to-work-with.png"
+      },
+      "bytes": {
+        "webp": 40246,
+        "png": 35719
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-profile",
+      "category": "page-spot",
+      "purpose": "Profile header",
+      "page": "Profiles",
+      "files": {
+        "svg": "/illustrations/generated/spot-profile.svg",
+        "webp": "/illustrations/generated/spot-profile.webp",
+        "png": "/illustrations/generated/spot-profile.png"
+      },
+      "bytes": {
+        "svg": 47137,
+        "webp": 18272,
+        "png": 17133
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-messages",
+      "category": "page-spot",
+      "purpose": "Messages header",
+      "page": "Messages",
+      "files": {
+        "svg": "/illustrations/generated/spot-messages.svg",
+        "webp": "/illustrations/generated/spot-messages.webp",
+        "png": "/illustrations/generated/spot-messages.png"
+      },
+      "bytes": {
+        "svg": 39575,
+        "webp": 20596,
+        "png": 18255
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-discussions",
+      "category": "page-spot",
+      "purpose": "Discussions header",
+      "page": "Discussions",
+      "files": {
+        "webp": "/illustrations/generated/spot-discussions.webp",
+        "png": "/illustrations/generated/spot-discussions.png"
+      },
+      "bytes": {
+        "webp": 36906,
+        "png": 33149
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-wall-of-fame",
+      "category": "page-spot",
+      "purpose": "Wall of fame header",
+      "page": "Wall of fame",
+      "files": {
+        "svg": "/illustrations/generated/spot-wall-of-fame.svg",
+        "webp": "/illustrations/generated/spot-wall-of-fame.webp",
+        "png": "/illustrations/generated/spot-wall-of-fame.png"
+      },
+      "bytes": {
+        "svg": 70575,
+        "webp": 29124,
+        "png": 30247
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-calendar",
+      "category": "page-spot",
+      "purpose": "Calendar header",
+      "page": "Calendar",
+      "files": {
+        "svg": "/illustrations/generated/spot-calendar.svg",
+        "webp": "/illustrations/generated/spot-calendar.webp",
+        "png": "/illustrations/generated/spot-calendar.png"
+      },
+      "bytes": {
+        "svg": 70471,
+        "webp": 24440,
+        "png": 22735
+      },
+      "sheet": "sheet04",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-notifications",
+      "category": "page-spot",
+      "purpose": "Notifications header",
+      "page": "Notifications",
+      "files": {
+        "svg": "/illustrations/generated/spot-notifications.svg",
+        "webp": "/illustrations/generated/spot-notifications.webp",
+        "png": "/illustrations/generated/spot-notifications.png"
+      },
+      "bytes": {
+        "svg": 15222,
+        "webp": 12960,
+        "png": 10895
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-settings",
+      "category": "page-spot",
+      "purpose": "Settings header",
+      "page": "Settings",
+      "files": {
+        "svg": "/illustrations/generated/spot-settings.svg",
+        "webp": "/illustrations/generated/spot-settings.webp",
+        "png": "/illustrations/generated/spot-settings.png"
+      },
+      "bytes": {
+        "svg": 38905,
+        "webp": 19492,
+        "png": 15448
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-approvals",
+      "category": "page-spot",
+      "purpose": "Clearing / approvals header",
+      "page": "Clearing, Approvals",
+      "files": {
+        "svg": "/illustrations/generated/spot-approvals.svg",
+        "webp": "/illustrations/generated/spot-approvals.webp",
+        "png": "/illustrations/generated/spot-approvals.png"
+      },
+      "bytes": {
+        "svg": 35075,
+        "webp": 18322,
+        "png": 14564
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-authorisations",
+      "category": "page-spot",
+      "purpose": "Authorisations header",
+      "page": "Authorisations",
+      "files": {
+        "svg": "/illustrations/generated/spot-authorisations.svg",
+        "webp": "/illustrations/generated/spot-authorisations.webp",
+        "png": "/illustrations/generated/spot-authorisations.png"
+      },
+      "bytes": {
+        "svg": 42139,
+        "webp": 21774,
+        "png": 17817
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-payouts",
+      "category": "page-spot",
+      "purpose": "Payouts / payments header",
+      "page": "Payments, Payouts",
+      "files": {
+        "svg": "/illustrations/generated/spot-payouts.svg",
+        "webp": "/illustrations/generated/spot-payouts.webp",
+        "png": "/illustrations/generated/spot-payouts.png"
+      },
+      "bytes": {
+        "svg": 29911,
+        "webp": 17942,
+        "png": 14259
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-people",
+      "category": "page-spot",
+      "purpose": "People directory header",
+      "page": "People",
+      "files": {
+        "svg": "/illustrations/generated/spot-people.svg",
+        "webp": "/illustrations/generated/spot-people.webp",
+        "png": "/illustrations/generated/spot-people.png"
+      },
+      "bytes": {
+        "svg": 30645,
+        "webp": 16332,
+        "png": 12021
+      },
+      "sheet": "sheet05",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-imports",
+      "category": "page-spot",
+      "purpose": "Imports header",
+      "page": "Imports",
+      "files": {
+        "svg": "/illustrations/generated/spot-imports.svg",
+        "webp": "/illustrations/generated/spot-imports.webp",
+        "png": "/illustrations/generated/spot-imports.png"
+      },
+      "bytes": {
+        "svg": 32841,
+        "webp": 21000,
+        "png": 15716
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-flags",
+      "category": "page-spot",
+      "purpose": "Flags / follow-ups header",
+      "page": "Flags",
+      "files": {
+        "svg": "/illustrations/generated/spot-flags.svg",
+        "webp": "/illustrations/generated/spot-flags.webp",
+        "png": "/illustrations/generated/spot-flags.png"
+      },
+      "bytes": {
+        "svg": 18915,
+        "webp": 13284,
+        "png": 8707
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-archive",
+      "category": "page-spot",
+      "purpose": "Archive header",
+      "page": "Archive",
+      "files": {
+        "svg": "/illustrations/generated/spot-archive.svg",
+        "webp": "/illustrations/generated/spot-archive.webp",
+        "png": "/illustrations/generated/spot-archive.png"
+      },
+      "bytes": {
+        "svg": 40687,
+        "webp": 18384,
+        "png": 16387
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-audit",
+      "category": "page-spot",
+      "purpose": "Audit trail header",
+      "page": "Audit",
+      "files": {
+        "svg": "/illustrations/generated/spot-audit.svg",
+        "webp": "/illustrations/generated/spot-audit.webp",
+        "png": "/illustrations/generated/spot-audit.png"
+      },
+      "bytes": {
+        "svg": 44885,
+        "webp": 21010,
+        "png": 20452
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-reports",
+      "category": "page-spot",
+      "purpose": "Reports header",
+      "page": "Reports",
+      "files": {
+        "svg": "/illustrations/generated/spot-reports.svg",
+        "webp": "/illustrations/generated/spot-reports.webp",
+        "png": "/illustrations/generated/spot-reports.png"
+      },
+      "bytes": {
+        "svg": 25280,
+        "webp": 8870,
+        "png": 8251
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-accreditation",
+      "category": "page-spot",
+      "purpose": "Accreditation header",
+      "page": "Accreditation",
+      "files": {
+        "svg": "/illustrations/generated/spot-accreditation.svg",
+        "webp": "/illustrations/generated/spot-accreditation.webp",
+        "png": "/illustrations/generated/spot-accreditation.png"
+      },
+      "bytes": {
+        "svg": 30068,
+        "webp": 13602,
+        "png": 10590
+      },
+      "sheet": "sheet06",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-budget",
+      "category": "page-spot",
+      "purpose": "Budget header",
+      "page": "Budget",
+      "files": {
+        "svg": "/illustrations/generated/spot-budget.svg",
+        "webp": "/illustrations/generated/spot-budget.webp",
+        "png": "/illustrations/generated/spot-budget.png"
+      },
+      "bytes": {
+        "svg": 48221,
+        "webp": 22586,
+        "png": 20296
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-policy",
+      "category": "page-spot",
+      "purpose": "Policy header",
+      "page": "Policy",
+      "files": {
+        "svg": "/illustrations/generated/spot-policy.svg",
+        "webp": "/illustrations/generated/spot-policy.webp",
+        "png": "/illustrations/generated/spot-policy.png"
+      },
+      "bytes": {
+        "svg": 54203,
+        "webp": 26540,
+        "png": 20939
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-setup",
+      "category": "page-spot",
+      "purpose": "Setup / first-run configuration header",
+      "page": "Setup",
+      "files": {
+        "svg": "/illustrations/generated/spot-setup.svg",
+        "webp": "/illustrations/generated/spot-setup.webp",
+        "png": "/illustrations/generated/spot-setup.png"
+      },
+      "bytes": {
+        "svg": 46715,
+        "webp": 20494,
+        "png": 17634
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "spot-privacy",
+      "category": "page-spot",
+      "purpose": "Privacy header",
+      "page": "Privacy",
+      "files": {
+        "svg": "/illustrations/generated/spot-privacy.svg",
+        "webp": "/illustrations/generated/spot-privacy.webp",
+        "png": "/illustrations/generated/spot-privacy.png"
+      },
+      "bytes": {
+        "svg": 34289,
+        "webp": 21166,
+        "png": 16220
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-server",
+      "category": "error-state",
+      "purpose": "Server error (500) — unplugged cable",
+      "page": "500 / error boundary",
+      "files": {
+        "svg": "/illustrations/generated/error-server.svg",
+        "webp": "/illustrations/generated/error-server.webp",
+        "png": "/illustrations/generated/error-server.png"
+      },
+      "bytes": {
+        "svg": 23612,
+        "webp": 13126,
+        "png": 9255
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-offline",
+      "category": "error-state",
+      "purpose": "Offline / connection lost (renders as a cracked laptop screen under a cloud; use with clear copy)",
+      "page": "Offline banner / network error",
+      "files": {
+        "svg": "/illustrations/generated/error-offline.svg",
+        "webp": "/illustrations/generated/error-offline.webp",
+        "png": "/illustrations/generated/error-offline.png"
+      },
+      "bytes": {
+        "svg": 24742,
+        "webp": 12752,
+        "png": 9596
+      },
+      "sheet": "sheet07",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-notifications",
+      "category": "empty-state",
+      "purpose": "No notifications",
+      "page": "Notifications",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-notifications.svg",
+        "webp": "/illustrations/generated/empty-no-notifications.webp",
+        "png": "/illustrations/generated/empty-no-notifications.png"
+      },
+      "bytes": {
+        "svg": 19702,
+        "webp": 11210,
+        "png": 9504
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-discussions",
+      "category": "empty-state",
+      "purpose": "No discussions yet",
+      "page": "Discussions",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-discussions.svg",
+        "webp": "/illustrations/generated/empty-no-discussions.webp",
+        "png": "/illustrations/generated/empty-no-discussions.png"
+      },
+      "bytes": {
+        "svg": 57928,
+        "webp": 24026,
+        "png": 22725
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-badges",
+      "category": "empty-state",
+      "purpose": "No badges earned yet",
+      "page": "Profile badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-badges.svg",
+        "webp": "/illustrations/generated/empty-no-badges.webp",
+        "png": "/illustrations/generated/empty-no-badges.png"
+      },
+      "bytes": {
+        "svg": 39869,
+        "webp": 16520,
+        "png": 17120
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-collaborators",
+      "category": "empty-state",
+      "purpose": "No collaborators yet",
+      "page": "Who to work with, Profile",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-collaborators.svg",
+        "webp": "/illustrations/generated/empty-no-collaborators.webp",
+        "png": "/illustrations/generated/empty-no-collaborators.png"
+      },
+      "bytes": {
+        "svg": 42456,
+        "webp": 23136,
+        "png": 14268
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-flags",
+      "category": "empty-state",
+      "purpose": "No open flags — all clear",
+      "page": "Flags",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-flags.svg",
+        "webp": "/illustrations/generated/empty-no-flags.webp",
+        "png": "/illustrations/generated/empty-no-flags.png"
+      },
+      "bytes": {
+        "svg": 22875,
+        "webp": 12720,
+        "png": 10584
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-imports",
+      "category": "empty-state",
+      "purpose": "Nothing imported yet",
+      "page": "Imports",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-imports.svg",
+        "webp": "/illustrations/generated/empty-no-imports.webp",
+        "png": "/illustrations/generated/empty-no-imports.png"
+      },
+      "bytes": {
+        "svg": 49192,
+        "webp": 23960,
+        "png": 20839
+      },
+      "sheet": "sheet08",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-drafts",
+      "category": "empty-state",
+      "purpose": "No drafts",
+      "page": "File a paper (drafts), My papers",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-drafts.svg",
+        "webp": "/illustrations/generated/empty-no-drafts.webp",
+        "png": "/illustrations/generated/empty-no-drafts.png"
+      },
+      "bytes": {
+        "svg": 51691,
+        "webp": 21292,
+        "png": 16632
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-access-denied",
+      "category": "error-state",
+      "purpose": "Access restricted (403)",
+      "page": "403 / role-gated pages",
+      "files": {
+        "svg": "/illustrations/generated/error-access-denied.svg",
+        "webp": "/illustrations/generated/error-access-denied.webp",
+        "png": "/illustrations/generated/error-access-denied.png"
+      },
+      "bytes": {
+        "svg": 40762,
+        "webp": 18264,
+        "png": 15065
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-session-expired",
+      "category": "error-state",
+      "purpose": "Session expired — sign in again",
+      "page": "Auth expiry screen",
+      "files": {
+        "svg": "/illustrations/generated/error-session-expired.svg",
+        "webp": "/illustrations/generated/error-session-expired.webp",
+        "png": "/illustrations/generated/error-session-expired.png"
+      },
+      "bytes": {
+        "svg": 30431,
+        "webp": 17528,
+        "png": 13244
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "error-upload-failed",
+      "category": "error-state",
+      "purpose": "Upload failed — try again",
+      "page": "Attachments, File a paper",
+      "files": {
+        "svg": "/illustrations/generated/error-upload-failed.svg",
+        "webp": "/illustrations/generated/error-upload-failed.webp",
+        "png": "/illustrations/generated/error-upload-failed.png"
+      },
+      "bytes": {
+        "svg": 24568,
+        "webp": 14716,
+        "png": 10980
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-no-payouts",
+      "category": "empty-state",
+      "purpose": "No payouts yet",
+      "page": "Payouts",
+      "files": {
+        "svg": "/illustrations/generated/empty-no-payouts.svg",
+        "webp": "/illustrations/generated/empty-no-payouts.webp",
+        "png": "/illustrations/generated/empty-no-payouts.png"
+      },
+      "bytes": {
+        "svg": 24722,
+        "webp": 12812,
+        "png": 13185
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "empty-archive",
+      "category": "empty-state",
+      "purpose": "Archive is empty",
+      "page": "Archive",
+      "files": {
+        "svg": "/illustrations/generated/empty-archive.svg",
+        "webp": "/illustrations/generated/empty-archive.webp",
+        "png": "/illustrations/generated/empty-archive.png"
+      },
+      "bytes": {
+        "svg": 29062,
+        "webp": 14386,
+        "png": 14607
+      },
+      "sheet": "sheet09",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-welcome",
+      "category": "onboarding",
+      "purpose": "Welcome / first sign-in",
+      "page": "Setup step 1, first-run modal",
+      "files": {
+        "svg": "/illustrations/generated/onboard-welcome.svg",
+        "webp": "/illustrations/generated/onboard-welcome.webp",
+        "png": "/illustrations/generated/onboard-welcome.png"
+      },
+      "bytes": {
+        "svg": 58976,
+        "webp": 23494,
+        "png": 24090
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-link-author-id",
+      "category": "onboarding",
+      "purpose": "Link your Scopus / author ID",
+      "page": "Setup, Profile",
+      "files": {
+        "svg": "/illustrations/generated/onboard-link-author-id.svg",
+        "webp": "/illustrations/generated/onboard-link-author-id.webp",
+        "png": "/illustrations/generated/onboard-link-author-id.png"
+      },
+      "bytes": {
+        "svg": 50153,
+        "webp": 21674,
+        "png": 18450
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-complete-profile",
+      "category": "onboarding",
+      "purpose": "Complete your profile",
+      "page": "Setup, Profile",
+      "files": {
+        "svg": "/illustrations/generated/onboard-complete-profile.svg",
+        "webp": "/illustrations/generated/onboard-complete-profile.webp",
+        "png": "/illustrations/generated/onboard-complete-profile.png"
+      },
+      "bytes": {
+        "svg": 39529,
+        "webp": 15232,
+        "png": 13760
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-first-paper",
+      "category": "onboarding",
+      "purpose": "File your first paper (tip)",
+      "page": "Home (faculty) first-run tip, File a paper",
+      "files": {
+        "svg": "/illustrations/generated/onboard-first-paper.svg",
+        "webp": "/illustrations/generated/onboard-first-paper.webp",
+        "png": "/illustrations/generated/onboard-first-paper.png"
+      },
+      "bytes": {
+        "svg": 32366,
+        "webp": 18352,
+        "png": 13690
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-invite-colleague",
+      "category": "onboarding",
+      "purpose": "Invite a colleague / co-author",
+      "page": "Who to work with, Setup",
+      "files": {
+        "svg": "/illustrations/generated/onboard-invite-colleague.svg",
+        "webp": "/illustrations/generated/onboard-invite-colleague.webp",
+        "png": "/illustrations/generated/onboard-invite-colleague.png"
+      },
+      "bytes": {
+        "svg": 38318,
+        "webp": 22452,
+        "png": 16911
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "onboard-all-set",
+      "category": "onboarding",
+      "purpose": "Setup complete",
+      "page": "Setup final step",
+      "files": {
+        "svg": "/illustrations/generated/onboard-all-set.svg",
+        "webp": "/illustrations/generated/onboard-all-set.webp",
+        "png": "/illustrations/generated/onboard-all-set.png"
+      },
+      "bytes": {
+        "svg": 38502,
+        "webp": 17524,
+        "png": 18022
+      },
+      "sheet": "sheet10",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-first-publication",
+      "category": "celebration",
+      "purpose": "First publication moment",
+      "page": "Filing receipt, Moments",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-first-publication.svg",
+        "webp": "/illustrations/generated/celebrate-first-publication.webp",
+        "png": "/illustrations/generated/celebrate-first-publication.png"
+      },
+      "bytes": {
+        "svg": 18925,
+        "webp": 15396,
+        "png": 10812
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-ten-papers",
+      "category": "celebration",
+      "purpose": "Paper-count milestone (5/10/25)",
+      "page": "Moments, Profile",
+      "files": {
+        "webp": "/illustrations/generated/celebrate-ten-papers.webp",
+        "png": "/illustrations/generated/celebrate-ten-papers.png"
+      },
+      "bytes": {
+        "webp": 32800,
+        "png": 25923
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-top-quartile",
+      "category": "celebration",
+      "purpose": "Q1 / top-quartile journal",
+      "page": "Moments, Filing receipt",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-top-quartile.svg",
+        "webp": "/illustrations/generated/celebrate-top-quartile.webp",
+        "png": "/illustrations/generated/celebrate-top-quartile.png"
+      },
+      "bytes": {
+        "svg": 42950,
+        "webp": 19080,
+        "png": 15201
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-first-citation",
+      "category": "celebration",
+      "purpose": "First citation",
+      "page": "Moments",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-first-citation.svg",
+        "webp": "/illustrations/generated/celebrate-first-citation.webp",
+        "png": "/illustrations/generated/celebrate-first-citation.png"
+      },
+      "bytes": {
+        "svg": 21187,
+        "webp": 15628,
+        "png": 9702
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-top-department",
+      "category": "celebration",
+      "purpose": "Department in the top ten",
+      "page": "Leaderboard, HoD home",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-top-department.svg",
+        "webp": "/illustrations/generated/celebrate-top-department.webp",
+        "png": "/illustrations/generated/celebrate-top-department.png"
+      },
+      "bytes": {
+        "svg": 60973,
+        "webp": 34734,
+        "png": 23072
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "celebrate-anniversary",
+      "category": "celebration",
+      "purpose": "Anniversary / thank-you",
+      "page": "Moments, Convocation",
+      "files": {
+        "svg": "/illustrations/generated/celebrate-anniversary.svg",
+        "webp": "/illustrations/generated/celebrate-anniversary.webp",
+        "png": "/illustrations/generated/celebrate-anniversary.png"
+      },
+      "bytes": {
+        "svg": 19663,
+        "webp": 16190,
+        "png": 13229
+      },
+      "sheet": "sheet11",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-first-paper",
+      "category": "badge",
+      "purpose": "Badge FIRST_PAPER",
+      "page": "Badge shelf (ui/badge-shelf.tsx)",
+      "files": {
+        "svg": "/illustrations/generated/badge-first-paper.svg",
+        "webp": "/illustrations/generated/badge-first-paper.webp",
+        "png": "/illustrations/generated/badge-first-paper.png"
+      },
+      "bytes": {
+        "svg": 40184,
+        "webp": 22546,
+        "png": 18884
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-first-q1",
+      "category": "badge",
+      "purpose": "Badge FIRST_Q1",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-first-q1.svg",
+        "webp": "/illustrations/generated/badge-first-q1.webp",
+        "png": "/illustrations/generated/badge-first-q1.png"
+      },
+      "bytes": {
+        "svg": 31215,
+        "webp": 22942,
+        "png": 18321
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-papers-5",
+      "category": "badge",
+      "purpose": "Badge PAPERS_5",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-papers-5.svg",
+        "webp": "/illustrations/generated/badge-papers-5.webp",
+        "png": "/illustrations/generated/badge-papers-5.png"
+      },
+      "bytes": {
+        "svg": 52315,
+        "webp": 28570,
+        "png": 23084
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-papers-10",
+      "category": "badge",
+      "purpose": "Badge PAPERS_10",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-papers-10.svg",
+        "webp": "/illustrations/generated/badge-papers-10.webp",
+        "png": "/illustrations/generated/badge-papers-10.png"
+      },
+      "bytes": {
+        "svg": 77398,
+        "webp": 30426,
+        "png": 25657
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-papers-25",
+      "category": "badge",
+      "purpose": "Badge PAPERS_25",
+      "page": "Badge shelf",
+      "files": {
+        "webp": "/illustrations/generated/badge-papers-25.webp",
+        "png": "/illustrations/generated/badge-papers-25.png"
+      },
+      "bytes": {
+        "webp": 35782,
+        "png": 32235
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-first-author",
+      "category": "badge",
+      "purpose": "Badge FIRST_AUTHOR",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-first-author.svg",
+        "webp": "/illustrations/generated/badge-first-author.webp",
+        "png": "/illustrations/generated/badge-first-author.png"
+      },
+      "bytes": {
+        "svg": 40004,
+        "webp": 21926,
+        "png": 18632
+      },
+      "sheet": "sheet12",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-cross-department",
+      "category": "badge",
+      "purpose": "Badge CROSS_DEPARTMENT",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-cross-department.svg",
+        "webp": "/illustrations/generated/badge-cross-department.webp",
+        "png": "/illustrations/generated/badge-cross-department.png"
+      },
+      "bytes": {
+        "svg": 31316,
+        "webp": 21386,
+        "png": 17820
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-quota-met",
+      "category": "badge",
+      "purpose": "Badge QUOTA_MET",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-quota-met.svg",
+        "webp": "/illustrations/generated/badge-quota-met.webp",
+        "png": "/illustrations/generated/badge-quota-met.png"
+      },
+      "bytes": {
+        "svg": 32643,
+        "webp": 25116,
+        "png": 21124
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-top10-department",
+      "category": "badge",
+      "purpose": "Badge TOP10_DEPARTMENT",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-top10-department.svg",
+        "webp": "/illustrations/generated/badge-top10-department.webp",
+        "png": "/illustrations/generated/badge-top10-department.png"
+      },
+      "bytes": {
+        "svg": 41540,
+        "webp": 26806,
+        "png": 23408
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-streak-3",
+      "category": "badge",
+      "purpose": "Badge STREAK_3",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-streak-3.svg",
+        "webp": "/illustrations/generated/badge-streak-3.webp",
+        "png": "/illustrations/generated/badge-streak-3.png"
+      },
+      "bytes": {
+        "svg": 39682,
+        "webp": 20854,
+        "png": 17429
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-streak-6",
+      "category": "badge",
+      "purpose": "Badge STREAK_6",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-streak-6.svg",
+        "webp": "/illustrations/generated/badge-streak-6.webp",
+        "png": "/illustrations/generated/badge-streak-6.png"
+      },
+      "bytes": {
+        "svg": 36707,
+        "webp": 22610,
+        "png": 19129
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "badge-first-citation",
+      "category": "badge",
+      "purpose": "Badge FIRST_CITATION",
+      "page": "Badge shelf",
+      "files": {
+        "svg": "/illustrations/generated/badge-first-citation.svg",
+        "webp": "/illustrations/generated/badge-first-citation.webp",
+        "png": "/illustrations/generated/badge-first-citation.png"
+      },
+      "bytes": {
+        "svg": 32172,
+        "webp": 22380,
+        "png": 18126
+      },
+      "sheet": "sheet13",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-cse",
+      "category": "department",
+      "purpose": "Department: CSE",
+      "page": "Department page, people/department filters",
+      "files": {
+        "svg": "/illustrations/generated/dept-cse.svg",
+        "webp": "/illustrations/generated/dept-cse.webp",
+        "png": "/illustrations/generated/dept-cse.png"
+      },
+      "bytes": {
+        "svg": 22226,
+        "webp": 9996,
+        "png": 11218
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-ece",
+      "category": "department",
+      "purpose": "Department: ECE",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-ece.svg",
+        "webp": "/illustrations/generated/dept-ece.webp",
+        "png": "/illustrations/generated/dept-ece.png"
+      },
+      "bytes": {
+        "svg": 20906,
+        "webp": 14974,
+        "png": 9250
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-eee",
+      "category": "department",
+      "purpose": "Department: EEE",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-eee.svg",
+        "webp": "/illustrations/generated/dept-eee.webp",
+        "png": "/illustrations/generated/dept-eee.png"
+      },
+      "bytes": {
+        "svg": 24818,
+        "webp": 18262,
+        "png": 11490
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-mech",
+      "category": "department",
+      "purpose": "Department: MECH",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-mech.svg",
+        "webp": "/illustrations/generated/dept-mech.webp",
+        "png": "/illustrations/generated/dept-mech.png"
+      },
+      "bytes": {
+        "svg": 29842,
+        "webp": 15152,
+        "png": 12664
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-auto",
+      "category": "department",
+      "purpose": "Department: AUTO (Automobile)",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-auto.svg",
+        "webp": "/illustrations/generated/dept-auto.webp",
+        "png": "/illustrations/generated/dept-auto.png"
+      },
+      "bytes": {
+        "svg": 22742,
+        "webp": 19540,
+        "png": 18557
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-it",
+      "category": "department",
+      "purpose": "Department: IT",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-it.svg",
+        "webp": "/illustrations/generated/dept-it.webp",
+        "png": "/illustrations/generated/dept-it.png"
+      },
+      "bytes": {
+        "svg": 22066,
+        "webp": 13534,
+        "png": 8728
+      },
+      "sheet": "sheet14",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-civil",
+      "category": "department",
+      "purpose": "Department: CIVIL",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-civil.svg",
+        "webp": "/illustrations/generated/dept-civil.webp",
+        "png": "/illustrations/generated/dept-civil.png"
+      },
+      "bytes": {
+        "svg": 40727,
+        "webp": 19236,
+        "png": 14680
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-aids",
+      "category": "department",
+      "purpose": "Department: AI&DS",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-aids.svg",
+        "webp": "/illustrations/generated/dept-aids.webp",
+        "png": "/illustrations/generated/dept-aids.png"
+      },
+      "bytes": {
+        "svg": 16741,
+        "webp": 15012,
+        "png": 8799
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-aiml",
+      "category": "department",
+      "purpose": "Department: AI&ML",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-aiml.svg",
+        "webp": "/illustrations/generated/dept-aiml.webp",
+        "png": "/illustrations/generated/dept-aiml.png"
+      },
+      "bytes": {
+        "svg": 25970,
+        "webp": 14200,
+        "png": 14067
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-bme",
+      "category": "department",
+      "purpose": "Department: BME",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-bme.svg",
+        "webp": "/illustrations/generated/dept-bme.webp",
+        "png": "/illustrations/generated/dept-bme.png"
+      },
+      "bytes": {
+        "svg": 31982,
+        "webp": 18010,
+        "png": 11543
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-agri",
+      "category": "department",
+      "purpose": "Department: AGRI",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-agri.svg",
+        "webp": "/illustrations/generated/dept-agri.webp",
+        "png": "/illustrations/generated/dept-agri.png"
+      },
+      "bytes": {
+        "svg": 34568,
+        "webp": 25528,
+        "png": 15851
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-mba",
+      "category": "department",
+      "purpose": "Department: MBA",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-mba.svg",
+        "webp": "/illustrations/generated/dept-mba.webp",
+        "png": "/illustrations/generated/dept-mba.png"
+      },
+      "bytes": {
+        "svg": 25345,
+        "webp": 12182,
+        "png": 12847
+      },
+      "sheet": "sheet15",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-sh-english",
+      "category": "department",
+      "purpose": "Department: S&H-ENGLISH",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-sh-english.svg",
+        "webp": "/illustrations/generated/dept-sh-english.webp",
+        "png": "/illustrations/generated/dept-sh-english.png"
+      },
+      "bytes": {
+        "svg": 26771,
+        "webp": 17934,
+        "png": 15690
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-sh-chemistry",
+      "category": "department",
+      "purpose": "Department: S&H-CHY",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-sh-chemistry.svg",
+        "webp": "/illustrations/generated/dept-sh-chemistry.webp",
+        "png": "/illustrations/generated/dept-sh-chemistry.png"
+      },
+      "bytes": {
+        "svg": 18947,
+        "webp": 13444,
+        "png": 9843
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-sh-physics",
+      "category": "department",
+      "purpose": "Department: S&H-PHY",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-sh-physics.svg",
+        "webp": "/illustrations/generated/dept-sh-physics.webp",
+        "png": "/illustrations/generated/dept-sh-physics.png"
+      },
+      "bytes": {
+        "svg": 40381,
+        "webp": 20036,
+        "png": 15611
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-sh-maths",
+      "category": "department",
+      "purpose": "Department: S&H-MATHS",
+      "page": "Department page",
+      "files": {
+        "svg": "/illustrations/generated/dept-sh-maths.svg",
+        "webp": "/illustrations/generated/dept-sh-maths.webp",
+        "png": "/illustrations/generated/dept-sh-maths.png"
+      },
+      "bytes": {
+        "svg": 25760,
+        "webp": 16600,
+        "png": 12921
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-research-centre",
+      "category": "department",
+      "purpose": "Research centre (any non-teaching research unit)",
+      "page": "Department page, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/dept-research-centre.svg",
+        "webp": "/illustrations/generated/dept-research-centre.webp",
+        "png": "/illustrations/generated/dept-research-centre.png"
+      },
+      "bytes": {
+        "svg": 28438,
+        "webp": 15944,
+        "png": 13313
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "dept-interdisciplinary",
+      "category": "department",
+      "purpose": "Interdisciplinary / cross-department work",
+      "page": "Collaborate, Department fallback",
+      "files": {
+        "svg": "/illustrations/generated/dept-interdisciplinary.svg",
+        "webp": "/illustrations/generated/dept-interdisciplinary.webp",
+        "png": "/illustrations/generated/dept-interdisciplinary.png"
+      },
+      "bytes": {
+        "svg": 14585,
+        "webp": 11636,
+        "png": 10549
+      },
+      "sheet": "sheet16",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-machine-learning",
+      "category": "topic",
+      "purpose": "Topic: machine learning",
+      "page": "Discover, Research scout, paper cards",
+      "files": {
+        "svg": "/illustrations/generated/topic-machine-learning.svg",
+        "webp": "/illustrations/generated/topic-machine-learning.webp",
+        "png": "/illustrations/generated/topic-machine-learning.png"
+      },
+      "bytes": {
+        "svg": 13767,
+        "webp": 11724,
+        "png": 7705
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-deep-learning",
+      "category": "topic",
+      "purpose": "Topic: deep learning",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-deep-learning.svg",
+        "webp": "/illustrations/generated/topic-deep-learning.webp",
+        "png": "/illustrations/generated/topic-deep-learning.png"
+      },
+      "bytes": {
+        "svg": 42218,
+        "webp": 22540,
+        "png": 16412
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-computer-vision",
+      "category": "topic",
+      "purpose": "Topic: computer vision / image processing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-computer-vision.svg",
+        "webp": "/illustrations/generated/topic-computer-vision.webp",
+        "png": "/illustrations/generated/topic-computer-vision.png"
+      },
+      "bytes": {
+        "svg": 18468,
+        "webp": 13862,
+        "png": 9289
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-nlp",
+      "category": "topic",
+      "purpose": "Topic: natural language processing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-nlp.svg",
+        "webp": "/illustrations/generated/topic-nlp.webp",
+        "png": "/illustrations/generated/topic-nlp.png"
+      },
+      "bytes": {
+        "svg": 19858,
+        "webp": 12032,
+        "png": 13306
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-iot",
+      "category": "topic",
+      "purpose": "Topic: Internet of Things",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-iot.svg",
+        "webp": "/illustrations/generated/topic-iot.webp",
+        "png": "/illustrations/generated/topic-iot.png"
+      },
+      "bytes": {
+        "svg": 26689,
+        "webp": 21880,
+        "png": 13619
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-cybersecurity",
+      "category": "topic",
+      "purpose": "Topic: cybersecurity",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-cybersecurity.svg",
+        "webp": "/illustrations/generated/topic-cybersecurity.webp",
+        "png": "/illustrations/generated/topic-cybersecurity.png"
+      },
+      "bytes": {
+        "svg": 24712,
+        "webp": 14706,
+        "png": 12301
+      },
+      "sheet": "sheet17",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-blockchain",
+      "category": "topic",
+      "purpose": "Topic: blockchain",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-blockchain.svg",
+        "webp": "/illustrations/generated/topic-blockchain.webp",
+        "png": "/illustrations/generated/topic-blockchain.png"
+      },
+      "bytes": {
+        "svg": 32806,
+        "webp": 13306,
+        "png": 10786
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-cloud-computing",
+      "category": "topic",
+      "purpose": "Topic: cloud computing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-cloud-computing.svg",
+        "webp": "/illustrations/generated/topic-cloud-computing.webp",
+        "png": "/illustrations/generated/topic-cloud-computing.png"
+      },
+      "bytes": {
+        "svg": 16016,
+        "webp": 10764,
+        "png": 8907
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-edge-computing",
+      "category": "topic",
+      "purpose": "Topic: edge / fog computing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-edge-computing.svg",
+        "webp": "/illustrations/generated/topic-edge-computing.webp",
+        "png": "/illustrations/generated/topic-edge-computing.png"
+      },
+      "bytes": {
+        "svg": 19798,
+        "webp": 13646,
+        "png": 11285
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-big-data",
+      "category": "topic",
+      "purpose": "Topic: big data analytics",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-big-data.svg",
+        "webp": "/illustrations/generated/topic-big-data.webp",
+        "png": "/illustrations/generated/topic-big-data.png"
+      },
+      "bytes": {
+        "svg": 22584,
+        "webp": 16196,
+        "png": 12429
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-solar-energy",
+      "category": "topic",
+      "purpose": "Topic: solar / photovoltaics",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-solar-energy.svg",
+        "webp": "/illustrations/generated/topic-solar-energy.webp",
+        "png": "/illustrations/generated/topic-solar-energy.png"
+      },
+      "bytes": {
+        "svg": 32597,
+        "webp": 20026,
+        "png": 14885
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-wind-energy",
+      "category": "topic",
+      "purpose": "Topic: wind energy",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-wind-energy.svg",
+        "webp": "/illustrations/generated/topic-wind-energy.webp",
+        "png": "/illustrations/generated/topic-wind-energy.png"
+      },
+      "bytes": {
+        "svg": 28906,
+        "webp": 15446,
+        "png": 11319
+      },
+      "sheet": "sheet18",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-power-electronics",
+      "category": "topic",
+      "purpose": "Topic: power electronics",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-power-electronics.svg",
+        "webp": "/illustrations/generated/topic-power-electronics.webp",
+        "png": "/illustrations/generated/topic-power-electronics.png"
+      },
+      "bytes": {
+        "svg": 17679,
+        "webp": 10764,
+        "png": 9051
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-electric-vehicles",
+      "category": "topic",
+      "purpose": "Topic: electric vehicles",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-electric-vehicles.svg",
+        "webp": "/illustrations/generated/topic-electric-vehicles.webp",
+        "png": "/illustrations/generated/topic-electric-vehicles.png"
+      },
+      "bytes": {
+        "svg": 18184,
+        "webp": 12834,
+        "png": 10377
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-smart-grid",
+      "category": "topic",
+      "purpose": "Topic: smart grid",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-smart-grid.svg",
+        "webp": "/illustrations/generated/topic-smart-grid.webp",
+        "png": "/illustrations/generated/topic-smart-grid.png"
+      },
+      "bytes": {
+        "svg": 29186,
+        "webp": 20756,
+        "png": 15395
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-wireless-5g",
+      "category": "topic",
+      "purpose": "Topic: wireless communication / 5G",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-wireless-5g.svg",
+        "webp": "/illustrations/generated/topic-wireless-5g.webp",
+        "png": "/illustrations/generated/topic-wireless-5g.png"
+      },
+      "bytes": {
+        "svg": 18759,
+        "webp": 20488,
+        "png": 12080
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-antennas",
+      "category": "topic",
+      "purpose": "Topic: antennas and microwave",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-antennas.svg",
+        "webp": "/illustrations/generated/topic-antennas.webp",
+        "png": "/illustrations/generated/topic-antennas.png"
+      },
+      "bytes": {
+        "svg": 25992,
+        "webp": 19318,
+        "png": 12295
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-vlsi",
+      "category": "topic",
+      "purpose": "Topic: VLSI design",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-vlsi.svg",
+        "webp": "/illustrations/generated/topic-vlsi.webp",
+        "png": "/illustrations/generated/topic-vlsi.png"
+      },
+      "bytes": {
+        "svg": 18401,
+        "webp": 15858,
+        "png": 13463
+      },
+      "sheet": "sheet19",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-embedded-systems",
+      "category": "topic",
+      "purpose": "Topic: embedded systems",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-embedded-systems.svg",
+        "webp": "/illustrations/generated/topic-embedded-systems.webp",
+        "png": "/illustrations/generated/topic-embedded-systems.png"
+      },
+      "bytes": {
+        "svg": 37364,
+        "webp": 15368,
+        "png": 14177
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-robotics",
+      "category": "topic",
+      "purpose": "Topic: robotics / automation",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-robotics.svg",
+        "webp": "/illustrations/generated/topic-robotics.webp",
+        "png": "/illustrations/generated/topic-robotics.png"
+      },
+      "bytes": {
+        "svg": 20933,
+        "webp": 17534,
+        "png": 12325
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-control-systems",
+      "category": "topic",
+      "purpose": "Topic: control systems",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-control-systems.svg",
+        "webp": "/illustrations/generated/topic-control-systems.webp",
+        "png": "/illustrations/generated/topic-control-systems.png"
+      },
+      "bytes": {
+        "svg": 33462,
+        "webp": 24414,
+        "png": 17101
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-signal-processing",
+      "category": "topic",
+      "purpose": "Topic: signal processing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-signal-processing.svg",
+        "webp": "/illustrations/generated/topic-signal-processing.webp",
+        "png": "/illustrations/generated/topic-signal-processing.png"
+      },
+      "bytes": {
+        "svg": 21339,
+        "webp": 19440,
+        "png": 10664
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-biomedical-imaging",
+      "category": "topic",
+      "purpose": "Topic: biomedical imaging",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-biomedical-imaging.svg",
+        "webp": "/illustrations/generated/topic-biomedical-imaging.webp",
+        "png": "/illustrations/generated/topic-biomedical-imaging.png"
+      },
+      "bytes": {
+        "svg": 30389,
+        "webp": 21648,
+        "png": 15664
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-healthcare-ai",
+      "category": "topic",
+      "purpose": "Topic: healthcare AI / digital health",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-healthcare-ai.svg",
+        "webp": "/illustrations/generated/topic-healthcare-ai.webp",
+        "png": "/illustrations/generated/topic-healthcare-ai.png"
+      },
+      "bytes": {
+        "svg": 20650,
+        "webp": 16118,
+        "png": 11125
+      },
+      "sheet": "sheet20",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-biomaterials",
+      "category": "topic",
+      "purpose": "Topic: biomaterials / tissue engineering",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-biomaterials.svg",
+        "webp": "/illustrations/generated/topic-biomaterials.webp",
+        "png": "/illustrations/generated/topic-biomaterials.png"
+      },
+      "bytes": {
+        "svg": 24092,
+        "webp": 18866,
+        "png": 17191
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-nanomaterials",
+      "category": "topic",
+      "purpose": "Topic: nanomaterials",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-nanomaterials.svg",
+        "webp": "/illustrations/generated/topic-nanomaterials.webp",
+        "png": "/illustrations/generated/topic-nanomaterials.png"
+      },
+      "bytes": {
+        "svg": 44913,
+        "webp": 18438,
+        "png": 16806
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-composites",
+      "category": "topic",
+      "purpose": "Topic: composite materials",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-composites.svg",
+        "webp": "/illustrations/generated/topic-composites.webp",
+        "png": "/illustrations/generated/topic-composites.png"
+      },
+      "bytes": {
+        "svg": 59456,
+        "webp": 22660,
+        "png": 21345
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-heat-transfer",
+      "category": "topic",
+      "purpose": "Topic: heat transfer / thermal engineering",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-heat-transfer.svg",
+        "webp": "/illustrations/generated/topic-heat-transfer.webp",
+        "png": "/illustrations/generated/topic-heat-transfer.png"
+      },
+      "bytes": {
+        "svg": 40458,
+        "webp": 19650,
+        "png": 14536
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-cfd",
+      "category": "topic",
+      "purpose": "Topic: fluid dynamics / CFD",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-cfd.svg",
+        "webp": "/illustrations/generated/topic-cfd.webp",
+        "png": "/illustrations/generated/topic-cfd.png"
+      },
+      "bytes": {
+        "svg": 24159,
+        "webp": 26362,
+        "png": 12288
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-additive-manufacturing",
+      "category": "topic",
+      "purpose": "Topic: additive manufacturing / 3D printing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-additive-manufacturing.svg",
+        "webp": "/illustrations/generated/topic-additive-manufacturing.webp",
+        "png": "/illustrations/generated/topic-additive-manufacturing.png"
+      },
+      "bytes": {
+        "svg": 29348,
+        "webp": 12746,
+        "png": 12744
+      },
+      "sheet": "sheet21",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-structural",
+      "category": "topic",
+      "purpose": "Topic: structural engineering",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-structural.svg",
+        "webp": "/illustrations/generated/topic-structural.webp",
+        "png": "/illustrations/generated/topic-structural.png"
+      },
+      "bytes": {
+        "svg": 53062,
+        "webp": 18692,
+        "png": 17279
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-concrete",
+      "category": "topic",
+      "purpose": "Topic: concrete technology",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-concrete.svg",
+        "webp": "/illustrations/generated/topic-concrete.webp",
+        "png": "/illustrations/generated/topic-concrete.png"
+      },
+      "bytes": {
+        "svg": 29990,
+        "webp": 17256,
+        "png": 15552
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-water-resources",
+      "category": "topic",
+      "purpose": "Topic: water resources / hydraulics",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-water-resources.svg",
+        "webp": "/illustrations/generated/topic-water-resources.webp",
+        "png": "/illustrations/generated/topic-water-resources.png"
+      },
+      "bytes": {
+        "svg": 35870,
+        "webp": 18974,
+        "png": 15953
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-environmental",
+      "category": "topic",
+      "purpose": "Topic: environmental engineering / sustainability",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-environmental.svg",
+        "webp": "/illustrations/generated/topic-environmental.webp",
+        "png": "/illustrations/generated/topic-environmental.png"
+      },
+      "bytes": {
+        "svg": 56574,
+        "webp": 21046,
+        "png": 18220
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-transportation",
+      "category": "topic",
+      "purpose": "Topic: transportation engineering",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-transportation.svg",
+        "webp": "/illustrations/generated/topic-transportation.webp",
+        "png": "/illustrations/generated/topic-transportation.png"
+      },
+      "bytes": {
+        "svg": 52017,
+        "webp": 20304,
+        "png": 21094
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-precision-agriculture",
+      "category": "topic",
+      "purpose": "Topic: precision agriculture / agri-tech",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-precision-agriculture.svg",
+        "webp": "/illustrations/generated/topic-precision-agriculture.webp",
+        "png": "/illustrations/generated/topic-precision-agriculture.png"
+      },
+      "bytes": {
+        "svg": 63553,
+        "webp": 28348,
+        "png": 23795
+      },
+      "sheet": "sheet22",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-optimisation",
+      "category": "topic",
+      "purpose": "Topic: optimisation / operations research",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-optimisation.svg",
+        "webp": "/illustrations/generated/topic-optimisation.webp",
+        "png": "/illustrations/generated/topic-optimisation.png"
+      },
+      "bytes": {
+        "svg": 21394,
+        "webp": 15028,
+        "png": 10219
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-quantum-computing",
+      "category": "topic",
+      "purpose": "Topic: quantum computing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-quantum-computing.svg",
+        "webp": "/illustrations/generated/topic-quantum-computing.webp",
+        "png": "/illustrations/generated/topic-quantum-computing.png"
+      },
+      "bytes": {
+        "svg": 26580,
+        "webp": 16044,
+        "png": 15536
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-computer-networks",
+      "category": "topic",
+      "purpose": "Topic: computer networks / SDN",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-computer-networks.svg",
+        "webp": "/illustrations/generated/topic-computer-networks.webp",
+        "png": "/illustrations/generated/topic-computer-networks.png"
+      },
+      "bytes": {
+        "svg": 34020,
+        "webp": 15278,
+        "png": 9898
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-edtech",
+      "category": "topic",
+      "purpose": "Topic: education technology / engineering education",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-edtech.svg",
+        "webp": "/illustrations/generated/topic-edtech.webp",
+        "png": "/illustrations/generated/topic-edtech.png"
+      },
+      "bytes": {
+        "svg": 24942,
+        "webp": 15008,
+        "png": 13638
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-food-technology",
+      "category": "topic",
+      "purpose": "Topic: food technology",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-food-technology.svg",
+        "webp": "/illustrations/generated/topic-food-technology.webp",
+        "png": "/illustrations/generated/topic-food-technology.png"
+      },
+      "bytes": {
+        "svg": 44399,
+        "webp": 19838,
+        "png": 17555
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "topic-industry-4",
+      "category": "topic",
+      "purpose": "Topic: Industry 4.0 / smart manufacturing",
+      "page": "Discover, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/topic-industry-4.svg",
+        "webp": "/illustrations/generated/topic-industry-4.webp",
+        "png": "/illustrations/generated/topic-industry-4.png"
+      },
+      "bytes": {
+        "svg": 39251,
+        "webp": 18072,
+        "png": 14845
+      },
+      "sheet": "sheet23",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-paper",
+      "category": "icon",
+      "purpose": "Icon: paper",
+      "page": "Paper cards, lists",
+      "files": {
+        "svg": "/illustrations/generated/icon-paper.svg",
+        "webp": "/illustrations/generated/icon-paper.webp",
+        "png": "/illustrations/generated/icon-paper.png"
+      },
+      "bytes": {
+        "svg": 5030,
+        "webp": 3920,
+        "png": 2280
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-journal",
+      "category": "icon",
+      "purpose": "Icon: journal",
+      "page": "Paper cards, journal pickers",
+      "files": {
+        "svg": "/illustrations/generated/icon-journal.svg",
+        "webp": "/illustrations/generated/icon-journal.webp",
+        "png": "/illustrations/generated/icon-journal.png"
+      },
+      "bytes": {
+        "svg": 3609,
+        "webp": 3340,
+        "png": 1937
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-citation",
+      "category": "icon",
+      "purpose": "Icon: citation",
+      "page": "Paper metrics",
+      "files": {
+        "svg": "/illustrations/generated/icon-citation.svg",
+        "webp": "/illustrations/generated/icon-citation.webp",
+        "png": "/illustrations/generated/icon-citation.png"
+      },
+      "bytes": {
+        "svg": 1070,
+        "webp": 5048,
+        "png": 2565
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-quartile",
+      "category": "icon",
+      "purpose": "Icon: quartile ranking",
+      "page": "Paper metrics, filters",
+      "files": {
+        "svg": "/illustrations/generated/icon-quartile.svg",
+        "webp": "/illustrations/generated/icon-quartile.webp",
+        "png": "/illustrations/generated/icon-quartile.png"
+      },
+      "bytes": {
+        "svg": 3477,
+        "webp": 4848,
+        "png": 4120
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-doi",
+      "category": "icon",
+      "purpose": "Icon: DOI link",
+      "page": "File a paper, paper detail",
+      "files": {
+        "svg": "/illustrations/generated/icon-doi.svg",
+        "webp": "/illustrations/generated/icon-doi.webp",
+        "png": "/illustrations/generated/icon-doi.png"
+      },
+      "bytes": {
+        "svg": 2386,
+        "webp": 10266,
+        "png": 5116
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-author",
+      "category": "icon",
+      "purpose": "Icon: author",
+      "page": "Author chips",
+      "files": {
+        "svg": "/illustrations/generated/icon-author.svg",
+        "webp": "/illustrations/generated/icon-author.webp",
+        "png": "/illustrations/generated/icon-author.png"
+      },
+      "bytes": {
+        "svg": 1570,
+        "webp": 4722,
+        "png": 2782
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-coauthors",
+      "category": "icon",
+      "purpose": "Icon: co-authors",
+      "page": "Author chips, collaborate",
+      "files": {
+        "svg": "/illustrations/generated/icon-coauthors.svg",
+        "webp": "/illustrations/generated/icon-coauthors.webp",
+        "png": "/illustrations/generated/icon-coauthors.png"
+      },
+      "bytes": {
+        "svg": 2466,
+        "webp": 11640,
+        "png": 5535
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-deadline",
+      "category": "icon",
+      "purpose": "Icon: deadline",
+      "page": "Calendar, clearing",
+      "files": {
+        "svg": "/illustrations/generated/icon-deadline.svg",
+        "webp": "/illustrations/generated/icon-deadline.webp",
+        "png": "/illustrations/generated/icon-deadline.png"
+      },
+      "bytes": {
+        "svg": 4030,
+        "webp": 13686,
+        "png": 6348
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-payout",
+      "category": "icon",
+      "purpose": "Icon: payout",
+      "page": "Payouts",
+      "files": {
+        "svg": "/illustrations/generated/icon-payout.svg",
+        "webp": "/illustrations/generated/icon-payout.webp",
+        "png": "/illustrations/generated/icon-payout.png"
+      },
+      "bytes": {
+        "svg": 4639,
+        "webp": 13436,
+        "png": 6305
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-verified",
+      "category": "icon",
+      "purpose": "Icon: verified",
+      "page": "Status chips",
+      "files": {
+        "svg": "/illustrations/generated/icon-verified.svg",
+        "webp": "/illustrations/generated/icon-verified.webp",
+        "png": "/illustrations/generated/icon-verified.png"
+      },
+      "bytes": {
+        "svg": 3204,
+        "webp": 7694,
+        "png": 4872
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-flag",
+      "category": "icon",
+      "purpose": "Icon: flag",
+      "page": "Flags",
+      "files": {
+        "svg": "/illustrations/generated/icon-flag.svg",
+        "webp": "/illustrations/generated/icon-flag.webp",
+        "png": "/illustrations/generated/icon-flag.png"
+      },
+      "bytes": {
+        "svg": 1990,
+        "webp": 5612,
+        "png": 3159
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-search",
+      "category": "icon",
+      "purpose": "Icon: search",
+      "page": "Search inputs",
+      "files": {
+        "svg": "/illustrations/generated/icon-search.svg",
+        "webp": "/illustrations/generated/icon-search.webp",
+        "png": "/illustrations/generated/icon-search.png"
+      },
+      "bytes": {
+        "svg": 1307,
+        "webp": 5068,
+        "png": 2970
+      },
+      "sheet": "sheet24",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-scout",
+      "category": "icon",
+      "purpose": "Icon: research scout",
+      "page": "Nav, Research scout",
+      "files": {
+        "svg": "/illustrations/generated/icon-scout.svg",
+        "webp": "/illustrations/generated/icon-scout.webp",
+        "png": "/illustrations/generated/icon-scout.png"
+      },
+      "bytes": {
+        "svg": 4326,
+        "webp": 12678,
+        "png": 6145
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-idea",
+      "category": "icon",
+      "purpose": "Icon: idea",
+      "page": "Discover, For you",
+      "files": {
+        "svg": "/illustrations/generated/icon-idea.svg",
+        "webp": "/illustrations/generated/icon-idea.webp",
+        "png": "/illustrations/generated/icon-idea.png"
+      },
+      "bytes": {
+        "svg": 4388,
+        "webp": 11284,
+        "png": 5477
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-lab",
+      "category": "icon",
+      "purpose": "Icon: lab",
+      "page": "Research, profiles",
+      "files": {
+        "svg": "/illustrations/generated/icon-lab.svg",
+        "webp": "/illustrations/generated/icon-lab.webp",
+        "png": "/illustrations/generated/icon-lab.png"
+      },
+      "bytes": {
+        "svg": 3909,
+        "webp": 8854,
+        "png": 4308
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-conference",
+      "category": "icon",
+      "purpose": "Icon: conference",
+      "page": "Paper type chips, calendar",
+      "files": {
+        "svg": "/illustrations/generated/icon-conference.svg",
+        "webp": "/illustrations/generated/icon-conference.webp",
+        "png": "/illustrations/generated/icon-conference.png"
+      },
+      "bytes": {
+        "svg": 2665,
+        "webp": 6486,
+        "png": 3201
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-grant",
+      "category": "icon",
+      "purpose": "Icon: grant",
+      "page": "Budget, research",
+      "files": {
+        "svg": "/illustrations/generated/icon-grant.svg",
+        "webp": "/illustrations/generated/icon-grant.webp",
+        "png": "/illustrations/generated/icon-grant.png"
+      },
+      "bytes": {
+        "svg": 3768,
+        "webp": 14614,
+        "png": 6593
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-calendar",
+      "category": "icon",
+      "purpose": "Icon: calendar",
+      "page": "Nav, Calendar",
+      "files": {
+        "svg": "/illustrations/generated/icon-calendar.svg",
+        "webp": "/illustrations/generated/icon-calendar.webp",
+        "png": "/illustrations/generated/icon-calendar.png"
+      },
+      "bytes": {
+        "svg": 5608,
+        "webp": 5546,
+        "png": 2974
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-bell",
+      "category": "icon",
+      "purpose": "Icon: notifications",
+      "page": "Nav",
+      "files": {
+        "svg": "/illustrations/generated/icon-bell.svg",
+        "webp": "/illustrations/generated/icon-bell.webp",
+        "png": "/illustrations/generated/icon-bell.png"
+      },
+      "bytes": {
+        "svg": 1738,
+        "webp": 4326,
+        "png": 2784
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-message",
+      "category": "icon",
+      "purpose": "Icon: message",
+      "page": "Nav, Messages",
+      "files": {
+        "svg": "/illustrations/generated/icon-message.svg",
+        "webp": "/illustrations/generated/icon-message.webp",
+        "png": "/illustrations/generated/icon-message.png"
+      },
+      "bytes": {
+        "svg": 1793,
+        "webp": 4846,
+        "png": 2758
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-discussion",
+      "category": "icon",
+      "purpose": "Icon: discussion",
+      "page": "Nav, Discussions",
+      "files": {
+        "svg": "/illustrations/generated/icon-discussion.svg",
+        "webp": "/illustrations/generated/icon-discussion.webp",
+        "png": "/illustrations/generated/icon-discussion.png"
+      },
+      "bytes": {
+        "svg": 2403,
+        "webp": 12784,
+        "png": 5773
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-profile",
+      "category": "icon",
+      "purpose": "Icon: profile",
+      "page": "Nav, Profiles",
+      "files": {
+        "svg": "/illustrations/generated/icon-profile.svg",
+        "webp": "/illustrations/generated/icon-profile.webp",
+        "png": "/illustrations/generated/icon-profile.png"
+      },
+      "bytes": {
+        "svg": 4946,
+        "webp": 7584,
+        "png": 3307
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-department",
+      "category": "icon",
+      "purpose": "Icon: department",
+      "page": "Department chips",
+      "files": {
+        "svg": "/illustrations/generated/icon-department.svg",
+        "webp": "/illustrations/generated/icon-department.webp",
+        "png": "/illustrations/generated/icon-department.png"
+      },
+      "bytes": {
+        "svg": 4587,
+        "webp": 6388,
+        "png": 3187
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-leaderboard",
+      "category": "icon",
+      "purpose": "Icon: leaderboard",
+      "page": "Nav, Leaderboard",
+      "files": {
+        "svg": "/illustrations/generated/icon-leaderboard.svg",
+        "webp": "/illustrations/generated/icon-leaderboard.webp",
+        "png": "/illustrations/generated/icon-leaderboard.png"
+      },
+      "bytes": {
+        "svg": 3586,
+        "webp": 3014,
+        "png": 1812
+      },
+      "sheet": "sheet25",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-badge",
+      "category": "icon",
+      "purpose": "Icon: badge",
+      "page": "Badge shelf, profile",
+      "files": {
+        "svg": "/illustrations/generated/icon-badge.svg",
+        "webp": "/illustrations/generated/icon-badge.webp",
+        "png": "/illustrations/generated/icon-badge.png"
+      },
+      "bytes": {
+        "svg": 3419,
+        "webp": 8112,
+        "png": 5433
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-trophy",
+      "category": "icon",
+      "purpose": "Icon: trophy",
+      "page": "Leaderboard, wall of fame",
+      "files": {
+        "svg": "/illustrations/generated/icon-trophy.svg",
+        "webp": "/illustrations/generated/icon-trophy.webp",
+        "png": "/illustrations/generated/icon-trophy.png"
+      },
+      "bytes": {
+        "svg": 3569,
+        "webp": 7176,
+        "png": 4682
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-upload",
+      "category": "icon",
+      "purpose": "Icon: upload",
+      "page": "Attachments",
+      "files": {
+        "svg": "/illustrations/generated/icon-upload.svg",
+        "webp": "/illustrations/generated/icon-upload.webp",
+        "png": "/illustrations/generated/icon-upload.png"
+      },
+      "bytes": {
+        "svg": 2322,
+        "webp": 3666,
+        "png": 2399
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-download",
+      "category": "icon",
+      "purpose": "Icon: download",
+      "page": "Reports, exports",
+      "files": {
+        "svg": "/illustrations/generated/icon-download.svg",
+        "webp": "/illustrations/generated/icon-download.webp",
+        "png": "/illustrations/generated/icon-download.png"
+      },
+      "bytes": {
+        "svg": 2287,
+        "webp": 3866,
+        "png": 2270
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-import",
+      "category": "icon",
+      "purpose": "Icon: import",
+      "page": "Imports",
+      "files": {
+        "svg": "/illustrations/generated/icon-import.svg",
+        "webp": "/illustrations/generated/icon-import.webp",
+        "png": "/illustrations/generated/icon-import.png"
+      },
+      "bytes": {
+        "svg": 5094,
+        "webp": 7784,
+        "png": 4530
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-export",
+      "category": "icon",
+      "purpose": "Icon: export",
+      "page": "Reports",
+      "files": {
+        "svg": "/illustrations/generated/icon-export.svg",
+        "webp": "/illustrations/generated/icon-export.webp",
+        "png": "/illustrations/generated/icon-export.png"
+      },
+      "bytes": {
+        "svg": 5111,
+        "webp": 13932,
+        "png": 5789
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-archive",
+      "category": "icon",
+      "purpose": "Icon: archive",
+      "page": "Archive",
+      "files": {
+        "svg": "/illustrations/generated/icon-archive.svg",
+        "webp": "/illustrations/generated/icon-archive.webp",
+        "png": "/illustrations/generated/icon-archive.png"
+      },
+      "bytes": {
+        "svg": 3162,
+        "webp": 3696,
+        "png": 2202
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-audit",
+      "category": "icon",
+      "purpose": "Icon: audit",
+      "page": "Audit",
+      "files": {
+        "svg": "/illustrations/generated/icon-audit.svg",
+        "webp": "/illustrations/generated/icon-audit.webp",
+        "png": "/illustrations/generated/icon-audit.png"
+      },
+      "bytes": {
+        "svg": 4578,
+        "webp": 11310,
+        "png": 5201
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-report",
+      "category": "icon",
+      "purpose": "Icon: report",
+      "page": "Reports",
+      "files": {
+        "svg": "/illustrations/generated/icon-report.svg",
+        "webp": "/illustrations/generated/icon-report.webp",
+        "png": "/illustrations/generated/icon-report.png"
+      },
+      "bytes": {
+        "svg": 4559,
+        "webp": 4428,
+        "png": 2675
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-settings",
+      "category": "icon",
+      "purpose": "Icon: settings",
+      "page": "Nav, Settings",
+      "files": {
+        "svg": "/illustrations/generated/icon-settings.svg",
+        "webp": "/illustrations/generated/icon-settings.webp",
+        "png": "/illustrations/generated/icon-settings.png"
+      },
+      "bytes": {
+        "svg": 4584,
+        "webp": 8702,
+        "png": 5091
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-privacy",
+      "category": "icon",
+      "purpose": "Icon: privacy",
+      "page": "Privacy, visibility toggles",
+      "files": {
+        "svg": "/illustrations/generated/icon-privacy.svg",
+        "webp": "/illustrations/generated/icon-privacy.webp",
+        "png": "/illustrations/generated/icon-privacy.png"
+      },
+      "bytes": {
+        "svg": 3642,
+        "webp": 4670,
+        "png": 2987
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-approve",
+      "category": "icon",
+      "purpose": "Icon: approve",
+      "page": "Clearing, approvals",
+      "files": {
+        "svg": "/illustrations/generated/icon-approve.svg",
+        "webp": "/illustrations/generated/icon-approve.webp",
+        "png": "/illustrations/generated/icon-approve.png"
+      },
+      "bytes": {
+        "svg": 2669,
+        "webp": 4454,
+        "png": 2739
+      },
+      "sheet": "sheet26",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-reject",
+      "category": "icon",
+      "purpose": "Icon: reject / returned",
+      "page": "Clearing status",
+      "files": {
+        "svg": "/illustrations/generated/icon-reject.svg",
+        "webp": "/illustrations/generated/icon-reject.webp",
+        "png": "/illustrations/generated/icon-reject.png"
+      },
+      "bytes": {
+        "svg": 2350,
+        "webp": 8314,
+        "png": 5314
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-pending",
+      "category": "icon",
+      "purpose": "Icon: pending",
+      "page": "Clearing status",
+      "files": {
+        "svg": "/illustrations/generated/icon-pending.svg",
+        "webp": "/illustrations/generated/icon-pending.webp",
+        "png": "/illustrations/generated/icon-pending.png"
+      },
+      "bytes": {
+        "svg": 3802,
+        "webp": 7070,
+        "png": 4364
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-edit",
+      "category": "icon",
+      "purpose": "Icon: edit",
+      "page": "Forms",
+      "files": {
+        "svg": "/illustrations/generated/icon-edit.svg",
+        "webp": "/illustrations/generated/icon-edit.webp",
+        "png": "/illustrations/generated/icon-edit.png"
+      },
+      "bytes": {
+        "svg": 4167,
+        "webp": 6950,
+        "png": 4462
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-delete",
+      "category": "icon",
+      "purpose": "Icon: delete",
+      "page": "Forms (destructive)",
+      "files": {
+        "svg": "/illustrations/generated/icon-delete.svg",
+        "webp": "/illustrations/generated/icon-delete.webp",
+        "png": "/illustrations/generated/icon-delete.png"
+      },
+      "bytes": {
+        "svg": 5189,
+        "webp": 6530,
+        "png": 4300
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-filter",
+      "category": "icon",
+      "purpose": "Icon: filter",
+      "page": "Lists, search",
+      "files": {
+        "svg": "/illustrations/generated/icon-filter.svg",
+        "webp": "/illustrations/generated/icon-filter.webp",
+        "png": "/illustrations/generated/icon-filter.png"
+      },
+      "bytes": {
+        "svg": 3848,
+        "webp": 5622,
+        "png": 3569
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-sort",
+      "category": "icon",
+      "purpose": "Icon: sort",
+      "page": "Tables",
+      "files": {
+        "svg": "/illustrations/generated/icon-sort.svg",
+        "webp": "/illustrations/generated/icon-sort.webp",
+        "png": "/illustrations/generated/icon-sort.png"
+      },
+      "bytes": {
+        "svg": 2573,
+        "webp": 4406,
+        "png": 2816
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-share",
+      "category": "icon",
+      "purpose": "Icon: share",
+      "page": "Paper detail, reactions",
+      "files": {
+        "svg": "/illustrations/generated/icon-share.svg",
+        "webp": "/illustrations/generated/icon-share.webp",
+        "png": "/illustrations/generated/icon-share.png"
+      },
+      "bytes": {
+        "svg": 2506,
+        "webp": 6350,
+        "png": 4871
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-bookmark",
+      "category": "icon",
+      "purpose": "Icon: bookmark / save",
+      "page": "Discover, For you",
+      "files": {
+        "svg": "/illustrations/generated/icon-bookmark.svg",
+        "webp": "/illustrations/generated/icon-bookmark.webp",
+        "png": "/illustrations/generated/icon-bookmark.png"
+      },
+      "bytes": {
+        "svg": 4570,
+        "webp": 5146,
+        "png": 3155
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-favourite",
+      "category": "icon",
+      "purpose": "Icon: favourite",
+      "page": "Reactions",
+      "files": {
+        "svg": "/illustrations/generated/icon-favourite.svg",
+        "webp": "/illustrations/generated/icon-favourite.webp",
+        "png": "/illustrations/generated/icon-favourite.png"
+      },
+      "bytes": {
+        "svg": 6449,
+        "webp": 5874,
+        "png": 4415
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-like",
+      "category": "icon",
+      "purpose": "Icon: like",
+      "page": "Reactions, Feed",
+      "files": {
+        "svg": "/illustrations/generated/icon-like.svg",
+        "webp": "/illustrations/generated/icon-like.webp",
+        "png": "/illustrations/generated/icon-like.png"
+      },
+      "bytes": {
+        "svg": 2364,
+        "webp": 5298,
+        "png": 3792
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-comment",
+      "category": "icon",
+      "purpose": "Icon: comment",
+      "page": "Discussions, Feed",
+      "files": {
+        "svg": "/illustrations/generated/icon-comment.svg",
+        "webp": "/illustrations/generated/icon-comment.webp",
+        "png": "/illustrations/generated/icon-comment.png"
+      },
+      "bytes": {
+        "svg": 3524,
+        "webp": 5354,
+        "png": 3461
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-attachment",
+      "category": "icon",
+      "purpose": "Icon: attachment",
+      "page": "Attachments",
+      "files": {
+        "svg": "/illustrations/generated/icon-attachment.svg",
+        "webp": "/illustrations/generated/icon-attachment.webp",
+        "png": "/illustrations/generated/icon-attachment.png"
+      },
+      "bytes": {
+        "svg": 3566,
+        "webp": 8728,
+        "png": 4864
+      },
+      "sheet": "sheet27",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-email",
+      "category": "icon",
+      "purpose": "Icon: email",
+      "page": "Profiles, invites",
+      "files": {
+        "svg": "/illustrations/generated/icon-email.svg",
+        "webp": "/illustrations/generated/icon-email.webp",
+        "png": "/illustrations/generated/icon-email.png"
+      },
+      "bytes": {
+        "svg": 3493,
+        "webp": 6688,
+        "png": 4267
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-globe",
+      "category": "icon",
+      "purpose": "Icon: web / international",
+      "page": "Profiles, collaboration",
+      "files": {
+        "svg": "/illustrations/generated/icon-globe.svg",
+        "webp": "/illustrations/generated/icon-globe.webp",
+        "png": "/illustrations/generated/icon-globe.png"
+      },
+      "bytes": {
+        "svg": 2662,
+        "webp": 18092,
+        "png": 9180
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-open-access",
+      "category": "icon",
+      "purpose": "Icon: open access",
+      "page": "Paper metadata",
+      "files": {
+        "svg": "/illustrations/generated/icon-open-access.svg",
+        "webp": "/illustrations/generated/icon-open-access.webp",
+        "png": "/illustrations/generated/icon-open-access.png"
+      },
+      "bytes": {
+        "svg": 3765,
+        "webp": 7924,
+        "png": 4568
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-impact",
+      "category": "icon",
+      "purpose": "Icon: impact / growth",
+      "page": "Metrics, reports",
+      "files": {
+        "svg": "/illustrations/generated/icon-impact.svg",
+        "webp": "/illustrations/generated/icon-impact.webp",
+        "png": "/illustrations/generated/icon-impact.png"
+      },
+      "bytes": {
+        "svg": 3479,
+        "webp": 7396,
+        "png": 4209
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-h-index",
+      "category": "icon",
+      "purpose": "Icon: h-index",
+      "page": "Profile metrics",
+      "files": {
+        "svg": "/illustrations/generated/icon-h-index.svg",
+        "webp": "/illustrations/generated/icon-h-index.webp",
+        "png": "/illustrations/generated/icon-h-index.png"
+      },
+      "bytes": {
+        "svg": 3669,
+        "webp": 6194,
+        "png": 3009
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-patent",
+      "category": "icon",
+      "purpose": "Icon: patent",
+      "page": "Record kinds",
+      "files": {
+        "svg": "/illustrations/generated/icon-patent.svg",
+        "webp": "/illustrations/generated/icon-patent.webp",
+        "png": "/illustrations/generated/icon-patent.png"
+      },
+      "bytes": {
+        "svg": 5876,
+        "webp": 9896,
+        "png": 5153
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-book-chapter",
+      "category": "icon",
+      "purpose": "Icon: book chapter",
+      "page": "Record kinds",
+      "files": {
+        "svg": "/illustrations/generated/icon-book-chapter.svg",
+        "webp": "/illustrations/generated/icon-book-chapter.webp",
+        "png": "/illustrations/generated/icon-book-chapter.png"
+      },
+      "bytes": {
+        "svg": 4637,
+        "webp": 11664,
+        "png": 5651
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-thesis",
+      "category": "icon",
+      "purpose": "Icon: thesis / student",
+      "page": "Record kinds, supervision",
+      "files": {
+        "svg": "/illustrations/generated/icon-thesis.svg",
+        "webp": "/illustrations/generated/icon-thesis.webp",
+        "png": "/illustrations/generated/icon-thesis.png"
+      },
+      "bytes": {
+        "svg": 4964,
+        "webp": 12486,
+        "png": 5909
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-mentor",
+      "category": "icon",
+      "purpose": "Icon: mentor",
+      "page": "Who to work with",
+      "files": {
+        "svg": "/illustrations/generated/icon-mentor.svg",
+        "webp": "/illustrations/generated/icon-mentor.webp",
+        "png": "/illustrations/generated/icon-mentor.png"
+      },
+      "bytes": {
+        "svg": 5961,
+        "webp": 12810,
+        "png": 6384
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-agreement",
+      "category": "icon",
+      "purpose": "Icon: agreement / MoU",
+      "page": "Collaborate",
+      "files": {
+        "svg": "/illustrations/generated/icon-agreement.svg",
+        "webp": "/illustrations/generated/icon-agreement.webp",
+        "png": "/illustrations/generated/icon-agreement.png"
+      },
+      "bytes": {
+        "svg": 10580,
+        "webp": 18270,
+        "png": 7763
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-home",
+      "category": "icon",
+      "purpose": "Icon: home",
+      "page": "Nav",
+      "files": {
+        "svg": "/illustrations/generated/icon-home.svg",
+        "webp": "/illustrations/generated/icon-home.webp",
+        "png": "/illustrations/generated/icon-home.png"
+      },
+      "bytes": {
+        "svg": 4635,
+        "webp": 8266,
+        "png": 4799
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "icon-highlights",
+      "category": "icon",
+      "purpose": "Icon: new / highlights",
+      "page": "For you, Moments",
+      "files": {
+        "svg": "/illustrations/generated/icon-highlights.svg",
+        "webp": "/illustrations/generated/icon-highlights.webp",
+        "png": "/illustrations/generated/icon-highlights.png"
+      },
+      "bytes": {
+        "svg": 2169,
+        "webp": 9514,
+        "png": 4825
+      },
+      "sheet": "sheet28",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-divider-leaf",
+      "category": "decorative",
+      "purpose": "Section divider with leaf sprig",
+      "page": "Section breaks, Moments",
+      "files": {
+        "svg": "/illustrations/generated/deco-divider-leaf.svg",
+        "webp": "/illustrations/generated/deco-divider-leaf.webp",
+        "png": "/illustrations/generated/deco-divider-leaf.png"
+      },
+      "bytes": {
+        "svg": 6238,
+        "webp": 6802,
+        "png": 4058
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-corner-laurel",
+      "category": "decorative",
+      "purpose": "Corner flourish (laurel)",
+      "page": "Wall of fame, convocation cards",
+      "files": {
+        "svg": "/illustrations/generated/deco-corner-laurel.svg",
+        "webp": "/illustrations/generated/deco-corner-laurel.webp",
+        "png": "/illustrations/generated/deco-corner-laurel.png"
+      },
+      "bytes": {
+        "svg": 27212,
+        "webp": 19090,
+        "png": 11919
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-sparkles",
+      "category": "decorative",
+      "purpose": "Heading accent sparkles",
+      "page": "Celebration headings, For you",
+      "files": {
+        "svg": "/illustrations/generated/deco-sparkles.svg",
+        "webp": "/illustrations/generated/deco-sparkles.webp",
+        "png": "/illustrations/generated/deco-sparkles.png"
+      },
+      "bytes": {
+        "svg": 10828,
+        "webp": 8274,
+        "png": 5516
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-divider-dots",
+      "category": "decorative",
+      "purpose": "Dotted divider with star",
+      "page": "Section breaks",
+      "files": {
+        "svg": "/illustrations/generated/deco-divider-dots.svg",
+        "webp": "/illustrations/generated/deco-divider-dots.webp",
+        "png": "/illustrations/generated/deco-divider-dots.png"
+      },
+      "bytes": {
+        "svg": 4867,
+        "webp": 4402,
+        "png": 2721
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-scatter-leaves-books",
+      "category": "decorative",
+      "purpose": "Scatter cluster of leaves, dots and books (not a seamless tile)",
+      "page": "Empty-state backdrops, sign-in",
+      "files": {
+        "svg": "/illustrations/generated/deco-scatter-leaves-books.svg",
+        "webp": "/illustrations/generated/deco-scatter-leaves-books.webp",
+        "png": "/illustrations/generated/deco-scatter-leaves-books.png"
+      },
+      "bytes": {
+        "svg": 37775,
+        "webp": 23352,
+        "png": 15356
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "deco-underline-swoosh",
+      "category": "decorative",
+      "purpose": "Hand-drawn clay underline for a heading word",
+      "page": "Hero headings",
+      "files": {
+        "svg": "/illustrations/generated/deco-underline-swoosh.svg",
+        "webp": "/illustrations/generated/deco-underline-swoosh.webp",
+        "png": "/illustrations/generated/deco-underline-swoosh.png"
+      },
+      "bytes": {
+        "svg": 3276,
+        "webp": 5732,
+        "png": 2745
+      },
+      "sheet": "sheet29",
+      "date": "2026-09-28",
+      "background": "transparent"
+    },
+    {
+      "name": "banner-home-faculty",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1), title space on the left",
+      "page": "Home (faculty) header",
+      "files": {
+        "webp": "/illustrations/generated/banner-home-faculty.webp",
+        "png": "/illustrations/generated/banner-home-faculty.png"
+      },
+      "bytes": {
+        "webp": 26962,
+        "png": 36460
+      },
+      "sheet": "banner01",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-discover",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "Discover header",
+      "files": {
+        "webp": "/illustrations/generated/banner-discover.webp",
+        "png": "/illustrations/generated/banner-discover.png"
+      },
+      "bytes": {
+        "webp": 17974,
+        "png": 21030
+      },
+      "sheet": "banner01",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-leaderboard",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "Leaderboard, Wall of fame header",
+      "files": {
+        "webp": "/illustrations/generated/banner-leaderboard.webp",
+        "png": "/illustrations/generated/banner-leaderboard.png"
+      },
+      "bytes": {
+        "webp": 12496,
+        "png": 15072
+      },
+      "sheet": "banner01",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-file-paper",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "File a paper header",
+      "files": {
+        "webp": "/illustrations/generated/banner-file-paper.webp",
+        "png": "/illustrations/generated/banner-file-paper.png"
+      },
+      "bytes": {
+        "webp": 17992,
+        "png": 20872
+      },
+      "sheet": "banner02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-calendar",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "Calendar header",
+      "files": {
+        "webp": "/illustrations/generated/banner-calendar.webp",
+        "png": "/illustrations/generated/banner-calendar.png"
+      },
+      "bytes": {
+        "webp": 14816,
+        "png": 17577
+      },
+      "sheet": "banner02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    },
+    {
+      "name": "banner-messages",
+      "category": "banner",
+      "purpose": "Wide page-header strip (~9:1)",
+      "page": "Messages, Discussions header",
+      "files": {
+        "webp": "/illustrations/generated/banner-messages.webp",
+        "png": "/illustrations/generated/banner-messages.png"
+      },
+      "bytes": {
+        "webp": 22766,
+        "png": 25131
+      },
+      "sheet": "banner02",
+      "date": "2026-09-28",
+      "background": "kept (flat #F3EEE6)"
+    }
+  ]
+}

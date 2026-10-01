@@ -160,7 +160,7 @@ export function readinessMessage(readiness: Readiness, medium: Medium): string |
   const noun = medium === "pdf" ? "PDF" : medium === "image" ? "image" : "file"
   switch (readiness.state) {
     case "gone":
-      return `This ${noun} is no longer in storage. The ticket still lists it, but the file itself is not there — ask whoever filed the claim to upload it again.`
+      return `This ${noun} is no longer in storage. The claim still lists it, but the file itself is not there — ask whoever filed the claim to upload it again.`
     case "mistyped":
       return `The server is serving this as ${readiness.served}, not a ${noun}, so it cannot be shown here. Download it to see what it really is.`
     case "unreachable":
@@ -248,12 +248,16 @@ function useCanFrameDocuments(): boolean {
  */
 export function AttachmentGallery({
   files,
-  emptyLabel = "No files are attached to this ticket.",
+  emptyLabel = "No files are attached to this claim.",
   className,
+  annotate,
 }: {
   files: Attachment[]
   emptyLabel?: React.ReactNode
   className?: string
+  /** A line under a file saying something the file itself does not -- what
+   *  the content check found in it, for the desks that judge a paper. */
+  annotate?: (file: Attachment) => React.ReactNode
 }) {
   const [viewing, setViewing] = useState<Attachment | null>(null)
 
@@ -291,6 +295,7 @@ export function AttachmentGallery({
                   file={file}
                   index={i}
                   onView={() => setViewing(file)}
+                  note={annotate?.(file)}
                 />
               ))}
             </ul>
@@ -311,10 +316,12 @@ function AttachmentRow({
   file,
   index,
   onView,
+  note,
 }: {
   file: Attachment
   index: number
   onView: () => void
+  note?: React.ReactNode
 }) {
   const medium = mediumOf(file)
   const name = file.filename || `Document ${index + 1}`
@@ -347,6 +354,7 @@ function AttachmentRow({
           {meta}
           {medium === "file" ? `${meta ? " · " : ""}Downloads to your device` : ""}
         </Meta>
+        {note}
       </div>
 
       {medium === "file" ? (
@@ -468,7 +476,7 @@ function ViewerBody({ file }: { file: Attachment }) {
         <DialogDescription className="text-pretty">
           {file.kind === "SEC_REFERENCE"
             ? `${reference ?? "No reference number was recorded for this file"}. Check the number against the paper's bibliography and that one of its authors is from this college.`
-            : `${kindTitle(file.kind)} attached to this ticket.`}
+            : `${kindTitle(file.kind)} attached to this claim.`}
         </DialogDescription>
       </DialogHeader>
 
@@ -478,7 +486,7 @@ function ViewerBody({ file }: { file: Attachment }) {
         ) : medium === "image" ? (
           imageBroken ? (
             <InlineError
-              message={`This image would not load. The ticket still lists it, but the file is not readable — ask whoever filed the claim to upload it again.`}
+              message={`This image would not load. The claim still lists it, but the file is not readable — ask whoever filed the claim to upload it again.`}
             />
           ) : (
             <img
@@ -494,7 +502,7 @@ function ViewerBody({ file }: { file: Attachment }) {
             <p className="text-pretty">
               A phone browser cannot show a PDF inside this window. Opening it hands the
               file to your device&rsquo;s own PDF reader, where you can zoom and scroll;
-              come back to the ticket the way you normally go back.
+              come back to the claim the way you normally go back.
             </p>
           </div>
         ) : readiness.state === "checking" ? (

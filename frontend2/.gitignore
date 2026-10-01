@@ -1,3 +1,7 @@
 node_modules
 dist
 *.local
+shot.local.mjs
+imp.local.mjs
+imp2.local.mjs
+copy.local.mjs

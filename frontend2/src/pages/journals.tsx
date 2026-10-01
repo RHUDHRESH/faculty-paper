@@ -1,16 +1,22 @@
+import { paperTitle, unshout } from "@/lib/names"
 import { useEffect, useState } from "react"
+import { JournalCover } from "@/ui/journal-cover"
 import { Link, useParams, useSearchParams } from "react-router-dom"
-import { ArrowLeft, BookOpen, Search, SearchX } from "lucide-react"
+import { BookOpen, Search, SearchX } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { RankedBars, MixBar, Trend, type Point } from "@/ui/chart"
+import { Avatar, initialsOf } from "@/ui/person"
 import { Input } from "@/ui/field"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { HeaderSpot } from "@/ui/page-header"
+import { JournalsDesk, WatchNotice } from "@/pages/cell/journals-desk"
+import { useCrumbLabel } from "@/app/crumbs"
 
 /**
  * Where this college publishes (`Journals`) and one journal's record
@@ -59,6 +65,13 @@ const RESULT_LIMIT = 500
  */
 export function Journals() {
   const { me } = useAuth()
+  // Those who clear claims get the watch-list first (pages/cell/journals-desk.tsx).
+  if (can(me?.role).clear) return <JournalsDesk showMoney={can(me?.role).seeMoney} />
+  return <PlainJournals />
+}
+
+function PlainJournals() {
+  const { me } = useAuth()
   const showMoney = can(me?.role).seeMoney
 
   const [searchParams, setSearchParams] = useSearchParams()
@@ -101,9 +114,12 @@ export function Journals() {
     {
       key: "journal",
       header: "Journal",
+      // max-w-0 + w-full: the cell takes the spare width and truncates, so a
+      // 200-character conference name cannot push Papers and Paid off screen.
+      className: "w-full sm:max-w-0",
       cell: (j) => (
-        <span className="block min-w-0 truncate text-base" title={j.key}>
-          {j.key}
+        <span className="block min-w-0 break-words text-base sm:truncate" title={j.key}>
+          {unshout(j.key)}
         </span>
       ),
     },
@@ -129,9 +145,12 @@ export function Journals() {
 
   return (
     <div className="page space-y-6">
-      <header>
+      <header className="page-head">
+        <div>
         <PageTitle>Journals</PageTitle>
         <Sub className="mt-1">Where this college actually publishes, most-used first.</Sub>
+        </div>
+        <HeaderSpot name="spot-search" />
       </header>
 
       {!showMoney && (
@@ -256,6 +275,8 @@ type JournalAuthor = {
   department: string
   count: number
   amount?: number
+  photo_url?: string | null
+  initials?: string
 }
 
 type JournalClaimRow = {
@@ -264,6 +285,7 @@ type JournalClaimRow = {
   paper_title: string
   owner_id: string | null
   owner_name: string | null
+  owner_photo_url?: string | null
   publication_year: number | null
   // Raw status, present for everyone but an HOD.
   status?: string
@@ -322,6 +344,8 @@ export function JournalRecord() {
     `/api/journals/report?title=${encodeURIComponent(title)}`,
     { enabled: !!title }
   )
+  // The breadcrumb reads "Reports / Journals / <this journal>".
+  useCrumbLabel(report?.journal.title)
 
   if (!title) {
     return (
@@ -407,6 +431,7 @@ export function JournalRecord() {
     count: a.count,
     amount: showMoney ? a.amount : undefined,
     to: `/people/${a.id}`,
+    face: { name: a.key, initials: a.initials ?? initialsOf(a.key), photo_url: a.photo_url ?? null },
   }))
 
   const activeYears =
@@ -423,7 +448,7 @@ export function JournalRecord() {
       className: "max-w-[22rem]",
       cell: (c) => (
         <span className="block min-w-0">
-          <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+          <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
           <Meta className="mt-0.5 block truncate">{c.ticket_number || "—"}</Meta>
         </span>
       ),
@@ -432,17 +457,20 @@ export function JournalRecord() {
       key: "author",
       header: "Author",
       className: "max-w-[12rem]",
-      cell: (c) =>
-        c.owner_id ? (
+      cell: (c) => {
+        const face = { name: c.owner_name ?? "", initials: initialsOf(c.owner_name), photo_url: c.owner_photo_url ?? null }
+        return c.owner_id ? (
           <Link
             to={`/people/${c.owner_id}`}
-            className="block truncate text-sm hover:text-accent hover:underline"
+            className="flex min-w-0 items-center gap-2 text-sm hover:text-accent hover:underline"
           >
-            {c.owner_name || "—"}
+            <Avatar size="xs" person={face} />
+            <span className="truncate">{c.owner_name || "Not recorded"}</span>
           </Link>
         ) : (
-          <span className="block truncate text-sm text-fg-muted">{c.owner_name || "—"}</span>
-        ),
+          <span className="block truncate text-sm text-fg-muted">{c.owner_name || "Not recorded"}</span>
+        )
+      },
     },
     {
       key: "year",
@@ -475,21 +503,19 @@ export function JournalRecord() {
 
   return (
     <div className="page space-y-10 py-8">
-      <Link
-        to="/journals"
-        className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
-      >
-        <ArrowLeft className="size-3.5" aria-hidden />
-        Journals
-      </Link>
-
-      <header className="space-y-1">
-        <PageTitle>{journal.title}</PageTitle>
-        <Sub>
-          {[journal.subject_category, journal.indexing].filter(Boolean).join(" · ") || "—"}
-        </Sub>
-        {journal.issn && <Meta className="block">ISSN {journal.issn}</Meta>}
+      <header className="flex items-start gap-4">
+        <JournalCover title={journal.title} size="lg" className="max-sm:hidden" />
+        <JournalCover title={journal.title} size="md" className="sm:hidden" />
+        <div className="min-w-0 space-y-1">
+          <PageTitle>{unshout(journal.title)}</PageTitle>
+          <Sub>
+            {[journal.subject_category, journal.indexing].filter(Boolean).join(" · ") || "—"}
+          </Sub>
+          {journal.issn && <Meta className="block">ISSN {journal.issn}</Meta>}
+        </div>
       </header>
+
+      {can(me?.role).clear && <WatchNotice title={journal.title} issn={journal.issn} />}
 
       {!showMoney && (
         <Callout tone="info" title="Payment figures are not shown for this role">
@@ -555,7 +581,7 @@ export function JournalRecord() {
             The claims filed here were verified against a SNIP of{" "}
             <span className="tabular">{metric(journal.snip_on_record)}</span>
             {journal.snip_year_on_record ? ` (${journal.snip_year_on_record})` : ""} at the time
-            of filing — which can differ from the current figure above, since a journal's SNIP
+            of filing. That can differ from the current figure above, because a journal's SNIP
             moves year to year.
           </p>
         )}

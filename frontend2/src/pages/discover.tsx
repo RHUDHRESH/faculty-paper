@@ -1,15 +1,35 @@
 import { useEffect, useRef, useState } from "react"
-import { AlertTriangle, Compass, LoaderCircle, Search, Sparkles, X } from "lucide-react"
+import { useSearchParams } from "react-router-dom"
+import {
+  AlertTriangle,
+  Compass,
+  LoaderCircle,
+  Plus,
+  Search,
+  Sparkles,
+  X,
+} from "lucide-react"
 
+import { useAuth } from "@/app/auth"
 import { ApiError, api } from "@/lib/api"
+import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { Chip } from "@/ui/chip"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Field, Input, NumberInput, Textarea } from "@/ui/field"
+import { Answer } from "@/ui/answer"
+import { formatCount } from "@/lib/count"
+import { PageHeader } from "@/ui/page-header"
+import { Rows, Section } from "@/ui/section"
 import { money } from "@/ui/paper"
+import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Meta, SectionTitle, Sub } from "@/ui/text"
+import { StreamingText, ThinkingIndicator } from "@/ui/motion/stream"
 import { toast } from "@/ui/toast"
+import { IndustryPartners } from "@/pages/discover-next"
+import { FeedCard, FeedRow, ModelCard, VenueRow, useHidden, type FeedItem, type ForYou } from "@/pages/discover-feed"
 
 /**
  * The one screen that is useful before a paper exists — everything else in
@@ -24,35 +44,303 @@ import { toast } from "@/ui/toast"
  * months over it. That split is not a nicety here — it is the whole safety
  * argument of the feature.
  */
+const TABS = [
+  { key: "for-you", label: "For you" },
+  { key: "directions", label: "What to write about" },
+  { key: "venues", label: "Where to publish" },
+  { key: "people", label: "Who to meet" },
+  { key: "papers", label: "New at the college" },
+] as const
+type Tab = (typeof TABS)[number]["key"]
+
+/**
+ * Discover (docs/ux/06): what is *out there* for me. The top answers "what is
+ * new for my work this week" in four figures, each opening the list behind it;
+ * "For you" shows the best few of each list, and every list has its own tab.
+ * The counted feed (`/api/discover/for-you`) needs no model, so the page is
+ * whole on a server without one; the model's parts (a written idea, the venue
+ * finder, industry partners) appear only when the institution has one
+ * switched on, and whether it is on is never a message in the main flow.
+ */
 export function Discover() {
-  const status = useApi<DiscoverStatus>(["discover", "status"], "/api/discover/status")
+  const [params, setParams] = useSearchParams()
+  const tab = (TABS.find((t) => t.key === params.get("tab"))?.key ?? "for-you") as Tab
+  const [tuning, setTuning] = useState(false)
+  const { me } = useAuth()
+  const status =useApi<DiscoverStatus>(["discover", "status"], "/api/discover/status", { retry: false })
+  const feed = useApi<ForYou>(["discover", "for-you"], "/api/discover/for-you")
+  const { hidden, hide } = useHidden()
+  useEffect(() => {
+    // Diagnostics belong in the console, not in the reader's way.
+    if (status.isError) console.warn("discover/status:", status.error.message)
+  }, [status.isError, status.error])
+
+  const ai = status.data?.available ? status.data : null
+  const items = (feed.data?.items ?? []).filter((i) => !hidden.has(i.id))
+  const c = feed.data?.counts
+  const tuned = feed.data?.tuned_to ?? []
+  const nothingKnown = feed.data && feed.data.grounded_on.papers === 0 && tuned.length === 0
+  const goTab = (key: Tab) => setParams(key === "for-you" ? {} : { tab: key }, { replace: true })
+  const tabHref = (key: Tab) => `/discover?tab=${key}`
 
   return (
-    <div className="page space-y-10">
-      <header>
-        <PageTitle>Discover</PageTitle>
-        <Sub className="mt-1">Where this paper could go, and what to write after it.</Sub>
-      </header>
-
-      {status.isLoading ? (
-        <SkeletonText lines={2} className="max-w-md" />
-      ) : status.isError ? (
-        <ErrorState
-          title="Could not tell whether suggestions are switched on"
-          message={status.error.message}
-          onRetry={() => status.refetch()}
+    <div className="page space-y-8" data-area="research">
+      <div className="space-y-6">
+        <PageHeader
+          title="Discover"
+          sub="What to write about, where to publish and who to meet, drawn from the college's own record."
+          spot="discover-ideas"
+          action={
+            nothingKnown ? null : (
+              <Button size="md" onClick={() => setTuning(true)}>
+                <Plus aria-hidden />
+                Choose topics
+              </Button>
+            )
+          }
         />
-      ) : status.data && !status.data.available ? (
-        <ModelUnavailable status={status.data} onRetry={() => void status.refetch()} />
-      ) : status.data ? (
-        <>
-          <ModelBadge status={status.data} />
-          <VenueFinder />
-          <Directions />
-        </>
-      ) : null}
+        {c && !nothingKnown ? (
+          <Answer
+            items={[
+              { value: c.directions, label: c.directions === 1 ? "Direction to write about" : "Directions to write about", zero: "No new direction yet", to: tabHref("directions") },
+              { value: c.venues, label: c.venues === 1 ? "Journal colleagues use" : "Journals colleagues use", zero: "No journal to suggest yet", to: tabHref("venues") },
+              { value: c.people, label: c.people === 1 ? "Person near your work" : "People near your work", zero: "Nobody new near your work", to: tabHref("people") },
+              { value: c.papers, label: c.papers === 1 ? "New paper in your topics" : "New papers in your topics", zero: "No new paper in your topics", to: tabHref("papers") },
+            ]}
+          />
+        ) : null}
+        {feed.data && !nothingKnown ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+            <span>{tuned.length ? "You follow" : "From your papers"}</span>
+            {(tuned.length ? tuned : feed.data.my_topics).slice(0, 5).map((t) => (
+              <Chip key={t} tone="area">
+                {t}
+              </Chip>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
-      <Interests />
+      <div role="tablist" aria-label="Discover" className="-mx-4 flex gap-1 overflow-x-auto border-b border-line px-4 sm:mx-0 sm:px-0">
+        {TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => goTab(key)}
+            className={cn(
+              "-mb-px shrink-0 border-b-2 px-3 pb-2.5 pt-1 text-sm transition-colors duration-[var(--dur-1)]",
+              tab === key ? "border-(--area) font-medium text-fg" : "border-transparent text-fg-muted hover:text-fg"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {feed.isError && tab !== "venues" ? (
+        <ErrorState
+          title={`Couldn't load ${TABS.find((t) => t.key === tab)?.label.toLowerCase()}`}
+          message="The rest of the page still works."
+          onRetry={() => void feed.refetch()}
+        />
+      ) : feed.isLoading && tab !== "venues" ? (
+        <SkeletonRows rows={5} rowHeight={120} />
+      ) : nothingKnown && tab === "for-you" ? (
+        <TellUs onChoose={() => setTuning(true)} />
+      ) : tab === "for-you" ? (
+        <ForYouSections items={items} hide={hide} ai={!!ai} goTab={goTab} />
+      ) : tab === "directions" ? (
+        <div className="space-y-8">
+          <KindList items={items} kind="direction" hide={hide} empty="Directions appear once we know your topics." />
+          {ai && <Directions hosted={!!ai.hosted} />}
+        </div>
+      ) : tab === "venues" ? (
+        <div className="space-y-8">
+          {ai ? (
+            <>
+              <ModelBadge status={ai} />
+              <VenueFinder hosted={!!ai.hosted} />
+            </>
+          ) : status.data && status.data.code !== "not_configured" && me?.role === "SUPER_ADMIN" ? (
+            // The server's remedy (start the service, load the model) is for the person who runs it.
+            <ModelUnavailable status={status.data} onRetry={() => void status.refetch()} />
+          ) : (
+            <Meta className="block">
+              {status.data && status.data.code !== "not_configured"
+                ? "The venue finder is not available right now. "
+                : "The venue finder needs AI, which is not set up on this server. "}
+              These venues are counted from where colleagues publish on your topics.
+            </Meta>
+          )}
+          <KindList items={items} kind="venue" hide={hide} empty="Venues appear once we know your topics." />
+        </div>
+      ) : tab === "people" ? (
+        <div className="space-y-8">
+          <KindList items={items} kind="person" hide={hide} empty="People appear once we know your topics." />
+          {status.data && <IndustryPartners status={status.data} />}
+        </div>
+      ) : (
+        <KindList
+          items={items}
+          kind="paper"
+          hide={hide}
+          empty="New papers at the college in your topics appear here as they are published."
+        />
+      )}
+
+      <Sheet open={tuning} onOpenChange={setTuning}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Choose your topics</SheetTitle>
+            <SheetDescription>
+              The topics you follow shape directions, venues and people here, and collaborator matching.
+            </SheetDescription>
+          </SheetHeader>
+          <SheetBody className="overflow-y-auto">
+            <Interests />
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
+    </div>
+  )
+}
+
+function TellUs({ onChoose }: { onChoose: () => void }) {
+  return (
+    <section className="flex flex-col items-center gap-3 rounded-3xl bg-(--area-wash) px-6 py-10 text-center">
+      <img src="/illustrations/ideas.svg" alt="" className="w-48 max-w-full" />
+      <h2 className="text-lg font-semibold text-fg">Tell us what you work on</h2>
+      <p className="max-w-md text-base text-fg-muted">
+        Pick two or three topics and Discover fills up. You can change them any time.
+      </p>
+      <Button kind="primary" size="lg" onClick={onChoose}>
+        Choose topics
+      </Button>
+    </section>
+  )
+}
+
+/**
+ * "For you": the best few of each list, one section each, so the page reads
+ * as four short answers and not one grid of identical boxes. Every section
+ * says how many there are and opens the whole list.
+ */
+function ForYouSections({
+  items,
+  hide,
+  ai,
+  goTab,
+}: {
+  items: FeedItem[]
+  hide: (item: FeedItem) => void
+  ai: boolean
+  goTab: (t: Tab) => void
+}) {
+  if (!items.length && !ai)
+    return (
+      <EmptyState
+        icon={Compass}
+        title="You have seen everything for now"
+        message="New directions, people and papers appear as colleagues publish."
+      />
+    )
+  const of = (kind: FeedItem["kind"]) => items.filter((i) => i.kind === kind)
+  const directions = of("direction")
+  const venues = of("venue")
+  const people = of("person")
+  const papers = of("paper")
+  const all = (tab: Tab, n: number, shown: number) =>
+    n > shown ? (
+      <button type="button" className="text-accent hover:underline" onClick={() => goTab(tab)}>
+        See all {formatCount(n)}
+      </button>
+    ) : null
+  const [lead, ...moreDirections] = directions
+  return (
+    <div className="space-y-10">
+      {(directions.length > 0 || ai) && (
+        <Section title="What to write about" sub="Topics that are growing at the college and touch your work." action={all("directions", directions.length, 3)}>
+          <div className="space-y-4">
+            {lead && <FeedCard item={lead} feature onHide={() => hide(lead)} />}
+            {moreDirections.length > 0 && (
+              <Rows>
+                {moreDirections.slice(0, 2).map((item) => (
+                  <li key={item.id} className="py-5">
+                    <FeedRow item={item} onHide={() => hide(item)} />
+                  </li>
+                ))}
+              </Rows>
+            )}
+            {ai && <ModelCard />}
+          </div>
+        </Section>
+      )}
+      {venues.length > 0 && (
+        <Section title="Where to publish" sub="Journals your colleagues publish in on your topics." action={all("venues", venues.length, 3)}>
+          <Rows>
+            {venues.slice(0, 3).map((item) => (
+              <li key={item.id} className="py-4">
+                <VenueRow item={item} onHide={() => hide(item)} />
+              </li>
+            ))}
+          </Rows>
+        </Section>
+      )}
+      {people.length > 0 && (
+        <Section title="Who to meet" sub="Colleagues who work near you, and why." action={all("people", people.length, 3)}>
+          <div className="grid gap-4 md:grid-cols-3">
+            {people.slice(0, 3).map((item) => (
+              <FeedCard key={item.id} item={item} onHide={() => hide(item)} />
+            ))}
+          </div>
+        </Section>
+      )}
+      {papers.length > 0 && (
+        <Section title="New at the college" sub="Recent papers on your topics by colleagues." action={all("papers", papers.length, 4)}>
+          <Rows>
+            {papers.slice(0, 4).map((item) => (
+              <li key={item.id} className="py-5">
+                <FeedRow item={item} onHide={() => hide(item)} />
+              </li>
+            ))}
+          </Rows>
+        </Section>
+      )}
+    </div>
+  )
+}
+
+function KindList({
+  items,
+  kind,
+  hide,
+  empty,
+}: {
+  items: FeedItem[]
+  kind: FeedItem["kind"]
+  hide: (item: FeedItem) => void
+  empty: string
+}) {
+  const list = items.filter((i) => i.kind === kind)
+  if (!list.length) return <Meta className="block">{empty}</Meta>
+  if (kind === "paper" || kind === "direction")
+    // Papers and directions are read, not browsed: a hairline list, one per row.
+    return (
+      <ul className="divide-y divide-(--color-edge) border-y border-(--color-edge)">
+        {list.map((item) => (
+          <li key={item.id} className="py-5">
+            <FeedRow item={item} onHide={() => hide(item)} />
+          </li>
+        ))}
+      </ul>
+    )
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {list.map((item) => (
+        <FeedCard key={item.id} item={item} onHide={() => hide(item)} />
+      ))}
     </div>
   )
 }
@@ -64,13 +352,19 @@ export function Discover() {
 type DiscoverStatus = {
   available: boolean
   model: string
-  /** "ollama" (a laptop) or "harness" (the college's own inference service). */
+  /** "ollama" (a laptop), "harness" (the college's own inference service),
+   *  "openai" (a hosted model) or "none". */
   provider?: string
-  /** ready | service_down | model_missing | misconfigured */
+  /** ready | not_configured | service_down | model_missing | misconfigured |
+   *  rejected | rate_limited */
   code?: string
   /** What to do about it, when it is not ready. */
   detail?: string | null
   base_url?: string
+  /** True when what is typed here is sent to a service outside the college. */
+  hosted?: boolean
+  /** That service's host name, for saying where. */
+  host?: string
 }
 
 type Payout = {
@@ -268,7 +562,7 @@ function byPayout(a: VerifiedJournal, b: VerifiedJournal): number {
  * the server — a client-side reimplementation of the formula is exactly the
  * drift that turns an estimate into a wrong promise.
  */
-function VenueFinder() {
+function VenueFinder({ hosted }: { hosted: boolean }) {
   const [title, setTitle] = useState("")
   const [abstract, setAbstract] = useState("")
   const [keywords, setKeywords] = useState("")
@@ -325,7 +619,7 @@ function VenueFinder() {
     if (pending) return
     const trimmed = title.trim()
     if (trimmed.length < 8) {
-      setTitleError("Give the title — at least 8 characters — so there is something to search from.")
+      setTitleError("Give a title of at least 8 characters, so there is something to search from.")
       return
     }
     setTitleError(null)
@@ -527,7 +821,7 @@ function VenueFinder() {
             </Button>
           )}
         </div>
-        {wait && <SearchProgress wait={wait} />}
+        {wait && <SearchProgress wait={wait} hosted={hosted} />}
         {stoppedAfter !== null && pending === null && (
           <Meta className="block">
             Stopped{stoppedAfter > 0 ? ` after ${Math.round(stoppedAfter)}s` : ""}. The model was
@@ -554,7 +848,7 @@ function VenueFinder() {
         <div className="space-y-6">
           <Callout tone="info" title="Every amount below is an estimate">
             Computed for a {result.assumed.publication_type.toLowerCase()}, as though you are
-            author {result.assumed.author_position} of {result.assumed.total_authors} — change
+            author {result.assumed.author_position} of {result.assumed.total_authors}. Change
             the position above and these figures are worked out again. That is arithmetic over
             journals we have already identified, so it answers at once: the model is not asked
             twice for a list that cannot have changed.
@@ -586,7 +880,7 @@ function VenueFinder() {
                 <Callout tone="caution" title="Names we could not verify">
                   <p className="mb-2">
                     The model suggested these too, but we could not find them in our own journal
-                    data — no quartile, no SNIP, no payout, because attaching a number to a
+                    data, so no quartile, no SNIP and no incentive, because attaching a number to a
                     journal we cannot identify is how somebody ends up submitting to a venue that
                     does not exist.
                   </p>
@@ -598,7 +892,7 @@ function VenueFinder() {
                           <span className="block font-medium text-fg">{u.title}</span>
                           <span className="block text-fg-muted">{u.why}</span>
                           <span className="block text-xs">
-                            Unconfirmed — not in our journal data.
+                            Unconfirmed: not in our journal data.
                           </span>
                         </span>
                       </li>
@@ -628,7 +922,7 @@ function VenueFinder() {
  * and it stops short of the end, because a bar that sits full for twenty
  * seconds is the hang all over again with extra steps.
  */
-function SearchProgress({ wait }: { wait: Wait }) {
+function SearchProgress({ wait, hosted }: { wait: Wait; hosted: boolean }) {
   const fraction =
     wait.phase === "reading"
       ? 0.97
@@ -665,9 +959,9 @@ function SearchProgress({ wait }: { wait: Wait }) {
       </Meta>
 
       <Meta className="block">
-        The model runs on this server's processor rather than in a data centre,
-        so it is slower and nothing you typed leaves the building. Stopping is
-        safe at any point.
+        {hosted
+          ? "Stopping is safe at any point."
+          : "The model runs on this server's processor rather than in a data centre, so it is slower and nothing you typed leaves the building. Stopping is safe at any point."}
       </Meta>
     </div>
   )
@@ -686,7 +980,7 @@ function JournalCard({ journal }: { journal: VerifiedJournal }) {
           <Meta className="mt-0.5 block">
             {[journal.quartile, journal.subject, journal.issn].filter(Boolean).join(" · ") || "—"}
           </Meta>
-          {journal.why && <p className="mt-1.5 text-sm text-fg-muted">{journal.why}</p>}
+          {journal.why && <StreamingText as="p" className="mt-1.5 text-sm text-fg-muted" text={journal.why} />}
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-subtle">
             <span>SNIP {journal.snip != null ? journal.snip.toFixed(2) : "—"}</span>
             <span>SJR {journal.sjr != null ? journal.sjr.toFixed(3) : "—"}</span>
@@ -721,7 +1015,7 @@ function JournalCard({ journal }: { journal: VerifiedJournal }) {
  * answer is usually an empty history rather than a bad model, and a reader
  * cannot tell those two apart unless the screen says which one it is.
  */
-function Directions() {
+function Directions({ hosted }: { hosted: boolean }) {
   const q = useApi<DirectionsResult>(["discover", "directions"], "/api/discover/directions")
 
   return (
@@ -730,11 +1024,13 @@ function Directions() {
 
       {q.isLoading ? (
         <div className="space-y-3">
+          <ThinkingIndicator label="Thinking about what could come next" />
           <SkeletonText lines={1} className="max-w-sm" />
           <SkeletonRows rows={3} rowHeight={84} />
           <Meta className="block">
-            Thinking this through takes a minute or two — the model runs here
-            rather than in a data centre.
+            {hosted
+              ? "Thinking this through takes a few seconds."
+              : "Thinking this through takes a minute or two. The model runs here rather than in a data centre."}
           </Meta>
         </div>
       ) : q.isError ? (
@@ -770,9 +1066,9 @@ function Directions() {
             <Meta className="block">{groundedOnLine(q.data.grounded_on)}</Meta>
             <ul className="divide-y divide-line border-y border-line">
               {q.data.directions.map((d, i) => (
-                <li key={i} className="py-4">
+                <li key={i} className={cn("py-4", i < 8 && "stagger-in")} style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
                   <p className="text-base font-semibold text-fg">{d.topic}</p>
-                  <p className="mt-1 text-sm text-fg-muted">{d.why}</p>
+                  <StreamingText as="p" className="mt-1 block text-sm text-fg-muted" text={d.why} />
                   <p className="mt-2.5 flex flex-wrap items-start gap-x-2 gap-y-1 text-sm">
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-accent-wash px-1.5 py-0.5 text-xs font-medium text-accent">
                       <Sparkles className="size-3" aria-hidden />
@@ -832,6 +1128,8 @@ function Interests() {
 
   const save = useApiMutation<{ domains: string[] }, { domains: string[] }>("/api/me/interests", {
     method: "PUT",
+    // The domains ground the suggestions at the top of the page.
+    invalidates: [["discover", "next"]],
   })
 
   function persist() {
@@ -840,7 +1138,7 @@ function Interests() {
       {
         onSuccess: (data) => {
           setSelected(data.domains)
-          toast.ok(`Saved — ${data.domains.length} domain${data.domains.length === 1 ? "" : "s"}`)
+          toast.ok(`Saved. ${data.domains.length} domain${data.domains.length === 1 ? "" : "s"}`)
         },
         onError: (err) => toast.fail(err),
       }
@@ -895,7 +1193,7 @@ function Interests() {
                 domains.isLoading
                   ? "Loading…"
                   : current.length >= MAX_INTERESTS
-                    ? "20 chosen — remove one to add another"
+                    ? "20 chosen. Remove one to add another"
                     : "Add a domain…"
               }
               disabled={domains.isLoading || domains.isError || current.length >= MAX_INTERESTS}
@@ -932,6 +1230,16 @@ function Interests() {
  */
 function ModelBadge({ status }: { status: DiscoverStatus }) {
   if (!status.model) return null
+  if (status.hosted) {
+    // A hosted model is a different promise, and the page makes that one:
+    // what is typed below goes to the named service to be answered.
+    return (
+      <Meta className="block">
+        Suggestions come from {status.model} at {status.host}. What you type into the tools
+        below is sent there to be answered.
+      </Meta>
+    )
+  }
   return (
     <Meta className="block">
       Suggestions come from {status.model}, running on this server. Nothing you
@@ -988,7 +1296,7 @@ function ModelUnavailable({
         </p>
       ) : null}
       <p className="mt-2 text-sm text-fg-muted">
-        The domains you work in, below, still work — they feed collaborator
+        The domains you work in, below, still work. They feed collaborator
         matching even without this.
       </p>
       <Button kind="quiet" size="sm" className="mt-3" onClick={onRetry}>

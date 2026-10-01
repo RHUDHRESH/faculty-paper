@@ -18,7 +18,8 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
-from core.models import AuditLog, DuplicateFinding, Role
+from core import visibility
+from core.models import AuditLog, DuplicateFinding
 from core.services import rbac
 
 # ---------- duplicate findings ----------
@@ -28,6 +29,17 @@ class FindingReviewIn(Schema):
     status: str
     note: Optional[str] = None
     recovered_amount: Optional[float] = None
+
+
+def _refuse_contest_blind(user) -> None:
+    """The Director and Finance are not shown payment-history matches at all
+    (see core.visibility), and this screen is nothing but those."""
+    if visibility.is_contest_blind(user.role):
+        raise HttpError(
+            403,
+            "Payment-history findings are reviewed by the research supervisor's "
+            "desk and the Principal.",
+        )
 
 
 @api.get("/admin/duplicate-findings", auth=session_auth)
@@ -42,16 +54,22 @@ def list_duplicate_findings(
     user = require_user(request)
     if not rbac.can_view_reports(user.role):
         raise HttpError(403, "Forbidden")
+    _refuse_contest_blind(user)
 
     qs = DuplicateFinding.objects.select_related("reviewed_by")
     if kind:
         qs = qs.filter(kind=kind)
     if status:
-        qs = qs.filter(status=status)
+        # "CONFIRMED,DISMISSED,RECOVERED" is the history: everything decided.
+        qs = qs.filter(status__in=[x for x in status.split(",") if x])
 
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
     total = qs.count()
+
+    page = list(qs[offset : offset + limit])
+    rows_of = {f.id: json.loads(f.rows_json or "[]") for f in page}
+    _add_faces(page, rows_of)
 
     everything = DuplicateFinding.objects.filter(kind=kind or "SAME_PERSON")
     return {
@@ -69,13 +87,14 @@ def list_duplicate_findings(
                 "payment_count": f.payment_count,
                 "total_amount": f.total_amount,
                 "extra_amount": f.extra_amount,
-                "rows": json.loads(f.rows_json or "[]"),
+                "rows": rows_of[f.id],
+                "faculty_photo_url": getattr(f, "_photo_url", None),
                 "note": f.note,
                 "recovered_amount": f.recovered_amount,
                 "reviewed_by_name": f.reviewed_by.name if f.reviewed_by_id else None,
                 "reviewed_at": f.reviewed_at.isoformat() if f.reviewed_at else None,
             }
-            for f in qs[offset : offset + limit]
+            for f in page
         ],
         "summary": {
             "open": everything.filter(status=DuplicateFinding.Status.OPEN).count(),
@@ -99,6 +118,124 @@ def list_duplicate_findings(
     }
 
 
+def _sheet_month(raw_json) -> str | None:
+    """"YYYY-MM" from the ERP row's own month column, when it reads as one."""
+    import re
+    from core.services.record_dates import MONTH_KEYS, erp_row
+
+    row = erp_row(raw_json) or {}
+    for k in MONTH_KEYS:
+        m = re.match(r"(\d{4})-(\d{2})", str(row.get(k) or ""))
+        if m:
+            return f"{m.group(1)}-{m.group(2)}"
+    return None
+
+
+def _add_faces(findings, rows_of) -> None:
+    """A photo for each payment's person: the claimant's account for a claim,
+    and an exact name match for an imported ERP row (which has no account)."""
+    from django.conf import settings
+    from core.models import User
+
+    from django.db.models.functions import Lower
+
+    keys, names = set(), set()
+    for f in findings:
+        names.add((f.faculty_name or "").strip().lower())
+        for r in rows_of[f.id]:
+            if r.get("person_key"):
+                keys.add(str(r["person_key"]).strip().lower())
+            names.add((r.get("person") or "").strip().lower())
+    names.discard("")
+    keys.discard("")
+    # A row's person_key is the staff id (lowercased) where there is one --
+    # the ERP's employee id for an imported row -- else the owner's user id.
+    # Staff id first: two people can share a name, never a staff id.
+    by_id, by_name = {}, {}
+    uuid_keys = set()
+    for k in keys:
+        try:
+            import uuid as _uuid
+            uuid_keys.add(_uuid.UUID(k))
+        except ValueError:
+            pass
+    for uid, photo in User.objects.filter(id__in=uuid_keys).values_list("id", "photo"):
+        by_id[str(uid).lower()] = photo
+    for sid, photo in (User.objects.annotate(s=Lower("staff_id")).filter(s__in=keys)
+                       .values_list("s", "photo")):
+        by_id[sid] = photo
+    if names:
+        seen: dict[str, int] = {}
+        for name, photo in (User.objects.annotate(n=Lower("name")).filter(n__in=names)
+                            .values_list("n", "photo")):
+            seen[name] = seen.get(name, 0) + 1
+            if photo:
+                by_name.setdefault(name, photo)
+        # A name shared by two accounts identifies nobody.
+        by_name = {n: p for n, p in by_name.items() if seen.get(n) == 1}
+
+    def url(p):
+        return f"{settings.MEDIA_URL}{p}" if p else None
+
+    # A "Processed"-sheet row carries the import's month, not a real one.
+    from core.models import PriorPayment
+    from core.services.record_dates import ledger_month_recorded
+
+    prior_ids = {r["id"] for f in findings for r in rows_of[f.id] if r.get("source") == "prior"}
+    raw = dict(PriorPayment.objects.filter(id__in=prior_ids).values_list("id", "raw_json"))
+
+    for f in findings:
+        for r in rows_of[f.id]:
+            r["month_recorded"] = (
+                ledger_month_recorded(raw.get(r["id"])) if r.get("source") == "prior" else True
+            )
+            if r.get("source") == "prior" and r["month_recorded"]:
+                # The sweep stored paid_at's month, which the import may have
+                # stamped; the sheet's own month column is the record.
+                month = _sheet_month(raw.get(r["id"]))
+                if month:
+                    r["when"] = month
+            key = str(r.get("person_key") or "").strip().lower()
+            if key in by_id:
+                # Matched by staff id / account: that person's photo or none,
+                # never a same-named colleague's.
+                r["photo_url"] = url(by_id[key])
+            else:
+                r["photo_url"] = url(by_name.get((r.get("person") or "").strip().lower()))
+        f._photo_url = url(by_name.get((f.faculty_name or "").strip().lower())) or next(
+            (r["photo_url"] for r in rows_of[f.id] if r["photo_url"]), None)
+
+
+def _concerns_user(finding: DuplicateFinding, user) -> bool:
+    """Whether any payment in this finding is `user`'s own.
+
+    A claim row is theirs when they own the claim; a row of either source is
+    theirs when its person key is their account id, staff id or employee id.
+    The finding's name counts only when no other account shares it, since two
+    people called the same thing is normal and must not lock one of them out.
+    """
+    from core.models import Claim, User
+
+    mine = {str(user.id).lower()}
+    for value in (user.staff_id, user.employee_id):
+        if value and value.strip():
+            mine.add(value.strip().lower())
+    try:
+        rows = json.loads(finding.rows_json or "[]")
+    except ValueError:
+        rows = []
+    claim_ids = [r.get("id") for r in rows if isinstance(r, dict) and r.get("source") == "claim"]
+    if claim_ids and Claim.objects.filter(pk__in=claim_ids, owner=user).exists():
+        return True
+    for r in rows:
+        if isinstance(r, dict) and str(r.get("person_key") or "").strip().lower() in mine:
+            return True
+    name = (finding.faculty_name or "").strip().lower()
+    if name and name == (user.name or "").strip().lower():
+        return User.objects.filter(name__iexact=name).count() == 1
+    return False
+
+
 @api.post("/admin/duplicate-findings/{finding_id}", auth=session_auth)
 def review_duplicate_finding(request: HttpRequest, finding_id: str, payload: FindingReviewIn):
     """Record what a person decided about one finding.
@@ -107,7 +244,8 @@ def review_duplicate_finding(request: HttpRequest, finding_id: str, payload: Fin
     review, and the next sweep would raise it again with nothing to go on.
     """
     user = require_user(request)
-    if user.role not in rbac.ADMIN_ROLES and user.role != Role.FINANCE:
+    _refuse_contest_blind(user)
+    if user.role not in rbac.ADMIN_ROLES:
         raise HttpError(403, "Forbidden")
     valid = {s.value for s in DuplicateFinding.Status}
     if payload.status not in valid:
@@ -117,6 +255,12 @@ def review_duplicate_finding(request: HttpRequest, finding_id: str, payload: Fin
         raise HttpError(400, "Say why this is not a duplicate")
 
     finding = get_object_or_404(DuplicateFinding, pk=finding_id)
+    if _concerns_user(finding, user):
+        # Nobody decides a question about their own payment: another officer
+        # or the super admin reviews it.
+        raise HttpError(
+            403, "This finding is about a payment to you, so another officer or the super admin reviews it."
+        )
     finding.status = payload.status
     finding.note = note or finding.note
     finding.reviewed_by = user
@@ -141,6 +285,7 @@ def review_duplicate_finding(request: HttpRequest, finding_id: str, payload: Fin
 
 __all__ = [
     'FindingReviewIn',
+    '_refuse_contest_blind',
     'list_duplicate_findings',
     'review_duplicate_finding',
 ]

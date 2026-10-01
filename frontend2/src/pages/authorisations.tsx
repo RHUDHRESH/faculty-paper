@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { thresholdFlag, type ClaimThreshold } from "@/ui/research-threshold"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { CircleCheck, Stamp } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
-import { useApi, useApiMutation } from "@/lib/query"
+import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
-import { Combobox, type ComboboxOption } from "@/ui/combobox"
+import { ClaimNoJump } from "@/ui/claim-number"
+import { filterBar } from "@/ui/filter-bar"
+import { ComingUp } from "@/ui/coming-up"
 import {
   Dialog,
   DialogBody,
@@ -17,53 +20,61 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/dialog"
-import { Checkbox, Field, Textarea } from "@/ui/field"
+import { Field, Textarea } from "@/ui/field"
 import { money } from "@/ui/paper"
+import { Avatar, initialsOf } from "@/ui/person"
 import { Pagination } from "@/ui/pagination"
+import { useSlashToSearch } from "@/ui/queue-keys"
+import { NoBulkSendBack, QueueTable, QuietSelect, SearchBox, reviewLink, useUrlFilters } from "@/ui/queue"
 import { Callout, EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
 import { ColumnLabel, Meta, PageTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { OwnPapersNote } from "@/ui/own-papers"
+import { HeaderSpot } from "@/ui/page-header"
+import { unshout } from "@/lib/names"
 
 /**
  * The Director's queue: everything the Principal has approved and nobody has
  * yet authorised.
  *
- * This is the newest link in the chain and the reason it exists is worth
- * stating, because the screen is otherwise a near-twin of the Principal's.
  * The Principal answers "is this claim correct and should we pay it". The
  * Director answers "can the institution pay it, this month, against this
- * budget, alongside everything else being authorised". Two questions, two
- * people, two signatures — and Finance pays only what carries the second.
+ * budget, alongside everything else being authorised". So beside the list sit
+ * the two things that second question needs: the queue split by department,
+ * and the year's budget (allocated, committed, paid).
  *
- * Deliberately shaped like `/approvals`: the same sort, the same
- * whole-filter totals, the same 409 guard. A second queue that ordered or
- * totalled its money differently would have the Principal and the Director
- * quoting different figures for the same set of claims.
+ * The Director is contest-blind: the server strips every flag, contest and
+ * duplicate key from what this desk receives, and this screen names none of
+ * them. The chain past the Principal is forward-only, so the Director has no
+ * send-back; a super admin standing in keeps it as the rescue.
  */
 
 const PAGE_SIZE = 50
+const FILTER_KEYS = ["q", "department", "sort"] as const
 
 /* ------------------------------------------------------------------------ */
-/* Data — read out of director_queue() in backend/core/api.py               */
+/* Data: read out of director_queue() in backend/core/api/director.py        */
 /* ------------------------------------------------------------------------ */
 
-type Claim = {
+export type Claim = ClaimThreshold & {
   id: string
   ticket_number: string | null
   paper_title: string
   journal_title: string | null
   owner_name: string
   owner_department: string | null
+  owner_photo_url?: string | null
   status: string
   remuneration: number | null
   quartile: string | null
-  snip: number | null
   calc_error: string | null
-  needs_second_approval: boolean
   cleared_by_name: string | null
   principal_approved_by_name: string | null
+  principal_approved_at: string | null
   waiting_days: number | null
 }
+
+type DepartmentTotal = { department: string | null; count: number; amount: number }
 
 type QueuePayload = {
   total: number
@@ -73,6 +84,22 @@ type QueuePayload = {
   /** Over everything the filter matched, never the page. */
   totals: { count: number; amount: number; longest_wait_days: number | null }
   departments: string[]
+  by_department?: DepartmentTotal[]
+}
+
+type BudgetSlice = {
+  department: string | null
+  allocated: number | null
+  spent: number
+  committed: number
+  remaining: number | null
+  used_fraction: number | null
+}
+
+type BudgetPayload = {
+  financial_year: string
+  college: BudgetSlice
+  departments: BudgetSlice[]
 }
 
 type BulkResult = {
@@ -87,48 +114,118 @@ type BulkResult = {
 
 export function Authorisations() {
   const { me } = useAuth()
+  const navigate = useNavigate()
   const allowed = can(me?.role).authorise
+  const standingIn = me?.role === "SUPER_ADMIN"
 
+  const { values, set, clear, active: filtered } = useUrlFilters(FILTER_KEYS)
+  const { q, department } = values
+  const sort = values.sort || "waiting"
   const [searchParams, setSearchParams] = useSearchParams()
-  const department = searchParams.get("department") ?? ""
-  const sort = searchParams.get("sort") ?? "waiting"
   const page = Math.max(0, Number.parseInt(searchParams.get("page") ?? "0", 10) || 0)
+  const searchRef = useRef<HTMLInputElement>(null)
+  useSlashToSearch(searchRef)
 
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [acting, setActing] = useState<{ claim: Claim; mode: "authorise" | "send-back" } | null>(
-    null
-  )
+  const [selected, setSelected] = useState<Map<string, Claim>>(new Map())
+  const [acting, setActing] = useState<{ claim: Claim; mode: "authorise" | "send-back" } | null>(null)
   const [bulkOpen, setBulkOpen] = useState(false)
+  const [batch, setBatch] = useState<Claim[]>([])
+  const [activeRow, setActiveRow] = useState(0)
 
-  function setParam(key: string, value: string) {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (value) next.set(key, value)
-      else next.delete(key)
-      if (key !== "page") next.delete("page")
-      return next
-    })
+  function setPage(next: number) {
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev)
+        if (next > 0) p.set("page", String(next))
+        else p.delete("page")
+        return p
+      },
+      { replace: true }
+    )
   }
 
   const query = new URLSearchParams()
+  if (q) query.set("q", q)
   if (department) query.set("department", department)
   query.set("sort", sort)
   query.set("limit", String(PAGE_SIZE))
   query.set("offset", String(page * PAGE_SIZE))
 
   const { data, isLoading, isError, error, refetch } = useApi<QueuePayload>(
-    ["director-queue", department, sort, page],
+    ["director-queue", q, department, sort, page],
     `/api/director/queue?${query.toString()}`,
     { enabled: allowed, placeholderData: (prev) => prev }
   )
+  const budget = useApi<BudgetPayload>(["budget-status", "current"], "/api/budgets", {
+    enabled: allowed,
+  })
 
-  const rows = data?.results ?? []
+  const rows = useMemo(() => data?.results ?? [], [data])
+
+  const href = (c: Claim) => {
+    const f = new URLSearchParams()
+    for (const k of FILTER_KEYS) if (values[k]) f.set(k, values[k])
+    return reviewLink(c.id, "authorisations", filtered ? f : undefined)
+  }
 
   // A selection made on one page is meaningless on the next, and a hidden
   // selection is how somebody authorises rows they cannot see.
   useEffect(() => {
-    setSelected(new Set())
-  }, [department, sort, page])
+    setSelected(new Map())
+  }, [q, department, sort, page])
+
+  useEffect(() => {
+    setActiveRow((i) => Math.min(i, Math.max(0, rows.length - 1)))
+  }, [rows.length])
+
+  const selectable = rows.filter((r) => !r.calc_error)
+  const selectedRows = rows.filter((r) => selected.has(r.id))
+  const selectedTotal = selectedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
+  const totals = data?.totals
+
+  function toggle(c: Claim) {
+    if (c.calc_error) return
+    setSelected((prev) => {
+      const next = new Map(prev)
+      if (next.has(c.id)) next.delete(c.id)
+      else next.set(c.id, c)
+      return next
+    })
+  }
+  function toggleAll() {
+    setSelected((prev) => {
+      const every = selectable.length > 0 && selectable.every((c) => prev.has(c.id))
+      return every ? new Map() : new Map(selectable.map((c) => [c.id, c]))
+    })
+  }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return
+      if (document.querySelector('[role="dialog"]')) return
+      if (rows.length === 0) return
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault()
+        setActiveRow((i) => Math.min(i + 1, rows.length - 1))
+      } else if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault()
+        setActiveRow((i) => Math.max(i - 1, 0))
+      } else if (e.key === "x") {
+        e.preventDefault()
+        const row = rows[activeRow]
+        if (row) toggle(row)
+      } else if (e.key === "Enter") {
+        e.preventDefault()
+        const row = rows[activeRow]
+        if (row) navigate(href(row))
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, activeRow])
 
   if (!allowed) {
     return (
@@ -142,43 +239,36 @@ export function Authorisations() {
     )
   }
 
-  const selectedRows = rows.filter((r) => selected.has(r.id))
-  const selectedTotal = selectedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
-  const totals = data?.totals
-
-  const departmentOptions: ComboboxOption[] = [
-    { value: "", label: "All departments" },
-    ...(data?.departments ?? []).map((d) => ({ value: d, label: d })),
-  ]
+  const departmentOptions = data?.departments ?? []
 
   return (
-    <div className="page space-y-6">
-      <header>
-        <PageTitle>Authorisations</PageTitle>
-        <Sub className="mt-1">
-          Approved by the Principal and waiting on you. Finance cannot pay any of these until
-          they carry your authorisation.
-        </Sub>
+    <div className="page space-y-5">
+      <header className="page-head">
+        <div>
+          <PageTitle>Authorisations</PageTitle>
+          <Sub className="mt-1">
+            Approved by the Principal and waiting on you. Finance pays only what carries your
+            authorisation.
+          </Sub>
+          <OwnPapersNote className="mt-1" />
+        </div>
+        <HeaderSpot name="spot-authorisations" />
       </header>
 
-      {/* Three states, not two. Without `loading` these read "—", "—", "—"
-          while the request is out — and with `totals` undefined after a
-          failure they went on reading that way above the error banner, which
-          is a column of dashes saying "nothing is waiting on you" at the one
-          moment the screen does not know. Withheld outright on a failure
-          with nothing cached; skeletons until the figures are real. */}
+      {/* Skeletons until the figures are real: a dash here would read as
+          "nothing waiting" at the one moment the screen does not know. */}
       {!(isError && !data) && (
         <div className="flex flex-wrap items-baseline gap-x-8 gap-y-3 border-y border-line py-3">
           <Stat
             label="Waiting on you"
             loading={!totals}
-            value={totals ? String(totals.count) : "—"}
+            value={totals ? String(totals.count) : ""}
           />
           <Stat
             label="Comes to"
             loading={!totals}
             value={money(totals?.amount)}
-            hint="Across everything that matches, not this page"
+            hint={department ? `From ${department}` : "Across every department"}
           />
           <Stat
             label="Longest wait"
@@ -186,7 +276,9 @@ export function Authorisations() {
             value={
               totals?.longest_wait_days == null
                 ? "None"
-                : `${totals.longest_wait_days} ${totals.longest_wait_days === 1 ? "day" : "days"}`
+                : totals.longest_wait_days === 0
+                  ? "Today"
+                  : `${totals.longest_wait_days} ${totals.longest_wait_days === 1 ? "day" : "days"}`
             }
             hint="Since the Principal approved it"
             tone={
@@ -198,116 +290,191 @@ export function Authorisations() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Combobox
-          value={department}
-          onChange={(next) => setParam("department", next)}
-          options={departmentOptions}
-          placeholder="All departments"
-          aria-label="Filter by department"
-          className="w-56"
-        />
-        <Combobox
-          value={sort}
-          onChange={(next) => setParam("sort", next)}
-          options={[
-            { value: "waiting", label: "Longest waiting first" },
-            { value: "recent", label: "Most recent first" },
-            { value: "amount", label: "Largest amount first" },
-            { value: "department", label: "By department" },
-          ]}
-          aria-label="Sort"
-          className="w-52"
-        />
-        {selectedRows.length > 0 && (
-          <div className="ml-auto flex items-center gap-3">
-            <Meta className="tabular">
-              {selectedRows.length} selected · {money(selectedTotal)}
-            </Meta>
-            <Button kind="primary" size="md" onClick={() => setBulkOpen(true)}>
-              <Stamp />
-              Authorise {selectedRows.length}
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {isLoading && !data ? (
-        <SkeletonRows rows={8} rowHeight={72} />
-      ) : isError ? (
-        <ErrorState
-          title="Could not load the queue"
-          message={
-            error?.status === 403
-              ? "Not allowed. Only the Director, or a super admin standing in, can authorise."
-              : "The server did not answer. Nothing has been authorised."
-          }
-          onRetry={error?.status === 403 ? undefined : () => refetch()}
-        />
-      ) : rows.length === 0 ? (
-        <EmptyState
-          // With a department chosen, "Every approved claim has been
-          // authorised" is a claim about the whole college made from one
-          // department's empty page — and it is the sentence a Director
-          // would stop working on the strength of.
-          art={department ? "no-results" : "empty-queue"}
-          icon={CircleCheck}
-          title={
-            department ? `Nothing waiting from ${department}` : "Nothing is waiting on you"
-          }
-          message={
-            department
-              ? "Another department may still have claims waiting. Clear the filter to see the whole queue."
-              : "Every approved claim has been authorised. The Principal's next batch appears here as soon as they sign it off."
-          }
-          action={
-            department ? (
-              <Button kind="default" size="sm" onClick={() => setParam("department", "")}>
-                See every department
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <>
-          <div className="flex items-center gap-2 pb-1">
-            <Checkbox
-              checked={selectedRows.length === rows.length && rows.length > 0}
-              onCheckedChange={(v) =>
-                setSelected(v === true ? new Set(rows.map((r) => r.id)) : new Set())
-              }
-              label={`Select all ${rows.length} on this page`}
+      <div className="space-y-10">
+        <section className="min-w-0 space-y-4" aria-label="Approved claims">
+          <div className={filterBar}>
+            <SearchBox
+              inputRef={searchRef}
+              value={q}
+              onCommit={(next) => set({ q: next })}
+              placeholder="Claim no., title, claimant or journal"
+              label="Search the queue"
             />
+            <QuietSelect value={department} onChange={(v) => set({ department: v })} label="Filter by department">
+              <option value="">All departments</option>
+              {departmentOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </QuietSelect>
+            <QuietSelect value={sort} onChange={(v) => set({ sort: v === "waiting" ? "" : v })} label="Sort">
+              <option value="waiting">Longest waiting first</option>
+              <option value="recent">Most recently approved</option>
+              <option value="amount">Largest amount first</option>
+              <option value="department">By department</option>
+            </QuietSelect>
+            {filtered && (
+              <Button kind="quiet" size="sm" onClick={clear}>
+                Clear filters
+              </Button>
+            )}
           </div>
+          <ClaimNoJump term={q} skip={new Set(rows.map((c) => c.id))} />
 
-          <ul className="divide-y divide-line border-y border-line">
-            {rows.map((claim) => (
-              <ClaimRow
-                key={claim.id}
-                claim={claim}
-                checked={selected.has(claim.id)}
-                onToggle={(on) =>
-                  setSelected((prev) => {
-                    const next = new Set(prev)
-                    if (on) next.add(claim.id)
-                    else next.delete(claim.id)
-                    return next
-                  })
-                }
-                onAuthorise={() => setActing({ claim, mode: "authorise" })}
-                onSendBack={() => setActing({ claim, mode: "send-back" })}
+          {selectable.length > 0 && selectedRows.length === 0 && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-sunken px-4 py-3">
+              <p className="text-sm">
+                <span className="font-semibold">{selectable.length}</span> on this page {selectable.length === 1 ? "is" : "are"} ready to authorise.{" "}
+                <span className="text-fg-muted">Each has an amount worked out.</span>
+              </p>
+              <Button
+                kind="primary"
+                size="sm"
+                className="ml-auto"
+                onClick={() => {
+                  setBatch(selectable)
+                  setBulkOpen(true)
+                }}
+              >
+                <Stamp />
+                Review the {selectable.length} ready
+              </Button>
+            </div>
+          )}
+
+          {selectedRows.length > 0 && (
+            // Pinned under the header while the list scrolls: on a phone the
+            // rows being ticked are a screen below where the button was.
+            <div className="sticky top-14 z-20 space-y-2 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm tabular">
+                  <span className="font-semibold">{selectedRows.length}</span> selected ·{" "}
+                  <span className="font-semibold">{money(selectedTotal)}</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button kind="quiet" size="md" onClick={() => setSelected(new Map())}>
+                    Clear selection
+                  </Button>
+                  <Button
+                    kind="primary"
+                    size="md"
+                    onClick={() => {
+                      setBatch(selectedRows)
+                      setBulkOpen(true)
+                    }}
+                  >
+                    <Stamp />
+                    Review and authorise {selectedRows.length}
+                  </Button>
+                </div>
+              </div>
+              {standingIn && <NoBulkSendBack />}
+            </div>
+          )}
+
+          {isLoading && !data ? (
+            <SkeletonRows rows={8} rowHeight={52} />
+          ) : isError ? (
+            <ErrorState
+              title="Could not load the queue"
+              message={
+                error?.status === 403
+                  ? "Not allowed. Only the Director, or a super admin standing in, can authorise."
+                  : "The server did not answer. Nothing has been authorised."
+              }
+              onRetry={error?.status === 403 ? false : () => refetch()}
+            />
+          ) : rows.length === 0 ? (
+            <EmptyState guide="authorise-the-month"
+              // With a filter on, "every approved claim has been authorised"
+              // would be a claim about the whole college made from one
+              // search's empty page.
+              art={filtered ? "no-results" : "empty-queue"}
+              icon={CircleCheck}
+              title={
+                department
+                  ? `Nothing waiting from ${department}`
+                  : filtered
+                    ? "No claim matches these filters"
+                    : "Nothing is waiting on you"
+              }
+              message={
+                filtered
+                  ? "Another department or search may still have claims waiting. Clear the filters to see the whole queue."
+                  : "Every approved claim has been authorised. The Principal's next approvals appear here as soon as they are signed."
+              }
+              action={
+                filtered ? (
+                  <Button kind="default" size="sm" onClick={clear}>
+                    Show the whole queue
+                  </Button>
+                ) : (
+                  <ComingUp desk="director" />
+                )
+              }
+            />
+          ) : (
+            <>
+              {!standingIn && (
+                <Meta className="block text-xs">
+                  A question about an approval goes to the Principal. This desk only moves claims forward.
+                </Meta>
+              )}
+              <QueueTable
+                label="Claims waiting to be authorised"
+                rows={rows}
+                reviewHref={href}
+                showAmount
+                minWidth="52rem"
+                extra={{
+                  header: "Approved",
+                  className: "w-52",
+                  cell: (c) => (
+                    <ApprovalCell
+                      claim={c}
+                      onAuthorise={() => setActing({ claim: c, mode: "authorise" })}
+                      // Director and Finance are forward-only (the college's
+                      // rule, enforced by the server); a super admin standing
+                      // in keeps the send-back as the rescue.
+                      onSendBack={standingIn ? () => setActing({ claim: c, mode: "send-back" }) : undefined}
+                    />
+                  ),
+                }}
+                active={activeRow}
+                onActive={setActiveRow}
+                select={{
+                  selected: new Set(selected.keys()),
+                  onToggle: toggle,
+                  onToggleAll: toggleAll,
+                  disabled: (c) => !!c.calc_error,
+                }}
               />
-            ))}
-          </ul>
+              <Pagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={data?.total ?? 0}
+                onChange={(next) => setPage(next)}
+              />
+            </>
+          )}
+        </section>
 
-          <Pagination
-            page={page}
-            pageSize={PAGE_SIZE}
-            total={data?.total ?? 0}
-            onChange={(next) => setParam("page", next > 0 ? String(next) : "")}
+        <aside className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-8 md:grid-cols-2" aria-label="Where the money goes">
+          <DepartmentTotals
+            rows={data?.by_department}
+            loading={!data}
+            active={department}
+            onPick={(d) => set({ department: d === department ? "" : d })}
           />
-        </>
-      )}
+          <BudgetPanel
+            data={budget.data}
+            loading={budget.isLoading}
+            failed={budget.isError}
+            department={department}
+          />
+        </aside>
+      </div>
 
       {acting?.mode === "authorise" && (
         <AuthoriseDialog claim={acting.claim} onClose={() => setActing(null)} />
@@ -317,14 +484,64 @@ export function Authorisations() {
       )}
       {bulkOpen && (
         <BulkAuthoriseDialog
-          claims={selectedRows}
+          claims={batch}
           onClose={() => setBulkOpen(false)}
-          onDone={() => setSelected(new Set())}
+          onDone={() => setSelected(new Map())}
         />
       )}
     </div>
   )
 }
+
+/** Who approved it and when, and the row's own actions. */
+function ApprovalCell({
+  claim,
+  onAuthorise,
+  onSendBack,
+}: {
+  claim: Claim
+  onAuthorise: () => void
+  onSendBack?: () => void
+}) {
+  const approved = approvedOn(claim.principal_approved_at)
+  const blocked = !!claim.calc_error
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-3">
+        <span className="whitespace-nowrap text-xs text-fg-muted" title={`Approved by ${claim.principal_approved_by_name || "the Principal"}`}>
+          {approved ?? "Approved"}
+          {/* Not a flag: the research threshold explains a ₹0 or part amount. */}
+          {thresholdFlag(claim) && <span className="block text-caution">{thresholdFlag(claim)}</span>}
+        </span>
+        <div className="flex flex-wrap gap-2">
+          {onSendBack && (
+            <Button kind="quiet" size="sm" onClick={onSendBack}>
+              Send back
+            </Button>
+          )}
+          <Button
+            kind="primary"
+            size="sm"
+            onClick={onAuthorise}
+            disabled={blocked}
+            title={blocked ? "The amount could not be worked out" : undefined}
+          >
+            Authorise
+          </Button>
+        </div>
+      </div>
+      {blocked && <p className="text-xs text-critical">The amount could not be worked out, so it cannot be authorised.</p>}
+    </div>
+  )
+}
+
+function approvedOn(iso: string | null): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+}
+
 
 function Stat({
   label,
@@ -337,8 +554,6 @@ function Stat({
   value: string
   hint?: string
   tone?: "critical"
-  /** A figure that has not arrived is a placeholder, never a dash. A dash is
-   *  a value, and on this screen it is the value "none waiting". */
   loading?: boolean
 }) {
   return (
@@ -362,100 +577,159 @@ function Stat({
 }
 
 /* ------------------------------------------------------------------------ */
-/* One claim                                                                 */
+/* Beside the list: by department, and the budget                           */
 /* ------------------------------------------------------------------------ */
 
-function ClaimRow({
-  claim,
-  checked,
-  onToggle,
-  onAuthorise,
-  onSendBack,
+function DepartmentTotals({
+  rows,
+  loading,
+  active,
+  onPick,
 }: {
-  claim: Claim
-  checked: boolean
-  onToggle: (on: boolean) => void
-  onAuthorise: () => void
-  onSendBack: () => void
+  rows: DepartmentTotal[] | undefined
+  loading: boolean
+  active: string
+  onPick: (department: string) => void
 }) {
   return (
-    <li className="flex gap-3 py-4">
-      <span className="pt-1">
-        <Checkbox
-          checked={checked}
-          onCheckedChange={(v) => onToggle(v === true)}
-          aria-label={`Select ${claim.paper_title}`}
-        />
-      </span>
-
-      <div className="min-w-0 flex-1 space-y-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <Link
-              to={`/papers/${claim.id}`}
-              className="block truncate text-base underline-offset-4 hover:underline"
-            >
-              {claim.paper_title || "Untitled"}
-            </Link>
-            <Meta className="block truncate">
-              {[
-                claim.owner_name,
-                claim.owner_department,
-                claim.journal_title,
-                claim.ticket_number,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </Meta>
-          </div>
-          <div className="shrink-0 text-right">
-            <p className="text-lg font-semibold tabular">{money(claim.remuneration)}</p>
-            {claim.waiting_days != null && (
-              <Meta className="block text-xs">
-                waiting {claim.waiting_days} {claim.waiting_days === 1 ? "day" : "days"}
-              </Meta>
-            )}
-          </div>
-        </div>
-
-        {claim.calc_error && (
-          <Callout tone="critical" title="This amount could not be worked out">
-            {claim.calc_error}
-          </Callout>
-        )}
-
-        {claim.needs_second_approval && (
-          // Information, not a control. `second-approve` is restricted to the
-          // office; a Director pressing it would simply be refused, so it is
-          // said rather than offered.
-          <Callout tone="caution" title="Needs a second signature before Finance can pay">
-            Over the high-value threshold. The research cell or a super admin gives that
-            signature — authorising it here does not, and Finance will still refuse the payment
-            until they do.
-          </Callout>
-        )}
-
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <Meta>
-            Approved by {claim.principal_approved_by_name || "the Principal"}
-            {claim.cleared_by_name ? ` · checked by ${claim.cleared_by_name}` : ""}
-          </Meta>
-          {claim.quartile && <Meta>{claim.quartile}</Meta>}
-          {claim.snip != null && <Meta>SNIP {claim.snip}</Meta>}
-        </div>
-
-        <div className="flex gap-2">
-          <Button kind="primary" size="sm" onClick={onAuthorise} disabled={!!claim.calc_error}>
-            Authorise
-          </Button>
-          <Button kind="quiet" size="sm" onClick={onSendBack}>
-            Send back to the Principal
-          </Button>
-        </div>
-      </div>
-    </li>
+    <section>
+      <h2 className="text-sm font-semibold">Waiting, by department</h2>
+      <Meta className="block text-xs">Pick one to filter the list.</Meta>
+      {loading ? (
+        <SkeletonRows rows={4} rowHeight={32} />
+      ) : !rows || rows.length === 0 ? (
+        <Meta className="mt-2 block">Nothing waiting.</Meta>
+      ) : (
+        <ul className="mt-2 divide-y divide-line border-y border-line">
+          {rows.map((r) => {
+            const name = r.department ?? ""
+            const on = !!name && name === active
+            return (
+              <li key={name || "none"}>
+                <button
+                  type="button"
+                  disabled={!name}
+                  aria-pressed={on}
+                  onClick={() => onPick(name)}
+                  className={cn(
+                    "flex w-full items-baseline justify-between gap-3 rounded-sm px-2 py-2 text-left text-sm",
+                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                    name && "hover:bg-sunken",
+                    on && "bg-accent-wash"
+                  )}
+                >
+                  <span className="min-w-0 truncate">
+                    {name || "No department"}{" "}
+                    <span className="text-ink-3">· {r.count}</span>
+                  </span>
+                  <span className="shrink-0 font-semibold tabular">{money(r.amount)}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
   )
 }
+
+function BudgetPanel({
+  data,
+  loading,
+  failed,
+  department,
+}: {
+  data: BudgetPayload | undefined
+  loading: boolean
+  failed: boolean
+  department: string
+}) {
+  const slice = department
+    ? data?.departments.find((d) => d.department === department) ?? {
+        department,
+        allocated: null,
+        spent: 0,
+        committed: 0,
+        remaining: null,
+        used_fraction: null,
+      }
+    : data?.college
+
+  return (
+    <section>
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold">
+          Budget {data ? data.financial_year : "this year"}
+        </h2>
+        <Link
+          to="/budget"
+          className="rounded-sm text-sm text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          Open the budget
+        </Link>
+      </div>
+      <Meta className="block text-xs">{department || "The whole college"}</Meta>
+      {loading ? (
+        <SkeletonRows rows={3} rowHeight={28} />
+      ) : failed || !slice ? (
+        <Meta className="mt-2 block">The budget could not be loaded. The queue is unaffected.</Meta>
+      ) : (
+        <BudgetFigures slice={slice} />
+      )}
+    </section>
+  )
+}
+
+function BudgetFigures({ slice }: { slice: BudgetSlice }) {
+  const allocated = slice.allocated
+  const used = allocated ? Math.min(1, (slice.spent + slice.committed) / allocated) : 0
+  const over = slice.remaining != null && slice.remaining < 0
+  return (
+    <div className="mt-2 space-y-3">
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1.5 text-sm">
+        <dt className="text-ink-2">Allocated</dt>
+        <dd className="text-right font-semibold tabular">
+          {allocated == null ? <span className="font-normal text-ink-3">Not set</span> : money(allocated)}
+        </dd>
+        <dt className="text-ink-2">Committed</dt>
+        <dd className="text-right tabular">{money(slice.committed)}</dd>
+        <dt className="text-ink-2">Paid</dt>
+        <dd className="text-right tabular">{money(slice.spent)}</dd>
+        {slice.remaining != null && (
+          <>
+            <dt className="text-ink-2">{over ? "Over by" : "Left"}</dt>
+            <dd className={cn("text-right font-semibold tabular", over && "text-critical")}>
+              {money(Math.abs(slice.remaining))}
+            </dd>
+          </>
+        )}
+      </dl>
+      {allocated ? (
+        <div
+          className="h-2 overflow-hidden rounded-full bg-sunken"
+          role="img"
+          aria-label={`${Math.round(used * 100)} percent of the allocation paid or committed`}
+        >
+          <div
+            className={cn("h-full rounded-full", over ? "bg-critical" : "bg-accent")}
+            style={{ width: `${Math.round(used * 100)}%` }}
+          />
+        </div>
+      ) : (
+        <Meta className="block text-xs">
+          No allocation has been set for this year, so there is no ceiling to measure against.
+          Finance or a super admin sets it on the budget page.
+        </Meta>
+      )}
+      <Meta className="block text-xs">
+        Committed counts everything checked, approved or authorised but not yet paid, including
+        this queue.
+      </Meta>
+    </div>
+  )
+}
+
+
 
 /* ------------------------------------------------------------------------ */
 /* Authorising                                                               */
@@ -478,7 +752,7 @@ function AuthoriseDialog({ claim, onClose }: { claim: Claim; onClose: () => void
 
   const authorise = useApiMutation<{ note?: string; expected_amount: number }, Claim>(
     `/api/claims/${claim.id}/director-approve`,
-    { invalidates: [["director-queue"], ["claim", claim.id], ["dashboard"]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   async function confirm() {
@@ -490,7 +764,7 @@ function AuthoriseDialog({ claim, onClose }: { claim: Claim; onClose: () => void
         expected_amount: amount,
       })
       toast.ok(
-        `Authorised — ${money(result.remuneration)} released to Finance${
+        `Authorised: ${money(result.remuneration)} released to Finance${
           claim.ticket_number ? ` for ${claim.ticket_number}` : ""
         }`
       )
@@ -520,7 +794,7 @@ function AuthoriseDialog({ claim, onClose }: { claim: Claim; onClose: () => void
         <DialogHeader>
           <DialogTitle>Authorise this payment?</DialogTitle>
           <DialogDescription>
-            {claim.owner_name} · {claim.paper_title}
+            {claim.owner_name} · {unshout(claim.paper_title)}
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
@@ -543,7 +817,7 @@ function AuthoriseDialog({ claim, onClose }: { claim: Claim; onClose: () => void
                 </Meta>
               </div>
 
-              <Field label="Note" hint="Optional — kept on the ticket's history.">
+              <Field label="Note" hint="Optional. Kept on the claim history.">
                 <Textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
@@ -590,7 +864,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
 
   const reject = useApiMutation<{ note: string }, Claim>(
     `/api/claims/${claim.id}/director-reject`,
-    { invalidates: [["director-queue"], ["claim", claim.id]] }
+    { invalidates: [...CHAIN, ["claim", claim.id]] }
   )
 
   const trimmed = note.trim()
@@ -599,7 +873,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
   async function submit() {
     try {
       await reject.mutateAsync({ note: trimmed })
-      toast.ok(`Sent back — the Principal will see why${claim.ticket_number ? ` on ${claim.ticket_number}` : ""}`)
+      toast.ok(`Sent back. The Principal will see why${claim.ticket_number ? ` on ${claim.ticket_number}` : ""}`)
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -617,7 +891,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
         </DialogHeader>
         <DialogBody className="space-y-4">
           <Callout tone="info" title="This goes back one step, not to the claimant">
-            The Principal's approval is withdrawn and the ticket returns to them. Nobody is
+            The Principal's approval is withdrawn and the claim returns to them. Nobody is
             asked to re-file a paper to answer a question about the budget.
           </Callout>
           <Field
@@ -629,7 +903,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={3}
-              placeholder="Takes the department past its allocation for the quarter — hold until April"
+              placeholder="Takes the department past its allocation for the quarter, hold until April"
               autoFocus
             />
           </Field>
@@ -662,7 +936,7 @@ function SendBackDialog({ claim, onClose }: { claim: Claim; onClose: () => void 
  * Those reasons are reported individually. "Authorised 12 of 15" with no word
  * on the other three is how three claims get forgotten.
  */
-function BulkAuthoriseDialog({
+export function BulkAuthoriseDialog({
   claims,
   onClose,
   onDone,
@@ -676,11 +950,20 @@ function BulkAuthoriseDialog({
 
   const bulk = useApiMutation<{ claim_ids: string[]; note?: string }, BulkResult>(
     "/api/director/bulk-approve",
-    { invalidates: [["director-queue"], ["dashboard"]] }
+    { invalidates: [...CHAIN] }
   )
 
   const total = claims.reduce((sum, c) => sum + (c.remuneration || 0), 0)
-  const blocked = claims.filter((c) => c.needs_second_approval)
+  const byDept = Object.entries(
+    claims.reduce<Record<string, { count: number; amount: number }>>((acc, c) => {
+      const k = c.owner_department || "No department"
+      acc[k] = {
+        count: (acc[k]?.count ?? 0) + 1,
+        amount: (acc[k]?.amount ?? 0) + (c.remuneration || 0),
+      }
+      return acc
+    }, {})
+  ).sort((a, b) => b[1].amount - a[1].amount)
 
   async function submit() {
     try {
@@ -730,13 +1013,6 @@ function BulkAuthoriseDialog({
             )
           ) : (
             <>
-              {blocked.length > 0 && (
-                <Callout tone="caution" title={`${blocked.length} still need a second signature`}>
-                  They will be authorised, but Finance cannot pay them until the research cell
-                  or a super admin adds the second signature. Authorising here does not supply
-                  it.
-                </Callout>
-              )}
               <div>
                 <ColumnLabel className="block">Releasing</ColumnLabel>
                 <p className="mt-0.5 text-2xl font-semibold tabular">{money(total)}</p>
@@ -744,7 +1020,39 @@ function BulkAuthoriseDialog({
                   across {claims.length} {claims.length === 1 ? "claim" : "claims"}
                 </Meta>
               </div>
-              <Field label="Note" hint="Optional — recorded against every claim in the batch.">
+              <div>
+                <ColumnLabel className="block">By department</ColumnLabel>
+                <ul className="mt-1 divide-y divide-line border-y border-line text-sm">
+                  {byDept.map(([d, v]) => (
+                    <li key={d} className="flex justify-between gap-3 py-1.5">
+                      <span className="min-w-0 truncate">
+                        {d} <span className="text-ink-3">· {v.count}</span>
+                      </span>
+                      <span className="shrink-0 tabular">{money(v.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <ColumnLabel className="block">Claims in this batch</ColumnLabel>
+                <ul className="mt-1 max-h-56 space-y-1.5 overflow-y-auto text-sm">
+                  {claims.map((c) => (
+                    <li key={c.id} className="flex items-center gap-2">
+                      <Avatar
+                        person={{
+                          name: c.owner_name,
+                          initials: initialsOf(c.owner_name),
+                          photo_url: c.owner_photo_url ?? null,
+                        }}
+                        size="sm"
+                      />
+                      <span className="min-w-0 flex-1 truncate">{c.owner_name}</span>
+                      <span className="shrink-0 tabular">{money(c.remuneration)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <Field label="Note" hint="Optional. Recorded against every claim in the batch.">
                 <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
               </Field>
             </>

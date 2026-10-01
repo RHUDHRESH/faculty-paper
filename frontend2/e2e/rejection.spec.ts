@@ -54,6 +54,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test"
 
 import { seedClaim, storageStatePath, type SessionInfo } from "./fixtures/backend"
 import { FILEABLE_FIELDS, patchClaim, uploadPdf } from "./fixtures/claim-api"
+import { openFromQueue } from "./fixtures/review"
 import { waitForSettled } from "./fixtures/page-health"
 
 /** The sentence the research cell types. Asserted verbatim on the claimant's
@@ -88,13 +89,10 @@ test.describe("A ticket sent back, and filed again", () => {
 
     const row = page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row, "the seeded ticket is not in the clearing queue").toHaveCount(1)
-    await row.getByText(seeded.claim!.title).click()
+    const review = await openFromQueue(page, row, "clearing")
+    await review.getByRole("button", { name: "Send back" }).click()
 
-    const sheet = page.getByRole("dialog")
-    await expect(sheet).toBeVisible()
-    await sheet.getByRole("button", { name: "Send it back" }).click()
-
-    await expect(page.getByRole("heading", { name: "Send this ticket back?" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: /Send this (claim|ticket) back\?/ })).toBeVisible()
 
     /**
      * The reason is not optional, and the button says so by being unusable.
@@ -104,7 +102,7 @@ test.describe("A ticket sent back, and filed again", () => {
      * that let somebody press the button and then showed them a toast has
      * already taken the decision away from them.
      */
-    const sendBack = page.getByRole("button", { name: "Send back", exact: true })
+    const sendBack = page.getByRole("dialog").getByRole("button", { name: "Send back", exact: true })
     await expect(sendBack, "a ticket can be sent back with no reason").toBeDisabled()
     await page.getByLabel("Reason").fill("too short")
     await expect(page.getByText("At least 10 characters.")).toBeVisible()
@@ -129,7 +127,12 @@ test.describe("A ticket sent back, and filed again", () => {
       `send back answered ${response.status()} — ${await response.text().catch(() => "")}`
     ).toBe(200)
 
-    await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 20_000 })
+    // After a send-back the sheet moves on to the next ticket in the queue
+    // (or closes when there is none); either way this ticket's sheet is gone.
+    await expect(
+      page.getByRole("dialog").filter({ hasText: seeded.claim!.ticket_number })
+    ).toHaveCount(0, { timeout: 20_000 })
+    await page.keyboard.press("Escape")
     await expect(
       page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number }),
       "a ticket that was sent back is still in the clearing queue"
@@ -144,41 +147,49 @@ test.describe("A ticket sent back, and filed again", () => {
     await waitForSettled(page)
 
     /**
-     * The callout, above everything including the back link — and the reason
-     * asserted *inside it*, not merely somewhere on the page.
+     * The fix view ("Sent back: what to fix", docs/ux/21 section E), above
+     * everything else on the page -- and the reason asserted *inside it*, not
+     * merely somewhere on the page.
      *
      * The distinction is the test. This page writes the same sentence twice:
-     * once here, and once further down in the history as "… sent it back —
-     * <reason>". A bare `getByText(REASON)` is therefore satisfied by the
-     * history line alone, which means it would go on passing with the callout
-     * deleted — and the callout is the whole point, because the history is
-     * eight items down a page the claimant has to scroll to reach.
+     * once here, as the item the claimant has to put right, and once further
+     * down in the history. A bare `getByText(REASON)` is therefore satisfied
+     * by the history line alone, which means it would go on passing with the
+     * fix view deleted -- and the fix view is the whole point, because the
+     * history is a long way down a page the claimant has to scroll to reach.
      *
-     * `Callout` is a plain `<div>` with its title in a `<p>`, so the callout
-     * is reached as that paragraph's parent.
+     * A send-back with no marks is split into items; this reason is one
+     * sentence-pair, so it is one item, word for word. The note as written
+     * sits one click away under "Read the college's note as it was written".
      */
-    const callout = page.getByText("Sent back — what to fix").locator("..")
-    await expect(callout, "the sent-back callout is not on the page").toBeVisible()
     await expect(
-      callout,
-      "the callout does not carry the reason the research cell wrote"
-    ).toContainText(REASON)
-    // Who said it and when, so it is a person's decision rather than the
-    // system's.
-    await expect(callout).toContainText("E2E Research Cell")
+      page.getByRole("heading", { name: "Sent back: what to fix" }),
+      "the fix view is not on the page"
+    ).toBeVisible()
+    await expect(
+      page.getByRole("listitem").filter({ hasText: "Fix this" }).filter({ hasText: REASON }),
+      "the fix view does not carry the reason the research cell wrote"
+    ).toHaveCount(1)
+    await page.getByText("Read the college's note as it was written").click()
+    await expect(page.getByText(REASON, { exact: true })).toHaveCount(1)
+    // Never who said it: a claimant does not learn which desk or person holds
+    // their paper (core/visibility.py). The reason is theirs; the name is not.
+    await expect(page.locator("main")).not.toContainText("E2E Research Cell")
 
-    // And again in the history, which is the durable record of it.
-    await expect(page.getByText(`sent it back — ${REASON}`)).toBeVisible()
+    // And again in the history, which is the durable record of it, written as
+    // the college and not as a person.
+    await expect(page.getByText("The college sent it back")).toBeVisible()
+    await expect(page.getByText(`“${REASON}”`)).toBeVisible()
 
     // And the tracker agrees, in the claimant's own vocabulary.
-    await expect(page.getByText("Sent back", { exact: true }).first()).toBeVisible()
-    await expect(page.getByText("Edit the details and file it again.")).toBeVisible()
+    await expect(page.getByLabel("Stage: Sent back")).toBeVisible()
+    await expect(page.getByRole("link", { name: "Fix and resend" })).toBeVisible()
 
     // The list says the same thing, because that is the screen they land on.
-    await page.goto("/papers")
+    await page.goto("/papers/claims")
     await waitForSettled(page)
     await page.getByLabel("Search your papers").fill(seeded.claim!.ticket_number)
-    const row = page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
+    const row = page.getByRole("listitem").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row).toHaveCount(1)
     await expect(row).toContainText("Sent back")
 
@@ -192,26 +203,31 @@ test.describe("A ticket sent back, and filed again", () => {
 
     // The button whose absence is the whole defect: a page that explains what
     // to fix and offers no way to fix it.
-    const edit = page.getByRole("link", { name: "Edit" })
+    const edit = page.getByRole("link", { name: "Fix and resend" })
     await expect(edit, "a sent-back ticket offers its owner no way to edit it").toBeVisible()
     await edit.click()
 
     await expect(page).toHaveURL(new RegExp(`/papers/${seeded.claim!.id}/edit$`))
     await waitForSettled(page)
 
-    // No eligibility gate on the way back in — the three confirmations belong
-    // to starting a claim, and making somebody re-tick them to correct a typo
-    // is how a correction gets abandoned.
+    // docs/ux/04: ticks are never remembered, so a reopened ticket with no
+    // acknowledgement on record for its article shows the three conditions
+    // again, unticked, about *this* article by name — then the form.
     await expect(
-      page.getByRole("heading", { name: "Confirm before you start" }),
-      "the eligibility gate stands in front of an edit"
-    ).toHaveCount(0)
+      page.getByRole("heading", { name: "Confirm three things about this paper", level: 1 })
+    ).toBeVisible()
+    await expect(page.getByText(seeded.claim!.title).first()).toBeVisible()
+    const gate = page.getByRole("checkbox")
+    await expect(gate).toHaveCount(3)
+    for (const box of await gate.all()) await expect(box).not.toBeChecked()
+    for (const box of await gate.all()) await box.check()
+    await page.getByRole("button", { name: "Start the claim" }).click()
 
     // It opened on *their* ticket, not on a blank form. The page title carries
     // the ticket number, which is the one thing on this screen that could not
     // be there by accident.
     await expect(
-      page.getByRole("heading", { name: `Edit ticket ${seeded.claim!.ticket_number}`, level: 1 })
+      page.getByRole("heading", { name: `Edit claim ${seeded.claim!.ticket_number}`, level: 1 })
     ).toBeVisible()
 
     await done(page)
@@ -295,8 +311,9 @@ test.describe("A ticket sent back, and filed again", () => {
       `re-filing answered ${response.status()} — ${await response.text().catch(() => "")}`
     ).toBe(200)
 
-    const refiled = (await response.json()) as { status: string; ticket_number: string }
-    expect(refiled.status, "a re-filed ticket did not go back to SUBMITTED").toBe("SUBMITTED")
+    const refiled = (await response.json()) as { faculty_stage?: string; status?: string; ticket_number: string }
+    expect(refiled.faculty_stage, "a re-filed ticket did not go back to the college").toBe("Under review")
+    expect(refiled.status, "the claimant was shown the desk status of their own paper").toBeUndefined()
     /**
      * The same ticket, not a second one.
      *
@@ -314,17 +331,15 @@ test.describe("A ticket sent back, and filed again", () => {
     // The claimant's own screens say it is travelling again.
     await faculty.goto(`/papers/${seeded.claim!.id}`)
     await waitForSettled(faculty)
-    // The tracker is back on the road at step one. Its accessible name is
-    // `Step <n> of 5: <label>`, and the label is the claimant's word for the
-    // status ("Awaiting check"), not the step's name ("Filed") — a sent-back
-    // ticket has no step at all and draws no track, so this locator existing
-    // is itself the assertion that it is travelling again.
-    await expect(faculty.getByLabel("Step 1 of 5: Awaiting check")).toBeVisible()
-    await expect(faculty.getByText("With the research cell.")).toBeVisible()
+    // The journey is back on the road at its first stage, named for the
+    // claimant ("Stage: Being checked"). It never says whose desk it is on --
+    // the college's rule -- so the old desk sentence must be gone.
+    await expect(faculty.getByLabel("Stage: Being checked")).toBeVisible()
+    await expect(faculty.getByText("Being checked by the college.")).toHaveCount(0)
     // And the sent-back callout is gone, because it no longer describes
     // anything the claimant has to do.
     await expect(
-      faculty.getByText("Sent back — what to fix"),
+      faculty.getByText("Sent back: what to fix"),
       "the ticket is filed again and still shows the send-back callout"
     ).toHaveCount(0)
     await done(faculty)

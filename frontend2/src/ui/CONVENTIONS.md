@@ -142,8 +142,9 @@ digits.
 2. **Never lift on hover.** (See Elevation, above.)
 3. **Never remove a focus ring.** `:focus-visible` is styled globally. If a
    component needs its own, it replaces it, never deletes it.
-4. **Never use a radius above `--radius-lg`** except on a dialog/palette
-   (`--radius-xl`).
+4. **Never use a radius above `--radius-panel`** except on a dialog/palette
+   (`--radius-xl`), and never a fourth corner: controls are `rounded-control`,
+   panels are `rounded-panel`.
 5. **Never render an error as an empty state.** "Could not load" and "nothing
    here" are different sentences and a reader must be able to tell them apart.
    The empty state in `Table` is drawn sunken partly for this reason — an
@@ -159,7 +160,8 @@ Colour: `--color-bg --color-fg --color-fg-muted --color-fg-subtle
 --color-positive-wash --color-caution --color-caution-wash --color-critical
 --color-critical-wash`
 
-Shape: `--radius-sm --radius-md --radius-lg --radius-xl`
+Shape: `--radius-sm --radius-md --radius-lg --radius-xl`, and the two a page is
+built from, `--radius-control` and `--radius-panel` (see "Page anatomy" below)
 Elevation: `--shadow-well --shadow-raise --shadow-lift --shadow-under
 --shadow-pop --shadow-modal`
 Motion: `--ease-out --ease-in-out --dur-1 --dur-2 --dur-3`
@@ -183,6 +185,55 @@ Utilities in `styles.css`: `.row` (hover wash), `.reveal` (actions that appear
 on row hover/focus), `.page` (the page column), `.tabular` (tabular numerals),
 `.panel` / `.panel-lead` / `.well` / `.hairline` (surfaces), `.display` (a page
 title), `.figure` (a number that is an answer), `.skeleton` (a placeholder).
+
+## Page anatomy and the base (docs/ux/22)
+
+Every view answers one question for one person: the answer first, the detail
+one step away. The kit gives each part of that a component, so a page cannot
+invent its own.
+
+| Part | Component | Rule |
+| --- | --- | --- |
+| Title, one line of purpose, one primary action, breadcrumbs | `PageHeader` (`ui/page-header`) | `sub` is one sentence in the person's words. `action` is one button. No rule under it. |
+| The answer | `Answer` (`ui/answer`) | 1 to 4 figures, each a link to the list behind it, a zero says what it means (`zero: "Nothing waiting"`). Flat: no card. |
+| The work | `Section`, `Rows` (`ui/section`), `Table` | Sections are separated by space, not by a rule and a card. |
+| Detail on demand | `Details` (`ui/section`) | "Show details (12)": the count says what is behind the door. |
+| Where you are | `Breadcrumbs` (`ui/breadcrumbs`), drawn by the shell | Do not draw your own. A detail page names its record with `useCrumbLabel(name)`. |
+
+**Tables.** Use `Table`. Every column has a heading (a column that must look
+blank gets a `label` for screen readers and the phone layout). A number is
+`align: "right"`. A cell with nothing to show returns `null` (or `"-"`) and the
+table prints "Not recorded"; set `empty: "None"` when absence is a fact. Under
+640 px the rows stack and keep their labels; opt out with `stack={false}` only
+for a true grid. Give a sortable column `sortable` and the table `onSort`. For a
+hand-built `<table>` you still need a `<thead>`, and `EmptyCell` for a missing
+value. Give the empty list an `EmptyStateProps`: what would be here, and one
+action.
+
+**Counts.** Real numbers, always: `formatCount(n)` from `lib/count` ("1,284"),
+never "99+". Two pages that count the same thing use the same service.
+
+**States.** A skeleton is invisible for its first 300 ms (a CSS delay in
+`.skeleton`, so it holds its space and never flickers); for a hand-built
+spinner wrap it in `<Delayed>`. An empty state says what would appear and the
+one thing to do. An error names what failed (`what="the import history"`) and
+always has "Try again" (it reloads if the page gave no retry).
+
+**Dividers and containers.** One hairline (`divide-y divide-line`, or `Rows`)
+between the rows of a list. Space, not a rule, between sections. No card inside
+a card; at most two levels of container on a view. **One radius for controls
+(`rounded-control`, 8 px)**: buttons, fields, sidebar links, filters. **One for
+panels (`rounded-panel`, 12 px)**: tables, menus, empty states, `.panel`.
+Chips are pills (`rounded-full`); a dialog is `--radius-xl`. Do not use
+`rounded-md` or `rounded-lg` on a new control or panel.
+
+**Findable.** A new route is added to `PAGES` in `app/nav.ts` with a label, a
+purpose and keywords in the words of the job (`findOnly: true` keeps it out of
+the sidebar). `npm run audit` fails if a fixed route is not findable, and
+`audit/clarity.mjs` fails on a new "99+", "Running", a run of three dashes, a
+table without a head, or a blank column heading. Its baseline
+(`audit/clarity-baseline.json`) lists what still breaks a rule; fix a page and
+run `node audit/clarity.mjs --update` to lock it in.
 
 ## Sizes
 

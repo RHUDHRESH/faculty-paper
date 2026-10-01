@@ -1,30 +1,31 @@
-import { Fragment, useEffect, useState } from "react"
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
+import { Fragment, Suspense, useEffect, useState } from "react"
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import * as RadixDialog from "@radix-ui/react-dialog"
-import { AnimatePresence, motion } from "motion/react"
-import { ChevronsUpDown, PanelLeft, PanelLeftClose, Search } from "lucide-react"
+import { Check, ChevronRight, ChevronsUpDown, Command, Monitor, Moon, PanelLeft, PanelLeftClose, Search, Sun } from "lucide-react"
 
 import { useAuth, type Role } from "@/app/auth"
-import { navFor } from "@/app/nav"
+import { HOME_DATA } from "@/app/home-data"
+import { activeDoor, inResearch, NAV, navBadges, navFor, type NavItem } from "@/app/nav"
+import { useApi } from "@/lib/query"
 import { Mark } from "@/ui/art"
+import { Avatar, initialsOf } from "@/ui/person"
+import type { Area } from "@/ui/chip"
 import { Button } from "@/ui/button"
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/ui/menu"
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
+import { useTheme, type ThemeChoice } from "@/app/theme"
 import { NotificationBell } from "@/app/notifications"
+import { useUnreadMessages } from "@/app/unread"
 import { cn } from "@/lib/cn"
+import { api, forgetCsrf } from "@/lib/api"
+import { toast } from "@/ui/toast"
 import { useCollegeName } from "@/app/institution"
-
-//: The same wording the people screen uses, so an account reads the same
-//: name for its own role as the office reads for it.
-const ROLE_LABEL: Record<Role, string> = {
-  FACULTY: "Faculty",
-  HOD: "Head of department",
-  PRINCIPAL: "Principal",
-  DIRECTOR: "Director",
-  FINANCE: "Finance",
-  RESEARCH_CELL: "Research cell",
-  RESEARCH_COORDINATOR: "Research coordinator",
-  SUPER_ADMIN: "Super admin",
-}
+import { CrumbLabelProvider, crumbsFor, useCrumbLabelValue } from "@/app/crumbs"
+import { Breadcrumbs } from "@/ui/breadcrumbs"
+import { formatCount } from "@/lib/count"
+import { ROLE_LABEL } from "@/app/account"
+import { Welcome } from "@/app/welcome"
+import { motion, useReducedMotion } from "motion/react"
+import { PageTransition, sidebarSpring } from "@/ui/motion/page"
 
 /**
  * Who you are signed in as, and the two things you can do about it.
@@ -41,22 +42,27 @@ const ROLE_LABEL: Record<Role, string> = {
  * returning to the trigger) and behaves identically in the sidebar and
  * inside the mobile drawer, where it opens on top of a dialog.
  */
+const THEMES: { value: ThemeChoice; label: string; icon: typeof Sun }[] = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "Match this device", icon: Monitor },
+]
+
 function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
   const { me, signOut } = useAuth()
   const nav = useNavigate()
+  const [theme, setTheme] = useTheme()
 
   return (
     <Menu>
       <MenuTrigger
         aria-label={me?.name ? `Account: ${me.name}` : "Account"}
         className={cn(
-          "flex h-9 w-full items-center gap-2 rounded-md px-1.5 text-left text-sm",
+          "flex h-10 w-full items-center gap-2.5 rounded-control px-2 text-left text-sm",
           "hover:bg-hover data-[state=open]:bg-hover"
         )}
       >
-        <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-wash text-[10px] font-semibold text-accent">
-          {(me?.name || "?").slice(0, 2).toUpperCase()}
-        </span>
+        <Avatar person={me ? { name: me.name, initials: initialsOf(me.name), photo_url: me.photo_url ?? null } : null} size="xs" className="size-7 shrink-0" />
         {!collapsed && (
           <>
             <span className="min-w-0 flex-1 truncate">{me?.name}</span>
@@ -73,6 +79,27 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
         </div>
         <MenuSeparator />
         <MenuItem onSelect={() => nav("/me")}>Your profile</MenuItem>
+        <MenuItem onSelect={() => nav("/help")}>Help and guides</MenuItem>
+        <MenuSeparator />
+        <MenuLabel>Appearance</MenuLabel>
+        {THEMES.map(({ value, label, icon: Icon }) => (
+          <MenuItem
+            key={value}
+            onSelect={(e) => {
+              e.preventDefault()
+              setTheme(value)
+            }}
+            aria-checked={theme === value}
+            role="menuitemradio"
+          >
+            <span className="flex w-full items-center gap-2">
+              <Icon className="size-4 text-fg-subtle" aria-hidden />
+              <span className="flex-1">{label}</span>
+              {theme === value && <Check className="size-4 text-accent" aria-hidden />}
+            </span>
+          </MenuItem>
+        ))}
+        <MenuSeparator />
         <MenuItem onSelect={() => void signOut()}>Sign out</MenuItem>
       </MenuContent>
     </Menu>
@@ -86,10 +113,14 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
  * same page existed in three files and drifted apart; here the list is data
  * and the frame renders whatever this account is allowed to reach.
  *
- * The active item is marked with a shared `layoutId`, so moving between pages
- * slides one indicator rather than extinguishing one box and lighting
- * another. It is the cheapest possible signal that this is one place rather
- * than a set of screens.
+ * The frame animates with CSS, not `motion/react`: it is on screen before any
+ * page, so whatever moves it is on the path to the first paint, and the
+ * animation library was ~120 KB of that path for a sidebar width, a highlight
+ * and a drawer. Pages that animate load the library with their own code.
+ *
+ * Pointing at or focusing a link starts loading that page's code
+ * (`onPreload`), so by the time the click lands the page is usually already
+ * here and only its data is left to fetch.
  *
  * The mobile drawer is a Radix dialog. It was a bare `motion.aside` behind a
  * click-to-dismiss overlay, which meant no focus trap, no Escape, nothing
@@ -101,10 +132,18 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
  * the wrong edge; the dialog primitive underneath it is used directly here
  * and the behaviour is the same.
  */
-export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
+export function Shell({
+  onOpenPalette,
+  onPreload,
+}: {
+  onOpenPalette: () => void
+  /** Start fetching the code behind a destination the reader is about to open. */
+  onPreload?: (to: string) => void
+}) {
   const collegeName = useCollegeName()
   const { me } = useAuth()
   const { pathname } = useLocation()
+  const reduceMotion = useReducedMotion()
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem("sidebar") === "collapsed"
   )
@@ -131,22 +170,48 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
     return () => wide.removeEventListener("change", onChange)
   }, [])
 
+  // The browser tab says where you are, so a row of tabs is not ten copies
+  // of the same name. Longest matching route wins (/reports/build over
+  // /reports); detail pages fall back to their section.
+  useEffect(() => {
+    const hit = NAV.filter((n) => (n.to === "/" ? pathname === "/" : pathname.startsWith(n.to)))
+      .sort((a, b) => b.to.length - a.to.length)[0]
+    document.title = hit ? `${hit.label} · Publications` : "Publications"
+  }, [pathname])
+
   const items = navFor(me?.role)
-  const seen = new Set<string>()
+  const listed = items.filter((i) => !i.pinned)
+  const pinned = items.filter((i) => i.pinned)
+  const preload = (to: string) => () => onPreload?.(to)
+  const research = useResearchFold(me?.role, pathname)
+  // What is waiting at this desk, beside its entry: the same counts the home
+  // screens read, so the two can never disagree. Refreshed every minute.
+  const stageCounts = useApi<{ counts: Record<string, number> }>(
+    HOME_DATA.stageCounts.key,
+    HOME_DATA.stageCounts.path,
+    { enabled: !!me, refetchInterval: 60_000 }
+  )
+  // Conversations with a message not yet read sit on Messages, for everybody.
+  const unread = useUnreadMessages()
+  const badges: Record<string, number> = {
+    ...navBadges(me?.role, stageCounts.data?.counts),
+    ...(unread.data?.conversations ? { "/messages": unread.data.conversations } : {}),
+  }
 
   return (
+    <CrumbLabelProvider>
     <RadixDialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
       <div className="flex min-h-svh bg-bg">
         <motion.aside
           initial={false}
-          animate={{ width: collapsed ? 56 : 240 }}
-          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          animate={{ width: collapsed ? 60 : 256 }}
+          transition={reduceMotion ? { duration: 0 } : sidebarSpring}
           className={cn(
             "sticky top-0 hidden h-svh shrink-0 flex-col border-r border-line",
-            "bg-sunken md:flex"
+            "bg-sunken md:flex print:hidden"
           )}
         >
-          <div className="flex h-12 items-center gap-2 px-3">
+          <div className="flex h-14 items-center gap-2.5 px-3.5">
             {/* Collapsed, the mark is the only thing on screen naming the
                 institution, so it carries the name; expanded, the wordmark
                 beside it does and a second announcement is noise. */}
@@ -154,78 +219,68 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
               className="size-6 text-accent"
               title={collapsed ? collegeName : undefined}
             />
-            {!collapsed && <span className="truncate text-sm font-semibold">Publications</span>}
+            {!collapsed && (
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate font-display text-[15px] font-medium">Publications</span>
+                <span className="block truncate text-[11px] text-fg-subtle">{collegeName}</span>
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setCollapsed((v) => !v)}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              className="ml-auto grid size-6 place-items-center rounded-sm text-fg-subtle hover:bg-hover hover:text-fg"
+              className="ml-auto grid size-7 place-items-center rounded-control text-fg-subtle hover:bg-hover hover:text-fg"
             >
               {collapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
             </button>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="Main">
-            {items.map((item) => {
-              const heading = item.group && !seen.has(item.group) ? item.group : null
-              if (item.group) seen.add(item.group)
-              const Icon = item.icon
-              return (
-                <Fragment key={item.to}>
-                  {heading && !collapsed ? (
-                    <p className="px-2 pb-1 pt-4 text-xs font-medium text-fg-subtle">
-                      {heading}
-                    </p>
-                  ) : null}
-                  {heading && collapsed ? (
-                    <div className="my-2 border-t border-line" />
-                  ) : null}
-                  <NavLink
-                    to={item.to}
-                    end={item.end}
-                    title={collapsed ? item.label : undefined}
-                    className={({ isActive }) =>
-                      cn(
-                        "relative flex h-8 items-center gap-2.5 rounded-md px-2 text-sm",
-                        "transition-colors duration-[var(--dur-1)]",
-                        isActive
-                          ? "font-medium text-fg"
-                          : "text-fg-muted hover:bg-hover hover:text-fg"
-                      )
-                    }
-                  >
-                    {({ isActive }) => (
-                      <>
-                        {isActive && (
-                          <motion.span
-                            layoutId="nav-active"
-                            className="absolute inset-0 -z-10 rounded-md bg-active"
-                            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                          />
-                        )}
-                        <Icon className="size-4 shrink-0" />
-                        {!collapsed && <span className="truncate">{item.label}</span>}
-                      </>
-                    )}
-                  </NavLink>
-                </Fragment>
-              )
-            })}
+          <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Main">
+            <NavList
+              items={listed}
+              role={me?.role}
+              collapsed={collapsed}
+              badges={badges}
+              preload={preload}
+              research={research}
+            />
           </nav>
 
-          <div className="border-t border-line p-2">
+          {pinned.length > 0 && (
+            <div className="px-2 pb-2">
+              {pinned.map((item) => {
+                const Icon = item.icon
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    data-area={item.area}
+                    title={collapsed ? item.label : undefined}
+                    onPointerEnter={preload(item.to)}
+                    onFocus={preload(item.to)}
+                    className={({ isActive }) => navClass(isActive, item.area)}
+                  >
+                    <Icon className="size-4 shrink-0" />
+                    {!collapsed && <span className="truncate">{item.label}</span>}
+                  </NavLink>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="p-2.5">
             <button
               type="button"
               onClick={onOpenPalette}
               className={cn(
-                "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+                "flex h-9 w-full items-center gap-2 rounded-control px-2.5 text-sm",
                 "text-fg-muted hover:bg-hover hover:text-fg"
               )}
             >
-              <Search className="size-4 shrink-0" />
+              <Command className="size-4 shrink-0" />
               {!collapsed && (
                 <>
-                  <span>Search</span>
+                  <span>Jump to…</span>
                   <kbd className="ml-auto rounded border border-edge px-1 text-[10px] text-fg-subtle">
                     Ctrl K
                   </kbd>
@@ -243,7 +298,7 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
         </motion.aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/85 px-3 backdrop-blur md:hidden">
+          <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line bg-bg/90 px-3 backdrop-blur md:hidden print:hidden">
             <RadixDialog.Trigger asChild>
               <Button kind="quiet" size="icon" aria-label="Menu">
                 <PanelLeft />
@@ -256,80 +311,351 @@ export function Shell({ onOpenPalette }: { onOpenPalette: () => void }) {
               size="icon"
               className="ml-auto"
               onClick={onOpenPalette}
-              aria-label="Search"
+              aria-label="Jump to a page or claim"
             >
               <Search />
             </Button>
             <NotificationBell />
           </header>
 
-          <main className="min-w-0 flex-1 py-8">
-            <Outlet />
+          {me?.impersonated_by && <ViewingAs name={me.name} role={me.role} />}
+          {me && <Welcome key={me.id} />}
+
+          <main className="min-w-0 flex-1 pb-10 pt-6">
+            <CrumbStrip />
+            <Suspense fallback={<PageLoading />}>
+              <PageTransition>
+                <Outlet />
+              </PageTransition>
+            </Suspense>
           </main>
         </div>
       </div>
 
       {/* Portalled, so it is last in the document however early it is written
-          here, and `AnimatePresence` rather than Radix decides when it leaves
-          the tree, the same arrangement as `ui/dialog.tsx`. */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <RadixDialog.Portal forceMount>
-            <RadixDialog.Overlay asChild forceMount>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-40 bg-black/25 md:hidden"
+          here. Radix keeps it mounted until the closing keyframes end (see
+          `frame-drawer` in styles.css). */}
+      <RadixDialog.Portal>
+        <RadixDialog.Overlay className="frame-overlay fixed inset-0 z-40 bg-black/25 md:hidden" />
+        <RadixDialog.Content asChild aria-describedby={undefined}>
+          <aside
+            className={cn(
+              "frame-drawer fixed inset-y-0 left-0 z-50 flex w-64 flex-col overflow-hidden",
+              "border-r border-line bg-sunken p-2.5 md:hidden"
+            )}
+          >
+            <RadixDialog.Title className="sr-only">Menu</RadixDialog.Title>
+            {/* The drawer covers the header it was opened from, so
+                without this it is a list of links belonging to nothing. */}
+            <div className="mb-2 flex h-9 shrink-0 items-center gap-2 px-2">
+              <Mark className="size-5 text-accent" />
+              <span className="text-sm font-semibold">Publications</span>
+            </div>
+            <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Main">
+              <NavList
+                items={[...listed, ...pinned]}
+                role={me?.role}
+                collapsed={false}
+                mobile
+                badges={badges}
+                preload={preload}
+                research={research}
               />
-            </RadixDialog.Overlay>
-            <RadixDialog.Content asChild forceMount aria-describedby={undefined}>
-              <motion.aside
-                initial={{ x: -260 }}
-                animate={{ x: 0 }}
-                exit={{ x: -260 }}
-                transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                className={cn(
-                  "fixed inset-y-0 left-0 z-50 flex w-64 flex-col overflow-hidden",
-                  "border-r border-line bg-sunken p-2 md:hidden"
-                )}
-              >
-                <RadixDialog.Title className="sr-only">Menu</RadixDialog.Title>
-                {/* The drawer covers the header it was opened from, so
-                    without this it is a list of links belonging to nothing. */}
-                <div className="mb-2 flex h-9 shrink-0 items-center gap-2 px-2">
-                  <Mark className="size-5 text-accent" />
-                  <span className="text-sm font-semibold">Publications</span>
-                </div>
-                <nav className="min-h-0 flex-1 overflow-y-auto" aria-label="Main">
-                  {items.map((item) => {
-                    const Icon = item.icon
-                    return (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        end={item.end}
-                        className={({ isActive }) =>
-                          cn(
-                            "flex h-9 items-center gap-2.5 rounded-md px-2 text-sm",
-                            isActive ? "bg-active font-medium" : "text-fg-muted"
-                          )
-                        }
-                      >
-                        <Icon className="size-4" />
-                        {item.label}
-                      </NavLink>
-                    )
-                  })}
-                </nav>
-                <div className="mt-2 shrink-0 border-t border-line pt-2">
-                  <AccountMenu />
-                </div>
-              </motion.aside>
-            </RadixDialog.Content>
-          </RadixDialog.Portal>
-        )}
-      </AnimatePresence>
+            </nav>
+            <div className="mt-2 shrink-0 border-t border-line pt-2">
+              <AccountMenu />
+            </div>
+          </aside>
+        </RadixDialog.Content>
+      </RadixDialog.Portal>
     </RadixDialog.Root>
+    </CrumbLabelProvider>
+  )
+}
+
+type ResearchFold = { open: boolean; toggle: () => void }
+
+/**
+ * Whether an officer's "Research" group is unfolded.
+ *
+ * Folded by default for the office, where the desk is the day's work and a
+ * dozen research links beside it are a pile; open by default for a head of
+ * department, who is a faculty member first. Going to any page inside it
+ * opens it, and the reader's own choice is remembered.
+ */
+function useResearchFold(role: Role | undefined, pathname: string): ResearchFold {
+  const KEY = "sidebar-research"
+  const [stored, setStored] = useState<boolean | null>(() => {
+    try {
+      const v = localStorage.getItem(KEY)
+      return v === "open" ? true : v === "closed" ? false : null
+    } catch {
+      return null
+    }
+  })
+  useEffect(() => {
+    if (inResearch(pathname)) setStored(true)
+  }, [pathname])
+  useEffect(() => {
+    if (stored === null) return
+    try {
+      localStorage.setItem(KEY, stored ? "open" : "closed")
+    } catch {
+      /* a preference, nothing more */
+    }
+  }, [stored])
+  const open = stored ?? role === "HOD"
+  return { open, toggle: () => setStored(!open) }
+}
+
+/**
+ * The list of sidebar links, for the desktop rail and the phone drawer.
+ *
+ * A faculty member's list is the four coloured groups. Everybody else's is a
+ * few doors, lit by the section they are in (`activeDoor`, so Budget lights
+ * Money and an import lights Admin, not nothing), then the folded Research
+ * group.
+ */
+function NavList({
+  items,
+  role,
+  collapsed,
+  mobile = false,
+  badges,
+  preload,
+  research,
+}: {
+  items: NavItem[]
+  role: Role | undefined
+  collapsed: boolean
+  mobile?: boolean
+  badges: Record<string, number>
+  preload: (to: string) => () => void
+  research: ResearchFold
+}) {
+  const { pathname } = useLocation()
+  const staff = !!role && role !== "FACULTY"
+  const doorTo = staff ? activeDoor(role, pathname) : undefined
+  const plain = items.filter((i) => !i.fold && !(mobile && i.pinned))
+  const folded = items.filter((i) => i.fold)
+  const pinnedHere = mobile ? items.filter((i) => i.pinned) : []
+  const seen = new Set<string>()
+
+  const entry = (item: NavItem, opts: { door: boolean }) => {
+    const Icon = item.icon
+    const badge = (
+      <NavBadge n={badges[item.to]} compact={collapsed} label={badgeLabel(item.to, badges[item.to])} />
+    )
+    const inner = (
+      <>
+        <Icon className="size-4 shrink-0" />
+        {!collapsed && <span className="truncate">{item.label}</span>}
+        {badge}
+      </>
+    )
+    if (opts.door) {
+      const active = doorTo === item.to
+      return (
+        <Link
+          key={item.to}
+          to={item.to}
+          aria-current={active ? "page" : undefined}
+          title={collapsed ? item.label : undefined}
+          onPointerEnter={preload(item.to)}
+          onFocus={preload(item.to)}
+          className={cn(navClass(active), mobile && "h-9")}
+        >
+          {inner}
+        </Link>
+      )
+    }
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        end={item.end}
+        data-area={item.area}
+        title={collapsed ? item.label : undefined}
+        onPointerEnter={preload(item.to)}
+        onFocus={preload(item.to)}
+        className={({ isActive }) => cn(navClass(isActive, item.area), mobile && "h-9")}
+      >
+        {inner}
+      </NavLink>
+    )
+  }
+
+  const foldedBadge = folded.reduce((n, i) => n + (badges[i.to] ?? 0), 0)
+  const stand = folded.find((i) => i.to === "/research") ?? folded[0]
+
+  return (
+    <>
+      {plain.map((item) => {
+        const heading = !mobile && item.group && !seen.has(item.group) ? item.group : null
+        if (item.group) seen.add(item.group)
+        return (
+          <Fragment key={item.to}>
+            {heading && !collapsed ? (
+              <p
+                data-area={item.area}
+                className="flex items-center gap-1.5 px-2.5 pb-1.5 pt-5 text-xs font-medium text-fg-subtle"
+              >
+                {heading}
+              </p>
+            ) : null}
+            {heading && collapsed ? <div className="my-2 border-t border-line" /> : null}
+            {entry(item, { door: staff && !item.pinned })}
+          </Fragment>
+        )
+      })}
+
+      {folded.length > 0 &&
+        (collapsed ? (
+          <>
+            <div className="my-2 border-t border-line" />
+            {stand && entry({ ...stand, label: "Research" }, { door: false })}
+          </>
+        ) : (
+          <div className="pt-3">
+            <button
+              type="button"
+              aria-expanded={research.open}
+              onClick={research.toggle}
+              className="flex h-8 w-full items-center gap-1.5 rounded-control px-2.5 text-xs font-medium text-fg-subtle hover:bg-hover hover:text-fg"
+            >
+              <ChevronRight
+                className={cn("size-3.5 transition-transform duration-[var(--dur-1)]", research.open && "rotate-90")}
+                aria-hidden
+              />
+              Research
+              {!research.open && foldedBadge > 0 && (
+                <span
+                  className="ml-auto size-2 rounded-full bg-accent"
+                  role="status"
+                  aria-label={`${foldedBadge} waiting under Research`}
+                />
+              )}
+            </button>
+            {research.open && folded.map((item) => entry(item, { door: false }))}
+          </div>
+        ))}
+
+      {pinnedHere.map((item) => entry(item, { door: false }))}
+    </>
+  )
+}
+
+/** What a badge says aloud: work waiting at a desk, or conversations with news. */
+/** A sidebar link. Active takes its area's wash (docs/ux/00 §9), not `selected`. */
+function navClass(isActive: boolean, _area?: Area): string {
+  // Claude-like: one calm warm-grey pill for the current page, whatever its area.
+  return cn(
+    "relative flex h-9 items-center gap-2.5 rounded-control px-2.5 text-sm",
+    "transition-colors duration-[var(--dur-1)]",
+    isActive
+      ? "bg-active font-medium text-fg"
+      : "text-fg-muted hover:bg-hover hover:text-fg"
+  )
+}
+
+function badgeLabel(to: string, n: number | undefined): string | undefined {
+  if (!n || to !== "/messages") return undefined
+  return `${n} conversation${n === 1 ? "" : "s"} with new messages`
+}
+
+/** How many are waiting at this entry's desk (or, on Messages, how many
+ *  conversations have news). A dot when the sidebar is collapsed; nothing at
+ *  all for an empty queue. */
+function NavBadge({ n, compact = false, label: said }: { n: number | undefined; compact?: boolean; label?: string }) {
+  if (!n) return null
+  const label = said ?? `${n} waiting`
+  if (compact) {
+    return (
+      <span
+        className="absolute right-1 top-1 size-2 rounded-full bg-accent"
+        aria-label={label}
+        role="status"
+      />
+    )
+  }
+  return (
+    <span
+      className="ml-auto min-w-5 shrink-0 rounded-full bg-accent-wash px-1.5 text-center text-[11px] font-semibold leading-5 text-accent tabular"
+      aria-label={label}
+    >
+      {formatCount(n)}
+    </span>
+  )
+}
+
+/**
+ * Where this page sits, above the page ("Admin / Imports"). Drawn by the frame
+ * from the route so no page has to; a page that knows the record's name says
+ * so with `useCrumbLabel`. On a page with no trail it is only the space the
+ * title used to have, so titles sit at the same height either way.
+ */
+function CrumbStrip() {
+  const { me } = useAuth()
+  const { pathname } = useLocation()
+  const dynamic = useCrumbLabelValue()
+  const items = crumbsFor(me?.role, pathname, dynamic)
+  if (items.length === 0) return <div className="h-4" aria-hidden />
+  return (
+    <div className="page pb-3">
+      <Breadcrumbs items={items} />
+    </div>
+  )
+}
+
+/** What the page area shows while a page's code arrives: nothing that could
+ *  be mistaken for content, and only after a beat, so a fast load shows
+ *  nothing at all. */
+function PageLoading() {
+  return (
+    <div className="page" role="status" aria-busy="true" aria-label="Loading">
+      <div className="h-7 w-48 animate-[pulse_1.6s_ease-in-out_infinite] rounded-md bg-hover opacity-0 [animation-delay:300ms]" />
+    </div>
+  )
+}
+
+/**
+ * Always on screen while a super admin is viewing as somebody else, so no
+ * action taken in that state can be mistaken for one's own. The server
+ * records the start and the end; this is the way back.
+ */
+function ViewingAs({ name, role }: { name: string; role: Role }) {
+  const { refresh } = useAuth()
+  const nav = useNavigate()
+  const [busy, setBusy] = useState(false)
+  return (
+    <div
+      role="status"
+      className="sticky top-0 z-40 flex flex-wrap items-center gap-3 bg-caution-wash px-4 py-2 text-sm text-caution ring-1 ring-inset ring-caution/30 print:hidden"
+    >
+      <span className="flex-1">
+        You are viewing the app as <strong>{name}</strong> ({ROLE_LABEL[role]}). You can look around;
+        nothing can be changed while viewing.
+      </span>
+      <Button
+        kind="default"
+        size="sm"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          try {
+            await api("/api/admin/stop-impersonating", { method: "POST" })
+            forgetCsrf() // back to our own session: a new token again
+            await refresh()
+            nav("/people")
+          } catch (err) {
+            toast.fail(err)
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        Back to your own account
+      </Button>
+    </div>
   )
 }

@@ -160,13 +160,38 @@ def _match_user(label: str) -> User | None:
     return None
 
 
-def _match_claim(label: str) -> Claim | None:
+def mentionable_papers(user: User):
+    """The claims this account may name with `@paper:`, and be told about.
+
+    The one rule the @ menu and the resolver share: your own papers (a draft
+    you are still writing included), and -- for the desks that look at every
+    ticket (office, Principal, Finance) -- everybody's filed papers. Nobody
+    else's draft, ever, and a colleague's ticket is not a claimant's to read.
+    """
+    own = Q(owner=user)
+    if is_office(user.role) or user.role in (Role.PRINCIPAL, Role.FINANCE):
+        return Claim.objects.filter(own | ~Q(status=ClaimStatus.DRAFT))
+    return Claim.objects.filter(own)
+
+
+def can_mention_paper(user: User, claim: Claim) -> bool:
+    return mentionable_papers(user).filter(pk=claim.pk).exists()
+
+
+def _match_claim(label: str, viewer: User | None = None) -> Claim | None:
+    """A claim by ticket number or id, among those `viewer` may name.
+
+    A claim the viewer may not see resolves to nothing, so the mention stays
+    plain text and carries no title, status or flag. `viewer=None` is the
+    unrestricted lookup, for trusted internal callers only.
+    """
     text = label.strip()
     if not text:
         return None
+    scope = Claim.objects.all() if viewer is None else mentionable_papers(viewer)
     return (
-        Claim.objects.filter(ticket_number__iexact=text).first()
-        or Claim.objects.filter(pk=text).first()
+        scope.filter(ticket_number__iexact=text).first()
+        or scope.filter(pk=text).first()
     )
 
 
@@ -204,12 +229,15 @@ def _match_department(label: str) -> str | None:
     )
 
 
-def parse_mentions(body: str) -> list[dict[str, Any]]:
+def parse_mentions(body: str, viewer: User | None = None) -> list[dict[str, Any]]:
     """Every @name in a post, resolved to what it points at.
 
     An unresolved mention is dropped rather than stored as a dangling label:
     a mention nothing answers to is just text, and storing it would put rows
     in the table that no notification, link or lookup can ever use.
+
+    `viewer` is the person writing it: a paper they may not see is not
+    resolved. Omitted, papers resolve unrestricted -- internal callers only.
     """
     out: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
@@ -248,7 +276,7 @@ def parse_mentions(body: str) -> list[dict[str, Any]]:
             ]
 
         for kind, resolve in resolvers:
-            hit = resolve(label)
+            hit = resolve(label, viewer) if resolve is _match_claim else resolve(label)
             if not hit:
                 continue
             row: dict[str, Any] = {"kind": kind, "label": label}
@@ -294,6 +322,10 @@ def mention_candidates(user: User, query: str, kind: str | None, limit: int = 8)
                 "id": u.id,
                 "label": u.name or u.email,
                 "hint": " · ".join(x for x in (u.department, u.designation) if x) or u.email,
+                # A face in the @ menu: faces.fill adds photo_url/initials to
+                # any dict carrying a user_id and a name.
+                "user_id": str(u.id),
+                "name": u.name or u.email,
             })
 
     if not want or want == Mention.Kind.DEPARTMENT:
@@ -329,9 +361,7 @@ def mention_candidates(user: User, query: str, kind: str | None, limit: int = 8)
                 break
 
     if not want or want == Mention.Kind.PAPER:
-        papers = Claim.objects.exclude(status=ClaimStatus.DRAFT)
-        if not is_office(user.role) and user.role not in (Role.PRINCIPAL, Role.FINANCE):
-            papers = papers.filter(owner=user)
+        papers = mentionable_papers(user).exclude(status=ClaimStatus.DRAFT)
         for c in papers.filter(
             Q(ticket_number__icontains=text) | Q(paper_title__icontains=text)
         ).select_related("owner")[:limit]:

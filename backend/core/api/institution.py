@@ -63,7 +63,7 @@ def setup(request: HttpRequest, payload: SetupIn):
     if User.objects.exists():
         # A system with accounts has an owner. Say so rather than 403, so the
         # sentence names the actual situation.
-        raise HttpError(409, "This system already has accounts — setup is finished.")
+        raise HttpError(409, "This system already has accounts. Setup is finished.")
 
     college_name = payload.college_name.strip()
     admin_name = payload.admin_name.strip()
@@ -140,15 +140,22 @@ def put_settings(request: HttpRequest, payload: SettingsIn):
     if not rbac.can_admin_portal(user.role):
         raise HttpError(403, "Forbidden")
     changes = {k: v for k, v in payload.dict().items() if v is not None}
+    was = institution.public()
     try:
         state = institution.set_values(changes, user)
     except ValueError as exc:
         raise HttpError(422, "; ".join(next(iter(exc.args)))) from exc
+    # What moved, from what to what, so the log can say it in words.
+    moved = [k for k in changes if was.get(k) != state.get(k)]
     AuditLog.objects.create(
         actor=user,
-        action="Updated the institution settings",
+        action="SETTINGS_UPDATE",
         entity="system_setting",
-        detail_json=json.dumps(changes),
+        entity_id="institution",
+        detail_json=json.dumps({
+            "before": {k: was.get(k) for k in moved},
+            "after": {k: state.get(k) for k in moved},
+        }),
     )
     return state
 

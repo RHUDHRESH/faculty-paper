@@ -1,14 +1,24 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react"
-import { LoaderCircle, X } from "lucide-react"
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react"
+import { Camera, LoaderCircle, Lock, X } from "lucide-react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 
+import {
+  ASSIGNABLE_ROLES,
+  FACULTY_TYPE_LABEL,
+  requestValueLabel,
+  roleLabel,
+} from "@/app/account"
 import { can, useAuth } from "@/app/auth"
+import { loadGoogleIdentity, type GoogleConfig } from "@/app/google"
 import { PasswordDialog } from "@/app/password"
-import { ApiError } from "@/lib/api"
-import { cn } from "@/lib/cn"
+import { HOME_DATA } from "@/app/home-data"
+import { api, ApiError } from "@/lib/api"
 import { useApi, useApiMutation } from "@/lib/query"
+import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
+  ConfirmDialog,
   Dialog,
   DialogBody,
   DialogContent,
@@ -17,12 +27,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/ui/dialog"
+import { Link } from "react-router-dom"
+
+import { BadgeStrip } from "@/pages/person-social"
+import { Avatar, initialsOf } from "@/ui/person"
 import { Field, Input, Textarea } from "@/ui/field"
+import { PageHeader } from "@/ui/page-header"
+import { ThresholdCard, useMyThreshold } from "@/ui/research-threshold"
+import { Details } from "@/ui/section"
 import { money } from "@/ui/paper"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { ScopusProfileCard, type ScopusProfile } from "@/ui/scopus"
+import { Meta, SectionTitle, Sub } from "@/ui/text"
 import {
   Callout,
-  EmptyState,
   ErrorState,
   InlineError,
   SkeletonRows,
@@ -31,21 +48,26 @@ import {
 import { toast } from "@/ui/toast"
 
 /**
- * The account page at `/me` — who you are, what you can ask to change, what
- * the college's record of you actually says, and the password.
+ * The account page at `/me`, in the product owner's terms: every account has
+ * an email and a password; Google can be linked for sign-in; some details you
+ * change yourself, and the rest go to the research office as a request.
  *
- * Nothing on a profile is self-service any more (`PATCH /api/auth/profile`
- * refuses everyone but a super admin), and a field that is simply greyed out
- * with no reason reads as a bug and generates a support email. So every
- * identity field carries the sentence that explains it, and the one lever a
- * claimant does have — asking for a correction — has to actually show what
- * came of asking, including a decline and why, or "the research cell owns
- * your profile" is back to meaning "email somebody and hope".
+ * So the page has two kinds of detail and says which is which. The few that
+ * are nobody's business but the person's own (a phone number, the domains
+ * they work in) are plain inputs that save straight away. Everything that
+ * decides who gets paid or whose record a paper is checked against is shown
+ * locked, with a "Request a change" on each line — and the request has to
+ * show what came of it, including a decline and why, or "the research office
+ * keeps it" is back to meaning "email somebody and hope".
  */
 
 /* ------------------------------------------------------------------------ */
 /* Data                                                                      */
 /* ------------------------------------------------------------------------ */
+
+/** Which Google account signs in to this one — `/auth/me` carries it only
+ *  for the person themselves. */
+type GoogleLink = { email: string | null; linked_at: string | null }
 
 type FullMe = {
   id: string
@@ -68,46 +90,37 @@ type FullMe = {
   must_change_password: boolean
   active: boolean
   portal: string
+  phone: string | null
+  orcid_id?: string | null
+  google: GoogleLink | null
 }
 
-type CorrectionStatus = "PENDING" | "APPROVED" | "DECLINED"
+type RequestStatus = "PENDING" | "APPROVED" | "DECLINED"
 
-type Correction = {
+type ChangeRequest = {
   id: string
   field: string
   label: string
   current_value: string
   proposed_value: string
   note: string
-  status: CorrectionStatus
+  status: RequestStatus
   decision_note: string
   created_at: string | null
   decided_at: string | null
-  // The API doc calls this `decided_by_name`; `backend/core/api.py`'s
-  // `_request_dict` actually sends the key as `decided_by` — read from the
-  // source of truth rather than the doc where the two disagree.
+  // `_request_dict` sends the approver's name under `decided_by`.
   decided_by: string | null
 }
 
-/** The stage buckets `/api/claims/counts` groups statuses into, server-side,
- *  so this screen and the papers list cannot disagree about what "filed"
- *  means. */
-type ClaimCounts = {
-  counts: {
-    draft: number
-    filed: number
-    checked: number
-    approved: number
-    authorised: number
-    paid: number
-    sent_back: number
-    all: number
-  }
+/** The slice of `/api/me/summary` this page uses. */
+type MeSummary = {
+  papers: number
+  unclaimed: number | null
+  returned: number
+  money: { to_date: number }
 }
 
-type Dashboard = { total_paid: number }
-
-type CorrectableFieldKey =
+type RequestableKey =
   | "name"
   | "department"
   | "designation"
@@ -115,62 +128,59 @@ type CorrectableFieldKey =
   | "biometric_id"
   | "scopus_author_url"
   | "scopus_author_id"
+  | "role"
+  | "faculty_type"
 
-type CorrectableField = { field: CorrectableFieldKey; label: string; identity: boolean }
+//  `phrase` is the label as it reads mid-sentence: "Proposed staff ID", not
+//  "Proposed staff id", and never "scopus".
+type Requestable = { field: RequestableKey; label: string; phrase: string }
 
-//  Exactly the seven keys `CORRECTABLE` accepts in `backend/core/api.py`;
-//  anything else posted to `/auth/profile/correction` is a 400, so a row that
-//  offered the button for one would be a dead control.
-//
-//  `department` is correctable but, per API.md, deliberately not an identity
-//  field — the research cell moves people between departments as routine
-//  business, not as a payment-and-attribution decision.
-const CORRECTABLE: Record<CorrectableFieldKey, CorrectableField> = {
-  name: { field: "name", label: "Full name", identity: true },
-  department: { field: "department", label: "Department", identity: false },
-  designation: { field: "designation", label: "Designation", identity: true },
-  staff_id: { field: "staff_id", label: "Staff ID", identity: true },
-  biometric_id: { field: "biometric_id", label: "Biometric ID", identity: true },
+//  Exactly the keys `REQUESTABLE` accepts in `backend/core/api/auth.py`;
+//  anything else posted to `/auth/profile/correction` is a 400, so a line
+//  that offered the button for one would be a dead control.
+const REQUESTABLE: Record<RequestableKey, Requestable> = {
+  name: { field: "name", label: "Full name", phrase: "full name" },
+  department: { field: "department", label: "Department", phrase: "department" },
+  designation: { field: "designation", label: "Designation", phrase: "designation" },
+  staff_id: { field: "staff_id", label: "Staff ID", phrase: "staff ID" },
+  biometric_id: { field: "biometric_id", label: "Biometric ID", phrase: "biometric ID" },
   scopus_author_url: {
     field: "scopus_author_url",
     label: "Scopus author link",
-    identity: true,
+    phrase: "Scopus author link",
   },
   scopus_author_id: {
     field: "scopus_author_id",
     label: "Scopus author ID",
-    identity: true,
+    phrase: "Scopus author ID",
   },
+  role: { field: "role", label: "Role", phrase: "role" },
+  faculty_type: { field: "faculty_type", label: "Faculty type", phrase: "faculty type" },
 }
 
-function valueFor(me: FullMe, field: CorrectableFieldKey): string {
-  return me[field] || ""
+function valueFor(me: FullMe, field: RequestableKey): string {
+  const value = me[field]
+  return value == null ? "" : String(value)
 }
 
-function formatRole(role: string): string {
-  return role
-    .toLowerCase()
-    .split("_")
-    .map((w) => w[0]?.toUpperCase() + w.slice(1))
-    .join(" ")
+/** The profile fields a claim is checked against, by the label shown below. */
+function missingForClaims(me: FullMe): string[] {
+  const out: string[] = []
+  if (!me.staff_id) out.push("Staff ID")
+  if (!me.department) out.push("Department")
+  if (!me.scopus_author_id && !me.scopus_author_url) out.push("Scopus author profile")
+  return out
 }
 
 function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many
 }
 
-/** What "research faculty with a quota of four" says on one line. Read from
- *  `/auth/me`, which carries `faculty_type` and `research_quota` — this is
- *  not derivable from the role and a claimant has no other way to see it. */
-function standingLine(me: FullMe): string {
-  const quota = me.research_quota
-  if (me.faculty_type === "RESEARCH") {
-    return quota
-      ? `Research faculty — a quota of ${quota} ${plural(quota, "paper", "papers")} a year`
-      : "Research faculty — no quota recorded"
-  }
-  if (me.faculty_type === "REGULAR") return "Regular faculty — no research quota"
-  return "Not recorded"
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
 }
 
 /* ------------------------------------------------------------------------ */
@@ -180,7 +190,7 @@ function standingLine(me: FullMe): string {
 export function Profile() {
   const { me: sessionMe, refresh } = useAuth()
   const meQuery = useApi<FullMe>(["profile", "me"], "/api/auth/me")
-  const correctionsQuery = useApi<{ results: Correction[] }>(
+  const requestsQuery = useApi<{ results: ChangeRequest[] }>(
     ["profile", "corrections"],
     "/api/auth/profile/corrections"
   )
@@ -189,26 +199,26 @@ export function Profile() {
   // Two things decide whether a personal record can be shown at all, and both
   // are read before the early returns below so the hook order never changes.
   //
-  // `/claims/counts` and `/dashboard` are both scoped by `_claims_queryset`,
-  // which is "my claims" only for a faculty member or a head — for an
-  // oversight role it is the whole college, so those figures would be the
-  // college's total wearing a heading that says "yours".
-  const role = meQuery.data?.role ?? sessionMe?.role ?? null
-  const filesOwnPapers = role === "FACULTY" || role === "HOD"
-  // The one rule that is not a matter of taste. `/api/dashboard` returns
-  // `total_paid` and refuses a head outright (403), so this is not merely a
-  // hidden figure — asking at all is an error for them.
+  // Everybody who files their own papers has a record here: faculty, a head,
+  // and an officer who is an academic too. `mine=1` because for an oversight
+  // role `/claims/counts` is otherwise the whole college, which would be the
+  // college's total wearing a heading that says "yours"; the money is the
+  // ledger's `/me/payments`, which is only ever the viewer's own.
+  const filesOwnPapers = can(sessionMe?.role).fileOwnPapers
+  // The one rule that is not a matter of taste: a head is shown no figure on
+  // this page, their own included, so the request is not even made.
   const seeMoney = can(sessionMe?.role).seeMoney
+  const threshold = useMyThreshold()
 
-  const countsQuery = useApi<ClaimCounts>(["profile", "counts"], "/api/claims/counts", {
+  // The same summary Home reads, so the paper count here is the one on Home,
+  // My papers and My research. (This page used to count claims by stage:
+  // "Filed 4, Paid 3" beside a person whose record holds 145 papers, 119 paid.)
+  const summaryQuery = useApi<MeSummary>(HOME_DATA.mySummary.key, HOME_DATA.mySummary.path, {
     enabled: filesOwnPapers,
-  })
-  const paidQuery = useApi<Dashboard>(["profile", "dashboard"], "/api/dashboard", {
-    enabled: filesOwnPapers && seeMoney,
   })
 
   const [manualPasswordOpen, setManualPasswordOpen] = useState(false)
-  const [correctingField, setCorrectingField] = useState<CorrectableFieldKey | null>(null)
+  const [asking, setAsking] = useState<RequestableKey | null>(null)
 
   // The forced path is driven by the session context, not this page's own
   // fetch of `/auth/me` — that context is what the rest of the app already
@@ -229,8 +239,8 @@ export function Profile() {
     return (
       <div className="page py-8">
         <ErrorState
-          title="Could not load your profile"
-          message="The server did not answer. Your details are unchanged — nothing has been lost."
+          title="Could not load your account"
+          message="The server did not answer. Your details are unchanged and nothing has been lost."
           onRetry={() => meQuery.refetch()}
         />
       </div>
@@ -239,15 +249,15 @@ export function Profile() {
 
   const me = meQuery.data
 
-  const correctionsByField = new Map<string, Correction[]>()
-  for (const c of correctionsQuery.data?.results || []) {
-    const list = correctionsByField.get(c.field)
-    if (list) list.push(c)
-    else correctionsByField.set(c.field, [c])
+  const requestsByField = new Map<string, ChangeRequest[]>()
+  for (const r of requestsQuery.data?.results || []) {
+    const list = requestsByField.get(r.field)
+    if (list) list.push(r)
+    else requestsByField.set(r.field, [r])
   }
 
-  const pendingCount = (correctionsQuery.data?.results || []).filter(
-    (c) => c.status === "PENDING"
+  const pendingCount = (requestsQuery.data?.results || []).filter(
+    (r) => r.status === "PENDING"
   ).length
 
   const departmentOptions: ComboboxOption[] = (departmentsQuery.data || []).map((d) => ({
@@ -255,167 +265,245 @@ export function Profile() {
     label: d,
   }))
 
-  const correctingMeta = correctingField ? CORRECTABLE[correctingField] : null
-  const correctingPending = correctingField
-    ? correctionsByField.get(correctingField)?.find((c) => c.status === "PENDING")
+  const askingMeta = asking ? REQUESTABLE[asking] : null
+  const askingPending = asking
+    ? requestsByField.get(asking)?.find((r) => r.status === "PENDING")
     : undefined
 
-  const summary = [me.designation, me.department, formatRole(me.role)].filter(Boolean).join(" · ")
+  // "Research Cell · Research cell": a designation that is the role's own name says it twice.
+  const headline = [me.designation, me.department, roleLabel(me.role)]
+    .filter((v, i, all): v is string => !!v && all.findIndex((x) => x?.toLowerCase() === v.toLowerCase()) === i)
+    .join(" · ")
+  const missing = missingForClaims(me)
 
-  function correctable(key: CorrectableFieldKey) {
+  function requestable(key: RequestableKey, extra: { note?: string; after?: ReactNode } = {}) {
     return (
-      <CorrectableRow
-        meta={CORRECTABLE[key]}
-        value={valueFor(me, key) || "Not set"}
-        corrections={correctionsByField.get(key) || []}
-        onAsk={() => setCorrectingField(key)}
+      <DetailRow
+        field={key}
+        label={REQUESTABLE[key].label}
+        value={requestValueLabel(key, valueFor(me, key)) || "Not set"}
+        note={extra.note}
+        after={extra.after}
+        requests={requestsByField.get(key) || []}
+        onAsk={() => setAsking(key)}
       />
     )
   }
 
+  const summary = summaryQuery.data
+  const officeDetails = ["biometric_id", "role", "faculty_type", "scopus_author_url"] as const
+  // A request in flight or turned down on a folded detail is news: keep it open.
+  const officeOpen = officeDetails.some((k) => requestsByField.get(k)?.some((r) => r.status !== "APPROVED"))
+
   return (
-    <div className="page space-y-10 py-8">
-      <header>
-        <PageTitle>Your profile</PageTitle>
-        <Sub className="mt-1">
-          {me.name} · {me.email}
-        </Sub>
-        {summary && <Meta className="mt-1 block">{summary}</Meta>}
-      </header>
+    <div className="page space-y-10">
+      <PageHeader
+        title="Your profile"
+        sub="Your photo, IDs and password. You change some details here; the research office keeps the rest."
+        action={
+          <Button kind="primary" asChild>
+            <Link to="/u/me">See your public profile</Link>
+          </Button>
+        }
+      >
+        <PhotoRow name={me.name} email={me.email} summary={headline} photoUrl={sessionMe?.photo_url ?? null} />
+      </PageHeader>
+
+      {filesOwnPapers && (
+        <Answer
+          items={[
+            {
+              value: summary?.papers,
+              label: "papers on your record",
+              zero: "No papers on your record yet",
+              to: "/papers",
+            },
+            ...(summary?.unclaimed == null
+              ? []
+              : [
+                  {
+                    value: summary.unclaimed,
+                    label: summary.unclaimed === 1 ? "paper ready to claim" : "papers ready to claim",
+                    zero: "Every paper is claimed",
+                    to: "/papers?tab=unclaimed",
+                  },
+                ]),
+            ...(seeMoney
+              ? [
+                  {
+                    value: summary ? money(summary.money.to_date) : null,
+                    label: "received, see the statement",
+                    to: "/papers/statement",
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
+
+      {filesOwnPapers && missing.length > 0 && (
+        <Callout tone="caution" title="Your profile is missing what a claim needs">
+          {missing.join(", ")} {missing.length === 1 ? "is" : "are"} not set. A claim is
+          checked against these, so ask for {missing.length === 1 ? "it" : "them"} to be
+          filled in below before you file.
+        </Callout>
+      )}
 
       {!me.active && (
         <Callout tone="critical" title="This account is deactivated">
           You can still read your own record, but you cannot file anything. The research
-          cell reactivates an account; asking here will not.
+          office reactivates an account; asking here will not.
         </Callout>
       )}
 
-      {/* ---- who you are ------------------------------------------------ */}
+      {/* ---- details you can change -------------------------------------- */}
+
+      <section className="space-y-6">
+        <div>
+          <SectionTitle>Details you can change</SectionTitle>
+          <Sub className="mt-1">
+            Nothing here is paid on or checked against a claim, so a change saves straight
+            away.
+          </Sub>
+        </div>
+        <PhoneForm phone={me.phone} />
+        <OrcidForm orcid={me.orcid_id ?? null} />
+        <Interests />
+      </section>
+
+      {/* ---- details the research office keeps --------------------------- */}
 
       <section className="space-y-4">
         <div>
-          <SectionTitle>Who you are</SectionTitle>
+          <SectionTitle>Details the research office keeps</SectionTitle>
           <Sub className="mt-1">
-            The research cell owns every line of this. None of it is typed here, because
-            these are the details that decide who gets paid and whose record a paper is
-            checked against — ask for a correction and an admin actions it.
+            These decide who gets paid and whose record a paper is checked against, so they
+            are not typed here. Ask for a change and the research office decides. You are
+            told either way.
           </Sub>
         </div>
 
-        {correctionsQuery.isError && (
+        {requestsQuery.isError && (
           <InlineError
-            message="Could not load your correction requests. Anything already pending may not show here."
-            onRetry={() => correctionsQuery.refetch()}
+            message="Could not load your requests. Anything already pending may not show here."
+            onRetry={() => requestsQuery.refetch()}
           />
         )}
 
         {pendingCount > 0 && (
           <Meta className="block">
-            {pendingCount} {plural(pendingCount, "correction is", "corrections are")} with an
-            admin.
+            {pendingCount} {plural(pendingCount, "request is", "requests are")} with the
+            research office.
           </Meta>
         )}
 
         <dl className="divide-y divide-line border-y border-line">
-          {correctable("name")}
-          <StaticField
-            label="Email"
-            value={me.email}
-            note="Your sign-in, and where every decision on a paper is sent. Changing it is an account change, not a profile correction — the research cell does it directly."
-          />
-          {correctable("staff_id")}
-          {correctable("biometric_id")}
-          <StaticField
-            label="Employee ID"
-            value={me.employee_id || "Not set"}
-            note="Comes off the ERP roster, not this system. There is no correction request for it — a wrong one is fixed in the ERP and re-imported."
-          />
-          {correctable("designation")}
-          {correctable("department")}
-          <StaticField
-            label="Role"
-            value={formatRole(me.role)}
-            note="Decides which screens you have. Only a super admin sets it, and there is no correction request for it."
-          />
-          <StaticField
-            label="Research standing"
-            value={standingLine(me)}
-            note={
-              me.research_quota_note ||
-              "Set by a super admin, deliberately not by the research cell — the cell processes the claims this decides the outcome of, so it cannot also set it."
-            }
-            extra={
-              seeMoney && me.faculty_type === "RESEARCH" && me.research_quota ? (
-                <p className="mt-2 max-w-md rounded-md bg-accent-wash px-3 py-2 text-sm text-fg">
-                  The first {me.research_quota}{" "}
-                  {plural(me.research_quota, "paper", "papers")} you file in a publication
-                  year are what the post already expects, so they carry no incentive.
-                  Anything beyond that is reimbursed in full.
-                </p>
-              ) : null
-            }
-          />
-          {correctable("scopus_author_url")}
-          {correctable("scopus_author_id")}
+          {requestable("name")}
+          {requestable("staff_id")}
+          {requestable("scopus_author_id", {
+            after: me.scopus_author_id ? (
+              <a
+                href={`https://www.scopus.com/authid/detail.uri?authorId=${encodeURIComponent(me.scopus_author_id)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 block text-sm text-accent hover:underline"
+              >
+                Open your Scopus author page
+              </a>
+            ) : undefined,
+          })}
+          {requestable("department")}
+          {requestable("designation")}
+          {me.faculty_type === "RESEARCH" && seeMoney && (
+            <DetailRow
+              label="Research threshold"
+              value={
+                threshold.data?.threshold != null
+                  ? `${money(threshold.data.threshold)} a year`
+                  : threshold.data?.needs_rupee_threshold
+                    ? "Not set yet. The old papers-a-year rule no longer applies."
+                    : "Not set yet"
+              }
+              note="Set by the research coordinator. Ask the research office if it looks wrong."
+              after={<ThresholdCard s={threshold.data} link={false} className="mt-2 max-w-md" />}
+            />
+          )}
         </dl>
+
+        <Details label="more details" count={officeDetails.length + 2} defaultOpen={officeOpen}>
+          <dl className="divide-y divide-line border-y border-line">
+            <DetailRow
+              label="Email"
+              value={me.email}
+              note="Your sign-in, and where every decision on a paper is sent. To change it, ask the research office."
+            />
+            {requestable("biometric_id")}
+            <DetailRow
+              label="Employee ID"
+              value={me.employee_id || "Not set"}
+              note="Comes off the ERP roster, not this system. A wrong one is fixed in the ERP and re-imported, so there is no request for it here."
+            />
+            {requestable("role", {
+              note: "Decides which screens you have. A super admin decides a request to change it.",
+            })}
+            {requestable("faculty_type", {
+              note: "Regular or research faculty. It changes how much a paper pays, so the college administrator sets it.",
+            })}
+            {requestable("scopus_author_url")}
+          </dl>
+        </Details>
       </section>
 
-      {/* ---- your record ------------------------------------------------ */}
+      {/* ---- sign-in methods --------------------------------------------- */}
 
       <section className="space-y-4">
         <div>
-          <SectionTitle>Your record</SectionTitle>
+          <SectionTitle>Sign-in methods</SectionTitle>
           <Sub className="mt-1">
-            {filesOwnPapers
-              ? "Every paper filed under your name, counted at the stage it has actually reached."
-              : "Papers are counted against the person who filed them."}
+            Your email and password always work. Google is an extra way in, if you link it.
           </Sub>
         </div>
 
-        {filesOwnPapers ? (
-          <Record
-            counts={countsQuery.data}
-            countsLoading={countsQuery.isLoading}
-            countsError={countsQuery.isError}
-            onRetryCounts={() => countsQuery.refetch()}
-            seeMoney={seeMoney}
-            totalPaid={paidQuery.data?.total_paid}
-            paidLoading={paidQuery.isLoading}
-            paidError={paidQuery.isError}
-            onRetryPaid={() => paidQuery.refetch()}
-            isHod={role === "HOD"}
-          />
-        ) : (
-          <Meta className="block max-w-md">
-            This account reads the whole college's pipeline rather than a queue of its
-            own, so a personal filing record here would only ever be the college total
-            under a heading that said “yours”.
-          </Meta>
-        )}
+        <dl className="divide-y divide-line border-y border-line">
+          <div data-detail className="py-4">
+            <dt className="text-sm font-medium text-fg-muted">Email and password</dt>
+            <dd className="mt-1">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-base break-words">{me.email}</p>
+                  <p className="mt-1 max-w-md text-sm text-fg-muted">
+                    An issued password is 24 random characters handed over on paper. Choose your
+                    own, and use the eye icon to check what you typed.
+                  </p>
+                </div>
+                <Button
+                  kind="default"
+                  size="sm"
+                  onClick={() => setManualPasswordOpen(true)}
+                  className="shrink-0"
+                >
+                  Change password
+                </Button>
+              </div>
+              {me.must_change_password && (
+                <Callout tone="caution" title="You are still on the issued password" className="mt-3">
+                  It was handed over on paper and more than one person has seen it. Change it
+                  before you file anything.
+                </Callout>
+              )}
+            </dd>
+          </div>
+          <GoogleRow link={me.google} email={me.email} />
+        </dl>
       </section>
 
-      {/* ---- research interests ----------------------------------------- */}
+      {/* ---- scopus -------------------------------------------------------- */}
 
-      <Interests />
+      {filesOwnPapers && <ScopusSection />}
 
-      {/* ---- password ---------------------------------------------------- */}
-
-      <section className="space-y-3">
-        <SectionTitle>Password</SectionTitle>
-        <Sub>
-          Issued passwords are 24 random characters handed over on paper — use the eye
-          icon if you are not sure you typed the current one correctly.
-        </Sub>
-        {me.must_change_password && (
-          <Callout tone="caution" title="You are still on the issued password">
-            It was handed over on paper and more than one person has seen it. Change it
-            before you file anything.
-          </Callout>
-        )}
-        <Button kind="default" onClick={() => setManualPasswordOpen(true)}>
-          Change password
-        </Button>
-      </section>
+      {/* What colleagues see of you, last: it is not what this page is for.
+          The yearly target lives on My research, where the pace is. */}
+      <BadgeStrip userId={me.id} own />
 
       <PasswordDialog
         forced={forcedPasswordChange}
@@ -427,16 +515,16 @@ export function Profile() {
         }}
       />
 
-      <CorrectionDialog
-        field={correctingMeta}
-        currentValue={correctingField ? valueFor(me, correctingField) : ""}
-        pending={correctingPending}
+      <RequestDialog
+        field={askingMeta}
+        currentValue={asking ? valueFor(me, asking) : ""}
+        pending={askingPending}
         departmentOptions={departmentOptions}
         departmentsLoading={departmentsQuery.isLoading}
         departmentsError={departmentsQuery.isError}
         onRetryDepartments={() => departmentsQuery.refetch()}
         onOpenChange={(open) => {
-          if (!open) setCorrectingField(null)
+          if (!open) setAsking(null)
         }}
       />
     </div>
@@ -444,245 +532,529 @@ export function Profile() {
 }
 
 /* ------------------------------------------------------------------------ */
-/* Identity rows                                                            */
+/* Details you can change                                                   */
 /* ------------------------------------------------------------------------ */
 
 /**
- * A label on this page names a field in a list, not a column over a grid of
- * values, so it is sentence case rather than the uppercase column-head style.
- * Seven of these set in caps turn a page about one person into a report.
+ * The ORCID iD, through the same self-service route. The server checks the
+ * checksum; match_authors then puts every paper carrying it on this account.
  */
-function FieldLabel({ children }: { children: ReactNode }) {
-  return <span className="block text-sm font-medium text-fg-muted">{children}</span>
+function OrcidForm({ orcid }: { orcid: string | null }) {
+  const saved = orcid ?? ""
+  const [value, setValue] = useState(saved)
+  const [error, setError] = useState<string | null>(null)
+  const id = useId()
+  useEffect(() => {
+    setValue(saved)
+  }, [saved])
+  const save = useApiMutation<{ orcid_id: string }, { orcid_id: string | null }>("/api/auth/profile/self", {
+    method: "PATCH",
+    invalidates: [["profile", "me"]],
+  })
+  const dirty = value.trim() !== saved
+
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    save.mutate(
+      { orcid_id: value.trim() },
+      {
+        onSuccess: (data) => {
+          setValue(data.orcid_id ?? "")
+          toast.ok(data.orcid_id ? "ORCID saved. Papers carrying it will be matched to you." : "ORCID removed")
+        },
+        onError: (err) => setError(err.message),
+      }
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-1.5">
+      <label htmlFor={id} className="block text-sm font-medium">
+        ORCID iD
+      </label>
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value)
+            setError(null)
+          }}
+          placeholder="0000-0002-1825-0097"
+          aria-describedby={`${id}-help`}
+          aria-invalid={error ? true : undefined}
+          className="min-w-0 max-w-xs flex-1"
+        />
+        <Button kind="primary" type="submit" disabled={!dirty || save.isPending} aria-label="Save ORCID iD">
+          {save.isPending && <LoaderCircle className="animate-spin" />}
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+      </div>
+      {error ? (
+        <p id={`${id}-help`} role="alert" className="text-xs text-critical">
+          {error}
+        </p>
+      ) : (
+        <p id={`${id}-help`} className="text-xs text-fg-muted">
+          Optional. Paste the iD or the orcid.org link; papers carrying it are matched to you automatically.
+        </p>
+      )}
+    </form>
+  )
 }
 
 /**
- * A detail with no correction request behind it — the email, the ERP employee
- * number, the role, the research quota. `note` is not decoration: a value the
- * reader cannot change and cannot ask about needs to say where it does come
- * from, or the only remaining move is a support email asking exactly that.
+ * The phone number, saved through `PATCH /auth/profile/self` — the one route
+ * a person writes their own account through. The server's refusal is shown
+ * word for word under the box: "that does not look like a phone number, for
+ * example +91 98400 12345" is the whole of the help anybody needs.
  */
-function StaticField({
+function PhoneForm({ phone }: { phone: string | null }) {
+  const saved = phone ?? ""
+  const [value, setValue] = useState(saved)
+  const [error, setError] = useState<string | null>(null)
+  const id = useId()
+
+  // After a save the page refetches `/auth/me`; the box follows what the
+  // server now holds (it tidies spacing) rather than what was typed.
+  useEffect(() => {
+    setValue(saved)
+  }, [saved])
+
+  const save = useApiMutation<{ phone: string }, { phone: string | null }>(
+    "/api/auth/profile/self",
+    { method: "PATCH", invalidates: [["profile", "me"]] }
+  )
+  const dirty = value.trim() !== saved
+
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    save.mutate(
+      { phone: value.trim() },
+      {
+        onSuccess: (data) => {
+          setValue(data.phone ?? "")
+          toast.ok(data.phone ? "Phone number saved" : "Phone number removed")
+        },
+        onError: (err) => setError(err.message),
+      }
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-1.5">
+      <label htmlFor={id} className="block text-sm font-medium">
+        Phone
+      </label>
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value)
+            setError(null)
+          }}
+          placeholder="+91 98400 12345"
+          aria-describedby={`${id}-help`}
+          aria-invalid={error ? true : undefined}
+          className="min-w-0 max-w-xs flex-1"
+        />
+        <Button
+          kind="primary"
+          type="submit"
+          disabled={!dirty || save.isPending}
+          aria-label="Save phone number"
+        >
+          {save.isPending && <LoaderCircle className="animate-spin" />}
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+      </div>
+      {error ? (
+        <p id={`${id}-help`} role="alert" className="text-xs text-critical">
+          {error}
+        </p>
+      ) : (
+        <p id={`${id}-help`} className="text-xs text-fg-muted">
+          Optional. The research office uses it to reach you about a paper.
+        </p>
+      )}
+    </form>
+  )
+}
+
+/* ------------------------------------------------------------------------ */
+/* Details the research office keeps                                        */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * One detail the research office keeps: its value, why it is not typed here,
+ * and — the whole point of this screen — whatever came of the last time
+ * somebody asked for it to change. A pending request and a declined one read
+ * as different sentences on purpose; a claimant who was told no needs to see
+ * the reason, not just that the value did not move.
+ *
+ * Without `field` it is a detail with no request behind it (the email, the
+ * ERP employee number), and `note` is then not decoration: a value the reader
+ * cannot change and cannot ask about has to say where it does come from, or
+ * the only move left is a support email asking exactly that.
+ */
+function DetailRow({
+  field,
   label,
   value,
   note,
-  extra,
+  after,
+  requests = [],
+  onAsk,
 }: {
+  field?: RequestableKey
   label: string
   value: string
   note?: string
-  extra?: ReactNode
+  after?: ReactNode
+  requests?: ChangeRequest[]
+  onAsk?: () => void
 }) {
-  return (
-    <div className="py-4">
-      <FieldLabel>{label}</FieldLabel>
-      <p className="mt-1 text-base">{value}</p>
-      {note && <p className="mt-1 max-w-md text-sm text-fg-muted">{note}</p>}
-      {extra}
-    </div>
-  )
-}
-
-/**
- * One identity or routing field: its value, why it is not typed here, and —
- * the whole point of this screen — whatever came of the last time somebody
- * asked for it to change. A pending request and a declined one read as
- * different sentences on purpose; a claimant who was told no needs to see
- * the reason, not just that the value did not move.
- */
-function CorrectableRow({
-  meta,
-  value,
-  corrections,
-  onAsk,
-}: {
-  meta: CorrectableField
-  value: string
-  corrections: Correction[]
-  onAsk: () => void
-}) {
-  const pending = corrections.find((c) => c.status === "PENDING")
+  const pending = requests.find((r) => r.status === "PENDING")
   // Only shown while there is nothing newer in flight — once a fresh ask is
-  // pending, the old decision is not the news on this row any more.
-  const lastDeclined = !pending ? corrections.find((c) => c.status === "DECLINED") : undefined
+  // pending, the old decision is not the news on this line any more.
+  const lastDeclined = !pending ? requests.find((r) => r.status === "DECLINED") : undefined
+  const shown = (v: string) => (field ? requestValueLabel(field, v) : v)
 
   return (
-    <div className="py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <FieldLabel>{meta.label}</FieldLabel>
-          <p className="mt-1 text-base break-words">{value}</p>
-          <p className="mt-1 max-w-md text-sm text-fg-muted">
-            {meta.identity
-              ? "Set by the research cell — this decides who gets paid and whose record a paper is checked against."
-              : "Routing, not identity, but still set by the research cell rather than typed here."}
+    // Label at the left, value in the middle, the one action at the right: a
+    // stacked row ten times over made this list two screens tall.
+    <div data-detail className="py-3 sm:grid sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-x-4 sm:py-4">
+      <dt className="flex items-center gap-1.5 text-sm font-medium text-fg-muted sm:pt-0.5">
+        <Lock className="size-3.5 shrink-0 text-fg-subtle" aria-hidden />
+        {label}
+      </dt>
+      <dd className="mt-1 sm:mt-0">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            {value.startsWith("http://") || value.startsWith("https://") ? (
+              <a
+                href={value}
+                target="_blank"
+                rel="noreferrer"
+                className="block break-all text-base text-accent hover:underline"
+              >
+                {value}
+              </a>
+            ) : (
+              <p className="text-base break-words">{value}</p>
+            )}
+            {note && <p className="mt-1 max-w-md text-sm text-fg-muted">{note}</p>}
+            {after}
+          </div>
+          {onAsk && (
+            <Button
+              kind="quiet"
+              size="sm"
+              onClick={onAsk}
+              className="shrink-0"
+              aria-label={`${pending ? "Change your request" : "Request a change"} to ${field ? REQUESTABLE[field].phrase : label}`}
+            >
+              {pending ? "Change your request" : "Request a change"}
+            </Button>
+          )}
+        </div>
+
+        {pending && (
+          <p className="mt-3 rounded-md bg-accent-wash px-3 py-2 text-sm text-fg">
+            <span className="font-medium">Pending</span>
+            {pending.created_at ? ` since ${formatDate(pending.created_at)}` : ""}. From “
+            {shown(pending.current_value) || "not set"}” to “{shown(pending.proposed_value)}”.
           </p>
-        </div>
-        <Button kind="quiet" size="sm" onClick={onAsk} className="shrink-0">
-          {pending ? "Change what you asked for" : "Request a correction"}
-        </Button>
-      </div>
+        )}
 
-      {pending && (
-        <p className="mt-3 rounded-md bg-accent-wash px-3 py-2 text-sm text-fg">
-          <span className="font-medium">Pending —</span> “{pending.current_value || "not set"}”
-          {" → "}
-          “{pending.proposed_value}”
-        </p>
-      )}
-
-      {lastDeclined && (
-        <div className="mt-3 rounded-md bg-critical-wash px-3 py-2 text-sm text-critical">
-          <p className="font-medium">Declined — you asked for “{lastDeclined.proposed_value}”</p>
-          <p className="mt-1">{lastDeclined.decision_note || "No reason was recorded."}</p>
-        </div>
-      )}
+        {lastDeclined && (
+          <div className="mt-3 rounded-md bg-critical-wash px-3 py-2 text-sm text-critical">
+            <p className="font-medium">
+              Not accepted. You asked for “{shown(lastDeclined.proposed_value)}”
+            </p>
+            <p className="mt-1">{lastDeclined.decision_note || "No reason was recorded."}</p>
+          </div>
+        )}
+      </dd>
     </div>
   )
 }
 
 /* ------------------------------------------------------------------------ */
-/* Your record                                                              */
+/* Sign-in methods — Google                                                 */
 /* ------------------------------------------------------------------------ */
-
-/** A number that is an answer, not a tile. No box, no border — the label and
- *  the weight do the work a card was doing. */
-function Figure({
-  label,
-  value,
-  hint,
-  muted,
-}: {
-  label: string
-  value: string
-  hint?: string
-  muted?: boolean
-}) {
-  return (
-    <div>
-      <p className="text-sm text-fg-muted">{label}</p>
-      <p className={cn("mt-0.5 text-2xl font-semibold tabular", muted && "text-fg-subtle")}>
-        {value}
-      </p>
-      {hint && <p className="mt-0.5 text-sm text-fg-muted">{hint}</p>}
-    </div>
-  )
-}
 
 /**
- * What the college's ledger says about you, at the stage each paper has
- * actually reached.
+ * Linking a Google account, so it can sign in to this one.
  *
- * The counts and the money come from two different requests on purpose, and
- * each fails on its own: a failed `/dashboard` must not turn the paid total
- * into a confident ₹0 beside five counts that loaded fine, and a failed
- * `/claims/counts` must not read as "you have filed nothing".
+ * The button is Google's own: an ID token only comes back from Google's
+ * rendered button, so "Link Google account" opens a small panel holding it
+ * rather than being a button that pretends to be one. No domain hint is sent
+ * to Google — the point of linking is that the fourteen staff with only a
+ * personal Gmail can choose it, and the server allows that because this
+ * session was opened with the account's own password.
+ *
+ * With Google sign-in off on the server the line says so, instead of drawing
+ * a button that renders, is pressed, and does nothing.
  */
-function Record({
-  counts,
-  countsLoading,
-  countsError,
-  onRetryCounts,
-  seeMoney,
-  totalPaid,
-  paidLoading,
-  paidError,
-  onRetryPaid,
-  isHod,
-}: {
-  counts: ClaimCounts | undefined
-  countsLoading: boolean
-  countsError: boolean
-  onRetryCounts: () => void
-  seeMoney: boolean
-  totalPaid: number | undefined
-  paidLoading: boolean
-  paidError: boolean
-  onRetryPaid: () => void
-  isHod: boolean
-}) {
-  if (countsLoading) {
-    return <SkeletonRows rows={2} rowHeight={48} />
-  }
+function GoogleRow({ link, email }: { link: GoogleLink | null; email: string }) {
+  const config = useApi<GoogleConfig>(["auth", "google-config"], "/api/auth/google/config")
+  const [picking, setPicking] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [unlinkOpen, setUnlinkOpen] = useState(false)
+  // Google's button arrives a beat after the panel opens (its script, then
+  // its own request); an empty box in between reads as broken.
+  const [drawn, setDrawn] = useState(false)
+  const slot = useRef<HTMLDivElement>(null)
 
-  if (countsError || !counts) {
-    return (
-      <ErrorState
-        title="Could not count your papers"
-        message="The server did not answer. This is not a statement that you have filed nothing — try again."
-        onRetry={onRetryCounts}
+  const linkMutation = useApiMutation<{ credential: string }, { google: GoogleLink | null }>(
+    "/api/auth/google/link",
+    { invalidates: [["profile", "me"]] }
+  )
+  const unlink = useApiMutation<void, { google: null }>("/api/auth/google/link", {
+    method: "DELETE",
+    invalidates: [["profile", "me"]],
+  })
+  const { mutate: linkWith } = linkMutation
+  const clientId = config.data?.client_id
+
+  useEffect(() => {
+    if (!picking || !clientId) return
+    let live = true
+    setDrawn(false)
+    loadGoogleIdentity()
+      .then((google) => {
+        if (!live || !slot.current) return
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: ({ credential }) => {
+            setError(null)
+            linkWith(
+              { credential },
+              {
+                onSuccess: (data) => {
+                  setPicking(false)
+                  toast.ok(
+                    `Google linked. ${data.google?.email || "That account"} can now sign you in`
+                  )
+                },
+                onError: (err) => setError(err.message),
+              }
+            )
+          },
+        })
+        slot.current.replaceChildren()
+        google.accounts.id.renderButton(slot.current, {
+          theme: "outline",
+          size: "large",
+          width: 280,
+          text: "continue_with",
+        })
+        setDrawn(true)
+      })
+      .catch(() => {
+        if (live) {
+          setError(
+            "Google's sign-in did not load, so nothing can be linked right now. Try again in a moment."
+          )
+        }
+      })
+    return () => {
+      live = false
+    }
+  }, [picking, clientId, linkWith])
+
+  let body: ReactNode
+  if (link) {
+    body = (
+      <>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-base break-words">
+              Linked to {link.email || "a Google account"}
+              {link.linked_at ? ` since ${formatDate(link.linked_at)}` : ""}
+            </p>
+            <p className="mt-1 max-w-md text-sm text-fg-muted">
+              {config.data && !config.data.enabled
+                ? "Google sign-in is switched off on this server, so the link does nothing until it is back on."
+                : "Either that Google account or your password signs you in. Unlinking leaves your password as it is."}
+            </p>
+          </div>
+          <Button kind="quiet" size="sm" onClick={() => setUnlinkOpen(true)} className="shrink-0">
+            Unlink
+          </Button>
+        </div>
+        <ConfirmDialog
+          open={unlinkOpen}
+          onOpenChange={setUnlinkOpen}
+          title="Unlink this Google account?"
+          description={`${link.email || "It"} will no longer sign you in. Your email and password keep working.`}
+          confirmLabel="Unlink"
+          danger
+          onConfirm={async () => {
+            try {
+              await unlink.mutateAsync(undefined)
+              toast.ok("Google account unlinked")
+            } catch (err) {
+              toast.fail(err)
+              // Re-thrown so the dialog stays open on a request that failed.
+              throw err
+            }
+          }}
+        />
+      </>
+    )
+  } else if (config.isLoading) {
+    body = <SkeletonRows rows={1} rowHeight={20} className="max-w-48" />
+  } else if (config.isError) {
+    body = (
+      <InlineError
+        message="Could not check whether Google sign-in is on here. Your password still works."
+        onRetry={() => config.refetch()}
       />
     )
-  }
-
-  const c = counts.counts
-  const filed = c.all - c.draft
-  const inReview = c.filed + c.checked + c.approved + c.authorised
-
-  if (c.all === 0) {
-    return (
-      <EmptyState
-        title="You have not filed a paper yet"
-        message={
-          isHod
-            ? "Heads of department do not file claims. Your department's publications are under Department."
-            : "Nothing has been submitted under your name. File a paper and it will be counted here from the moment it is submitted."
-        }
-      />
+  } else if (!config.data?.enabled) {
+    body = (
+      <p className="text-base text-fg-muted">Google sign-in is not available on this server.</p>
+    )
+  } else {
+    body = (
+      <>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-base">Not linked</p>
+            <p className="mt-1 max-w-md text-sm text-fg-muted">
+              If {email} is a Google account, “Continue with Google” on the sign-in
+              page already works and links it the first time. To use a different Google
+              account, link it here. A personal Gmail is fine.
+            </p>
+          </div>
+          {!picking && (
+            <Button
+              kind="default"
+              size="sm"
+              onClick={() => {
+                setError(null)
+                setPicking(true)
+              }}
+              className="shrink-0"
+            >
+              Link Google account
+            </Button>
+          )}
+        </div>
+        {picking && (
+          <div className="well mt-3 space-y-3 p-3">
+            <p className="text-sm">Choose the Google account that should sign you in.</p>
+            {/* Google draws its own button in here. */}
+            <div ref={slot} className="min-h-10" />
+            {!drawn && !error && <Meta className="block">Loading Google's sign-in…</Meta>}
+            <div className="flex items-center gap-3">
+              <Button kind="quiet" size="sm" onClick={() => setPicking(false)}>
+                Cancel
+              </Button>
+              {linkMutation.isPending && <Meta>Linking…</Meta>}
+            </div>
+          </div>
+        )}
+      </>
     )
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3">
-        <Figure
-          label="Filed"
-          value={String(filed)}
-          hint="Submitted, at any stage"
-          muted={filed === 0}
-        />
-        <Figure
-          label="In review"
-          value={String(inReview)}
-          hint="Not yet paid or sent back"
-          muted={inReview === 0}
-        />
-        <Figure label="Paid" value={String(c.paid)} muted={c.paid === 0} />
-        <Figure
-          label="Sent back"
-          value={String(c.sent_back)}
-          hint={c.sent_back > 0 ? "Needs something from you" : undefined}
-          muted={c.sent_back === 0}
-        />
-        <Figure
-          label="Drafts"
-          value={String(c.draft)}
-          hint="Yours only — nobody else sees a draft"
-          muted={c.draft === 0}
-        />
+    <div data-detail className="py-4">
+      <dt className="text-sm font-medium text-fg-muted">Google</dt>
+      <dd className="mt-1">
+        {body}
+        {error && (
+          <p role="alert" className="mt-3 rounded-md bg-critical-wash px-3 py-2 text-sm text-critical">
+            {error}
+          </p>
+        )}
+      </dd>
+    </div>
+  )
+}
 
-        {seeMoney &&
-          (paidLoading ? (
-            <div>
-              <p className="text-sm text-fg-muted">Total received</p>
-              <SkeletonRows rows={1} rowHeight={28} className="mt-1 max-w-32" />
-            </div>
-          ) : paidError || totalPaid == null ? null : (
-            <Figure
-              label="Total received"
-              value={money(totalPaid)}
-              hint="Settled payments only"
-              muted={totalPaid === 0}
-            />
-          ))}
+/* ------------------------------------------------------------------------ */
+/* The photo                                                                */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * The face, with the words to change it. A photo used to be addable only from
+ * the public profile's edit dialog, so the person who opened "Your profile" to
+ * fix how they appear had no photo control on it and the college saw initials.
+ * Same endpoint as that dialog.
+ */
+function PhotoRow({
+  name,
+  email,
+  summary,
+  photoUrl,
+}: {
+  name: string
+  email: string
+  summary: string
+  photoUrl: string | null
+}) {
+  const qc = useQueryClient()
+  const { refresh } = useAuth()
+  const input = useRef<HTMLInputElement>(null)
+  const photo = useMutation<{ photo_url: string | null }, ApiError, File | null>({
+    mutationFn: (file) => {
+      if (!file) return api("/api/people/me/photo", { method: "DELETE" })
+      const form = new FormData()
+      form.set("file", file)
+      // Multipart: the cast `api()` needs for a FormData body (file-paper.tsx).
+      return api("/api/people/me/photo", { method: "POST", body: form } as unknown as Parameters<typeof api>[1])
+    },
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ["person"] })
+      void qc.invalidateQueries({ queryKey: ["faculty-record"] })
+      void refresh()
+      toast.ok(r.photo_url ? "Photo updated." : "Photo removed.")
+    },
+    onError: (err) => toast.fail(err),
+  })
+  return (
+    <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
+      <Avatar person={{ name, initials: initialsOf(name), photo_url: photoUrl }} size="xl" className="size-20 shrink-0 text-2xl" />
+      <div className="min-w-0 flex-1 basis-56">
+        <p className="text-lg font-semibold text-fg break-words">{name}</p>
+        <p className="text-sm text-fg-muted break-words">{email}</p>
+        {summary && <p className="text-sm text-fg-muted">{summary}</p>}
+        <div className="mt-2 flex flex-wrap gap-2">
+          <input
+            ref={input}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden
+            data-testid="photo-input"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ""
+              if (f) photo.mutate(f)
+            }}
+          />
+          <Button size="sm" onClick={() => input.current?.click()} disabled={photo.isPending}>
+            <Camera />
+            {photo.isPending ? "Uploading…" : photoUrl ? "Change photo" : "Add a photo"}
+          </Button>
+          {photoUrl && (
+            <Button kind="quiet" size="sm" onClick={() => photo.mutate(null)} disabled={photo.isPending}>
+              Remove photo
+            </Button>
+          )}
+        </div>
       </div>
-
-      {seeMoney && paidError && (
-        <InlineError
-          message="Could not load what you have been paid. The counts above are still accurate."
-          onRetry={onRetryPaid}
-        />
-      )}
     </div>
   )
 }
@@ -692,6 +1064,49 @@ function Record({
 /* ------------------------------------------------------------------------ */
 
 const MAX_INTERESTS = 20
+
+/**
+ * What Scopus held for this person when the office last imported the profile
+ * workbook. Its own query and its own failure: a Scopus hiccup must not take
+ * the rest of the profile down with it.
+ */
+function ScopusSection() {
+  const q = useApi<{ scopus_ids: string[]; profile: ScopusProfile | null }>(
+    ["profile", "scopus"],
+    "/api/me/scopus"
+  )
+  const ids = q.data?.scopus_ids ?? []
+  return (
+    <section className="space-y-4" aria-labelledby="your-scopus">
+      <div>
+        <SectionTitle>
+          <span id="your-scopus">Your Scopus profile</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          Publications, citations and your h-index, as Scopus had them when the research office
+          last imported the profile workbook.
+        </Sub>
+      </div>
+      {q.isLoading ? (
+        <SkeletonText lines={2} className="max-w-sm" />
+      ) : q.isError ? (
+        <InlineError
+          message="Could not load your Scopus profile. Nothing else on this page is affected."
+          onRetry={() => q.refetch()}
+        />
+      ) : (
+        <ScopusProfileCard
+          profile={q.data?.profile}
+          emptyMessage={
+            ids.length
+              ? `Nothing has been loaded from Scopus for ID ${ids.join(", ")} yet. Your papers are still matched by that ID.`
+              : "Your account carries no Scopus ID, so no profile can be matched to it. Ask for the Scopus author ID above to be set."
+          }
+        />
+      )}
+    </section>
+  )
+}
 
 function sameSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false
@@ -709,7 +1124,7 @@ function sameSet(a: string[], b: string[]): boolean {
  * domain outside that list can never be matched against a colleague or a
  * venue later, so a free-typed one is silently worth nothing.
  */
-function Interests() {
+export function Interests() {
   const interests = useApi<{ domains: string[] }>(["me", "interests"], "/api/me/interests")
   const domains = useApi<{ domains: string[] }>(
     ["research-domains"],
@@ -735,7 +1150,7 @@ function Interests() {
       {
         onSuccess: (data) => {
           setSelected(data.domains)
-          toast.ok(`Saved — ${data.domains.length} ${plural(data.domains.length, "domain", "domains")}`)
+          toast.ok(`Saved. ${data.domains.length} ${plural(data.domains.length, "domain", "domains")}`)
         },
         onError: (err) => toast.fail(err),
       }
@@ -747,13 +1162,13 @@ function Interests() {
     .map((d) => ({ value: d, label: d }))
 
   return (
-    <section className="space-y-3">
+    <div className="space-y-3">
       <div>
-        <SectionTitle>What you work on</SectionTitle>
-        <Sub className="mt-1">
-          Unlike everything above, this is yours to set. It decides who you are matched
-          with and what gets suggested to you. Up to {MAX_INTERESTS}.
-        </Sub>
+        <h3 className="text-sm font-medium">What you work on</h3>
+        <p className="mt-0.5 text-xs text-fg-muted">
+          Decides who you are matched with and what gets suggested to you. Up to{" "}
+          {MAX_INTERESTS}.
+        </p>
       </div>
 
       {interests.isLoading ? (
@@ -761,14 +1176,14 @@ function Interests() {
       ) : interests.isError ? (
         <ErrorState
           title="Could not load your domains"
-          message="The server did not answer. Any domains you have chosen are still saved — try again."
+          message="The server did not answer. Any domains you have chosen are still saved. Try again."
           onRetry={() => interests.refetch()}
         />
       ) : (
         <>
           <div className="flex flex-wrap gap-2">
             {current.length === 0 && (
-              <Meta>No domains chosen yet — nothing will be matched to you until there are.</Meta>
+              <Meta>No domains chosen yet. Nothing will be matched to you until there are.</Meta>
             )}
             {current.map((d) => (
               <span
@@ -797,7 +1212,7 @@ function Interests() {
                 domains.isLoading
                   ? "Loading…"
                   : current.length >= MAX_INTERESTS
-                    ? `${MAX_INTERESTS} chosen — remove one to add another`
+                    ? `${MAX_INTERESTS} chosen. Remove one to add another`
                     : "Add a domain…"
               }
               disabled={domains.isLoading || domains.isError || current.length >= MAX_INTERESTS}
@@ -818,25 +1233,29 @@ function Interests() {
           )}
         </>
       )}
-    </section>
+    </div>
   )
 }
 
 /* ------------------------------------------------------------------------ */
-/* Correction dialog                                                        */
+/* Request dialog                                                           */
 /* ------------------------------------------------------------------------ */
 
 /**
- * The one form behind every "Request a correction" / "Change what you asked
- * for" button.
+ * The one form behind every "Request a change" / "Change your request"
+ * button.
  *
  * The server keeps at most one open request per field and folds a second ask
  * into the first (`POST /auth/profile/correction` updates the existing
  * `PENDING` row rather than queueing a duplicate), so this dialog pre-fills
  * from the pending request when there is one — re-asking has to read as
  * editing what you already asked for, not starting over.
+ *
+ * A department, a role and a faculty type are picked from a list rather than
+ * typed: each is a code on the server, and a typed "Head of Dept." is a
+ * request that can never be approved.
  */
-function CorrectionDialog({
+function RequestDialog({
   field,
   currentValue,
   pending,
@@ -846,9 +1265,9 @@ function CorrectionDialog({
   onRetryDepartments,
   onOpenChange,
 }: {
-  field: CorrectableField | null
+  field: Requestable | null
   currentValue: string
-  pending?: Correction
+  pending?: ChangeRequest
   departmentOptions: ComboboxOption[]
   departmentsLoading: boolean
   departmentsError: boolean
@@ -887,16 +1306,37 @@ function CorrectionDialog({
     }
     try {
       await mutation.mutateAsync({ field: field.field, proposed: value, note: note.trim() || undefined })
+      const shown = requestValueLabel(field.field, value)
       toast.ok(
         pending
-          ? `Changed what you asked for — ${field.label} → “${value}”`
-          : `Correction requested — ${field.label} → “${value}”`
+          ? `Request changed: ${field.label} → “${shown}”`
+          : `Request sent: ${field.label} → “${shown}”`
       )
       onOpenChange(false)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not send the request")
     }
   }
+
+  const choices: ComboboxOption[] | null = !field
+    ? null
+    : field.field === "department"
+      ? departmentOptions
+      : field.field === "role"
+        ? ASSIGNABLE_ROLES.filter((r) => r !== currentValue).map((r) => ({
+            value: r,
+            label: roleLabel(r),
+          }))
+        : field.field === "faculty_type"
+          ? Object.entries(FACULTY_TYPE_LABEL)
+              .filter(([value]) => value !== currentValue)
+              .map(([value, label]) => ({ value, label }))
+          : null
+
+  const noteHint =
+    field?.field === "faculty_type"
+      ? "Optional. Anything that helps the research office decide."
+      : "Optional. Anything that helps the research office decide."
 
   return (
     <Dialog open={!!field} onOpenChange={onOpenChange}>
@@ -905,39 +1345,36 @@ function CorrectionDialog({
           <form onSubmit={submit}>
             <DialogHeader>
               <DialogTitle>
-                {pending ? `Change what you asked for` : `Request a correction`} — {field.label}
+                {pending ? "Change your request" : "Request a change"}: {field.label}
               </DialogTitle>
               <DialogDescription>
-                Current: “{currentValue || "not set"}”. An admin decides — you will be told
-                either way, including if it is declined.
+                Now: “{requestValueLabel(field.field, currentValue) || "not set"}”. The research
+                office decides. You are told either way, and why if it is declined.
               </DialogDescription>
             </DialogHeader>
 
             <DialogBody className="space-y-3.5">
-              {field.field === "department" ? (
-                departmentsError ? (
-                  <InlineError
-                    message="Could not load the department list."
-                    onRetry={onRetryDepartments}
+              {field.field === "department" && departmentsError ? (
+                <InlineError message="Could not load the department list." onRetry={onRetryDepartments} />
+              ) : choices ? (
+                <Field label={`Proposed ${field.phrase}`}>
+                  <Combobox
+                    value={proposed || null}
+                    onChange={setProposed}
+                    options={choices}
+                    placeholder={
+                      field.field === "department" && departmentsLoading ? "Loading…" : "Choose…"
+                    }
+                    disabled={field.field === "department" && departmentsLoading}
                   />
-                ) : (
-                  <Field label="Proposed department">
-                    <Combobox
-                      value={proposed || null}
-                      onChange={setProposed}
-                      options={departmentOptions}
-                      placeholder={departmentsLoading ? "Loading…" : "Select a department…"}
-                      disabled={departmentsLoading}
-                    />
-                  </Field>
-                )
+                </Field>
               ) : (
-                <Field label={`Proposed ${field.label.toLowerCase()}`}>
+                <Field label={`Proposed ${field.phrase}`}>
                   <Input value={proposed} onChange={(e) => setProposed(e.target.value)} autoFocus />
                 </Field>
               )}
 
-              <Field label="Note" hint="Optional — anything that helps the admin decide.">
+              <Field label="Note" hint={noteHint}>
                 <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
               </Field>
 

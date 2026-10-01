@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
-import { History, Pencil, Plus, X } from "lucide-react"
+import { Pencil, Plus, X } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { api } from "@/lib/api"
@@ -24,12 +24,17 @@ import {
   Input,
   NumberInput,
   Radio,
+  Select,
   Textarea,
 } from "@/ui/field"
 import { money } from "@/ui/paper"
+import { Avatar } from "@/ui/person"
 import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
-import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { PageHeader } from "@/ui/page-header"
+import { Answer } from "@/ui/answer"
+import { Details as KitDetails } from "@/ui/section"
 
 /**
  * The payout policy: every rate, multiplier and threshold that decides what a
@@ -99,8 +104,19 @@ type Formula = {
   fixed_web_of_science: number
   max_authors: number
   min_sec_references: number
+  /** The final-year project scheme's fixed amount per team per conference
+   *  paper. Optional only so a server that predates it still loads. */
+  student_project_amount?: number
+  /** Day of the month filing closes for that month's run, 1-28; null for none. */
+  filing_cutoff_day?: number | null
+  /** The month (1-12) the research year starts in: the year a research
+   *  faculty member's rupee threshold runs on, and the faculty home's "this year". */
+  research_year_start_month?: number
   notes?: string | null
 }
+
+/** What the college set for the scheme (2026-09-23), when the policy has no value. */
+const STUDENT_PROJECT_DEFAULT = 15000
 
 /** The subset of `/api/calculate`'s answer this screen shows. */
 type CalcResult = {
@@ -116,6 +132,17 @@ type CalcResult = {
 /* ------------------------------------------------------------------------ */
 /* Page                                                                      */
 /* ------------------------------------------------------------------------ */
+
+/**
+ * How the quartile amounts are paid, as `core/services/remuneration.py` pays
+ * them: [(SNIP × rate) + QFA] × APP. The page used to read this off
+ * `qf_only_for_no_snip` and say "used only when no SNIP is held — a paper with
+ * a SNIP is priced from it, not from its quartile", which is the opposite of
+ * the arithmetic on every claim. That flag has never been read by the
+ * calculator, so it is no longer offered or described.
+ */
+export const QUARTILE_BLURB =
+  "Added on top of the SNIP amount, for a journal classified as Engineering. A paper with no SNIP is paid the fixed amount instead."
 
 export function Policy() {
   const { me } = useAuth()
@@ -145,30 +172,20 @@ export function Policy() {
   }
 
   return (
-    <div className="page space-y-8">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <PageTitle>Policy</PageTitle>
-          <Sub className="mt-1">
-            What a paper is worth, and the rules that decide it. Every claim in the college is
-            priced from this sheet.
-          </Sub>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button kind="quiet" size="md" asChild>
-            <Link to="/audit?action=FORMULA_UPDATE">
-              <History />
-              History
-            </Link>
-          </Button>
-          {mayEdit && data && (
+    <div className="page space-y-10">
+      <PageHeader
+        title="Policy"
+        sub="What a paper is worth, and the rules that decide it. Every claim in the college is priced from this sheet."
+        spot="spot-policy"
+        action={
+          mayEdit && data ? (
             <Button kind="primary" size="md" onClick={() => setEditing(true)}>
-              <Pencil />
+              <Pencil aria-hidden />
               Publish a new version
             </Button>
-          )}
-        </div>
-      </header>
+          ) : undefined
+        }
+      />
 
       {isLoading ? (
         <SkeletonRows rows={8} rowHeight={44} />
@@ -178,9 +195,9 @@ export function Policy() {
           message={
             error?.status === 403
               ? "Not allowed. The office, the Principal and Finance can read the policy."
-              : "The server did not answer. Nothing has changed — claims are still priced from the active policy."
+              : "The server did not answer. Nothing has changed. Claims are still priced from the active policy."
           }
-          onRetry={error?.status === 403 ? undefined : () => refetch()}
+          onRetry={error?.status === 403 ? false : () => refetch()}
         />
       ) : !data ? null : (
         <>
@@ -204,23 +221,19 @@ export function Policy() {
 
           <Section
             title="The SNIP amount"
-            blurb="A journal's SNIP, multiplied and capped. This is the main path — everything below it is what happens when a SNIP is not available."
+            blurb="A journal's SNIP, multiplied and capped. This is the main path. Everything below it is what happens when a SNIP is not available."
           >
             <Row label="Multiplier" value={money(data.snip_multiplier)} hint="per point of SNIP" />
             <Row
               label="Cap"
               value={String(data.snip_cap)}
-              hint={`SNIP above this counts as ${data.snip_cap} — worth at most ${money(data.snip_multiplier * data.snip_cap)}`}
+              hint={`SNIP above this counts as ${data.snip_cap}, worth at most ${money(data.snip_multiplier * data.snip_cap)}`}
             />
           </Section>
 
           <Section
             title="The quartile amounts"
-            blurb={
-              data.qf_only_for_no_snip
-                ? "Used only when no SNIP is held for the journal — a paper with a SNIP is priced from it, not from its quartile."
-                : "Added to the SNIP amount, not only used in its place. That is unusual — check it is meant."
-            }
+            blurb={QUARTILE_BLURB}
           >
             <Row label="Q1" value={money(data.qf_q1)} />
             <Row label="Q2" value={money(data.qf_q2)} />
@@ -230,7 +243,7 @@ export function Policy() {
               <Row
                 label="Others"
                 value={money(data.qf_others)}
-                hint="Retired — the QFA table is Q1 to Q4. Publishing a new version clears it."
+                hint="Retired. The QFA table is Q1 to Q4. Publishing a new version clears it."
                 tone="caution"
               />
             )}
@@ -243,6 +256,17 @@ export function Policy() {
             <Row label="Journal, no SNIP" value={money(data.fixed_journal_no_snip)} />
             <Row label="Other, no SNIP" value={money(data.fixed_other_no_snip)} />
             <Row label="Web of Science" value={money(data.fixed_web_of_science)} />
+          </Section>
+
+          <Section
+            title="Final-year project scheme"
+            blurb="A scheme of its own, outside the faculty publication formula: a fixed amount per team for a conference paper, paid once, to the team's mentor."
+          >
+            <Row
+              label="Per team, per conference paper"
+              value={money(data.student_project_amount ?? STUDENT_PROJECT_DEFAULT)}
+              hint="Not the SNIP formula, not split by author position"
+            />
           </Section>
 
           <Section title="Rules" blurb="Who is eligible, and what needs a second signature.">
@@ -267,6 +291,20 @@ export function Policy() {
               hint="How many authors must be from this college"
             />
             <Row
+              label="Research year"
+              value={`From 1 ${MONTHS[(data.research_year_start_month ?? 6) - 1]}`}
+              hint="The year a research faculty member's threshold runs on, and the year the faculty home calls this year"
+            />
+            <Row
+              label="Filing cutoff"
+              value={data.filing_cutoff_day ? `Day ${data.filing_cutoff_day}` : "None"}
+              hint={
+                data.filing_cutoff_day
+                  ? "People with drafts are reminded three days before"
+                  : "No cutoff set; nobody is reminded"
+              }
+            />
+            <Row
               label="Students paid"
               value={data.student_remuneration_zero ? "No" : "Yes"}
               hint={
@@ -288,8 +326,10 @@ export function Policy() {
             </section>
           )}
 
+          <PolicyHistory />
+
           <RawDisclosure
-            summary="Advanced — the stored JSON"
+            summary="Advanced: the stored JSON"
             blurb="What the two fields above look like on the wire. Read-only: the rows are the way to change them."
             blobs={[
               ["author_point_json", data.author_point_json],
@@ -310,20 +350,73 @@ export function Policy() {
 /* Display                                                                   */
 /* ------------------------------------------------------------------------ */
 
+/**
+ * The policy at a glance: which version is in force and the four numbers most
+ * people ask about. The rest of the sheet is below, in the order a claim is
+ * priced.
+ */
 function Header({ formula }: { formula: Formula }) {
+  // The name usually already says its version ("Policy v3"); saying it twice
+  // reads as a mistake.
+  const named = new RegExp(`\\bv${formula.version}\\b`, "i").test(formula.name)
   return (
-    <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 border-y border-line py-3">
-      <div>
-        <ColumnLabel className="block">Active policy</ColumnLabel>
-        <p className="mt-0.5 text-lg font-semibold">
-          {formula.name} <span className="text-fg-muted">v{formula.version}</span>
-        </p>
-      </div>
-      <Meta>
-        {formula.effective_from ? `In effect from ${formatDay(formula.effective_from)}` : "No start date recorded"}
-        {formula.effective_to ? ` until ${formatDay(formula.effective_to)}` : ""}
-      </Meta>
-    </div>
+    <section aria-label="The policy in force" className="space-y-3">
+      <Answer
+        items={[
+          { value: `v${formula.version}`, label: "Version in force" },
+          { value: money(formula.snip_multiplier), label: "For each point of SNIP" },
+          { value: money(formula.qf_q1), label: "Added for a Q1 journal" },
+          {
+            value: formula.high_value_threshold > 0 ? money(formula.high_value_threshold) : "Off",
+            label: formula.high_value_threshold > 0 ? "Above this, a second signature" : "Second signature for large claims",
+            tone: formula.high_value_threshold > 0 ? "neutral" : "caution",
+          },
+        ]}
+      />
+      <p className="text-sm text-fg-muted">
+        {named ? formula.name : `${formula.name}, version ${formula.version}`}.{" "}
+        {formula.effective_from ? `In effect from ${formatDay(formula.effective_from)}` : "In force now"}
+        {formula.effective_to ? ` until ${formatDay(formula.effective_to)}` : ""}.
+      </p>
+    </section>
+  )
+}
+
+type PolicyEntry = {
+  id: string
+  created_at: string
+  who?: { user_id: string; name: string } | null
+  changes?: { label: string; from: string; to: string }[]
+  reason?: string | null
+}
+
+/** Every version published, newest first, with what each changed. */
+function PolicyHistory() {
+  const { data } = useApi<{ results: PolicyEntry[]; total: number }>(
+    ["audit", "policy"],
+    "/api/admin/audit?action=FORMULA_UPDATE&limit=20"
+  )
+  if (!data || data.results.length === 0) return null
+  return (
+    <KitDetails label="the policy's change history" count={data.total}>
+      <ul className="divide-y divide-line">
+        {data.results.map((e) => (
+          <li key={e.id} className="py-2.5 text-sm">
+            <p>
+              <span className="font-medium">{e.who?.name ?? "The system"}</span> published a new version
+              <Meta className="ml-2">{formatDay(e.created_at)}</Meta>
+            </p>
+            {(e.changes ?? []).map((c) => (
+              <p key={c.label} className="mt-0.5 text-fg-muted">
+                {c.label}: <span className="line-through">{c.from}</span> to{" "}
+                <span className="font-medium text-fg">{c.to}</span>
+              </p>
+            ))}
+            {e.reason && <p className="mt-0.5 text-fg-muted">Reason given: {e.reason}</p>}
+          </li>
+        ))}
+      </ul>
+    </KitDetails>
   )
 }
 
@@ -342,7 +435,7 @@ function Section({
         <SectionTitle>{title}</SectionTitle>
         <p className="mt-0.5 max-w-3xl text-base text-fg-muted">{blurb}</p>
       </div>
-      <dl className="divide-y divide-line border-y border-line">{children}</dl>
+      <dl className="divide-y divide-line">{children}</dl>
     </section>
   )
 }
@@ -393,13 +486,18 @@ function AuthorPointsSection({ json }: { json: string }) {
           paper's amount to get what that one author is paid.
         </p>
       </div>
-      {parsed === null ? (
+      {parsed === null && json.trim() === "" ? (
+        <Callout tone="info" title="The built-in shares are in use">
+          No policy version has been published yet, so the calculator uses its built-in author shares.
+          Publish a version to write them down.
+        </Callout>
+      ) : parsed === null ? (
         <Callout tone="critical" title="This field does not parse">
           The stored value is not a JSON object, so the calculator cannot read it. Every
-          calculation in the college depends on it — publish a corrected version.
+          calculation in the college depends on it. Publish a corrected version.
         </Callout>
       ) : (
-        <dl className="divide-y divide-line border-y border-line">
+        <dl className="divide-y divide-line">
           {Object.entries(parsed).map(([key, value]) => (
             <div key={key} className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-2.5">
               <dt className="text-base">{authorCountLabel(key)}</dt>
@@ -428,10 +526,10 @@ function MultipliersSection({ json }: { json: string }) {
       {parsed === null ? (
         <Callout tone="critical" title="This field does not parse">
           The stored value is not a JSON object, so the calculator cannot read it. Every
-          calculation in the college depends on it — publish a corrected version.
+          calculation in the college depends on it. Publish a corrected version.
         </Callout>
       ) : (
-        <dl className="divide-y divide-line border-y border-line">
+        <dl className="divide-y divide-line">
           {Object.entries(parsed).map(([key, value]) => (
             <div key={key} className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-2.5">
               <dt className="text-base">
@@ -500,11 +598,11 @@ function describeShares(key: string, value: unknown): string {
 }
 
 function multiplierEffect(value: unknown): string {
-  if (typeof value !== "number") return "Not a number — the calculator cannot read this row."
+  if (typeof value !== "number") return "Not a number. The calculator cannot read this row."
   if (value === 1) return "Paid the full amount."
   if (value === 0) return "Pays nothing."
-  if (value < 1) return `Pays ${formatShare(value)} of the amount — ${money(100000 * value)} where a full-rate paper pays ${money(100000)}.`
-  return `Pays ${trim(value)} times the amount — ${money(100000 * value)} where a full-rate paper pays ${money(100000)}.`
+  if (value < 1) return `Pays ${formatShare(value)} of the amount: ${money(100000 * value)} where a full-rate paper pays ${money(100000)}.`
+  return `Pays ${trim(value)} times the amount: ${money(100000 * value)} where a full-rate paper pays ${money(100000)}.`
 }
 
 /** 0.7 reads as a share; 1 reads as a multiplier. Both appear in these two
@@ -617,11 +715,16 @@ function LiveExample({ formula }: { formula: Formula }) {
   return (
     <section className="space-y-3">
       <div>
-        <SectionTitle>What this pays</SectionTitle>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <SectionTitle>What this pays</SectionTitle>
+          <Link to="/calculator" className="text-sm underline underline-offset-2">
+            Open the full calculator
+          </Link>
+        </div>
         <p className="mt-0.5 max-w-3xl text-base text-fg-muted">
           {failed
             ? "Worked out on this page from the rates above, because the server did not answer. Treat it as an estimate."
-            : `Priced by the server against ${formula.name} v${formula.version} — the policy that is live right now.`}
+            : `Priced by the server against the policy in force now, ${new RegExp(`\\bv${formula.version}\\b`, "i").test(formula.name) ? formula.name : `${formula.name} v${formula.version}`}.`}
         </p>
       </div>
 
@@ -748,20 +851,13 @@ function ExampleControls({
           />
         </Field>
         <Field label="Publication type">
-          <select
-            value={value.type}
-            onChange={(e) => set("type", e.target.value)}
-            className={cn(
-              "h-8 w-full rounded-md bg-surface px-2.5 text-sm text-fg outline-none",
-              "ring-1 ring-inset ring-field focus-visible:ring-2 focus-visible:ring-accent"
-            )}
-          >
+          <Select size="sm" value={value.type} onChange={(e) => set("type", e.target.value)}>
             {options.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
       </div>
 
@@ -923,7 +1019,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
     return {
       amount: null,
       working,
-      problem: `Papers with more than ${limit} authors are not eligible for remuneration, so this one pays nothing to anybody.`,
+      problem: `Papers with more than ${limit} authors are not eligible for incentive, so this one pays nothing to anybody.`,
     }
   }
 
@@ -980,8 +1076,8 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
     label: journal
       ? ex.quartile
         ? `Quartile incentive for ${ex.quartile}`
-        : "Quartile incentive — no quartile held"
-      : "Quartile incentive — journals only",
+        : "Quartile incentive: no quartile held"
+      : "Quartile incentive: journals only",
     value: `+ ${money(qf)}`,
   }
 
@@ -989,7 +1085,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
   let category: string
   if (scopus && snip > 0) {
     base = (snip * cfg.snipMultiplier + qf) * pubM
-    category = "Category I — Scopus indexed, with SNIP"
+    category = "Category I: Scopus indexed, with SNIP"
     working.push({
       id: "snip",
       label: `SNIP ${trim(snip)} × ${money(cfg.snipMultiplier)} per point`,
@@ -998,7 +1094,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
     working.push(qfLine)
   } else if (scopus && conferenceOrBook) {
     base = cfg.fixedOther * pubM
-    category = "Category III — Scopus conference or book chapter without SNIP"
+    category = "Category III: Scopus conference or book chapter without SNIP"
     working.push({
       id: "fixed",
       label: "No SNIP, so the fixed conference or book rate",
@@ -1006,7 +1102,7 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
     })
   } else if (scopus && journal) {
     base = cfg.fixedJournal * pubM
-    category = "Category II — Scopus journal without SNIP"
+    category = "Category II: Scopus journal without SNIP"
     working.push({
       id: "fixed",
       label: "No SNIP, so the fixed journal rate",
@@ -1017,13 +1113,13 @@ function estimate(cfg: EstimateConfig, ex: Example): EstimateResult {
     // Web of Science paper buys nothing, which is the one result on this
     // screen most likely to be read as a bug rather than as the policy.
     base = (cfg.fixedWos + qf) * pubM
-    category = "Category IV — Web of Science (SCIE/ESCI), not in Scopus"
+    category = "Category IV: Web of Science (SCIE/ESCI), not in Scopus"
     working.push({ id: "fixed", label: "Web of Science flat rate", value: money(cfg.fixedWos) })
     working.push(qfLine)
   } else {
     return {
       amount: 0,
-      category: "Not eligible for remuneration",
+      category: "Not eligible for incentive",
       working,
       problem: "This combination of indexing and publication type is not covered by the scheme.",
     }
@@ -1097,6 +1193,9 @@ type FormState = {
   fixed_web_of_science: string
   max_authors: string
   min_sec_references: string
+  student_project_amount: string
+  filing_cutoff_day: string
+  research_year_start_month: string
   student_remuneration_zero: boolean
   qf_only_for_no_snip: boolean
   notes: string
@@ -1183,10 +1282,10 @@ function EditDialog({
   // twenty-field dialog the reason a pinned button is grey is almost always
   // off-screen — which reads as the app being broken rather than the form.
   const blockers = [
-    authorPointsError && `author points — ${lowerFirst(authorPointsError)}`,
-    multipliersError && `publication type multipliers — ${lowerFirst(multipliersError)}`,
-    capError && `the SNIP cap — ${lowerFirst(capError)}`,
-    datesError && `the dates — ${lowerFirst(datesError)}`,
+    authorPointsError && `author points: ${lowerFirst(authorPointsError)}`,
+    multipliersError && `publication type multipliers: ${lowerFirst(multipliersError)}`,
+    capError && `the SNIP cap: ${lowerFirst(capError)}`,
+    datesError && `the dates: ${lowerFirst(datesError)}`,
   ].filter((v): v is string => Boolean(v))
 
   const draftConfig: EstimateConfig = useMemo(
@@ -1212,36 +1311,41 @@ function EditDialog({
 
   const nextVersion = current.version + 1
 
+  const payload: Record<string, unknown> = {
+    name: form.name.trim() || `Policy v${nextVersion}`,
+    effective_from: form.effective_from || undefined,
+    effective_to: form.effective_to || undefined,
+    snip_multiplier: num(form.snip_multiplier),
+    snip_cap: num(form.snip_cap),
+    qf_q1: num(form.qf_q1),
+    qf_q2: num(form.qf_q2),
+    qf_q3: num(form.qf_q3),
+    qf_q4: num(form.qf_q4),
+    qf_no_snip: current.qf_no_snip,
+    qf_snip_only: current.qf_snip_only,
+    // Retired deliberately: sending the stored value back would write
+    // the withdrawn incentive into every future version.
+    qf_others: 0,
+    author_point_json: authorPointJson,
+    publication_type_multipliers_json: multipliersJson,
+    student_remuneration_zero: form.student_remuneration_zero,
+    qf_only_for_no_snip: form.qf_only_for_no_snip,
+    high_value_threshold: num(form.high_value_threshold),
+    fixed_journal_no_snip: num(form.fixed_journal_no_snip),
+    fixed_other_no_snip: num(form.fixed_other_no_snip),
+    fixed_web_of_science: num(form.fixed_web_of_science),
+    max_authors: Math.round(num(form.max_authors)),
+    min_sec_references: Math.round(num(form.min_sec_references)),
+    student_project_amount: num(form.student_project_amount),
+    filing_cutoff_day: form.filing_cutoff_day.trim() ? Math.round(num(form.filing_cutoff_day)) : null,
+    research_year_start_month: Math.round(num(form.research_year_start_month)) || 6,
+    notes: form.notes.trim() || undefined,
+  }
+
   async function publish() {
     try {
-      const result = await save.mutateAsync({
-        name: form.name.trim() || `Policy v${nextVersion}`,
-        effective_from: form.effective_from || undefined,
-        effective_to: form.effective_to || undefined,
-        snip_multiplier: num(form.snip_multiplier),
-        snip_cap: num(form.snip_cap),
-        qf_q1: num(form.qf_q1),
-        qf_q2: num(form.qf_q2),
-        qf_q3: num(form.qf_q3),
-        qf_q4: num(form.qf_q4),
-        qf_no_snip: current.qf_no_snip,
-        qf_snip_only: current.qf_snip_only,
-        // Retired deliberately: sending the stored value back would write
-        // the withdrawn incentive into every future version.
-        qf_others: 0,
-        author_point_json: authorPointJson,
-        publication_type_multipliers_json: multipliersJson,
-        student_remuneration_zero: form.student_remuneration_zero,
-        qf_only_for_no_snip: form.qf_only_for_no_snip,
-        high_value_threshold: num(form.high_value_threshold),
-        fixed_journal_no_snip: num(form.fixed_journal_no_snip),
-        fixed_other_no_snip: num(form.fixed_other_no_snip),
-        fixed_web_of_science: num(form.fixed_web_of_science),
-        max_authors: Math.round(num(form.max_authors)),
-        min_sec_references: Math.round(num(form.min_sec_references)),
-        notes: form.notes.trim() || undefined,
-      })
-      toast.ok(`Published — ${result.name} v${result.version} now prices every claim`)
+      const result = await save.mutateAsync(payload)
+      toast.ok(`Published. ${result.name} v${result.version} now prices every claim`)
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)
@@ -1262,7 +1366,7 @@ function EditDialog({
           <DialogBody className="space-y-6">
             <Callout tone="caution" title="Everything is priced from this the instant it saves">
               Claims already paid keep the amount they were paid. Everything not yet paid —
-              including anything sitting in the clearing queue or waiting on the Principal — is
+              including anything sitting in the clearing queue or waiting on the Principal, is
               recalculated from these numbers when it next moves.
             </Callout>
 
@@ -1334,6 +1438,18 @@ function EditDialog({
               />
             </Fieldset>
 
+            <Fieldset
+              legend="Final-year project scheme"
+              hint="Its own scheme: one fixed amount per team for a conference paper, paid to the mentor. No SNIP, no author share."
+            >
+              <Money
+                label="Per team, per conference paper"
+                value={form.student_project_amount}
+                onChange={(v) => set("student_project_amount", v)}
+                hint="Zero suspends the scheme"
+              />
+            </Fieldset>
+
             <Fieldset legend="Rules">
               <Money
                 label="High-value threshold"
@@ -1357,6 +1473,34 @@ function EditDialog({
                   step="1"
                 />
               </Field>
+              <Field
+                label="Filing cutoff day"
+                hint="Day of the month filing closes for that month's run, 1 to 28. Empty for none: then nobody is reminded of a deadline"
+              >
+                <NumberInput
+                  value={form.filing_cutoff_day}
+                  onChange={(e) => set("filing_cutoff_day", e.target.value)}
+                  min={1}
+                  max={28}
+                  step="1"
+                />
+              </Field>
+              <Field
+                label="Research year starts in"
+                hint="The year a research faculty member's yearly threshold runs on, and the year the faculty home calls this year. June is the academic year"
+              >
+                <Select
+                  size="sm"
+                  value={form.research_year_start_month}
+                  onChange={(e) => set("research_year_start_month", e.target.value)}
+                >
+                  {MONTHS.map((m, i) => (
+                    <option key={m} value={String(i + 1)}>
+                      1 {m}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
             </Fieldset>
 
             <div className="space-y-2">
@@ -1364,11 +1508,6 @@ function EditDialog({
                 checked={form.student_remuneration_zero}
                 onCheckedChange={(v) => set("student_remuneration_zero", v === true)}
                 label="A student author's share is zero"
-              />
-              <Checkbox
-                checked={form.qf_only_for_no_snip}
-                onCheckedChange={(v) => set("qf_only_for_no_snip", v === true)}
-                label="Quartile amounts apply only when no SNIP is held"
               />
             </div>
 
@@ -1383,7 +1522,7 @@ function EditDialog({
             </Field>
 
             <RawDisclosure
-              summary="Advanced — the JSON this will send"
+              summary="Advanced: the JSON this will send"
               blurb="Generated from the rows above and shown read-only, so a brace cannot be left unclosed by hand."
               blobs={[
                 ["author_point_json", authorPointJson],
@@ -1432,7 +1571,9 @@ function EditDialog({
         confirmLabel={`Publish v${nextVersion}`}
         requirePhrase={`v${nextVersion}`}
         onConfirm={publish}
-      />
+      >
+        {confirming && <ImpactPreview payload={payload} liveVersion={current.version} current={current} />}
+      </ConfirmDialog>
     </>
   )
 }
@@ -1736,8 +1877,8 @@ function PointRowEditor({
           (Math.abs(sum - 1) < 0.0005
             ? "."
             : sum < 1
-              ? " — the rest is not paid to anybody."
-              : " — the paper pays out more than it is worth.")}
+              ? ". The rest is not paid to anybody."
+              : ". The paper pays out more than it is worth.")}
       </Meta>
     </div>
   )
@@ -1989,7 +2130,7 @@ function validateAuthorPoints(json: string): string | undefined {
   const parsed = parseObject(json)
   if (parsed === null) return "Must be a JSON object."
   const entries = Object.entries(parsed)
-  if (entries.length === 0) return "Cannot be empty — every paper would pay nothing."
+  if (entries.length === 0) return "Cannot be empty. Every paper would pay nothing."
   for (const [key, value] of entries) {
     if (key !== "default" && !/^\d+$/.test(key)) {
       return `“${key}” must be an author count, or “default”.`
@@ -2039,6 +2180,9 @@ function stateFrom(f: Formula): FormState {
     fixed_web_of_science: String(f.fixed_web_of_science),
     max_authors: String(f.max_authors),
     min_sec_references: String(f.min_sec_references),
+    student_project_amount: String(f.student_project_amount ?? STUDENT_PROJECT_DEFAULT),
+    filing_cutoff_day: f.filing_cutoff_day ? String(f.filing_cutoff_day) : "",
+    research_year_start_month: String(f.research_year_start_month ?? 6),
     student_remuneration_zero: f.student_remuneration_zero,
     qf_only_for_no_snip: f.qf_only_for_no_snip,
     notes: f.notes || "",
@@ -2067,4 +2211,182 @@ function formatDay(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+}
+
+type Impact = {
+  live_version: number | null
+  open_claims: number
+  changed_count: number
+  before_total: number
+  after_total: number
+  changed: {
+    id: string
+    ticket_number: string | null
+    title: string
+    owner: string | null
+    before: number
+    after: number
+  }[]
+  /** Research faculty whose claims fall inside their yearly threshold: the
+   *  totals above are already after it, and this is what it absorbs. */
+  threshold?: {
+    user_id: string
+    name: string
+    initials: string
+    photo_url: string | null
+    threshold: number
+    claims_inside: number
+    absorbed_before: number
+    absorbed_after: number
+    tickets: (string | null)[]
+  }[]
+  threshold_claims?: number
+}
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
+/** Before/after for every unpaid claim, priced by the server under the live
+ *  version and under this draft. Nothing is saved to produce it. */
+const RATE_LABELS: [keyof Formula, string][] = [
+  ["snip_multiplier", "The rate per SNIP point"],
+  ["qf_q1", "The Q1 bonus"],
+  ["qf_q2", "The Q2 bonus"],
+  ["qf_q3", "The Q3 bonus"],
+  ["qf_q4", "The Q4 bonus"],
+  ["fixed_journal_no_snip", "The fixed amount for a journal with no SNIP"],
+  ["fixed_other_no_snip", "The fixed amount for other papers with no SNIP"],
+  ["fixed_web_of_science", "The Web of Science amount"],
+  ["student_project_amount", "The amount per project team"],
+]
+
+/**
+ * What a draft changes, in words: "The Q1 bonus goes up ₹5,000 (₹50,000 to
+ * ₹55,000)". Only the rupee rates; the rules and the two tables are read in the
+ * form.
+ */
+export function describeRateChanges(current: Formula, payload: Record<string, unknown>): string[] {
+  const out: string[] = []
+  for (const [key, label] of RATE_LABELS) {
+    const before = Number(current[key] ?? 0)
+    const after = Number(payload[key] ?? before)
+    if (!Number.isFinite(after) || after === before) continue
+    const diff = after - before
+    out.push(`${label} goes ${diff > 0 ? "up" : "down"} ${money(Math.abs(diff))} (${money(before)} to ${money(after)})`)
+  }
+  return out
+}
+
+/** "34 unpaid claims gain, 2 lose; the total goes up ₹1,70,000." */
+export function describeImpact(d: Pick<Impact, "changed" | "before_total" | "after_total" | "open_claims">): string {
+  const gain = d.changed.filter((c) => c.after > c.before).length
+  const lose = d.changed.filter((c) => c.after < c.before).length
+  const delta = d.after_total - d.before_total
+  if (gain + lose === 0) return `None of the ${d.open_claims} unpaid claims changes amount.`
+  const parts = [
+    gain ? `${gain} unpaid ${gain === 1 ? "claim gains" : "claims gain"}` : "",
+    lose ? `${lose} ${lose === 1 ? "loses" : "lose"}` : "",
+  ].filter(Boolean)
+  return `${parts.join(", ")}. The total ${delta === 0 ? "stays the same" : `goes ${delta > 0 ? "up" : "down"} ${money(Math.abs(delta))}`}.`
+}
+
+export function ImpactPreview({
+  payload,
+  liveVersion,
+  current,
+}: {
+  payload: Record<string, unknown>
+  liveVersion: number
+  current?: Formula
+}) {
+  const [state, setState] = useState<
+    { kind: "loading" } | { kind: "error"; message: string } | { kind: "ok"; data: Impact }
+  >({ kind: "loading" })
+  const key = JSON.stringify(payload)
+  useEffect(() => {
+    let live = true
+    setState({ kind: "loading" })
+    api<Impact>("/api/admin/formula/preview", { method: "POST", json: JSON.parse(key) })
+      .then((data) => {
+        if (!live) return
+        if (data && Array.isArray(data.changed)) setState({ kind: "ok", data })
+        else setState({ kind: "error", message: "the server sent no preview" })
+      })
+      .catch((e: unknown) =>
+        live && setState({ kind: "error", message: e instanceof Error ? e.message : "Preview failed" })
+      )
+    return () => {
+      live = false
+    }
+  }, [key])
+
+  if (state.kind === "loading")
+    return <p className="text-sm text-fg-muted">Working out what this changes for unpaid claims…</p>
+  if (state.kind === "error")
+    return <p className="text-sm text-critical">Could not preview the change: {state.message}</p>
+  const d = state.data
+  const delta = d.after_total - d.before_total
+  return (
+    <section aria-label="What this changes" className="space-y-2 rounded-control bg-sunken p-3 text-sm">
+      {current && describeRateChanges(current, payload).length > 0 && (
+        <ul className="list-disc space-y-0.5 pl-5">
+          {describeRateChanges(current, payload).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
+      <p className="font-medium">{describeImpact(d)}</p>
+      <p className="text-fg-muted">
+        {d.changed_count} of {d.open_claims} unpaid claims change amount.
+      </p>
+      <p className="text-fg-muted">
+        Under v{liveVersion}: {money(d.before_total)}. Under this draft: {money(d.after_total)}
+        {delta !== 0 ? ` (${delta > 0 ? "up" : "down"} ${money(Math.abs(delta))})` : ""}. Paid
+        claims keep what they were paid.
+      </p>
+      {d.changed.length > 0 && (
+        <ul className="max-h-40 space-y-1 overflow-y-auto">
+          {d.changed.slice(0, 20).map((c) => (
+            <li key={c.id} className="flex flex-wrap justify-between gap-x-3">
+              <Link to={`/papers/${c.id}`} className="min-w-0 truncate underline-offset-2 hover:underline">
+                {c.ticket_number ?? c.title}
+                {c.owner ? `, ${c.owner}` : ""}
+              </Link>
+              <span className="tabular">
+                {money(c.before)} to {money(c.after)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {(d.threshold?.length ?? 0) > 0 && (
+        <div className="space-y-1 border-t border-border pt-2">
+          <p className="font-medium">
+            {d.threshold_claims} {d.threshold_claims === 1 ? "claim sits" : "claims sit"} inside a research
+            faculty member's threshold, so the threshold takes their part of the incentive under either version.
+          </p>
+          <p className="text-fg-muted">
+            The totals above are already after the threshold. What it takes moves from these amounts:
+          </p>
+          <ul className="space-y-1">
+            {d.threshold!.map((p) => (
+              <li key={p.user_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Avatar person={p} size="sm" />
+                  <Link to={`/people/${p.user_id}`} className="truncate underline-offset-2 hover:underline">
+                    {p.name}
+                  </Link>
+                  <span className="text-fg-muted">
+                    {p.claims_inside} {p.claims_inside === 1 ? "claim" : "claims"} against a {money(p.threshold)} threshold
+                  </span>
+                </span>
+                <span className="tabular text-fg-muted">
+                  {money(p.absorbed_before)} to {money(p.absorbed_after)} not paid
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  )
 }

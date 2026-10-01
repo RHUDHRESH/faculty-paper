@@ -187,7 +187,7 @@ test.describe("The mobile drawer", () => {
     await page.getByRole("button", { name: "Menu" }).click()
     const drawer = page.getByRole("dialog")
     await expect(drawer).toBeVisible()
-    await drawer.getByRole("link", { name: "Clearing queue" }).click()
+    await drawer.getByRole("link", { name: /^Claims/ }).click()
 
     // A route change closes the drawer — leaving it open over the page
     // somebody just asked for is the commonest small annoyance in a mobile

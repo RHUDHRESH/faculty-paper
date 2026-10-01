@@ -1,44 +1,59 @@
+import { useState } from "react"
 import { Link } from "react-router-dom"
-import { BarChart3, FileCheck } from "lucide-react"
+import { Stamp } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
+import { HOME_DATA } from "@/app/home-data"
+import { formatCount } from "@/lib/count"
+import { paperTitle } from "@/lib/names"
 import { useApi } from "@/lib/query"
+import { BulkAuthoriseDialog, type Claim as QueueClaim } from "@/pages/authorisations"
+import { greeting, YourPapers, type BudgetSummary, type Claim } from "@/pages/home-staff"
+import { HomeTrack } from "@/pages/home-track"
+import { MonthPaperwork } from "@/pages/month-paperwork"
+import { AmountCell, waitingLabel } from "@/pages/pay-parts"
+import { Answer } from "@/ui/answer"
+import { Button } from "@/ui/button"
+import { ComingUp } from "@/ui/coming-up"
+import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
-import { Callout, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
-import { PageTitle, SectionTitle, Sub } from "@/ui/text"
-import {
-  ClaimRow,
-  Figure,
-  QueueRow,
-  Waiting,
-  greeting,
-  type BudgetSummary,
-  type Claim,
-} from "@/pages/home-staff"
+import { Avatar, initialsOf } from "@/ui/person"
+import { Details, Rows, Section } from "@/ui/section"
+import { InlineError, SkeletonRows } from "@/ui/state"
+import { Meta } from "@/ui/text"
+import { cn } from "@/lib/cn"
 
 /**
- * The Director's executive summary.
+ * The Director's first screen: what is waiting on a signature, what it does to
+ * the budget, and whether anything about it is unusual.
  *
- * A director arrives with two questions, and neither is anybody else's. The
- * first is "what is waiting on my signature and what is it worth" — this is
- * the one desk whose silence stops payments outright, so it leads the page.
- * The second is "what is this institution actually researching", which no
- * other screen in the app answers at all.
+ * This is the one desk whose silence stops payments outright, so it leads. The
+ * four figures are over the whole queue (never a page of it). The sentence
+ * under them is the decision in words: what authorising releases, what the
+ * year's budget would still have, and which claims are largest. Where the
+ * research threshold has already cut an amount, each row says so, so the
+ * Director authorises the figure that will be paid and not the policy figure.
  *
- * The second question is the one to be careful with. Subject areas are known
- * only for a paper whose journal could be matched against our Scimago rows —
- * about half the record — so the coverage figure sits next to the chart
- * rather than in a footnote. An area chart shown without its denominator
- * reads as "this is what we do" when it means "this is what we do, among the
- * half we can classify", and a research priority set on that difference would
- * be a decision the data cannot support.
+ * What the college researches (the subject areas) used to fill half of this
+ * screen. It is a real question but not the morning one, so it is one click
+ * down, with the share of the record it can classify beside it: an area chart
+ * shown without its denominator reads as "this is what we do" when it means
+ * "this is what we do, among the half we can classify".
+ *
+ * Nothing here is a flag. The Director is contest-blind (`core.visibility`).
  */
 
 type DirectorQueue = {
   total: number
-  results: Claim[]
+  results: (Claim & Partial<QueueClaim>)[]
   /** Over everything that matches, not the page. */
-  totals: { count: number; amount: number; longest_wait_days: number | null }
+  totals: {
+    count: number
+    amount: number
+    longest_wait_days: number | null
+    held_back?: number
+    held_back_count?: number
+  }
 }
 
 type AreasPayload = {
@@ -48,231 +63,251 @@ type AreasPayload = {
   coverage: { classified: number; total: number; unclassified: number; fraction: number }
 }
 
-type ReportSummary = {
-  totals: { publications: number; paid_amount?: number }
-}
-
 export function DirectorHome() {
   const { me } = useAuth()
+  const D = HOME_DATA
 
-  const queue = useApi<DirectorQueue>(["director-queue", "home"], "/api/director/queue?limit=6")
-  const areas = useApi<AreasPayload>(["reports", "areas"], "/api/reports/areas?limit=12")
-  const report = useApi<ReportSummary>(["reports", "summary"], "/api/reports")
-  const budget = useApi<BudgetSummary>(["budgets", ""], "/api/budgets")
+  // The whole queue, not a page of it: the summary sums it, the batch button
+  // authorises it, and the list below shows the six that have waited longest.
+  const queue = useApi<DirectorQueue>(D.directorQueue.key, D.directorQueue.path)
+  const budget = useApi<BudgetSummary>(D.budget.key, D.budget.path)
+  const [batchOpen, setBatchOpen] = useState(false)
 
   const totals = queue.data?.totals
   const longest = totals?.longest_wait_days ?? null
-  const coverage = areas.data?.coverage
+  const waiting = queue.data?.results ?? []
+  const largest = [...waiting].sort((a, b) => (b.remuneration || 0) - (a.remuneration || 0)).slice(0, 3)
+  const remaining = budget.data?.college.remaining ?? null
+  const over = remaining != null && remaining < 0
+  const allFetched = (queue.data?.total ?? 0) <= waiting.length
+  const year = budget.data?.financial_year ?? "this year"
+  const oldestFirst = waiting
+    .filter((c) => !me?.id || c.owner_id !== me.id)
+    .slice()
+    .sort((a, b) => (b.waiting_days ?? 0) - (a.waiting_days ?? 0))
 
   return (
     <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">
-          What is waiting on your authorisation, and what the institution is publishing.
-        </Sub>
-      </header>
-
-      {/* Waiting on you, first: this is the only desk whose silence stops a
-          payment outright. */}
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
-        <Figure
-          label="Waiting on you"
-          value={totals ? totals.count.toLocaleString("en-IN") : "—"}
-          hint="Approved, not yet authorised"
-          loading={queue.isLoading}
-          muted={totals?.count === 0}
-        />
-        <Figure
-          label="Worth"
-          value={money(totals?.amount)}
-          hint="Finance cannot pay any of it until you authorise"
-          loading={queue.isLoading}
-        />
-        <Figure
-          label="Longest wait"
-          value={longest === null ? "—" : `${longest} ${longest === 1 ? "day" : "days"}`}
-          hint={longest === null ? "Nothing waiting" : "Since the Principal approved it"}
-          tone={longest !== null && longest > 30 ? "critical" : undefined}
-          loading={queue.isLoading}
-        />
-      </section>
+      <PageHeader
+        title={greeting(me?.name)}
+        sub="What needs your authorisation, and what it does to the budget."
+        action={
+          waiting.length > 0 && allFetched ? (
+            <Button kind="primary" size="lg" onClick={() => setBatchOpen(true)}>
+              <Stamp />
+              Authorise all {formatCount(waiting.length)} · {money(totals?.amount)}
+            </Button>
+          ) : undefined
+        }
+        spot="spot-authorisations"
+      />
 
       {queue.isError ? (
-        <InlineError
-          message="Could not load the authorisation queue."
-          onRetry={() => queue.refetch()}
-        />
-      ) : (queue.data?.total ?? 0) === 0 && !queue.isLoading ? (
-        <Callout tone="positive" title="Nothing is waiting on your signature">
-          Every approved claim has been authorised and is with Finance.
-        </Callout>
+        <InlineError message="Could not load the authorisation queue." onRetry={() => void queue.refetch()} />
       ) : (
-        <Waiting>
-          <div className="flex items-baseline justify-between gap-3">
-            <SectionTitle>Longest waiting</SectionTitle>
-            <Link
-              to="/authorisations"
-              className="text-sm text-accent underline-offset-4 hover:underline"
-            >
-              Authorisations{queue.data ? ` (${queue.data.total})` : ""}
-            </Link>
+        <>
+          <div className="space-y-3">
+            <Answer
+              items={[
+                {
+                  label: "Waiting for you to authorise",
+                  value: totals ? totals.count : null,
+                  zero: "Nothing is waiting for you",
+                  to: "/authorisations",
+                },
+                { label: "Worth, released to Finance", value: totals ? money(totals.amount) : null, to: "/authorisations" },
+                {
+                  label: "Days the longest has waited",
+                  value: totals ? (longest ?? 0) : null,
+                  zero: "Nothing is waiting",
+                  tone: longest != null && longest > 30 ? "critical" : undefined,
+                  to: "/authorisations",
+                },
+                budget.isError
+                  ? { label: "Budget", value: "Not loaded", to: "/budget" }
+                  : {
+                      label: over ? "Over the budget, counting these" : "Left in the budget, counting these",
+                      value: !budget.data ? null : remaining == null ? "Not set" : money(Math.abs(remaining)),
+                      tone: over ? "critical" : undefined,
+                      to: "/budget",
+                    },
+              ]}
+            />
+            {waiting.length > 0 && (totals?.amount ?? 0) > 0 && (
+              <p className="max-w-prose text-pretty text-base text-fg-muted" data-testid="authorising-means">
+                {remaining == null
+                  ? `No budget is set for ${year}, so there is nothing to weigh the ${money(totals?.amount)} against.`
+                  : over
+                    ? `The budget for ${year} is already over by ${money(Math.abs(remaining))}, and the ${money(totals?.amount)} waiting is counted in that.`
+                    : `Authorising all of it releases ${money(totals?.amount)} to Finance. The budget for ${year} would still have ${money(remaining)} left.`}
+                {(totals?.held_back_count ?? 0) > 0 && (
+                  <>
+                    {" "}
+                    The research threshold has already taken {money(totals?.held_back)} off{" "}
+                    {formatCount(totals?.held_back_count)} {totals?.held_back_count === 1 ? "claim" : "claims"}; the
+                    amounts shown are what will be paid.
+                  </>
+                )}
+                {largest.length > 0 && (
+                  <>
+                    {" "}
+                    The largest {largest.length === 1 ? "is" : "are"}{" "}
+                    {largest.map((c, i) => (
+                      <span key={c.id}>
+                        {i > 0 && (i === largest.length - 1 ? " and " : ", ")}
+                        <Link to={`/papers/${c.id}`} className="text-accent underline-offset-4 hover:underline">
+                          {c.owner_name || "one"} ({money(c.remuneration)})
+                        </Link>
+                      </span>
+                    ))}
+                    .
+                  </>
+                )}
+              </p>
+            )}
           </div>
-          {queue.isLoading ? (
-            <ul className="divide-y divide-line border-y border-line">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <li key={i} className="h-[3.25rem] animate-pulse bg-sunken" />
-              ))}
-            </ul>
-          ) : (
-            <ul className="divide-y divide-line border-y border-line">
-              {queue.data?.results.map((c) => (
-                <ClaimRow key={c.id} claim={c} />
-              ))}
-            </ul>
+
+          {batchOpen && (
+            <BulkAuthoriseDialog
+              claims={waiting as QueueClaim[]}
+              onClose={() => setBatchOpen(false)}
+              onDone={() => void queue.refetch()}
+            />
           )}
-        </Waiting>
+
+          <Section
+            title="Longest waiting"
+            action={
+              <Link to="/authorisations" className="text-accent underline-offset-4 hover:underline">
+                {queue.data && queue.data.total > 0 ? `All ${formatCount(queue.data.total)} in Authorisations` : "Authorisations"}
+              </Link>
+            }
+          >
+            {queue.isLoading ? (
+              <SkeletonRows rows={4} rowHeight={52} />
+            ) : oldestFirst.length === 0 ? (
+              <div className="space-y-4">
+                <p className="text-base text-fg-muted">
+                  Nothing is waiting for your signature. Every claim the Principal approved is authorised and with
+                  Finance.
+                </p>
+                <ComingUp desk="director" align="start" />
+              </div>
+            ) : (
+              <Rows>
+                {oldestFirst.slice(0, 6).map((c) => (
+                  <AuthoriseRow key={c.id} c={c} />
+                ))}
+              </Rows>
+            )}
+          </Section>
+        </>
       )}
 
-      {/* ---- what the institution researches ---- */}
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <SectionTitle>What we research</SectionTitle>
+      <MonthPaperwork title="The month's statement" />
+
+      <Details label="what the college researches" className="border-t border-line pt-6">
+        <ResearchAreas />
+      </Details>
+
+      <Details label="where every claim is">
+        <div className="mt-3">
+          <HomeTrack heading="Every claim, by stage" />
+        </div>
+      </Details>
+
+      {/* The Director's own research, after the authorising: another officer
+          authorises the Director's own papers, never the Director. */}
+      <YourPapers />
+    </div>
+  )
+}
+
+function AuthoriseRow({ c }: { c: Claim & Partial<QueueClaim> }) {
+  const days = c.waiting_days ?? null
+  return (
+    <li className="flex items-center gap-3 py-3 sm:gap-4">
+      <Avatar
+        size="md"
+        person={{ name: c.owner_name || "", initials: initialsOf(c.owner_name), photo_url: c.owner_photo_url ?? null }}
+      />
+      <div className="min-w-0 flex-1">
+        <Link to={`/papers/${c.id}`} className="block truncate text-base font-medium underline-offset-4 hover:underline">
+          {paperTitle(c.paper_title)}
+        </Link>
+        <Meta className="block truncate">{[c.owner_name, c.owner_department].filter(Boolean).join(" · ")}</Meta>
+        <div className="sm:hidden">
+          <AmountCell c={c} className="text-left" />
+        </div>
+      </div>
+      <div className="hidden w-56 shrink-0 sm:block">
+        <AmountCell c={c} />
+      </div>
+      <span
+        className={cn(
+          "hidden w-16 shrink-0 text-right text-sm tabular text-fg-muted sm:block",
+          days != null && days > 30 && "font-medium text-critical",
+          days != null && days > 14 && days <= 30 && "text-caution"
+        )}
+      >
+        {waitingLabel(days)}
+      </span>
+      <Button size="sm" asChild>
+        <Link to="/authorisations" aria-label={`Authorise: ${paperTitle(c.paper_title)}`}>
+          Authorise
+        </Link>
+      </Button>
+    </li>
+  )
+}
+
+/** Only fetched when opened, so the morning screen does not wait for it. */
+function ResearchAreas() {
+  const areas = useApi<AreasPayload>(HOME_DATA.areas.key, HOME_DATA.areas.path)
+  const coverage = areas.data?.coverage
+  return (
+    <div className="mt-3 space-y-3">
+      {areas.isLoading ? (
+        <SkeletonRows rows={6} rowHeight={28} />
+      ) : areas.isError ? (
+        <InlineError message="Could not load the subject areas." onRetry={() => void areas.refetch()} />
+      ) : !areas.data || areas.data.areas.length === 0 ? (
+        <p className="text-base text-fg-muted">No paper on record carries a subject area yet.</p>
+      ) : (
+        <>
+          <p className="max-w-prose text-base text-fg-muted">
+            {formatCount(areas.data.distinct)} subject areas across the record, showing the{" "}
+            {Math.min(6, areas.data.shown)} largest. A paper spanning three areas is counted under each, so these add
+            to more than the number of papers.
+            {coverage && coverage.fraction < 0.95 && (
+              <>
+                {" "}
+                Subject areas are known for {formatCount(coverage.classified)} of {formatCount(coverage.total)} papers,{" "}
+                {Math.round(coverage.fraction * 100)}%. The other {formatCount(coverage.unclassified)} could not be
+                matched to a journal and are absent from every bar, not counted as unclassified.
+              </>
+            )}
+          </p>
+          <AreaBars areas={areas.data.areas.slice(0, 6)} />
           <Link to="/reports" className="text-sm text-accent underline-offset-4 hover:underline">
             Build a report
           </Link>
-        </div>
-
-        {areas.isLoading ? (
-          <SkeletonRows rows={8} rowHeight={28} />
-        ) : areas.isError ? (
-          <InlineError
-            message="Could not load the subject areas."
-            onRetry={() => areas.refetch()}
-          />
-        ) : !areas.data || areas.data.areas.length === 0 ? (
-          <p className="border-y border-line py-8 text-center text-sm text-fg-muted">
-            No paper on record carries a subject area yet.
-          </p>
-        ) : (
-          <>
-            <p className="max-w-3xl text-base text-fg-muted">
-              {areas.data.distinct.toLocaleString("en-IN")} subject areas across the record,
-              showing the {areas.data.shown} largest. A paper spanning three areas is counted
-              under each, so these add to more than the number of papers.
-            </p>
-
-            <AreaBars areas={areas.data.areas} />
-
-            {coverage && coverage.fraction < 0.95 && (
-              <Callout tone="caution" title="This covers part of the record, not all of it">
-                Subject areas are known for {coverage.classified.toLocaleString("en-IN")} of{" "}
-                {coverage.total.toLocaleString("en-IN")} papers —{" "}
-                {Math.round(coverage.fraction * 100)}%. The other{" "}
-                {coverage.unclassified.toLocaleString("en-IN")} are papers whose journal could
-                not be matched against our reference data. They are absent from every bar
-                above rather than counted as unclassified.
-              </Callout>
-            )}
-          </>
-        )}
-      </section>
-
-      {/* ---- the institution's position ---- */}
-      <section className="space-y-3">
-        <SectionTitle>The institution</SectionTitle>
-        {report.isError || budget.isError ? (
-          // Every figure below degrades to an em dash or "Not set" on
-          // failure, so a dropped request read as "nothing published, no
-          // budget allocated" -- to the one person whose job is deciding
-          // whether the institution can afford the next payment.
-          <ErrorState
-            title="Could not load the institution's position"
-            message="The server did not answer. These figures are unavailable, not zero."
-            onRetry={() => {
-              void report.refetch()
-              void budget.refetch()
-            }}
-          />
-        ) : (
-        <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
-          <Figure
-            label="Publications"
-            value={
-              report.data?.totals.publications != null
-                ? report.data.totals.publications.toLocaleString("en-IN")
-                : "—"
-            }
-            loading={report.isLoading}
-          />
-          <Figure
-            label="Paid to date"
-            value={money(report.data?.totals.paid_amount)}
-            loading={report.isLoading}
-          />
-          <Figure
-            label="Committed"
-            value={money(budget.data?.college.committed)}
-            hint="Approved or authorised, not yet paid"
-            loading={budget.isLoading}
-          />
-          <Figure
-            label="Left this year"
-            value={
-              budget.data?.college.remaining == null
-                ? "Not set"
-                : money(Math.abs(budget.data.college.remaining))
-            }
-            muted={budget.data?.college.remaining == null}
-            tone={
-              budget.data?.college.remaining == null
-                ? undefined
-                : budget.data.college.remaining < 0
-                  ? "critical"
-                  : "positive"
-            }
-            loading={budget.isLoading}
-          />
-        </div>
-        )}
-      </section>
-
-      <section className="space-y-2">
-        <SectionTitle>Look further</SectionTitle>
-        <ul className="divide-y divide-line border-y border-line">
-          <QueueRow
-            icon={BarChart3}
-            label="Reports"
-            count={null}
-            detail="Build one by year, department, quartile or subject area — and download it"
-            to="/reports"
-          />
-          <QueueRow
-            icon={FileCheck}
-            label="Accreditation"
-            count={null}
-            detail="The NAAC and NIRF tables, and the rows that would be sent back"
-            to="/accreditation"
-          />
-        </ul>
-      </section>
+        </>
+      )}
     </div>
   )
 }
 
 /**
- * Subject areas as ranked bars.
- *
- * Drawn here rather than with `RankedBars` from `@/ui/chart` because the
- * quartile split inside each bar is the part a director actually reads: a
+ * Subject areas as ranked bars. Drawn here rather than with `RankedBars`
+ * because the quartile split inside each bar is the part a director reads: a
  * hundred papers in an area is a different fact depending on whether they are
  * Q1 or Q4, and a length-only bar cannot say which.
  */
 function AreaBars({ areas }: { areas: AreasPayload["areas"] }) {
   const max = Math.max(...areas.map((a) => a.count), 1)
-
   return (
-    <ul className="space-y-2 border-y border-line py-3">
+    <ul className="space-y-2">
       {areas.map((a) => {
         const q1 = a.quartiles.Q1 ?? 0
         const known = Object.values(a.quartiles).reduce((sum, n) => sum + n, 0)
@@ -280,18 +315,12 @@ function AreaBars({ areas }: { areas: AreasPayload["areas"] }) {
           <li key={a.key} className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1">
             <span className="min-w-0 truncate text-base">{a.key}</span>
             <span className="shrink-0 text-sm tabular text-fg-muted">
-              {q1 > 0 && <span className="text-positive">{q1} Q1 · </span>}
-              {a.count}
+              {q1 > 0 && <span className="text-positive">{q1} in Q1 · </span>}
+              {a.count} papers
             </span>
-            <span
-              className="col-span-2 flex h-1.5 w-full overflow-hidden rounded-full bg-sunken"
-              aria-hidden
-            >
+            <span className="col-span-2 flex h-1.5 w-full overflow-hidden rounded-full bg-sunken" aria-hidden>
               <span className="block bg-positive" style={{ width: `${(q1 / max) * 100}%` }} />
-              <span
-                className="block bg-accent"
-                style={{ width: `${((a.count - q1) / max) * 100}%` }}
-              />
+              <span className="block bg-accent" style={{ width: `${((a.count - q1) / max) * 100}%` }} />
             </span>
             <span className="sr-only">
               {a.key}: {a.count} papers, {q1} of them Q1

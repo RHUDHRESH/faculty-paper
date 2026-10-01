@@ -1,9 +1,24 @@
-import type { CSSProperties } from "react"
+import { useEffect, useState, type CSSProperties } from "react"
 import { AlertTriangle } from "lucide-react"
 
-import { Art, type ArtName } from "@/ui/art"
+import type { ArtName } from "@/ui/art"
+import { Illustration, type IllustrationName } from "@/ui/illustration"
 import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
+import { Link } from "react-router-dom"
+import { guideById } from "@/app/guides"
+
+/** The generated drawing that replaces each of the older spot scenes. */
+export const ART_ILLUSTRATION: Record<ArtName, IllustrationName> = {
+  "nothing-filed": "empty-no-papers",
+  "empty-queue": "empty-nothing-to-review",
+  "no-results": "empty-no-results",
+  "nothing-paid": "empty-no-payouts",
+  "no-budget": "spot-budget",
+  "could-not-load": "error-server",
+  "no-page": "not-found-404",
+  "closed-gate": "error-access-denied",
+}
 
 /**
  * What a section looks like before its data arrives, when there is none, and
@@ -16,10 +31,32 @@ import { cn } from "@/lib/cn"
 /* Skeleton                                                                  */
 /* ------------------------------------------------------------------------ */
 
+/** How long data may take before the reader is shown a placeholder. Under
+ *  this a skeleton is a flicker; over it, the reader wants to know something
+ *  is coming (docs/ux/22). The CSS `.skeleton` uses the same number. */
+export const LOADING_DELAY_MS = 300
+
+/**
+ * Renders `children` only once `ms` have passed. For the loading states a
+ * page draws by hand (a spinner, a "Loading…" line) that are not `Skeleton`:
+ * a fast response then shows nothing at all instead of a flash. Without it,
+ * every quick page flickers a spinner in and out and reads as slow.
+ */
+export function Delayed({ ms = LOADING_DELAY_MS, children }: { ms?: number; children: React.ReactNode }) {
+  const [ready, setReady] = useState(ms <= 0)
+  useEffect(() => {
+    if (ms <= 0) return
+    const t = setTimeout(() => setReady(true), ms)
+    return () => clearTimeout(t)
+  }, [ms])
+  return ready ? <>{children}</> : null
+}
+
 /** One animated block. The building material every loading state below is
  *  made of, so a placeholder row and a placeholder line never pulse at two
  *  different speeds on the same screen. The `.skeleton` utility carries the
- *  sweep; see `styles.css` for why it is a sweep and not a pulse. */
+ *  sweep, and stays invisible for the first 300 ms; see
+ *  `styles.css` for why it is a sweep and not a pulse. */
 export function Skeleton({
   className,
   style,
@@ -67,7 +104,7 @@ export function SkeletonRows({
           <div
             key={i}
             style={{ height: rowHeight }}
-            className="flex items-center gap-3 rounded-md bg-sunken px-3"
+            className="flex items-center gap-3 rounded-control bg-sunken px-3"
           >
             <div className="min-w-0 flex-1 space-y-2">
               <Skeleton
@@ -133,14 +170,7 @@ export function SkeletonText({
  * "this is the shelf, and there is nothing on it yet". No border and no
  * shadow does that work — the ground alone does, and it is a token.
  */
-export function EmptyState({
-  icon: Icon,
-  art,
-  title,
-  message,
-  action,
-  className,
-}: {
+export type EmptyStateProps = {
   icon?: React.ComponentType<{ className?: string }>
   /** One of the drawn scenes from `ui/art.tsx`, for the situations that
    *  recur across the app — nothing filed, an empty queue, a filter that
@@ -148,30 +178,47 @@ export function EmptyState({
    *  because forty screens pass one and a glyph in a well is still the
    *  right answer for a one-off. */
   art?: ArtName
+  /** A generated illustration by name; wins over `art`. */
+  illustration?: IllustrationName
   title: string
   message: string
   /** The thing that would fill this screen — "File a paper", "Clear the
    *  filters". An empty state without one leaves the reader to work out for
    *  themselves where the button is. */
   action?: React.ReactNode
+  /** A Help guide id (app/guides.ts): adds a quiet "How to" link to it. */
+  guide?: string
   className?: string
-}) {
+}
+
+export function EmptyState({
+  icon: Icon,
+  art,
+  illustration,
+  title,
+  message,
+  action,
+  guide,
+  className,
+}: EmptyStateProps) {
+  const g = guide ? guideById(guide) : undefined
+  const drawing = illustration ?? (art ? ART_ILLUSTRATION[art] : undefined)
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-1.5 rounded-lg bg-sunken px-6 py-14 text-center",
+        "flex flex-col items-center gap-1.5 rounded-panel bg-sunken px-6 py-12 text-center",
         className
       )}
     >
-      {art ? (
-        <Art name={art} className="mb-2" />
+      {drawing ? (
+        <Illustration name={drawing} width={132} className="mb-3" />
       ) : (
         Icon && (
           // A well, so the glyph is an object on the shelf rather than a grey
           // smudge floating on a grey ground.
           <span
             aria-hidden="true"
-            className="mb-3 flex size-11 items-center justify-center rounded-lg bg-hover"
+            className="mb-3 flex size-11 items-center justify-center rounded-control bg-hover"
           >
             <Icon className="size-5 text-fg-muted" />
           </span>
@@ -180,6 +227,11 @@ export function EmptyState({
       <p className="text-lg font-semibold text-fg">{title}</p>
       <p className="max-w-sm text-pretty text-base text-fg-muted">{message}</p>
       {action && <div className="mt-4">{action}</div>}
+      {g && (
+        <Link to={`/help#${g.id}`} className="mt-3 text-sm text-fg-muted underline underline-offset-2 hover:text-fg">
+          How to: {g.title.charAt(0).toLowerCase() + g.title.slice(1)}
+        </Link>
+      )}
     </div>
   )
 }
@@ -203,36 +255,44 @@ export function EmptyState({
  * told apart from across the room and before either sentence is read.
  */
 export function ErrorState({
+  what,
   // Overridable, because "could not load this" on every failure teaches the
   // reader that the heading carries no information and to stop reading it.
-  title = "Could not load this",
+  title = what ? `Could not load ${what}` : "Could not load this",
   message = "The server did not answer. Nothing has been deleted or lost.",
   art = "could-not-load",
   onRetry,
   className,
 }: {
+  /** Names what failed, so the heading says "Could not load the import
+   *  history" rather than "Could not load this" (docs/ux/22). */
+  what?: string
   title?: string
   message?: string
   /** Overridable for a failure with a more specific picture, but it must
    *  stay one of the `critical` scenes: an error wearing an empty state's
    *  drawing is the exact mistake this component exists to prevent. */
   art?: ArtName
-  onRetry?: () => void
+  /** What "try again" does. Left out, the button reloads the page, because an
+   *  error with no way out is the one thing this component exists to avoid.
+   *  `false` only for an answer retrying cannot change (not allowed, no such
+   *  record); the message must then say where to go instead. */
+  onRetry?: (() => void) | false
   className?: string
 }) {
   return (
     <div
       role="alert"
       className={cn(
-        "flex flex-col items-center gap-1.5 rounded-lg bg-critical-wash px-6 py-14 text-center",
+        "flex flex-col items-center gap-1.5 rounded-panel bg-critical-wash px-6 py-12 text-center",
         className
       )}
     >
-      <Art name={art} className="mb-2" />
+      <Illustration name={ART_ILLUSTRATION[art]} width={132} className="mb-3" />
       <p className="text-lg font-semibold text-fg">{title}</p>
       <p className="max-w-sm text-pretty text-base text-fg-muted">{message}</p>
-      {onRetry && (
-        <Button kind="default" size="sm" onClick={onRetry} className="mt-4">
+      {onRetry !== false && (
+        <Button kind="default" size="sm" onClick={onRetry ?? (() => window.location.reload())} className="mt-4">
           Try again
         </Button>
       )}
@@ -262,7 +322,7 @@ export function InlineError({
     <div
       role="alert"
       className={cn(
-        "flex items-center gap-2 rounded-md bg-critical-wash px-3 py-2 text-sm text-critical",
+        "flex items-center gap-2 rounded-control bg-critical-wash px-3 py-2 text-sm text-critical",
         className
       )}
     >
@@ -320,7 +380,7 @@ export function Callout({
   return (
     <div
       className={cn(
-        "rounded-md px-3 py-2.5 text-sm leading-relaxed",
+        "rounded-control px-3 py-2.5 text-sm leading-relaxed",
         CALLOUT_TONE[tone],
         className
       )}

@@ -2,9 +2,14 @@ from core.models import Role
 
 # The chain, in order: FACULTY files, the admin office (SUPER_ADMIN) clears,
 # PRINCIPAL approves the spend, DIRECTOR authorises it, FINANCE pays. HOD and
-# RESEARCH_CELL are not in the chain; their values survive in Role so existing
-# accounts keep loading -- RESEARCH_CELL folded into SUPER_ADMIN, HOD down to
-# faculty rights plus a money-blind view of its own department.
+# RESEARCH_CELL are not approvers; RESEARCH_CELL survives in Role so existing
+# accounts keep loading and folded into SUPER_ADMIN.
+#
+# HOD is a faculty member who also heads the department (the college's
+# decision of 2026-09-23): they file and track their own papers exactly as
+# faculty do, and on top of that have a money-blind view of their department.
+# "Money-blind" now means blind to everybody's money but their own -- see
+# `hod.for_head`.
 ROLE_RANK = {
     Role.FACULTY: 1,
     Role.HOD: 1,
@@ -28,13 +33,58 @@ ROLE_RANK = {
 #: may do, and that includes the second signature on a high-value claim.
 ADMIN_ROLES = (Role.SUPER_ADMIN, Role.RESEARCH_CELL, Role.RESEARCH_COORDINATOR)
 
+#: The accounts a claim can belong to: everybody on the staff who publishes,
+#: which is everybody but the super admin. A head of department is faculty
+#: who also heads the department; a Principal, a research cell member, the
+#: coordinator, the Director or a Finance officer may be an academic too, and
+#: the owner's rule is that they "must be able to do both: do their own
+#: research as well as track others'". So they file and track their own
+#: papers exactly as faculty do, and on their own papers they are the
+#: claimant (`core.visibility`) -- never the desk (`is_own_claim`).
+#:
+#: The super admin is not here: that account runs the system and stands in
+#: at every desk, which is precisely the seat that must not also be a
+#: claimant's.
+CLAIMANT_ROLES = (
+    Role.FACULTY,
+    Role.HOD,
+    Role.RESEARCH_CELL,
+    Role.RESEARCH_COORDINATOR,
+    Role.PRINCIPAL,
+    Role.DIRECTOR,
+    Role.FINANCE,
+)
+
+#: The teaching staff of a department: the accounts a head of department is
+#: appointed from. Narrower than CLAIMANT_ROLES on purpose -- making a
+#: Principal who publishes the head of a department would take their office
+#: role away from them.
+FACULTY_ROLES = (Role.FACULTY, Role.HOD)
+
 
 def has_min_role(user_role: str, required: str) -> bool:
     return ROLE_RANK.get(user_role, 0) >= ROLE_RANK.get(required, 99)
 
 
 def can_faculty_portal(role: str) -> bool:
-    return role in (Role.FACULTY, Role.HOD)
+    return role in CLAIMANT_ROLES
+
+
+def can_file_own_papers(role: str | None) -> bool:
+    """File, edit, withdraw and track one's own papers."""
+    return role in CLAIMANT_ROLES
+
+
+def is_own_claim(user, claim) -> bool:
+    """Whether `claim` belongs to `user`, who therefore may not decide it.
+
+    Nobody acts on their own paper at any desk -- clearing, sending back,
+    holding, approving, authorising, paying, voiding, overriding, flagging.
+    It goes to another holder of that desk or, when there is none, to the
+    super admin, who may decide anybody's paper except their own.
+    """
+    owner_id = getattr(claim, "owner_id", None)
+    return owner_id is not None and owner_id == getattr(user, "pk", None)
 
 
 def can_principal_portal(role: str) -> bool:
@@ -78,6 +128,14 @@ def portal_for_role(role: str) -> str:
     return "faculty"
 
 
+def can_set_research_threshold(role: str) -> bool:
+    """Who decides how much of a research faculty member's incentives goes
+    unpaid each year: the research coordinator, and a super admin. The
+    research cell clears the claims the threshold decides the outcome of, so
+    it cannot also set it."""
+    return role in (Role.SUPER_ADMIN, Role.RESEARCH_COORDINATOR)
+
+
 def can_manage_users(role: str) -> bool:
     return role in ADMIN_ROLES
 
@@ -104,8 +162,8 @@ def can_view_reports(role: str) -> bool:
 
 
 def can_issue_claims(role: str) -> bool:
-    """File a ticket on a faculty member's behalf, and upload its evidence."""
-    return role in (Role.FACULTY, *ADMIN_ROLES)
+    """File a ticket -- one's own, or on a claimant's behalf -- and upload its evidence."""
+    return role in (*CLAIMANT_ROLES, *ADMIN_ROLES)
 
 
 def can_clear_claims(role: str) -> bool:
@@ -114,17 +172,70 @@ def can_clear_claims(role: str) -> bool:
 
 
 def can_reject_claims(role: str) -> bool:
-    """Whoever can clear can also send a ticket back; Finance can too, since a
-    payment problem surfaces there and nowhere earlier."""
-    return role in (*ADMIN_ROLES, Role.FINANCE)
+    """Whoever sits at a review desk may send a paper back from it.
+
+    Which paper, from which desk, is decided against the paper's status (see
+    `can_act_at_desk`). Finance used to be here, on the grounds that a payment
+    problem surfaces there first; the chain is now forward-only past the
+    Principal, so Finance pays and the Director authorises, and neither sends
+    anything back.
+    """
+    return sits_at_a_desk(role)
 
 
 def can_approve_as_finance(role: str) -> bool:
     return role in (Role.FINANCE, Role.SUPER_ADMIN)
 
 
+# ---- the two review desks ---------------------------------------------------
+#
+# A filed paper waits at one of two desks before anybody agrees to spend money
+# on it: the research supervisor's (the office roles, status SUBMITTED) and the
+# Principal's (status CLEARED). Holding, returning and rejecting happen only at
+# those two desks, and only by whoever sits at the desk the paper is at. A super
+# admin sits at both. The Director and Finance sit at neither: they move a paper
+# forward and nothing else.
+
+SUPERVISOR_DESK = "supervisor"
+PRINCIPAL_DESK = "principal"
+
+
+def desk_for_status(status: str | None) -> str | None:
+    """Which review desk a paper at this status is sitting at, if any."""
+    from core.models import ClaimStatus
+
+    if status == ClaimStatus.SUBMITTED:
+        return SUPERVISOR_DESK
+    if status == ClaimStatus.CLEARED:
+        return PRINCIPAL_DESK
+    return None
+
+
+def can_act_at_desk(role: str, desk: str | None) -> bool:
+    if desk == SUPERVISOR_DESK:
+        return role in ADMIN_ROLES
+    if desk == PRINCIPAL_DESK:
+        return role in (Role.PRINCIPAL, Role.SUPER_ADMIN)
+    return False
+
+
+def sits_at_a_desk(role: str) -> bool:
+    return can_act_at_desk(role, SUPERVISOR_DESK) or can_act_at_desk(role, PRINCIPAL_DESK)
+
+
 def can_view_audit(role: str) -> bool:
     return role in (*ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE)
+
+
+def can_review_flags(role: str) -> bool:
+    """Raise, read and resolve discrepancy flags, and browse the whole history.
+
+    The desks that judge a paper: the office roles and the Principal. Not the
+    Director or Finance, who authorise and pay what those desks decided and
+    are not shown the doubts about it (the same rule as a contested
+    payment-history match, `core.visibility`); not a claimant.
+    """
+    return role in (*ADMIN_ROLES, Role.PRINCIPAL)
 
 
 # Back-compat aliases used by older api paths

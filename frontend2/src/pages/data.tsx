@@ -28,8 +28,10 @@ import { Checkbox, Field, Input, Textarea } from "@/ui/field"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
 import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { PageHeader } from "@/ui/page-header"
+import { Details } from "@/ui/section"
 import { stickyHeadCell, TableScroller } from "@/ui/table"
-import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
 /**
@@ -158,27 +160,52 @@ function TableIndex({ onOpen }: { onOpen: (name: string) => void }) {
     "/api/admin/data/tables"
   )
 
+  const [find, setFind] = useState("")
   const groups = useMemo(() => {
     const out = new Map<string, TableSummary[]>()
+    const needle = find.trim().toLowerCase()
     for (const t of data?.tables ?? []) {
+      if (needle && !`${t.label} ${t.about} ${t.name}`.toLowerCase().includes(needle)) continue
       const list = out.get(t.group) ?? []
       list.push(t)
       out.set(t.group, list)
     }
     return [...out.entries()]
-  }, [data])
+  }, [data, find])
+  const all = data?.tables ?? []
+  const totalRows = all.reduce((n, t) => n + t.rows, 0)
 
   return (
-    <div className="page space-y-8">
-      <header>
-        <PageTitle>Data</PageTitle>
-        <Sub className="mt-1">
-          Every table the system keeps, as it is actually stored. Useful when a screen shows
-          something odd and you need to see the row behind it.
-        </Sub>
-      </header>
+    <div className="page space-y-10">
+      <PageHeader
+        title="Data"
+        sub="See the row behind a figure. Every table the system keeps, as it is stored."
+        spot="spot-imports"
+      />
 
-      {data?.note && <Callout tone="info" title="What can be changed here">{data.note}</Callout>}
+      {data && (
+        <section aria-label="What is here" className="space-y-3">
+          <p className="text-base">
+            {all.length.toLocaleString("en-IN")} tables holding {totalRows.toLocaleString("en-IN")} rows.{" "}
+            {all.filter((t) => t.editable).length} can be corrected here; the rest can only be read.
+          </p>
+          {data.note && (
+            <Details label="what can be changed here">
+              <p className="max-w-prose text-sm text-fg-muted">{data.note}</p>
+            </Details>
+          )}
+          <div className="relative w-full max-w-sm">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
+            <Input
+              value={find}
+              onChange={(e) => setFind(e.target.value)}
+              placeholder="Find a table"
+              aria-label="Find a table"
+              className="pl-8"
+            />
+          </div>
+        </section>
+      )}
 
       {isLoading ? (
         <SkeletonRows rows={8} rowHeight={56} />
@@ -190,13 +217,21 @@ function TableIndex({ onOpen }: { onOpen: (name: string) => void }) {
               ? "Not allowed. The raw tables are open to the office and the Principal."
               : "The server did not answer."
           }
-          onRetry={error?.status === 403 ? undefined : () => refetch()}
+          onRetry={error?.status === 403 ? false : () => refetch()}
         />
       ) : (
-        groups.map(([group, tables]) => (
+        groups.length === 0 ? (
+          <EmptyState
+            art="no-results"
+            icon={SearchX}
+            title="No table matches"
+            message="Try a shorter word, or clear the search to see every table."
+            action={<Button kind="default" size="sm" onClick={() => setFind("")}>Clear the search</Button>}
+          />
+        ) : groups.map(([group, tables]) => (
           <section key={group} className="space-y-2">
             <SectionTitle>{group}</SectionTitle>
-            <ul className="divide-y divide-line border-y border-line">
+            <ul className="divide-y divide-line">
               {tables.map((t) => (
                 <li key={t.name}>
                   <button
@@ -311,17 +346,17 @@ function TableView({ name, onBack }: { name: string; onBack: () => void }) {
   const mayDelete = isSuperAdmin && name !== "AuditLog"
 
   return (
-    <div className="page space-y-6">
-      <header className="space-y-2">
-        <Button kind="quiet" size="sm" onClick={onBack} className="-ml-2">
-          <ArrowLeft />
-          All tables
-        </Button>
-        <div>
-          <PageTitle>{data?.table.label ?? name}</PageTitle>
-          {data?.table.about && <Sub className="mt-1">{data.table.about}</Sub>}
-        </div>
-      </header>
+    <div className="page space-y-8">
+      <PageHeader
+        title={data?.table.label ?? name}
+        sub={data?.table.about}
+        action={
+          <Button kind="default" size="md" onClick={onBack}>
+            <ArrowLeft aria-hidden />
+            All tables
+          </Button>
+        }
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">
@@ -493,7 +528,7 @@ function TableView({ name, onBack }: { name: string; onBack: () => void }) {
 
 /** One cell, as something a person reads rather than as the stored form. */
 function display(value: unknown, column: ColumnMeta): string {
-  if (value === null || value === undefined || value === "") return "—"
+  if (value === null || value === undefined || value === "") return "Not recorded"
   if (column.type === "boolean") return value ? "Yes" : "No"
   if (column.type === "datetime" || column.type === "date") {
     const d = new Date(String(value))
@@ -550,7 +585,7 @@ function EditCellDialog({
         value: value.trim() === "" ? null : value,
         reason: trimmed,
       })
-      toast.ok(`Corrected — ${column.label} is now “${value.trim() || "empty"}”`)
+      toast.ok(`Corrected. ${column.label} is now “${value.trim() || "empty"}”`)
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -649,7 +684,7 @@ function DeleteRowDialog({
   async function submit() {
     try {
       const result = await remove.mutateAsync({ reason: trimmed })
-      toast.ok(`Deleted — ${result.deleted}`)
+      toast.ok(`Deleted. ${result.deleted}`)
       onClose()
     } catch (err) {
       toast.fail(err)
@@ -734,7 +769,7 @@ function WipeSection() {
       <SectionTitle className="text-critical">Empty the system</SectionTitle>
       <p className="max-w-2xl text-base text-fg-muted">
         Removes every publication, claim, payment record and ledger row. Accounts, the audit log,
-        the journal reference data and the payout policy all survive. There is no undo and no
+        the journal reference data and the incentive policy all survive. There is no undo and no
         backup taken on the way out.
       </p>
       <Button kind="danger" size="md" onClick={() => setOpen(true)}>
@@ -801,7 +836,7 @@ function WipeDialog({
         expect_rows: preview.total_rows,
         i_understand_payments_will_be_lost: acknowledged,
       })
-      toast.ok(`Emptied — ${preview.total_rows.toLocaleString("en-IN")} rows removed`)
+      toast.ok(`Emptied. ${preview.total_rows.toLocaleString("en-IN")} rows removed`)
       onClose()
     } catch (err) {
       toast.fail(err)

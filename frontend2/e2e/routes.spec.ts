@@ -95,6 +95,10 @@ test.describe("A real page belonging to somebody else", () => {
     await page.goto("/payments")
     await waitForSettled(page)
     await expect(page.getByText("Not open to this account")).toBeVisible()
-    await expect(page.getByText("Only Finance can see or process payments.")).toBeVisible()
+    // The route guard now answers before the page does, so the sentence is
+    // the guard's own (it names the address and says who to ask) rather than
+    // the page's "Only Finance can see or process payments".
+    await expect(page.getByText("That page is not one this account may open.")).toBeVisible()
+    await expect(page.getByText("/payments", { exact: true })).toBeVisible()
   })
 })

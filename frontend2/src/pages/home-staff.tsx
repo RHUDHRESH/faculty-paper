@@ -1,21 +1,36 @@
+import { firstName, paperTitle } from "@/lib/names"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
 import {
   ArrowUpRight,
-  BarChart3,
-  Building2,
-  ClipboardCheck,
-  Copy,
-  FileCheck,
-  TriangleAlert,
-  Users,
+  FileText,
+  Plus,
 } from "lucide-react"
 
-import { useAuth } from "@/app/auth"
+import { can, useAuth } from "@/app/auth"
+import { HOME_DATA, homeTrack } from "@/app/home-data"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
+import {
+  MoneySkeleton,
+  MoneyStrip,
+  NeedsYou,
+  OnTheWay,
+  PaidList,
+  useOwnPapers,
+} from "@/pages/home-faculty"
+import { HomeTrack } from "@/pages/home-track"
+import { CellHome } from "@/pages/home-cell"
+import { Answer, type AnswerItem } from "@/ui/answer"
+import { Button } from "@/ui/button"
+import { Section } from "@/ui/section"
+import { type Brief, PushList } from "@/pages/principal-parts"
+import type { TrackPayload } from "@/pages/track-data"
+import { Avatar, initialsOf } from "@/ui/person"
+import { Picture } from "@/ui/picture"
+import { ComingUp } from "@/ui/coming-up"
 import { money, Stage, stageOf } from "@/ui/paper"
-import { Callout, ErrorState, InlineError, Skeleton } from "@/ui/state"
+import { InlineError, Skeleton } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 
 /**
@@ -43,7 +58,7 @@ import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 /* ------------------------------------------------------------------------ */
 
 export function greeting(name: string | undefined): string {
-  const first = (name || "").replace(/^(Dr|Mr|Ms|Mrs|Prof)\.?\s*/i, "").split(" ")[0]
+  const first = firstName(name)
   return first ? `Hello, ${first}` : "Home"
 }
 
@@ -157,6 +172,10 @@ export type Claim = {
   status: string
   remuneration: number | null
   updated_at: string | null
+  owner_id?: string | null
+  owner_photo_url?: string | null
+  waiting_days?: number | null
+  needs_second_approval?: boolean
 }
 
 /**
@@ -173,7 +192,7 @@ export function ClaimRow({ claim }: { claim: Claim }) {
     <li className="row">
       <Link to={`/papers/${claim.id}`} className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-base">{claim.paper_title || "Untitled"}</span>
+          <span className="block truncate text-base">{paperTitle(claim.paper_title)}</span>
           <Meta className="block truncate">
             {[claim.owner_name, claim.owner_department, claim.ticket_number]
               .filter(Boolean)
@@ -203,6 +222,122 @@ export function Waiting({ children }: { children: React.ReactNode }) {
   )
 }
 
+/**
+ * The top of every office home: greeting, the one question this desk answers,
+ * and the desk's picture on a wide screen.
+ */
+export function HomeHead({
+  name,
+  sentence,
+  picture,
+  actions,
+}: {
+  name: string | undefined
+  sentence: React.ReactNode
+  picture: string
+  actions?: React.ReactNode
+}) {
+  return (
+    <header className="flex items-center justify-between gap-6">
+      <div className="min-w-0">
+        <PageTitle>{greeting(name)}</PageTitle>
+        <Sub className="mt-1 max-w-xl">{sentence}</Sub>
+        {actions && <div className="mt-4 flex flex-wrap gap-2">{actions}</div>}
+      </div>
+      <Picture name={picture} eager className="hidden w-[200px] shrink-0 md:block lg:w-[240px]" />
+    </header>
+  )
+}
+
+function daysLabel(n: number | null | undefined): string {
+  if (n == null) return ""
+  if (n <= 0) return "Today"
+  return `${n} ${n === 1 ? "day" : "days"}`
+}
+
+/**
+ * Work waiting at this desk, oldest first, as rows: the claimant's face, the
+ * paper, how long it has waited, and the one thing to do next.
+ *
+ * The viewer's own claim is never drawn here even if a server ever sent it:
+ * somebody at a desk cannot act on their own paper, so a row with an action
+ * button on it would be a lie.
+ */
+export function DeskQueue({
+  claims,
+  meId,
+  action,
+  to,
+  showMoney = true,
+  limit = 6,
+}: {
+  claims: Claim[]
+  meId: string | undefined
+  action: string
+  to: string
+  showMoney?: boolean
+  limit?: number
+}) {
+  const rows = claims
+    .filter((c) => !meId || c.owner_id !== meId)
+    .slice()
+    .sort((a, b) => (b.waiting_days ?? 0) - (a.waiting_days ?? 0))
+    .slice(0, limit)
+  return (
+    <ul className="divide-y divide-line border-y border-line">
+      {rows.map((c) => {
+        const days = c.waiting_days ?? null
+        return (
+          <li key={c.id} className="flex items-center gap-3 py-3 sm:gap-4 sm:px-2">
+            <Avatar
+              size="md"
+              person={{
+                name: c.owner_name || "",
+                initials: initialsOf(c.owner_name),
+                photo_url: c.owner_photo_url ?? null,
+              }}
+            />
+            <div className="min-w-0 flex-1">
+              <Link
+                to={`/papers/${c.id}`}
+                className="block truncate text-base font-medium underline-offset-4 hover:underline"
+              >
+                {paperTitle(c.paper_title)}
+              </Link>
+              <Meta className="block truncate">
+                {[c.owner_name, c.owner_department].filter(Boolean).join(" · ")}
+                {showMoney && c.remuneration ? (
+                  <span className="sm:hidden"> · {money(c.remuneration)}</span>
+                ) : null}
+              </Meta>
+            </div>
+            {showMoney && (
+              <span className="hidden w-24 shrink-0 text-right text-base tabular sm:block">
+                {c.remuneration ? money(c.remuneration) : ""}
+              </span>
+            )}
+            <span
+              className={cn(
+                "w-14 shrink-0 text-right text-sm tabular text-fg-muted sm:w-16",
+                days != null && days > 30 && "font-medium text-critical",
+                days != null && days > 14 && days <= 30 && "text-caution"
+              )}
+              title={days != null ? `Waiting ${daysLabel(days).toLowerCase()}` : undefined}
+            >
+              {daysLabel(days)}
+            </span>
+            <Button size="sm" asChild>
+              <Link to={to} aria-label={`${action}: ${paperTitle(c.paper_title)}`}>
+                {action}
+              </Link>
+            </Button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 /* ------------------------------------------------------------------------ */
 /* The office — research cell and super admin                               */
 /* ------------------------------------------------------------------------ */
@@ -222,7 +357,14 @@ type StageCounts = {
 type FaultsSummary = { total: number; urgent: number; checked_at: string }
 type RequestsSummary = { pending: number }
 type DuplicatesSummary = { summary: { open: number; at_issue: number } }
-type Dashboard = { recent: Claim[]; total_paid: number }
+
+/** "Every payment in the ledger since Jan 2024", or nothing without a ledger. */
+export function collegeSince(ym: string | null | undefined): string | undefined {
+  if (!ym) return undefined
+  const [y, m] = ym.split("-").map(Number)
+  const d = new Date(y, (m || 1) - 1, 1)
+  return `Every payment in the ledger since ${d.toLocaleDateString("en-IN", { month: "short", year: "numeric" })}`
+}
 
 /**
  * What is stuck, what is waiting, and what moved.
@@ -234,137 +376,100 @@ type Dashboard = { recent: Claim[]; total_paid: number }
  */
 export function OfficeHome() {
   const { me } = useAuth()
+  // The first desk has its own Home (home-cell.tsx); this one is the super admin's.
+  if (me?.role === "RESEARCH_CELL" || me?.role === "RESEARCH_COORDINATOR") return <CellHome />
+  return <AdminHome />
+}
 
-  const counts = useApi<StageCounts>(["claims", "counts", "home"], "/api/claims/counts")
-  const faults = useApi<FaultsSummary>(["admin", "faults"], "/api/admin/faults")
-  const requests = useApi<RequestsSummary>(
-    ["admin", "profile-requests", "home"],
-    "/api/admin/profile-requests?status=PENDING&limit=1"
-  )
-  const duplicates = useApi<DuplicatesSummary>(
-    ["duplicates", "home"],
-    "/api/admin/duplicate-findings?kind=SAME_PERSON&status=OPEN&limit=1"
-  )
-  const dashboard = useApi<Dashboard>(["dashboard"], "/api/dashboard")
+function AdminHome() {
+  const { me } = useAuth()
+
+  const D = HOME_DATA
+  const counts = useApi<StageCounts>(D.stageCounts.key, D.stageCounts.path)
+  const faults = useApi<FaultsSummary>(D.faults.key, D.faults.path)
+  const requests = useApi<RequestsSummary>(D.pendingRequests.key, D.pendingRequests.path)
+  const duplicates = useApi<DuplicatesSummary>(D.openDuplicates.key, D.openDuplicates.path)
+
+  const clearing = useApi<Claim[]>(D.clearingQueue.key, D.clearingQueue.path)
 
   const waiting = counts.data?.counts.filed ?? null
-  const sentBack = counts.data?.counts.sent_back ?? null
+  const isAdmin = me?.role === "SUPER_ADMIN"
+  const queueRows = clearing.data ?? []
+
+  // The rest of what waits on the office, said in one line. The super admin's
+  // health panel already carries these, so only the desk roles get the line.
+  const also = [
+    { n: requests.data?.pending ?? 0, one: "profile correction", many: "profile corrections", to: "/requests" },
+    { n: duplicates.data?.summary.open ?? 0, one: "possible duplicate payment", many: "possible duplicate payments", to: "/duplicates" },
+    { n: faults.data?.total ?? 0, one: "fault", many: "faults", to: "/faults" },
+  ].filter((x) => x.n > 0)
 
   return (
     <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">What is waiting, what is stuck, and what has moved lately.</Sub>
-      </header>
+      <HomeHead
+        name={me?.name}
+        picture="spot-home-admin"
+        sentence={
+          isAdmin
+            ? "Whether everything is healthy, and what is waiting at the desks."
+            : "What is waiting on you to clear, oldest first."
+        }
+      />
 
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
-        <Figure
-          label="Waiting to be checked"
-          value={waiting === null ? "—" : waiting.toLocaleString("en-IN")}
-          hint="Filed, not yet cleared"
-          loading={counts.isLoading}
-          muted={waiting === 0}
-        />
-        <Figure
-          label="Sent back"
-          value={sentBack === null ? "—" : sentBack.toLocaleString("en-IN")}
-          hint="With the claimant to correct"
-          loading={counts.isLoading}
-          muted={sentBack === 0}
-        />
-        <Figure
-          label="Paid to date"
-          value={money(dashboard.data?.total_paid)}
-          loading={dashboard.isLoading}
-        />
-      </section>
+      <Waiting>
+        <div className="flex items-baseline justify-between gap-3">
+          <SectionTitle>Waiting on you to clear</SectionTitle>
+          <Link to="/clearing" className="text-sm text-accent underline-offset-4 hover:underline">
+            Open Claims{waiting ? ` (${waiting.toLocaleString("en-IN")})` : ""}
+          </Link>
+        </div>
+        {clearing.isLoading ? (
+          <ul className="divide-y divide-line border-y border-line">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <li key={i} className="h-[3.75rem] animate-pulse bg-sunken" />
+            ))}
+          </ul>
+        ) : clearing.isError ? (
+          <InlineError message="Could not load the clearing queue." onRetry={() => void clearing.refetch()} />
+        ) : queueRows.length === 0 ? (
+          <div className="flex items-center gap-5 border-y border-line py-6">
+            <Picture name="spot-approvals" className="w-24 shrink-0" />
+            <p className="text-base text-fg-muted">
+              Nothing is waiting to be cleared. A paper appears here the moment a claimant files
+              it. Your own papers are cleared by another officer, never by you.
+            </p>
+          </div>
+        ) : (
+          <DeskQueue claims={queueRows} meId={me?.id} action="Check" to="/clearing" limit={5} />
+        )}
+      </Waiting>
+
+      <HomeTrack />
+
+      {!isAdmin && also.length > 0 && (
+        <p className="text-base text-fg-muted">
+          Also waiting:{" "}
+          {also.map((x, i) => (
+            <span key={x.to}>
+              {i > 0 && (i === also.length - 1 ? " and " : ", ")}
+              <Link to={x.to} className="text-accent underline-offset-4 hover:underline">
+                {x.n.toLocaleString("en-IN")} {x.n === 1 ? x.one : x.many}
+              </Link>
+            </span>
+          ))}
+          .
+        </p>
+      )}
 
       {faults.isError && (
         <InlineError
-          message="Could not check for faults. The queues below are still accurate."
+          message="Could not check for faults. The queues above are still accurate."
           onRetry={() => faults.refetch()}
         />
       )}
 
-      <Waiting>
-        <SectionTitle>Queues</SectionTitle>
-        <ul className="divide-y divide-line border-y border-line">
-          <QueueRow
-            icon={ClipboardCheck}
-            label="Papers to check"
-            count={waiting}
-            detail="Oldest first, cleared to the Principal"
-            to="/clearing"
-            loading={counts.isLoading}
-          />
-          <QueueRow
-            icon={Users}
-            label="Profile corrections"
-            count={requests.data?.pending ?? null}
-            detail="Names, staff IDs and Scopus links a claimant cannot change themselves"
-            to="/requests"
-            loading={requests.isLoading}
-          />
-          <QueueRow
-            icon={TriangleAlert}
-            label="Faults"
-            count={faults.data?.total ?? null}
-            detail={
-              faults.data?.urgent
-                ? `${faults.data.urgent} need attention now`
-                : "Records the system cannot reconcile on its own"
-            }
-            to="/faults"
-            tone={faults.data?.urgent ? "critical" : undefined}
-            loading={faults.isLoading}
-          />
-          <QueueRow
-            icon={Copy}
-            label="Possible duplicate payments"
-            count={duplicates.data?.summary.open ?? null}
-            detail={
-              duplicates.data?.summary.at_issue
-                ? `${money(duplicates.data.summary.at_issue)} at issue, unreviewed`
-                : "One person paid more than once for the same paper"
-            }
-            to="/duplicates"
-            tone={duplicates.data?.summary.open ? "caution" : undefined}
-            loading={duplicates.isLoading}
-          />
-        </ul>
-      </Waiting>
-
-      <section className="space-y-2">
-        <div className="flex items-baseline justify-between gap-3">
-          <SectionTitle>What moved</SectionTitle>
-          <Link to="/audit" className="text-sm text-accent underline-offset-4 hover:underline">
-            Full audit log
-          </Link>
-        </div>
-        {dashboard.isLoading ? (
-          <ul className="divide-y divide-line border-y border-line">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <li key={i} className="h-[3.25rem] animate-pulse bg-sunken" />
-            ))}
-          </ul>
-        ) : dashboard.isError ? (
-          // "Nothing has changed yet" on a failed request tells the office
-          // the queue is quiet when it may be full.
-          <ErrorState
-            title="Could not load recent activity"
-            message="The server did not answer. Nothing has been lost."
-            onRetry={() => void dashboard.refetch()}
-          />
-        ) : (dashboard.data?.recent.length ?? 0) === 0 ? (
-          <p className="border-y border-line py-10 text-center text-sm text-fg-muted">
-            Nothing has changed yet.
-          </p>
-        ) : (
-          <ul className="divide-y divide-line border-y border-line">
-            {dashboard.data?.recent.map((c) => <ClaimRow key={c.id} claim={c} />)}
-          </ul>
-        )}
-      </section>
+      {/* The office's work first; an officer's own research after it. */}
+      {can(me?.role).fileOwnPapers && <YourPapers />}
     </div>
   )
 }
@@ -380,584 +485,221 @@ type PrincipalQueue = {
 }
 
 /**
- * What is waiting on the Principal, what it is worth, and how long the
- * oldest has sat there.
+ * The Principal's Home: what waits on her, then how the year is going.
  *
- * The wait figure leads because it is the only one on the page that gets
- * worse by itself. A count of forty is the same forty whether it arrived
- * this morning or in March; "the oldest has waited 62 days" is the sentence
- * that says which.
+ * She opens it for two things and neither may cost a scroll. The first is the
+ * approval desk, and the wait figure leads there because it is the only one
+ * that gets worse by itself: forty claims is the same forty whether they
+ * arrived this morning or in March. The second is "are we better than last
+ * year?", which the year brief answers in one sentence, so the sentence is
+ * here, with the departments that need a call and the way to the council PDF.
+ * The rest of the pipeline is one line and a link to Track: it is not hers to
+ * work, and a strip of stage counts above her own desk made the page longer
+ * than the answer.
  */
 export function PrincipalHome() {
   const { me } = useAuth()
-  const queue = useApi<PrincipalQueue>(["principal", "queue", "home"], "/api/principal/queue?limit=8")
-  const dashboard = useApi<Dashboard>(["dashboard"], "/api/dashboard")
+  const queue = useApi<PrincipalQueue>(HOME_DATA.principalQueue.key, HOME_DATA.principalQueue.path)
+  const brief = useApi<Brief>(["reports-brief", ""], "/api/reports/brief")
+  const mine = homeTrack(me?.role)
+  const track = useApi<TrackPayload>(mine.key, mine.path)
 
   const totals = queue.data?.totals
+  const waiting = totals?.count ?? null
   const longest = totals?.longest_wait_days ?? null
+  const b = brief.data
+  const late = track.data ? track.data.stages.reduce((sum, s) => sum + (s.ageing?.older ?? 0), 0) : null
+
+  const items: AnswerItem[] =
+    waiting != null && waiting > 0
+      ? [
+          { value: waiting, label: "waiting for your approval", to: "/approvals" },
+          { value: money(totals?.amount), label: "they are worth", to: "/approvals" },
+          {
+            value: longest == null ? "Today" : `${longest} ${longest === 1 ? "day" : "days"}`,
+            label: "the longest has waited",
+            tone: longest != null && longest > 30 ? "critical" : "neutral",
+            to: "/approvals",
+          },
+          {
+            value: b ? b.push.length : null,
+            label: "departments need a push",
+            zero: "No department needs a push",
+            to: "/reports/departments",
+          },
+        ]
+      : [
+          {
+            value: waiting,
+            label: "waiting for your approval",
+            zero: "Nothing is waiting for your approval",
+            to: "/approvals",
+          },
+          { value: b ? b.totals.papers.toLocaleString("en-IN") : null, label: b ? `papers in ${b.year}` : "papers", to: "/reports/brief" },
+          { value: b ? String(b.totals.per_teacher ?? "None") : null, label: "papers per teacher", to: "/reports/brief" },
+          {
+            value: b ? b.push.length : null,
+            label: "departments need a push",
+            zero: "No department needs a push",
+            to: "/reports/departments",
+          },
+        ]
 
   return (
     <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">
-          Everything the research cell has checked and sent up for your approval.
-        </Sub>
-      </header>
+      <HomeHead
+        name={me?.name}
+        picture="spot-approvals"
+        sentence="What waits for your approval, and how the year is going."
+      />
 
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
-        <Figure
-          label="Waiting on you"
-          value={totals ? totals.count.toLocaleString("en-IN") : "—"}
-          hint="Checked, awaiting your approval"
-          loading={queue.isLoading}
-          muted={totals?.count === 0}
-        />
-        <Figure
-          label="Worth"
-          value={money(totals?.amount)}
-          hint="Across everything waiting, not this page"
-          loading={queue.isLoading}
-        />
-        <Figure
-          label="Longest wait"
-          value={longest === null ? "—" : `${longest} ${longest === 1 ? "day" : "days"}`}
-          hint={longest === null ? "Nothing waiting" : "Since it was checked"}
-          tone={longest !== null && longest > 30 ? "critical" : undefined}
-          loading={queue.isLoading}
-        />
-      </section>
+      <Answer items={items} />
 
       {queue.isError ? (
-        <InlineError
-          message="Could not load the approval queue."
-          onRetry={() => queue.refetch()}
-        />
-      ) : (queue.data?.total ?? 0) === 0 && !queue.isLoading ? (
-        <Callout tone="positive" title="Nothing is waiting on you">
-          Every checked paper has been approved. The research cell sends the next batch up as
-          soon as it clears them.
-        </Callout>
-      ) : (
-        <Waiting>
-          <div className="flex items-baseline justify-between gap-3">
-            <SectionTitle>Longest waiting</SectionTitle>
-            <Link to="/approvals" className="text-sm text-accent underline-offset-4 hover:underline">
-              Open the queue{queue.data ? ` (${queue.data.total})` : ""}
+        <InlineError message="Could not load the approval queue." onRetry={() => queue.refetch()} />
+      ) : waiting === 0 ? (
+        <ComingUp desk="principal" align="start" />
+      ) : waiting != null ? (
+        <Section
+          title="Waiting longest"
+          action={
+            <Link to="/approvals" className="text-accent underline-offset-4 hover:underline">
+              Open the queue ({waiting.toLocaleString("en-IN")})
             </Link>
-          </div>
-          {queue.isLoading ? (
-            <ul className="divide-y divide-line border-y border-line">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <li key={i} className="h-[3.25rem] animate-pulse bg-sunken" />
-              ))}
-            </ul>
-          ) : (
-            <ul className="divide-y divide-line border-y border-line">
-              {queue.data?.results.map((c) => <ClaimRow key={c.id} claim={c} />)}
-            </ul>
-          )}
-        </Waiting>
-      )}
+          }
+        >
+          <DeskQueue claims={queue.data?.results ?? []} meId={me?.id} action="Approve" to="/approvals" limit={8} />
+        </Section>
+      ) : null}
 
-      <section className="space-y-2">
-        <div className="flex items-baseline justify-between gap-3">
-          <SectionTitle>The college</SectionTitle>
-          <Link to="/reports" className="text-sm text-accent underline-offset-4 hover:underline">
-            Reports
+      <Section
+        title={b ? `The college, ${b.year}` : "The college, last full year"}
+        action={
+          <Link to="/reports/brief" className="text-accent underline-offset-4 hover:underline">
+            Open the year brief
           </Link>
+        }
+      >
+        {b ? (
+          <div className="space-y-6">
+            <p data-testid="principal-brief-headline" className="max-w-3xl font-serif text-lg leading-snug text-fg">
+              {b.headline}
+            </p>
+            {b.push.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Departments to call about</p>
+                <PushList rows={b.push.slice(0, 3)} year={b.year} empty="" />
+                <Link to="/reports/departments" className="inline-block text-sm text-accent underline-offset-4 hover:underline">
+                  All departments
+                </Link>
+              </div>
+            )}
+          </div>
+        ) : brief.isError ? (
+          <InlineError message="Could not load the year brief." onRetry={() => brief.refetch()} />
+        ) : (
+          <div className="h-14 max-w-3xl animate-pulse rounded-control bg-sunken" />
+        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button size="sm" asChild>
+            <a href={`/api/reports/brief/export?fmt=pdf${b ? `&year=${b.year}` : ""}`} download>
+              <FileText />
+              Download council PDF
+            </a>
+          </Button>
+          <Button size="sm" kind="quiet" asChild>
+            <Link to="/accreditation">NAAC and NIRF tables</Link>
+          </Button>
+          <Button size="sm" kind="quiet" asChild>
+            <Link to="/budget">Budget</Link>
+          </Button>
         </div>
-        <Figure
-          label="Paid to date"
-          value={money(dashboard.data?.total_paid)}
-          loading={dashboard.isLoading}
-        />
-      </section>
+      </Section>
+
+      <p className="text-base text-fg-muted" role="status">
+        {late == null
+          ? ""
+          : late > 0
+            ? `${late.toLocaleString("en-IN")} ${late === 1 ? "claim has" : "claims have"} been in one place for over a month. `
+            : "Nothing has been in one place for over a month. "}
+        <Link to="/track" className="text-accent underline-offset-4 hover:underline">
+          Open Track
+        </Link>
+      </p>
+
+      <YourPapers />
     </div>
   )
 }
 
 /* ------------------------------------------------------------------------ */
-/* Finance                                                                   */
+/* Finance                                                                 */
 /* ------------------------------------------------------------------------ */
 
-type PayoutsPayload = { total: number; results: Claim[] }
+// Finance's Home is in home-finance.tsx. The budget summary type stays here
+// because the Director's Home reads it too.
 export type BudgetSummary = {
   financial_year: string
   college: { allocated: number | null; spent: number; committed: number; remaining: number | null }
 }
 
-// The endpoint caps a page at 200. Everything payable is summed from one
-// page of that size, and the screen says so when there is more than that
-// rather than quietly presenting a partial total as the total.
-const PAYABLE_PAGE = 200
 
 /**
- * What Finance can pay right now, what it comes to, and what is held up.
+ * The viewer's own papers, on a home whose first job is something else: a
+ * head of department's, who is faculty that also heads the department
+ * (2026-09-23), and an officer's -- the research cell, the coordinator, the
+ * Principal, the Director, Finance -- who is an academic too and "must be
+ * able to do both".
  *
- * "Blocked" is its own figure because a high-value claim needing a second
- * signature looks completely payable in a list — same stage, same amount, a
- * pay button that simply refuses. Counting those separately is the
- * difference between a queue and a queue with three landmines in it.
+ * The same pieces a faculty member's home is built from, so the two cannot
+ * drift: their own money, anything sent back to them, and every paper still
+ * moving drawn as the claimant's journey — never which desk holds it, even
+ * for somebody who sits at one. `/api/claims?mine=1` is theirs alone, and the
+ * amounts on it are theirs (`hod.for_head`, `core.visibility`).
  */
-export function FinanceHome() {
-  const { me } = useAuth()
-
-  const payable = useApi<PayoutsPayload>(
-    ["payouts", "payable", "home"],
-    `/api/admin/payouts?status=DIRECTOR_APPROVED&limit=${PAYABLE_PAGE}`
-  )
-  const budget = useApi<BudgetSummary>(["budgets", ""], "/api/budgets")
-
-  const rows = payable.data?.results ?? []
-  const total = payable.data?.total ?? 0
-  const partial = total > rows.length
-
-  const blocked = rows.filter((c) => (c as Claim & { needs_second_approval?: boolean }).needs_second_approval)
-  const ready = rows.filter((c) => !(c as Claim & { needs_second_approval?: boolean }).needs_second_approval)
-  const readyAmount = ready.reduce((sum, c) => sum + (c.remuneration || 0), 0)
+export function YourPapers({
+  note = "What you have filed yourself. Another officer, or the super admin, decides each one, never you.",
+}: {
+  note?: string
+}) {
+  const own = useOwnPapers()
+  const { claims, isLoading, isError, refetch } = own
 
   return (
-    <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">
-          Everything the Principal has approved and Finance has not yet paid.
-        </Sub>
-      </header>
-
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
-        <Figure
-          label="Payable now"
-          value={ready.length.toLocaleString("en-IN")}
-          hint={partial ? `of ${total.toLocaleString("en-IN")} approved` : "Approved and unblocked"}
-          loading={payable.isLoading}
-          muted={ready.length === 0}
-        />
-        <Figure
-          label="Comes to"
-          value={money(readyAmount)}
-          hint={partial ? `first ${rows.length} of ${total} — open the queue for the rest` : undefined}
-          loading={payable.isLoading}
-        />
-        <Figure
-          label="Blocked"
-          value={blocked.length.toLocaleString("en-IN")}
-          hint={
-            blocked.length
-              ? "High value — needs a second signature from the office"
-              : "Nothing is held up"
-          }
-          tone={blocked.length ? "caution" : undefined}
-          loading={payable.isLoading}
-          muted={blocked.length === 0}
-        />
-      </section>
-
-      {partial && (
-        <Callout tone="info" title={`Showing the first ${rows.length} of ${total}`}>
-          The server returns at most {PAYABLE_PAGE} rows at a time, so the figures above cover
-          those rows rather than the whole approved queue. Payment orders pages through all of
-          them.
-        </Callout>
-      )}
-
-      {blocked.length > 0 && (
-        <Callout tone="caution" title={`${blocked.length} approved but not payable`}>
-          These are over the high-value threshold and need a second, different signature before
-          Finance can move them. The research cell or a super admin gives it — the Principal
-          cannot, and paying one is refused by the server rather than allowed and reversed later.
-        </Callout>
-      )}
-
-      {payable.isError ? (
-        <InlineError message="Could not load the payable queue." onRetry={() => payable.refetch()} />
-      ) : (
-        <Waiting>
-          <div className="flex items-baseline justify-between gap-3">
-            <SectionTitle>Next to pay</SectionTitle>
-            <Link to="/payments" className="text-sm text-accent underline-offset-4 hover:underline">
-              Payment orders{total ? ` (${total})` : ""}
-            </Link>
-          </div>
-          {payable.isLoading ? (
-            <ul className="divide-y divide-line border-y border-line">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <li key={i} className="h-[3.25rem] animate-pulse bg-sunken" />
-              ))}
-            </ul>
-          ) : ready.length === 0 ? (
-            <p className="border-y border-line py-10 text-center text-sm text-fg-muted">
-              Nothing is payable. Approved papers appear here the moment the Principal signs them
-              off.
-            </p>
-          ) : (
-            <ul className="divide-y divide-line border-y border-line">
-              {ready.slice(0, 8).map((c) => <ClaimRow key={c.id} claim={c} />)}
-            </ul>
-          )}
-        </Waiting>
-      )}
-
-      <section className="space-y-2">
-        <div className="flex items-baseline justify-between gap-3">
-          <SectionTitle>
-            The budget{budget.data ? ` — FY ${budget.data.financial_year}` : ""}
-          </SectionTitle>
-          <Link to="/budget" className="text-sm text-accent underline-offset-4 hover:underline">
-            Budget
+    <section aria-label="Your own papers" className="space-y-4 border-t border-line pt-8">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <SectionTitle>Your own papers</SectionTitle>
+          <Meta className="block">{note}</Meta>
+        </div>
+        <Button kind="default" asChild>
+          <Link to="/papers/new">
+            <Plus />
+            File a paper
           </Link>
-        </div>
-        {budget.isError ? (
-          // Every figure below falls back to "Not set" or an em dash, so a
-          // failed request read as "this college has allocated no budget" to
-          // the one person whose job depends on knowing otherwise.
-          <ErrorState
-            title="Could not load the budget"
-            message="The server did not answer. Any allocation already made is still there."
-            onRetry={() => void budget.refetch()}
-          />
-        ) : (
-        <div className="grid gap-x-10 gap-y-6 sm:grid-cols-4">
-          <Figure
-            label="Allocated"
-            value={
-              budget.data?.college.allocated == null
-                ? "Not set"
-                : money(budget.data.college.allocated)
-            }
-            muted={budget.data?.college.allocated == null}
-            loading={budget.isLoading}
-          />
-          <Figure label="Paid out" value={money(budget.data?.college.spent)} loading={budget.isLoading} />
-          <Figure
-            label="Committed"
-            value={money(budget.data?.college.committed)}
-            hint="Approved, not yet paid"
-            loading={budget.isLoading}
-          />
-          <Figure
-            label="Left"
-            value={
-              budget.data?.college.remaining == null
-                ? "—"
-                : money(Math.abs(budget.data.college.remaining))
-            }
-            tone={
-              budget.data?.college.remaining == null
-                ? undefined
-                : budget.data.college.remaining < 0
-                  ? "critical"
-                  : "positive"
-            }
-            hint={
-              budget.data && budget.data.college.remaining !== null && budget.data.college.remaining < 0
-                ? "Over the allocation"
-                : undefined
-            }
-            loading={budget.isLoading}
-          />
-        </div>
-        )}
-      </section>
-    </div>
-  )
-}
+        </Button>
+      </div>
 
-/* ------------------------------------------------------------------------ */
-/* Head of department                                                        */
-/* ------------------------------------------------------------------------ */
-
-type HodStanding = {
-  mine: { q1_rate: number | null }
-  college: { publications: number; q1_rate: number | null }
-  share: number | null
-  position: number | null
-  of: number
-}
-
-type HodTargets = {
-  year: number
-  department_targets: {
-    id: string
-    metric_label: string
-    target: number
-    done: number
-    fraction: number | null
-    met: boolean
-  }[]
-}
-
-type HodOverview = {
-  department: string
-  totals: {
-    publications: number
-    faculty_in_department: number
-    faculty_who_published: number
-    q1: number
-    first_author: number
-    under_review: number
-  }
-  people: {
-    id: string
-    name: string
-    designation: string | null
-    publications: number
-    first_author: number
-    q1: number
-    active: boolean
-  }[]
-}
-
-/**
- * A head's department, and — the part no other screen answers — who in it has
- * published nothing.
- *
- * There is not a rupee on this page, and there is none in the endpoint behind
- * it either: `/api/hod/overview` strips every money key server-side before it
- * is serialised. That is the rule this role exists under, and it is enforced
- * there rather than here so that no amount of front-end carelessness can
- * leak one.
- */
-export function HodHome() {
-  const { me } = useAuth()
-  const overview = useApi<HodOverview>(["hod", "overview"], "/api/hod/overview")
-  const standing = useApi<HodStanding>(["hod", "standing", ""], "/api/hod/standing")
-  const targets = useApi<HodTargets>(["hod", "targets", ""], "/api/hod/targets")
-
-  const totals = overview.data?.totals
-  const people = overview.data?.people ?? []
-  const silent = people.filter((p) => p.active && p.publications === 0)
-  const published = [...people]
-    .filter((p) => p.publications > 0)
-    .sort((a, b) => b.publications - a.publications)
-
-  return (
-    <div className="page space-y-10">
-      <header>
-        <PageTitle>{greeting(me?.name)}</PageTitle>
-        <Sub className="mt-1">
-          {overview.data?.department
-            ? `${overview.data.department} — what the department has published, and by whom.`
-            : "What the department has published, and by whom."}
-        </Sub>
-      </header>
-
-      <section className="grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
-        <Figure
-          label="Publications"
-          value={totals ? totals.publications.toLocaleString("en-IN") : "—"}
-          loading={overview.isLoading}
-        />
-        <Figure
-          label="Q1 papers"
-          value={totals ? totals.q1.toLocaleString("en-IN") : "—"}
-          hint="Top-quartile journals"
-          loading={overview.isLoading}
-        />
-        <Figure
-          label="First author"
-          value={totals ? totals.first_author.toLocaleString("en-IN") : "—"}
-          hint="Papers led from this department"
-          loading={overview.isLoading}
-        />
-        <Figure
-          label="Under review"
-          value={totals ? totals.under_review.toLocaleString("en-IN") : "—"}
-          hint="Filed, not yet settled"
-          loading={overview.isLoading}
-        />
-      </section>
-
-      {overview.isError && (
+      {isError ? (
+        // A dropped request is not an empty record: no ₹0 in its place.
         <InlineError
-          message={
-            overview.error?.status === 403
-              ? "This account is not registered as the head of a department."
-              : "Could not load the department overview."
-          }
-          onRetry={overview.error?.status === 403 ? undefined : () => overview.refetch()}
+          message="Could not load your papers. Nothing has been lost."
+          onRetry={() => void refetch()}
         />
+      ) : isLoading ? (
+        <MoneySkeleton />
+      ) : claims.length === 0 ? (
+        <p className="text-base text-fg-muted">
+          Nothing filed yet. File a paper and follow it here, as any claimant does.
+        </p>
+      ) : (
+        <>
+          <MoneyStrip own={own} />
+          <NeedsYou sentBack={own.sentBack} drafts={own.drafts} />
+          <OnTheWay moving={own.moving} />
+          <PaidList payments={own.payments} />
+        </>
       )}
-
-      {totals && (
-        <section className="space-y-2">
-          <SectionTitle>Who has published</SectionTitle>
-          <p className="text-base text-fg-muted">
-            {totals.faculty_who_published} of {totals.faculty_in_department} in the department.
-          </p>
-
-          {published.length > 0 && (
-            <ul className="divide-y divide-line border-y border-line">
-              {published.slice(0, 10).map((p) => (
-                <li key={p.id} className="row">
-                  <Link
-                    to={`/people/${p.id}`}
-                    className="flex items-center gap-4 px-1 py-2.5 sm:px-2"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-base">{p.name}</span>
-                      <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
-                    </span>
-                    <span className="w-16 shrink-0 text-right text-sm tabular text-fg-muted">
-                      {p.q1 ? `${p.q1} Q1` : ""}
-                    </span>
-                    <span className="w-20 shrink-0 text-right text-base tabular">
-                      {p.publications}
-                    </span>
-                    <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
-      {silent.length > 0 && (
-        <section className="space-y-2">
-          <SectionTitle>Nothing on record</SectionTitle>
-          {/* The only screen in the app that answers this. It is a
-              department's own business who has not published, and a list of
-              names with no context beside them is an accusation — so the
-              sentence above it says plainly what the list does and does not
-              mean. */}
-          <p className="max-w-2xl text-base text-fg-muted">
-            {silent.length} {silent.length === 1 ? "member has" : "members have"} nothing filed
-            under the scheme. That is not the same as having published nothing — a paper nobody
-            filed a claim for does not appear anywhere in this system.
-          </p>
-          <ul className="divide-y divide-line border-y border-line">
-            {silent.map((p) => (
-              <li key={p.id} className="row">
-                <Link to={`/people/${p.id}`} className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-base">{p.name}</span>
-                    <Meta className="block truncate">{p.designation || "Faculty"}</Meta>
-                  </span>
-                  <ArrowUpRight className="reveal size-4 shrink-0 text-fg-subtle" aria-hidden />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* Where the department sits, which is the one thing a head cannot work
-          out from their own numbers alone. */}
-      {standing.data && (
-        <section className="space-y-2">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <SectionTitle>Against the college</SectionTitle>
-            <Link
-              to="/department"
-              className="text-sm text-accent underline-offset-4 hover:underline"
-            >
-              Standing, targets and where the lift is
-            </Link>
-          </div>
-          <div className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
-            <Figure
-              label="Position"
-              value={
-                standing.data.position
-                  ? `${standing.data.position} of ${standing.data.of}`
-                  : "—"
-              }
-              hint="By number of publications"
-            />
-            <Figure
-              label="Share of the college"
-              value={
-                standing.data.share == null
-                  ? "—"
-                  : `${Math.round(standing.data.share * 100)}%`
-              }
-              hint={`of ${standing.data.college.publications.toLocaleString("en-IN")} publications`}
-            />
-            <Figure
-              label="Q1 rate"
-              value={
-                standing.data.mine.q1_rate == null
-                  ? "—"
-                  : `${Math.round(standing.data.mine.q1_rate * 1000) / 10}%`
-              }
-              hint={
-                standing.data.college.q1_rate == null
-                  ? undefined
-                  : `college ${Math.round(standing.data.college.q1_rate * 1000) / 10}%`
-              }
-              tone={
-                standing.data.mine.q1_rate != null &&
-                standing.data.college.q1_rate != null &&
-                standing.data.mine.q1_rate < standing.data.college.q1_rate
-                  ? "caution"
-                  : "positive"
-              }
-            />
-          </div>
-        </section>
-      )}
-
-      {(targets.data?.department_targets.length ?? 0) > 0 && (
-        <section className="space-y-2">
-          <SectionTitle>Targets for {targets.data?.year}</SectionTitle>
-          <ul className="divide-y divide-line border-y border-line">
-            {targets.data?.department_targets.map((t) => (
-              <li key={t.id} className="space-y-1.5 py-3">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-base">{t.metric_label}</span>
-                  <span
-                    className={cn(
-                      "text-base font-medium tabular",
-                      t.met ? "text-positive" : "text-fg"
-                    )}
-                  >
-                    {t.done} / {t.target}
-                  </span>
-                </div>
-                <span className="block h-1.5 w-full overflow-hidden rounded-full bg-sunken">
-                  <span
-                    className={cn(
-                      "block h-full rounded-full",
-                      t.met ? "bg-positive" : "bg-accent"
-                    )}
-                    style={{ width: `${Math.min(1, t.fraction ?? 0) * 100}%` }}
-                  />
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section className="space-y-2">
-        <SectionTitle>Look further</SectionTitle>
-        <ul className="divide-y divide-line border-y border-line">
-          <QueueRow
-            icon={Building2}
-            label="My department"
-            count={null}
-            detail="Standing against the college, targets, and where the lift is"
-            to="/department"
-          />
-          <QueueRow
-            icon={FileCheck}
-            label="Department publications"
-            count={totals?.publications ?? null}
-            detail="Every paper on record, filterable and downloadable"
-            to="/publications"
-            loading={overview.isLoading}
-          />
-          <QueueRow
-            icon={BarChart3}
-            label="Reports"
-            count={null}
-            detail="Output by year, quartile and journal"
-            to="/reports"
-          />
-        </ul>
-      </section>
-    </div>
+    </section>
   )
 }

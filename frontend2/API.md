@@ -82,13 +82,19 @@ tickets.
 ### Lists
 
 ```
-GET /api/claims?status=&q=&limit=&offset=
+GET /api/claims?status=&q=&limit=&offset=&mine=
     -> { total, limit, offset, results: Claim[] }
 ```
 
 `limit` is capped at 200 server-side. `status` takes one status string. `q`
 searches title and ticket number. A faculty account sees only its own claims;
 the server scopes it, so do not filter by owner on the client.
+
+`mine=1` is "My papers" for an officer who files their own (every role but
+the super admin): without it an oversight role gets the college's claims.
+Every screen that shows the viewer's own papers sends it; for faculty and a
+head it changes nothing. The viewer's own claims arrive shaped as a
+claimant's (`faculty_stage`, no desk names, no flags) whoever they are.
 
 ### One claim
 
@@ -106,6 +112,10 @@ POST  /api/claims/upload            -> attachment     (multipart)
 ### Journal and paper lookup, for the filing wizard
 
 ```
+POST /api/lookup/paper      { query, owner_id?, claim_id? } -> the paper from a DOI, link or title
+GET  /api/lookup/sources                             -> { scopus: bool } is Scopus connected here
+POST /api/lookup/file-check { url, kind, title?, doi?, journal?, issn?, ref_title? }
+                                                     -> what an attached PDF shows
 POST /api/lookup/scopus     { doi?, title?, eid? }   -> the paper, from Scopus
 POST /api/lookup/candidates { title }                -> possible matches to choose from
 POST /api/lookup/scimago    { issn?, title?, year }  -> quartile and SJR
@@ -117,11 +127,32 @@ POST /api/calculate         { ... }                  -> what it would pay, witho
 `POST /api/calculate` is how the wizard shows an amount before anything is
 filed. Anything it returns is an **estimate** and must be labelled as one.
 
+`POST /api/lookup/paper` is the wizard's "Paste the DOI or link" box, and it
+needs no Scopus key: OpenAlex answers a DOI (free and keyless), Crossref is the
+fallback and the title search, and Scopus is asked only when `SCOPUS_API_KEY`
+is set. It never answers 5xx — `ok: false` with a `code` (`not_found`,
+`choose`, `bad_input`, `scopus_link`, `unreachable`, `error`) and a sentence in
+`message`. On success it carries `paper` (title, journal, `issns`, date and its
+precision, type, authors in order with printed affiliations, citations,
+open-access link), `claimant` (their position and how sure: `exact`, `likely`,
+`ambiguous`, `none`), `affiliation` (is the college printed, and beside the
+claimant), `metrics` (quartile, SNIP, subject areas and Engineering class from
+our own SCImago and SNIP tables), `field_sources` (which source each value came
+from), `sources[]` (every source, answered or not), `to_check[]` (sentences for
+what the claimant still has to look at) and `already_filed`. Nothing in it is
+money.
+
+`POST /api/lookup/file-check` reads one file just uploaded to the form and says
+whether it shows the paper's title, DOI and the college. It is the claimant
+checking their own upload before filing; the desks' own checks after filing
+(`file_checks`, flags) are separate and stay theirs.
+
 ### The person
 
 ```
 GET   /api/auth/me                    -> the account (see below)
-PATCH /api/auth/profile               -> only fields a person may change themselves
+PATCH /api/auth/profile/self          { phone }   -> the account; the only self-service write
+PATCH /api/auth/profile               -> 403 for everyone but a super admin
 POST  /api/auth/change-password       { current_password, new_password }
 POST  /api/auth/profile/correction    { field, proposed, note? }
 GET   /api/auth/profile/corrections   -> { results: [...] }
@@ -129,12 +160,27 @@ GET   /api/auth/profile/corrections   -> { results: [...] }
 
 `me` carries: `id, email, name, role, department, employee_id, staff_id,
 biometric_id, designation, scopus_author_url, scopus_author_id,
-must_change_password, active, portal`.
+must_change_password, active, faculty_type, research_quota,
+research_quota_note, phone, portal, google`. `google` is `{ email, linked_at }`
+or `null` — only on `/auth/me`, never on anybody else's record.
 
-**Identity is not self-service.** A claimant cannot edit `name`, `staff_id`,
+**Self-service is an allow-list of one.** `PATCH /auth/profile/self` accepts
+`phone` and nothing else: any other key is a 422, not silently dropped. The
+number is lightly checked (digits with spaces, dashes, brackets or a leading
+`+`; 7–15 digits) and an empty string clears it. The audit row names the field,
+not the number. Research interests (`/api/me/interests`) are the other thing a
+person sets for themselves.
+
+**Everything else is a request.** A claimant cannot edit `name`, `staff_id`,
 `biometric_id`, `designation`, `scopus_author_url` or `scopus_author_id` —
 those decide who gets paid. They ask, via `/auth/profile/correction`, and an
 admin decides. `department` is correctable too but is not an identity field.
+`role`, `faculty_type` (`REGULAR`|`RESEARCH`) and `research_quota` (a whole
+number) can be asked for the same way; they are checked when asked, go to a
+super admin only, and approving one runs the account editor's checks — one
+head per department (409, nobody is replaced from the queue), no approving
+your own role, a quota only on a research post, and a regular post drops its
+quota.
 
 The correction endpoint refuses a proposal identical to the current value, and
 **re-asking for the same field updates the open request rather than queueing a
@@ -271,6 +317,24 @@ A token that fails to verify answers 401 **without saying why** — expired,
 wrong audience and bad signature are useful to an attacker and useless to the
 person at the screen.
 
+```
+POST   /api/auth/google/link   { credential }   -> { google: { email, linked_at } }
+DELETE /api/auth/google/link                    -> { google: null }
+```
+
+Linking is done from a signed-in session and **does not require the hosted
+domain**: the session was opened with the account's own password, so choosing
+a personal Gmail is the owner's decision. The Google account is stored by its
+`sub`, not its email. `email_verified` is still required. 409 when that Google
+account already opens another account here, or its address is another
+account's email — without saying whose. Both are audited (`GOOGLE_LINKED`,
+`GOOGLE_UNLINKED`).
+
+Sign-in looks up the `sub` first: a linked account signs in whatever its
+domain. Anything not linked falls back to the email match, which keeps the
+`GOOGLE_HOSTED_DOMAIN` rule. The client must therefore not pass Google's `hd`
+option — it would hide a linked personal Gmail from the account chooser.
+
 ### Reference data
 
 ```
@@ -300,7 +364,7 @@ here" are different sentences.
 ### Counting claims by stage
 
 ```
-GET /api/claims/counts?q=
+GET /api/claims/counts?q=&mine=
     -> { counts: { all, draft, filed, checked, approved, paid, sent_back },
          statuses: { RAW_STATUS: n },
          stages:   { stage: [RAW_STATUS, ...] } }
@@ -312,10 +376,43 @@ stage — `filed` covers `SUBMITTED` *and* `HOD_APPROVED`, `checked` covers
 `status` there takes a single value. `q` narrows the counts the same way it
 narrows the list, so the chips never promise rows the list will not show.
 
+### Leaderboard — every role, no money
+
+```
+GET /api/leaderboard?board=people|departments
+                    &period=academic|last_academic|calendar|all
+                    &sort=score|papers|q1|first_author
+                    &department=     (people board: rank within one department)
+                    &per_head=true   (department board: rank per person)
+    -> { board, period{key,label,from,to,compared_with}, periods[], sort,
+         rows[{ rank, joint, papers, q1, score, first_author, movement, me, ... }],
+         me{ rank, of, joint, movement, ... } | null, totals, method }
+```
+
+Score is Q1 = 4, Q2 = 3, Q3 = 2, Q4 = 1, other indexed = 1 (`method.weights`).
+Counts filed claims and the ledger's claim-less historic rows, once per paper.
+`movement` is places gained against the period before (null when there is no
+earlier period, or nothing this period). 400 for an unknown board, period or sort.
+
+### New things to work on — counted, no model
+
+```
+GET /api/discover/next     -> { people[{ id, name, department, reasons[], ... }],
+                                journals[{ title, quartile, colleagues, areas, reason }],
+                                topics[{ area, alongside, people, reason }],
+                                grounded_on, why_empty }
+GET /api/discover/partners -> { partners[{ name, kind, why, first_step }],
+                                unverified: true, model, grounded_on }   (needs AI; 503 without)
+```
+
+`/next` never needs a model and never excludes itself for want of one. People
+never include anybody already credited with a paper you share.
+
 ### Discovery — the two AI features
 
 ```
-GET  /api/discover/status        -> { available: boolean, model: string }
+GET  /api/discover/status        -> { available, model, provider, code, detail,
+                                      hosted: boolean, host: string }
 GET  /api/meta/research-domains?q=&limit=
                                  -> { domains: string[] }
 GET  /api/me/interests           -> { domains: string[] }
@@ -325,8 +422,11 @@ POST /api/discover/venues        { title, abstract?, keywords?,
                                    author_position?, total_authors? }
 ```
 
-**Ask `/discover/status` before offering any of it.** With no API key
-configured, `/venues` and `/directions` return **503** with a readable message.
+**Ask `/discover/status` before offering any of it.** With no model
+configured `code` is `not_configured` — say so in one line and offer nothing
+that needs a model — and `/venues`, `/directions` and `/partners` return
+**503** with a readable message. `hosted: true` means what is typed is sent to
+`host`; do not tell the reader it stays on this server.
 That is a supported state, not an error to apologise for — the screen should
 say the feature is switched off, not show a button that always fails.
 
@@ -421,6 +521,35 @@ Notes that matter:
   other three is how three tickets get forgotten.
 - `set-verified` is the manual lane for when Scopus cannot confirm a journal.
   It demands a note because somebody typed a number that decides a payment.
+
+### Past cases, claim numbers and bulk hold (docs/ux/21, section C)
+
+```
+GET  /api/claims/{id}/context         -> past cases for the claim under review
+GET  /api/search/claim-number?q=&limit= -> { q, exact, results[] }
+POST /api/desk/bulk-hold  { claim_ids: string[], reason (≥ 10 chars) }
+                                      -> { held, held_ids, skipped: [{id, reason}] }
+```
+
+- `context` is for the people who review claims (the office roles, the
+  Principal, the Director, Finance). A faculty member or a head of department
+  gets **403**. It returns `previous_claims` (each with `outcome`,
+  `send_backs[{reason, kind, by, when}]` and `remuneration`),
+  `co_author_claims` (the same paper, other claimants), `journal`
+  (`{title, tally, recent[]}`), and, **only for the desks that judge a paper**,
+  `matches: { duplicates[], ledger[] }`. The Director and Finance get no
+  `matches` key at all. Somebody asking about their own claim gets
+  `own_claim: true` and empty lists. Drive it with `<PastCases claimId role>`
+  from `src/ui/past-cases.tsx`.
+- `claim-number` matches an exact number however it is typed (`fp 2026 123`
+  finds `FP-2026-000123`) and any start of one (`ERP-PROC`). Results are limited
+  to the claims the asker may see. A hit at one of the asker's desks carries
+  `review_url` (`/review/{id}?queue=clearing`); `stage` is the words to print.
+  Ctrl-K's `/api/search/all` and `/api/archive/claims?q=` understand the same
+  typed forms.
+- **There is no bulk send back, on purpose:** every send-back needs its own
+  reason, which the claimant reads. `bulk-hold` skips a claim it cannot hold
+  (already held, at another desk, the asker's own) and names it.
 
 ### People — and who may change what
 
@@ -718,3 +847,146 @@ for the author position asked about.
 `sources[]` names which upstreams returned that work; two sources agreeing is
 worth showing. **`failed[]` names upstreams that did not answer** — say so, or
 a thin result set reads as a thin field rather than as arXiv timing out.
+
+### Publication record — every paper, every co-author
+
+Built by `harvest_publications` (OpenAlex) and `match_authors`; no money
+anywhere (every payload leaves through `hod.without_money`). Open to anyone
+signed in except the two `/admin/` routes (super admin only).
+
+**Where the data comes from.** OpenAlex has no institution record for
+Saveetha Engineering College — its papers are filed under *Saveetha
+University* (`I85461943`, which is SIMATS). So the harvest takes works whose
+raw affiliation text says "Saveetha Engineering College" and marks each
+author inside or outside by *their own* affiliation string. Also harvested:
+every DOI in claims and ledger rows, members' ORCIDs, and every other work of
+a matched OpenAlex author (their papers from before they joined). A paper no
+source knows is still listed, from the claim/ledger row (`source: "record"`)
+or the Scopus workbook (`source: "scopus_sheet"`).
+
+```
+GET /api/me/publications?year=&year_from=&year_to=&type=&quartile=&q=&sort=
+GET /api/people/{user_id}/publications?(same filters)
+    sort: year (default, newest first) | oldest | citations | title
+    -> { user{id,name,department,scopus_author_id,orcid},
+         metrics{total_publications,total_citations,h_index,i10_index,first_year,last_year,computed_at},
+         count, publications[] }
+```
+
+Each publication: `{ id, title, year, date, venue, issn, type, quartile, doi,
+eid, openalex_id, citations, citations_refreshed_at, oa_url, topics[], source,
+author_position, total_authors, match_confidence, claim_ids[], authors[] }`.
+Each author: `{ name, position, user_id, key, is_college, institution,
+country, orcid }` — `user_id` set means a college member (link their
+profile); `key` is what `/connection?to=` takes. `match_confidence` (0–1) is
+how sure the matcher is that this person is on the paper: 1.0 ORCID, 0.95
+their own claim/ledger row or Scopus sheet, 0.9 same OpenAlex author id,
+≤0.8 name only. Show a "not me?" affordance below 0.9. `quartile` comes from
+the college's own records and is empty for papers nobody filed. `type` is
+OpenAlex's (`article`, `book-chapter`, `conference-paper`…) or the record's
+own document type.
+
+```
+GET /api/people/{user_id}/publication-metrics
+    -> { user_id, total_publications, total_citations, h_index, i10_index, first_year, last_year, computed_at }
+```
+
+Citations refresh weekly (Sunday 04:00 IST); metrics are recomputed with them.
+
+```
+GET /api/people/{user_id}/coauthors
+    -> { user_id, publications, inside_count, outside_count, inside[], outside[] }
+```
+
+Each co-author: `{ key, user_id, name, department, papers_together,
+first_year_together, last_year_together, institutions[], countries[],
+has_account, at_college, is_college_member }`, most papers first. *Inside* = a matched member, or an
+author whose affiliation names the college (possibly former staff, `user_id`
+null). `has_account`: matched to a person with an account here (can be messaged);
+`at_college`: an author of the college, account or not (say "Saveetha, not on this app"
+when it is true and `has_account` is false); `is_college_member` is the old name for
+`has_account`. `ego` keeps a third of its 60 seats for co-authors' co-authors when a
+person has more than 59 co-authors of their own.
+
+```
+GET /api/people/{user_id}/connection?to=<user id | external key>
+    -> { from, to, hops, paths[{ people[{ key, user_id, name, department,
+         has_account, at_college, is_college_member, institution, via[{id,title,year,doi}] }] }] }
+```
+
+Shortest co-author paths, up to 3 papers long, at most 5 of them. `via` on
+each person lists the paper(s) linking them to the previous person — render
+"you → X (Saveetha) → Y". `hops: null` means no path within 3 (`paths: []`);
+404 means `to` is nobody in the record.
+
+```
+GET /api/search/people-external?q=&limit=20
+    -> { q, results[{ key, name, institutions[], countries[], papers,
+         college_affiliated, college_coauthors[{user_id,name,department,papers_together}] }] }
+GET /api/external-person?key=<external author key>
+    -> { key, name, institutions[], countries[], orcid, openalex_id, college_affiliated,
+         papers_count, papers[{id,title,year,venue,quartile,doi,citations,college_authors[{user_id,name}]}],
+         college_coauthors[{user_id,name,department,papers_together}] }      (404: unknown key)
+GET /api/people/{user_id|me}/ego?limit=60
+    -> { center, coauthors, capped, nodes[{ key, user_id, name, department, has_account, at_college, is_college_member,
+         institution, hop(0|1|2), papers, together, degree }], links[{source,target,papers}] }
+GET /api/people/{user_id|me}/why?of=<user id | external key>&for=<me | user id>
+    (`for` defaults to the signed-in viewer; another user id is office roles only, else 403)
+    -> { for, about, papers, your_papers, reasons[{ kind: together|shared_venue|topic|complement|q1|common_coauthors,
+         text, refs[] }] }
+```
+
+`external-person` is the profile-like view of somebody off the roster.
+`ego` is the Map on Who to work with: the member, co-authors, then their
+co-authors, capped at 60 people -- never the whole college. `why` is counted
+from the record for the signed-in viewer (no model); `of` defaults to the
+path's member.
+
+Authors not matched to a member, by name (2+ characters), with who in the
+college wrote with them. `college_affiliated: true` is someone whose
+affiliation names the college but who is not on the roster (usually former
+staff).
+
+```
+GET /api/me/scopus-pull
+    -> { count, unclaimed, papers[{ publication_id, title, venue, issn, year, date,
+         type, doi, eid, citations, author_position, total_authors, authors[],
+         already_claimed, claim_id, claim_status }] }
+```
+
+"Pull from Scopus", step 1 of filing: my papers with the fields a claim form
+needs. `already_claimed` is true when one of my non-rejected claims links the
+paper or shares its DOI, EID or normalised title — grey those out and link
+`claim_id`. `claim_status` is the claimant's stage word ("Under review",
+"Approved for payment", "Paid"), never a desk status; the evidence card's
+`existing_claim.status` is the same, and its `owner` is set only on my own claim.
+
+```
+POST /api/admin/publications/harvest   { since?: year, limit?: n, expand?: true }
+    -> { ok, queued, job_id }                         (super admin; runs as a job)
+GET  /api/admin/publications/status
+    -> { publications, authorships, college_authorships, college_matched,
+         users_with_publications, unmatched_college_names[], last_run }
+```
+
+### My research, the college picture, Discover's feed — counted, no model
+
+```
+GET /api/me/research      -> { headline, metrics{papers,citations,h_index,i10_index,q1,first_author,first_year},
+                               papers_by_year[], citations_by_year[], strip[{month,papers}], timeline[{year,kind,text,ref}],
+                               top_papers[], topics[{id,label,papers,recent}], venues[{id,name,quartile,papers,colleagues}],
+                               mix{kind:n}, coauthors{inside_count,outside_count,inside[],outside[]},
+                               this_year{year,papers,same_date_last_year,last_year_total,target,quota,under_review,drafts},
+                               ideas[{kind:topic|venue|person,id,title,reason,source:"counted",to}] }
+GET /api/college/research -> { totals, papers_by_year[], topics[{id,label,papers,now,before,growth,mine}], rising[],
+                               departments[], dept_topic[{dept,topic,papers}], near_me[], my_topics[] }
+GET /api/discover/for-you -> { items[{kind:direction|venue|person|paper,id,title,why,source,payload}],
+                               counts, tuned_to[], my_topics[], grounded_on }
+POST /api/discover/dismiss {kind, id, undo?} -> { id, dismissed }
+    ("Not interested", per user on the server; for-you and /discover/next leave dismissed ids out;
+     undo:true brings the item back)
+```
+
+From the publication record. `citations_by_year` is citations earned by the
+papers *published* in each year (OpenAlex gives current counts, not a history).
+`metrics.citations` is null, never 0, when the person has no papers.

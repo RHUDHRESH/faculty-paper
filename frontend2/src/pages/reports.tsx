@@ -1,5 +1,6 @@
+import { paperTitle } from "@/lib/names"
 import { useMemo } from "react"
-import { Link, useLocation, useSearchParams } from "react-router-dom"
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowDown, ArrowUp, Download, Minus, X } from "lucide-react"
 
@@ -11,6 +12,7 @@ import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { RankedBars, MixBar, Trend, Distribution, isComparable, type Point } from "@/ui/chart"
 import { money, Stage, stageOf } from "@/ui/paper"
+import { initialsOf } from "@/ui/person"
 import {
   Callout,
   EmptyState,
@@ -20,8 +22,10 @@ import {
   SkeletonRows,
 } from "@/ui/state"
 import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/ui/sheet"
-import { stickyHeadCell, TableScroller } from "@/ui/table"
-import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { stickyHeadCell, Table, TableScroller, type Column } from "@/ui/table"
+import { ColumnLabel, Meta, SectionTitle, Sub } from "@/ui/text"
+import { PageHeader } from "@/ui/page-header"
+import { Answer, PrintButton, PrintStamp } from "./reports-print"
 
 /**
  * The college's oversight report — a small set of large figures, with the
@@ -60,7 +64,9 @@ import { ColumnLabel, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 
 export function Reports() {
   const { me } = useAuth()
-  return me?.role === "HOD" ? <HodReports /> : <CollegeReports />
+  // A head's department is on /department, counted from the college record. This page
+  // counted the department's incentive claims and called them its papers.
+  return me?.role === "HOD" ? <Navigate to="/department" replace /> : <CollegeReports />
 }
 
 /* ------------------------------------------------------------------------ */
@@ -102,7 +108,20 @@ type ReportTotals = {
 }
 
 type Capped<T> = { rows: T[]; hidden: number; hidden_count: number; hidden_amount: number }
-type PersonPoint = Point & { id: string }
+type PersonPoint = Point & { id: string; photo_url?: string | null; initials?: string }
+
+/** A ranked person, drawn with their face beside the name. */
+function personPoint(p: PersonPoint): Point {
+  const name = p.label ?? p.key
+  return {
+    key: p.id,
+    label: name,
+    count: p.count,
+    amount: p.amount,
+    to: `/people/${p.id}`,
+    face: { name, initials: p.initials ?? initialsOf(name), photo_url: p.photo_url ?? null },
+  }
+}
 type PipelinePoint = Point & { blurb: string; median_age_days: number; oldest_age_days: number }
 
 /** One publication year: how many papers, how many people wrote them, and how
@@ -142,6 +161,8 @@ type ReportsPayload = {
   by_department: Point[]
   by_quartile: Point[]
   by_month: Point[]
+  /** Payments whose month the ERP sheet never recorded: counted in totals, not charted. */
+  month_unrecorded?: { count: number; amount: number }
   by_journal: Capped<Point>
   top_by_publications: Capped<PersonPoint>
   top_by_amount: Capped<PersonPoint>
@@ -152,6 +173,17 @@ type ReportsPayload = {
   year_on_year: YearOnYear | []
   years: number[]
   payout_months: string[]
+  /** From the office's Scopus profile import; absent on an older server. */
+  scopus_by_department?: ScopusDepartmentRow[]
+}
+
+/** `department_totals` in core/services/scopus_profiles.py. */
+type ScopusDepartmentRow = {
+  department: string
+  people_with_profile: number
+  publications: number
+  citations: number
+  highest_h_index: number | null
 }
 
 /** The measured half of `/api/trends/me`, narrowed to the part this screen
@@ -438,6 +470,13 @@ function CollegeReports() {
   }
 
   const filtered = Boolean(year) || Boolean(department) || Boolean(month)
+  const scopeLabel = [
+    year ? `publication year ${year}` : "all years",
+    department || "every department",
+    month ? `settled in ${month}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ")
   const coverage = areas.data?.coverage
   // `_year_on_year_rows` answers with a bare list when the record holds fewer
   // than two publication years, so the array case is the "cannot compare" case.
@@ -446,32 +485,32 @@ function CollegeReports() {
 
   return (
     <div className="page space-y-10">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <PageTitle>Reports</PageTitle>
-          <Sub className="mt-1">What the scheme has paid, what it has produced, and what is still open.</Sub>
-        </div>
-        {/* Secondary, and plural: the report is on the page. These are for
-            taking a copy of it somewhere the page cannot go. */}
-        <div className="min-w-0">
-          <ColumnLabel className="mb-1 block">Also download as</ColumnLabel>
-          <div className="flex flex-wrap gap-1">
-            <Button kind="quiet" size="sm" asChild>
+      <PrintStamp title="College research report" scope={scopeLabel} />
+      <PageHeader
+        title="Analysis"
+        sub="Cut the record by year, department and month. For the council's questions, start with the year brief."
+        spot="spot-reports"
+        action={
+          // One row per claim, not the charts on the page: the label says so,
+          // because "Excel" under a report promised the report.
+          <span className="flex flex-wrap items-center gap-1 print:hidden">
+            <Button asChild>
               <a href={exportHref("xlsx")} download>
                 <Download />
-                Excel
+                Download the claims as Excel
               </a>
             </Button>
-            <Button kind="quiet" size="sm" asChild>
+            <Button kind="quiet" asChild>
               <a href={exportHref("csv")} download>
                 CSV
               </a>
             </Button>
-          </div>
-        </div>
-      </header>
+            <PrintButton />
+          </span>
+        }
+      />
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 print:hidden">
         <Combobox
           value={year}
           onChange={(v) => setFilter("year", v)}
@@ -494,7 +533,7 @@ function CollegeReports() {
           onChange={(v) => setFilter("month", v)}
           options={monthOptions}
           placeholder="Every settled month"
-          aria-label="Filter by payout month"
+          aria-label="Filter by month paid"
           className="w-48"
         />
       </div>
@@ -505,7 +544,7 @@ function CollegeReports() {
       <div className="flex flex-wrap items-center gap-2">
         <Meta className="tabular">
           {data
-            ? `${data.totals.publications.toLocaleString("en-IN")} publication${
+            ? `${data.totals.publications.toLocaleString("en-IN")} paper${
                 data.totals.publications === 1 ? "" : "s"
               } ${filtered ? "match" : "on record"}`
             : isError
@@ -536,7 +575,7 @@ function CollegeReports() {
               ? "This report is only open to the research cell, the Principal, Finance and system admins."
               : "The server did not answer. Nothing has been lost."
           }
-          onRetry={error?.status === 403 ? undefined : () => refetch()}
+          onRetry={error?.status === 403 ? false : () => refetch()}
         />
       ) : !data || data.totals.publications === 0 ? (
         <EmptyState
@@ -556,7 +595,30 @@ function CollegeReports() {
         />
       ) : (
         <>
-          <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
+          <Answer>{collegeAnswer(data, department, year)}</Answer>
+          {/* The page is six parts long; say so, and let a reader go to the
+              one they came for instead of scrolling past the other five. */}
+          <nav aria-label="On this page" className="-mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm print:hidden">
+            <span className="text-fg-muted">On this page</span>
+            {(
+              [
+                ["where", "Where it comes from"],
+                ["going", "Which way it is going"],
+                ["research", "What we research"],
+                ["publishing", "Who is publishing"],
+                ["waiting", "What is waiting"],
+              ] as const
+            ).map(([id, label]) => (
+              <a
+                key={id}
+                href={`#${id}`}
+                className="inline-flex min-h-8 items-center text-accent underline-offset-4 hover:underline max-sm:min-h-10"
+              >
+                {label}
+              </a>
+            ))}
+          </nav>
+          <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
             <Headline
               label="Papers"
               value={data.totals.publications.toLocaleString("en-IN")}
@@ -569,10 +631,10 @@ function CollegeReports() {
             />
             <Headline
               label="Paid"
-              value={money(data.totals.paid_amount)}
+              value={money(Math.round(data.totals.paid_amount))}
               hint={
                 data.totals.paid_claims
-                  ? `${data.totals.paid_claims.toLocaleString("en-IN")} claims · typically ${money(data.per_paper.median)} each`
+                  ? `${data.totals.paid_claims.toLocaleString("en-IN")} payments${data.per_paper.median > 0 ? ` · typically ${money(data.per_paper.median)} each` : ""}`
                   : "Nothing paid yet"
               }
               onOpen={() =>
@@ -606,17 +668,44 @@ function CollegeReports() {
             />
           </section>
 
-          <Trend
-            title="Paid by month"
-            dimension="Month"
-            unit="money"
-            points={data.by_month.map((p) => ({
-              ...p,
-              to: drillHref({ label: `Paid in ${p.key}`, filters: { ...scope, status: "PAID", month: p.key } }),
-            }))}
-          />
+          {data.month_unrecorded && data.month_unrecorded.count > 0 && (
+            <p className="text-sm text-fg-muted">
+              {money(data.month_unrecorded.amount)} in {data.month_unrecorded.count} payments has no month recorded, so it is
+              in the totals but not in the monthly chart.
+            </p>
+          )}
+          {data.by_month.length >= 2 ? (
+            <Trend
+              title="Paid by month"
+              dimension="Month"
+              unit="money"
+              points={data.by_month.map((p) => ({
+                ...p,
+                label: monthShort(p.key),
+                to: drillHref({ label: `Paid in ${p.key}`, filters: { ...scope, status: "PAID", month: p.key } }),
+              }))}
+            />
+          ) : data.by_month.length === 1 ? (
+            // One month is a figure, not a trend; a line needs two points.
+            <section className="space-y-1">
+              <SectionTitle>Paid by month</SectionTitle>
+              <Sub>
+                Every payment so far was settled in {data.by_month[0].key}:{" "}
+                <Link
+                  className="font-medium text-accent underline-offset-2 hover:underline"
+                  to={drillHref({
+                    label: `Paid in ${data.by_month[0].key}`,
+                    filters: { ...scope, status: "PAID", month: data.by_month[0].key },
+                  })}
+                >
+                  {money(data.by_month[0].amount ?? 0)}
+                </Link>
+                . A monthly line appears once a second month is paid.
+              </Sub>
+            </section>
+          ) : null}
 
-          <section className="space-y-10">
+          <section id="where" className="scroll-mt-6 space-y-10">
             <SectionTitle>Where it comes from</SectionTitle>
             <RankedBars
               title="By department"
@@ -626,12 +715,19 @@ function CollegeReports() {
                 to: drillHref({ label: p.label ?? p.key, filters: { ...scope, department: p.key } }),
               }))}
             />
+            <p className="-mt-6 text-sm text-fg-muted print:hidden">
+              This ranks departments by how many papers they have, so a large one leads. To compare them fairly, see{" "}
+              <Link to="/reports/departments" className="text-accent underline-offset-4 hover:underline">
+                papers per teacher
+              </Link>
+              .
+            </p>
             <RankedBars
               title="Top journals"
               dimension="Journal"
               caption={
                 data.by_journal.hidden > 0
-                  ? `${data.by_journal.hidden} more journals not shown here — ${data.by_journal.hidden_count.toLocaleString("en-IN")} further papers, ${money(data.by_journal.hidden_amount)}. Narrow a filter above, or export, to see them.`
+                  ? `${data.by_journal.hidden} more journals not shown here, with ${data.by_journal.hidden_count.toLocaleString("en-IN")} further papers and ${money(data.by_journal.hidden_amount)}. Narrow a filter above, or export, to see them.`
                   : undefined
               }
               points={data.by_journal.rows.map((p) => ({
@@ -641,7 +737,11 @@ function CollegeReports() {
             />
           </section>
 
-          <section className="space-y-10">
+          {data.scopus_by_department ? (
+            <ScopusByDepartment rows={data.scopus_by_department} />
+          ) : null}
+
+          <section id="going" className="scroll-mt-6 space-y-10">
             <SectionTitle>Which way it is going</SectionTitle>
             <DirectionPanel
               yoy={yoy}
@@ -670,7 +770,7 @@ function CollegeReports() {
           {/* Subject areas overlap, so this section can show counts and only
               counts. Every sentence around it exists to stop a reader adding
               up a column that does not add up. */}
-          <section className="space-y-4">
+          <section id="research" className="scroll-mt-6 space-y-4">
             <SectionTitle>What we research</SectionTitle>
             {areas.isError ? (
               <InlineError
@@ -681,12 +781,12 @@ function CollegeReports() {
               <SkeletonRows rows={6} rowHeight={32} />
             ) : areas.data && areas.data.areas.length > 0 ? (
               <>
-                <Callout tone="caution" title="Counts only — a paper can be in several areas">
+                <Callout tone="caution" title="Counts only: a paper can be in several areas">
                   A paper is counted under every subject area its journal is classified in, so
                   these rows add up to more than the{" "}
                   {data.totals.publications.toLocaleString("en-IN")} publications above, and the
-                  money behind them cannot be added at all — the same rupee would be counted
-                  once per area. That is why there is no amount here.
+                  money behind them cannot be added at all, because the same rupee would be
+                  counted once per area. That is why there is no amount here.
                   {coverage && coverage.total > 0 && (
                     <>
                       {" "}
@@ -720,7 +820,7 @@ function CollegeReports() {
             )}
           </section>
 
-          <section className="space-y-10">
+          <section id="publishing" className="scroll-mt-6 space-y-10">
             <SectionTitle>Who is publishing</SectionTitle>
             {/* A row here is a person, and a person already has a page of
                 their own — `to` points straight at it rather than at a sheet,
@@ -734,13 +834,7 @@ function CollegeReports() {
                   ? `${data.top_by_publications.hidden} more people not shown here.`
                   : undefined
               }
-              points={data.top_by_publications.rows.map((p) => ({
-                key: p.id,
-                label: p.label ?? p.key,
-                count: p.count,
-                amount: p.amount,
-                to: `/people/${p.id}`,
-              }))}
+              points={data.top_by_publications.rows.map(personPoint)}
             />
             <RankedBars
               title="Highest paid"
@@ -751,18 +845,12 @@ function CollegeReports() {
                   ? `${data.top_by_amount.hidden} more people not shown here.`
                   : undefined
               }
-              points={data.top_by_amount.rows.map((p) => ({
-                key: p.id,
-                label: p.label ?? p.key,
-                count: p.count,
-                amount: p.amount,
-                to: `/people/${p.id}`,
-              }))}
+              points={data.top_by_amount.rows.filter((p) => (p.amount ?? 0) > 0).map(personPoint)}
             />
             <ConcentrationPanel rows={data.breadth} />
           </section>
 
-          <section className="space-y-10">
+          <section id="waiting" className="scroll-mt-6 space-y-10">
             <SectionTitle>What is waiting</SectionTitle>
             <StuckPanel
               rows={stuck.data?.rows ?? []}
@@ -794,7 +882,7 @@ function CollegeReports() {
               dimension="Age"
               caption={
                 data.ageing.oldest_days != null
-                  ? `The oldest open claim has waited ${data.ageing.oldest_days} days. No single query can filter by age, so these bars are not clickable — the numbers below are the whole story.`
+                  ? `The oldest open claim has waited ${data.ageing.oldest_days} days. No single query can filter by age, so these bars are not clickable. The numbers below are the whole story.`
                   : undefined
               }
               points={data.ageing.rows}
@@ -852,13 +940,76 @@ function CollegeReports() {
 /** One row inside the drill-down sheet — the same information `papers.tsx`'s
  *  card shows, plus who and which department, since this list spans the
  *  whole college rather than one person's own papers. */
+const SCOPUS_COLUMNS: Column<ScopusDepartmentRow>[] = [
+  { key: "dept", header: "Department", cell: (r) => r.department },
+  {
+    key: "people",
+    header: "People with a profile",
+    align: "right",
+    cell: (r) => r.people_with_profile.toLocaleString("en-IN"),
+  },
+  {
+    key: "pubs",
+    header: "Scopus publications",
+    align: "right",
+    cell: (r) => r.publications.toLocaleString("en-IN"),
+  },
+  {
+    key: "cites",
+    header: "Citations",
+    align: "right",
+    cell: (r) => r.citations.toLocaleString("en-IN"),
+  },
+  {
+    key: "h",
+    header: "Highest h-index",
+    align: "right",
+    cell: (r) => (r.highest_h_index == null ? "—" : String(r.highest_h_index)),
+  },
+]
+
+/**
+ * What Scopus holds for each department's people, from the office's profile
+ * import. Career totals -- Scopus's count, not the papers filed here -- so the
+ * year and month filters do not narrow them; the department filter does.
+ */
+function ScopusByDepartment({ rows }: { rows: ScopusDepartmentRow[] }) {
+  return (
+    <section className="space-y-3" aria-labelledby="scopus-by-department">
+      <div>
+        <SectionTitle>
+          <span id="scopus-by-department">On Scopus, by department</span>
+        </SectionTitle>
+        <Sub className="mt-1">
+          Citations and Scopus publications for the people whose profile the research office has
+          imported. Career totals as Scopus had them, so the year filter does not apply.
+        </Sub>
+      </div>
+      {rows.length === 0 ? (
+        <Meta className="block">
+          No Scopus profiles are loaded yet. The research office imports them on the Imports
+          screen.
+        </Meta>
+      ) : (
+        <Table
+          rows={rows}
+          columns={SCOPUS_COLUMNS}
+          getKey={(r) => r.department}
+          caption="Citations and Scopus publications per department"
+          minWidth="36rem"
+        />
+      )}
+    </section>
+  )
+}
+
 function ClaimRow({ claim: c }: { claim: SearchClaim }) {
   return (
     <li className="row">
       <a href={`/papers/${c.id}`} className="block px-1 py-3">
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
+            <span className="block truncate text-base">{paperTitle(c.paper_title)}</span>
             <Meta className="mt-0.5 block truncate">
               {[c.owner_name, c.owner_department, c.publication_year].filter(Boolean).join(" · ")}
             </Meta>
@@ -879,367 +1030,6 @@ function ClaimRow({ claim: c }: { claim: SearchClaim }) {
         <Stage stage={stageOf(c.status)} className="mt-2 w-[8rem]" />
       </a>
     </li>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
-/* HOD reports — departmental output, no money anywhere                    */
-/* ------------------------------------------------------------------------ */
-
-type HodPerson = {
-  id: string
-  name: string
-  designation: string | null
-  publications: number
-  first_author: number
-  q1: number
-}
-
-type HodOverview = {
-  department: string
-  years_on_record: number[]
-  totals: {
-    publications: number
-    faculty_in_department: number
-    faculty_who_published: number
-    q1: number
-    first_author: number
-    under_review: number
-  }
-  by_year: Point[]
-  by_quartile: Point[]
-  by_type: Point[]
-  by_journal: Point[]
-  by_indexing: Point[]
-  people: HodPerson[]
-}
-
-type HodPubRow = {
-  id: string
-  ticket_number: string | null
-  paper_title: string
-  journal_title: string | null
-  publication_year: number | null
-  quartile: string | null
-  owner_name: string
-  progress: string
-}
-
-type HodPubPayload = { total: number; results: HodPubRow[] }
-
-/**
- * A chart point with the money taken off it, not merely hidden.
- *
- * `/api/hod/overview` sends `amount: 0` on every row of every breakdown — a
- * placeholder, not a figure — and `Figure` in `@/ui/chart` prints its "Paid"
- * column whenever any point carries an amount that is not null. Zero is not
- * null, so a head of department was being shown a column of rupee signs on
- * four charts. Nothing real leaked, because the values were all ₹0; what
- * leaked was the column, and the day somebody makes that endpoint send a real
- * number the column is already there waiting for it.
- *
- * So the amount is dropped before the chart is handed the row, rather than
- * suppressed inside it. A value the component never receives cannot be
- * printed by the next person who adds a column there.
- */
-const countOnly = (p: Point): Point => ({ key: p.key, label: p.label, count: p.count })
-
-/** What a head of department sees: departmental output, by year, quartile,
- *  journal and person — never a rupee, by any route, because this branch
- *  never asks `/api/reports` for anything. Every point handed to a chart has
- *  had its `amount` stripped as well as its axis hidden: `Figure` (inside
- *  `@/ui/chart`) still lists whatever `amount` it is given in its own "show
- *  the numbers" table regardless of which axis it was told to draw, so
- *  hiding the axis alone would have let money back in through that table. */
-function HodReports() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  // See `countOnly` above for why every point on this screen goes through it.
-  const location = useLocation()
-
-  const year = searchParams.get("year") ?? ""
-  const drill = useMemo(() => readDrill(searchParams), [searchParams])
-
-  function setYear(value: string) {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      if (value) next.set("year", value)
-      else next.delete("year")
-      next.delete("sheet")
-      return next
-    })
-  }
-
-  function closeDrill() {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev)
-      next.delete("sheet")
-      return next
-    })
-  }
-
-  function drillHref(d: Drill): string {
-    const next = new URLSearchParams(searchParams)
-    next.set("sheet", JSON.stringify(d))
-    return `${location.pathname}?${next.toString()}`
-  }
-
-  const reportQuery = new URLSearchParams()
-  if (year) reportQuery.set("year", year)
-  const { data, isLoading, isError, refetch } = useApi<HodOverview>(
-    ["hod-overview", year],
-    `/api/hod/overview?${reportQuery.toString()}`,
-    { placeholderData: (prev) => prev }
-  )
-
-  const yearOptions: ComboboxOption[] = [
-    { value: "", label: "All years" },
-    ...(data?.years_on_record || []).map((y) => ({ value: String(y), label: String(y) })),
-  ]
-
-  const drillKey = searchParams.get("sheet") ?? ""
-  const drillQuery = useApi<HodPubPayload>(
-    ["hod-drill", drillKey],
-    `/api/hod/publications?${new URLSearchParams({ ...drill?.filters, limit: "200" }).toString()}`,
-    { enabled: !!drill }
-  )
-
-  function exportHref(fmt: string): string {
-    const params = new URLSearchParams()
-    if (year) params.set("year", year)
-    params.set("fmt", fmt)
-    return `/api/hod/export?${params.toString()}`
-  }
-
-  const filtered = Boolean(year)
-
-  return (
-    <div className="page space-y-10">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <PageTitle>{data ? `${data.department} — publications` : "Reports"}</PageTitle>
-          <Sub className="mt-1">What the department has produced, and by whom.</Sub>
-        </div>
-        <div className="min-w-0">
-          <ColumnLabel className="mb-1 block">Also download as</ColumnLabel>
-          <div className="flex flex-wrap gap-1">
-            <Button kind="quiet" size="sm" asChild>
-              <a href={exportHref("xlsx")} download>
-                <Download />
-                Excel
-              </a>
-            </Button>
-            <Button kind="quiet" size="sm" asChild>
-              <a href={exportHref("csv")} download>
-                CSV
-              </a>
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      <Callout tone="info" title="Payment figures are not shown for this role">
-        As a head of department you can see what the department has published, not what anybody
-        has been paid for it.
-      </Callout>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Combobox
-          value={year}
-          onChange={setYear}
-          options={yearOptions}
-          placeholder="All years"
-          aria-label="Filter by publication year"
-          className="w-32"
-        />
-        <Meta className="tabular">
-          {data
-            ? `${data.totals.publications.toLocaleString("en-IN")} publication${
-                data.totals.publications === 1 ? "" : "s"
-              } ${filtered ? "match" : "on record"}`
-            : isError
-              ? "Count unavailable"
-              : "Counting…"}
-        </Meta>
-        {year && <RemoveChip label={`Year ${year}`} onRemove={() => setYear("")} />}
-      </div>
-
-      {isLoading && !data ? (
-        <ReportsSkeleton />
-      ) : isError ? (
-        <ErrorState
-          title="Could not load the report"
-          message="The server did not answer. Nothing has been lost."
-          onRetry={() => refetch()}
-        />
-      ) : !data || data.totals.publications === 0 ? (
-        <EmptyState
-          title={filtered ? "Nothing matches this year" : "Nothing recorded yet"}
-          message={
-            filtered
-              ? "No publication falls under this year. Try clearing it."
-              : "Figures appear here once someone in the department has filed a paper."
-          }
-          action={
-            filtered ? (
-              <Button kind="default" size="sm" onClick={() => setYear("")}>
-                Clear the year
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <>
-          <section className="grid gap-x-10 gap-y-6 sm:grid-cols-3">
-            <Headline
-              label="Publications"
-              value={data.totals.publications.toLocaleString("en-IN")}
-              hint={`${data.totals.faculty_who_published} of ${data.totals.faculty_in_department} faculty have published`}
-            />
-            <Headline
-              label="Q1 journals"
-              value={data.totals.q1.toLocaleString("en-IN")}
-              hint={`${data.totals.first_author} as first author`}
-            />
-            {/* /api/hod/publications has no status filter, so this figure
-                states its number honestly rather than opening a list it
-                cannot actually produce. */}
-            <Headline
-              label="Under review"
-              value={data.totals.under_review.toLocaleString("en-IN")}
-              hint="With the research cell or the Principal"
-            />
-          </section>
-
-          <Trend
-            title="Publications by year"
-            dimension="Year"
-            showAmounts={false}
-            points={data.by_year.map((p) => ({
-              ...countOnly(p),
-              to: drillHref({ label: `Published in ${p.key}`, filters: { year: p.key } }),
-            }))}
-          />
-
-          {/* The two review-meeting questions a head is asked about their own
-              department. Both are counted from the payload already on screen,
-              so neither opens a route to a figure this role may not see. */}
-          <section className="space-y-10">
-            <HodDirection byYear={data.by_year} />
-            <HodConcentration
-              people={data.people}
-              publications={data.totals.publications}
-              facultyInDepartment={data.totals.faculty_in_department}
-            />
-          </section>
-
-          <MixBar
-            title="Quartile mix"
-            dimension="Quartile"
-            showAmounts={false}
-            points={data.by_quartile.map((p) => ({
-              ...countOnly(p),
-              to: drillHref({
-                label: p.label ?? p.key,
-                filters: { ...(year ? { year } : {}), quartile: p.key },
-              }),
-            }))}
-          />
-
-          <section className="space-y-10">
-            <RankedBars
-              title="By journal"
-              dimension="Journal"
-              caption="Free-text matched, so an unusual abbreviation of the same journal may not group with it."
-              showAmounts={false}
-              points={data.by_journal.map((p) => ({
-                ...countOnly(p),
-                to: drillHref({
-                  label: p.label ?? p.key,
-                  filters: { ...(year ? { year } : {}), q: p.key },
-                }),
-              }))}
-            />
-            <RankedBars
-              title="By type"
-              dimension="Type"
-              showAmounts={false}
-              points={data.by_type.map(countOnly)}
-            />
-            <RankedBars
-              title="By indexing"
-              dimension="Index"
-              caption="A paper indexed in more than one place is counted under each, so this can add up to more than the total."
-              showAmounts={false}
-              points={data.by_indexing.map(countOnly)}
-            />
-          </section>
-
-          <RankedBars
-            title="Faculty"
-            dimension="Person"
-            limit={data.people.length}
-            caption="Everyone in the department, including anyone who has published nothing yet."
-            points={data.people.map((p) => ({
-              key: p.id,
-              label: p.name,
-              count: p.publications,
-              to: `/people/${p.id}`,
-            }))}
-          />
-        </>
-      )}
-
-      <Sheet open={!!drill} onOpenChange={(open) => !open && closeDrill()}>
-        <SheetContent>
-          {drill && (
-            <>
-              <SheetHeader>
-                <SheetTitle>{drill.label}</SheetTitle>
-                <SheetDescription>
-                  {drillQuery.data
-                    ? `${drillQuery.data.total.toLocaleString("en-IN")} publication${drillQuery.data.total === 1 ? "" : "s"}`
-                    : "Loading…"}
-                </SheetDescription>
-              </SheetHeader>
-              <SheetBody>
-                {drillQuery.isLoading ? (
-                  <SkeletonRows rows={6} rowHeight={56} />
-                ) : drillQuery.isError ? (
-                  <ErrorState
-                    title="Could not load these rows"
-                    message="The server did not answer. Nothing has been lost."
-                    onRetry={() => drillQuery.refetch()}
-                  />
-                ) : drillQuery.data && drillQuery.data.results.length > 0 ? (
-                  <ul className="divide-y divide-line">
-                    {drillQuery.data.results.map((c) => (
-                      <li key={c.id} className="row">
-                        <a href={`/papers/${c.id}`} className="block px-1 py-3">
-                          <span className="block truncate text-base">{c.paper_title || "Untitled"}</span>
-                          <Meta className="mt-0.5 block truncate">
-                            {[c.owner_name, c.journal_title, c.publication_year].filter(Boolean).join(" · ")}
-                          </Meta>
-                          <span className="mt-1 block text-sm text-fg-muted">{c.progress}</span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState title="Nothing matches" message="No publication falls under this filter." />
-                )}
-                {drillQuery.data && drillQuery.data.results.length < drillQuery.data.total && (
-                  <p className="mt-3 text-sm text-fg-muted">
-                    Showing the first {drillQuery.data.results.length.toLocaleString("en-IN")} of{" "}
-                    {drillQuery.data.total.toLocaleString("en-IN")}. Narrow the year above, or export, to see
-                    the rest.
-                  </p>
-                )}
-              </SheetBody>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
-    </div>
   )
 }
 
@@ -1299,8 +1089,8 @@ function StuckPanel({
     <section className="min-w-0">
       <h3 className="text-lg font-semibold">Standing at a desk longest</h3>
       <p className="mt-0.5 text-sm text-fg-muted">
-        Counted from when the ticket arrived at the step it is at now, not from the last time
-        anybody edited it. Paid and returned tickets have stopped waiting and are not here.
+        Counted from when the claim arrived at the step it is at now, not from the last time
+        anybody edited it. Paid and returned claims have stopped waiting and are not here.
         {monthFiltered
           ? " The settled-month filter does not apply: nothing still waiting has been settled in any month."
           : ""}
@@ -1318,7 +1108,7 @@ function StuckPanel({
         />
       ) : rows.length === 0 ? (
         <p className="mt-4 rounded-md bg-positive-wash px-3 py-3 text-sm">
-          Nothing is standing at a desk. Every ticket in scope has been paid or sent back.
+          Nothing is standing at a desk. Every claim in scope has been paid or sent back.
         </p>
       ) : (
         <>
@@ -1332,7 +1122,7 @@ function StuckPanel({
               <>
                 <span className="font-medium">
                   {stuck.length.toLocaleString("en-IN")}{" "}
-                  {stuck.length === 1 ? "ticket has" : "tickets have"} waited more than a month.
+                  {stuck.length === 1 ? "claim has" : "claims have"} waited more than a month.
                 </span>{" "}
               </>
             ) : (
@@ -1350,7 +1140,7 @@ function StuckPanel({
                   <div className="flex items-start justify-between gap-3">
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-base">
-                        {c.paper_title || "Untitled"}
+                        {paperTitle(c.paper_title)}
                       </span>
                       <Meta className="mt-0.5 block truncate">
                         {[c.owner_name, c.owner_department, c.desk].filter(Boolean).join(" · ")}
@@ -1389,7 +1179,7 @@ function StuckPanel({
               Open the whole queue
             </button>
             {capped
-              ? " More than 200 tickets are at one desk, so this lists the longest wait among the first 200 the server returned rather than the longest overall."
+              ? " More than 200 claims are at one desk, so this lists the longest wait among the first 200 the server returned rather than the longest overall."
               : ""}
           </p>
         </>
@@ -1498,10 +1288,10 @@ function ConcentrationPanel({ rows }: { rows: BreadthRow[] }) {
         {!earliest
           ? "No earlier year holds enough papers to say which way it is moving."
           : widening
-            ? `It has fallen from ${earliest.top_ten_share}% in ${earliest.key} to ${latest.top_ten_share}% in ${latest.key} — the work is spread across more people than it was.`
-            : `It has risen from ${earliest.top_ten_share}% in ${earliest.key} to ${latest.top_ten_share}% in ${latest.key} — the output rests on fewer people than it did.`}
+            ? `It has fallen from ${earliest.top_ten_share}% in ${earliest.key} to ${latest.top_ten_share}% in ${latest.key}, so the work is spread across more people than it was.`
+            : `It has risen from ${earliest.top_ten_share}% in ${earliest.key} to ${latest.top_ten_share}% in ${latest.key}, so the output rests on fewer people than it did.`}
         {thin
-          ? ` Years holding fewer than ${MEANINGFUL_YEAR} papers are listed but never used as the baseline — a share out of one paper is 100% whatever happened.`
+          ? ` Years holding fewer than ${MEANINGFUL_YEAR} papers are listed but never used as the baseline, because a share out of one paper is 100% whatever happened.`
           : ""}
       </p>
     </section>
@@ -1565,7 +1355,7 @@ function DirectionPanel({
         </h3>
         <p className="mt-0.5 text-sm text-fg-muted">
           Each department’s publications this year beside its own last year. Compared on
-          publication year, not payout month: a department is judged on what it published, not
+          publication year, not month paid: a department is judged on what it published, not
           on when the college got round to paying for it.
         </p>
       </div>
@@ -1597,7 +1387,7 @@ function DirectionPanel({
       ) : (
         <>
           {!pairComparable && (
-            <Callout tone="caution" title="Not compared — the earlier year is not an earlier year">
+            <Callout tone="caution" title="Not compared: the earlier year is not an earlier year">
               Only {priorTotal.toLocaleString("en-IN")}{" "}
               {priorTotal === 1 ? "paper is" : "papers are"} recorded for {yoy.last_year},
               against {recentTotal.toLocaleString("en-IN")} for {yoy.this_year}. That gap is the
@@ -1700,154 +1490,6 @@ function DirectionPanel({
 }
 
 /* ------------------------------------------------------------------------ */
-/* The same two questions for a head of department, counted not costed      */
-/* ------------------------------------------------------------------------ */
-
-/**
- * Whether the department's output is broad or rests on a few people.
- *
- * `/api/hod/overview` already lists every member of the department with a
- * paper count, so this needs no request of its own — and, because it is
- * derived from that payload, there is no route by which a rupee can reach it.
- * A head asks this about their own department in exactly the same meeting the
- * Principal asks it about the college.
- */
-function HodConcentration({
-  people,
-  publications,
-  facultyInDepartment,
-}: {
-  people: HodPerson[]
-  publications: number
-  facultyInDepartment: number
-}) {
-  const counts = people
-    .map((p) => p.publications)
-    .filter((n) => n > 0)
-    .sort((a, b) => b - a)
-  const published = counts.length
-  const topTen = counts.slice(0, 10).reduce((n, c) => n + c, 0)
-  const share = publications > 0 ? Math.round((topTen / publications) * 100) : 0
-  const silent = facultyInDepartment - published
-
-  return (
-    <section className="min-w-0">
-      <h3 className="text-lg font-semibold">How many people are carrying it</h3>
-      <p className="mt-0.5 text-sm text-fg-muted">
-        Output can rise because more people published, or because the same people published
-        more. A total cannot tell those apart.
-      </p>
-
-      {published === 0 ? (
-        <p className="mt-4 text-sm text-fg-muted">
-          Nobody in the department has a publication in scope, so there is nothing to spread.
-        </p>
-      ) : (
-        <>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-line">
-            <div
-              className="h-full rounded-full bg-accent"
-              style={{ width: `${Math.max(1, share)}%` }}
-            />
-          </div>
-          <p className="mt-2 text-sm">
-            The ten most prolific people in the department wrote{" "}
-            <span className="tabular font-medium">{share}%</span> of its{" "}
-            {publications.toLocaleString("en-IN")} publications
-            {published <= 10
-              ? ` — which is everyone who published, since only ${published} did.`
-              : `, out of ${published.toLocaleString("en-IN")} people who published at all.`}
-          </p>
-          <p className="mt-1 text-sm text-fg-muted">
-            {silent > 0
-              ? `${silent.toLocaleString("en-IN")} of ${facultyInDepartment.toLocaleString("en-IN")} faculty have nothing in scope. They are listed by name under “Faculty” below.`
-              : `Every one of the ${facultyInDepartment.toLocaleString("en-IN")} faculty in the department has something in scope.`}
-          </p>
-        </>
-      )}
-    </section>
-  )
-}
-
-/**
- * Whether the department is going up or down, with the same refusal.
- *
- * The guard matters more here than on the college report, not less: a single
- * department is a smaller set, so one thin earlier year turns into a larger
- * and more confident-looking percentage. `by_year` is plotted as a trend
- * further up this page; this says which way the last step of it went, and
- * says nothing at all when the step before it was never filled in.
- */
-function HodDirection({ byYear }: { byYear: Point[] }) {
-  const withYears = byYear.filter((p) => p.key)
-  const latest = withYears[withYears.length - 1]
-  const previous = withYears[withYears.length - 2]
-
-  if (!latest || !previous) {
-    return null
-  }
-
-  const comparable = isComparable(latest.count, previous.count)
-  const change = latest.count - previous.count
-  // The server flags a part year on the college report; here the record's own
-  // last year is compared against the calendar, because a department reading
-  // eight months against twelve will otherwise be told it has halved.
-  const now = new Date()
-  const partial = Number(latest.key) >= now.getFullYear()
-
-  return (
-    <section className="min-w-0 space-y-3">
-      <div>
-        <h3 className="text-lg font-semibold">
-          {latest.key} against {previous.key}
-        </h3>
-        <p className="mt-0.5 text-sm text-fg-muted">
-          Counted on publication year — what the department published, not when anything was
-          processed.
-        </p>
-      </div>
-
-      {partial && (
-        <Callout tone="caution" title={`${latest.key} is not over`}>
-          {latest.key} is {now.getMonth() + 1} months old and {previous.key} is a full year, so
-          this is a part-year against a whole one. Expect it to read low until December.
-        </Callout>
-      )}
-
-      {!comparable ? (
-        <Callout tone="caution" title="Not compared — the earlier year is not an earlier year">
-          {previous.count.toLocaleString("en-IN")}{" "}
-          {previous.count === 1 ? "publication is" : "publications are"} recorded for{" "}
-          {previous.key}, against {latest.count.toLocaleString("en-IN")} for {latest.key}. A gap
-          that size is the reach of the import rather than a change in output, so this is left
-          as two counts and no direction.
-        </Callout>
-      ) : (
-        <p className="flex items-baseline gap-2 text-sm">
-          {change > 0 ? (
-            <ArrowUp className="size-4 shrink-0 text-positive" aria-hidden />
-          ) : change < 0 ? (
-            <ArrowDown className="size-4 shrink-0 text-critical" aria-hidden />
-          ) : (
-            <Minus className="size-4 shrink-0 text-fg-muted" aria-hidden />
-          )}
-          <span>
-            {change > 0 ? "Up" : change < 0 ? "Down" : "Level"}{" "}
-            {change !== 0 ? (
-              <span className="tabular font-medium">
-                {Math.abs(change).toLocaleString("en-IN")}
-              </span>
-            ) : null}{" "}
-            — {latest.count.toLocaleString("en-IN")} in {latest.key} against{" "}
-            {previous.count.toLocaleString("en-IN")} in {previous.key}.
-          </span>
-        </p>
-      )}
-    </section>
-  )
-}
-
-/* ------------------------------------------------------------------------ */
 /* Shared pieces                                                           */
 /* ------------------------------------------------------------------------ */
 
@@ -1933,4 +1575,31 @@ function ReportsSkeleton() {
       <SkeletonRows rows={5} rowHeight={40} />
     </div>
   )
+}
+
+function plural(n: number, word: string): string {
+  return `${n.toLocaleString("en-IN")} ${word}${n === 1 ? "" : "s"}`
+}
+
+/** The college report's one-sentence answer. */
+function collegeAnswer(data: ReportsPayload, department: string, year: string): string {
+  const when = year ? `in ${year}` : "across all years on record"
+  const who = department || "The college"
+  let s = `${who} published ${plural(data.totals.publications, "paper")} ${when}`
+  const lead = [...data.by_department].sort((a, b) => b.count - a.count)[0]
+  if (!department && lead && data.by_department.length > 1) {
+    s += `; ${lead.label ?? lead.key} leads with ${lead.count.toLocaleString("en-IN")}`
+  }
+  s += `. ${money(Math.round(data.totals.paid_amount))} has been paid`
+  s += data.totals.committed_amount
+    ? ` and ${money(data.totals.committed_amount)} is awaiting payment.`
+    : " and nothing is awaiting payment."
+  return s
+}
+
+/** "2024-04" as "Apr 2024"; anything else as it came. */
+function monthShort(key: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(key)
+  if (!m) return key
+  return new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
 }

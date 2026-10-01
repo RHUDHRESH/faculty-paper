@@ -1,0 +1,66 @@
+/*
+ * The invisible text laid over a rendered PDF page, so it can be selected and
+ * searched. pdf.js writes one absolutely positioned span per run of text and
+ * expects these rules; its own stylesheet is six thousand lines of editor and
+ * annotation UI this viewer does not use, so only the text layer's rules live
+ * here.
+ */
+.pdf-page {
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  --user-unit: 1;
+}
+
+.pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.pdf-text :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.pdf-text > :not(.markedContent),
+.pdf-text .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-text .markedContent {
+  display: contents;
+}
+
+/* A search hit is drawn as a wash behind transparent text, so the words on the
+   canvas underneath stay readable. */
+.pdf-text mark {
+  color: transparent;
+  background: color-mix(in srgb, var(--color-caution) 38%, transparent);
+  border-radius: 2px;
+  /* The text layer's font is a stand-in for the page's, so a phrase's edges
+     are a few pixels off; the padding makes up for it without moving the
+     words beside it. */
+  padding: 0 2px;
+  margin: 0 -2px;
+}
+
+.pdf-text mark[data-active] {
+  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  outline: 2px solid var(--color-accent);
+}

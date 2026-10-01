@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from core.api.common import api, session_auth
 from core.api.deps import _user_dict, impersonator_of
-from core.api.common import IMPERSONATOR_KEY, require_user
+from core.api.common import IMPERSONATOR_KEY, _refuse_own_claim, require_user
 
 import json
 from typing import Any
 from django.contrib.auth import login
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 from django.http import HttpRequest
@@ -22,8 +23,26 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, PaidLedger, Role, User
+from core.services import rbac
 
 # ---------- super-admin powers ----------
+
+# What an import can get wrong and an admin may put right. Everything else --
+# status, approvals, verification, the formula's working, duplicates, payment
+# -- moves only through the action that enforces its rule, so an edit can
+# never walk a claim past the Director or pay it without a ledger row.
+# `remuneration` is here only for correcting a settled amount (checked below).
+CORRECTABLE_CLAIM_FIELDS = frozenset({
+    "paper_title", "journal_title", "issn", "doi", "eid", "scopus_url",
+    "publication_year", "publication_date", "cover_date", "publication_type",
+    "aggregation_type", "indexing_level", "indexing_ref", "au_annexure_ref",
+    "ugc_care_ref", "yukthi_id", "impact_factor", "subject_category",
+    "engineering_class", "staff_id", "biometric_id", "designation",
+    "scopus_author_url", "scopus_author_id", "proof_url", "sec_refs",
+    "sec_proof_url", "reference_articles", "claim_reason", "total_authors",
+    "author_position", "authors_json", "is_student_publication", "status_note",
+    "remuneration",
+})
 
 
 class ClaimEditIn(Schema):
@@ -47,17 +66,30 @@ def admin_edit_claim(request: HttpRequest, claim_id: str, payload: ClaimEditIn):
         raise HttpError(403, "Only a super admin may edit a claim directly")
     reason = (payload.reason or "").strip()
     if len(reason) < 10:
-        raise HttpError(400, "Give a reason (at least 10 characters) — it is kept with the change")
+        raise HttpError(400, "Give a reason (at least 10 characters). It is kept with the change")
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
-        editable = {f.name for f in Claim._meta.get_fields() if hasattr(f, "attname")}
-        editable -= {"id", "owner", "created_at", "updated_at"}
+        _refuse_own_claim(actor, claim)
 
         before, after = {}, {}
         for key, value in (payload.fields or {}).items():
-            if key not in editable:
-                raise HttpError(400, f"{key} is not a field on a claim")
+            if key not in CORRECTABLE_CLAIM_FIELDS:
+                raise HttpError(
+                    400,
+                    f"{key} cannot be edited here — status, approvals, verification "
+                    "and payment move only through their own actions",
+                )
+            if key == "remuneration" and claim.status != ClaimStatus.PAID:
+                raise HttpError(
+                    400,
+                    "An unpaid claim's amount is recomputed from verified values; "
+                    "only a settled amount can be corrected here",
+                )
+            try:
+                value = Claim._meta.get_field(key).clean(value, claim)
+            except ValidationError as exc:
+                raise HttpError(400, f"{key}: {'; '.join(exc.messages)}")
             old = getattr(claim, key, None)
             if old == value:
                 continue
@@ -135,11 +167,16 @@ def admin_reassign_claim(request: HttpRequest, claim_id: str, payload: ReassignI
     new_owner = User.objects.filter(email__iexact=payload.owner_email.strip()).first()
     if not new_owner:
         raise HttpError(404, "No account with that email")
-    if new_owner.role != Role.FACULTY:
-        raise HttpError(400, "Claims belong to faculty accounts")
+    if new_owner.role not in rbac.CLAIMANT_ROLES:
+        raise HttpError(
+            400,
+            "Claims belong to the staff who file them: faculty, a head of "
+            "department, or an officer filing their own paper -- not the super admin",
+        )
 
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        _refuse_own_claim(actor, claim)
         previous = claim.owner
         if previous.id == new_owner.id:
             return {"ok": True, "note": "already owned by that account"}
@@ -179,7 +216,7 @@ def admin_impersonate(request: HttpRequest, user_id: str):
     if actor.role != Role.SUPER_ADMIN:
         raise HttpError(403, "Only a super admin may view as another user")
     if request.session.get(IMPERSONATOR_KEY):
-        raise HttpError(400, "Already viewing as somebody else — stop first")
+        raise HttpError(400, "Already viewing as somebody else. Stop first")
 
     target = get_object_or_404(User, pk=user_id)
     if target.id == actor.id:

@@ -23,7 +23,7 @@ from django.db.models import Q
 from django.http import HttpRequest
 from ninja import File, Form, UploadedFile
 from ninja.errors import HttpError
-from core.models import AuditLog, Claim, ClaimStatus, FacultyMaster, PaidLedger, PriorPayment, Role, ScimagoJournal, SnipSource, User
+from core.models import AuditLog, Claim, ClaimStatus, FacultyMaster, PaidLedger, PriorPayment, ScimagoJournal, SnipSource, User
 from core.services import rbac
 
 # ---------- process queue ----------
@@ -62,8 +62,17 @@ def admin_process_batch(request: HttpRequest, payload: BatchProcessIn):
     ids = list(dict.fromkeys(payload.claim_ids or []))[:500]
     if not ids:
         raise HttpError(400, "Select at least one claim")
+    # Nobody verifies their own paper: the single verify refuses it, and so
+    # does the batch (the task re-checks, for a list queued some other way).
+    from core.models import Claim
+
+    own = set(Claim.objects.filter(pk__in=ids, owner=user).values_list("id", flat=True))
+    own_ids = [i for i in ids if i in own or str(i) in {str(o) for o in own}]
+    ids = [i for i in ids if i not in own_ids]
+    if not ids:
+        raise HttpError(403, "You cannot verify your own paper.")
     job_id = async_task("core.tasks.run_bulk_verify", ids, user.id)
-    return {"queued": True, "job_id": job_id, "count": len(ids)}
+    return {"queued": True, "job_id": job_id, "count": len(ids), "skipped_own": own_ids}
 
 
 # ---------- SNIP / faculty master ----------
@@ -163,7 +172,9 @@ def faculty_options(request: HttpRequest, q: Optional[str] = None):
     # keystroke cost the whole master list.
     limit = 30 if q else 200
     masters_qs = FacultyMaster.objects.order_by("department", "name")
-    users_qs = User.objects.filter(role=Role.FACULTY, active=True)
+    # Whoever a claim can belong to: faculty, and a head of department, who is
+    # faculty too and files their own papers.
+    users_qs = User.objects.filter(role__in=rbac.CLAIMANT_ROLES, active=True)
     if q:
         match = (
             Q(name__icontains=q)
@@ -176,7 +187,7 @@ def faculty_options(request: HttpRequest, q: Optional[str] = None):
     masters = list(masters_qs[:limit])
     staff_ids = [f.staff_id for f in masters if f.staff_id]
     emails = {e for f in masters if f.email for e in (f.email, f.email.lower())}
-    linked_qs = User.objects.filter(role=Role.FACULTY, active=True).filter(
+    linked_qs = User.objects.filter(role__in=rbac.CLAIMANT_ROLES, active=True).filter(
         Q(staff_id__in=staff_ids) | Q(email__in=list(emails))
     )
     users_by_staff = {u.staff_id: u for u in linked_qs if u.staff_id}
@@ -224,6 +235,31 @@ def faculty_options(request: HttpRequest, q: Optional[str] = None):
             }
         )
     return results
+
+
+@api.post("/admin/scopus-ids/link", auth=session_auth)
+def scopus_ids_link(request: HttpRequest, file: UploadedFile = File(...), dry_run: bool = Form(False)):
+    """Set every account's Scopus author id from the ERP workbook (.xlsx).
+
+    Idempotent; a different id already on an account is returned as a
+    conflict, never overwritten."""
+    from core.services.erp_scopus import link_scopus_ids, read_erp_scopus
+
+    user = require_user(request)
+    if not rbac.can_import_prior(user.role):
+        raise HttpError(403, "Forbidden")
+    try:
+        entries = read_erp_scopus(io.BytesIO(file.read()))
+    except Exception as exc:
+        raise HttpError(400, f"Could not read the workbook: {exc}") from exc
+    result = link_scopus_ids(entries, dry_run=dry_run)
+    if not dry_run:
+        AuditLog.objects.create(
+            actor=user, action="SCOPUS_IDS_LINK", entity="User",
+            detail_json=json.dumps({"set": result["set"], "same": result["same"],
+                                    "conflicts": len(result["conflicts"]), "unmatched": len(result["unmatched"])}),
+        )
+    return result
 
 
 @api.post("/admin/faculty-master/import", auth=session_auth)

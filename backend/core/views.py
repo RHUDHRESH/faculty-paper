@@ -41,6 +41,54 @@ def _may_read(user, url: str) -> bool:
     return qs.filter(owner=user).exists()
 
 
+_RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+def _ranged_response(request: HttpRequest, name: str, content_type: str) -> HttpResponse:
+    """The whole file, or the one byte range the reader asked for.
+
+    The review workspace's PDF viewer asks for the pieces of a paper it needs
+    (the last few kilobytes for the page index, then one page at a time). A
+    server that answers every request with the whole file makes a forty-page
+    paper wait for all forty before the first page shows. Only a single range
+    is honoured; anything else, or a range that makes no sense, gets the whole
+    file with a 200, which every client accepts.
+    """
+    match = _RANGE.match((request.headers.get("Range") or "").strip())
+    if match and (match.group(1) or match.group(2)):
+        try:
+            size = default_storage.size(name)
+        except Exception:
+            size = None
+        if size:
+            start_s, end_s = match.groups()
+            if start_s:
+                start = int(start_s)
+                end = min(int(end_s), size - 1) if end_s else size - 1
+            else:
+                # "bytes=-500" is the last 500 bytes.
+                start = max(0, size - int(end_s))
+                end = size - 1
+            if start >= size:
+                response = HttpResponse(status=416)
+                response["Content-Range"] = f"bytes */{size}"
+                return response
+            if start <= end:
+                handle = default_storage.open(name, "rb")
+                try:
+                    handle.seek(start)
+                    body = handle.read(end - start + 1)
+                finally:
+                    handle.close()
+                response = HttpResponse(body, status=206, content_type=content_type)
+                response["Content-Range"] = f"bytes {start}-{end}/{size}"
+                response["Accept-Ranges"] = "bytes"
+                return response
+    response = FileResponse(default_storage.open(name, "rb"), content_type=content_type)
+    response["Accept-Ranges"] = "bytes"
+    return response
+
+
 def claim_media(request: HttpRequest, filename: str) -> HttpResponse:
     if not request.user.is_authenticated or not getattr(request.user, "active", False):
         return JsonResponse({"detail": "Unauthorized"}, status=401)
@@ -66,10 +114,75 @@ def claim_media(request: HttpRequest, filename: str) -> HttpResponse:
     # Streamed through this view rather than handed out as a bucket URL: the
     # access check above is the only thing standing between a proof PDF and
     # anyone who guesses at it, so the file must never be publicly readable.
-    response = FileResponse(default_storage.open(name, "rb"), content_type=kind.content_type)
+    response = _ranged_response(request, name, kind.content_type)
     disposition = "inline" if kind.inline else "attachment"
     # The claimant's original name lives on the attachment row; the file on disk
     # is a uuid, which is what a download should be named to stay unambiguous.
     response["Content-Disposition"] = f'{disposition}; filename="{filename}"'
     response["X-Content-Type-Options"] = "nosniff"
     return response
+
+
+def _stream(name: str, filename: str, content_type: str) -> HttpResponse:
+    response = FileResponse(default_storage.open(name, "rb"), content_type=content_type)
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    response["X-Content-Type-Options"] = "nosniff"
+    # The name is a fresh uuid for every upload, so a copy can be kept a
+    # while -- but only by this browser, never by a shared cache.
+    response["Cache-Control"] = "private, max-age=86400"
+    return response
+
+
+def avatar_media(request: HttpRequest, filename: str) -> HttpResponse:
+    """A profile photo. Anybody signed in may see it: it is on a profile anybody can open."""
+    if not request.user.is_authenticated or not getattr(request.user, "active", False):
+        return JsonResponse({"detail": "Unauthorized"}, status=401)
+    if not _SAFE_NAME.match(filename):
+        raise Http404
+    kind = kind_for_stored_name(filename)
+    if kind is None or not kind.content_type.startswith("image/"):
+        raise Http404
+    name = f"avatars/{filename}"
+    if not default_storage.exists(name):
+        raise Http404
+    return _stream(name, filename, kind.content_type)
+
+
+def site_media(request: HttpRequest, filename: str) -> HttpResponse:
+    """A department header imported from the college website, for anyone signed in."""
+    if not request.user.is_authenticated or not getattr(request.user, "active", False):
+        return JsonResponse({"detail": "Unauthorized"}, status=401)
+    if not _SAFE_NAME.match(filename):
+        raise Http404
+    kind = kind_for_stored_name(filename)
+    if kind is None or not kind.content_type.startswith("image/"):
+        raise Http404
+    name = f"site/{filename}"
+    if not default_storage.exists(name):
+        raise Http404
+    return _stream(name, filename, kind.content_type)
+
+
+def feed_media(request: HttpRequest, filename: str) -> HttpResponse:
+    """A picture or PDF shared in a post, to whoever may read that post and nobody else.
+
+    A post the reader cannot see answers 404, as the post itself does: the
+    attachment of a department-only post is part of the post.
+    """
+    from core import social
+    from core.models import FeedPost
+
+    if not request.user.is_authenticated or not getattr(request.user, "active", False):
+        return JsonResponse({"detail": "Unauthorized"}, status=401)
+    if not _SAFE_NAME.match(filename):
+        raise Http404
+    kind = kind_for_stored_name(filename)
+    if kind is None:
+        raise Http404
+    name = f"feed/{filename}"
+    post = FeedPost.objects.filter(attachment_name=name).first()
+    if post is None or not social.may_read_post(request.user, post):
+        raise Http404
+    if not default_storage.exists(name):
+        raise Http404
+    return _stream(name, filename, kind.content_type)

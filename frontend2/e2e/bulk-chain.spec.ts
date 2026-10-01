@@ -131,9 +131,9 @@ test.describe("Moving a batch of claims through every desk", () => {
     const bar = page.getByText(`${BATCH} selected`, { exact: false })
     await expect(bar, "the selection bar did not report three tickets").toBeVisible()
 
-    await page.getByRole("button", { name: `Clear ${BATCH} tickets` }).click()
+    await page.getByRole("button", { name: `Clear ${BATCH} claims` }).click()
 
-    const confirm = page.getByRole("button", { name: /^Clear — ₹/ })
+    const confirm = page.getByRole("button", { name: /^Clear \d+ for ₹/ })
     await expect(confirm).toBeEnabled()
     totals.cleared = amountIn(await confirm.innerText(), "bulk clearing")
     // A batch total of nothing would satisfy every count below and mean it.
@@ -150,14 +150,10 @@ test.describe("Moving a batch of claims through every desk", () => {
     ).toEqual([])
     expect(result.cleared).toBe(BATCH)
 
-    // And the report the person is shown says the same thing. These can
-    // disagree: the dialog counts `cleared + skipped.length`, so a response
-    // the client mis-parsed shows a plausible number here and a wrong one
-    // there.
-    await expect(
-      page.getByRole("heading", { name: `Cleared ${BATCH} of ${BATCH}` })
-    ).toBeVisible()
-    await page.getByRole("button", { name: "Done" }).click()
+    // And what the person is shown says the same thing. A clean batch is
+    // told in a toast; only a batch with skips opens a report, and this one
+    // must have none.
+    await expect(page.getByText(`Cleared. ${BATCH} claims sent to the Principal`)).toBeVisible()
     await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 20_000 })
 
     // Only now, with no dialog holding the page `aria-hidden`, is an empty
@@ -182,9 +178,9 @@ test.describe("Moving a batch of claims through every desk", () => {
     }
     await expect(page.getByText(`${BATCH} selected`, { exact: false })).toBeVisible()
 
-    await page.getByRole("button", { name: `Approve ${BATCH} tickets` }).click()
+    await page.getByRole("button", { name: `Approve ${BATCH} claims` }).click()
 
-    const confirm = page.getByRole("button", { name: /^Approve — ₹/ })
+    const confirm = page.getByRole("button", { name: /^Approve \d+ for ₹/ })
     await expect(confirm).toBeEnabled()
     totals.approved = amountIn(await confirm.innerText(), "bulk approval")
 
@@ -208,15 +204,14 @@ test.describe("Moving a batch of claims through every desk", () => {
     await page.goto("/authorisations")
     await waitForSettled(page)
 
-    // This queue is a list, and its rows are `<li>` — there is only one copy
-    // of them, so the checkbox can be reached through the row as before.
-    for (const row of rowsFor(page, "listitem")) {
+    // Rows in the table, as at the other desks.
+    for (const row of rowsFor(page, "row")) {
       await expect(row, "an approved ticket did not reach the Director").toHaveCount(1)
       await row.getByRole("checkbox").check()
     }
     await expect(page.getByText(`${BATCH} selected`, { exact: false })).toBeVisible()
 
-    await page.getByRole("button", { name: `Authorise ${BATCH}`, exact: true }).click()
+    await page.getByRole("button", { name: `Review and authorise ${BATCH}` }).click()
 
     const confirm = page.getByRole("button", { name: /^Authorise ₹/ })
     await expect(confirm).toBeEnabled()
@@ -266,13 +261,13 @@ test.describe("Moving a batch of claims through every desk", () => {
         "a selected claim is missing from the review table"
       ).toBeVisible()
     }
-    const vouchers = dialog.getByPlaceholder("Voucher #")
+    const vouchers = dialog.getByRole("textbox", { name: /Voucher number for/ })
     await expect(vouchers).toHaveCount(BATCH)
     for (let i = 0; i < BATCH; i++) {
       await vouchers.nth(i).fill(`E2E-BULK-${Date.now()}-${i}`)
     }
 
-    const confirm = dialog.getByRole("button", { name: /^Pay \d+ — ₹/ })
+    const confirm = dialog.getByRole("button", { name: /^Pay \d+ claims, ₹/ })
     await expect(confirm).toBeEnabled()
     totals.paid = amountIn(await confirm.innerText(), "bulk payment")
 
@@ -323,8 +318,8 @@ test.describe("Moving a batch of claims through every desk", () => {
     for (const s of seeded) {
       await faculty.goto(`/papers/${s.claim!.id}`)
       await waitForSettled(faculty)
-      await expect(faculty.getByText(`Ticket ${s.claim!.ticket_number}`)).toBeVisible()
-      await expect(faculty.getByLabel("Step 5 of 5: Paid")).toBeVisible()
+      await expect(faculty.getByText(`Claim no. ${s.claim!.ticket_number}`, { exact: true })).toBeVisible()
+      await expect(faculty.getByLabel("Stage: Paid")).toBeVisible()
     }
     await done(faculty)
   })

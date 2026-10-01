@@ -88,7 +88,9 @@ def run_bulk_verify(claim_ids: list[str], actor_id: str | None = None) -> dict:
     """Scopus verification over a list of claims — each call is 2–4 external
     requests, so a list of any size has no business inside one HTTP request."""
     from core.api import _verify_claim
+    from core.api.common import OWN_PAPER
     from core.models import Claim, ClaimAction, User
+    from core.services import rbac
 
     actor = User.objects.filter(pk=actor_id).first() if actor_id else None
     done: list[str] = []
@@ -97,6 +99,10 @@ def run_bulk_verify(claim_ids: list[str], actor_id: str | None = None) -> dict:
         claim = Claim.objects.filter(pk=cid).first()
         if claim is None:
             failed.append({"id": cid, "reason": "Not found"})
+            continue
+        if actor is not None and rbac.is_own_claim(actor, claim):
+            # The single verify refuses an officer's own paper; so does this.
+            failed.append({"id": cid, "reason": OWN_PAPER})
             continue
         try:
             _verify_claim(claim)
@@ -113,6 +119,19 @@ def run_bulk_verify(claim_ids: list[str], actor_id: str | None = None) -> dict:
             logger.exception("bulk_verify_failed id=%s", cid)
             failed.append({"id": cid, "reason": str(e)[:200]})
     return {"verified": done, "failed": failed}
+
+
+def run_claim_file_check(claim_id: str, force: bool = True) -> dict:
+    """Read a claim's PDFs and compare them with the claim.
+
+    Queued when a paper is filed and when a reviewer asks for it: a 10 MB
+    publisher PDF takes seconds to parse, which a filing request should not
+    wait on. See core.services.content_check.
+    """
+    from core.services.content_check import check_claim_files
+
+    checks, raised = check_claim_files(claim_id, force=force)
+    return {"claim": claim_id, "checked": len(checks), "flags_raised": raised}
 
 
 def recover_stale_batches() -> list[str]:
@@ -136,3 +155,163 @@ def recover_stale_batches() -> list[str]:
         async_task("core.tasks.run_monthly_batch", batch.id)
         recovered.append(batch.id)
     return recovered
+
+
+def award_badges_and_milestones() -> dict:
+    """Hourly (migration 0047): every badge earned and not yet written, and
+    every department target that has crossed 50, 75 or 100 per cent. Safe to
+    run any number of times -- see core.services.achievements."""
+    from core.services.achievements import run_all
+
+    return run_all()
+
+
+def check_citations() -> dict:
+    """Daily (schedule "citation-check", migration 0051): citation counts for
+    claimed DOIs from OpenAlex, and alerts to owners whose count rose."""
+    from core.services.citations import check_citations as run
+
+    return run()
+
+
+def harvest_publications(since: int | None = None, limit: int | None = None, expand: bool = True) -> dict:
+    """Queued by POST /api/admin/publications/harvest: the OpenAlex harvest,
+    record linking, author matching and metrics (core.services.publications)."""
+    from core.models import AuditLog
+    from core.services.publications import run_harvest
+
+    import json
+
+    summary = run_harvest(since=since, limit=limit, expand=expand)
+    AuditLog.objects.create(action="PUBLICATION_HARVEST_DONE", entity="Publication",
+                            detail_json=json.dumps(summary, default=str))
+    return summary
+
+
+def sync_scopus_authors(limit: int | None = None) -> dict:
+    """Queued by POST /api/admin/publications/scopus-sync: each member's
+    Scopus papers (AU-ID search) into the publication record, then a re-match.
+    Resumable: stops at the quota, oldest-synced people first next time."""
+    import json
+
+    from core.models import AuditLog
+    from core.services import publications
+    from core.services.scopus_sync import sync_scopus_authors as run
+
+    summary = run(limit=limit)
+    summary.pop("per_user", None)
+    summary["match"] = {k: v for k, v in publications.match_authors().items() if k != "ambiguous"}
+    publications.refresh_metrics()
+    AuditLog.objects.create(action="SCOPUS_SYNC_DONE", entity="Publication",
+                            detail_json=json.dumps(summary, default=str))
+    return summary
+
+
+def refresh_publication_citations() -> dict:
+    """Weekly (schedule "publication-citations", migration 0052): citation
+    counts for every harvested paper, then everybody's h-index again."""
+    from core.services.publications import refresh_citations
+
+    return refresh_citations()
+
+
+def rematch_authors(actor_id: str | None = None) -> dict:
+    """Queued by POST /api/admin/author-matches/rerun: link records, match
+    authors (applying the office's aliases) and refresh metrics."""
+    import json
+
+    from core.models import AuditLog
+    from core.services import publications
+
+    linked = publications.link_records()
+    out = publications.match_authors()
+    out["ambiguous"] = len(out.pop("ambiguous"))
+    out["linked"] = linked
+    out["people_with_metrics"] = publications.refresh_metrics()
+    AuditLog.objects.create(actor_id=actor_id, action="AUTHOR_MATCH_DONE", entity="Publication",
+                            detail_json=json.dumps(out, default=str))
+    return out
+
+
+def send_weekly_digest() -> dict:
+    """Monday 8am IST (schedule "weekly-digest"): the weekly summary."""
+    from core.services.digest import send_weekly_digest as run
+
+    return run()
+
+
+def flush_held_emails() -> dict:
+    """Hourly (schedule "email-batch"): one email carrying what the hourly limit held back."""
+    from core.services.notify import flush_held_emails as run
+
+    return run()
+
+
+def send_nudges() -> dict:
+    """Daily (schedule "daily-nudges"): filing-deadline and quota nudges."""
+    from core.services.nudges import send_nudges as run
+
+    return run()
+
+
+def run_restore(saved_path: str, actor_id: str | None = None) -> dict:
+    """Load a dumpdata export into this (fresh) installation.
+
+    Queued by POST /api/admin/restore. The file is removed on success and
+    kept on failure so it can be retried.
+    """
+    import os
+
+    from core.models import AuditLog, Claim, PaidLedger, User
+
+    from core.models import FormulaConfig
+
+    # First-run setup made a default active formula; the export carries the
+    # college's own, and only one may be active (constraint one_active_formula).
+    # Stand the default down for the load, and bring it back only if the
+    # export had none active.
+    stood_down = list(FormulaConfig.objects.filter(active=True).values_list("pk", flat=True))
+    FormulaConfig.objects.filter(pk__in=stood_down).update(active=False)
+    try:
+        call_command("loaddata", saved_path, verbosity=0)
+    except Exception:
+        FormulaConfig.objects.filter(pk__in=stood_down).update(active=True)
+        raise
+    if not FormulaConfig.objects.filter(active=True).exists():
+        FormulaConfig.objects.filter(pk__in=stood_down[:1]).update(active=True)
+    counts = {
+        "users": User.objects.count(),
+        "claims": Claim.objects.count(),
+        "ledger_rows": PaidLedger.objects.count(),
+    }
+    try:
+        os.remove(saved_path)
+    except OSError:
+        pass
+    actor = User.objects.filter(pk=actor_id).first() if actor_id else None
+    AuditLog.objects.create(
+        actor=actor, action="RESTORE_DONE", entity="Export", detail_json=str(counts)[:2000]
+    )
+    return {"ok": True, **counts}
+
+
+def run_scout(run_id: str) -> str:
+    from core.services.scout import execute
+
+    return execute(run_id)
+
+
+def run_integrity_audit() -> dict:
+    """Nightly: the data-health audit, kept for GET /api/admin/data-health."""
+    from core.services import integrity
+
+    report = integrity.run_and_store()
+    return {"ok": True, "problems": report["problems"], "seconds": report["seconds"]}
+
+
+def run_stored_backup(kind: str = "auto") -> dict:
+    """Weekly, and on demand from the data-health page: a full backup kept in
+    the database's own file store (the newest four)."""
+    from core.services import backup
+
+    return backup.store_weekly(kind)

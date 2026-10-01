@@ -3,10 +3,48 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Faculty Publication App</title>
+    <meta name="description" content="File, track and pay faculty publication incentives." />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/brand/emblem-192.png" />
+    <title>Faculty Publications · Saveetha Engineering College</title>
+    <!-- The theme is resolved before first paint, so a dark page never
+         flashes white. Same rule as src/app/theme.ts. -->
+    <script>
+      try {
+        var t = localStorage.getItem("theme")
+        var dark = t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)
+        document.documentElement.dataset.theme = dark ? "dark" : "light"
+      } catch (e) {}
+      // Paper is always light: a dark-mode user printing a statement gets
+      // black ink on white, then their theme back.
+      addEventListener("beforeprint", function () {
+        var el = document.documentElement
+        el.dataset.screenTheme = el.dataset.theme
+        el.dataset.theme = "light"
+      })
+      addEventListener("afterprint", function () {
+        var el = document.documentElement
+        if (el.dataset.screenTheme) el.dataset.theme = el.dataset.screenTheme
+        delete el.dataset.screenTheme
+      })
+    </script>
+    <!-- Who is signed in, and which college this is: asked now, while the
+         JavaScript downloads, instead of after it has run. The app takes
+         these answers once (lib/api.ts, bootAnswer). -->
+    <script>
+      try {
+        window.__boot = {}
+        ;["/api/auth/me", "/api/institution"].forEach(function (p) {
+          window.__boot[p] = fetch(p, { credentials: "same-origin" })
+          window.__boot[p].catch(function () {})
+        })
+      } catch (e) {}
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Painted with the stylesheet, before any script runs; React replaces
+         it with the same spinner, so nothing jumps. -->
+    <div id="root"><div class="grid min-h-svh place-content-center justify-items-center gap-3" aria-busy="true"><span class="size-5 animate-spin rounded-full border-2 border-line border-t-accent"></span><span class="text-sm text-fg-subtle">Loading…</span></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

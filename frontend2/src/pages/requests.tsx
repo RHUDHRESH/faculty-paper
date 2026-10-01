@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Inbox, Lock } from "lucide-react"
 
+import { requestValueLabel } from "@/app/account"
 import { can, useAuth } from "@/app/auth"
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
@@ -18,13 +19,18 @@ import {
 } from "@/ui/dialog"
 import { Field, Textarea } from "@/ui/field"
 import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { PageHeader } from "@/ui/page-header"
+import { Answer } from "@/ui/answer"
+import { Details } from "@/ui/section"
+import { Avatar, initialsOf } from "@/ui/person"
 
 /**
- * The office's side of `profile.tsx`'s "Request a correction" — every
- * pending ask for a name, staff ID, biometric ID, designation, department or
- * Scopus link, and what became of the ones already decided.
+ * The office's side of `profile.tsx`'s "Request a change" — every pending
+ * ask for a name, staff ID, biometric ID, designation, department, Scopus
+ * link, role, faculty type or research quota, and what became of the ones
+ * already decided.
  *
  * Before this screen existed, a correction request was write-only: an admin
  * who missed the notification lost it outright, there was no list of what
@@ -33,8 +39,8 @@ import { toast } from "@/ui/toast"
  * first, oldest ask first inside it, and a decided request stays visible
  * with its outcome rather than vanishing the moment somebody acts on it.
  *
- * Identity fields (`identity: true` — everything but department) can only be
- * decided by a super admin, on the server as much as here: `POST
+ * Identity fields and the post itself (`identity: true` — everything but
+ * department) can only be decided by a super admin, on the server as much as here: `POST
  * /api/admin/profile-requests/{id}` answers 403 to a research-cell account
  * for one of those, unconditionally, even to decline it. Offering the
  * buttons anyway would just turn every identity row into a guaranteed
@@ -53,6 +59,8 @@ type RequestedBy = {
   email: string
   department: string
   staff_id: string
+  initials?: string
+  photo_url?: string | null
 }
 
 type ProfileRequest = {
@@ -123,15 +131,39 @@ export function Requests() {
     .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
   const decidedRows = results.filter((r) => r.status !== "PENDING")
 
+  const weekAgo = Date.now() - 7 * 86_400_000
+  const overWeek = pendingRows.filter((r) => r.created_at && new Date(r.created_at).getTime() < weekAgo).length
+  const superOnly = pendingRows.filter((r) => r.identity).length
+
   return (
-    <div className="page space-y-8 py-8">
-      <header>
-        <PageTitle>Profile requests</PageTitle>
-        <Sub className="mt-1">
-          Corrections a claimant cannot make themselves — those fields decide who gets paid
-          and whose record a paper is checked against, so an admin decides here instead.
-        </Sub>
-      </header>
+    <div className="page space-y-8">
+      <PageHeader
+        title="Profile requests"
+        sub="Name, staff ID and Scopus corrections that people cannot make themselves. Applying one changes the record."
+        spot="spot-people"
+      />
+
+      <Answer
+        items={[
+          {
+            value: data ? pendingRows.length : null,
+            label: pendingRows.length === 1 ? "Request waiting" : "Requests waiting",
+            zero: "Nothing waiting",
+            tone: "caution",
+          },
+          {
+            value: data ? overWeek : null,
+            label: "Waiting over a week",
+            zero: "None waiting over a week",
+            tone: "critical",
+          },
+          {
+            value: data ? superOnly : null,
+            label: "Only a super admin can decide",
+            zero: "None need a super admin",
+          },
+        ]}
+      />
 
       {isLoading ? (
         <SkeletonRows rows={6} rowHeight={104} />
@@ -143,16 +175,14 @@ export function Requests() {
               ? "Not allowed. Only the research cell and a super admin can open this."
               : "The server did not answer. Nothing has been lost or decided."
           }
-          onRetry={error instanceof ApiError && error.status === 403 ? undefined : () => refetch()}
+          onRetry={error instanceof ApiError && error.status === 403 ? false : () => refetch()}
         />
       ) : (
         <>
           <section className="space-y-3">
             <div className="flex items-baseline justify-between gap-3">
-              <SectionTitle>Pending</SectionTitle>
-              <Meta>
-                {data?.pending ?? 0} {(data?.pending ?? 0) === 1 ? "request" : "requests"} waiting
-              </Meta>
+              <SectionTitle>Waiting for you</SectionTitle>
+              <Meta>Oldest first</Meta>
             </div>
 
             {pendingRows.length === 0 ? (
@@ -160,7 +190,7 @@ export function Requests() {
                 art="empty-queue"
                 icon={Inbox}
                 title="Nothing waiting"
-                message="Every request has been decided. That is good news — come back when the next one lands."
+                message="A request appears here when someone asks to change their name, staff ID or Scopus link on their profile."
               />
             ) : (
               <ul className="divide-y divide-line border-y border-line">
@@ -172,14 +202,13 @@ export function Requests() {
           </section>
 
           {decidedRows.length > 0 && (
-            <section className="space-y-3">
-              <SectionTitle>Decided</SectionTitle>
+            <Details count={decidedRows.length} label="requests already decided">
               <ul className="divide-y divide-line border-y border-line">
                 {decidedRows.map((r) => (
                   <DecidedRow key={r.id} request={r} />
                 ))}
               </ul>
-            </section>
+            </Details>
           )}
         </>
       )}
@@ -195,7 +224,7 @@ function IdentityBadge() {
   return (
     <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-caution-wash px-1.5 py-0.5 text-xs font-medium text-caution">
       <Lock className="size-3" aria-hidden />
-      Identity — super admin only
+      Super admin only
     </span>
   )
 }
@@ -217,33 +246,35 @@ function RequestRow({ request, isSuperAdmin }: { request: ProfileRequest; isSupe
   return (
     <li className="space-y-3 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium">{request.label}</p>
-          <p className="mt-0.5 text-sm text-fg-muted">
-            {[request.requested_by.name, request.requested_by.department, request.requested_by.email]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
+        <div className="flex min-w-0 items-start gap-3">
+          <Avatar person={{ name: request.requested_by.name, initials: request.requested_by.initials ?? initialsOf(request.requested_by.name), photo_url: request.requested_by.photo_url ?? null }} size="md" />
+          <div className="min-w-0">
+            <p className="text-base font-medium">{request.requested_by.name}</p>
+            <p className="mt-0.5 text-sm text-fg-muted">
+              Wants to change their <span className="font-medium text-fg">{request.label}</span>
+              {[request.requested_by.department, request.requested_by.email].filter(Boolean).map((t) => ` · ${t}`).join("")}
+            </p>
+          </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {request.identity && <IdentityBadge />}
-          <Meta>{formatDateTime(request.created_at)}</Meta>
+          <Meta>Asked {formatDateTime(request.created_at)}</Meta>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="rounded-md bg-sunken px-2 py-1">{request.current_value || "Not set"}</span>
+        <span className="rounded-md bg-sunken px-2 py-1">{shown(request, request.current_value) || "Not set"}</span>
         <span className="text-fg-subtle" aria-hidden>
           →
         </span>
-        <span className="rounded-md bg-accent-wash px-2 py-1 font-medium">{request.proposed_value}</span>
+        <span className="rounded-md bg-accent-wash px-2 py-1 font-medium">{shown(request, request.proposed_value)}</span>
       </div>
 
       {moved && (
         <Callout tone="caution" title="The record moved while this was waiting">
-          {request.label} now reads “{request.value_now || "not set"}”, not “
-          {request.current_value || "not set"}” — what was asked about. Approving overwrites
-          today's value, not the one this request was compared against.
+          {request.label} now reads “{shown(request, request.value_now) || "not set"}”, not “
+          {shown(request, request.current_value) || "not set"}”, which is what was asked about. Applying it
+          replaces today's value, not the one this request was compared against.
         </Callout>
       )}
 
@@ -255,12 +286,12 @@ function RequestRow({ request, isSuperAdmin }: { request: ProfileRequest; isSupe
             Decline
           </Button>
           <Button kind="primary" size="sm" onClick={() => setApproveOpen(true)}>
-            Approve
+            Apply
           </Button>
         </div>
       ) : (
-        <p className="text-sm text-fg-subtle">
-          Only a super admin can act on this — it decides identity, not routing.
+        <p className="text-sm text-fg-muted">
+          Only a super admin can decide this one. It changes pay or identity, not routing.
         </p>
       )}
 
@@ -293,7 +324,7 @@ function ApproveDialog({
   async function confirm() {
     try {
       await decide.mutateAsync({ approve: true })
-      toast.ok(`Approved — ${request.label} → “${request.proposed_value}” for ${request.requested_by.name}`)
+      toast.ok(`Applied. ${request.requested_by.name}'s ${request.label.toLowerCase()} is now “${shown(request, request.proposed_value)}”`)
     } catch (err) {
       toast.fail(err)
       // Re-thrown so ConfirmDialog's own confirm() sees the failure and
@@ -307,13 +338,13 @@ function ApproveDialog({
     <ConfirmDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`Approve — ${request.label}?`}
+      title={`Apply this change to ${request.requested_by.name}'s ${request.label.toLowerCase()}?`}
       description={
         moved
-          ? `This writes “${request.proposed_value}” to ${request.requested_by.name}'s ${request.label.toLowerCase()}, replacing what it says today — “${request.value_now || "not set"}” — not what was originally asked about.`
-          : `This writes “${request.proposed_value}” to ${request.requested_by.name}'s ${request.label.toLowerCase()} straight away. That field decides who gets paid and whose record a paper is checked against.`
+          ? `This writes “${shown(request, request.proposed_value)}” to ${request.requested_by.name}'s ${request.label.toLowerCase()}, replacing what it says today, “${shown(request, request.value_now) || "not set"}”, not what was originally asked about.`
+          : `This writes “${shown(request, request.proposed_value)}” to ${request.requested_by.name}'s ${request.label.toLowerCase()} straight away. That field decides who gets paid and whose record a paper is checked against.`
       }
-      confirmLabel="Approve"
+      confirmLabel="Apply"
       onConfirm={confirm}
     />
   )
@@ -357,7 +388,7 @@ function DeclineDialog({
   async function submit() {
     try {
       await decide.mutateAsync({ approve: false, note: trimmed })
-      toast.ok(`Declined — ${request.requested_by.name} will see why`)
+      toast.ok(`Declined. ${request.requested_by.name} will see why`)
       onOpenChange(false)
     } catch (err) {
       toast.fail(err)
@@ -368,15 +399,15 @@ function DeclineDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Decline — {request.label}?</DialogTitle>
+          <DialogTitle>Decline this change to {request.requested_by.name}'s {request.label.toLowerCase()}?</DialogTitle>
           <DialogDescription>
-            {request.requested_by.name} asked for “{request.proposed_value}”.
+            {request.requested_by.name} asked for “{shown(request, request.proposed_value)}”.
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
           <Field
             label="Reason"
-            hint="The claimant reads this on their own profile page — say what was wrong, not just no."
+            hint="The person reads this on their own profile page. Say what was wrong, not just no."
             error={tooShort ? "At least 5 characters." : undefined}
           >
             <Textarea
@@ -427,14 +458,14 @@ function DecidedRow({ request }: { request: ProfileRequest }) {
             approved ? "bg-positive-wash text-positive" : "bg-critical-wash text-critical"
           )}
         >
-          {approved ? "Approved" : "Declined"}
+          {approved ? "Applied" : "Declined"}
         </span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-        <span>{request.current_value || "Not set"}</span>
+        <span>{shown(request, request.current_value) || "Not set"}</span>
         <span aria-hidden>→</span>
-        <span>{request.proposed_value}</span>
+        <span>{shown(request, request.proposed_value)}</span>
       </div>
 
       {request.decision_note && <p className="text-sm text-fg-muted">“{request.decision_note}”</p>}
@@ -450,6 +481,11 @@ function DecidedRow({ request }: { request: ProfileRequest }) {
 /* ------------------------------------------------------------------------ */
 /* Small helpers                                                            */
 /* ------------------------------------------------------------------------ */
+
+/** A requested value as a person reads it: "Head of department", not "HOD". */
+function shown(request: ProfileRequest, value: string): string {
+  return requestValueLabel(request.field, value)
+}
 
 function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return ""

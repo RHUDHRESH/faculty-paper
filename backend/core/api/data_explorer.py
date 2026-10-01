@@ -7,10 +7,10 @@ order and must not be casually reordered.
 
 from __future__ import annotations
 
+from core.services.cell_safe import csv_writer, safe_append
 from core import data_explorer as explorer
 from core.api.common import rate_limit, _csv_row, api, session_auth
 from core.api.common import require_user
-from core.api.claims import _assign_quota_position
 
 import csv
 import io
@@ -31,9 +31,9 @@ from core.services import rbac
 
 
 def _may_browse_data(role: str) -> bool:
-    """The admin and the principal. Finance reads money through its own
-    screens, which are shaped for that job."""
-    return role in rbac.ADMIN_ROLES or role == Role.PRINCIPAL
+    """The super admin only -- the same person the nav shows /data to. The
+    office and the Principal read the record through their own screens."""
+    return role == Role.SUPER_ADMIN
 
 
 class CellEditIn(Schema):
@@ -68,8 +68,8 @@ def data_tables(request: HttpRequest):
         # refused: reading is wide, writing is deliberately narrow.
         "note": (
             "Reading covers every table and every column that is not a secret. "
-            "Editing is limited to reference data — the journal tables, the "
-            "faculty master, budgets and journal standing — because everything "
+            "Editing is limited to reference data: the journal tables, the "
+            "faculty master, budgets and journal standing. Everything "
             "the workflow owns moves through the screens that recalculate it "
             "and record who did it."
         ),
@@ -238,11 +238,11 @@ def data_export(
         wb = Workbook()
         ws = wb.active
         ws.title = table.label[:31]
-        ws.append(headers)
+        safe_append(ws, headers)
         for cell in ws[1]:
             cell.font = Font(bold=True)
         for row in rows:
-            ws.append([
+            safe_append(ws, [
                 # A leading "=" is read as a formula by Excel.
                 f"'{row[h]}" if isinstance(row.get(h), str) and str(row[h]).startswith("=")
                 else row.get(h)
@@ -281,7 +281,7 @@ def data_export(
         return res
 
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv_writer(buf)
     writer.writerow(_csv_row(headers))
     for row in rows:
         writer.writerow(_csv_row([row.get(h) for h in headers]))
@@ -289,7 +289,7 @@ def data_export(
     body = buf.getvalue()
     if fmt == "tsv":
         buf = io.StringIO()
-        writer = csv.writer(buf, delimiter="\t")
+        writer = csv_writer(buf, delimiter="\t")
         writer.writerow(_csv_row(headers))
         for row in rows:
             writer.writerow(_csv_row([row.get(h) for h in headers]))
@@ -348,22 +348,8 @@ def data_edit_cell(
     if value == "":
         value = None
 
-    # Same rule as the pack screen: a corrected year drops the research-quota
-    # slot the old year issued, and the paper has to take one in the new year
-    # or it sits there unnumbered. Unreachable today -- the Claim table
-    # declares no editable columns, so this endpoint cannot touch
-    # `publication_year` at all -- and here so that the day it does, the slot
-    # is not quietly lost.
-    held_a_slot = (
-        isinstance(instance, Claim)
-        and payload.column == "publication_year"
-        and instance.quota_position is not None
-    )
-
     setattr(instance, payload.column, value)
     instance.save(update_fields=[payload.column])
-    if held_a_slot and instance.quota_position is None:
-        _assign_quota_position(instance)
 
     AuditLog.objects.create(
         actor=user, action="DATA_EDIT", entity=table.model_name,

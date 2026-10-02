@@ -86,3 +86,6 @@ from core.api.calculator import *  # noqa: F401,F403
 from core.api.safeguards import *  # noqa: F401,F403
 from core.api.admin_start import *  # noqa: F401,F403
 from core.api.erp_remark import *  # noqa: F401,F403
+from core.api.ai_precheck import *  # noqa: F401,F403
+from core.api.batch_check import *  # noqa: F401,F403
+from core.api.research_helper import *  # noqa: F401,F403

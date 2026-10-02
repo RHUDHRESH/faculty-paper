@@ -990,3 +990,37 @@ POST /api/discover/dismiss {kind, id, undo?} -> { id, dismissed }
 From the publication record. `citations_by_year` is citations earned by the
 papers *published* in each year (OpenAlex gives current counts, not a history).
 `metrics.citations` is null, never 0, when the person has no papers.
+
+### Research helper — counted lists, the model only ranks and explains
+
+For every role that files its own research (not the super admin). No money,
+nothing about a claim or a desk. Abstract text is untrusted data.
+
+```
+GET  /api/research-helper
+     -> { ai, papers[{id,title,year}] }            (papers = the reader's own, for "pick one of mine")
+POST /api/research-helper { title?, text?, paper_id?, ai?: false, refresh?: false }
+     -> { input{hash,title,chars,terms[],paper_id,matched_papers},
+          venues[{id,title,issn,quartile,subject,sjr,snip,dataset_year,indexed,source:history|title|subject,
+                  history{papers,on_topic,first_year,last_year,citations,colleagues,quartiles{}}|null,
+                  caution{kind:watch|removed|unlisted,level:warning|check,text}|null,
+                  why, picked, ai_why, fit:strong|good|possible|null}],
+          colleagues[{id,user_id,name,department,designation,photo_url,papers_on_topic,papers_together,
+                      shared_coauthors[{user_id,name}],shared_count,papers[{id,title,year,venue,doi}],
+                      why, picked, ai_why}],
+          papers[{id,title,year,venue,quartile,doi,mine,authors[],authors_more,matched[]}],
+          ai{state:off|ready|used|failed|limit,label:"AI suggestion",model,host,hosted,detail,cached,per_day,left},
+          summary }
+POST /api/research-helper/draft { colleague_id, title?, text?, paper_id?, refresh? }
+     -> { to{user_id,name}, message, template: bool, ai }      (never sends; colleague must be in the lists)
+POST /api/research-helper/feedback { part: venues|people|draft, value: up|down, input_hash }
+```
+
+`ai: false` returns the counted lists only (always works). With `ai: true` the
+server asks the model to pick and explain among those rows by id; an id that was
+not a candidate, a number the facts do not hold, a link or a sum of money is
+dropped. A journal on the research cell's watch-list or dropped by Scopus or
+UGC-CARE is warned in `caution` (without the cell's reason) and is never picked.
+Model calls are audit-logged (`AI_RESEARCH_HELPER`, `AI_RESEARCH_HELPER_CACHED`,
+`AI_FEEDBACK`), cached by input, and limited per person per day
+(`RESEARCH_HELPER_DAILY_LIMIT`, default 30).

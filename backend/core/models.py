@@ -2974,3 +2974,105 @@ class ScoutRun(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class AIPrecheck(models.Model):
+    """The AI claim pre-check for one claim, as it stood for one set of inputs.
+
+    Keyed on `input_hash`: the claim's facts and each attached file's identity
+    (core.services.ai_precheck.input_hash), so the same claim with the same
+    files is answered from here and a changed claim is read again. It is a
+    reading aid for the research cell and nothing in the money path ever
+    consults it.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="ai_prechecks")
+    input_hash = models.CharField(max_length=64)
+    result_json = models.TextField(default="{}")
+    model = models.CharField(max_length=128, blank=True, default="")
+    host = models.CharField(max_length=255, blank=True, default="")
+    hosted = models.BooleanField(default=False)
+    #: Estimated from characters (about four to a token) unless the provider
+    #: reports its own; the result says which.
+    tokens_in = models.IntegerField(blank=True, null=True)
+    tokens_out = models.IntegerField(blank=True, null=True)
+    created_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="ai_prechecks"
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["claim", "input_hash"], name="one_ai_precheck_per_inputs")
+        ]
+
+
+class AIFeedback(models.Model):
+    """A thumbs up or down on one AI answer, one per person per answer."""
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="ai_feedback")
+    feature = models.CharField(max_length=48)
+    target_id = models.CharField(max_length=64)
+    claim = models.ForeignKey(
+        Claim, null=True, blank=True, on_delete=models.CASCADE, related_name="ai_feedback"
+    )
+    rating = models.SmallIntegerField()
+    comment = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "feature", "target_id"], name="one_ai_feedback_per_answer"
+            )
+        ]
+
+
+class AIUsage(models.Model):
+    """One AI call, or one refusal to make one (core.services.ai_harness).
+
+    The audit trail and the meter in one table: who asked, for which feature,
+    which model, how long it took, how many tokens, and how it ended. The
+    per-person daily limit and the college's monthly cap are counted from
+    these rows, so they survive a restart of a host that forgets everything
+    held in memory. No prompt and no answer is stored here: an audit row that
+    kept the text would be a second copy of whatever the person asked about.
+
+    ``outcome`` is ``ok`` (answered), ``cached`` (answered from memory, no
+    call made), ``rejected`` (the model answered and the answer was not
+    usable: wrong shape, or a guard refused it), ``failed`` (the provider
+    could not answer; see ``code``) or ``refused`` (never sent: a limit, the
+    breaker, a full queue). ``ok`` and ``rejected`` spent the allowance and
+    are what a limit counts; the others did not.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="ai_usage")
+    role = models.CharField(max_length=32, blank=True, default="")
+    feature = models.CharField(max_length=64, db_index=True)
+    model = models.CharField(max_length=96, blank=True, default="")
+    tier = models.CharField(max_length=16, blank=True, default="")
+    outcome = models.CharField(max_length=16, db_index=True)
+    code = models.CharField(max_length=32, blank=True, default="")
+    attempts = models.PositiveSmallIntegerField(default=0)
+    latency_ms = models.PositiveIntegerField(default=0)
+    prompt_chars = models.PositiveIntegerField(default=0)
+    output_chars = models.PositiveIntegerField(default=0)
+    tokens_in = models.PositiveIntegerField(default=0)
+    tokens_out = models.PositiveIntegerField(default=0)
+    #: False when the tokens are chars/4 because the service did not say.
+    tokens_exact = models.BooleanField(default=False)
+    #: How many things a guard removed or rewrote in the answer.
+    guard_hits = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "created_at"], name="aiusage_user_when"),
+            models.Index(fields=["created_at", "outcome"], name="aiusage_when_outcome"),
+        ]

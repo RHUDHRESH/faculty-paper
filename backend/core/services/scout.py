@@ -28,6 +28,7 @@ from django.utils import timezone
 
 from core.models import ScoutRun, User
 from core.services import ai, anthropic_provider
+from core.services import ai_harness as harness
 from core.services import coauthors as graph
 from core.services import research_picture as picture
 
@@ -183,45 +184,89 @@ def scopus_recent(topics: list[str], *, per_topic: int = 5, max_topics: int = 3)
 # From the web                                                                #
 # --------------------------------------------------------------------------- #
 
-_SHAPE = """{
- "summary": "two sentences on where this person's research can go next",
- "opportunities": [{"title": "", "kind": "call|special_issue|conference|open_problem",
-                    "why": "why it fits them", "deadline": "YYYY-MM-DD or empty", "url": ""}],
- "directions": [{"title": "", "builds_on": "which of their papers/topics", "why": "", "urls": [""]}],
- "external_people": [{"name": "", "affiliation": "", "work": "what they do that fits", "url": ""}],
- "colleagues": [{"user_id": "id from the candidate list", "why": "what the pair could do together"}]
-}"""
+_TASK = (
+    "The data blocks hold a faculty member's publication record from our college database, "
+    "college colleagues from OTHER departments whose records overlap theirs (computed from "
+    "our database, each with a user_id), and, when there are any, recent highly cited Scopus "
+    "papers on their topics (from the Scopus Search API; their first authors are candidate "
+    "external collaborators, and those urls are valid to cite). "
+    "Search the web (up to 5 searches) and find:\n"
+    "1. 3-6 current opportunities: open funded calls (include national funders for an "
+    "Indian college, e.g. ANRF/SERB, DST, DBT, ICMR, AICTE, where they fit), journal "
+    "special issues, upcoming conferences, or recognised open problems in their area "
+    "(with deadlines if stated). 'kind' is one of call, special_issue, conference or "
+    "open_problem; 'deadline' is YYYY-MM-DD or empty.\n"
+    "2. 3-5 next-level research directions that build directly on their past work.\n"
+    "3. 3-6 external researchers or groups active in those directions.\n"
+    "4. From the candidate list only, pick up to 4 colleagues (by their user_id) and say "
+    "what each pair could do.\n"
+    "Every url must be one you actually saw in search results. "
+    "After searching, answer with only the JSON."
+)
 
 
-def _prompt(profile: dict[str, Any], candidates: list[dict[str, Any]],
-            literature: list[dict[str, Any]] | None = None) -> str:
+def _blocks(profile: dict[str, Any], candidates: list[dict[str, Any]],
+            literature: list[dict[str, Any]] | None = None) -> list[harness.DataBlock]:
+    """The record, the candidates and the literature, as fenced data.
+
+    Every name, title and venue in them came from somebody's own entry or from
+    a web service, so none of it is an instruction (docs/ux/20-ai.md, rule 4).
+    """
     public = {k: v for k, v in profile.items() if k != "college_coauthor_ids"}
     cands = [{k: c[k] for k in ("user_id", "name", "department", "shared_topics", "their_topics")}
              for c in candidates]
-    return (
-        f"Today is {timezone.localdate().isoformat()}.\n"
-        "Here is a faculty member's publication record from our college database:\n"
-        f"{json.dumps(public, ensure_ascii=False)}\n\n"
-        "Here are college colleagues from OTHER departments whose records overlap theirs "
-        "(computed from our database):\n"
-        f"{json.dumps(cands, ensure_ascii=False)}\n\n"
-        + (
-            "Recent highly cited Scopus papers on their topics (from the Scopus Search API; "
-            "their first authors are candidate external collaborators, and these urls are "
-            "valid to cite):\n" + json.dumps(literature, ensure_ascii=False) + "\n\n"
-            if literature else ""
-        )
-        + "Search the web (up to 5 searches) and find:\n"
-        "1. 3-6 current opportunities: open funded calls (include national funders for an "
-        "Indian college, e.g. ANRF/SERB, DST, DBT, ICMR, AICTE, where they fit), journal "
-        "special issues, upcoming conferences, or recognised open problems in their area "
-        "(with deadlines if stated).\n"
-        "2. 3-5 next-level research directions that build directly on their past work.\n"
-        "3. 3-6 external researchers or groups active in those directions.\n"
-        "4. From the candidate list only, pick up to 4 colleagues and say what each pair could do.\n"
-        "Every url must be one you actually saw in search results. "
-        "After searching, answer with ONLY this JSON (no prose, no code fences):\n" + _SHAPE
+    blocks = [
+        harness.DataBlock("faculty member's record", json.dumps(public, ensure_ascii=False), 12000),
+        harness.DataBlock("colleagues in other departments", json.dumps(cands, ensure_ascii=False), 8000),
+    ]
+    if literature:
+        blocks.append(harness.DataBlock("recent Scopus papers", json.dumps(literature, ensure_ascii=False), 10000))
+    return blocks
+
+
+def _rows(item: harness.Spec, limit: int) -> harness.Arr:
+    return harness.Arr(item, max_items=limit, drop_invalid=True, required=False, default=[])
+
+
+def _opt(limit: int) -> harness.Str:
+    return harness.Str(limit, truncate=True, required=False, default="")
+
+
+#: Loose on purpose: `_clean` below keeps only what is checkable. This is what
+#: makes sure it is handed objects and lists, and that a link, an address or a
+#: colleague the search never produced is gone before it is.
+SCOUT_SCHEMA = harness.Obj(
+    {
+        "summary": _opt(600),
+        "opportunities": _rows(
+            harness.Obj({"title": harness.Str(200, truncate=True), "kind": _opt(20), "why": _opt(400),
+                         "deadline": _opt(20), "url": _opt(600)}), 10),
+        "directions": _rows(
+            harness.Obj({"title": harness.Str(200, truncate=True), "builds_on": _opt(300), "why": _opt(400),
+                         "urls": harness.Arr(harness.Str(600, truncate=True), max_items=5, drop_invalid=True,
+                                             required=False, default=[])}), 8),
+        "external_people": _rows(
+            harness.Obj({"name": harness.Str(120, truncate=True), "affiliation": _opt(200),
+                         "work": _opt(400), "url": _opt(600)}), 10),
+        "colleagues": _rows(harness.Obj({"user_id": harness.Str(64), "why": _opt(400)}), 8),
+    },
+)
+
+SCOUT = harness.register(
+    harness.Feature(
+        name="scout.research",
+        model="considered",
+        system=SCOUT_SYSTEM,
+        schema=SCOUT_SCHEMA,
+        guards=[harness.no_pii()],
+        # One web search run is minutes of a paid tool: no re-asking.
+        limits=harness.Limits(timeout=180, deadline=420, reasks=0, transient_retries=1,
+                              max_input_chars=48000, max_block_chars=12000),
+        temperature=0.2,
+        # It searches the web; what it may keep is decided by the guards.
+        closed_world=False,
     )
+)
 
 
 def _clean(raw: Any, sources: list[dict[str, str]], candidates: list[dict[str, Any]]) -> dict[str, Any]:
@@ -272,6 +317,12 @@ def _clean(raw: Any, sources: list[dict[str, str]], candidates: list[dict[str, A
     }
 
 
+def _remember(reply: harness.Reply, seen: list[dict[str, str]], literature: list[dict[str, Any]]) -> harness.Reply:
+    """Note which links this run is allowed to show: the search's, and Scopus's."""
+    seen[:] = [*(reply.extra or {}).get("sources", []), *({"url": x["url"]} for x in literature if x.get("url"))]
+    return reply
+
+
 def scout(user: User) -> tuple[dict[str, Any], dict[str, Any]]:
     """The full answer and the token usage. Raises ai.AIError on failure."""
     if ai.provider_name() != "anthropic" or anthropic_provider.missing_settings():
@@ -284,11 +335,36 @@ def scout(user: User) -> tuple[dict[str, Any], dict[str, Any]]:
         raise ai.AIError("There are no papers on your record yet, so there is nothing to scout from.",
                          code="no_record")
     literature = scopus_recent(profile["topics"])
-    try:
-        found = anthropic_provider.research(_prompt(profile, candidates, literature), system=SCOUT_SYSTEM)
-    except anthropic_provider.AnthropicError as exc:
-        raise ai.AIError(exc.message, code=ai._CODE_MAP.get(exc.kind, "error")) from exc
-    parsed = ai._extract_json(found["text"])
+
+    def send(req: harness.Request) -> harness.Reply:
+        """Claude with web search, which `ai.ask_json` has no way to ask."""
+        try:
+            got = anthropic_provider.research(req.prompt, system=req.system)
+        except anthropic_provider.AnthropicError as exc:
+            raise ai.AIError(exc.message, code=ai._CODE_MAP.get(exc.kind, "error")) from exc
+        used = got.get("usage") or {}
+        return harness.Reply(
+            got["text"],
+            usage={"input_tokens": used.get("input_tokens", 0), "output_tokens": used.get("output_tokens", 0)},
+            extra=got,
+        )
+
+    seen_sources: list[dict[str, str]] = []
+    result = SCOUT.run(
+        user=user,
+        data_blocks=_blocks(profile, candidates, literature),
+        system_extra=f"Today is {timezone.localdate().isoformat()}.\n" + _TASK,
+        # A colleague the candidate list did not contain is dropped by the
+        # harness before `_clean` sees it, and a link the search never
+        # returned is removed from every sentence, not only from the url fields.
+        guards=[
+            harness.grounded_ids([c["user_id"] for c in candidates], keys=("user_id",)),
+            harness.no_urls_except(lambda: [x["url"] for x in seen_sources]),
+        ],
+        transport=lambda req: _remember(send(req), seen_sources, literature),
+    )
+    parsed = result.unwrap()
+    found = result.extra
     lit_sources = [{"url": x["url"], "title": x["title"]} for x in literature if x["url"]]
     web = _clean(parsed, found["sources"] + lit_sources, candidates)
     colleagues = web.pop("colleagues")

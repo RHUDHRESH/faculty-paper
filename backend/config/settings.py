@@ -483,6 +483,41 @@ HARNESS_FAST_KEEP_ALIVE = (os.getenv("HARNESS_FAST_KEEP_ALIVE") or "30m").strip(
 # process is the whole deployment. If workers ever multiply, the caps become
 # per-worker -- core/api/common.py says so next to the implementation.
 AI_DAILY_LIMIT = int(os.getenv("AI_DAILY_LIMIT", "100"))
+# Model calls one research-cell member may spend on the claim pre-check and its
+# send-back drafts in 24 hours (core/services/ai_precheck.py). Cached answers are free.
+AI_PRECHECK_DAILY_LIMIT = int(os.getenv("AI_PRECHECK_DAILY_LIMIT", "40"))
+
+# ---------------------------------------------------------------------------
+# The AI harness (core/services/ai_harness.py). Every AI call goes through it,
+# so these are the whole of the cost and reliability dials; docs/ops/ai-harness.md
+# says what each one protects.
+#
+# Per person, per day, across every feature (a feature may set a lower number
+# of its own); and the whole college, per calendar month. Counted from the
+# AIUsage rows, so they survive a restart of the free host, which forgets
+# everything held in memory.
+AI_PERSON_DAILY_CALLS = int(os.getenv("AI_PERSON_DAILY_CALLS", "60"))
+AI_COLLEGE_MONTHLY_CALLS = int(os.getenv("AI_COLLEGE_MONTHLY_CALLS", "6000"))
+# Zero means "count calls only". Set it to cap the month by tokens as well
+# (a hosted model's free allowance is usually counted in tokens).
+AI_COLLEGE_MONTHLY_TOKENS = int(os.getenv("AI_COLLEGE_MONTHLY_TOKENS", "0"))
+# At most this many model calls at once in one process: the free host has
+# 512 MB and a tenth of a CPU, and the hosted key has a per-minute allowance.
+# A call that cannot get a place within AI_QUEUE_WAIT_SECONDS is refused as
+# busy instead of piling up behind the others.
+AI_MAX_IN_FLIGHT = int(os.getenv("AI_MAX_IN_FLIGHT", "2"))
+AI_QUEUE_WAIT_SECONDS = float(os.getenv("AI_QUEUE_WAIT_SECONDS", "15"))
+# After this many failures in a row (the service down, a spent allowance, a
+# refused key) the AI is treated as unavailable for the cool-down, and every
+# page falls back to what it can do without it. Off under tests.
+AI_BREAKER_FAILURES = 0 if _RUNNING_TESTS else int(os.getenv("AI_BREAKER_FAILURES", "5"))
+AI_BREAKER_COOLDOWN_SECONDS = float(os.getenv("AI_BREAKER_COOLDOWN_SECONDS", "300"))
+# Retry on 429 and 5xx with jittered exponential backoff. Zero under tests,
+# where nothing should sleep.
+AI_BACKOFF_BASE_SECONDS = 0.0 if _RUNNING_TESTS else float(os.getenv("AI_BACKOFF_BASE_SECONDS", "0.6"))
+# How long an answer is reused for the same question from the same person.
+# Off under tests, where each case patches the model and expects to be asked.
+AI_CACHE_TTL_SECONDS = 0 if _RUNNING_TESTS else int(os.getenv("AI_CACHE_TTL_SECONDS", "900"))
 AGENT_DAILY_LIMIT = int(os.getenv("AGENT_DAILY_LIMIT", "50"))
 SEARCH_DAILY_LIMIT = int(os.getenv("SEARCH_DAILY_LIMIT", "200"))
 EXPORT_HOURLY_LIMIT = int(os.getenv("EXPORT_HOURLY_LIMIT", "40"))

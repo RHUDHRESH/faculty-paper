@@ -24,6 +24,7 @@ import { Meta, SectionTitle } from "@/ui/text"
 import { Timeline, type TimelineEvent, type TimelineKind } from "@/ui/timeline"
 import { toast } from "@/ui/toast"
 import { ChoiceChips } from "@/pages/record-bits"
+import { ResearchHelper } from "@/pages/research-helper"
 import { unshout } from "@/lib/names"
 /**
  * My research (docs/ux/05): one page, two tabs. "Me" validates the past
@@ -138,14 +139,20 @@ const topicHref = (q: string) => `/search?scope=topics&q=${encodeURIComponent(q)
 
 export function Research() {
   const [params, setParams] = useSearchParams()
-  const tab = params.get("tab") === "college" ? "college" : "me"
   const { me } = useAuth()
-  const mine = useApi<MyResearch>(["research", "me"], "/api/me/research")
+  // The helper is for people who file their own research; the office roles
+  // that only run the college never see it (the server refuses them too).
+  const canHelp = !!me && me.role !== "SUPER_ADMIN"
+  const wanted = params.get("tab")
+  const tab = wanted === "college" ? "college" : wanted === "helper" && canHelp ? "helper" : "me"
+  const mine = useApi<MyResearch>(["research", "me"], "/api/me/research", { enabled: tab === "me" })
 
   const sentence =
     tab === "college"
       ? "Where the college publishes, what is rising, and who works near you."
-      : mine.isLoading
+      : tab === "helper"
+        ? "Paste an abstract or an idea, and find journals and colleagues at the college that fit."
+        : mine.isLoading
         ? "Reading your record…"
         : (mine.data?.headline ?? "We will learn your topics from your papers' keywords once your record is matched.")
 
@@ -174,12 +181,13 @@ export function Research() {
             options={[
               { id: "me", label: "Me" },
               { id: "college", label: "The college" },
+              ...(canHelp ? [{ id: "helper" as const, label: "Research helper" }] : []),
             ]}
           />
         </div>
       </PageHeader>
 
-      {tab === "college" ? <CollegeTab /> : <MeTab q={mine} />}
+      {tab === "college" ? <CollegeTab /> : tab === "helper" ? <ResearchHelper /> : <MeTab q={mine} />}
     </div>
   )
 }

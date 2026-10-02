@@ -66,7 +66,7 @@ from typing import Any
 
 from core.models import Claim, ClaimStatus, Mention, Role, User
 from core import discussions
-from core.services import ai, openai_compat, rbac
+from core.services import ai, ai_harness as harness, openai_compat, rbac
 from core.services.normalize import normalize_issn
 
 logger = logging.getLogger(__name__)
@@ -413,14 +413,80 @@ def _note_failure(reason: str, code: str, detail: str = "") -> None:
     logger.warning("thread_agent_model_unanswered reason=%s code=%s %s", reason, code, detail)
 
 
-_ANSWER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "answer": {"type": "string"},
-        "journals": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["answer"],
-}
+_ANSWER_SYSTEM = (
+    "You are the assistant in a discussion thread at an Indian engineering college. "
+    "Faculty ask you about publishing. What we hold, and what has been said in the thread, "
+    "is in one data block and the question is in another. "
+    f"Answer it in at most {ANSWER_WORDS} words of plain prose. No lists, no "
+    "headings, no preamble. If you do not know, say so in one sentence rather "
+    "than filling the space.\n\n"
+    "You must not state any amount of money, any quartile, any SNIP, any SJR "
+    "or any impact factor. Those are read out of our own tables and printed "
+    "beside your answer; a number from you would be a guess wearing the same "
+    "clothes as a fact, and any sentence containing one will be discarded.\n"
+    "Do not name journals inside 'answer'. If journals are worth pointing at, "
+    f"put at most {SHOW_JOURNALS} exact full journal titles in 'journals' and "
+    "the software will look them up and print what it finds. Give no title you "
+    "are not confident is a real, currently published journal. An unrecognised "
+    "one is dropped, so a guess costs the reader an answer rather than gaining "
+    "them one."
+)
+
+
+def _answer_guards(asker) -> list:
+    """What this reader may not be told, and what the assistant may not claim,
+    on top of `_keep_founded`.
+
+    No amounts for anybody (the thread assistant states none); no flags or
+    watch-list talk for a reader who is not on a desk that judges papers; no
+    desk or person holding a claim for a faculty member; no contact details
+    and no links; and never a sentence saying it approved, cleared, paid or
+    sent anything (docs/ux/20-ai.md, rule 3).
+    """
+    return [
+        *harness.role_guards(asker, allow_money=False),
+        harness.NoDecisions(),
+        harness.no_pii(),
+        harness.no_urls_except(),
+    ]
+
+
+ANSWER = harness.register(
+    harness.Feature(
+        name="thread.answer",
+        # The one caller on the interactive tier. Somebody is on the page
+        # watching their own post, which is a different kind of waiting from
+        # the venue search they start and walk away from.
+        model="fast",
+        system=_ANSWER_SYSTEM,
+        # A bare string where an object was asked for is the commonest shape a
+        # smaller model misses it in, and `.get` on it would be a crash.
+        schema=harness.Obj(
+            {
+                "answer": harness.Str(2000, truncate=True),
+                "journals": harness.Arr(
+                    harness.Str(200, truncate=True),
+                    max_items=SHOW_JOURNALS * 3,
+                    drop_invalid=True,
+                    required=False,
+                    default=[],
+                ),
+            },
+            from_scalar="answer",
+        ),
+        guards=_answer_guards,
+        limits=harness.Limits(
+            timeout=ANSWER_DEADLINE,
+            deadline=ANSWER_DEADLINE + 12,
+            # A person is watching: one more try on a 429, no more.
+            transient_retries=1,
+        ),
+        temperature=0.2,
+        # It answers a question about publishing from what it knows, and says
+        # when it does not; every figure beside it is read from our tables.
+        closed_world=False,
+    )
+)
 
 
 def _sentences(text: str) -> list[str]:
@@ -547,27 +613,17 @@ def _scrubbed(text: str) -> str:
     return _MONEY_RE.sub("[amount withheld]", text or "")
 
 
-def _build_prompt(question: str, context: list[str]) -> str:
-    return _scrubbed(
-        "You are the assistant in a discussion thread at an Indian engineering "
-        "college. Faculty ask you about publishing.\n\n"
-        + ("What we hold, and what has been said:\n" + "\n".join(context) + "\n\n"
-           if context else "")
-        + f"The question: {question}\n\n"
-        f"Answer it in at most {ANSWER_WORDS} words of plain prose. No lists, no "
-        "headings, no preamble. If you do not know, say so in one sentence rather "
-        "than filling the space.\n\n"
-        "You must not state any amount of money, any quartile, any SNIP, any SJR "
-        "or any impact factor. Those are read out of our own tables and printed "
-        "beside your answer; a number from you would be a guess wearing the same "
-        "clothes as a fact, and any sentence containing one will be discarded.\n"
-        "Do not name journals inside 'answer'. If journals are worth pointing at, "
-        f"put at most {SHOW_JOURNALS} exact full journal titles in 'journals' and "
-        "the software will look them up and print what it finds. Give no title you "
-        "are not confident is a real, currently published journal — an unrecognised "
-        "one is dropped, so a guess costs the reader an answer rather than gaining "
-        "them one."
-    )
+def _data_blocks(question: str, context: list[str]) -> list:
+    """The thread and the question, as fenced data with every amount withheld.
+
+    Both are other people's words -- a colleague may have typed anything into
+    the thread -- so both are data, and `_scrubbed` runs over each before the
+    harness fences it.
+    """
+    return [
+        harness.DataBlock("what we hold, and what has been said", _scrubbed("\n".join(context))),
+        harness.DataBlock("the question", _scrubbed(question), 1200),
+    ]
 
 
 def _resolved_journals(names: list[str], asker: User) -> list[str]:
@@ -644,35 +700,20 @@ def _answer_with_model(question: str, context: list[str], asker: User) -> str | 
         return None
 
     started = time.monotonic()
-    try:
-        raw = ai.ask_json(
-            _build_prompt(question, context),
-            schema=_ANSWER_SCHEMA,
-            temperature=0.2,
-            timeout=ANSWER_DEADLINE,
-            # The one caller on the interactive tier. Somebody is on the page
-            # watching their own post, which is a different kind of waiting
-            # from the venue search they start and walk away from.
-            fast=True,
+    # Through the harness: the thread is fenced as data, the answer is checked
+    # against a schema, and a failure of any kind is a value, not an exception
+    # (nothing here may reach the post).
+    result = ANSWER.run(user=asker, data_blocks=_data_blocks(question, context))
+    if not result.ok:
+        what = {"crashed": "crashed", "unusable": "unusable", "blocked": "unusable"}.get(
+            result.reason, "refused"
         )
-    except ai.AIError as exc:
-        _note_failure("refused", getattr(exc, "code", "error"), str(exc))
-        return None
-    except Exception as exc:  # noqa: BLE001 - never let it reach the post
-        logger.exception("thread_agent_model_crashed")
-        _note_failure("crashed", "error", str(exc))
+        if what == "crashed":
+            logger.error("thread_agent_model_crashed %s", result.cause)
+        _note_failure(what, result.code, result.message)
         return None
     elapsed = time.monotonic() - started
-
-    # A smaller model misses its container often enough to be ordinary rather
-    # than exceptional; a bare string where an object was asked for is the
-    # commonest shape, and `.get` on it is an AttributeError where a shrug
-    # would do.
-    if isinstance(raw, str):
-        raw = {"answer": raw}
-    if not isinstance(raw, dict):
-        _note_failure("unusable", "unparsable", f"model returned {type(raw).__name__}")
-        return None
+    raw = result.data
 
     prose, dropped = _keep_founded(str(raw.get("answer") or ""))
     if dropped:

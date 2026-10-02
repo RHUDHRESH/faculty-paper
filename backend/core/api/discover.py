@@ -206,6 +206,7 @@ def discover_venues(request: HttpRequest, payload: VenueIn):
             keywords=(payload.keywords or "").strip(),
             author_position=max(1, payload.author_position),
             total_authors=max(1, payload.total_authors),
+            user=user,
         )
     except ai.AIError as exc:
         raise HttpError(_ai_failure_status(exc), str(exc)) from exc
@@ -223,7 +224,11 @@ def _ai_failure_status(exc: ai.AIError) -> int:
     """
     unavailable = (
         "model_missing", "unreachable", "misconfigured", "not_configured", "rate_limited",
+        # The harness's own refusals: the breaker is open, the queue is full.
+        "circuit_open", "busy",
     )
+    if exc.code in ("person_limit", "feature_limit", "college_cap"):
+        return 429  # an allowance, not a fault: say so
     return 503 if exc.code in unavailable else 502
 
 
@@ -314,6 +319,7 @@ def discover_venues_stream(request: HttpRequest, payload: VenueIn):
                 "keywords": (payload.keywords or "").strip(),
                 "author_position": max(1, payload.author_position),
                 "total_authors": max(1, payload.total_authors),
+                "user": user,
             },
             token=token,
         ):
@@ -647,7 +653,7 @@ def discover_directions(request: HttpRequest):
         }
 
     try:
-        return discover_service.suggest_directions(history=history, interests=interests)
+        return discover_service.suggest_directions(history=history, interests=interests, user=user)
     except ai.AIError as exc:
         raise HttpError(_ai_failure_status(exc), str(exc)) from exc
 

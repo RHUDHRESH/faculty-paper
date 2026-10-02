@@ -248,7 +248,7 @@ const PAGES: NavItem[] = [
     area: "research",
     keywords: [
       "areas", "field", "trends", "breakthroughs", "programme", "college", "college's research",
-      "growing", "fading", "departments", "goals", "targets", "this year", "progress",
+      "growing", "fading", "departments", "goals", "targets", "this year", "progress", "research helper", "where to publish", "which journal",
     ],
   },
   {

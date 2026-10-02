@@ -442,7 +442,35 @@ def generate(
     return _content_of(data)
 
 
+#: What the last whole answer on this thread reported using, for the AI
+#: harness's audit row. Thread-local because calls run concurrently on
+#: different threads; read once and cleared by `take_usage`.
+_USAGE = threading.local()
+
+
+def take_usage() -> dict[str, int] | None:
+    """Tokens the last answer on this thread used, if the service said."""
+    got = getattr(_USAGE, "last", None)
+    _USAGE.last = None
+    return got
+
+
+def _note_usage(data: Any) -> None:
+    usage = data.get("usage") if isinstance(data, dict) else None
+    if not isinstance(usage, dict):
+        _USAGE.last = None
+        return
+    try:
+        _USAGE.last = {
+            "input_tokens": int(usage.get("prompt_tokens") or 0),
+            "output_tokens": int(usage.get("completion_tokens") or 0),
+        }
+    except (TypeError, ValueError):
+        _USAGE.last = None
+
+
 def _content_of(data: Any) -> str:
+    _note_usage(data)
     try:
         message = data["choices"][0]["message"]
     except (KeyError, IndexError, TypeError):

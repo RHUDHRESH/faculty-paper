@@ -14,6 +14,7 @@ import {
   thresholdClause,
   type AuthClaim,
 } from "@/pages/authorise-dialogs"
+import { BatchCheck } from "@/pages/batch-check"
 import { BudgetStrip, budgetLine } from "@/pages/budget-strip"
 import { useBudgetNow } from "@/pages/pay-parts"
 import { Answer } from "@/ui/answer"
@@ -248,6 +249,7 @@ export function Authorisations() {
               <BudgetStrip budget={budget.data?.college} batch={totals?.amount ?? 0} labels="wide" />
             </div>
           )}
+          {(totals?.count ?? 0) > 0 && <BatchCheck stage="authorise" department={department || undefined} />}
         </div>
       )}
 

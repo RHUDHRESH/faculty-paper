@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react"
+import { fireEvent, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -91,27 +91,46 @@ function mount(ui: React.ReactElement, route: string, extra: Record<string, () =
 describe("the year brief", () => {
   it("makes every figure a link to the papers it counts, and states the base of the quartile share", async () => {
     mount(<YearBrief />, "/reports/brief")
-    const strip = await screen.findByRole("group", { name: "At a glance" })
-    const papers = within(strip).getByRole("link", { name: /1,586 papers in 2025/ })
+    const sheet = await screen.findByRole("article")
+    const papers = within(sheet).getByRole("link", { name: "1,586" })
     expect(papers).toHaveAttribute("href", "/reports/papers?year=2025")
-    const quartile = within(strip).getByRole("link", { name: /57% in Q1 or Q2 journals/ })
+    const quartile = within(sheet).getByRole("link", { name: "57%" })
     expect(quartile).toHaveAttribute("href", "/reports/papers?year=2025&quartile=top")
-    expect(quartile).toHaveTextContent("449 papers with a quartile recorded")
+    // The base is said in the row, not left for the council to ask.
+    expect(within(sheet).getByText(/of the 449 papers with a quartile recorded/)).toBeInTheDocument()
+  })
+
+  it("sets the finding as the biggest sentence and draws a running year hollow, never as a fall", async () => {
+    mount(<YearBrief />, "/reports/brief", {
+      "/api/reports/brief": () => ({
+        ...BRIEF,
+        finding: "In 2025 the college published 1,586 papers, up 13.8% on 2024.",
+        context: "3.87 papers per teacher across 410 teachers.",
+        detail: "It paid ₹1,28,65,956.",
+        running: { year: 2026, papers: 1126, per_teacher: 2.74, financial_year: "2026-27", paid: 2302959, as_of: "2026-10-01" },
+      }),
+    })
+    expect(await screen.findByRole("status")).toHaveTextContent("1,586 papers, up 13.8% on 2024")
+    const chart = screen.getAllByRole("img", { name: /Papers published/ })[0]
+    expect(chart).toHaveAccessibleName(/2026 1,126 to date/)
+    expect(screen.getByText(/2026 is to date: 1,126 papers/)).toBeInTheDocument()
   })
 
   it("names what is not ready for the council and the department to call about", async () => {
     mount(<YearBrief />, "/reports/brief")
+    // What is left to settle is one step away, with its count on the door.
+    fireEvent.click(await screen.findByRole("button", { name: /things to settle before it goes/ }))
     expect(await screen.findByText("A budget is set for FY 2025-26")).toBeInTheDocument()
     expect(screen.getByText("To settle")).toBeInTheDocument()
-    expect(screen.getByText("1 to settle")).toBeInTheDocument()
-    const push = screen.getByRole("link", { name: /TRAINING.*under half the college/ })
+    expect(screen.getByRole("link", { name: "Open the budget" })).toHaveAttribute("href", "/budget")
+    const push = screen.getAllByRole("link", { name: "TRAINING" })[0]
     expect(push).toHaveAttribute("href", "/reports/departments/TRAINING?year=2025")
   })
 
-  it("offers the council PDF for the year on screen", async () => {
+  it("offers the council pack for the year on screen", async () => {
     mount(<YearBrief />, "/reports/brief")
     await screen.findByText(/13.8% on 2024/)
-    const pdf = screen.getByRole("link", { name: /Download council PDF/ })
+    const pdf = screen.getByRole("link", { name: /Download the council pack/ })
     expect(pdf).toHaveAttribute("href", "/api/reports/brief/export?fmt=pdf&year=2025")
   })
 })
@@ -151,7 +170,7 @@ describe("the list behind a figure", () => {
 
 describe("the Principal's home", () => {
   it("leads with what waits for her, then the year and the departments to call", async () => {
-    const { PrincipalHome } = await import("@/pages/home-staff")
+    const { PrincipalHome } = await import("@/pages/home-principal")
     mount(<PrincipalHome />, "/", {
       "/api/principal/queue": () => ({
         total: 2,
@@ -165,12 +184,16 @@ describe("the Principal's home", () => {
       "/api/claims/counts": () => ({ counts: {} }),
       "/api/me/payments": () => ({ results: [], total: 0 }),
     })
-    const strip = await screen.findByRole("group", { name: "At a glance" })
-    expect(await within(strip).findByRole("link", { name: /2 waiting for your approval/ })).toHaveAttribute("href", "/approvals")
-    expect(within(strip).getByText("45 days")).toBeInTheDocument()
-    expect(await screen.findByTestId("principal-brief-headline")).toHaveTextContent("1,586 papers")
-    expect(screen.getByRole("link", { name: /TRAINING/ })).toHaveAttribute("href", "/reports/departments/TRAINING?year=2025")
-    expect(screen.getByRole("link", { name: /Approve: Grain boundaries/ })).toBeInTheDocument()
+    // The answer is one sentence, the biggest thing on the page.
+    expect(await screen.findByText(/2 claims, ₹52,000, are waiting for you/)).toBeInTheDocument()
+    expect(screen.getByText(/The longest has waited/)).toBeInTheDocument()
+    // The common action is on the page, and a ready claim approves in place.
+    expect(screen.getByRole("button", { name: /Approve the 1 ready/ })).toBeInTheDocument()
+    // (one button for a phone, one for a desk; the stylesheet shows the right one)
+    expect(screen.getAllByRole("button", { name: /Approve: Grain boundaries/ }).length).toBeGreaterThan(0)
+    // The year is in the margin with no click: the finding, the departments to call.
+    expect(await screen.findByText("+13.8%")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "TRAINING" })).toHaveAttribute("href", "/reports/departments/TRAINING?year=2025")
   })
 })
 

@@ -95,10 +95,10 @@ export function Batches() {
     <div className="page space-y-10">
       <PageHeader
         title="Monthly runs"
-        sub="Did this month's Scopus sheet get looked up and matched to journals before anything is priced?"
+        sub="Each month's Scopus sheet, looked up and matched."
         spot="spot-imports"
         action={
-          <Button kind="primary" size="md" onClick={() => setUploading(true)}>
+          <Button kind={uploading ? "default" : "primary"} size="md" onClick={() => setUploading(true)}>
             <Upload aria-hidden />
             Upload a sheet
           </Button>
@@ -112,7 +112,7 @@ export function Batches() {
       ) : error ? (
         <ErrorState
           title="Could not load the monthly runs"
-          message="The server did not answer. Nothing has been changed. Try again."
+          message="Nothing has been changed. Try again."
           onRetry={() => void refetch()}
         />
       ) : !data || data.length === 0 ? (
@@ -121,7 +121,7 @@ export function Batches() {
           title="No monthly run yet"
           message="Upload the month's Scopus export, then start the run."
           action={
-            <Button kind="primary" onClick={() => setUploading(true)}>
+            <Button kind="default" onClick={() => setUploading(true)}>
               <Upload aria-hidden />
               Upload a sheet
             </Button>
@@ -134,7 +134,6 @@ export function Batches() {
               items={[
                 { value: latest ? latest.name : null, label: latest ? `Latest run, ${day(latest.created_at)}` : "Latest run", to: latest ? `/batches/${latest.id}` : undefined },
                 { value: latest ? statusLabel(latest.status) : null, label: "Where the latest run stands", tone: latest?.status === "FAILED" ? "critical" : "neutral" },
-                { value: data.length, label: "Runs in all" },
                 { value: failed, label: "Failed runs", tone: "critical", zero: "None failed" },
               ]}
             />
@@ -177,7 +176,7 @@ function UploadBatch({ onClose, onDone }: { onClose: () => void; onDone: () => v
         "/api/monthly/upload",
         { method: "POST", body } as unknown as Parameters<typeof api>[1]
       )
-      toast.ok(`${res.row_count.toLocaleString("en-IN")} rows read. Nothing has been looked up yet. Start the run when you are ready.`)
+      toast.ok(`Uploaded. ${res.row_count.toLocaleString("en-IN")} rows read. Start the run when ready.`)
       onDone()
       onClose()
     } catch (err) {
@@ -190,10 +189,10 @@ function UploadBatch({ onClose, onDone }: { onClose: () => void; onDone: () => v
   return (
     <Section title="Upload a sheet" className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="What to call this run" hint="For example: March 2026.">
+        <Field label="Name of this run" hint="For example: March 2026.">
           <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </Field>
-        <Field label="The CSV" hint="The Scopus export for the month.">
+        <Field label="Scopus export (CSV)">
           <input
             type="file"
             accept=".csv,text/csv"
@@ -204,10 +203,9 @@ function UploadBatch({ onClose, onDone }: { onClose: () => void; onDone: () => v
       </div>
       <Details label="which columns are read">
         <p className="text-sm text-fg-muted">
-          The author ID is taken from <code>author_id</code>, <code>authorId</code>, <code>Author ID</code> or{" "}
-          <code>F</code>; the title from <code>title</code>, <code>paper_title</code>, <code>Title</code> or{" "}
-          <code>G</code>. Anything else in the file is ignored, and a row with an author ID under another name
-          reads as blank without an error.
+          Author ID: <code>author_id</code>, <code>authorId</code>, <code>Author ID</code> or <code>F</code>. Title:{" "}
+          <code>title</code>, <code>paper_title</code>, <code>Title</code> or <code>G</code>. Other columns are
+          ignored, and a row with the author ID under another name reads as blank without an error.
         </p>
       </Details>
       <div className="flex gap-2">
@@ -272,7 +270,7 @@ export function Batch() {
       <div className="page py-8">
         <ErrorState
           title="Could not load this run"
-          message="The server did not answer. Nothing has been changed. Try again."
+          message="Nothing has been changed. Try again."
           onRetry={() => void refetch()}
         />
       </div>
@@ -280,7 +278,7 @@ export function Batch() {
   if (!data)
     return (
       <div className="page py-8">
-        <EmptyState title="No such run" message="This run may have been removed. Go back to the monthly runs." />
+        <EmptyState title="No such run" message="It may have been removed." />
       </div>
     )
 
@@ -328,7 +326,6 @@ export function Batch() {
     <div className="page space-y-10">
       <PageHeader
         title={data.name}
-        sub={`${statusLabel(data.status)}. ${data.rows.length.toLocaleString("en-IN")} rows read from the sheet.`}
         action={
           <Button
             kind="primary"
@@ -338,7 +335,7 @@ export function Batch() {
               start.mutate(
                 {},
                 {
-                  onSuccess: () => toast.ok("Started. It runs in the background. Come back to this page for the result."),
+                  onSuccess: () => toast.ok("Started. Reload this page for the result."),
                   onError: (err: unknown) => toast.fail(err),
                 }
               )
@@ -359,14 +356,12 @@ export function Batch() {
             { value: statusLabel(data.status), label: "Where the run stands", tone: data.status === "FAILED" ? "critical" : "neutral" },
           ]}
         />
-        <p className="text-sm">
-          <Button kind="quiet" size="sm" asChild className="-ml-2">
-            <a href={`/api/monthly/${data.id}/export`}>
-              <Download aria-hidden />
-              Export this run as a spreadsheet
-            </a>
-          </Button>
-        </p>
+        <Button kind="default" size="sm" asChild>
+          <a href={`/api/monthly/${data.id}/export`}>
+            <Download aria-hidden />
+            Export this run as a spreadsheet
+          </a>
+        </Button>
       </section>
 
       {data.error_message ? (
@@ -377,8 +372,8 @@ export function Batch() {
 
       {running ? (
         <Callout tone="info" title="Looking rows up">
-          Each row is queried against Scopus and matched to a journal, which takes a few minutes over a full
-          month. Nothing is lost if you leave this page. Reload it to see where the run has got to.
+          Each row is checked against Scopus and matched to a journal. This takes a few minutes. Nothing is lost if
+          you leave; reload to see progress.
         </Callout>
       ) : null}
 
@@ -386,14 +381,14 @@ export function Batch() {
         title={unmatchedOnly ? `Rows not matched (${unmatched.toLocaleString("en-IN")})` : "Rows"}
         action={
           unmatchedOnly ? (
-            <Link to="?" className="text-fg-muted underline underline-offset-2 hover:text-fg">
-              Show all {data.rows.length.toLocaleString("en-IN")} rows
-            </Link>
+            <Button kind="default" size="sm" asChild>
+              <Link to="?">Show all {data.rows.length.toLocaleString("en-IN")} rows</Link>
+            </Button>
           ) : undefined
         }
       >
         {data.rows.length === 0 ? (
-          <EmptyState art="empty-queue" title="No rows" message="Nothing was read out of the uploaded file. Check the column names and upload it again." />
+          <EmptyState art="empty-queue" title="No rows" message="Nothing was read from the file. Check the column names and upload it again." />
         ) : (
           <Table rows={shown} columns={columns} getKey={(r) => r.id} caption="Rows of this run" empty={{ title: "Every row matched", message: "Nothing to look at." }} />
         )}

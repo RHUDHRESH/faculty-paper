@@ -8,7 +8,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import type { Me } from "@/app/auth"
 import { api } from "@/lib/api"
-import { OfficeHome, PrincipalHome } from "@/pages/home-staff"
+import { PrincipalHome } from "@/pages/home-principal"
+import { OfficeHome } from "@/pages/home-staff"
 import { OwnPapersNote } from "@/ui/own-papers"
 import { fakeApi, ledgerOf, renderWithProviders, type ApiTable } from "@/test/harness"
 

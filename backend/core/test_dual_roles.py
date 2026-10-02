@@ -564,8 +564,15 @@ class TheFinanceDeskTests(DualRoleBase):
         self.assertEqual([c["id"] for c in body["results"]], [other.id])
         admin_view = self._get(self.admin, "/api/admin/payouts?status=DIRECTOR_APPROVED").json()
         self.assertIn(self.paper.id, [c["id"] for c in admin_view["results"]])
+        # The super admin authorised this paper in the fixture, so paying it as
+        # well is standing in twice: it needs a reason on the record.
+        refused = self._post(self.admin, f"/api/claims/{self.paper.id}/mark-paid",
+                             {"expected_amount": self.paper.remuneration})
+        self.assertEqual(refused.status_code, 400, refused.content)
+        self.assertEqual(refused.json()["code"], "reason_needed")
         r = self._post(self.admin, f"/api/claims/{self.paper.id}/mark-paid",
-                       {"expected_amount": self.paper.remuneration})
+                       {"expected_amount": self.paper.remuneration,
+                        "note": "Finance cannot pay their own paper, so the super admin does."})
         self.assertEqual(r.status_code, 200, r.content)
         self.assertUnmoved(self.paper, ClaimStatus.PAID)
 

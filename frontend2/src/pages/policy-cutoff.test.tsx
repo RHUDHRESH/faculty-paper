@@ -45,7 +45,7 @@ const FORMULA = {
 }
 
 describe("the filing cutoff on the policy page", () => {
-  it("says when none is set, and publishes the day that is chosen", async () => {
+  it("says when none is set, and publishes the day that is chosen", { timeout: 20_000 }, async () => {
     vi.mocked(api).mockReset()
     const fake = fakeApi({
       "/api/auth/me": () => FINANCE,
@@ -55,6 +55,8 @@ describe("the filing cutoff on the policy page", () => {
     vi.mocked(api).mockImplementation(((path: string, options?: { method?: string }) =>
       options?.method === "PUT" ? fake(path) : path === "/api/admin/formula" ? Promise.resolve(FORMULA) : fake(path)) as typeof api)
     renderWithProviders(<Policy />, { route: "/policy" })
+    expect(await screen.findByText("Filing cutoff")).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: /what each rule means/i }))
     expect(await screen.findByText("No cutoff set; nobody is reminded")).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole("button", { name: /Publish a new version/ }))

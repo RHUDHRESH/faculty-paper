@@ -17,7 +17,7 @@ export function Answer({ children }: { children: React.ReactNode }) {
   return (
     <p
       data-testid="report-answer"
-      className="max-w-3xl font-serif text-xl leading-snug text-ink sm:text-2xl"
+      className="display text-display max-w-3xl text-pretty text-fg"
     >
       {children}
     </p>
@@ -47,7 +47,7 @@ export function PrintStamp({ title, scope }: { title: string; scope: string }) {
 
 export function PrintButton() {
   return (
-    <Button kind="quiet" size="sm" onClick={() => window.print()} className="print:hidden">
+    <Button kind="default" onClick={() => window.print()} className="print:hidden">
       <Printer />
       Print
     </Button>

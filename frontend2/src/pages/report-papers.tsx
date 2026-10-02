@@ -195,18 +195,9 @@ export function ReportPapers() {
     <div className="page space-y-6">
       <PageHeader
         title="Papers"
-        sub={
-          d ? (
-            <>
-              <strong className="text-fg">{n(d.total)} papers</strong> {scope}. The list behind the figures on the year
-              brief.
-            </>
-          ) : (
-            "The list behind the figures on the year brief."
-          )
-        }
+        sub={d ? <><strong className="text-fg">{n(d.total)} papers</strong> {scope}.</> : undefined}
         action={
-          <Button asChild className="print:hidden">
+          <Button kind="primary" asChild className="print:hidden">
             <a href={`/api/reports/papers/export?${query.toString()}`} download>
               <Download />
               Download {d ? `these ${n(d.total)} papers` : "these papers"}

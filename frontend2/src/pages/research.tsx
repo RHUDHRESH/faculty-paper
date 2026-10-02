@@ -153,7 +153,6 @@ export function Research() {
     <div className="page space-y-10" data-area="research">
       <PageHeader
         spot="spot-my-research"
-        eyebrow="Research"
         title="My research"
         sub={<span aria-live="polite">{sentence}</span>}
         action={
@@ -276,9 +275,8 @@ function Section({
   return (
     <section id={id} aria-labelledby={`${id ?? eyebrow}-h`} className="space-y-6 scroll-mt-20">
       <div>
-        <p className="text-sm text-fg-muted">{eyebrow}</p>
         <SectionTitle>
-          <span id={`${id ?? eyebrow}-h`} className="text-xl">
+          <span id={`${id ?? eyebrow}-h`}>
             {title}
           </span>
         </SectionTitle>

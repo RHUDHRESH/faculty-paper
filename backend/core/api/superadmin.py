@@ -23,7 +23,7 @@ from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, PaidLedger, Role, User
-from core.services import rbac
+from core.services import payment_guards, rbac
 
 # ---------- super-admin powers ----------
 
@@ -120,6 +120,8 @@ def admin_edit_claim(request: HttpRequest, claim_id: str, payload: ClaimEditIn):
                     paper_title=claim.paper_title,
                     journal_title=claim.journal_title,
                     amount=delta,
+                    kind=PaidLedger.Kind.ADJUSTMENT,
+                    cycle=payment_guards.current_cycle(claim),
                     voucher_number=f"{claim.voucher_number or claim.ticket_number}-ADJ",
                 )
 

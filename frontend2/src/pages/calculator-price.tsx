@@ -181,7 +181,7 @@ export function PriceTab() {
             </Field>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Subject area" hint="The quartile incentive is for Engineering journals only.">
+              <Field label="Subject area">
                 <Select value={form.subject} onChange={(e) => set({ subject: e.target.value })}>
                   {SUBJECTS.map((o) => (
                     <option key={o.label} value={o.value}>
@@ -203,7 +203,7 @@ export function PriceTab() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <Field label="SNIP" hint="Empty if none: the fixed no-SNIP rate applies.">
+              <Field label="SNIP">
                 <NumberInput
                   step="0.001"
                   min={0}
@@ -214,7 +214,7 @@ export function PriceTab() {
               </Field>
               <Field
                 label="SEC references"
-                hint={`The policy needs ${opt?.limits.min_sec_references ?? 2}. Empty if not checked.`}
+                hint={`The policy needs ${opt?.limits.min_sec_references ?? 2}.`}
               >
                 <NumberInput
                   min={0}
@@ -241,9 +241,7 @@ export function PriceTab() {
         {!form.student && (
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">Author position at the college</legend>
-            <p className="text-xs text-fg-muted">
-              Pick one. Pick several to price each co-author from the college.
-            </p>
+            <p className="text-xs text-fg-muted">Pick several to price each co-author.</p>
             <div className="flex flex-wrap gap-2">
               {Array.from({ length: Math.min(total, 30) }, (_, i) => i + 1).map((p) => {
                 const on = positions.includes(p)
@@ -275,8 +273,8 @@ export function PriceTab() {
           label="Final-year student project"
           hint={
             opt
-              ? `A fixed ${rs(opt.limits.student_project_amount)} for each team's conference paper, paid once per team.`
-              : "A fixed amount for each team's conference paper."
+              ? `A fixed ${rs(opt.limits.student_project_amount)} per team.`
+              : "A fixed amount per team."
           }
         />
 
@@ -302,7 +300,7 @@ export function PriceTab() {
               checked={form.countedOnly}
               onCheckedChange={(v) => set({ countedOnly: v === true })}
               label="Counted only"
-              hint="A student paper filed to be counted. It carries no incentive."
+              hint="Carries no incentive."
             />
           </Details>
         )}
@@ -377,7 +375,7 @@ function Answer({
       {price.working.length > 0 && (
         <Section
           title="How it was worked out"
-          sub={`Under ${price.policy.label}${price.policy.in_force ? ", the policy in force now" : ", not the policy in force now"}.`}
+          sub={`Under ${price.policy.label}${price.policy.in_force ? "" : ", not in force now"}.`}
         >
           <Rows>
             {price.working.map((l) => (
@@ -398,7 +396,7 @@ function Answer({
       )}
 
       {price.authors.length > 1 && (
-        <Section title="Each author at the college" sub="Each share is worked out by the same rule and they add up to the paper's value.">
+        <Section title="Each author at the college">
           <Table
             rows={price.authors}
             getKey={(a) => String(a.position)}
@@ -465,7 +463,7 @@ function Prefiller({ onFill }: { onFill: (inputs: NonNullable<Prefill["inputs"]>
           }}
           placeholder="FP-2026-000123 or 10.1016/..."
         />
-        <Button type="button" onClick={() => void fill()} disabled={busy || !typed.trim()}>
+        <Button type="button" kind="primary" onClick={() => void fill()} disabled={busy || !typed.trim()}>
           {busy ? "Looking" : "Fill the form"}
         </Button>
       </div>
@@ -498,7 +496,7 @@ function PersonPicker({ value, onChange }: { value: PersonHit | null; onChange: 
             Remove
           </Button>
         </div>
-        <p className="text-xs text-fg-muted">Applied to the first position ticked, as the next claim they are paid.</p>
+        <p className="text-xs text-fg-muted">Applied to the first position ticked.</p>
       </div>
     )
   }

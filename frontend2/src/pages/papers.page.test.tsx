@@ -7,7 +7,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 })
 
 import { api } from "@/lib/api"
-import { Papers, rolePhrase, type RecordPaper } from "@/pages/papers"
+import { answerSentence, Papers, rolePhrase, type RecordPaper } from "@/pages/papers"
 import { FACULTY, fakeApi, renderWithProviders } from "@/test/harness"
 
 const paper = (id: string, over: Partial<RecordPaper> = {}): RecordPaper => ({
@@ -53,32 +53,37 @@ function mount(route = "/papers", publications = RECORD) {
 }
 
 describe("My papers", () => {
-  it("opens with the answer: what to claim, what is moving, what is paid, what was received", async () => {
+  it("opens with the answer in a sentence: what to file, what is with the college, what is paid", async () => {
     mount()
-    const glance = await screen.findByRole("group", { name: "At a glance" })
-    expect(within(glance).getByText("papers ready to claim").previousSibling?.textContent).toBe("2")
-    expect(within(glance).getByText("with the college").previousSibling?.textContent).toBe("1")
-    expect(within(glance).getByText("paid").previousSibling?.textContent).toBe("3")
-    expect(await within(glance).findByText("₹3,96,703.75")).toBeTruthy()
-    // Each figure is a link to the list behind it.
-    expect(within(glance).getByRole("link", { name: /papers ready to claim/ }).getAttribute("href")).toBe("/papers?tab=unclaimed")
+    expect(
+      await screen.findByText("7 papers on your record. 2 papers are ready to file, 1 is with the college, 3 have been paid.")
+    ).toBeTruthy()
+    // The statement and the forms are buttons one press away, not four figures.
+    expect(await screen.findByRole("link", { name: "Payment statement" })).toBeTruthy()
+    expect(screen.getByRole("link", { name: "List for appraisal" }).getAttribute("href")).toBe("/papers/appraisal")
   })
 
-  it("counts the tabs from the same rows as the figures", async () => {
+  it("says a zero as what it means, never as a bare count", () => {
+    const none = { all: 0, unclaimed: 0, progress: 0, paid: 0, ineligible: 0 }
+    expect(answerSentence(0, none)).toBe("0 papers on your record.")
+    expect(answerSentence(1, { ...none, all: 1, unclaimed: 1 })).toBe("1 paper on your record. 1 paper is ready to file.")
+  })
+
+  it("counts the tabs from the same rows as the sentence", async () => {
     mount()
-    const state = await screen.findByRole("group", { name: "Claim state" })
-    expect(within(state).getByRole("button", { name: /^All\s*7$/ })).toBeTruthy()
-    expect(within(state).getByRole("button", { name: /^Not claimed\s*2$/ })).toBeTruthy()
-    expect(within(state).getByRole("button", { name: /^In progress\s*1$/ })).toBeTruthy()
-    expect(within(state).getByRole("button", { name: /^Paid\s*3$/ })).toBeTruthy()
-    expect(within(state).getByRole("button", { name: /^Not eligible\s*1$/ })).toBeTruthy()
+    const state = await screen.findByRole("tablist", { name: "Claim state" })
+    expect(within(state).getByRole("tab", { name: /^All\s*7$/ })).toBeTruthy()
+    expect(within(state).getByRole("tab", { name: /^Ready to file\s*2$/ })).toBeTruthy()
+    expect(within(state).getByRole("tab", { name: /^With the college\s*1$/ })).toBeTruthy()
+    expect(within(state).getByRole("tab", { name: /^Paid\s*3$/ })).toBeTruthy()
+    expect(within(state).getByRole("tab", { name: /^Not eligible\s*1$/ })).toBeTruthy()
   })
 
   it("puts one 'File it' on each unclaimed paper and names the state of the rest", async () => {
     mount()
     await screen.findByText("Title open-1")
     expect(screen.getAllByRole("link", { name: "File it" })).toHaveLength(2)
-    expect(screen.getByText("Under review, 12 days")).toBeTruthy()
+    expect(screen.getByText(/^Being checked/).textContent).toBe("Being checked, 12 days")
     expect(screen.getByText("Paid Mar 2026")).toBeTruthy()
     expect(screen.getByText("₹1,600 to you")).toBeTruthy()
     expect(screen.getByText(/Not eligible: 14 authors, and the scheme pays up to 10/)).toBeTruthy()

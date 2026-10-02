@@ -103,7 +103,7 @@ export function Celebrations({
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Close"
-                className="grid size-8 shrink-0 place-items-center rounded-control text-fg-subtle hover:bg-hover hover:text-fg max-sm:size-10"
+                className="grid size-8 shrink-0 place-items-center rounded-control text-fg-subtle ring-1 ring-inset ring-transparent hover:bg-hover hover:text-fg hover:ring-edge active:bg-active max-sm:size-10"
               >
                 <X className="size-4" />
               </button>
@@ -114,7 +114,7 @@ export function Celebrations({
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Close"
-              className="absolute top-3 right-3 grid size-8 place-items-center rounded-md text-fg-muted hover:bg-hover hover:text-fg"
+              className="absolute top-3 right-3 grid size-8 place-items-center rounded-control text-fg-muted ring-1 ring-inset ring-transparent hover:bg-hover hover:text-fg hover:ring-edge active:bg-active"
             >
               <X className="size-4" />
             </button>

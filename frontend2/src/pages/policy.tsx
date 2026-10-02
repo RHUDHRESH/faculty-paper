@@ -175,7 +175,7 @@ export function Policy() {
     <div className="page space-y-10">
       <PageHeader
         title="Policy"
-        sub="What a paper is worth, and the rules that decide it. Every claim in the college is priced from this sheet."
+        sub="What a paper is worth, and the rules behind it."
         spot="spot-policy"
         action={
           mayEdit && data ? (
@@ -195,7 +195,7 @@ export function Policy() {
           message={
             error?.status === 403
               ? "Not allowed. The office, the Principal and Finance can read the policy."
-              : "The server did not answer. Nothing has changed. Claims are still priced from the active policy."
+              : "The server did not answer. Claims are still priced from the active policy."
           }
           onRetry={error?.status === 403 ? false : () => refetch()}
         />
@@ -205,119 +205,32 @@ export function Policy() {
 
           {!data.id && (
             <Callout tone="caution" title="No policy row is active">
-              These are the built-in fallback rates, which is what every claim is being priced
-              from right now. Publishing a version writes them down so a change is recorded
-              against somebody's name rather than living in the source code.
+              Claims are priced from the built-in rates. Publish a version to record them
+              against a name.
             </Callout>
           )}
 
           {!mayEdit && (
-            <Meta className="block">
-              Read-only for this account. Finance and a super admin can publish a new version.
-            </Meta>
+            <Meta className="block">Read-only. Finance and a super admin can publish.</Meta>
           )}
 
           <LiveExample formula={data} />
 
-          <Section
-            title="The SNIP amount"
-            blurb="A journal's SNIP, multiplied and capped. This is the main path. Everything below it is what happens when a SNIP is not available."
-          >
-            <Row label="Multiplier" value={money(data.snip_multiplier)} hint="per point of SNIP" />
-            <Row
-              label="Cap"
-              value={String(data.snip_cap)}
-              hint={`SNIP above this counts as ${data.snip_cap}, worth at most ${money(data.snip_multiplier * data.snip_cap)}`}
-            />
-          </Section>
-
-          <Section
-            title="The quartile amounts"
-            blurb={QUARTILE_BLURB}
-          >
-            <Row label="Q1" value={money(data.qf_q1)} />
-            <Row label="Q2" value={money(data.qf_q2)} />
-            <Row label="Q3" value={money(data.qf_q3)} />
-            <Row label="Q4" value={money(data.qf_q4)} />
-            {data.qf_others > 0 && (
-              <Row
-                label="Others"
-                value={money(data.qf_others)}
-                hint="Retired. The QFA table is Q1 to Q4. Publishing a new version clears it."
-                tone="caution"
-              />
-            )}
-          </Section>
-
-          <Section
-            title="Fixed amounts"
-            blurb="Where neither a SNIP nor a quartile is held, the paper still pays these."
-          >
-            <Row label="Journal, no SNIP" value={money(data.fixed_journal_no_snip)} />
-            <Row label="Other, no SNIP" value={money(data.fixed_other_no_snip)} />
-            <Row label="Web of Science" value={money(data.fixed_web_of_science)} />
-          </Section>
-
-          <Section
-            title="Final-year project scheme"
-            blurb="A scheme of its own, outside the faculty publication formula: a fixed amount per team for a conference paper, paid once, to the team's mentor."
-          >
-            <Row
-              label="Per team, per conference paper"
-              value={money(data.student_project_amount ?? STUDENT_PROJECT_DEFAULT)}
-              hint="Not the SNIP formula, not split by author position"
-            />
-          </Section>
-
-          <Section title="Rules" blurb="Who is eligible, and what needs a second signature.">
-            <Row
-              label="High-value threshold"
-              value={data.high_value_threshold > 0 ? money(data.high_value_threshold) : "Off"}
-              hint={
-                data.high_value_threshold > 0
-                  ? "Above this, a claim needs a second, different signature before Finance can pay it"
-                  : "No claim is held for a second signature"
-              }
-              tone={data.high_value_threshold > 0 ? undefined : "caution"}
-            />
-            <Row
-              label="Eligible authors"
-              value={String(data.max_authors)}
-              hint="Papers with more authors than this pay nothing"
-            />
-            <Row
-              label="Minimum SEC authors"
-              value={String(data.min_sec_references)}
-              hint="How many authors must be from this college"
-            />
-            <Row
-              label="Research year"
-              value={`From 1 ${MONTHS[(data.research_year_start_month ?? 6) - 1]}`}
-              hint="The year a research faculty member's threshold runs on, and the year the faculty home calls this year"
-            />
-            <Row
-              label="Filing cutoff"
-              value={data.filing_cutoff_day ? `Day ${data.filing_cutoff_day}` : "None"}
-              hint={
-                data.filing_cutoff_day
-                  ? "People with drafts are reminded three days before"
-                  : "No cutoff set; nobody is reminded"
-              }
-            />
-            <Row
-              label="Students paid"
-              value={data.student_remuneration_zero ? "No" : "Yes"}
-              hint={
-                data.student_remuneration_zero
-                  ? "A student author's share is zero"
-                  : "Students are paid the same as staff"
-              }
-            />
-          </Section>
+          {ruleGroups(data).map((g) => (
+            <Section key={g.title} title={g.title}>
+              {g.rows.map((r) => (
+                <Row key={r.label} {...r} />
+              ))}
+            </Section>
+          ))}
 
           <AuthorPointsSection json={data.author_point_json} />
 
           <MultipliersSection json={data.publication_type_multipliers_json} />
+
+          <KitDetails label="what each rule means">
+            <RuleMeanings groups={ruleGroups(data)} />
+          </KitDetails>
 
           {data.notes && (
             <section className="space-y-2">
@@ -330,7 +243,7 @@ export function Policy() {
 
           <RawDisclosure
             summary="Advanced: the stored JSON"
-            blurb="What the two fields above look like on the wire. Read-only: the rows are the way to change them."
+            blurb="Read-only. Change them through the rows above."
             blobs={[
               ["author_point_json", data.author_point_json],
               ["publication_type_multipliers_json", data.publication_type_multipliers_json],
@@ -374,7 +287,7 @@ function Header({ formula }: { formula: Formula }) {
         ]}
       />
       <p className="text-sm text-fg-muted">
-        {named ? formula.name : `${formula.name}, version ${formula.version}`}.{" "}
+        {named ? "" : `${formula.name}. `}
         {formula.effective_from ? `In effect from ${formatDay(formula.effective_from)}` : "In force now"}
         {formula.effective_to ? ` until ${formatDay(formula.effective_to)}` : ""}.
       </p>
@@ -420,46 +333,184 @@ function PolicyHistory() {
   )
 }
 
-function Section({
-  title,
-  blurb,
-  children,
-}: {
-  title: string
-  blurb: string
-  children: React.ReactNode
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
-      <div>
-        <SectionTitle>{title}</SectionTitle>
-        <p className="mt-0.5 max-w-3xl text-base text-fg-muted">{blurb}</p>
-      </div>
+      <SectionTitle>{title}</SectionTitle>
       <dl className="divide-y divide-line">{children}</dl>
     </section>
   )
 }
 
-function Row({
-  label,
-  value,
-  hint,
-  tone,
-}: {
+type RowSpec = {
   label: string
   value: string
+  /** What the row means. A hover title here and a line under "what each rule
+   *  means"; never on the page itself. */
   hint?: string
   tone?: "caution"
-}) {
+  /** A state worth seeing without asking (a retired rate still set). */
+  warn?: string
+}
+
+type GroupSpec = { title: string; blurb: string; rows: RowSpec[] }
+
+/** The sheet's fixed groups, in the order a claim is priced. One list feeds
+ *  both the rows on the page and the meanings behind "what each rule means". */
+function ruleGroups(data: Formula): GroupSpec[] {
+  return [
+    {
+      title: "The SNIP amount",
+      blurb:
+        "A journal's SNIP, multiplied and capped. This is the main path. Everything below it is what happens when a SNIP is not available.",
+      rows: [
+        { label: "Multiplier", value: money(data.snip_multiplier), hint: "Per point of SNIP" },
+        {
+          label: "Cap",
+          value: String(data.snip_cap),
+          hint: `SNIP above this counts as ${data.snip_cap}, worth at most ${money(data.snip_multiplier * data.snip_cap)}`,
+        },
+      ],
+    },
+    {
+      title: "The quartile amounts",
+      blurb: QUARTILE_BLURB,
+      rows: [
+        { label: "Q1", value: money(data.qf_q1) },
+        { label: "Q2", value: money(data.qf_q2) },
+        { label: "Q3", value: money(data.qf_q3) },
+        { label: "Q4", value: money(data.qf_q4) },
+        ...(data.qf_others > 0
+          ? [
+              {
+                label: "Others",
+                value: money(data.qf_others),
+                tone: "caution" as const,
+                warn: "Retired. The QFA table is Q1 to Q4. Publishing a new version clears it.",
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      title: "Fixed amounts",
+      blurb: "Where neither a SNIP nor a quartile is held, the paper still pays these.",
+      rows: [
+        { label: "Journal, no SNIP", value: money(data.fixed_journal_no_snip) },
+        { label: "Other, no SNIP", value: money(data.fixed_other_no_snip) },
+        { label: "Web of Science", value: money(data.fixed_web_of_science) },
+      ],
+    },
+    {
+      title: "Final-year project scheme",
+      blurb:
+        "A scheme of its own, outside the faculty publication formula: a fixed amount per team for a conference paper, paid once, to the team's mentor.",
+      rows: [
+        {
+          label: "Per team, per conference paper",
+          value: money(data.student_project_amount ?? STUDENT_PROJECT_DEFAULT),
+          hint: "Not the SNIP formula, not split by author position",
+        },
+      ],
+    },
+    {
+      title: "Rules",
+      blurb: "Who is eligible, and what needs a second signature.",
+      rows: [
+        {
+          label: "High-value threshold",
+          value: data.high_value_threshold > 0 ? money(data.high_value_threshold) : "Off",
+          hint:
+            data.high_value_threshold > 0
+              ? "Above this, a claim needs a second, different signature before Finance can pay it"
+              : "No claim is held for a second signature",
+          tone: data.high_value_threshold > 0 ? undefined : "caution",
+        },
+        {
+          label: "Eligible authors",
+          value: String(data.max_authors),
+          hint: "Papers with more authors than this pay nothing",
+        },
+        {
+          label: "Minimum SEC authors",
+          value: String(data.min_sec_references),
+          hint: "How many authors must be from this college",
+        },
+        {
+          label: "Research year",
+          value: `From 1 ${MONTHS[(data.research_year_start_month ?? 6) - 1]}`,
+          hint: "The year a research faculty member's threshold runs on, and the year the faculty home calls this year",
+        },
+        {
+          label: "Filing cutoff",
+          value: data.filing_cutoff_day ? `Day ${data.filing_cutoff_day}` : "None",
+          hint: data.filing_cutoff_day
+            ? "People with drafts are reminded three days before"
+            : "No cutoff set; nobody is reminded",
+        },
+        {
+          label: "Students paid",
+          value: data.student_remuneration_zero ? "No" : "Yes",
+          hint: data.student_remuneration_zero
+            ? "A student author's share is zero"
+            : "Students are paid the same as staff",
+        },
+      ],
+    },
+  ]
+}
+
+function Row({ label, value, hint, tone, warn }: RowSpec) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-2.5">
+    <div
+      title={hint}
+      className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-2.5"
+    >
       <dt className="text-base">
         {label}
-        {hint && <Meta className="mt-0.5 block max-w-xl">{hint}</Meta>}
+        {warn && <Meta className="mt-0.5 block max-w-xl">{warn}</Meta>}
       </dt>
       <dd className={cn("shrink-0 text-base font-medium tabular", tone === "caution" && "text-caution")}>
         {value}
       </dd>
+    </div>
+  )
+}
+
+const AUTHOR_POINTS_BLURB =
+  "How one paper's amount is split between its authors. Each share is multiplied by the paper's amount to get what that one author is paid."
+const MULTIPLIERS_BLURB =
+  "Applied last, to the paper's whole amount. ×1 leaves the amount alone; ×0.5 halves it."
+
+/** Every gloss on the sheet, in one place: the sentence under each group and
+ *  what each row means. Closed until asked for. */
+function RuleMeanings({ groups }: { groups: GroupSpec[] }) {
+  return (
+    <div className="max-w-3xl space-y-5">
+      {groups.map((g) => (
+        <div key={g.title} className="space-y-1.5">
+          <p className="text-sm font-medium">{g.title}</p>
+          <p className="text-sm text-fg-muted">{g.blurb}</p>
+          <dl className="space-y-1">
+            {g.rows
+              .filter((r) => r.hint)
+              .map((r) => (
+                <div key={r.label} className="text-sm">
+                  <dt className="inline text-fg">{r.label}: </dt>
+                  <dd className="inline text-fg-muted">{r.hint}</dd>
+                </div>
+              ))}
+          </dl>
+        </div>
+      ))}
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium">Author points</p>
+        <p className="text-sm text-fg-muted">{AUTHOR_POINTS_BLURB}</p>
+      </div>
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium">Publication type multipliers</p>
+        <p className="text-sm text-fg-muted">{MULTIPLIERS_BLURB}</p>
+      </div>
     </div>
   )
 }
@@ -479,17 +530,10 @@ function AuthorPointsSection({ json }: { json: string }) {
 
   return (
     <section className="space-y-3">
-      <div>
-        <SectionTitle>Author points</SectionTitle>
-        <p className="mt-0.5 max-w-3xl text-base text-fg-muted">
-          How one paper's amount is split between its authors. Each share is multiplied by the
-          paper's amount to get what that one author is paid.
-        </p>
-      </div>
+      <SectionTitle>Author points</SectionTitle>
       {parsed === null && json.trim() === "" ? (
         <Callout tone="info" title="The built-in shares are in use">
-          No policy version has been published yet, so the calculator uses its built-in author shares.
-          Publish a version to write them down.
+          No version has been published yet. Publish one to write the shares down.
         </Callout>
       ) : parsed === null ? (
         <Callout tone="critical" title="This field does not parse">
@@ -517,12 +561,7 @@ function MultipliersSection({ json }: { json: string }) {
 
   return (
     <section className="space-y-3">
-      <div>
-        <SectionTitle>Publication type multipliers</SectionTitle>
-        <p className="mt-0.5 max-w-3xl text-base text-fg-muted">
-          Applied last, to the paper's whole amount. ×1 leaves the amount alone; ×0.5 halves it.
-        </p>
-      </div>
+      <SectionTitle>Publication type multipliers</SectionTitle>
       {parsed === null ? (
         <Callout tone="critical" title="This field does not parse">
           The stored value is not a JSON object, so the calculator cannot read it. Every
@@ -531,11 +570,12 @@ function MultipliersSection({ json }: { json: string }) {
       ) : (
         <dl className="divide-y divide-line">
           {Object.entries(parsed).map(([key, value]) => (
-            <div key={key} className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-2.5">
-              <dt className="text-base">
-                {key}
-                <Meta className="mt-0.5 block max-w-xl">{multiplierEffect(value)}</Meta>
-              </dt>
+            <div
+              key={key}
+              title={multiplierEffect(value)}
+              className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-2.5"
+            >
+              <dt className="text-base">{key}</dt>
               <dd className="shrink-0 text-base font-medium tabular">
                 {typeof value === "number" ? `×${trim(value)}` : String(value)}
               </dd>
@@ -717,14 +757,14 @@ function LiveExample({ formula }: { formula: Formula }) {
       <div>
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <SectionTitle>What this pays</SectionTitle>
-          <Link to="/calculator" className="text-sm underline underline-offset-2">
-            Open the full calculator
-          </Link>
+          <Button asChild size="sm">
+            <Link to="/calculator">Open the full calculator</Link>
+          </Button>
         </div>
-        <p className="mt-0.5 max-w-3xl text-base text-fg-muted">
+        <p className="mt-0.5 max-w-3xl text-sm text-fg-muted">
           {failed
-            ? "Worked out on this page from the rates above, because the server did not answer. Treat it as an estimate."
-            : `Priced by the server against the policy in force now, ${new RegExp(`\\bv${formula.version}\\b`, "i").test(formula.name) ? formula.name : `${formula.name} v${formula.version}`}.`}
+            ? "An estimate worked out here, as the server did not answer."
+            : `Priced by the server against ${new RegExp(`\\bv${formula.version}\\b`, "i").test(formula.name) ? formula.name : `${formula.name} v${formula.version}`}.`}
         </p>
       </div>
 

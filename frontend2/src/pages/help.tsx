@@ -6,9 +6,10 @@ import { ROLE_LABEL } from "@/app/account"
 import { guidesFor, ROLE_INTRO, type Guide } from "@/app/guides"
 import { useCollegeName } from "@/app/institution"
 import { Button } from "@/ui/button"
+import { Details } from "@/ui/section"
+import { chipClass } from "@/ui/toggle"
 import { PageHeader } from "@/ui/page-header"
 import { Picture } from "@/ui/picture"
-import { cn } from "@/lib/cn"
 
 const ROLES = Object.keys(ROLE_LABEL) as Role[]
 
@@ -38,7 +39,8 @@ export function Help() {
       <div className="print:hidden">
         <PageHeader
           title="Help"
-          sub="Short guides to the things you do here. Each one ends with a link that opens the right page."
+          sub="Short guides to what you do here."
+          about="Each guide ends with a link that opens the right page."
           actions={
             <Button onClick={() => window.print()}>
               <Printer aria-hidden /> Print quick guide
@@ -51,13 +53,11 @@ export function Help() {
           {ROLES.map((r) => (
             <button
               key={r}
+              type="button"
               role="tab"
               aria-selected={r === role}
               onClick={() => setParams(r === me?.role ? {} : { role: r }, { replace: true })}
-              className={cn(
-                "rounded-full px-3 py-1 text-sm ring-1 ring-inset",
-                r === role ? "bg-accent text-accent-fg ring-accent" : "text-fg-muted ring-edge hover:bg-hover"
-              )}
+              className={chipClass(r === role)}
             >
               {ROLE_LABEL[r]}
               {r === me?.role && " (you)"}
@@ -76,7 +76,7 @@ export function Help() {
             <ul className="sticky top-6 space-y-1 text-sm">
               {guides.map((g) => (
                 <li key={g.id}>
-                  <a href={`#${g.id}`} className="text-fg-muted hover:text-fg">
+                  <a href={`#${g.id}`} className="block rounded-control px-2 py-1 text-fg-muted hover:bg-hover hover:text-fg">
                     {g.title}
                   </a>
                 </li>
@@ -90,7 +90,7 @@ export function Help() {
             {!can(me?.role).clear && (
             <section className="py-6">
               <h2 className="display text-xl">Still stuck?</h2>
-              <p className="mt-1 text-fg-muted">Ask the research office. The answer comes back in Messages and you get a notification.</p>
+              <p className="mt-1 text-fg-muted">Ask the research office.</p>
               <Button kind="default" asChild className="mt-4">
                 <Link to="/messages/office">
                   Ask the research office <ArrowRight aria-hidden />
@@ -118,14 +118,13 @@ function GuideSection({ guide: g }: { guide: Guide }) {
         ))}
       </ol>
       {g.notes && (
-        <div className="mt-4 rounded-xl bg-sunken p-4">
-          <p className="font-medium">The three conditions, honestly</p>
-          <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-fg-muted">
+        <Details summary="The three conditions, honestly" className="mt-3">
+          <ul className="list-disc space-y-1.5 pl-5">
             {g.notes.map((n) => (
               <li key={n}>{n}</li>
             ))}
           </ul>
-        </div>
+        </Details>
       )}
       <Button kind="primary" asChild className="mt-4">
         <Link to={g.to}>

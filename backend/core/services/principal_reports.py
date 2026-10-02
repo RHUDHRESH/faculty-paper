@@ -12,6 +12,7 @@ paper"), so a figure and the list it opens can never disagree.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import date
 from typing import Any, Optional
 
 from django.db.models import Q
@@ -273,6 +274,16 @@ def department_detail(name: str, year: Optional[int] = None) -> Optional[dict[st
     trend = [{"year": k, "papers": by_year.get(k, 0),
               "per_teacher": round(by_year.get(k, 0) / teachers, 2) if teachers else None} for k in years]
 
+    # The running year beside the five, as a part year: drawn hollow, never compared.
+    running = None
+    this_year = date.today().year
+    if y < this_year:
+        running = {
+            "year": this_year,
+            "papers": by_year.get(this_year, 0),
+            "per_teacher": round(by_year.get(this_year, 0) / teachers, 2) if teachers else None,
+        }
+
     ranked = [d for d in b["departments"] if d["teachers"] and d["per_teacher"] is not None]
     rank = next((i + 1 for i, d in enumerate(ranked) if d["department"] == dept), None)
     return {
@@ -281,6 +292,7 @@ def department_detail(name: str, year: Optional[int] = None) -> Optional[dict[st
         "college": {"per_teacher": b["totals"]["per_teacher"], "papers": b["totals"]["papers"],
                     "top_quartile_share": b["totals"]["top_quartile_share"]},
         "trend": trend,
+        "running": running,
         "people": roll,
         "silent": sum(1 for r in roll if r["five_year"] == 0),
         "journals": [{"journal": j, "papers": n} for j, n in venues.most_common(8)],

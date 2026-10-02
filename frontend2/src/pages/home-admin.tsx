@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, Search } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { HOME_DATA } from "@/app/home-data"
@@ -8,24 +8,29 @@ import { cn } from "@/lib/cn"
 import { paperTitle } from "@/lib/names"
 import { useApi } from "@/lib/query"
 import { AttentionRows, type Attention } from "@/pages/admin-parts"
-import { HomeHead, Waiting, type Claim } from "@/pages/home-staff"
+import { StartList, useStart, type Start } from "@/pages/admin-start"
+import { greeting, Waiting, type Claim } from "@/pages/home-staff"
 import { HomeTrack } from "@/pages/home-track"
+import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
 import { Button } from "@/ui/button"
+import { PageHeader } from "@/ui/page-header"
 import { Avatar, initialsOf } from "@/ui/person"
-import { Answer } from "@/ui/answer"
 import { Picture } from "@/ui/picture"
 import { InlineError, Skeleton } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 
 /**
- * The super admin's first screen. It answers one question: is anything broken
- * or stuck, and where do I fix it?
+ * The super admin's first screen (docs/ux/29). One sentence says whether
+ * anything is broken or stuck; under it, the list of what needs them, most
+ * urgent first, each row one button from the place it is fixed; then where the
+ * claims are and which wait on the admin's own desk.
  *
- * The answer is a list, most urgent first, and each row is one click from the
- * place it is fixed. Under it, where the claims are and which of them wait on
- * the admin's own desk. Nothing here is recomputed: the list comes from
- * `/api/admin/attention`, the same service the Admin page reads, so a number
- * here is the number there.
+ * On a college that is not yet running (nothing loaded, or a desk with nobody)
+ * the sentence is the setup and the list is the "Get the college running"
+ * steps, with the next one as the one primary button.
+ *
+ * Nothing here is recomputed: the list is `/api/admin/attention` (the same
+ * service every admin count comes from) and the steps are `/api/admin/start`.
  */
 
 /** True once `ms` have passed, so a fast answer never flashes a skeleton. */
@@ -46,55 +51,41 @@ function days(n: number | null | undefined): string {
   return `${n} ${n === 1 ? "day" : "days"}`
 }
 
-function AttentionSection() {
-  const q = useApi<Attention>(HOME_DATA.attention.key, HOME_DATA.attention.path)
-  const slow = useAfter(300)
-  const [all, setAll] = useState(false)
+/** Opens the same finder Ctrl K opens, for the person who does not know the key. */
+function openFinder() {
+  window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }))
+}
 
-  if (q.isError) {
-    return <InlineError message="Could not check the system's health." onRetry={() => void q.refetch()} />
-  }
-  if (!q.data) {
-    return slow ? <Skeleton className="h-40 w-full" /> : <div className="h-40" aria-hidden />
-  }
-  const { items, ok } = q.data
+function FindButton() {
+  return (
+    <Button onClick={openFinder} aria-label="Find a claim, person or payment">
+      <Search />
+      Find
+      <kbd className="ml-1 rounded-sm bg-hover px-1.5 py-0.5 font-mono text-xs text-fg-muted max-sm:hidden">Ctrl K</kbd>
+    </Button>
+  )
+}
+
+function AttentionList({ items, ok }: Pick<Attention, "items" | "ok">) {
+  const [all, setAll] = useState(false)
   const shown = all ? items : items.slice(0, VISIBLE)
   const rest = items.length - shown.length
-
   return (
-    <section aria-labelledby="attention-title" className="space-y-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <SectionTitle>
-          <span id="attention-title">
-            {items.length === 0
-              ? "Nothing needs you"
-              : items.length === 1
-                ? "One thing needs attention"
-                : `${items.length} things need attention`}
-          </span>
-        </SectionTitle>
-        {items.length > 0 && <Meta>Most urgent first. Each row opens where it is fixed.</Meta>}
-      </div>
-
+    <section aria-label="What needs you" className="space-y-3">
       {items.length === 0 ? (
         <div className="flex items-center gap-5 border-y border-line py-6">
           <Picture name="spot-approvals" className="w-24 shrink-0 max-sm:hidden" />
-          <p className="text-base text-fg-muted">
-            Every desk has a person, nothing is stuck and the record adds up. Come back when a claim is
-            filed or an import is due.
-          </p>
+          <p className="text-base text-fg-muted">Come back when a claim is filed or an import is due.</p>
         </div>
       ) : (
         <AttentionRows items={shown} />
       )}
-
       {rest > 0 && (
         <Button kind="quiet" size="sm" onClick={() => setAll(true)}>
           <ChevronDown />
           Show {rest} more
         </Button>
       )}
-
       {ok.length > 0 && (
         <details className="group text-sm text-fg-muted">
           <summary className="cursor-pointer list-none underline-offset-4 hover:text-fg hover:underline">
@@ -126,22 +117,20 @@ function ToClear() {
 
   return (
     <Waiting>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <SectionTitle>Waiting to be cleared</SectionTitle>
-        <Link to="/clearing" className="text-sm text-accent underline-offset-4 hover:underline">
-          {waiting
-            ? `Open all ${waiting.toLocaleString("en-IN")} ${waiting === 1 ? "claim" : "claims"}, oldest first`
-            : "Open claims"}
-        </Link>
+        <Button asChild size="sm">
+          <Link to="/clearing">
+            {waiting ? `Open all ${waiting.toLocaleString("en-IN")}` : "Open claims"}
+          </Link>
+        </Button>
       </div>
       {clearing.isError ? (
         <InlineError message="Could not load the claims waiting to be cleared." onRetry={() => void clearing.refetch()} />
       ) : !clearing.data ? (
         slow ? <Skeleton className="h-52 w-full" /> : <div className="h-52" aria-hidden />
       ) : rows.length === 0 ? (
-        <p className="border-y border-line py-6 text-base text-fg-muted">
-          Nothing is waiting to be cleared. A claim appears here the moment it is filed.
-        </p>
+        <p className="border-y border-line py-6 text-base text-fg-muted">Nothing is waiting to be cleared.</p>
       ) : (
         <ul className="divide-y divide-line border-y border-line">
           {rows.map((c) => {
@@ -191,52 +180,86 @@ function ToClear() {
   )
 }
 
-/** The four figures that answer "is anything broken or stuck?" at a glance. */
-function AtAGlance() {
-  const attention = useApi<Attention>(HOME_DATA.attention.key, HOME_DATA.attention.path)
-  const counts = useApi<{ counts: { filed: number } }>(HOME_DATA.stageCounts.key, HOME_DATA.stageCounts.path)
-  const items = attention.data?.items
-  const countOf = (key: string) => (items ? (items.find((i) => i.key === key)?.count ?? 0) : null)
+/** The one sentence. Two short clauses at most; the pill is the word that matters. */
+function Sentence({ data }: { data: Attention | undefined }) {
+  if (!data) return <AnswerLine>Checking the system.</AnswerLine>
+  const n = data.items.length
+  if (n === 0) return <AnswerLine>Nothing is broken or stuck.</AnswerLine>
+  const urgent = data.items.filter((i) => i.severity === "critical").length
+  const head = n === 1 ? "One thing needs you" : `${n.toLocaleString("en-IN")} things need you`
   return (
-    <Answer
-      items={[
-        {
-          value: items ? items.length : null,
-          label: items?.length === 1 ? "Thing needs attention" : "Things need attention",
-          zero: "Nothing needs attention",
-          tone: items && items.some((i) => i.severity === "critical") ? "critical" : "caution",
-        },
-        {
-          value: counts.data ? counts.data.counts.filed : null,
-          label: "Waiting to be cleared",
-          zero: "Nothing waiting to clear",
-          to: "/clearing",
-        },
-        { value: countOf("requests"), label: "Profile corrections waiting", zero: "No corrections waiting", to: "/requests" },
-        {
-          value: countOf("author_matches"),
-          label: "Author names to match",
-          zero: "Every author name is matched",
-          to: "/people/matches",
-        },
-      ]}
-    />
+    <AnswerLine>
+      {tieNumbers(head)},{" "}
+      {urgent > 0 ? (
+        <>
+          {tieNumbers(urgent === n ? (n === 1 ? "and it is" : "all") : `${urgent} of them`)}{" "}
+          <AnswerWord tone="crimson">urgent</AnswerWord>.
+        </>
+      ) : (
+        <>
+          <AnswerWord tone="sage">none urgent</AnswerWord>.
+        </>
+      )}
+    </AnswerLine>
+  )
+}
+
+/** Not running yet: the sentence is the setup, the list is the steps. */
+function SetupHome({ start }: { start: Start }) {
+  const next = start.steps.find((s) => s.key === start.next)
+  const left = start.total - start.done
+  return (
+    <>
+      <AnswerLine>
+        {tieNumbers(left === 1 ? "One step is left" : `${left} steps are left`)}
+        {next ? (
+          <>
+            . Next, <AnswerWord tone="clay">{next.title.toLowerCase()}</AnswerWord>.
+          </>
+        ) : (
+          "."
+        )}
+      </AnswerLine>
+      <StartList data={start} />
+    </>
   )
 }
 
 export function AdminHome() {
   const { me } = useAuth()
+  const attention = useApi<Attention>(HOME_DATA.attention.key, HOME_DATA.attention.path)
+  const start = useStart()
+  const slow = useAfter(300)
+
+  // "Not running" means nobody can use the system yet: nothing is loaded, or a
+  // desk has nobody. A college that only still has to take a backup is running.
+  const unready = (k: string) => start.data?.steps.find((s) => s.key === k)?.state !== "done"
+  const setup = !!start.data && !start.data.complete && (unready("record") || unready("desks"))
+
   return (
     <div className="page space-y-10">
-      <HomeHead
-        name={me?.name}
-        picture="spot-home-admin"
-        sentence="Is anything broken or stuck? Start at the top of the list and work down."
-      />
-      <AtAGlance />
-      <AttentionSection />
-      <HomeTrack heading="Where every claim is" />
-      <ToClear />
+      <PageHeader title={greeting(me?.name)} spot="spot-home-admin" action={setup ? undefined : <FindButton />} />
+
+      {!start.data && !start.isError ? (
+        // Which of the two homes this is depends on /start, so wait for it
+        // rather than show the daily list and swap it for the steps.
+        slow ? <Skeleton className="h-72 w-full" /> : <div className="h-72" aria-hidden />
+      ) : setup && start.data ? (
+        <SetupHome start={start.data} />
+      ) : (
+        <>
+          <Sentence data={attention.data} />
+          {attention.isError ? (
+            <InlineError message="Could not check the system's health." onRetry={() => void attention.refetch()} />
+          ) : !attention.data ? (
+            slow ? <Skeleton className="h-40 w-full" /> : <div className="h-40" aria-hidden />
+          ) : (
+            <AttentionList items={attention.data.items} ok={attention.data.ok} />
+          )}
+          <HomeTrack heading="Where every claim is" />
+          <ToClear />
+        </>
+      )}
     </div>
   )
 }

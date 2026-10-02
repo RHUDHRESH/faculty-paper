@@ -14,11 +14,15 @@ import { api } from "@/lib/api"
 import { formatCount } from "@/lib/count"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
+import { ChevronRight, Settings } from "lucide-react"
+
 import { Button } from "@/ui/button"
+import { InfoTip } from "@/ui/info"
+import { segmentClass } from "@/ui/toggle"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
-import { HeaderSpot } from "@/ui/page-header"
+import { PageHeader } from "@/ui/page-header"
 
 type Week = {
   eligible: boolean
@@ -61,25 +65,23 @@ export function NotificationsPage() {
   const unread = count.data?.unread ?? 0
   return (
     <div className="page max-w-3xl space-y-6 py-8">
-      <header className="page-head">
-        <div>
-          <PageTitle>Notifications</PageTitle>
-          <Sub>
-            {unread > 0
-              ? `${formatCount(unread)} unread. What happened to your papers, your posts and your messages.`
-              : "Nothing unread. What happened to your papers, your posts and your messages."}
-          </Sub>
-        </div>
-        <Button kind="default" size="md" asChild>
-          <Link to="/settings/notifications">Notification settings</Link>
-        </Button>
-        <HeaderSpot name="spot-notifications" />
-      </header>
+      <PageHeader
+        title="Notifications"
+        sub={unread > 0 ? `${formatCount(unread)} unread.` : "Nothing unread."}
+        action={
+          <Button kind="default" size="md" asChild>
+            <Link to="/settings/notifications">
+              <Settings />
+              Notification settings
+            </Link>
+          </Button>
+        }
+      />
 
       <div
         role="tablist"
         aria-label="Which notifications"
-        className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-md bg-sunken p-0.5"
+        className="well inline-flex max-w-full gap-0.5 overflow-x-auto p-0.5"
       >
         {[...tabs, { key: "week", label: "This week" }].map((t) => (
           <button
@@ -88,11 +90,7 @@ export function NotificationsPage() {
             role="tab"
             aria-selected={tab === t.key}
             onClick={() => pick(t.key)}
-            className={cn(
-              "h-7 shrink-0 rounded-sm px-3 text-sm font-medium transition-colors",
-              "duration-[var(--dur-1)] ease-out",
-              tab === t.key ? "bg-surface text-fg" : "text-fg-muted hover:text-fg"
-            )}
+            className={segmentClass(tab === t.key)}
           >
             {t.label}
           </button>
@@ -157,11 +155,6 @@ function AlertList({ section, onShowAll }: { section: string; onShowAll: () => v
         <EmptyState
           illustration="empty-no-notifications"
           title={section ? "Nothing in this tab" : "You are all caught up"}
-          message={
-            section
-              ? "Nothing of this kind has happened yet. All shows everything."
-              : "When a paper moves, somebody follows you or a message arrives, it shows up here."
-          }
           action={
             section ? (
               <Button kind="default" size="sm" onClick={onShowAll}>
@@ -220,7 +213,6 @@ function ThisWeek() {
     return (
       <ErrorState
         title="Could not put this week together"
-        message="The server did not answer. Try again in a moment."
         onRetry={() => void query.refetch()}
       />
     )
@@ -229,20 +221,26 @@ function ThisWeek() {
   const nothing = !w.standing && !w.department && !w.collaborator && !w.open_items?.length
   return (
     <div className="space-y-6">
-      <Meta className="block">
-        The week of {w.week_of}, as it stands now. The summary goes out on Monday at 8am
-        {w.level === "off" ? ", but you have it switched off." : "."}
+      <Meta className="flex items-center gap-1.5">
+        The week of {w.week_of}
+        <InfoTip label="About the weekly summary">
+          As it stands now. The summary goes out on Monday at 8am
+          {w.level === "off" ? ", but you have it switched off." : "."}
+        </InfoTip>
       </Meta>
-      {nothing && <EmptyState title="A quiet week" message="Nothing to report yet this week." />}
+      {nothing && <EmptyState title="A quiet week" />}
 
       {w.standing && (
         <section className="space-y-1" aria-labelledby="week-standing">
           <SectionTitle id="week-standing">Where you stand</SectionTitle>
           <p className="text-sm">{w.standing.line}</p>
           {w.scoring && <Meta className="block">{w.scoring}</Meta>}
-          <Link to="/leaderboard" className="text-sm underline underline-offset-2">
-            Open the leaderboard
-          </Link>
+          <Button asChild kind="default" size="sm" className="mt-1">
+            <Link to="/leaderboard">
+              Open the leaderboard
+              <ChevronRight />
+            </Link>
+          </Button>
         </section>
       )}
 

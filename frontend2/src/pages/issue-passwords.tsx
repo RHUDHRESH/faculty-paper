@@ -57,15 +57,15 @@ const ROLE_OPTIONS: ComboboxOption[] = Object.keys(ROLE_WORDS)
   .filter((r) => r !== "SUPER_ADMIN")
   .map((r) => ({ value: r, label: ROLE_WORDS[r] }))
 
-const WHO_CHOICES: { value: Who; label: string; hint: string }[] = [
+const WHO_CHOICES: { value: Who; label: string; hint?: string }[] = [
   {
     value: "no_password_yet",
     label: "Everyone who has never signed in",
-    hint: "Accounts nobody has signed in to yet. Anyone who has signed in keeps their password.",
+    hint: "Anyone who has signed in keeps their password.",
   },
-  { value: "role", label: "A role", hint: "Everyone in one role, for example Faculty or Finance." },
-  { value: "department", label: "A department", hint: "Everyone in one department." },
-  { value: "all", label: "Everyone", hint: "Every account, including people who have already signed in." },
+  { value: "role", label: "A role" },
+  { value: "department", label: "A department" },
+  { value: "all", label: "Everyone", hint: "Includes people who have already signed in." },
 ]
 
 /** What the server is asked, without the dry-run flag. Null while the choice is unfinished. */
@@ -146,8 +146,7 @@ export function IssuePasswordsDialog({ onClose }: { onClose: () => void }) {
           </DialogHeader>
           <DialogBody className="space-y-4">
             <Callout tone="caution" title="This list will not be shown again">
-              Keep the file safe and hand each person their own line, then delete it. Everyone is asked
-              to choose their own password when they first sign in.
+              Hand each person their own line, then delete the file. They choose their own password at first sign-in.
             </Callout>
           </DialogBody>
           <DialogFooter>
@@ -165,15 +164,12 @@ export function IssuePasswordsDialog({ onClose }: { onClose: () => void }) {
       <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Issue passwords</DialogTitle>
-          <DialogDescription>
-            Give people a one-time password to sign in with. You download the list and hand it out.
-          </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-5">
           {/* First, not last: with the department list open the body scrolls,
               and a warning at the foot is the part that scrolls away. */}
           <Callout tone="caution" title="Their current passwords stop working">
-            The file is shown once; keep it safe and hand each person their own line.
+            The list downloads once. Keep it safe.
           </Callout>
 
           <fieldset className="space-y-3">
@@ -218,17 +214,17 @@ export function IssuePasswordsDialog({ onClose }: { onClose: () => void }) {
             checked={inactive}
             onCheckedChange={(v) => setInactive(v === true)}
             label="Include people who have left"
-            hint="Off by default. Your own account and other super admins are never included."
+            hint="Your account and other super admins are never included."
           />
 
           <div>
             <p className="mb-1.5 text-sm font-medium">Who this reaches</p>
             <div aria-live="polite" className="text-sm">
               {body === null ? (
-                <Meta>Choose {who === "role" ? "a role" : "a department"} to see who this reaches.</Meta>
+                <Meta>Choose {who === "role" ? "a role" : "a department"} to see the count.</Meta>
               ) : preview.isError ? (
                 <InlineError
-                  message="Could not count who this reaches. Nothing has been changed."
+                  message="Could not count who this reaches."
                   onRetry={() => void preview.refetch()}
                 />
               ) : count === undefined ? (
@@ -297,9 +293,9 @@ export function IssuePasswordsRow({ onOpen }: { onOpen: () => void }) {
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <p className="text-sm text-fg-muted">
         {n === undefined
-          ? "Checking who has signed in."
+          ? ""
           : n === 0
-            ? "Everybody has signed in at least once."
+            ? "Everyone has signed in."
             : `${formatCount(n)} ${n === 1 ? "account has" : "accounts have"} never signed in.`}
       </p>
       <Button kind="default" size="md" onClick={onOpen}>

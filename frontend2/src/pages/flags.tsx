@@ -147,8 +147,7 @@ export function Flags() {
     <div className="page space-y-8">
       <PageHeader
         title="Flags"
-        sub="Doubts raised on claims, and how each was answered. A flag never holds a claim back: it is paid as normal, and the super admin is told when money goes out with one still open."
-        spot="spot-flags"
+        sub="Doubts raised on claims, and how each was answered. A flag never holds a claim back."
       />
 
       <Answer
@@ -303,6 +302,7 @@ export function Flags() {
                   onChoose={() => toggle(f.id)}
                   onSelect={() => setSelected(i)}
                   onResolve={() => setResolving([f])}
+                  same={i > 0 && list[i - 1].open === f.open && list[i - 1].headline === f.headline && list[i - 1].note === f.note}
                 />
               ))}
             </ul>

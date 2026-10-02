@@ -33,6 +33,7 @@ import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { HeaderSpot, PageHeader } from "@/ui/page-header"
 import { Answer } from "@/ui/answer"
+import { formatCount } from "@/lib/count"
 import { useCrumbLabel } from "@/app/crumbs"
 import type { FacultyRecordPayload } from "@/pages/faculty-types"
 import { Avatar } from "@/ui/person"
@@ -360,7 +361,11 @@ function AdminPeople({ issue }: { issue: boolean }) {
     <div className="page space-y-6">
       <PageHeader
         title="People"
-        sub="Who can sign in, and what they can do."
+        sub={
+          counts
+            ? `${formatCount(counts.active)} active, ${counts.left === 0 ? "nobody has" : `${formatCount(counts.left)} ${counts.left === 1 ? "has" : "have"}`} left.`
+            : undefined
+        }
         spot="spot-people"
         action={
           can(me?.role).manageUsers ? (
@@ -372,25 +377,19 @@ function AdminPeople({ issue }: { issue: boolean }) {
         }
       />
 
-      <Answer
-        items={[
-          { value: counts?.active, label: "Active accounts", to: "/people?status=active" },
-          { value: counts?.left, label: "Have left", zero: "Nobody has left", to: "/people?status=inactive" },
-          {
-            value: counts?.desks_empty,
-            label: (counts?.desks_empty ?? 0) === 1 ? "Desk with nobody on it" : "Desks with nobody on them",
-            zero: "Every desk has a person",
-            to: "/admin",
-            tone: "critical",
-          },
-          {
-            value: counts?.research,
-            label: "On research posts",
-            zero: "Nobody on a research post",
-            to: "/people?research=RESEARCH",
-          },
-        ]}
-      />
+      {/* The only roster figure that needs somebody: a desk with nobody on it. */}
+      {(counts?.desks_empty ?? 0) > 0 && (
+        <Answer
+          items={[
+            {
+              value: counts?.desks_empty,
+              label: counts?.desks_empty === 1 ? "Desk with nobody on it" : "Desks with nobody on them",
+              to: "/admin",
+              tone: "critical",
+            },
+          ]}
+        />
+      )}
 
       {mayIssue && <IssuePasswordsRow onOpen={() => setIssuing(true)} />}
       {issuing && mayIssue && <IssuePasswordsDialog onClose={closeIssuing} />}
@@ -465,11 +464,7 @@ function AdminPeople({ issue }: { issue: boolean }) {
         <EmptyState
           icon={filtered ? SearchX : Users}
           title={filtered ? "Nobody matches" : "Nobody on the roster yet"}
-          message={
-            filtered
-              ? "No account matches this search, role and department. Try clearing a filter."
-              : "Accounts appear here once they are created."
-          }
+          message={filtered ? "Try clearing a filter." : "Accounts appear here once created."}
           action={
             filtered ? (
               <Button kind="default" size="sm" onClick={clearFilters}>
@@ -587,12 +582,12 @@ function TheirRecord({ id }: { id: string }) {
         <SectionTitle>
           <span id="person-record">Their record</span>
         </SectionTitle>
-        <Link to={`/faculty/${id}`} className="text-sm text-accent underline-offset-4 hover:underline">
-          Open the full record
-        </Link>
+        <Button kind="default" size="sm" asChild>
+          <Link to={`/faculty/${id}`}>Open the full record</Link>
+        </Button>
       </div>
       {q.isError ? (
-        <Meta className="block">The record could not be loaded. Open the full record to try again.</Meta>
+        <Meta className="block">The record could not be loaded.</Meta>
       ) : (
         <Answer
           items={[
@@ -827,7 +822,7 @@ function CollegePerson() {
         open={viewing}
         onOpenChange={setViewing}
         title={`View the app as ${firstName(faculty.name) || "them"}?`}
-        description="You see exactly what they see, read-only in spirit: anything you do is done as them. The start and the end are written to the audit log, and a banner stays up until you stop."
+        description="Anything you do is done as them. The start and the end are written to the audit log, and a banner stays up until you stop."
         confirmLabel={`View as ${firstName(faculty.name) || "them"}`}
         onConfirm={() => viewAs()}
       />
@@ -840,10 +835,7 @@ function CollegePerson() {
       )}
 
       {!showMoney && (
-        <Callout tone="info" title="Payment figures are not shown for this role">
-          As a head of department you can see what this person has published, not what they
-          have been paid for it.
-        </Callout>
+        <Meta className="block">Payment figures are not shown for this role.</Meta>
       )}
 
       {/* The office keeps the account here and reads the record where it is
@@ -1142,7 +1134,7 @@ function HodPerson() {
           <EmptyState
             icon={SearchX}
             title="Nothing filed yet"
-            message="Nothing has been filed under this account. That is not the same as having published nothing - a paper nobody filed a claim for does not appear anywhere in this system."
+            message="A paper nobody filed a claim for does not appear here."
           />
         ) : (
           <ul className="divide-y divide-line border-y border-line">
@@ -1259,8 +1251,8 @@ function ReplaceHead({
   return (
     <Callout tone="caution" title={`${name} is HOD of ${department}. Replace them?`}>
       <p>
-        A department has one head. Replacing makes {newHead} head of {department}, and {name}{" "}
-        goes back to being faculty. Both happen in the same save, and both go in the audit log.
+        {newHead} becomes head of {department}, and {name} goes back to being faculty. Both happen
+        in the same save and go in the audit log.
       </p>
       <div className="mt-2">
         <Checkbox
@@ -1331,14 +1323,14 @@ function FormSection({
   children,
 }: {
   title: string
-  sentence: React.ReactNode
+  sentence?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
     <section className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-3 border-t border-line pt-6 md:grid-cols-[15rem_minmax(0,1fr)]">
       <div>
         <h3 className="text-base font-medium">{title}</h3>
-        <p className="mt-1 text-sm text-fg-muted">{sentence}</p>
+        {sentence && <p className="mt-1 text-sm text-fg-muted">{sentence}</p>}
       </div>
       <div className="min-w-0 max-w-xl space-y-4">{children}</div>
     </section>
@@ -1506,20 +1498,12 @@ function AccountForm({
     >
       {data.stats.claims > 0 && (
         <Callout tone="info" title="This account has a record behind it">
-          {data.stats.claims} papers, {data.stats.paid_claims} of them paid. Changing the staff or
-          biometric ID changes what future payments are made against; it does not rewrite what
-          has already been paid.
+          {data.stats.claims} papers, {data.stats.paid_claims} of them paid. A new staff or biometric ID
+          applies to future payments only.
         </Callout>
       )}
 
-      <FormSection
-        title="Identity"
-        sentence={
-          isSuperAdmin
-            ? "Who they are on paper. The staff ID is what a payment is made against."
-            : "A super admin's to change. The office clears the claims these decide, so it cannot also set them."
-        }
-      >
+      <FormSection title="Identity" sentence={isSuperAdmin ? undefined : "A super admin's to change."}>
         <Field label="Full name" hint={identityHint}>
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} disabled={!isSuperAdmin} />
         </Field>
@@ -1545,10 +1529,7 @@ function AccountForm({
         {data.employee_id && <Meta className="block">Employee ID {data.employee_id}</Meta>}
       </FormSection>
 
-      <FormSection
-        title="Role and department"
-        sentence="What this account may do, and which head sees their work. A department has one head."
-      >
+      <FormSection title="Role and department">
         <Field
           label="Role"
           hint={
@@ -1556,7 +1537,7 @@ function AccountForm({
               ? "You cannot change your own role. Ask another admin."
               : roleLocked
                 ? "Only a super admin can change a role that decides whether money moves."
-                : "A head of department is faculty who also heads the department."
+                : undefined
           }
         >
           <Combobox
@@ -1590,31 +1571,24 @@ function AccountForm({
 
       <FormSection
         title="Research faculty"
-        sentence={
-          mayEditPost
-            ? "Research faculty are already paid to do research, so the first part of their incentives each year is not paid."
-            : "Set by the research coordinator or a super admin. The office clears the claims the threshold decides."
-        }
+        sentence={mayEditPost ? undefined : "Set by the research coordinator or a super admin."}
       >
         <Checkbox
           checked={form.faculty_type === "RESEARCH"}
           onCheckedChange={(v) => set("faculty_type", v === true ? "RESEARCH" : "REGULAR")}
           disabled={!mayEditPost}
           label="Research faculty"
-          hint="Their yearly threshold is set below once this is saved."
+          hint={mayEditPost ? "The first part of their yearly incentives is not paid. Set the threshold after saving." : undefined}
         />
         {data.faculty_type === "RESEARCH" && form.faculty_type === "RESEARCH" && mayEditPost && (
           <ResearchThresholdPanel userId={userId} name={data.name || data.email} />
         )}
         {data.faculty_type === "RESEARCH" && form.faculty_type === "RESEARCH" && !mayEditPost && (
-          <Meta className="block">A research threshold applies. Only the research coordinator or a super admin can see or change it.</Meta>
+          <Meta className="block">A research threshold applies. Only the research coordinator or a super admin can change it.</Meta>
         )}
       </FormSection>
 
-      <FormSection
-        title="Scopus and ORCID"
-        sentence="The profile a paper is checked against. The wrong one attributes their work to somebody else."
-      >
+      <FormSection title="Scopus and ORCID" sentence="A wrong ID attributes their work to somebody else.">
         <Field label="Scopus author ID" hint={identityHint}>
           <Input
             value={form.scopus_author_id}
@@ -1642,15 +1616,12 @@ function AccountForm({
               {data.orcid_id}
             </a>
           ) : (
-            <span className="text-fg-muted">not added yet. They add it on their own profile.</span>
+            <span className="text-fg-muted">not added</span>
           )}
         </p>
       </FormSection>
 
-      <FormSection
-        title="Account and sign-in"
-        sentence="An inactive account cannot sign in. Its papers and payments stay on record."
-      >
+      <FormSection title="Account and sign-in">
         <Checkbox
           checked={form.active}
           onCheckedChange={(v) => set("active", v === true)}
@@ -1658,11 +1629,9 @@ function AccountForm({
           label="Active"
           hint={editingSelf ? "You cannot deactivate the account you are signed in as." : undefined}
         />
-        <p className="text-sm text-fg-muted">
-          {data.must_change_password
-            ? "They will be asked to choose a new password the next time they sign in."
-            : "They sign in with their own password or their college Google account."}
-        </p>
+        {data.must_change_password && (
+          <p className="text-sm text-fg-muted">They will choose a new password at next sign-in.</p>
+        )}
         <div className="flex flex-wrap gap-2">
           <Button type="button" kind="default" size="sm" onClick={onResetPassword}>
             <KeyRound />
@@ -1693,7 +1662,7 @@ function AccountForm({
       >
         <Meta className="mr-auto" aria-live="polite">
           {changes === 0
-            ? "No unsaved changes."
+            ? ""
             : `${changes} unsaved ${changes === 1 ? "change" : "changes"}: ${Object.keys(patch)
                 .map((k) => FIELD_NAME[k] ?? k)
                 .join(", ")}`}
@@ -1872,10 +1841,9 @@ function PasswordReset({
           <DialogDescription>For {name}.</DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
-          <Callout tone="info" title="They will have to change it">
-            This is a handover value, not a password they keep. They are asked to choose their
-            own the moment they sign in, and setting one also clears a lockout.
-          </Callout>
+          <Meta className="block">
+            They must choose their own password at sign-in. This also clears a lockout.
+          </Meta>
           <Field label="New password" error={short ? "At least 8 characters." : undefined}>
             <PasswordInput
               value={password}
@@ -1966,7 +1934,7 @@ function NewAccount({ onClose }: { onClose: () => void }) {
         ...(head.current && head.replace ? { replace_hod: true } : {}),
       })
       toast.ok(
-        `${created.email} created. Set a password for them, or they can sign in with Google.`
+        `Created ${created.email}. Reset their password, or they sign in with Google.`
       )
       onClose()
     } catch (err) {
@@ -1980,15 +1948,10 @@ function NewAccount({ onClose }: { onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>New account</DialogTitle>
           <DialogDescription>
-            Someone who needs to sign in to this system.
+            No password is set here. Reset it from their record, or they sign in with Google.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
-          <Callout tone="info" title="No password is set here">
-            The account is created without one. Use "Reset password" on their
-            record afterwards and hand the value over, or let them sign in with
-            the Google account for their email.
-          </Callout>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
@@ -2012,10 +1975,7 @@ function NewAccount({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field
-              label="Role"
-              hint="What they can see and approve. Changeable later."
-            >
+            <Field label="Role">
               <Combobox
                 value={role}
                 onChange={setRole}
@@ -2051,10 +2011,10 @@ function NewAccount({ onClose }: { onClose: () => void }) {
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Staff ID" hint="Optional.">
+            <Field label="Staff ID (optional)">
               <Input value={staffId} onChange={(e) => setStaffId(e.target.value)} />
             </Field>
-            <Field label="Designation" hint="Optional.">
+            <Field label="Designation (optional)">
               <Input
                 value={designation}
                 onChange={(e) => setDesignation(e.target.value)}

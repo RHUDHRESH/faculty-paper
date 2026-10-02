@@ -79,6 +79,10 @@ export type WorkspaceClaim = {
   cleared_by_name?: string | null
   contest_forward?: boolean | null
   attachments: Attachment[]
+  /** Links the claimant gave in place of an upload (the old ERP sheet's Drive links). */
+  proof_url?: string | null
+  sec_proof_url?: string | null
+  sec_refs?: string | null
   actions?: ClaimAction[]
   confirmations?: Confirmation[]
   waiting_days: number | null

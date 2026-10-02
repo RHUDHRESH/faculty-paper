@@ -216,10 +216,32 @@ class RealRun(Base):
         self.assertIsNotNone(self.new1.last_login)
 
     def test_rate_limited_after_five_real_runs_an_hour(self):
-        for _ in range(5):
-            self.assertEqual(self.post({"who": "ids", "ids": [self.new1.id]}).status_code, 200)
-        r = self.post({"who": "ids", "ids": [self.new1.id]})
+        # Different groups each time: the same group twice in a row is a
+        # double-click, which has its own refusal (below).
+        people = [make(Role.FACULTY, f"rl{i}") for i in range(6)]
+        for u in people[:5]:
+            self.assertEqual(self.post({"who": "ids", "ids": [u.id]}).status_code, 200)
+        r = self.post({"who": "ids", "ids": [people[5].id]})
         self.assertEqual(r.status_code, 429)
+
+    def test_the_same_run_twice_in_a_moment_is_refused_and_replaces_nothing(self):
+        """A double-click must not replace the passwords the first click handed out."""
+        first = self.post({"who": "ids", "ids": [self.new1.id]})
+        self.assertEqual(first.status_code, 200)
+        given = rows_of(first)[0]["Password"]
+        again = self.post({"who": "ids", "ids": [self.new1.id]})
+        self.assertEqual(again.status_code, 409, again.content)
+        self.assertIn("only copy", again.json()["detail"])
+        self.new1.refresh_from_db()
+        self.assertTrue(self.new1.check_password(given), "the downloaded list still works")
+        self.assertEqual(AuditLog.objects.filter(action="PASSWORDS_ISSUE").count(), 1)
+
+    def test_after_two_minutes_the_same_run_is_a_decision_again(self):
+        from datetime import timedelta
+
+        self.assertEqual(self.post({"who": "ids", "ids": [self.new1.id]}).status_code, 200)
+        AuditLog._base_manager.filter(action="PASSWORDS_ISSUE").update(created_at=timezone.now() - timedelta(minutes=3))
+        self.assertEqual(self.post({"who": "ids", "ids": [self.new1.id]}).status_code, 200)
 
 
 class NothingKeptAnywhere(Base):

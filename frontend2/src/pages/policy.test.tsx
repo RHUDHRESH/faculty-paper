@@ -71,7 +71,9 @@ describe("the quartile amounts", () => {
   // FORMULA carries qf_only_for_no_snip: true, the dead flag that made this
   // page say quartile amounts replace the SNIP amount. The calculator adds them.
   it("says they are added to the SNIP amount, as the calculator pays them", async () => {
+    const user = userEvent.setup({ delay: null })
     mount()
+    await user.click(await screen.findByRole("button", { name: /what each rule means/i }))
     expect(await screen.findByText(/Added on top of the SNIP amount/)).toBeInTheDocument()
     expect(screen.queryByText(/Used only when no SNIP is held/)).toBeNull()
   })

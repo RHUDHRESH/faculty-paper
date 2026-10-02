@@ -12,7 +12,6 @@ import { api } from "@/lib/api"
 import type { Me } from "@/app/auth"
 import { Approvals } from "@/pages/approvals"
 import { Authorisations } from "@/pages/authorisations"
-import { Clearing } from "@/pages/clearing"
 import { renderWithProviders } from "@/test/harness"
 
 /**
@@ -24,7 +23,6 @@ import { renderWithProviders } from "@/test/harness"
  * bulk send back does not exist.
  */
 
-const cell: Me = { id: "u-cell", email: "cell@example.edu", name: "R Cell", role: "RESEARCH_CELL", department: null }
 const principal: Me = { id: "u-prin", email: "prin@example.edu", name: "K Principal", role: "PRINCIPAL", department: null }
 const director: Me = { id: "u-dir", email: "dir@example.edu", name: "V Director", role: "DIRECTOR", department: null }
 
@@ -97,162 +95,6 @@ function clearingClaim(over: Record<string, unknown> = {}) {
   }
 }
 
-const QUEUE = [
-  clearingClaim({ id: "c1", ticket_number: "FP-2026-000001", waiting_days: 40 }),
-  clearingClaim({ id: "c2", ticket_number: "FP-2026-000002", waiting_days: 20, owner_name: "Ravi Other", owner_department: "CSE", remuneration: 10_000 }),
-  clearingClaim({ id: "c3", ticket_number: "FP-2026-000003", waiting_days: 5, journal_watch: { id: "w", reason: "Cloned title", title: "Nature" } }),
-  clearingClaim({ id: "c4", ticket_number: "ERP-PROCESSED-120", waiting_days: 2, verification_ok: false, duplicate_warning: true }),
-]
-
-async function openClearing(route = "/clearing") {
-  serve(cell, {
-    "/api/admin/clearing-queue": QUEUE,
-    "/api/admin/clearing-report": { received: 0, cleared: 0, sent_back: 0, rejected: 0, waiting_now: 4, by_person: [], ageing: [] },
-    "/api/admin/bulk-clear": { cleared: 2, skipped: [] },
-    "/api/desk/bulk-hold": { held: 2, held_ids: ["c1", "c2"], skipped: [] },
-  })
-  const view = renderWithProviders(at(<Clearing />, "/clearing"), { route })
-  await screen.findByRole("table", { name: "Claims waiting to be cleared" })
-  return view
-}
-
-const table = () => screen.getByRole("table", { name: "Claims waiting to be cleared" })
-
-describe("the clearing queue", () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it("shows claim no., claimant, paper, journal with quartile, waiting days, amount and flags", async () => {
-    await openClearing()
-    const t = within(table())
-    for (const h of ["Claim no.", "Claimant", "Paper", "Journal", "Waiting", "Amount", "Flags"]) {
-      expect(t.getByRole("columnheader", { name: h })).toBeInTheDocument()
-    }
-    const row = t.getByText("FP-2026-000001").closest("tr") as HTMLElement
-    expect(within(row).getByRole("button", { name: /copy claim no\. FP-2026-000001/i })).toBeInTheDocument()
-    expect(within(row).getByText("Asha Faculty")).toBeInTheDocument()
-    expect(within(row).getByText("Fuzzy control of a grid")).toBeInTheDocument()
-    expect(within(row).getByText("Nature")).toBeInTheDocument()
-    expect(within(row).getByText("Q1")).toBeInTheDocument()
-    expect(within(row).getByText("₹52,377.50")).toBeInTheDocument()
-    const dup = t.getByText("ERP-PROCESSED-120").closest("tr") as HTMLElement
-    expect(within(dup).getByText(/Possible duplicate/)).toBeInTheDocument()
-    expect(within(dup).getByText("Checks failed")).toBeInTheDocument()
-  })
-
-  it("turns waiting days amber after two weeks and red after a month", async () => {
-    await openClearing()
-    const t = within(table())
-    expect(t.getByText("40 days")).toHaveClass("text-critical")
-    expect(t.getByText("20 days")).toHaveClass("text-caution")
-    const quiet = t.getByText("5 days")
-    expect(quiet).not.toHaveClass("text-caution")
-    expect(quiet).not.toHaveClass("text-critical")
-  })
-
-  it("opens the full-page review from a row, never a side sheet", async () => {
-    const user = userEvent.setup()
-    await openClearing()
-    const link = within(table()).getAllByRole("link", { name: "Fuzzy control of a grid" })[0]
-    expect(link).toHaveAttribute("href", "/review/c1?queue=clearing")
-    await user.click(within(table()).getAllByText("Asha Faculty")[0])
-    expect(await screen.findByText("The review workspace")).toBeInTheDocument()
-    expect(where()).toBe("/review/c1?queue=clearing")
-    expect(screen.queryByRole("dialog")).toBeNull()
-  })
-
-  it("tells the review which filters were on", async () => {
-    await openClearing("/clearing?department=CSE")
-    expect(within(table()).getByRole("link", { name: "Fuzzy control of a grid" })).toHaveAttribute(
-      "href",
-      "/review/c2?queue=clearing&filter=department%3DCSE"
-    )
-  })
-
-  it("keeps a filter in the address and applies one that is there already", async () => {
-    await openClearing("/clearing?department=CSE")
-    expect(within(table()).getAllByRole("row")).toHaveLength(2) // header and one claim
-    expect(within(table()).getByText("FP-2026-000002")).toBeInTheDocument()
-    expect(within(table()).queryByText("FP-2026-000001")).toBeNull()
-  })
-
-  it("writes what is typed to the address", async () => {
-    const user = userEvent.setup()
-    await openClearing()
-    await user.type(screen.getByRole("textbox", { name: "Filter the queue" }), "Ravi")
-    await waitFor(() => expect(where()).toContain("q=Ravi"))
-    expect(within(table()).getAllByRole("row")).toHaveLength(2)
-  })
-
-  it("finds a claim number however it is typed", async () => {
-    const user = userEvent.setup()
-    await openClearing()
-    await user.type(screen.getByRole("textbox", { name: "Filter the queue" }), "fp 2026 3")
-    await waitFor(() => expect(within(table()).getAllByRole("row")).toHaveLength(2))
-    expect(within(table()).getByText("FP-2026-000003")).toBeInTheDocument()
-  })
-
-  it("offers 'ready to clear' for claims whose checks pass and that are not watch-listed", async () => {
-    const user = userEvent.setup()
-    await openClearing()
-    // c1 and c2 are clean; c3 is on the watch-list; c4 failed its checks.
-    expect(screen.getByText(/of 4 shown are ready to clear/)).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Review the 2 ready" }))
-    const dialog = await screen.findByRole("dialog", { name: "Clear 2 ready claims?" })
-    expect(dialog).toHaveTextContent("2 claims")
-    expect(dialog).toHaveTextContent("₹62,377.50")
-    expect(dialog).toHaveTextContent("2 left out")
-    expect(dialog).toHaveTextContent("1 watched journal")
-    expect(dialog).toHaveTextContent("1 checks failed")
-    expect(dialog).toHaveTextContent("1 possible duplicate")
-    await user.click(within(dialog).getByRole("button", { name: /^Clear 2 for/ }))
-    await waitFor(() => expect(posted("/api/admin/bulk-clear")).toHaveLength(1))
-    expect(posted("/api/admin/bulk-clear")[0].body).toEqual({ claim_ids: ["c1", "c2"] })
-  })
-
-  it("shows what a manual selection contains, including what is not ready", async () => {
-    const user = userEvent.setup()
-    await openClearing()
-    await user.click(within(table()).getByRole("checkbox", { name: /Select Fuzzy control of a grid, FP-2026-000001/ }))
-    await user.click(within(table()).getByRole("checkbox", { name: /ERP-PROCESSED-120/ }))
-    await user.click(screen.getByRole("button", { name: "Clear 2 claims" }))
-    const dialog = await screen.findByRole("dialog", { name: "Clear 2 claims?" })
-    expect(dialog).toHaveTextContent("1 claim is worth a second look")
-    expect(dialog).toHaveTextContent("checks failed, possible duplicate")
-  })
-
-  it("puts a selection on hold with one reason, and has no bulk send back", async () => {
-    const user = userEvent.setup()
-    await openClearing()
-    await user.click(within(table()).getByRole("checkbox", { name: /FP-2026-000001/ }))
-    await user.click(within(table()).getByRole("checkbox", { name: /FP-2026-000002/ }))
-
-    // Send back is one at a time, and the page says why.
-    expect(screen.queryByRole("button", { name: /send back/i })).toBeNull()
-    expect(screen.getByText(/Send back is one claim at a time/)).toBeInTheDocument()
-
-    await user.click(screen.getByRole("button", { name: "Put on hold" }))
-    const dialog = await screen.findByRole("dialog", { name: "Put 2 claims on hold?" })
-    const go = within(dialog).getByRole("button", { name: "Put 2 on hold" })
-    expect(go).toBeDisabled()
-    await user.type(within(dialog).getByRole("textbox"), "Waiting on the erratum")
-    expect(go).toBeEnabled()
-    await user.click(go)
-    await waitFor(() => expect(posted("/api/desk/bulk-hold")).toHaveLength(1))
-    expect(posted("/api/desk/bulk-hold")[0].body).toEqual({ claim_ids: ["c1", "c2"], reason: "Waiting on the erratum" })
-  })
-
-  it("does not draw an empty queue when the load fails", async () => {
-    serve(cell, {})
-    calls.length = 0
-    vi.mocked(api).mockImplementation((async (path: string) => {
-      if (path.startsWith("/api/auth/me")) return cell
-      throw new Error("down")
-    }) as unknown as typeof api)
-    renderWithProviders(at(<Clearing />, "/clearing"), { route: "/clearing" })
-    expect(await screen.findByText("Could not load the queue")).toBeInTheDocument()
-  })
-})
-
 /* ------------------------------------------------------------------------ */
 /* Approvals                                                                 */
 /* ------------------------------------------------------------------------ */
@@ -288,28 +130,30 @@ async function openApprovals(route = "/approvals") {
     "/api/desk/bulk-hold": { held: 1, held_ids: ["a1"], skipped: [] },
   })
   renderWithProviders(at(<Approvals />, "/approvals"), { route })
-  await screen.findByRole("table", { name: "Claims waiting for approval" })
+  await screen.findByRole("region", { name: "Ready to approve" })
 }
-const aTable = () => screen.getByRole("table", { name: "Claims waiting for approval" })
+/** A claim's row, by its claim number (rows are in two lanes: ready, and needs a look). */
+const row = (no: string) => document.querySelector(`[data-claim="${no}"]`) as HTMLElement
 
 describe("the approvals queue", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("shows amounts and the research cell's flags to the Principal", async () => {
     await openApprovals()
-    const t = within(aTable())
-    expect(t.getByRole("columnheader", { name: "Amount" })).toBeInTheDocument()
-    expect(t.getByRole("columnheader", { name: "Flags" })).toBeInTheDocument()
-    const flagged = t.getByText("FP-2026-000012").closest("tr") as HTMLElement
-    expect(within(flagged).getByText("2 open flags")).toBeInTheDocument()
-    expect(within(flagged).getByText("Needs a second signature")).toBeInTheDocument()
-    expect(t.getByText("33 days")).toHaveClass("text-critical")
+    // The claim that needs her eyes is in its own lane and says why, in words, on its row.
+    const look = within(screen.getByRole("region", { name: "Needs a look" }))
+    const flagged = within(look.getByText("FP-2026-000012").closest("li") as HTMLElement)
+    expect(flagged.getByText(/2 open flags/)).toBeInTheDocument()
+    expect(flagged.getByText(/Your approval is the second signature/)).toBeInTheDocument()
+    // Amounts are shown, and a month-old wait is red.
+    expect(within(row("FP-2026-000013")).getAllByText("₹20,000")[0]).toBeInTheDocument()
+    for (const el of within(row("FP-2026-000011")).getAllByText("33 days")) expect(el).toHaveClass("text-critical")
   })
 
   it("opens the full-page review with the queue named", async () => {
     const user = userEvent.setup()
     await openApprovals()
-    await user.click(within(aTable()).getByText("FP-2026-000013").closest("tr")!.querySelector("td:nth-child(3)")!)
+    await user.click(within(row("FP-2026-000013")).getByText("Asha Faculty"))
     expect(await screen.findByText("The review workspace")).toBeInTheDocument()
     expect(where()).toBe("/review/a3?queue=approvals")
     expect(screen.queryByRole("dialog")).toBeNull()
@@ -321,16 +165,17 @@ describe("the approvals queue", () => {
     expect(asked).toContain("department=ECE")
     expect(asked).toContain("quartile=Q1")
     expect(asked).toContain("waiting_over=14")
+    expect(where()).toContain("department=ECE")
   })
 
   it("counts as ready only a claim with no open flag, no duplicate and an amount", async () => {
     const user = userEvent.setup()
     await openApprovals()
-    expect(screen.getByText(/of 3 shown are ready to approve/)).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Review the 2 ready" }))
-    const dialog = await screen.findByRole("dialog", { name: "Approve 2 ready claims?" })
+    expect(screen.getByText(/2 are ready; 1 need a look/)).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Approve the 2 ready" }))
+    const dialog = await screen.findByRole("dialog", { name: "Approve 2 claims?" })
     expect(dialog).toHaveTextContent("₹72,377.50")
-    expect(dialog).toHaveTextContent("1 left out")
+    expect(dialog).toHaveTextContent("1 left for you to look at")
     expect(dialog).toHaveTextContent("1 open flag")
     await user.click(within(dialog).getByRole("button", { name: /^Approve 2 for/ }))
     await waitFor(() => expect(posted("/api/principal/bulk-approve")).toHaveLength(1))
@@ -340,10 +185,10 @@ describe("the approvals queue", () => {
   it("has bulk hold and no bulk send back", async () => {
     const user = userEvent.setup()
     await openApprovals()
-    await user.click(within(aTable()).getByRole("checkbox", { name: /FP-2026-000011/ }))
+    await user.click(within(row("FP-2026-000011")).getByRole("checkbox", { name: /FP-2026-000011/ }))
     expect(screen.getByRole("button", { name: "Put on hold" })).toBeInTheDocument()
     // The selection bar has none; send back lives on each row, one at a time.
-    const bar = screen.getByText(/1 selected|selected/).closest(".sticky") as HTMLElement
+    const bar = screen.getByText(/chosen/).closest(".sticky") as HTMLElement
     expect(within(bar).queryByRole("button", { name: /send back/i })).toBeNull()
     expect(screen.getByText(/Send back is one claim at a time/)).toBeInTheDocument()
   })
@@ -355,9 +200,9 @@ describe("the approvals queue", () => {
       "/api/principal/queue": PRINCIPAL_QUEUE,
       "/api/claims/a3/principal-approve": { ...approvalClaim({ id: "a3", remuneration: 20_000 }), status: "PRINCIPAL_APPROVED" },
     })
-    const row = within(aTable()).getByText("FP-2026-000013").closest("tr") as HTMLElement
-    await user.click(within(row).getByRole("button", { name: /^Approve$/ }))
-    const dialog = await screen.findByRole("dialog", { name: "Approve this spend?" })
+    // (a row holds one button for a phone and one for a desk; the stylesheet shows the right one)
+    await user.click(within(row("FP-2026-000013")).getAllByRole("button", { name: /^Approve: / })[0])
+    const dialog = await screen.findByRole("dialog", { name: "Approve this claim?" })
     await user.click(within(dialog).getByRole("button", { name: /^Approve ₹20,000/ }))
     await waitFor(() => expect(posted("/api/claims/a3/principal-approve")).toHaveLength(1))
     expect(posted("/api/claims/a3/principal-approve")[0].body).toEqual({ expected_amount: 20_000 })
@@ -370,9 +215,8 @@ describe("the approvals queue", () => {
       "/api/principal/queue": PRINCIPAL_QUEUE,
       "/api/claims/a1/principal-reject": { ...approvalClaim({ id: "a1" }), status: "SUBMITTED" },
     })
-    const row = within(aTable()).getByText("FP-2026-000011").closest("tr") as HTMLElement
-    await user.click(within(row).getByRole("button", { name: "Send back" }))
-    const dialog = await screen.findByRole("dialog", { name: "Send back to the research cell?" })
+    await user.click(within(row("FP-2026-000011")).getAllByRole("button", { name: "Send back" })[0])
+    const dialog = await screen.findByRole("dialog", { name: "Send this claim back?" })
     const send = within(dialog).getByRole("button", { name: "Send back" })
     expect(send).toBeDisabled()
     await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Author position does not match the paper")
@@ -435,9 +279,9 @@ async function openAuthorisations(route = "/authorisations") {
     "/api/budgets": { financial_year: "2026-27", college: { department: null, allocated: null, spent: 0, committed: 0, remaining: null, used_fraction: null }, departments: [] },
   })
   renderWithProviders(at(<Authorisations />, "/authorisations"), { route })
-  await screen.findByRole("table", { name: "Claims waiting to be authorised" })
+  await screen.findByRole("list", { name: "Claims ready to authorise" })
 }
-const dTable = () => screen.getByRole("table", { name: "Claims waiting to be authorised" })
+const dTable = () => screen.getByRole("list", { name: "Claims ready to authorise" })
 
 describe("the authorisations queue", () => {
   beforeEach(() => vi.clearAllMocks())
@@ -445,10 +289,11 @@ describe("the authorisations queue", () => {
   it("shows the amount to the Director and never a flags column", async () => {
     await openAuthorisations()
     const t = within(dTable())
-    expect(t.getByRole("columnheader", { name: "Amount" })).toBeInTheDocument()
-    expect(t.queryByRole("columnheader", { name: "Flags" })).toBeNull()
-    expect(t.getByText("₹52,377.50")).toBeInTheDocument()
-    expect(t.getByText("29 days")).toHaveClass("text-caution")
+    // A face-led list, not a table: no Flags column, and none of the words a flag is made of.
+    expect(screen.queryByRole("table")).toBeNull()
+    expect(screen.queryByText(/flag|duplicate|watch/i)).toBeNull()
+    expect(t.getAllByText("₹52,377.50")[0]).toBeInTheDocument()
+    expect(t.getAllByText("29 days")[0]).toHaveClass("text-caution")
   })
 
   it("opens the full-page review from a row", async () => {
@@ -465,9 +310,51 @@ describe("the authorisations queue", () => {
 
   it("keeps a claim with no amount out of the ready batch", async () => {
     await openAuthorisations()
-    expect(screen.getByText(/on this page is ready to authorise/)).toBeInTheDocument()
-    expect(within(dTable()).getByRole("checkbox", { name: /A paper without an amount/ })).toBeDisabled()
-    expect(within(dTable()).getByText(/could not be worked out/)).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: /Ready to authorise \(1\)/ })).toBeInTheDocument()
+    const stuck = screen.getByRole("list", { name: "Claims that cannot be authorised yet" })
+    expect(within(stuck).queryByRole("checkbox")).toBeNull()
+    expect(within(stuck).getByText(/could not be worked out/)).toBeInTheDocument()
+    expect(within(dTable()).queryByText("A paper without an amount")).toBeNull()
+  })
+
+  it("says what authorising does to the budget before anything is pressed, and again in the confirm", async () => {
+    const user = userEvent.setup()
+    serve(director, {
+      "/api/director/queue": DIRECTOR_QUEUE,
+      "/api/budgets": {
+        financial_year: "2026-27",
+        college: { department: null, allocated: 1_000_000, spent: 400_000, committed: 300_000, remaining: 300_000, used_fraction: 0.7 },
+        departments: [],
+      },
+      "/api/director/bulk-approve": { approved: 1, total: 52_377.5, skipped: [] },
+    })
+    renderWithProviders(at(<Authorisations />, "/authorisations"), { route: "/authorisations" })
+    await screen.findByRole("list", { name: "Claims ready to authorise" })
+    expect(await screen.findAllByText("Authorising them leaves ₹3,00,000 in the 2026-27 budget.")).toHaveLength(1)
+    expect(screen.getByRole("img", { name: /Budget: ₹4,00,000 paid/ })).toBeInTheDocument()
+    // One primary button authorises every ready claim; the confirm repeats the effect and takes Enter.
+    await user.click(screen.getByRole("button", { name: /Authorise all 1 · ₹52,377.50/ }))
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByText(/Authorising it leaves ₹3,00,000/)).toBeInTheDocument()
+    await user.keyboard("{Enter}")
+    await waitFor(() => expect(posted("/api/director/bulk-approve")).toHaveLength(1))
+    expect(posted("/api/director/bulk-approve")[0].body).toMatchObject({ claim_ids: ["d1"] })
+  })
+
+  it("authorises the claim under the cursor on the key a, and every ready claim on shift and a", async () => {
+    const user = userEvent.setup()
+    serve(director, {
+      "/api/director/queue": DIRECTOR_QUEUE,
+      "/api/budgets": { financial_year: "2026-27", college: { department: null, allocated: null, spent: 0, committed: 0, remaining: null, used_fraction: null }, departments: [] },
+      "/api/claims/d1/director-approve": { remuneration: 52_377.5 },
+    })
+    renderWithProviders(at(<Authorisations />, "/authorisations"), { route: "/authorisations" })
+    await screen.findByRole("list", { name: "Claims ready to authorise" })
+    await user.keyboard("a")
+    expect(await screen.findByRole("heading", { name: "Authorise this claim?" })).toBeInTheDocument()
+    await user.keyboard("{Enter}")
+    await waitFor(() => expect(posted("/api/claims/d1/director-approve")).toHaveLength(1))
+    expect(posted("/api/claims/d1/director-approve")[0].body).toMatchObject({ expected_amount: 52_377.5 })
   })
 
   it("passes the search to the server, claim number included", async () => {

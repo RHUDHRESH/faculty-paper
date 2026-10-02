@@ -158,10 +158,10 @@ test.describe("A Principal's own paper", () => {
     // It is in their own papers, at the claimant's stage.
     await page.goto("/papers/claims")
     await waitForSettled(page)
-    await page.getByLabel("Search your papers").fill(ticket)
+    await page.getByLabel("Search your claims").fill(ticket)
     const row = page.getByRole("listitem").filter({ hasText: ticket })
     await expect(row).toHaveCount(1)
-    await expect(row).toContainText("Being checked")
+    await expect(row.getByRole("list", { name: "Progress: Being checked" })).toBeVisible()
 
     await done(page)
   })
@@ -171,7 +171,7 @@ test.describe("A Principal's own paper", () => {
     await page.goto("/clearing")
     await waitForSettled(page)
 
-    const row = page.getByRole("row").filter({ hasText: ticket })
+    const row = page.locator("[data-claim]").filter({ hasText: ticket })
     await expect(row, "the Principal's paper is not in the clearing queue").toHaveCount(1)
     const review = await openFromQueue(page, row, "clearing")
 
@@ -201,10 +201,10 @@ test.describe("A Principal's own paper", () => {
     await page.goto("/approvals")
     await waitForSettled(page)
 
-    // Not in their queue, and the page says where it went.
-    await expect(page.getByText(/Your own papers are never in this queue/)).toBeVisible()
-    await page.getByLabel("Search the queue").fill(ticket)
-    await expect(page.getByRole("row").filter({ hasText: ticket })).toHaveCount(0)
+    // Not in their queue. The page no longer says so in a sentence (the text
+    // trim, docs/ux/27); the rule is that the server never sends the claim.
+    await expect(page.getByRole("heading", { name: "Approvals", level: 1 })).toBeVisible()
+    await expect(page.locator("[data-claim]").filter({ hasText: ticket })).toHaveCount(0)
 
     // And asked directly, the server refuses it.
     const res = await page.request.post(`/api/claims/${claimId}/principal-approve`, {
@@ -229,11 +229,11 @@ test.describe("A Principal's own paper", () => {
     await waitForSettled(page)
 
     await page.getByLabel("Search the queue").fill(ticket)
-    const row = page.getByRole("row").filter({ hasText: ticket })
+    const row = page.locator("[data-claim]").filter({ hasText: ticket })
     await expect(row, "the Principal's paper did not reach the super admin").toHaveCount(1)
     // Approved on its own row, as at the Principal's desk (a super admin
     // standing in sees the same queue).
-    await row.getByRole("button", { name: "Approve", exact: true }).click()
+    await row.getByRole("button", { name: /^Approve/ }).click()
     const confirm = page.getByRole("button", { name: /^Approve ₹/ })
     await expect(confirm).toBeEnabled({ timeout: 180_000 })
     await confirmAndWait(page, confirm, `/claims/${claimId}/principal-approve`, "approval")
@@ -245,7 +245,7 @@ test.describe("A Principal's own paper", () => {
     const director = await asRole(browser, "DIRECTOR")
     await director.goto("/authorisations")
     await waitForSettled(director)
-    const item = director.getByRole("row").filter({ hasText: ticket })
+    const item = director.locator("[data-claim]").filter({ hasText: ticket })
     await expect(item, "the approved paper did not reach the Director").toHaveCount(1)
     await item.getByRole("button", { name: "Authorise", exact: true }).click()
     const authorise = director.getByRole("button", { name: /^Authorise ₹/ })

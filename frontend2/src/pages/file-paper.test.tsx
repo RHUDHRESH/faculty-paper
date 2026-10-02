@@ -152,6 +152,12 @@ async function openForm(user: ReturnType<typeof userEvent.setup>, how: "doi" | "
     await user.click(await screen.findByRole("button", { name: "type the details in by hand" }))
   }
   await passTheGate(user)
+  if (how === "doi") {
+    // The form opens on the first section that still needs the person: the
+    // paper filled itself from the DOI, so that is the journal's. These tests
+    // are about the paper section, so they step back to it.
+    await user.click(await screen.findByRole("button", { name: "The paper" }))
+  }
   await screen.findByLabelText("Paper title")
 }
 
@@ -191,6 +197,17 @@ describe("filing a paper", { timeout: 20_000 }, () => {
     expect(within(card).getByText(/Scopus is not connected/)).toBeInTheDocument()
     // What the person still has to look at, in the server's own words.
     expect(within(card).getByText(/We matched you to author 2/)).toBeInTheDocument()
+  })
+
+  it("opens the form on the first section that still needs the person, not at the top", async () => {
+    const { user } = mount()
+    await screen.findByRole("heading", { level: 1, name: "Choose the paper" })
+    await pasteDoi(user)
+    await user.click(screen.getByRole("button", { name: "Continue" }))
+    await passTheGate(user)
+    // The paper filled itself from the DOI; the journal's Yukthi ID is what is left.
+    expect(await screen.findByLabelText("Yukthi ID")).toBeInTheDocument()
+    expect(screen.queryByLabelText("Paper title")).toBeNull()
   })
 
   it("says what is missing beside the field, and stays on the step", async () => {

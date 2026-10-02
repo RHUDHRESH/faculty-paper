@@ -96,7 +96,12 @@ def _claim_item(c: Claim, viewer: User) -> dict[str, Any]:
 
 
 def _people(q: str, viewer: User, limit: int) -> dict[str, Any]:
-    users = visible_users(viewer).filter(name__icontains=q)
+    match = Q(name__icontains=q)
+    if viewer.role in (Role.SUPER_ADMIN, Role.RESEARCH_CELL, Role.RESEARCH_COORDINATOR):
+        # The office is asked "who is TSSH008?" as often as "who is Anandan?":
+        # a staff ID or a Scopus author ID finds the person exactly.
+        match |= Q(staff_id__iexact=q) | Q(scopus_author_id__exact=q)
+    users = visible_users(viewer).filter(match)
     total = users.count()
     rows = list(users.values("id", "name", "department", "designation", "photo")[:200])
     counts = dict(
@@ -177,6 +182,8 @@ def _claims(q: str, viewer: User, limit: int) -> dict[str, Any]:
     doi = normalize_doi(q) if DOI_RE.search(q) else None
     forms = claim_numbers.variants(q)
     match = Q(ticket_number__iexact=q) | Q(paper_title__icontains=q)
+    if len(q) >= 3:
+        match |= Q(voucher_number__iexact=q)  # a payment is found by its voucher
     for form in forms:
         match |= Q(ticket_number__iexact=form)
         # A claim number typed in part ("fp-2026-0001", "erp-proc") is a prefix.

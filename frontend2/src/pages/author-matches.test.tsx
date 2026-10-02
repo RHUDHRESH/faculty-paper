@@ -106,18 +106,13 @@ describe("Author matches, the answer first", () => {
     items: [{ key: "k rao", names: ["K Rao"], papers: 68, authorships: 68, suggestions: [] }],
   }
 
-  it("says how many have a likely match and how many match nobody, each a link", async () => {
+  it("says how many names are left, and the two cuts sit on buttons with their counts", async () => {
     mount(BIG)
     const glance = await screen.findByRole("group", { name: "At a glance" })
     expect(await within(glance).findByRole("link", { name: /2,841 Names to place/ })).toBeInTheDocument()
-    expect(within(glance).getByRole("link", { name: /12 With a likely match/ })).toHaveAttribute(
-      "href",
-      "/people/matches?suggested=yes"
-    )
-    expect(within(glance).getByRole("link", { name: /2,829 Match nobody/ })).toHaveAttribute(
-      "href",
-      "/people/matches?suggested=no"
-    )
+    expect(within(glance).getAllByRole("link")).toHaveLength(1)
+    expect(await screen.findByRole("button", { name: "With a likely match (12)" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "Match nobody (2,829)" })).toHaveAttribute("aria-pressed", "false")
   })
 
   it("opens on the names with a likely match, one click each", async () => {

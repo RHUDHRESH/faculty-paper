@@ -12,6 +12,10 @@ import { Chip } from "@/ui/chip"
 import { YourCircle } from "@/ui/circle"
 import { Answer } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
+import { Tabs } from "@/ui/tabs"
+import { Button } from "@/ui/button"
+import { InfoTip } from "@/ui/info"
+import { FilterChip } from "@/ui/toggle"
 import { formatCount } from "@/lib/count"
 import { Avatar, PersonLink, initialsOf } from "@/ui/person"
 import { Picture } from "@/ui/picture"
@@ -143,24 +147,12 @@ export function Collaborate() {
         <PeopleSearch onPick={open} />
       </div>
 
-      <div role="tablist" aria-label="Who to work with" className="flex gap-1 overflow-x-auto border-b border-line">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            type="button"
-            aria-selected={view === t.id}
-            onClick={() => set({ view: t.id === "coauthors" ? null : t.id })}
-            className={cn(
-              "-mb-px shrink-0 border-b-2 px-3 pb-2.5 pt-1 text-sm transition-colors duration-[var(--dur-1)]",
-              view === t.id ? "border-(--area) font-medium text-fg" : "border-transparent text-fg-muted hover:text-fg"
-            )}
-          >
-            {t.label}
-            {t.count != null && <span className="ml-1.5 tabular text-fg-subtle">{t.count}</span>}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Who to work with"
+        value={view}
+        onChange={(id) => set({ view: id === "coauthors" ? null : id })}
+        tabs={tabs}
+      />
 
       {view === "coauthors" && (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -170,9 +162,9 @@ export function Collaborate() {
               <Waypoints aria-hidden className="size-4 text-(--area)" strokeWidth={1.75} />
               Your circle
             </SectionTitle>
-            <Meta className="block">
-              {ego.data?.capped ? `The closest ${ego.data.nodes.length - 1} of your ${formatCount(total)} co-authors. The list has everyone.` : "You and the people you have written with."}
-            </Meta>
+            {ego.data?.capped && (
+              <Meta className="block">{`The closest ${ego.data.nodes.length - 1} of your ${formatCount(total)} co-authors. The list has everyone.`}</Meta>
+            )}
             <EgoMap query={ego} height={360} onPick={open} compact />
           </aside>
         </div>
@@ -182,9 +174,11 @@ export function Collaborate() {
       )}
       {view === "map" && (
         <section className="space-y-3">
-          <Meta className="block">
-            You, the people you have written with, and the people they have written with: at most 60 people, never the whole college.
-            Point at somebody to light their path to you, and tap to see how you are connected.
+          <Meta className="flex items-center gap-1.5">
+            You, the people you have written with, and theirs.
+            <InfoTip label="About the map">
+              At most 60 people, never the whole college. Point at somebody to light their path to you, and tap to see how you are connected.
+            </InfoTip>
           </Meta>
           <EgoMap query={ego} height={560} onPick={open} />
         </section>
@@ -352,20 +346,11 @@ function CoauthorList({
   return (
     <section aria-label="Your co-authors">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
-        <div role="group" aria-label="Show" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        <div role="group" aria-label="Show" className="flex flex-wrap gap-2">
           {filters.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={filter === f.id}
-              onClick={() => onFilter(f.id)}
-              className={cn(
-                "transition-colors duration-[var(--dur-1)]",
-                filter === f.id ? "font-medium text-fg" : "text-fg-muted hover:text-fg"
-              )}
-            >
-              {f.label} <span className="tabular text-fg-subtle">{f.n}</span>
-            </button>
+            <FilterChip key={f.id} on={filter === f.id} onClick={() => onFilter(f.id)} count={f.n}>
+              {f.label}
+            </FilterChip>
           ))}
         </div>
         <label className="flex items-center gap-1 text-sm text-fg-muted">
@@ -393,9 +378,9 @@ function CoauthorList({
       {rows.length === 0 ? (
         <p className="py-8 text-sm text-fg-muted">
           {needle ? `Nobody matching “${find.trim()}” in this list.` : "Nobody in this group yet."}{" "}
-          <button type="button" className="font-medium text-accent hover:underline" onClick={() => { setFind(""); onFilter("all") }}>
+          <Button kind="default" size="sm" onClick={() => { setFind(""); onFilter("all") }}>
             Show everyone
-          </button>
+          </Button>
         </p>
       ) : null}
       <ul className="divide-y divide-line">
@@ -404,16 +389,16 @@ function CoauthorList({
         ))}
       </ul>
       {rows.length > shown && (
-        <button type="button" onClick={() => setShown((n) => n + 40)} className="mt-4 text-sm font-medium text-accent hover:underline">
+        <Button kind="default" onClick={() => setShown((n) => n + 40)} className="mt-4">
           Show {Math.min(40, rows.length - shown)} more of {rows.length - shown}
-        </button>
+        </Button>
       )}
     </section>
   )
 }
 
 const action =
-  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-fg shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-hover"
+  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-control bg-surface px-3 text-sm font-medium text-fg shadow-raise ring-1 ring-inset ring-control-edge transition-[background-color,box-shadow] hover:bg-hover hover:ring-field active:bg-active active:shadow-press"
 
 function CoauthorRow({ c, inside, onPick, meId }: { c: Coauthor; inside: boolean; onPick: (id: string) => void; meId: string }) {
   const [open, setOpen] = useState(false)
@@ -456,7 +441,7 @@ function CoauthorRow({ c, inside, onPick, meId }: { c: Coauthor; inside: boolean
             aria-expanded={open}
             aria-label={`How you're connected to ${c.name}`}
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex h-10 items-center gap-1 rounded-control px-2 text-sm text-fg-muted hover:bg-hover hover:text-fg sm:h-9"
+            className="inline-flex h-10 items-center gap-1 rounded-control px-2.5 text-sm font-medium text-fg-muted ring-1 ring-inset ring-transparent hover:bg-hover hover:text-fg hover:ring-edge active:bg-active sm:h-9"
           >
             <span className="max-lg:sr-only">How we are connected</span>
             <ChevronDown aria-hidden className={cn("size-4 transition-transform duration-[var(--dur-2)]", open && "rotate-180")} />
@@ -483,9 +468,9 @@ function NoCoauthors() {
       <Picture name="empty-no-collaborators" className="h-40 w-56" />
       <p className="mt-2 text-lg font-semibold text-fg">Your co-authors will appear here</p>
       <p className="max-w-sm text-base text-fg-muted">We find them from your papers' author lists, so nobody needs to file anything.</p>
-      <Link to="/papers" className="mt-3 inline-flex h-9 items-center rounded-md bg-accent px-4 text-sm font-medium text-accent-fg">
-        Check my record
-      </Link>
+      <Button asChild kind="primary" className="mt-3">
+        <Link to="/papers">Check my record</Link>
+      </Button>
     </div>
   )
 }

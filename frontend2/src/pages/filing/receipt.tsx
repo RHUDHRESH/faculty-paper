@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { Textarea } from "@/ui/field"
 import { money } from "@/ui/paper"
+import { Details } from "@/ui/section"
 import { Callout, InlineError } from "@/ui/state"
 
 import { formatBytes, SummaryRow } from "./bits"
@@ -197,39 +198,56 @@ export function PreFlight({
     { key: "prior", label: "No earlier payment found for this paper" },
   ]
 
+  const clear = rows.every((row) => !(byKey.get(row.key) ?? row.fallbacks?.map((k) => byKey.get(k)).find(Boolean)))
+
+  const list = (
+    <ul className="divide-y divide-line border-y border-line">
+      {rows.map((row) => {
+        const problem = byKey.get(row.key) ?? row.fallbacks?.map((k) => byKey.get(k)).find(Boolean)
+        const style = problem ? PROBLEM_STYLE[problem.kind] : null
+        return (
+          <li key={row.key} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2">
+            <span className="min-w-0 text-sm">
+              {row.label}
+              {problem && <span className="block text-xs text-fg-muted">{problem.label}</span>}
+            </span>
+            {problem ? (
+              <button
+                type="button"
+                onClick={() => onGoToProblem(problem)}
+                className={cn(
+                  "shrink-0 text-sm font-medium underline-offset-2 hover:underline",
+                  style?.tone === "critical" && "text-critical",
+                  style?.tone === "caution" && "text-caution",
+                  style?.tone === "info" && "text-fg-muted"
+                )}
+              >
+                {style?.word}
+              </button>
+            ) : (
+              <span className="shrink-0 text-sm text-positive">Yes</span>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+
+  // Ten rows that all say "Yes" are noise: said once, with the list one press
+  // away (docs/ux/22, detail on demand). Any row that is not "Yes" shows the list.
   return (
     <section className="space-y-2">
       <h3 className="text-base font-semibold">Before it goes</h3>
-      <ul className="divide-y divide-line border-y border-line">
-        {rows.map((row) => {
-          const problem = byKey.get(row.key) ?? row.fallbacks?.map((k) => byKey.get(k)).find(Boolean)
-          const style = problem ? PROBLEM_STYLE[problem.kind] : null
-          return (
-            <li key={row.key} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2">
-              <span className="min-w-0 text-sm">
-                {row.label}
-                {problem && <span className="block text-xs text-fg-muted">{problem.label}</span>}
-              </span>
-              {problem ? (
-                <button
-                  type="button"
-                  onClick={() => onGoToProblem(problem)}
-                  className={cn(
-                    "shrink-0 text-sm font-medium underline-offset-2 hover:underline",
-                    style?.tone === "critical" && "text-critical",
-                    style?.tone === "caution" && "text-caution",
-                    style?.tone === "info" && "text-fg-muted"
-                  )}
-                >
-                  {style?.word}
-                </button>
-              ) : (
-                <span className="shrink-0 text-sm text-positive">Yes</span>
-              )}
-            </li>
-          )
-        })}
-      </ul>
+      {clear ? (
+        <>
+          <p className="text-sm text-fg-muted">Everything the form needs is there.</p>
+          <Details label={`the ${rows.length} checks`} count={rows.length}>
+            {list}
+          </Details>
+        </>
+      ) : (
+        list
+      )}
     </section>
   )
 }

@@ -102,7 +102,7 @@ export function QueueRail({
                     aria-current={current ? "true" : undefined}
                     className={cn(
                       "flex items-start gap-2.5 px-3 py-2.5 hover:bg-hover focus-visible:bg-hover",
-                      current && "bg-selected shadow-[inset_2px_0_0_var(--color-accent)]"
+                      current && "bg-selected"
                     )}
                   >
                     <Avatar
@@ -111,12 +111,12 @@ export function QueueRail({
                     />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className="tabular truncate text-xs text-fg-muted">{c.ticket_number || "No claim no."}</span>
+                        <span className="truncate text-sm font-medium">{c.owner_name}</span>
                         <span className={cn("shrink-0 text-xs tabular", waitTone(c.waiting_days))}>{waitingLabel(c.waiting_days)}</span>
                       </span>
-                      <span className="line-clamp-2 break-words text-sm leading-snug">{paperTitle(c.paper_title)}</span>
-                      <span className="block truncate text-xs text-fg-muted">
-                        {c.owner_name}
+                      <span className="line-clamp-2 break-words text-sm leading-snug text-fg-muted">{paperTitle(c.paper_title)}</span>
+                      <span className="block truncate text-xs text-fg-subtle">
+                        <span className="tabular">{c.ticket_number || "No claim no."}</span>
                         {c.on_hold ? " · On hold" : ""}
                         {c.duplicate_warning ? " · Possible duplicate" : ""}
                       </span>

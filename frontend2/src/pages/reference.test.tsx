@@ -30,7 +30,10 @@ describe("reference data", () => {
     expect(await screen.findAllByText("2,520")).toBeTruthy()
     expect(screen.getByText("Papers priced on another year's quartile")).toBeTruthy()
     // The worst gap is named, not left for the reader to work out.
-    expect(screen.getByText("2026")).toBeTruthy()
+    expect(screen.getByRole("link", { name: "Load 2024 quartiles" })).toBeTruthy()
+    // The 37-row years table is one step away.
+    expect(screen.queryByText("Held")).toBeNull()
+    expect(screen.getByRole("button", { name: /Show the years loaded/ })).toBeTruthy()
     // The long instructions are one step away, not on the page.
     expect(screen.queryByText(/Use Download data/)).toBeNull()
   })

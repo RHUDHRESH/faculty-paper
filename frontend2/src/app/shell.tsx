@@ -11,6 +11,7 @@ import { Mark } from "@/ui/art"
 import { Avatar, initialsOf } from "@/ui/person"
 import type { Area } from "@/ui/chip"
 import { Button } from "@/ui/button"
+import { KbdChord } from "@/ui/kbd"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { useTheme, type ThemeChoice } from "@/app/theme"
 import { NotificationBell } from "@/app/notifications"
@@ -58,8 +59,8 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
       <MenuTrigger
         aria-label={me?.name ? `Account: ${me.name}` : "Account"}
         className={cn(
-          "flex h-14 w-full items-center gap-3 rounded-control px-2 text-left text-sm",
-          "hover:bg-hover data-[state=open]:bg-hover"
+          "flex h-14 w-full items-center gap-3 rounded-control px-2 text-left text-sm ring-1 ring-inset ring-transparent",
+          "hover:bg-hover hover:ring-edge data-[state=open]:bg-hover data-[state=open]:ring-edge"
         )}
       >
         <Avatar person={me ? { name: me.name, initials: initialsOf(me.name), photo_url: me.photo_url ?? null } : null} size="sm" className="shrink-0" />
@@ -74,13 +75,8 @@ function AccountMenu({ collapsed = false }: { collapsed?: boolean }) {
         )}
       </MenuTrigger>
       <MenuContent side="top" align="start" className="min-w-[13rem]">
-        {/* Not a MenuLabel: this is the account itself, not a heading over a
-            group of items. */}
-        <div className="px-2 py-1.5">
-          <p className="truncate text-sm font-medium text-fg">{me?.name}</p>
-          {me && <p className="truncate text-xs text-fg-muted">{ROLE_LABEL[me.role]}</p>}
-        </div>
-        <MenuSeparator />
+        {/* No name-and-role block here: the trigger it opens from, directly
+            below, already says who this is. */}
         <MenuItem onSelect={() => nav("/me")}>Your profile</MenuItem>
         <MenuItem onSelect={() => nav("/help")}>Help and guides</MenuItem>
         <MenuSeparator />
@@ -229,14 +225,16 @@ export function Shell({
                 <span className="block truncate text-[11px] text-fg-subtle">{collegeName}</span>
               </span>
             )}
-            <button
-              type="button"
+            <Button
+              kind="quiet"
+              size="icon-sm"
               onClick={() => setCollapsed((v) => !v)}
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              className="ml-auto grid size-7 place-items-center rounded-control text-fg-subtle hover:bg-hover hover:text-fg"
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className="ml-auto"
             >
-              {collapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
-            </button>
+              {collapsed ? <PanelLeft /> : <PanelLeftClose />}
+            </Button>
           </div>
 
           <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2" aria-label="Main">
@@ -273,27 +271,27 @@ export function Shell({
           )}
 
           <div className="p-2.5">
-            <button
-              type="button"
-              onClick={onOpenPalette}
-              className={cn(
-                "flex h-9 w-full items-center gap-2 rounded-control px-2.5 text-sm",
-                "text-fg-muted hover:bg-hover hover:text-fg"
-              )}
-            >
-              <Command className="size-4 shrink-0" />
-              {!collapsed && (
-                <>
-                  <span>Jump to…</span>
-                  <kbd className="ml-auto rounded border border-edge px-1 text-[10px] text-fg-subtle">
-                    Ctrl K
-                  </kbd>
-                </>
-              )}
-            </button>
-            <div className="mt-1 hidden md:flex md:items-center md:gap-2">
-              <NotificationBell />
-              {!collapsed && <span className="text-sm text-fg-muted">Notifications</span>}
+            {/* One row for the two utilities: the jump box takes the width, the
+                bell sits beside it. (Collapsed, they stack.) The bell names
+                itself to a screen reader and in its tooltip, so no second
+                "Notifications" label is drawn next to it. */}
+            <div className={cn("flex gap-1.5", collapsed ? "flex-col items-center" : "items-center")}>
+              <Button
+                kind="default"
+                onClick={onOpenPalette}
+                aria-label={collapsed ? "Jump to a page or claim" : undefined}
+                title={collapsed ? "Jump to a page or claim (Ctrl K)" : undefined}
+                className={cn("justify-start text-fg-muted hover:text-fg", collapsed ? "size-10 justify-center px-0" : "min-w-0 flex-1")}
+              >
+                <Command />
+                {!collapsed && (
+                  <>
+                    <span className="truncate">Jump to…</span>
+                    <KbdChord keys={["Ctrl", "K"]} className="ml-auto" />
+                  </>
+                )}
+              </Button>
+              <NotificationBell className="hidden md:block" />
             </div>
             <div className="mt-1">
               <AccountMenu collapsed={collapsed} />
@@ -562,7 +560,7 @@ function navClass(isActive: boolean, _area?: Area): string {
     "transition-colors duration-[var(--dur-1)]",
     isActive
       ? "bg-surface font-medium text-fg ring-1 ring-inset ring-edge"
-      : "text-fg-muted hover:bg-hover hover:text-fg"
+      : "text-fg-muted ring-1 ring-inset ring-transparent hover:bg-hover hover:text-fg hover:ring-edge active:bg-active"
   )
 }
 
@@ -641,8 +639,7 @@ function ViewingAs({ name, role }: { name: string; role: Role }) {
       className="sticky top-0 z-40 flex flex-wrap items-center gap-3 bg-caution-wash px-4 py-2 text-sm text-caution ring-1 ring-inset ring-caution/30 print:hidden"
     >
       <span className="flex-1">
-        You are viewing the app as <strong>{name}</strong> ({ROLE_LABEL[role]}). You can look around;
-        nothing can be changed while viewing.
+        Viewing as <strong>{name}</strong> ({ROLE_LABEL[role]}). Read only.
       </span>
       <Button
         kind="default"
@@ -662,7 +659,7 @@ function ViewingAs({ name, role }: { name: string; role: Role }) {
           }
         }}
       >
-        Back to your own account
+        Stop viewing
       </Button>
     </div>
   )

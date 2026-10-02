@@ -75,10 +75,10 @@ test.describe("Hold and resume, and the claimant never sees the desk", () => {
 
     await faculty.goto("/papers/claims")
     await waitForSettled(faculty)
-    await faculty.getByLabel("Search your papers").fill(seeded.claim!.ticket_number)
+    await faculty.getByLabel("Search your claims").fill(seeded.claim!.ticket_number)
     const row = faculty.getByRole("listitem").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row).toHaveCount(1)
-    await expect(row).toContainText("Being checked")
+    await expect(row.getByRole("list", { name: "Progress: Being checked" })).toBeVisible()
     await expect(faculty.locator("body")).not.toContainText(reason)
     await expect(faculty.locator("body")).not.toContainText(/research cell|Principal|Director|Finance/i)
     await done(faculty)
@@ -227,7 +227,7 @@ test.describe("View as somebody", () => {
 
     await page.goto("/")
     await waitForSettled(page)
-    await expect(page.getByText(/viewing the app as/i).first()).toBeVisible()
+    await expect(page.getByText(/viewing as .*read only/i).first()).toBeVisible()
 
     // Writes the viewed person could make are all refused.
     for (const [path, data] of [

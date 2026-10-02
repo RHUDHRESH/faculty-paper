@@ -1,17 +1,14 @@
 import { Link } from "react-router-dom"
-import { ArrowUpRight, CheckCircle2, CircleAlert } from "lucide-react"
 
 import { cn } from "@/lib/cn"
-import { Meta } from "@/ui/text"
+import { Button } from "@/ui/button"
 
 /**
- * The pieces the super admin's Home and Admin page share: one list of what
- * needs attention, and one checklist of whether the system is ready.
- *
- * Both are drawn from `/api/admin/attention` and `/api/admin/readiness`, which
- * are computed by one service each, so a number on Home and the same number on
- * Admin cannot disagree. A row says how urgent it is in words as well as
- * colour, how many there are with what they are, and the one thing to do.
+ * The pieces the super admin's Home and the data-fix queue share: one list of
+ * what needs attention, drawn from `/api/admin/attention`, which one service
+ * computes, so a number on Home and the same number elsewhere cannot disagree.
+ * A row says how urgent it is in words as well as colour, how many there are
+ * with what they are, and carries one button that opens where it is fixed.
  */
 
 export type AttentionItem = {
@@ -70,42 +67,39 @@ export function unitFor(n: number, unit: string): string {
   return n === 1 && unit.endsWith("s") ? unit.slice(0, -1) : unit
 }
 
-/** One thing that needs a look, as a row that opens where it is fixed. */
-export function AttentionRow({ item }: { item: AttentionItem }) {
+/**
+ * One thing that needs a look: what it is, how many, and a button that opens
+ * where it is fixed. The first row of a list carries the primary button (the
+ * most urgent thing is the thing to do next); the rest are ordinary buttons.
+ * The one-sentence reason stays on one line and opens in full on hover.
+ */
+export function AttentionRow({ item, primary = false }: { item: AttentionItem; primary?: boolean }) {
   return (
-    <li>
-      <Link
-        to={item.to}
-        className="row group flex items-start gap-3 px-1 py-3 sm:px-2"
-        data-testid={`attention-${item.key}`}
-      >
-        <span aria-hidden className={cn("mt-2 size-2 shrink-0 rounded-full", SEVERITY_DOT[item.severity])} />
-        <span className="min-w-0 flex-1">
-          <span className="flex flex-wrap items-baseline gap-x-2">
-            <span className="text-base font-medium">{item.title}</span>
-            <span className={cn("text-xs font-medium", SEVERITY_TEXT[item.severity])}>
-              {SEVERITY_WORD[item.severity]}
-            </span>
-          </span>
-          <span className="mt-0.5 block text-pretty text-sm text-fg-muted">{item.why}</span>
-          <span className="mt-1 inline-flex items-center gap-1 text-sm text-accent sm:hidden">
-            {item.action}
-            <ArrowUpRight className="size-3.5" aria-hidden />
-          </span>
+    <li
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 px-1 py-3 sm:px-2"
+      data-testid={`attention-${item.key}`}
+    >
+      <span aria-hidden className={cn("size-2 shrink-0 rounded-full", SEVERITY_DOT[item.severity])} />
+      <div className="min-w-0 flex-1 basis-56">
+        <p className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-base font-medium">{item.title}</span>
+          <span className={cn("text-xs font-medium", SEVERITY_TEXT[item.severity])}>{SEVERITY_WORD[item.severity]}</span>
+        </p>
+        <p className="mt-0.5 line-clamp-1 text-sm text-fg-muted" title={item.why}>
+          {item.why}
+        </p>
+      </div>
+      {item.count != null && (
+        <span className="shrink-0 text-right max-sm:ml-auto">
+          <span className="block text-lg font-semibold leading-tight tabular">{item.count.toLocaleString("en-IN")}</span>
+          {item.unit && <span className="block text-xs text-fg-muted">{unitFor(item.count, item.unit)}</span>}
         </span>
-        {item.count != null && (
-          <span className="shrink-0 text-right">
-            <span className="block text-lg font-semibold leading-tight tabular">
-              {item.count.toLocaleString("en-IN")}
-            </span>
-            {item.unit && <span className="block text-xs text-fg-muted">{unitFor(item.count, item.unit)}</span>}
-          </span>
-        )}
-        <span className="hidden shrink-0 items-center gap-1 self-center text-sm text-accent group-hover:underline sm:inline-flex sm:w-40 sm:justify-end">
+      )}
+      <Button asChild size="sm" kind={primary ? "primary" : "default"} className="max-sm:ml-5">
+        <Link to={item.to} aria-label={`${item.action}: ${item.title}`}>
           {item.action}
-          <ArrowUpRight className="size-3.5" aria-hidden />
-        </span>
-      </Link>
+        </Link>
+      </Button>
     </li>
   )
 }
@@ -113,42 +107,8 @@ export function AttentionRow({ item }: { item: AttentionItem }) {
 export function AttentionRows({ items }: { items: AttentionItem[] }) {
   return (
     <ul className="divide-y divide-line border-y border-line" aria-label="Things that need attention">
-      {items.map((i) => (
-        <AttentionRow key={i.key} item={i} />
-      ))}
-    </ul>
-  )
-}
-
-/** The readiness checklist: every line green or red, red ones with the fix. */
-export function ReadinessList({ data }: { data: Readiness }) {
-  return (
-    <ul className="divide-y divide-line border-y border-line" aria-label="Readiness checklist">
-      {data.items.map((c) => (
-        <li key={c.key}>
-          <Link to={c.to} className="row flex items-start gap-3 px-1 py-2.5 sm:px-2" data-testid={`ready-${c.key}`}>
-            {c.ok ? (
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-positive" aria-hidden />
-            ) : (
-              <CircleAlert
-                className={cn("mt-0.5 size-4 shrink-0", c.severity === "info" ? "text-fg-subtle" : "text-critical")}
-                aria-hidden
-              />
-            )}
-            <span className="min-w-0 flex-1">
-              <span className="block text-base">
-                {c.label}
-                <span className={cn("ml-2 text-xs font-medium", c.ok ? "text-positive" : "text-critical")}>
-                  {c.ok ? "Ready" : "Not ready"}
-                </span>
-              </span>
-              <Meta className="block text-pretty text-xs sm:text-sm">{c.detail}</Meta>
-            </span>
-            <span className="hidden shrink-0 self-center text-sm text-accent sm:inline">
-              {c.fix}
-            </span>
-          </Link>
-        </li>
+      {items.map((i, n) => (
+        <AttentionRow key={i.key} item={i} primary={n === 0} />
       ))}
     </ul>
   )

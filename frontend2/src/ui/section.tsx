@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react"
 
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
+import { InfoTip } from "@/ui/info"
 import { SectionTitle } from "@/ui/text"
 
 /**
@@ -19,13 +20,20 @@ import { SectionTitle } from "@/ui/text"
 export function Section({
   title,
   sub,
+  showSub,
   action,
   children,
   className,
   ...rest
 }: {
   title?: React.ReactNode
+  /** What the section is, in a sentence. Hidden behind an (i) beside the
+   *  title: the title and the content already say what this is, so the line
+   *  is for the reader who wants it. Without a title it is drawn in place. */
   sub?: React.ReactNode
+  /** Draw `sub` as a visible line after all, for the rare one that the
+   *  reader needs before they can act. */
+  showSub?: boolean
   action?: React.ReactNode
   children: React.ReactNode
   className?: string
@@ -35,11 +43,16 @@ export function Section({
     <section aria-labelledby={title ? id : undefined} className={cn("min-w-0", className)} {...rest}>
       {(title || action) && (
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          {title && <SectionTitle id={id}>{title}</SectionTitle>}
+          {title && (
+            <span className="inline-flex items-center gap-1.5">
+              <SectionTitle id={id}>{title}</SectionTitle>
+              {sub && !showSub && <InfoTip label="About this section">{sub}</InfoTip>}
+            </span>
+          )}
           {action && <div className="text-sm">{action}</div>}
         </div>
       )}
-      {sub && <p className="-mt-2 mb-3 max-w-prose text-sm text-fg-muted">{sub}</p>}
+      {sub && (showSub || !title) && <p className="-mt-2 mb-3 max-w-prose text-sm text-fg-muted">{sub}</p>}
       {children}
     </section>
   )
@@ -68,6 +81,7 @@ export function Rows({ children, className }: { children: React.ReactNode; class
 export function Details({
   count,
   label = "details",
+  summary,
   defaultOpen = false,
   children,
   className,
@@ -76,6 +90,8 @@ export function Details({
   count?: number
   /** The noun after Show/Hide ("details", "history", "older claims"). */
   label?: string
+  /** A fixed line in place of "Show details (n)": "More about this". */
+  summary?: React.ReactNode
   defaultOpen?: boolean
   children: React.ReactNode
   className?: string
@@ -90,15 +106,20 @@ export function Details({
         aria-controls={id}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex min-h-8 items-center gap-1.5 rounded-control text-sm font-medium text-fg-muted",
-          "hover:text-fg max-sm:min-h-10"
+          "-ml-2 inline-flex min-h-8 items-center gap-1.5 rounded-control px-2 text-sm font-medium text-fg-muted",
+          "ring-1 ring-inset ring-transparent hover:bg-hover hover:text-fg hover:ring-edge active:bg-active max-sm:min-h-10",
+          open && "text-fg"
         )}
       >
         <ChevronRight
           aria-hidden
           className={cn("size-4 transition-transform duration-[var(--dur-1)]", open && "rotate-90")}
         />
-        {open ? "Hide" : "Show"} {label}
+        {summary ?? (
+          <>
+            {open ? "Hide" : "Show"} {label}
+          </>
+        )}
         {count != null && <span className="tabular text-fg-subtle">({formatCount(count)})</span>}
       </button>
       {open && (

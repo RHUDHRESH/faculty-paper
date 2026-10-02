@@ -488,8 +488,6 @@ function CollegeReports() {
       <PrintStamp title="College research report" scope={scopeLabel} />
       <PageHeader
         title="Analysis"
-        sub="Cut the record by year, department and month. For the council's questions, start with the year brief."
-        spot="spot-reports"
         action={
           // One row per claim, not the charts on the page: the label says so,
           // because "Excel" under a report promised the report.
@@ -500,7 +498,7 @@ function CollegeReports() {
                 Download the claims as Excel
               </a>
             </Button>
-            <Button kind="quiet" asChild>
+            <Button kind="default" asChild>
               <a href={exportHref("csv")} download>
                 CSV
               </a>

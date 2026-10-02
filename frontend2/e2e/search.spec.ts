@@ -117,7 +117,11 @@ test.describe("The search page", () => {
       // An empty box is not an empty result. Saying "nothing found" before
       // anybody has asked is a lie with consequences on the screen people use
       // to check whether a paper has already been claimed.
+      // The explanation lives behind the (i) beside the title since the
+      // text trim; it is the same sentence, opened on request.
+      await page.getByRole("button", { name: "About search" }).click()
       await expect(page.getByText(/Paste a DOI to see whether a paper is already in the record/)).toBeVisible()
+      await page.keyboard.press("Escape")
       await expect(
         page.getByText(/no results|nothing found/i),
         "the page reported an empty result before anything was searched"

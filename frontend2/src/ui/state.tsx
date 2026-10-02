@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, HelpCircle } from "lucide-react"
 
 import type { ArtName } from "@/ui/art"
 import type { IllustrationName } from "@/ui/illustration"
@@ -182,7 +182,7 @@ export type EmptyStateProps = {
   /** A generated illustration by name; wins over `art`. */
   illustration?: IllustrationName
   title: string
-  message: string
+  message?: string
   /** The thing that would fill this screen — "File a paper", "Clear the
    *  filters". An empty state without one leaves the reader to work out for
    *  themselves where the button is. */
@@ -253,14 +253,19 @@ export function EmptyState({
       ) : (
         <p className="display text-display max-w-[20ch] text-balance text-fg">{title}</p>
       )}
-      <p className={cn("text-pretty text-fg-muted", compact ? "max-w-sm text-base" : "mt-1 max-w-md text-lead")}>
-        {message}
-      </p>
+      {message && (
+        <p className={cn("text-pretty text-fg-muted", compact ? "max-w-sm text-base" : "mt-1 max-w-md text-lead")}>
+          {message}
+        </p>
+      )}
       {action && <div className="mt-5">{action}</div>}
       {g && (
-        <Link to={`/help#${g.id}`} className="mt-3 text-sm text-fg-muted underline underline-offset-2 hover:text-fg">
-          How to: {g.title.charAt(0).toLowerCase() + g.title.slice(1)}
-        </Link>
+        <Button asChild kind="quiet" size="sm" className="mt-2">
+          <Link to={`/help#${g.id}`} aria-label={`How to: ${g.title.charAt(0).toLowerCase() + g.title.slice(1)}`}>
+            <HelpCircle />
+            How to
+          </Link>
+        </Button>
       )}
     </div>
   )
@@ -289,7 +294,7 @@ export function ErrorState({
   // Overridable, because "could not load this" on every failure teaches the
   // reader that the heading carries no information and to stop reading it.
   title = what ? `Could not load ${what}` : "Could not load this",
-  message = "The server did not answer. Nothing has been deleted or lost.",
+  message = "The server did not answer. Nothing was lost.",
   art = "could-not-load",
   onRetry,
   className,
@@ -359,13 +364,9 @@ export function InlineError({
       <AlertTriangle className="size-4 shrink-0" />
       <span className="flex-1">{message}</span>
       {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="shrink-0 font-medium underline-offset-2 hover:underline"
-        >
+        <Button kind="danger" size="sm" onClick={onRetry} className="shrink-0">
           Retry
-        </button>
+        </Button>
       )}
     </div>
   )

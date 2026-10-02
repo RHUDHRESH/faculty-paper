@@ -8,8 +8,13 @@ import { useApi } from "@/lib/query"
 import { cn } from "@/lib/cn"
 import { ClaimNo, ClaimNoLegend, daysText, useHashScroll, Waited } from "@/pages/cell/parts"
 import { HomeTrack } from "@/pages/home-track"
-import { HomeHead, QueueRow, Waiting, YourPapers } from "@/pages/home-staff"
-import { Answer } from "@/ui/answer"
+import { greeting, QueueRow, Waiting, YourPapers } from "@/pages/home-staff"
+import { homeTrack } from "@/app/home-data"
+import type { QueueClaim } from "@/pages/clearing-actions"
+import { isReady } from "@/pages/cell/clearing-rows"
+import type { TrackPayload, TrackStage } from "@/pages/track-data"
+import { PageHeader } from "@/ui/page-header"
+import { AnswerLine, AnswerWord } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Picture } from "@/ui/picture"
@@ -88,6 +93,23 @@ type Overview = {
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-IN")} ${n === 1 ? one : many}`
 
+const DESK_OF: Record<string, string> = { checked: "the Principal", approved: "the Director", authorised: "Finance" }
+
+/** Where the chain below this desk is held up, in one clause: the desk with the
+ *  most claims past two weeks, else the one with the most claims. Empty when
+ *  nothing is waiting below. Counts only, as the role rules require. */
+function downstream(stages: TrackStage[] | undefined): string {
+  if (!stages) return ""
+  const rows = stages
+    .filter((s) => DESK_OF[s.key] && s.count > 0)
+    .map((s) => ({ s, late: (s.ageing?.month ?? 0) + (s.ageing?.older ?? 0) }))
+  if (rows.length === 0) return ""
+  rows.sort((a, b) => b.late - a.late || b.s.count - a.s.count)
+  const { s, late } = rows[0]
+  const n = s.count.toLocaleString("en-IN")
+  return `${n} ${s.count === 1 ? "is" : "are"} waiting for ${DESK_OF[s.key]}${late > 0 ? `, ${late.toLocaleString("en-IN")} over two weeks` : ""}.`
+}
+
 function monthName(ym: string): string {
   const [y, m] = ym.split("-").map(Number)
   return new Date(y, (m || 1) - 1, 1).toLocaleDateString("en-IN", { month: "long" })
@@ -105,6 +127,13 @@ export function CellHome() {
   const faults = useApi<{ total: number }>(HOME_DATA.faults.key, HOME_DATA.faults.path)
   const overview = useApi<Overview>(["coordination", "overview"], "/api/coordination/overview", { enabled: coordinator })
 
+  // The same two requests the strip and the queue make, so nothing is asked twice.
+  const track = homeTrack(me?.role)
+  const tq = useApi<TrackPayload>(track.key, track.path)
+  const queue = useApi<QueueClaim[]>(["clearing-queue"], "/api/admin/clearing-queue?status=SUBMITTED")
+  const readyN = (queue.data ?? []).filter(isReady).length
+  const down = downstream(tq.data?.stages)
+
   const sla = d?.sla_days ?? 14
   const target = d?.target
   const oldest = d ? Math.max(0, ...[...d.mine, ...d.rest].map((r) => r.waiting_days)) : 0
@@ -116,19 +145,10 @@ export function CellHome() {
 
   return (
     <div className="page space-y-10">
-      <HomeHead
-        name={me?.name}
-        picture="spot-audit"
-        sentence={
-          !d
-            ? "What to do first today."
-            : d.desk_open === 0
-              ? "Nothing is waiting to be cleared."
-              : `${plural(d.desk_open, "claim is", "claims are")} waiting to be cleared${
-                  d.past_sla > 0 ? `, ${d.past_sla.toLocaleString("en-IN")} of them past ${sla} days` : ""
-                }.`
-        }
-        actions={
+      <PageHeader
+        title={greeting(me?.name)}
+        spot="spot-audit"
+        action={
           <Button kind="primary" asChild>
             <Link to="/clearing">{d && d.desk_open > 0 ? `Open the queue (${d.desk_open.toLocaleString("en-IN")})` : "Open the queue"}</Link>
           </Button>
@@ -139,21 +159,56 @@ export function CellHome() {
         <InlineError message="Could not load your desk. Nothing has changed." onRetry={() => void q.refetch()} />
       ) : (
         <>
-          <Answer
-            items={[
-              { label: "Given to you", value: d?.mine_count, to: "/clearing?assigned=me", zero: "Nothing is given to you" },
-              {
-                label: d && oldest > 0 ? `Waiting at the desk, oldest ${daysText(oldest)}` : "Waiting at the desk",
-                value: d?.desk_open,
-                to: "/clearing",
-                zero: "Nothing is waiting",
-              },
-              { label: `Past ${sla} days, over the service level`, value: d?.past_sla, to: "/clearing", zero: `None past ${sla} days`, tone: "critical" },
-              coordinator
-                ? { label: "Not given to anyone", value: d?.unassigned, to: "/coordination", zero: "Every claim is given", tone: "caution" }
-                : { label: "Came back, fixed or returned", value: d?.came_back_count, to: "/#came-back", zero: "Nothing came back", tone: "caution" },
-            ]}
-          />
+          {/* The answer: what is late, then where the rest of the chain is
+              stuck. Zero clicks (docs/ux/26, target T5). */}
+          <div className="space-y-4">
+            <AnswerLine>
+              {!d ? (
+                "What to do first today."
+              ) : d.desk_open === 0 ? (
+                "Nothing is waiting. The desk is clear."
+              ) : d.past_sla > 0 ? (
+                <>
+                  {plural(d.past_sla, "claim is", "claims are")} <AnswerWord tone="crimson">past {sla} days</AnswerWord>.
+                </>
+              ) : (
+                <>
+                  {plural(d.desk_open, "claim is", "claims are")} waiting, <AnswerWord tone="sage">none late</AnswerWord>.
+                </>
+              )}
+              {down && (
+                <>
+                  {" "}
+                  {down}
+                </>
+              )}
+            </AnswerLine>
+            {d && d.desk_open > 0 && (
+              <p className="max-w-[40rem] text-lead text-fg-muted">
+                {readyN > 0 ? (
+                  <>
+                    <Link to="/clearing" className="text-accent underline underline-offset-4">
+                      {plural(readyN, "claim is", "claims are")} ready
+                    </Link>{" "}
+                    to clear in one pass.{" "}
+                  </>
+                ) : null}
+                {d.mine_count > 0 ? (
+                  <Link to="/clearing?assigned=me" className="text-accent underline underline-offset-4">
+                    {plural(d.mine_count, "is", "are")} given to you.
+                  </Link>
+                ) : null}{" "}
+                {coordinator && d.unassigned > 0 ? (
+                  <Link to="/coordination" className="text-accent underline underline-offset-4">
+                    {plural(d.unassigned, "is", "are")} not given to anyone.
+                  </Link>
+                ) : null}
+                {oldest > 0 && <> The oldest has waited {daysText(oldest)}.</>}
+              </p>
+            )}
+          </div>
+
+          <HomeTrack />
 
           {target && d && d.desk_open > 0 && (
             <p className="max-w-3xl text-base" role="status">
@@ -360,8 +415,6 @@ export function CellHome() {
           </p>
         </section>
       )}
-
-      <HomeTrack />
 
       {can(me?.role).fileOwnPapers && <YourPapers />}
     </div>

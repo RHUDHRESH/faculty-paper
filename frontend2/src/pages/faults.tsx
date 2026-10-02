@@ -138,10 +138,10 @@ export function Faults() {
     <div className="page space-y-10">
       <PageHeader
         title="Faults"
-        sub="What is stuck or wrong right now, and where to fix it."
+        sub="What is stuck or wrong right now."
         spot="spot-audit"
         action={
-          <Button kind="default" onClick={() => refetch()} disabled={isFetching}>
+          <Button kind="primary" onClick={() => refetch()} disabled={isFetching}>
             <RotateCw aria-hidden className={cn(isFetching && "animate-spin")} />
             Check again
           </Button>
@@ -155,12 +155,12 @@ export function Faults() {
           <ErrorState
             art="closed-gate"
             title="Not open to this account"
-            message="This list is open to the research cell, system admins and the Principal."
+            message="Open to the research cell, system admins and the Principal."
           />
         ) : (
           <ErrorState
             title="Could not run the checks"
-            message="The server did not answer. Nothing has been lost. Try again."
+            message="The server did not answer."
             onRetry={() => refetch()}
           />
         )
@@ -169,7 +169,7 @@ export function Faults() {
           art="empty-queue"
           icon={CheckCircle2}
           title="Nothing is stuck or wrong"
-          message={`All ${clear.length} checks came back clean at ${when(data.checked_at)}. Check again after the next import.`}
+          message={`All ${clear.length} checks came back clean at ${when(data.checked_at)}.`}
         />
       ) : (
         <>
@@ -194,8 +194,7 @@ export function Faults() {
               ]}
             />
             <p className="text-sm text-fg-muted">
-              {plural(active.length, "check")} found something, {count(data.total)} in all. Checked{" "}
-              <Ago iso={data.checked_at} />.
+              Checked <Ago iso={data.checked_at} />.
             </p>
           </section>
 
@@ -203,21 +202,20 @@ export function Faults() {
             title={show === "urgent" ? "Needs action now" : show === "other" ? "To look at" : "What needs fixing"}
             action={
               show !== "all" ? (
-                <Link to="/faults" className="text-fg-muted underline underline-offset-2 hover:text-fg">
-                  Show all {count(active.length)} checks
-                </Link>
+                <Button kind="default" size="sm" asChild>
+                  <Link to="/faults">Show all {count(active.length)} checks</Link>
+                </Button>
               ) : undefined
             }
             className="space-y-3"
           >
             <ImportedNote show={anyImported} />
             {listed.length === 0 ? (
-              <p className="rounded-panel bg-sunken px-4 py-6 text-center text-sm text-fg-muted">
-                Nothing in this list. Every check that found something is under{" "}
-                <Link to="/faults" className="underline underline-offset-2">
-                  Show all
-                </Link>
-                .
+              <p className="flex flex-wrap items-center justify-center gap-3 rounded-panel bg-sunken px-4 py-6 text-sm text-fg-muted">
+                Nothing in this list.
+                <Button kind="default" size="sm" asChild>
+                  <Link to="/faults">Show all {count(active.length)} checks</Link>
+                </Button>
               </p>
             ) : (
               <Rows>
@@ -234,7 +232,6 @@ export function Faults() {
                 {clear.map((f) => (
                   <li key={f.key} className="flex flex-wrap items-baseline justify-between gap-x-4 py-2.5 text-sm">
                     <span>{f.title}</span>
-                    <span className="text-fg-muted">Nothing found</span>
                   </li>
                 ))}
               </Rows>
@@ -249,7 +246,6 @@ export function Faults() {
 function FaultRow({ fault, isOffice }: { fault: Fault; isOffice: boolean }) {
   const to = fault.to ? (LEGACY[fault.to] ?? fault.to) : null
   const action = ACTION[fault.key]?.(fault.count)
-  const hidden = fault.count - fault.sample.length
   return (
     <li className="py-4">
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
@@ -261,37 +257,18 @@ function FaultRow({ fault, isOffice }: { fault: Fault; isOffice: boolean }) {
               {SEVERITY_WORD[fault.severity]}
             </span>
           </p>
-          <p className="mt-0.5 text-sm text-fg-muted">{fault.detail}</p>
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-fg-muted">
-            {fault.people?.length ? (
-              <>
-                <FaultPeople people={fault.people} />
-                {hidden > 0 && <span>and {count(hidden)} more</span>}
-              </>
-            ) : fault.sample.length ? (
-              <>
-                <span>Includes</span>
-                {fault.sample.map((s, i) => (
-                  <span key={`${s}-${i}`}>
-                    <ClaimNo no={s === "(draft)" ? null : s} className="text-fg" />
-                    {i < fault.sample.length - 1 && ","}
-                  </span>
-                ))}
-                {hidden > 0 && <span>and {count(hidden)} more</span>}
-              </>
-            ) : null}
-          </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-3">
           <span className={cn("figure text-2xl tabular", SEVERITY_TEXT[fault.severity])}>{count(fault.count)}</span>
           {isOffice && to && action && (
-            <Button kind={fault.severity === "critical" ? "primary" : "default"} asChild>
+            <Button kind="default" size="sm" asChild>
               <Link to={to}>{action}</Link>
             </Button>
           )}
         </div>
       </div>
       <Details label="the whole list" count={fault.count} className="mt-1">
+        <p className="mb-2 max-w-prose text-sm text-fg-muted">{fault.detail}</p>
         <FaultItems faultKey={fault.key} />
       </Details>
     </li>
@@ -324,9 +301,9 @@ function FaultItems({ faultKey }: { faultKey: string }) {
     return (
       <p className="text-sm text-fg-muted">
         The list could not be loaded.{" "}
-        <button className="underline underline-offset-2" onClick={() => refetch()}>
+        <Button kind="default" size="sm" onClick={() => refetch()}>
           Try again
-        </button>
+        </Button>
       </p>
     )
   return (

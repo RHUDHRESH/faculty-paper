@@ -157,8 +157,8 @@ export function Track() {
         title="Track"
         sub={
           head
-            ? `Where the claims from ${data?.department ?? "your department"} are, and how long they have been there.`
-            : "Where every claim is, how long it has been there, and what it comes to."
+            ? `Where ${data?.department ?? "your department"}'s claims are.`
+            : "Where every claim is, and how long it has waited."
         }
       >
         {related.length > 0 && (
@@ -190,16 +190,17 @@ export function Track() {
       />
 
       {office && (fixes.data?.claims_needing_a_fix ?? 0) > 0 && (
-        <p className="text-base text-fg-muted" data-testid="track-fixes">
-          <Link to="/track?fix=1" className="text-accent underline-offset-4 hover:underline">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-base" data-testid="track-fixes">
+          <span className="tabular">
             {fixes.data!.claims_needing_a_fix.toLocaleString("en-IN")} claims from the old ERP need fixing
-          </Link>
-          : an amount, a title, a quartile or a claimant is missing.{" "}
-          <Link to="/data/fixes" className="text-accent underline-offset-4 hover:underline">
-            Open the fix list
-          </Link>
-          .
-        </p>
+          </span>
+          <Button asChild size="sm" kind="quiet">
+            <Link to="/track?fix=1">Show them here</Link>
+          </Button>
+          <Button asChild size="sm">
+            <Link to="/data/fixes">Open the fix list</Link>
+          </Button>
+        </div>
       )}
 
       <section className="space-y-4" aria-label="Claims">
@@ -484,11 +485,16 @@ function StageButton({
  */
 function ErpLegend({ head }: { head?: boolean }) {
   return (
-    <p className="max-w-3xl text-pretty text-sm text-fg-muted" data-testid="erp-legend">
-      {head
-        ? "A claim number that starts ERP- was brought over from the college's earlier system, so it has no FP- number."
-        : "A claim number that starts ERP- came from the old ERP and has no FP- number. ERP-RAW claims were still waiting when they were imported. ERP-PROCESSED claims had already been paid."}
-    </p>
+    <details className="max-w-3xl text-sm text-fg-muted" data-testid="erp-legend">
+      <summary className="cursor-pointer list-none underline-offset-4 hover:text-fg hover:underline">
+        What an ERP- number is
+      </summary>
+      <p className="mt-1 text-pretty">
+        {head
+          ? "A claim number that starts ERP- was brought over from the college's earlier system, so it has no FP- number."
+          : "A claim number that starts ERP- came from the old ERP and has no FP- number. ERP-RAW claims were still waiting when they were imported. ERP-PROCESSED claims had already been paid."}
+      </p>
+    </details>
   )
 }
 
@@ -675,14 +681,15 @@ function ClaimTable({
               )}
             </>
           )}
-          <button
-            type="button"
+          <Button
+            kind="quiet"
+            size="sm"
             onClick={() => onWhy(r.id)}
-            className="mt-0.5 text-xs font-normal text-accent underline-offset-4 hover:underline max-sm:min-h-10"
+            className="mt-0.5 h-7 px-2 text-xs md:-mr-2"
             aria-label={`Why this amount: ${clean(r.paper_title) ?? r.ticket_number ?? "claim"}`}
           >
             Why this amount
-          </button>
+          </Button>
         </span>
       ),
     })

@@ -115,6 +115,10 @@
   --color-line: #e7e1d3;
   --color-edge: #dad3c2;
   --color-field: #968d79;   /* 3.2:1 on a field's surface: a boundary people can see (WCAG 1.4.11) */
+  /* The outline of a secondary button and of a filter chip at rest: between
+     `edge` (a region) and `field` (an input), so a button on paper has a
+     visible outline without shouting like a field. */
+  --color-control-edge: #aaa18c;
 
   /* The one accent: clay. Links, the focus ring, the unread dot, "needs you",
      the selected chip, the stamp. Not the primary button (that is `action`)
@@ -150,6 +154,7 @@
   --color-critical: #b0233f;     /* crimson: 27 degrees of hue from clay on purpose */
   --color-critical-wash: #fae8eb;
   --color-critical-line: #edbbc4;
+  --color-critical-fg: #ffffff;  /* text on a filled crimson (a danger button on hover) */
 
   /* ---- areas -----------------------------------------------------------
      One colour per area of the app, so a reader always knows where they
@@ -226,7 +231,14 @@
      cannot say which sentence applies, the answer is no shadow. Four of the
      six are restricted to a single kind of element (CONVENTIONS.md). */
   --shadow-well: 0 0 #0000;
-  --shadow-raise: 0 0 #0000;
+  /* raise: a hairline highlight and a short soft drop, so a control reads as
+     something with an edge you can press. `action` is the same claim for the
+     one navy button, carrying its own lit top edge; `press` is what pressing
+     spends it for. Every one has an offset and a blur, never a flat halo. */
+  --shadow-raise: 0 1px 0 rgb(255 255 255 / 0.7) inset, 0 1px 2px rgb(27 31 46 / 0.12), 0 1px 1px rgb(27 31 46 / 0.06);
+  --shadow-action: 0 1px 0 rgb(255 255 255 / 0.16) inset, 0 1px 2px rgb(27 35 64 / 0.4), 0 4px 10px -4px rgb(27 35 64 / 0.5);
+  --shadow-action-hover: 0 1px 0 rgb(255 255 255 / 0.22) inset, 0 1px 2px rgb(27 35 64 / 0.45), 0 7px 16px -5px rgb(27 35 64 / 0.55);
+  --shadow-press: 0 1px 3px rgb(27 31 46 / 0.22) inset;
   --shadow-lift: 0 0 #0000;
   --shadow-under: 0 1px 0 rgb(27 31 46 / 0.07);
   --shadow-pop: 0 4px 20px -6px rgb(27 31 46 / 0.14), 0 0 0 1px rgb(27 31 46 / 0.07);
@@ -328,7 +340,52 @@
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
+  }
+  /* The outline follows the element's own corners, so a button keeps its 10px
+     radius when focused; only things with no corners of their own get one. */
+  a:focus-visible,
+  summary:focus-visible {
     border-radius: var(--radius-sm);
+  }
+  /* A tab or a row of a list rings inside itself: outside, it is clipped by
+     the scroller it lives in. */
+  [role="tab"]:focus-visible,
+  [role="menuitem"]:focus-visible,
+  [role="option"]:focus-visible {
+    outline-offset: -2px;
+  }
+
+  /* Tailwind's reset leaves every button on the default arrow, which is the
+     single biggest reason a hand-drawn button does not feel like one. Anything
+     you can press says so under the pointer, and anything you cannot says
+     that too. */
+  :where(button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="option"], summary, select, label[for], input[type="checkbox"], input[type="radio"], input[type="submit"], input[type="range"], a[href]) {
+    cursor: pointer;
+  }
+  :where(button:disabled, [aria-disabled="true"], select:disabled, input:disabled) {
+    cursor: not-allowed;
+  }
+  :where(button, [role="button"], summary, a[href]) {
+    touch-action: manipulation;
+  }
+
+  /* The same short colour and edge transition on every control, so a raw
+     `<button>` and a `Button` answer the pointer at the same speed. Utility
+     classes that set their own transition still win. */
+  :where(button, [role="button"], summary, a[href]) {
+    transition:
+      background-color var(--dur-1) var(--ease-out),
+      color var(--dur-1) var(--ease-out),
+      border-color var(--dur-1) var(--ease-out),
+      box-shadow var(--dur-2) var(--ease-out),
+      transform var(--dur-1) var(--ease-out);
+  }
+
+  /* Pressing is felt: one pixel down, no more. Tabs, switches and the
+     checkbox/menu roles are left out because they are selection, not an
+     action, and a tab list that dips as you pass through it is noise. */
+  :where(button:not(:disabled), [role="button"]:not([aria-disabled="true"])):not([role="tab"], [role="switch"], [role="checkbox"], [role="radio"], [role="menuitem"], [role="combobox"], .no-press):active {
+    transform: translateY(1px);
   }
 
   ::selection {
@@ -723,6 +780,41 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * A key cap. Every `<kbd>` in the app is drawn the same: a small cap with a
+ * hairline and a lit lower edge, in whatever colour its surroundings are, so
+ * the same chip reads on paper, on a muted caption and on the navy button.
+ * (components layer: a page's own utilities still win where they must.)
+ * ------------------------------------------------------------------------ */
+@layer components {
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.3125rem;
+    border-radius: 0.3125rem;
+    border: 1px solid color-mix(in oklab, currentColor 26%, transparent);
+    background: color-mix(in oklab, currentColor 7%, transparent);
+    box-shadow: 0 1px 0 color-mix(in oklab, currentColor 22%, transparent);
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    vertical-align: 0.1em;
+  }
+  /* A finger has no keyboard: a shortcut hint on a button is only noise. */
+  @media (hover: none) {
+    :is(button, [role="button"], a, [role="menuitem"]) kbd {
+      display: none;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * A table on a phone (docs/ux/22, "on phones a table becomes stacked rows that
  * keep the labels"). A grid with eight columns cannot sit in 390 px, and
  * sideways scrolling hides the columns that matter. Under 640 px each row
@@ -885,6 +977,12 @@
   --color-critical: #f08b97;
   --color-critical-wash: #3a2228;
   --color-critical-line: #5c3640;
+  --color-critical-fg: #2a1217;
+  --color-control-edge: #5a6384;
+  --shadow-raise: 0 1px 0 rgb(255 255 255 / 0.07) inset, 0 1px 2px rgb(0 0 0 / 0.5);
+  --shadow-action: 0 1px 0 rgb(255 255 255 / 0.55) inset, 0 1px 2px rgb(0 0 0 / 0.5), 0 4px 12px -4px rgb(0 0 0 / 0.65);
+  --shadow-action-hover: 0 1px 0 rgb(255 255 255 / 0.75) inset, 0 1px 2px rgb(0 0 0 / 0.5), 0 7px 18px -5px rgb(0 0 0 / 0.75);
+  --shadow-press: 0 1px 3px rgb(0 0 0 / 0.5) inset;
   --color-area-record: #a9b6ea;
   --color-area-record-wash: #262c45;
   --color-area-record-line: #3a4366;

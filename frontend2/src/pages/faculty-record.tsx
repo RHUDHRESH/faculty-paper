@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { stageName } from "@/ui/journey"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { ExternalLink, FileSearch, Pencil, UserRound } from "lucide-react"
 
@@ -99,11 +100,13 @@ export function FacultyRecord() {
 
       {d.viewer.may_edit && d.person.missing.length > 0 && (
         <Callout tone="caution" title="This record is missing something">
-          {d.person.missing.map((m) => MISSING_WORDS[m].toLowerCase()).join(", ")}.{" "}
-          <Link to={`/people/${d.person.id}`} className="underline underline-offset-2">
-            Open the account to fix it
-          </Link>
-          {d.person.missing.includes("photo") && ". A photo can only be added by the person themself."}
+          {d.person.missing.map((m) => MISSING_WORDS[m].toLowerCase()).join(", ")}.
+          {d.person.missing.includes("photo") && " Only they can add a photo."}
+          <div className="mt-2">
+            <Button kind="default" size="sm" asChild>
+              <Link to={`/people/${d.person.id}`}>Open the account to fix it</Link>
+            </Button>
+          </div>
         </Callout>
       )}
 
@@ -191,15 +194,12 @@ function Header({ d }: { d: FacultyRecordPayload }) {
             {p.faculty_type === "RESEARCH" && (
               <Meta className={cn(!p.threshold_set && "text-caution")}>
                 {threshold}
-                {editor && (
-                  <>
-                    {" "}
-                    <Link to={`/people/${p.id}`} className="underline underline-offset-2">
-                      {p.threshold_set ? "Change" : "Set it"}
-                    </Link>
-                  </>
-                )}
               </Meta>
+            )}
+            {p.faculty_type === "RESEARCH" && editor && (
+              <Button kind="quiet" size="sm" asChild>
+                <Link to={`/people/${p.id}`}>{p.threshold_set ? "Change threshold" : "Set threshold"}</Link>
+              </Button>
             )}
             {p.role === "HOD" && <Chip>Head of department</Chip>}
             {!p.active && <Chip tone="caution">No longer at the college</Chip>}
@@ -207,7 +207,7 @@ function Header({ d }: { d: FacultyRecordPayload }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {editor && (
-            <Button asChild kind="default" size="md">
+            <Button asChild kind="primary" size="md">
               <Link to={`/people/${p.id}`}>
                 <Pencil />
                 Edit account
@@ -215,7 +215,7 @@ function Header({ d }: { d: FacultyRecordPayload }) {
             </Button>
           )}
           {d.viewer.is_self && (
-            <Button asChild kind="default" size="md">
+            <Button asChild kind={editor ? "default" : "primary"} size="md">
               <Link to="/me">
                 <Pencil />
                 Edit your profile
@@ -239,7 +239,13 @@ function Header({ d }: { d: FacultyRecordPayload }) {
               <span className="tabular">{p.scopus_author_id}</span>
             </Ext>
           ) : (
-            <Missing>{editor ? <Link to={`/people/${p.id}`} className="underline underline-offset-2">Add it</Link> : null}</Missing>
+            <Missing>
+              {editor ? (
+                <Button kind="quiet" size="sm" asChild>
+                  <Link to={`/people/${p.id}`}>Add Scopus ID</Link>
+                </Button>
+              ) : null}
+            </Missing>
           )}
         </Ident>
         <Ident label="ORCID">
@@ -376,7 +382,7 @@ function PapersTab({ d }: { d: FacultyRecordPayload }) {
       <EmptyState
         illustration="empty-no-papers"
         title="No papers on record"
-        message="Nothing has been matched to this person yet. The research office matches papers to people from the Scopus harvest."
+        message="Nothing has been matched to this person yet."
       />
     )
   }
@@ -512,15 +518,24 @@ function ClaimsTab({ d }: { d: FacultyRecordPayload }) {
       )}
       <ul aria-label="Claims" className="divide-y divide-line border-y border-line">
         {d.claims.map((c) => (
-          <ClaimRow key={c.id} c={c} />
+          <ClaimRow key={c.id} c={c} self={d.viewer.is_self} />
         ))}
       </ul>
     </div>
   )
 }
 
-function ClaimRow({ c }: { c: RecordClaim }) {
+/**
+ * One claim on the record. A paid claim is a quiet word, not a chip: eight
+ * green chips down a column say "paid" eight times. When the person is reading
+ * their own record the stage is in the college's words ("Being checked"), an
+ * old-workbook number is not shown as if it were a claim number they know, and
+ * a zero on a paid claim (the workbook did not record the amount) is left
+ * unsaid; the statement holds what was actually paid.
+ */
+function ClaimRow({ c, self }: { c: RecordClaim; self?: boolean }) {
   const paid = c.stage === "Paid" || c.stage === "Completed"
+  const stage = self ? stageName(c.stage) : c.stage
   return (
     <li className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 py-3">
       <div className="min-w-0 flex-1 basis-72">
@@ -541,8 +556,14 @@ function ClaimRow({ c }: { c: RecordClaim }) {
           ) : (
             <span className="tabular text-sm text-fg-muted">{claimNoLabel(c.claim_no)}</span>
           ))}
-        <Chip tone={paid ? "positive" : "neutral"}>{c.stage}</Chip>
-        {c.amount != null && <span className="tabular text-sm font-medium">{money(c.amount)}</span>}
+        {paid && self ? (
+          <span className="text-sm text-fg-muted">Paid</span>
+        ) : (
+          <Chip tone={paid ? "positive" : "neutral"}>{stage}</Chip>
+        )}
+        {c.amount != null && !(self && paid && c.amount === 0) && (
+          <span className="tabular text-sm font-medium">{money(c.amount)}</span>
+        )}
       </div>
     </li>
   )
@@ -571,9 +592,9 @@ function PaymentsTab({ d }: { d: FacultyRecordPayload }) {
         {d.viewer.is_self && (
           <>
             {" "}
-            <Link to="/papers/statement" className="text-accent underline-offset-2 hover:underline">
-              Open the statement by financial year
-            </Link>
+            <Button kind="default" size="sm" asChild>
+              <Link to="/papers/statement">Open the statement by financial year</Link>
+            </Button>
           </>
         )}
       </p>

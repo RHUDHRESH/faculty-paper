@@ -11201,10 +11201,12 @@ class WalkthroughTest(TestCase):
             data=json.dumps({**body, "submit": False}),
             content_type="application/json",
         )
-        dup_claim = Claim.objects.get(pk=dup.json()["id"])
-        self.say(f"\n 10. The same paper filed again is flagged: "
-                 f"duplicate_warning={dup_claim.duplicate_warning}")
-        self.assertTrue(dup_claim.duplicate_warning)
+        # Since the safeguards release a paper already paid is refused outright,
+        # in words, before a second claim exists (it used to be created with a
+        # duplicate warning on it).
+        self.say(f"\n 10. The same paper filed again is refused: {dup.json().get('detail')}")
+        self.assertEqual(dup.status_code, 409, dup.content)
+        self.assertIn("You were paid for this paper", dup.json()["detail"])
 
         self.say("\n" + "=" * 68)
         self.say(f"  Rs {claim.remuneration:,.2f} paid, through five desks, "

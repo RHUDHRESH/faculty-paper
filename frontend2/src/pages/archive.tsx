@@ -1,6 +1,7 @@
 import { paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
+import { cn } from "@/lib/cn"
 import { Download, FileSearch, Flag, Search, SearchX } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
@@ -17,7 +18,6 @@ import { PageHeader } from "@/ui/page-header"
 import { ClaimNoJump } from "@/ui/claim-number"
 import { Pagination } from "@/ui/pagination"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { Table, type Column } from "@/ui/table"
 import { Meta } from "@/ui/text"
 import { filterBar } from "@/ui/filter-bar"
 import { Avatar, initialsOf } from "@/ui/person"
@@ -240,103 +240,12 @@ export function PastClaims() {
     return s ? `/archive?${s}` : "/archive"
   }
 
-  const columns: Column<Row>[] = [
-    {
-      key: "claim",
-      header: "Claim",
-      className: "min-w-[16rem] max-w-[24rem]",
-      cell: (r) => (
-        <span className="block min-w-0">
-          <span className="line-clamp-2 block text-base text-fg">{paperTitle(r.paper_title)}</span>
-          <Meta className="block truncate">
-            <ClaimNo ticket={r.ticket_number} origin={r.origin} />
-          </Meta>
-        </span>
-      ),
-    },
-    {
-      key: "who",
-      header: "Claimant",
-      className: "min-w-[10rem]",
-      cell: (r) => (
-        <span className="flex min-w-0 items-center gap-2">
-          <Avatar size="xs" person={{ name: r.owner_name, initials: initialsOf(r.owner_name), photo_url: r.owner_photo_url ?? null }} />
-          <span className="min-w-0">
-            <span className="block truncate text-sm">{r.owner_name}</span>
-            <Meta className="block truncate text-xs">{r.owner_department || "No department"}</Meta>
-          </span>
-        </span>
-      ),
-    },
-    {
-      key: "journal",
-      header: "Journal and year",
-      className: "min-w-[10rem] max-w-[16rem]",
-      cell: (r) =>
-        real(r.journal_title) || r.publication_year ? (
-          <span className="block min-w-0">
-            <span className="line-clamp-2 block text-sm">{real(r.journal_title) || "Journal not recorded"}</span>
-            <Meta className="block text-xs">
-              {[r.publication_year, r.file_count === 0 ? "No files" : r.file_count === 1 ? "1 file" : `${r.file_count} files`].filter(Boolean).join(" · ")}
-            </Meta>
-          </span>
-        ) : null,
-    },
-    {
-      key: "outcome",
-      header: "How it stands",
-      label: "How it stands",
-      className: "min-w-[10rem]",
-      cell: (r) => {
-        const o = outcomeOf(r)
-        return (
-          <span className="block min-w-0 text-sm">
-            <span className={o.tone === "done" ? "text-positive" : o.tone === "attention" ? "text-critical" : "text-fg"}>{o.label}</span>
-            {o.detail && <Meta className="mt-0.5 line-clamp-2 block text-xs">{o.detail}</Meta>}
-            {r.origin && <Meta className="mt-0.5 block text-xs">{r.origin}</Meta>}
-            {(r.same_doi_others ?? 0) > 0 && r.doi && (
-              <Link to={link({ q: r.doi })} className="mt-0.5 block text-xs text-caution underline-offset-4 hover:underline">
-                Same DOI on {r.same_doi_others} other {r.same_doi_others === 1 ? "claim" : "claims"}
-              </Link>
-            )}
-          </span>
-        )
-      },
-    },
-    {
-      key: "amount",
-      header: "Amount",
-      align: "right",
-      className: "whitespace-nowrap",
-      empty: "Not recorded",
-      cell: (r) => (r.remuneration == null || (r.origin && !r.remuneration) ? null : money(r.remuneration)),
-    },
-    {
-      key: "flags",
-      header: "Flags",
-      empty: "None",
-      cell: (r) =>
-        r.open_flags > 0 ? (
-          <Link to={`/flags?claim=${r.id}&status=all`} className="whitespace-nowrap rounded-control bg-caution-wash px-1.5 py-0.5 text-xs font-medium text-caution">
-            {r.open_flags === 1 ? "1 open flag" : `${r.open_flags} open flags`}
-          </Link>
-        ) : null,
-    },
-    {
-      key: "act",
-      header: "Action",
-      label: "Raise a flag",
-      empty: "",
-      cell: (r) => <FlagButton row={r} />,
-    },
-  ]
 
   return (
     <div className="page space-y-8">
       <PageHeader
         title="Past claims"
-        sub="Every claim filed with the college, paid ones and those brought across from the old records included. Find one to see how it ended, read its files or raise a flag."
-        spot="spot-archive"
+        sub="Every claim ever filed, paid ones and imported ones included. Find one by its number."
       />
 
       <Answer
@@ -434,20 +343,78 @@ export function PastClaims() {
         />
       ) : (
         <div className="space-y-3">
-          <Table
-            rows={rows}
-            columns={columns}
-            getKey={(r) => r.id}
-            rowLink={(r) => `/papers/${r.id}`}
-            maxHeight="none"
-            minWidth="60rem"
-            caption="Past claims"
-          />
+          <ul aria-label="Past claims" className="divide-y divide-line">
+            {rows.map((r) => (
+              <ArchiveRow key={r.id} row={r} sameDoi={(doi) => link({ q: doi })} />
+            ))}
+          </ul>
           <ClaimNoLegend show={rows.some((r) => !!r.origin)} />
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={(n) => setParam("page", n > 0 ? String(n) : "")} />
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * One past claim: the person leads, then the paper, then a quiet line of
+ * claim number, journal and year; how it ended in a word on the right with the
+ * amount under it. Wraps on a narrow screen instead of scrolling sideways.
+ */
+function ArchiveRow({ row: r, sameDoi }: { row: Row; sameDoi: (doi: string) => string }) {
+  const navigate = useNavigate()
+  const o = outcomeOf(r)
+  const amount = r.remuneration == null || (r.origin && !r.remuneration) ? null : money(r.remuneration)
+  const tone = o.tone === "done" ? "text-positive" : o.tone === "attention" ? "text-critical" : "text-fg"
+  return (
+    <li
+      className="flex cursor-pointer flex-wrap items-start gap-x-3 gap-y-2 px-1 py-3 hover:bg-hover sm:flex-nowrap sm:px-2"
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button, a, input, [role=dialog]")) return
+        navigate(`/papers/${r.id}`)
+      }}
+    >
+      <Avatar size="md" person={{ name: r.owner_name, initials: initialsOf(r.owner_name), photo_url: r.owner_photo_url ?? null }} />
+      <div className="min-w-0 flex-1 basis-[calc(100%-3.5rem)] sm:basis-auto">
+        <p className="truncate text-sm">
+          <span className="font-medium">{r.owner_name}</span>
+          <span className="text-fg-muted"> · {r.owner_department || "No department"}</span>
+        </p>
+        <Link to={`/papers/${r.id}`} className="line-clamp-2 block text-base text-fg underline-offset-4 hover:underline sm:line-clamp-1">
+          {paperTitle(r.paper_title)}
+        </Link>
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-fg-muted">
+          <ClaimNo ticket={r.ticket_number} origin={r.origin} />
+          {real(r.journal_title) && <span className="max-w-[18rem] truncate">{real(r.journal_title)}</span>}
+          {r.publication_year && <span className="tabular">{r.publication_year}</span>}
+          <span>{r.file_count === 0 ? "No files" : r.file_count === 1 ? "1 file" : `${r.file_count} files`}</span>
+        </p>
+        {(r.same_doi_others ?? 0) > 0 && r.doi && (
+          <Link to={sameDoi(r.doi)} className="mt-0.5 block text-xs text-caution underline-offset-4 hover:underline">
+            Same DOI on {r.same_doi_others} other {r.same_doi_others === 1 ? "claim" : "claims"}
+          </Link>
+        )}
+      </div>
+      <div className="min-w-0 basis-full pl-[3.25rem] sm:w-56 sm:shrink-0 sm:basis-auto sm:pl-0">
+        <p className={cn("text-sm font-medium", tone)}>{o.label}</p>
+        {o.detail && <p className="line-clamp-2 text-xs text-fg-muted">{o.detail}</p>}
+        {r.origin && <p className="line-clamp-1 text-xs text-fg-subtle">{r.origin}</p>}
+      </div>
+      <div className="flex shrink-0 items-center gap-2 max-sm:pl-[3.25rem] sm:w-36 sm:flex-col sm:items-end sm:gap-0.5">
+        <p className="tabular text-base">{amount ?? <span className="text-sm text-fg-subtle">Not recorded</span>}</p>
+        {r.open_flags > 0 ? (
+          <Link
+            to={`/flags?claim=${r.id}&status=all`}
+            className="whitespace-nowrap rounded-control bg-caution-wash px-1.5 py-0.5 text-xs font-medium text-caution"
+          >
+            {r.open_flags === 1 ? "1 open flag" : `${r.open_flags} open flags`}
+          </Link>
+        ) : null}
+      </div>
+      <div className="shrink-0 max-sm:ml-auto">
+        <FlagButton row={r} />
+      </div>
+    </li>
   )
 }
 

@@ -6,7 +6,8 @@ import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { BudgetBurn, type FinancialYear } from "@/pages/statements"
-import { Answer } from "@/ui/answer"
+import { BudgetStrip } from "@/pages/budget-strip"
+import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
@@ -175,8 +176,6 @@ export function Budget() {
     <div className="page space-y-8">
       <PageHeader
         title="Budget"
-        sub="Is the scheme within its allocation? What was allocated, what has gone out, and what is already owed but not yet paid."
-        spot="spot-budget"
         action={
           /* Outside the loading and error branches on purpose: a reader who
              has landed on a year that will not load still needs a way off it,
@@ -232,10 +231,6 @@ export function Budget() {
           <section className="space-y-3">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <SectionTitle>By department</SectionTitle>
-              <Meta>
-                {departments.length} {departments.length === 1 ? "department" : "departments"} with
-                an allocation or a spend
-              </Meta>
             </div>
 
             {departments.length === 0 ? (
@@ -372,8 +367,6 @@ function BudgetSkeleton() {
 function CollegePosition({
   slice,
   fy,
-  starts,
-  ends,
   mayEdit,
   onEdit,
 }: {
@@ -385,58 +378,42 @@ function CollegePosition({
   onEdit: (slice: BudgetSlice) => void
 }) {
   const over = isOver(slice)
+  const left = slice.remaining
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <SectionTitle>The college, FY {fy}</SectionTitle>
-        <Meta>
-          {formatDay(starts)} to {formatDay(ends)}
-        </Meta>
-      </div>
+    <section className="space-y-5" aria-label={`The college, FY ${fy}`}>
+      <AnswerLine>
+        {slice.allocated === null ? (
+          `No budget is set for ${fy}.`
+        ) : over ? (
+          <>
+            The budget is <AnswerWord tone="crimson">{money(Math.abs(left ?? 0))} over</AnswerWord>.
+          </>
+        ) : (
+          <>
+            {tieNumbers(`${money(left)} is`)} <AnswerWord tone="sage">left</AnswerWord> of {money(slice.allocated)}.
+          </>
+        )}
+      </AnswerLine>
 
-      <Answer
-        items={[
-          { label: "Allocated for the year", value: slice.allocated === null ? "Not set" : money(slice.allocated) },
-          { label: "Paid out", value: money(slice.spent), to: "/ledger" },
-          { label: "Committed: approved, not yet paid, so the college owes it", value: money(slice.committed) },
-          {
-            label: over ? "Over the allocation by" : "Left in the allocation",
-            value: slice.remaining === null ? "Not set" : money(Math.abs(slice.remaining)),
-            tone: over ? "critical" : slice.remaining === null ? "neutral" : "positive",
-          },
-        ]}
-      />
-
-      <UsedBar slice={slice} />
+      {slice.allocated === null ? (
+        <p className="max-w-2xl text-lead text-fg-muted">
+          Paid so far {money(slice.spent)}; committed {money(slice.committed)}. Without an allocation there is no ceiling to
+          measure against.
+        </p>
+      ) : (
+        <div className="max-w-2xl">
+          <BudgetStrip budget={slice} batch={0} />
+        </div>
+      )}
 
       {slice.note && <Meta className="block">{slice.note}</Meta>}
-
-      {slice.allocated === null && (
-        <Callout tone="caution" title="No allocation is set for this year">
-          Without one there is no ceiling to measure against, so nothing here can say whether
-          the college is within budget. It shows only what it has spent and what it owes.
-        </Callout>
-      )}
-
-      {over && (
-        <Callout tone="critical" title="Past the allocation">
-          Paid and committed together come to {money(slice.spent + slice.committed)} against an
-          allocation of {money(slice.allocated)}. The committed part is not yet out of the
-          account, so this is a position to correct rather than a payment to reverse.
-        </Callout>
-      )}
 
       {/* The one control that has to survive a 375px screen. On a phone the
           department table becomes a card list further down; without this the
           college's own allocation would have no row to be edited from. */}
       {mayEdit && (
-        <Button
-          kind={slice.budget_id ? "quiet" : "default"}
-          size="sm"
-          onClick={() => onEdit(slice)}
-          className="w-full sm:w-auto"
-        >
+        <Button kind="default" onClick={() => onEdit(slice)} className="w-full sm:w-auto">
           {slice.budget_id ? <Pencil /> : <Plus />}
           {slice.budget_id ? "Change the college allocation" : "Set an allocation for the college"}
         </Button>
@@ -1039,12 +1016,6 @@ function currentFinancialYear(): string {
   const now = new Date()
   const start = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
   return `${start}-${String(start + 1).slice(-2)}`
-}
-
-function formatDay(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
 }
 
 /** Month by month spend against the allocation, from the ledger. */

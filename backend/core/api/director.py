@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from core.api.common import (
     OWN_PAPER,
+    PayRefusal,
     _apply_calc,
     _desk_people,
     _high_value_threshold,
     _needs_second_approval,
     _notify_admins,
     _notify_finance,
+    _notify_principal,
     _refuse_own_claim,
     api,
     logger,
@@ -38,8 +40,8 @@ import json
 import re
 import time
 from datetime import date, timedelta
-from typing import Optional
-from django.db import transaction
+from typing import Any, Optional
+from django.db import IntegrityError, transaction
 from django.conf import settings
 from django.db.models import Count, Min, Q, Sum, When
 from django.http import HttpRequest
@@ -51,7 +53,7 @@ from core.models import AuditLog, Claim, ClaimAction, ClaimReason, ClaimStatus, 
 from core import visibility
 from core.services import flags as flag_service
 from core.services import notify as notify_service
-from core.services import claim_numbers, payments_desk, rbac
+from core.services import claim_numbers, payment_guards, payments_desk, rbac
 from core.services import review_marks
 from core.services import research_threshold
 from core.services.student_projects import claim_holding
@@ -96,6 +98,9 @@ def director_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
 
         claim.director_approved_by = user
         claim.director_approved_at = timezone.now()
+        # What was authorised, written in the same step: Finance pays this and
+        # nothing else (see `_mark_one_paid`).
+        claim.authorised_amount = research_threshold.full_amount(claim)
         # A third pair of eyes satisfies the second-signature rule if the
         # Principal has not already -- but only where this really is somebody
         # other than whoever cleared it.
@@ -284,6 +289,7 @@ def director_bulk_approve(request: HttpRequest, payload: PrincipalBulkIn):
                 continue
             claim.director_approved_by = user
             claim.director_approved_at = timezone.now()
+            claim.authorised_amount = research_threshold.full_amount(claim)
             if not claim.second_approved_by_id and claim.cleared_by_id != user.id:
                 claim.second_approved_by = user
                 claim.second_approved_at = timezone.now()
@@ -420,6 +426,7 @@ def _mark_one_paid(
     expected_amount: float | None,
     skip_external: bool = False,
     reverify: bool = False,
+    idempotency_key: str | None = None,
 ) -> Claim:
     """One payment, atomically, with every guard. Raises HttpError on refusal.
 
@@ -429,12 +436,80 @@ def _mark_one_paid(
     Scopus. A single payment used to re-verify and answer 502 during an outage,
     and `skip_external` is super-admin only, so a Finance user had no way
     through at all — while bulk mark-paid, which never called out, worked fine.
+
+    Why a claim cannot be paid twice, layer by layer:
+
+    1. The claim row is locked (`select_for_update`) for the whole payment, so
+       on PostgreSQL a second session waits and then finds it PAID.
+    2. `idempotency_key`: a retry after a timeout carries the key of the first
+       attempt, finds the ledger row that attempt wrote, and gets that result
+       back instead of an error or a second payment.
+    3. The ledger rows are checked for money already out against this claim,
+       and against the same person's earlier payment for the same paper.
+    4. The database refuses a second PAYMENT row for the same claim and cycle
+       (`one_payment_per_claim_cycle`), whatever the code above did. SQLite
+       has no row lock, so there this is the guard that holds.
     """
+    key = payment_guards.clean_key(idempotency_key)
+    drift: tuple[float, float] | None = None
+    try:
+        claim, drift, replayed = _pay_under_lock(
+            claim_id, user, voucher_number=voucher_number, note=note, expected_amount=expected_amount,
+            skip_external=skip_external, reverify=reverify, key=key,
+        )
+    except IntegrityError:
+        # The unique index caught a second payment the checks did not: the
+        # request lost a race. Say what is true, in the ordinary words.
+        raise PayRefusal(400, "Already paid. This claim has just been paid, so nothing was paid again.",
+                         code="already_paid")
+    if drift:
+        _notify_principal(
+            claim,
+            f"Amount changed after authorisation · {claim.ticket_number}",
+            f"Authorised at ₹{drift[0]:,.0f}, now ₹{drift[1]:,.0f} for {claim.owner.name}. "
+            "It is waiting for your approval again.",
+        )
+        raise PayRefusal(
+            409,
+            f"The amount changed after the Director authorised it (₹{drift[0]:,.2f} to ₹{drift[1]:,.2f}). "
+            "Nothing was paid. It has gone back to the Principal to approve the new amount.",
+            code="amount_changed", authorised=drift[0], recomputed=drift[1],
+        )
+    claim._replayed = replayed  # noqa: SLF001 -- read by the endpoint, not persisted
+    return claim
+
+
+def _pay_under_lock(
+    claim_id: str,
+    user: User,
+    *,
+    voucher_number: str | None,
+    note: str | None,
+    expected_amount: float | None,
+    skip_external: bool,
+    reverify: bool,
+    key: str | None,
+) -> tuple[Claim, tuple[float, float] | None, bool]:
+    """The payment itself. Returns (claim, drift, replayed); `drift` is set
+    when the amount moved after authorisation and the claim was sent back."""
     with transaction.atomic():
         claim = get_object_or_404(Claim.objects.select_for_update(), pk=claim_id)
+        if key:
+            done = PaidLedger.objects.filter(idempotency_key=key).first()
+            if done is not None:
+                if done.claim_id != claim.pk:
+                    raise PayRefusal(409, "That request was already used for a different claim.", code="key_reused")
+                return claim, None, True
         # Before every other guard, so a batch says why this row was skipped
         # in the words that matter: nobody pays their own paper.
         _refuse_own_claim(user, claim)
+        if claim.status == ClaimStatus.PAID:
+            done = payment_guards.already_paid_answer(claim)
+            raise PayRefusal(
+                400,
+                done["message"] if done else "Already paid. A claim is paid once, so nothing was paid again.",
+                code="already_paid", **{k: v for k, v in (done or {}).items() if k not in ("code", "message")},
+            )
         # Payable means the Director authorised it on this system. Three
         # things are deliberately not payable:
         #
@@ -472,10 +547,49 @@ def _mark_one_paid(
                 "Invalid status — the ticket must be authorised by the Director first",
             )
         # Net of the ledger, not mere existence: a voided payment leaves a
-        # reversing row behind, and the claim must be payable again.
-        net_paid = claim.ledger_rows.aggregate(s=Sum("amount"))["s"] or 0
-        if net_paid > 0:
-            raise HttpError(400, "Already processed")
+        # reversing row behind, and the claim must be payable again. A claim
+        # that is not PAID but has money out on the ledger is the half-written
+        # state a crash could leave; it is refused rather than paid on top.
+        already = payment_guards.already_paid_answer(claim)
+        if already is not None:
+            raise PayRefusal(
+                400, already["message"], code="already_paid",
+                **{k: v for k, v in already.items() if k not in ("code", "message")},
+            )
+        # The same person's earlier payment for the same paper, on this
+        # system or in the old workbook. A claim somebody decided is not the
+        # same money, and a second person agreed, may go on; nothing else.
+        earlier = payment_guards.earlier_payment(claim)
+        if earlier is not None and not payment_guards.history_match_is_settled(claim):
+            raise PayRefusal(
+                409, earlier["message"], code="paid_before",
+                **{k: v for k, v in earlier.items() if k not in ("code", "message")},
+            )
+        # Separation of duties. Whoever authorised a payment does not also
+        # make it; a super admin may stand in, with the reason on the record.
+        # The same door admits paying somebody whose account is switched off.
+        standing_in: list[str] = []
+        if claim.director_approved_by_id == user.id:
+            standing_in.append("you authorised it yourself")
+        if not claim.owner.active:
+            standing_in.append(f"{claim.owner.name or 'the claimant'}'s account is switched off")
+        stand_in_reason = (note or "").strip() if standing_in else None
+        if standing_in:
+            if user.role != Role.SUPER_ADMIN:
+                raise PayRefusal(
+                    403,
+                    ("You authorised this claim, so someone else has to pay it."
+                     if claim.director_approved_by_id == user.id else
+                     "The claimant's account is switched off, so this payment needs a super admin."),
+                    code="own_authorisation" if claim.director_approved_by_id == user.id else "owner_inactive",
+                )
+            if len(stand_in_reason or "") < 10:
+                raise PayRefusal(
+                    400,
+                    f"Paying this needs a reason, because {' and '.join(standing_in)}. "
+                    "Write it in the note (10+ characters). It goes to the audit trail.",
+                    code="reason_needed",
+                )
         if claim.status == ClaimStatus.DIRECTOR_APPROVED:
             # Recompute FIRST, then decide whether it needs a second signature.
             #
@@ -489,6 +603,29 @@ def _mark_one_paid(
                 _reverify_or_recalc(claim, user, skip_external=skip_external)
             else:
                 _apply_calc(claim)
+            # The amount the Director authorised is the amount that is paid.
+            # A figure that has moved since (a policy edit, a corrected SNIP,
+            # a changed author count) was not signed by anybody, so the claim
+            # goes back to the Principal, with a row in the audit trail, and
+            # nothing is paid. The send-back is committed; the refusal is
+            # raised after this transaction closes so it is not rolled back.
+            authorised = claim.authorised_amount
+            if authorised is not None:
+                now_full = research_threshold.full_amount(claim)
+                if abs(now_full - authorised) > 0.005:
+                    _withdraw_approvals(claim)
+                    _transition(
+                        claim, user, ClaimStatus.CLEARED, "AMOUNT_CHANGED_SEND_BACK",
+                        f"Authorised at ₹{authorised:,.2f}; it now prices at ₹{now_full:,.2f}.",
+                    )
+                    AuditLog.objects.create(
+                        actor=user, action="PAYMENT_BLOCKED_AMOUNT_CHANGED", entity="Claim", entity_id=claim.id,
+                        detail_json=json.dumps({
+                            "ticket": claim.ticket_number, "authorised": authorised, "recomputed": now_full,
+                            "sent_back_to": ClaimStatus.CLEARED,
+                        }),
+                    )
+                    return claim, (authorised, now_full), False
             # The amount guard goes first of the two. If the figure moved, the
             # actor confirmed a number that is not the one about to be paid,
             # and every question after that is about the wrong amount --
@@ -547,8 +684,12 @@ def _mark_one_paid(
             payout = date(today.year, today.month, 1)
             claim.payout_month = payout
             claim.save(update_fields=["payout_month"])
-        PaidLedger.objects.create(
+        cycle = payment_guards.current_cycle(claim)
+        row = PaidLedger.objects.create(
             claim=claim,
+            kind=PaidLedger.Kind.PAYMENT,
+            cycle=cycle,
+            idempotency_key=key,
             payout_month=payout,
             department=claim.owner.department,
             faculty_name=claim.owner.name,
@@ -559,7 +700,22 @@ def _mark_one_paid(
             amount=claim.remuneration or 0,
             voucher_number=claim.voucher_number or voucher_number,
         )
-    return claim
+        # The money-moving act, on its own audit row with the figures: the
+        # transition row above says the status moved, this one says what was
+        # paid, to whom, in which cycle, under which request, and -- when a
+        # super admin stood in for the Director -- why.
+        AuditLog.objects.create(
+            actor=user,
+            action="LEDGER_PAYMENT",
+            entity="PaidLedger",
+            entity_id=row.id,
+            detail_json=json.dumps({
+                "claim": claim.id, "ticket": claim.ticket_number, "amount": row.amount, "cycle": cycle,
+                "authorised": claim.authorised_amount, "voucher": row.voucher_number,
+                "idempotency_key": key, "stood_in": standing_in or None, "stood_in_reason": stand_in_reason,
+            }),
+        )
+    return claim, None, False
 
 
 @api.post("/claims/{claim_id}/mark-paid", auth=session_auth)
@@ -574,8 +730,58 @@ def mark_paid(request: HttpRequest, claim_id: str, payload: ActionIn):
         note=payload.note,
         expected_amount=payload.expected_amount,
         skip_external=bool(payload.skip_external),
+        idempotency_key=payload.idempotency_key,
     )
-    return claim_to_dict(claim)
+    out = claim_to_dict(claim)
+    # A retry of a payment that already went through: the same answer, said so.
+    out["replayed"] = bool(getattr(claim, "_replayed", False))
+    return out
+
+
+@api.get("/claims/{claim_id}/pay-check", auth=session_auth)
+def pay_check(request: HttpRequest, claim_id: str):
+    """What the pay dialog should say before anybody presses Pay.
+
+    The same questions `mark-paid` asks under the row lock, answered without
+    writing anything: money already out on this claim, the same paper paid
+    before, an authorised amount that no longer matches, a person who cannot
+    pay it. `blocked` is true when pressing Pay would be refused for a reason
+    that does not go away by pressing it again.
+    """
+    user = require_user(request)
+    if not rbac.can_approve_as_finance(user.role):
+        raise HttpError(403, "Forbidden")
+    claim = get_object_or_404(Claim.objects.select_related("owner"), pk=claim_id)
+    problems: list[dict[str, Any]] = []
+    if rbac.is_own_claim(user, claim):
+        problems.append({"code": "own_claim", "message": OWN_PAPER})
+    already = payment_guards.already_paid_answer(claim)
+    if already:
+        problems.append(already)
+    elif claim.status == ClaimStatus.DIRECTOR_APPROVED:
+        earlier = payment_guards.earlier_payment(claim)
+        if earlier and not payment_guards.history_match_is_settled(claim):
+            problems.append(earlier)
+        if claim.director_approved_by_id == user.id and user.role != Role.SUPER_ADMIN:
+            problems.append({"code": "own_authorisation",
+                             "message": "You authorised this claim, so someone else has to pay it."})
+        if not claim.owner.active and user.role != Role.SUPER_ADMIN:
+            problems.append({"code": "owner_inactive",
+                             "message": "The claimant's account is switched off, so this payment needs a super admin."})
+        if claim.authorised_amount is not None:
+            now_full = research_threshold.full_amount(claim)
+            if abs(now_full - claim.authorised_amount) > 0.005:
+                problems.append({
+                    "code": "amount_changed",
+                    "message": f"Authorised at ₹{claim.authorised_amount:,.2f}, but the figures now give "
+                               f"₹{now_full:,.2f}. Paying will send it back to the Principal.",
+                })
+    return {
+        "claim_id": claim.id,
+        "blocked": any(p["code"] in ("already_paid", "paid_before", "own_authorisation", "owner_inactive", "own_claim")
+                       for p in problems),
+        "problems": problems,
+    }
 
 
 class BulkMarkPaidItem(Schema):
@@ -587,6 +793,9 @@ class BulkMarkPaidItem(Schema):
 class BulkMarkPaidIn(Schema):
     items: list[BulkMarkPaidItem]
     note: Optional[str] = None
+    #: One key for the whole batch; each claim's own key is derived from it,
+    #: so replaying the batch pays nothing twice and reports what it did.
+    idempotency_key: Optional[str] = None
 
 
 @api.post("/admin/bulk-mark-paid", auth=session_auth)
@@ -615,7 +824,9 @@ def bulk_mark_paid(request: HttpRequest, payload: BulkMarkPaidIn):
     items = sorted(items, key=lambda i: rank.get(i.claim_id, len(rank)))
     seen: set[str] = set()
     paid: list[str] = []
+    replayed = 0
     skipped: list[dict[str, str]] = []
+    batch_key = payment_guards.clean_key(payload.idempotency_key)
     for item in items:
         if item.claim_id in seen:
             continue
@@ -628,14 +839,16 @@ def bulk_mark_paid(request: HttpRequest, payload: BulkMarkPaidIn):
                 note=payload.note,
                 expected_amount=item.expected_amount,
                 reverify=False,
+                idempotency_key=f"{batch_key[:90]}:{item.claim_id}" if batch_key else None,
             )
             paid.append(claim.id)
+            replayed += 1 if getattr(claim, "_replayed", False) else 0
         except HttpError as e:
-            skipped.append({"id": item.claim_id, "reason": str(e)[:160]})
+            skipped.append({"id": item.claim_id, "reason": str(e)[:160], "code": getattr(e, "code", None)})
         except Exception as e:  # one bad row must not sink the batch
             logger.exception("bulk_mark_paid_failed id=%s", item.claim_id)
             skipped.append({"id": item.claim_id, "reason": str(e)[:160]})
-    return {"paid": len(paid), "paid_ids": paid, "skipped": skipped}
+    return {"paid": len(paid), "paid_ids": paid, "replayed": replayed, "skipped": skipped}
 
 
 @api.post("/claims/{claim_id}/second-approve", auth=session_auth)
@@ -732,18 +945,35 @@ def void_payment(request: HttpRequest, claim_id: str, payload: ActionIn):
         if not claim.ledger_rows.exists():
             raise HttpError(400, "No payment on record to void")
         today = timezone.now().date()
-        PaidLedger.objects.create(
-            claim=claim,
-            payout_month=claim.payout_month or date(today.year, today.month, 1),
-            department=claim.owner.department,
-            faculty_name=claim.owner.name,
-            staff_id=claim.staff_id or claim.owner.staff_id,
-            biometric_id=claim.biometric_id or claim.owner.biometric_id,
-            paper_title=claim.paper_title,
-            journal_title=claim.journal_title,
-            amount=-net_paid,
-            voucher_number=f"{(claim.voucher_number or 'VOID')[:59]}-VOID",
-            raw_json=json.dumps({"voided_by": user.email, "reason": note}),
+        # The reversal belongs to the cycle it undoes. A second void of the
+        # same payment would be a second REVERSAL in the same cycle, which the
+        # database refuses (`one_reversal_per_claim_cycle`).
+        cycle = payment_guards.current_cycle(claim)
+        try:
+            with transaction.atomic():
+                row = PaidLedger.objects.create(
+                    claim=claim,
+                    kind=PaidLedger.Kind.REVERSAL,
+                    cycle=cycle,
+                    payout_month=claim.payout_month or date(today.year, today.month, 1),
+                    department=claim.owner.department,
+                    faculty_name=claim.owner.name,
+                    staff_id=claim.staff_id or claim.owner.staff_id,
+                    biometric_id=claim.biometric_id or claim.owner.biometric_id,
+                    paper_title=claim.paper_title,
+                    journal_title=claim.journal_title,
+                    amount=-net_paid,
+                    voucher_number=f"{(claim.voucher_number or 'VOID')[:59]}-VOID",
+                    raw_json=json.dumps({"voided_by": user.email, "reason": note}),
+                )
+        except IntegrityError:
+            raise HttpError(409, "This payment has already been voided.")
+        AuditLog.objects.create(
+            actor=user, action="LEDGER_REVERSAL", entity="PaidLedger", entity_id=row.id,
+            detail_json=json.dumps({
+                "claim": claim.id, "ticket": claim.ticket_number, "amount": row.amount,
+                "cycle": cycle, "reason": note,
+            }),
         )
         claim.paid_at = None
         claim.save(update_fields=["paid_at"])
@@ -791,7 +1021,17 @@ def override_status(request: HttpRequest, claim_id: str, payload: OverrideStatus
                     f"{holder.ticket_number or 'without a number yet'}; the scheme "
                     "pays once per team. Withdraw or reject that claim first.",
                 )
-        _transition(claim, user, payload.to_status, "STATUS_OVERRIDE", note)
+        try:
+            with transaction.atomic():
+                _transition(claim, user, payload.to_status, "STATUS_OVERRIDE", note)
+        except IntegrityError:
+            # Putting a sent-back claim back in the chain would give one person
+            # two filed claims for one paper, which the database refuses.
+            raise HttpError(
+                409,
+                "The same person has another claim for this paper in the chain. "
+                "Withdraw or reject that one first, so the paper is claimed once.",
+            )
     return claim_to_dict(claim)
 
 

@@ -31,35 +31,40 @@ async function confirmDetailsAndFile(page: Page, paper: PaperRef, tag: string): 
   for (const box of await boxes.all()) await box.check()
   await page.getByRole("button", { name: "Start the claim" }).click()
   await expect(page.getByRole("heading", { name: "Add the details", level: 1 })).toBeVisible()
-  // 1. The paper
-  const type = page.getByRole("button", { name: "Type of publication" })
-  if ((await type.innerText()).includes("Select")) {
-    await type.click()
-    await page.getByRole("option", { name: "Journal article" }).click()
+  // The form opens on the first section that still needs the person
+  // (docs/ux/25 option C): a paper pulled from Scopus or looked up by DOI
+  // arrives with "The paper" complete, so it opens on a later one. Walk the
+  // sections from wherever it opens, doing what each asks.
+  const section = page.getByRole("heading", { level: 2, name: /^(The paper|The journal|You and the claim|The proof|Check and file)$/ })
+  for (let guard = 0; guard < 6; guard++) {
+    const name = (await section.first().innerText()).trim()
+    if (name === "Check and file") break
+    if (name === "The paper") {
+      const type = page.getByRole("button", { name: "Type of publication" })
+      if ((await type.innerText()).includes("Select")) {
+        await type.click()
+        await page.getByRole("option", { name: "Journal article" }).click()
+      }
+    } else if (name === "The journal") {
+      await page.getByRole("checkbox", { name: "Scopus" }).check()
+      await page.getByRole("textbox", { name: "Yukthi ID" }).fill("NA")
+      // Pulled or looked up, the quartile and SNIP come from the college's journal
+      // tables; by hand, the claimant asks Scimago.
+      const scimago = page.getByRole("button", { name: "Look up the quartile in Scimago" })
+      if (await scimago.isVisible()) {
+        await scimago.click()
+        await expect(page.getByText(/Scimago has this as Q\d/)).toBeVisible()
+      }
+      await expect(page.getByRole("button", { name: "Quartile", exact: true })).toHaveText(/Q\d/)
+      await snap(page, `${tag}-journal`)
+    } else if (name === "You and the claim") {
+      await page.getByRole("checkbox", { name: /the article names Saveetha Engineering College/ }).check()
+    } else if (name === "The proof") {
+      await attachProof(page, paper, tag)
+    }
+    await page.getByRole("button", { name: "Continue" }).click()
+    await expect(section.first(), `the form did not move on from "${name}"`).not.toHaveText(name)
   }
-  await page.getByRole("button", { name: "Continue" }).click()
-  // 2. The journal
-  await expect(page.getByRole("heading", { name: "The journal", level: 2 })).toBeVisible()
-  await page.getByRole("checkbox", { name: "Scopus" }).check()
-  await page.getByRole("textbox", { name: "Yukthi ID" }).fill("NA")
-  // Pulled or looked up, the quartile and SNIP come from the college's journal
-  // tables; by hand, the claimant asks Scimago.
-  const scimago = page.getByRole("button", { name: "Look up the quartile in Scimago" })
-  if (await scimago.isVisible()) {
-    await scimago.click()
-    await expect(page.getByText(/Scimago has this as Q\d/)).toBeVisible()
-  }
-  await expect(page.getByRole("button", { name: "Quartile", exact: true })).toHaveText(/Q\d/)
-  await snap(page, `${tag}-journal`)
-  await page.getByRole("button", { name: "Continue" }).click()
-  // 3. You and the claim
-  await expect(page.getByRole("heading", { name: "You and the claim", level: 2 })).toBeVisible()
-  await page.getByRole("checkbox", { name: /the article names Saveetha Engineering College/ }).check()
-  await page.getByRole("button", { name: "Continue" }).click()
-  // 4. The proof
-  await expect(page.getByRole("heading", { name: "The proof", level: 2 })).toBeVisible()
-  await attachProof(page, paper, tag)
-  await page.getByRole("button", { name: "Continue" }).click()
   return fileIt(page, tag)
 }
 
@@ -131,7 +136,7 @@ function amountIn(text: string): string {
 
 /** Click something that downloads, and read what arrived. */
 async function download(page: Page, click: () => Promise<unknown>): Promise<{ name: string; text: string; size: number }> {
-  const [dl] = await Promise.all([page.waitForEvent("download"), click()])
+  const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 20_000 }), click()])
   const file = await dl.path()
   const buf = readFileSync(file!)
   return { name: dl.suggestedFilename(), text: buf.toString("latin1"), size: buf.length }
@@ -186,7 +191,7 @@ test.describe("A year at the college", () => {
   test("the research cell sends one paper back with a reason", async ({ browser }) => {
     const page = await as(browser, "cell")
     await page.goto("/clearing")
-    const row = page.getByRole("row").filter({ hasText: tickets.anand_doi })
+    const row = page.locator("[data-claim]").filter({ hasText: tickets.anand_doi })
     await expect(row).toHaveCount(1)
     const review = await openFromQueue(page, row, "clearing")
     await review.getByRole("button", { name: "Send back" }).click()
@@ -197,7 +202,7 @@ test.describe("A year at the college", () => {
       ask.getByRole("button", { name: "Send back" }).click(),
     ])
     await page.keyboard.press("Escape")
-    await expect(page.getByRole("row").filter({ hasText: tickets.anand_doi })).toHaveCount(0)
+    await expect(page.locator("[data-claim]").filter({ hasText: tickets.anand_doi })).toHaveCount(0)
     await close(page)
   })
 
@@ -236,10 +241,13 @@ test.describe("A year at the college", () => {
   test("the research cell clears the refiled paper on its own", async ({ browser }) => {
     const page = await as(browser, "cell")
     await page.goto("/clearing")
-    const row = page.getByRole("row").filter({ hasText: tickets.anand_doi })
+    const row = page.locator("[data-claim]").filter({ hasText: tickets.anand_doi })
     const review = await openFromQueue(page, row, "clearing")
     // The claimant's own note travels with the refiled claim into its history.
+    // (Its place is the History tab since the review was redesigned.)
+    await review.getByRole("tab", { name: /^History/ }).click()
     await expect(review.getByText(/Checked against the published PDF/).first()).toBeVisible()
+    await review.getByRole("tab", { name: /^Check/ }).click()
     await review.getByRole("button", { name: "Clear", exact: true }).click()
     const confirm = page.getByRole("button", { name: /^Clear ₹/ })
     await expect(confirm).toBeEnabled()
@@ -254,7 +262,7 @@ test.describe("A year at the college", () => {
   test("the research cell raises a flag on one paper", async ({ browser }) => {
     const page = await as(browser, "cell")
     await page.goto("/clearing")
-    const row = page.getByRole("row").filter({ hasText: tickets.anand_scopus })
+    const row = page.locator("[data-claim]").filter({ hasText: tickets.anand_scopus })
     const review = await openFromQueue(page, row, "clearing")
     await review.getByRole("button", { name: /Raise a flag|^Flag$/ }).first().click()
     const ask = page.getByRole("dialog", { name: "Raise a flag" })
@@ -264,21 +272,23 @@ test.describe("A year at the college", () => {
       page.waitForResponse((r) => r.url().includes("flag") && r.request().method() === "POST" && r.ok()),
       ask.getByRole("button", { name: "Raise it" }).click(),
     ])
-    await expect(page.getByRole("region", { name: "Flags" })).toContainText(FLAG_NOTE)
+    // The panel's four tabs (docs/ux/26): the flags sit with the past cases.
+    await page.getByRole("tab", { name: "Past cases" }).click()
+    await expect(page.getByRole("region", { name: /^Flags/ })).toContainText(FLAG_NOTE)
     await close(page)
   })
 
   test("the research cell clears the rest in one batch, skipping the watched journal", async ({ browser }) => {
     const page = await as(browser, "cell")
     await page.goto("/clearing")
-    const watched = page.getByRole("row").filter({ hasText: tickets.anand_watched })
+    const watched = page.locator("[data-claim]").filter({ hasText: tickets.anand_watched })
     await expect(watched).toContainText("Watched journal")
     // The four straightforward papers of the year, ticked by claim number.
     // Not "Select all": the research cell's queue is shared with every other
     // spec in the suite, and whatever they left waiting there is not this
     // scenario's to clear.
     for (const key of ["anand_scopus", "revathi_1", "revathi_2", "revathi_3"]) {
-      await page.getByRole("row").filter({ hasText: tickets[key] }).getByRole("checkbox").check()
+      await page.locator("[data-claim]").filter({ hasText: tickets[key] }).getByRole("checkbox").check()
     }
     await expect(watched.getByRole("checkbox")).not.toBeChecked()
     await snap(page, "07-bulk")
@@ -293,8 +303,8 @@ test.describe("A year at the college", () => {
       page.waitForResponse((r) => r.url().includes("/admin/bulk-clear") && r.ok()),
       confirm.click(),
     ])
-    await expect(page.getByText("Cleared. 4 claims sent to the Principal")).toBeVisible()
-    await expect(page.getByRole("row").filter({ hasText: tickets.anand_scopus })).toHaveCount(0)
+    await expect(page.getByRole("status").filter({ hasText: /4 claims, .*sent to the Principal/ })).toBeVisible()
+    await expect(page.locator("[data-claim]").filter({ hasText: tickets.anand_scopus })).toHaveCount(0)
     await expect(watched).toHaveCount(1)
     await close(page)
   })
@@ -302,16 +312,19 @@ test.describe("A year at the college", () => {
   test("the Principal sees the flag and approves, then approves the rest", async ({ browser }) => {
     const page = await as(browser, "principal")
     await page.goto("/approvals")
-    const flagged = page.getByRole("row").filter({ hasText: tickets.anand_scopus })
-    await expect(flagged).toContainText("1 open flag")
+    const flagged = page.locator("[data-claim]").filter({ hasText: tickets.anand_scopus })
+    // A flagged claim is in the "Needs a look" lane and its row offers Review,
+    // not Approve (docs/ux/27): the Principal reads the flag first.
+    await expect(flagged).toContainText("Open flag")
     await expect(flagged).toContainText("₹74,500")
-    // The Principal reads the flag in the full-page review (the research
-    // cell's doubts are the Principal's to weigh), then decides on the row.
+    await expect(flagged.getByRole("button", { name: /^Approve/ })).toHaveCount(0)
+    // The research cell's doubts are the Principal's to weigh, in the
+    // full-page review, which carries the decision bar.
     await openFromQueue(page, flagged, "approvals")
+    await page.getByRole("tab", { name: "Past cases" }).click()
     await expect(page.getByText(FLAG_NOTE).first()).toBeVisible()
-    await page.goto("/approvals")
-    await flagged.getByRole("button", { name: "Approve", exact: true }).click()
-    const ask = page.getByRole("dialog", { name: "Approve this spend?" })
+    await page.getByRole("button", { name: /^Approve ₹/ }).first().click()
+    const ask = page.getByRole("dialog", { name: "Approve this claim?" })
     const confirm = ask.getByRole("button", { name: /^Approve ₹/ })
     expect(amountIn(await confirm.innerText())).toBe("₹74,500")
     await Promise.all([
@@ -319,11 +332,13 @@ test.describe("A year at the college", () => {
       confirm.click(),
     ])
     await expect(page.getByRole("dialog")).toHaveCount(0)
+    // After a decision the workspace opens the next claim; back to the list.
+    await page.goto("/approvals")
     await expect(flagged).toHaveCount(0)
     // The rest in one go.
-    await page.getByRole("checkbox", { name: "Select all" }).check()
+    await page.getByRole("checkbox", { name: /^Choose all 4 in ready to approve/ }).check()
     // Revathi's two inside her quota at ₹0, her third at ₹44,700, Anand's refiled one at ₹57,600.
-    await expect(page.getByText("4 selected · ₹1,02,300")).toBeVisible()
+    await expect(page.getByText("4 chosen · ₹1,02,300")).toBeVisible()
     await page.getByRole("button", { name: "Approve 4 claims" }).click()
     const bulk = page.getByRole("dialog")
     const go = bulk.getByRole("button", { name: /₹/ })
@@ -341,20 +356,20 @@ test.describe("A year at the college", () => {
     const page = await as(browser, "director")
     await page.goto("/authorisations")
     const list = page.getByRole("region", { name: "Approved claims" })
-    // The header row and five claims.
-    await expect(list.getByRole("row")).toHaveCount(6)
+    // Five claims, each a row of the list.
+    await expect(list.locator("[data-claim]")).toHaveCount(5)
     // 74,500 + 57,600 + 0 + 0 + 44,700
     await expect(page.getByText("₹1,76,800").first()).toBeVisible()
     // Money-desk rule: flags are for the research side, never for the Director.
     await expect(page.locator("main")).not.toContainText(/flag/i)
     await expect(page.locator("main")).not.toContainText(FLAG_NOTE)
-    const left = page.getByRole("complementary", { name: "Where the money goes" })
+    const left = page.getByRole("img", { name: /^Budget:/ })
     // ₹50,00,000 less these five claims. Exact, because `e2e_year --reset`
     // clears what the other specs paid out of the same year before this runs.
-    await expect(left).toContainText("₹48,23,200")
-    await page.getByRole("checkbox", { name: "Select all", exact: true }).check()
-    await expect(page.getByText("5 selected · ₹1,76,800")).toBeVisible()
-    await page.getByRole("button", { name: "Review and authorise 5" }).click()
+    await expect(left).toHaveAccessibleName(/₹48,23,200 left of/)
+    await page.getByRole("checkbox", { name: "Choose every ready claim" }).check()
+    await expect(page.getByText("5 chosen · ₹1,76,800")).toBeVisible()
+    await page.getByRole("button", { name: "Authorise 5 chosen" }).click()
     const ask = page.getByRole("dialog", { name: "Authorise 5 claims?" })
     await expect(ask).toContainText("across 5 claims")
     await expect(ask).toContainText("₹1,76,800")
@@ -362,7 +377,7 @@ test.describe("A year at the college", () => {
       page.waitForResponse((r) => r.url().includes("/director/bulk-approve") && r.ok()),
       ask.getByRole("button", { name: "Authorise ₹1,76,800" }).click(),
     ])
-    await expect(list).toContainText("Nothing is waiting on you")
+    await expect(list).toContainText("Nothing is waiting for your signature")
     await close(page)
   })
 
@@ -387,14 +402,29 @@ test.describe("A year at the college", () => {
     // The result says what to do next: the month bank file, one tap away.
     // The dialog is now the result ("Paid 5 of 5"), no longer "Pay 5 claims?".
     const result = page.getByRole("dialog", { name: "Paid 5 of 5" })
-    const list = await download(page, () => result.getByRole("link", { name: /Bank file/ }).click())
+    const list = await download(page, () => result.getByRole("button", { name: "Bank file (CSV)" }).click())
     expect(list.text).toContain("Anand Kumar")
     await result.getByRole("button", { name: "Close" }).last().click()
     await page.goto("/statements")
     const statement = page.getByRole("region", { name: `Statement for ${MONTH}` })
     await expect(statement).toContainText("₹1,76,800")
+    // The ledger reconciliation sits behind a disclosure now; opened, it must agree.
+    await page.getByRole("button", { name: "Show how this agrees with the ledger" }).click()
     await expect(page.getByText("Agrees with this statement")).toBeVisible()
-    const bank = await download(page, () => statement.getByRole("link", { name: "Bank file (CSV)" }).click())
+    // The first file was recorded when it was made. A second one for the same
+    // month is how a month is paid twice, so the button now asks before it
+    // downloads (docs/ops/safeguards.md, "Bank file generated twice"): nothing
+    // new to send, so the only way on is the whole month again, with a reason.
+    await statement.getByRole("button", { name: "Bank file (CSV)" }).click()
+    const again = page.getByRole("dialog", { name: "This month's bank file was already made" })
+    await expect(again).toContainText("Nothing has been paid since")
+    await expect(again.getByRole("button", { name: "No new payments" })).toBeDisabled()
+    await again.getByRole("button", { name: "The whole month again" }).click()
+    const why = again.getByRole("textbox")
+    await why.fill("short")
+    await expect(again.getByRole("button", { name: "Download the whole month again" })).toBeDisabled()
+    await why.fill("E2E: the first file never reached the bank")
+    const bank = await download(page, () => again.getByRole("button", { name: "Download the whole month again" }).click())
     writeFileSync(`${OUT}/bank.csv`, bank.text)
     expect(bank.text).toContain("Anand Kumar")
     expect(bank.text).toContain("74500")
@@ -416,10 +446,14 @@ test.describe("A year at the college", () => {
     await page.goto("/papers/claims")
     for (const [key, amount] of [["anand_scopus", "₹74,500"], ["anand_doi", "₹57,600"]] as const) {
       const row = page.getByRole("listitem").filter({ hasText: tickets[key] })
-      await expect(row).toContainText("Paid")
+      // A paid claim sits under "Paid" as one line: the month the money went out, and the amount.
+      await expect(page.getByRole("region", { name: "Paid" }).getByRole("listitem").filter({ hasText: tickets[key] })).toHaveCount(1)
+      await expect(row).toContainText(MONTH)
       await expect(row).toContainText(amount)
     }
-    await expect(page.getByRole("listitem").filter({ hasText: tickets.anand_watched })).toContainText("Being checked")
+    await expect(
+      page.getByRole("listitem").filter({ hasText: tickets.anand_watched }).getByRole("list", { name: "Progress: Being checked" })
+    ).toBeVisible()
     // The research cell's flag and the desk's names are not the claimant's to see.
     await page.getByRole("listitem").filter({ hasText: tickets.anand_scopus }).getByRole("link").first().click()
     await expect(page.getByRole("heading", { level: 1 })).toContainText(year.papers.anand_scopus.title)
@@ -459,7 +493,8 @@ test.describe("A year at the college", () => {
     await page.goto("/ledger")
     const totals = page.getByRole("region", { name: "The answer" })
     await expect(totals).toContainText("₹1,76,800")
-    await expect(totals).toContainText("3 payments to 2 people")
+    await expect(totals).toContainText("across 3 payments")
+    await expect(totals).toContainText(/2\s*People paid/)
     // Each payment once.
     for (const key of ["anand_scopus", "anand_doi", "revathi_3"]) {
       await expect(
@@ -468,8 +503,7 @@ test.describe("A year at the college", () => {
     }
     await page.goto("/statements")
     const month = page.getByRole("region", { name: `Statement for ${MONTH}` })
-    await expect(month).toContainText(/3\s*Payments/)
-    await expect(month).toContainText(/2\s*People paid/)
+    await expect(month).toContainText("3 payments to 2 people")
     await close(page)
 
     page = await as(browser, "principal")
@@ -481,10 +515,10 @@ test.describe("A year at the college", () => {
     await page.goto("/reports/brief")
     await page.getByRole("button", { name: "Year" }).click()
     await page.getByRole("option", { name: "2026" }).click()
-    await expect(page.locator("main")).toContainText("paid in FY 2026-27")
+    await expect(page.locator("main")).toContainText("It paid ₹1,76,800 in incentives in FY 2026-27")
     await expect(page.locator("main")).toContainText("₹1,76,800")
     await expect(page.locator("main")).toContainText(`the college has published ${papers} papers`)
-    const pdf = await download(page, () => page.getByRole("link", { name: "Council PDF" }).click())
+    const pdf = await download(page, () => page.getByRole("link", { name: "Download the council pack" }).click())
     expect(pdf.text.startsWith("%PDF")).toBe(true)
     const xlsx = await download(page, () => page.getByRole("link", { name: /Excel.*NAAC 3.3.1/ }).click())
     expect(xlsx.text.startsWith("PK")).toBe(true)
@@ -647,7 +681,7 @@ test.describe("A year at the college", () => {
   test("the final-year claim goes through every desk and is paid at ₹15,000", async ({ browser }) => {
     let page = await as(browser, "cell")
     await page.goto("/clearing")
-    const row = page.getByRole("row").filter({ hasText: tickets.fyp })
+    const row = page.locator("[data-claim]").filter({ hasText: tickets.fyp })
     await expect(row).toContainText("₹15,000")
     const review = await openFromQueue(page, row, "clearing")
     await review.getByRole("button", { name: "Clear", exact: true }).click()
@@ -662,19 +696,19 @@ test.describe("A year at the college", () => {
 
     page = await as(browser, "principal")
     await page.goto("/approvals")
-    const prow = page.getByRole("row").filter({ hasText: tickets.fyp })
+    const prow = page.locator("[data-claim]").filter({ hasText: tickets.fyp })
     await expect(prow).toContainText("₹15,000")
-    await prow.getByRole("button", { name: "Approve", exact: true }).click()
+    await prow.getByRole("button", { name: /^Approve/ }).click()
     await Promise.all([
       page.waitForResponse((r) => r.url().endsWith("/principal-approve") && r.ok()),
-      page.getByRole("dialog", { name: "Approve this spend?" }).getByRole("button", { name: "Approve ₹15,000" }).click(),
+      page.getByRole("dialog", { name: "Approve this claim?" }).getByRole("button", { name: "Approve ₹15,000" }).click(),
     ])
     await close(page)
 
     page = await as(browser, "director")
     await page.goto("/authorisations")
-    await page.getByRole("checkbox", { name: "Select all", exact: true }).check()
-    await page.getByRole("button", { name: "Review and authorise 1" }).click()
+    await page.getByRole("checkbox", { name: "Choose every ready claim" }).check()
+    await page.getByRole("button", { name: "Authorise 1 chosen" }).click()
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/director/bulk-approve") && r.ok()),
       page.getByRole("dialog").getByRole("button", { name: "Authorise ₹15,000" }).click(),
@@ -695,7 +729,8 @@ test.describe("A year at the college", () => {
     await page.goto("/ledger")
     const totals = page.getByRole("region", { name: "The answer" })
     await expect(totals).toContainText("₹1,91,800")
-    await expect(totals).toContainText("4 payments to 2 people")
+    await expect(totals).toContainText("across 4 payments")
+    await expect(totals).toContainText(/2\s*People paid/)
     await close(page)
 
     page = await as(browser, "anand")
@@ -709,7 +744,7 @@ test.describe("A year at the college", () => {
     tickets.cell_own = await fileFromRecord(page, year.papers.cell_own, "own")
     await page.goto("/clearing")
     await expect(page.getByRole("heading", { name: "Clearing queue" })).toBeVisible()
-    await expect(page.getByRole("row").filter({ hasText: tickets.cell_own })).toHaveCount(0)
+    await expect(page.locator("[data-claim]").filter({ hasText: tickets.cell_own })).toHaveCount(0)
     // And the server refuses it even if asked directly.
     const mine = await page.request.get(`/api/claims?limit=50`)
     const claim = ((await mine.json()).results ?? (await mine.json())).find(

@@ -4,8 +4,6 @@ import {
   CloudDownload,
   ClipboardPaste,
   FilePlusCorner,
-  Hourglass,
-  IndianRupee,
   MoreHorizontal,
   Search,
   SlidersHorizontal,
@@ -13,12 +11,10 @@ import {
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 
-import { HOME_DATA } from "@/app/home-data"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
 import { useApi } from "@/lib/query"
-import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
 import { ConfirmDialog } from "@/ui/dialog"
@@ -26,14 +22,16 @@ import { Input, Select } from "@/ui/field"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { PageHeader } from "@/ui/page-header"
 import { money, stageOf } from "@/ui/paper"
-import { stageCode } from "@/ui/journey"
+import { stageCode, stageName } from "@/ui/journey"
+import { SLOW_DAYS } from "@/pages/claims-track"
 import { Avatar, initialsOf } from "@/ui/person"
 import { useMyThreshold, ThresholdCard } from "@/ui/research-threshold"
 import { Details } from "@/ui/section"
+import { Tabs } from "@/ui/tabs"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { toast } from "@/ui/toast"
-import { ChoiceChips, typeLabel } from "@/pages/record-bits"
+import { typeLabel } from "@/pages/record-bits"
 import { unshout } from "@/lib/names"
 /**
  * My papers (docs/ux/03): the person's whole publication record from the
@@ -88,8 +86,8 @@ type Payload = {
 
 export const TABS = [
   { id: "all", label: "All" },
-  { id: "unclaimed", label: "Not claimed" },
-  { id: "progress", label: "In progress" },
+  { id: "unclaimed", label: "Ready to file" },
+  { id: "progress", label: "With the college" },
   { id: "paid", label: "Paid" },
   { id: "ineligible", label: "Not eligible" },
 ] as const
@@ -218,7 +216,6 @@ export function Papers() {
   const [shown, setShown] = useState(STEP)
 
   const query = useApi<Payload>(["me-publications", sort], `/api/me/publications?sort=${sort}`)
-  const received = useApi<{ total: number; count: number }>(HOME_DATA.myPayments.key, HOME_DATA.myPayments.path)
   const threshold = useMyThreshold()
 
   function set(key: string, value: string) {
@@ -271,7 +268,7 @@ export function Papers() {
   }, [all])
 
   const needle = q.trim().toLowerCase()
-  const matching = all.filter(
+  const matchingAll = all.filter(
     (p) =>
       !hidden.has(p.id) &&
       (tab === "all" || tabOf(p) === tab) &&
@@ -284,6 +281,12 @@ export function Papers() {
         (p.venue ?? "").toLowerCase().includes(needle) ||
         p.authors.some((a) => a.name.toLowerCase().includes(needle)))
   )
+  // The job on this page is "which paper do I file?", so on All the papers
+  // ready to file come first, then the ones with the college, then the rest;
+  // inside each group the order the person chose (newest first by default).
+  const rank = { unclaimed: 0, progress: 1, paid: 2, ineligible: 2 } as const
+  const matching =
+    tab === "all" && sort === "year" ? [...matchingAll].sort((a, b) => rank[tabOf(a)] - rank[tabOf(b)]) : matchingAll
   const rows = matching.slice(0, shown)
   const reported = all.filter((p) => hidden.has(p.id))
 
@@ -328,11 +331,8 @@ export function Papers() {
     toast.ok(r.kind === "duplicate" ? "Reported as a duplicate." : "Reported as not mine.")
   }
 
-  const m = query.data?.metrics
   const sentence = query.data
-    ? `${formatCount(query.data.count)} ${query.data.count === 1 ? "paper" : "papers"} on your record, ${formatCount(m?.total_citations ?? 0)} citations${
-        m?.first_year ? `, since ${m.first_year}` : ""
-      }. Each one shows where its claim stands.`
+    ? answerSentence(query.data.count, counts)
     : query.isError
       ? "Your record could not be loaded."
       : "Loading your record."
@@ -418,16 +418,20 @@ export function Papers() {
   return (
     <div className="page space-y-8 pb-24 sm:pb-6" data-area="record">
       <PageHeader
-        spot="spot-my-papers"
+        // An empty record is its own plate and its own next step (below); a
+        // second picture and a second primary button in the header would be two.
+        spot={all.length > 0 ? "spot-my-papers" : undefined}
         title="My papers"
         sub={sentence}
         action={
+          all.length === 0 ? undefined : (
           <Button kind="primary" asChild className="max-sm:hidden">
             <Link to="/papers/new">
               <FilePlusCorner />
               File a paper
             </Link>
           </Button>
+          )
         }
       />
 
@@ -448,48 +452,41 @@ export function Papers() {
           action={
             <div className="flex flex-wrap justify-center gap-2">
               <Button asChild kind="primary">
-                <Link to="/me">Connect my Scopus profile</Link>
+                <Link to="/papers/new?method=doi">Paste a DOI to file a paper</Link>
               </Button>
               <Button asChild>
-                <Link to="/papers/new?method=doi">Paste a DOI instead</Link>
+                <Link to="/me">Check my Scopus profile</Link>
               </Button>
             </div>
           }
         />
       ) : (
         <>
-          <Answer
-            items={[
-              {
-                value: counts.unclaimed,
-                label: counts.unclaimed === 1 ? "paper ready to claim" : "papers ready to claim",
-                zero: "Every paper is claimed",
-                to: "/papers?tab=unclaimed",
-                tone: "caution",
-              },
-              {
-                value: counts.progress,
-                label: "with the college",
-                zero: "Nothing waiting on the college",
-                to: "/papers?tab=progress",
-              },
-              { value: counts.paid, label: "paid", zero: "None paid yet", to: "/papers?tab=paid" },
-              {
-                value: received.data ? money(received.data.total) : received.isError ? "Not available" : null,
-                label: "received in all, see the statement",
-                to: "/papers/statement",
-              },
-            ]}
-          />
+          <div className="-mt-3 flex flex-wrap gap-2 print:hidden">
+            <Button kind="default" size="sm" asChild>
+              <Link to="/papers/claims">My claims</Link>
+            </Button>
+            <Button kind="default" size="sm" asChild>
+              <Link to="/papers/appraisal">List for appraisal</Link>
+            </Button>
+            <Button kind="default" size="sm" asChild>
+              <Link to="/papers/statement">Payment statement</Link>
+            </Button>
+          </div>
 
           <ThresholdCard s={threshold.data} />
 
           <section aria-label="Your papers" className="space-y-3">
-            <ChoiceChips
+            <Tabs
               label="Claim state"
+              idPrefix="papers"
               value={tab}
               onChange={(v) => set("tab", v)}
-              options={TABS.map((t) => ({ id: t.id, label: t.label, count: counts[t.id] }))}
+              tabs={TABS.filter((t) => t.id !== "ineligible" || counts.ineligible > 0 || tab === "ineligible").map((t) => ({
+                id: t.id,
+                label: t.label,
+                count: counts[t.id],
+              }))}
             />
 
             <div className="flex flex-wrap items-center gap-2">
@@ -638,10 +635,12 @@ export function Papers() {
               </p>
             ))}
 
-            <p className="text-sm text-fg-muted" aria-live="polite">
-              Showing {formatCount(rows.length)} of {formatCount(matching.length)}{" "}
-              {matching.length === all.length ? "papers on your record" : `matching papers, ${formatCount(all.length)} on your record`}.
-            </p>
+            {(matching.length !== all.length || rows.length < matching.length) && (
+              <p className="text-sm text-fg-muted" aria-live="polite">
+                Showing {formatCount(rows.length)} of {formatCount(matching.length)}
+                {matching.length === all.length ? " papers" : ` matching papers, ${formatCount(all.length)} on your record`}.
+              </p>
+            )}
 
             <Table
               rows={rows}
@@ -704,34 +703,20 @@ export function Papers() {
             </Details>
           )}
 
-          <p className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-fg-muted">
-            <span>
-              A paper is missing?{" "}
-              <Link to="/papers/new?method=doi" className="inline-flex items-center gap-1 text-(--area) hover:underline">
-                <ClipboardPaste aria-hidden className="size-4" strokeWidth={1.75} />
-                Paste its DOI
+          <div className="flex flex-wrap gap-2">
+            <Button kind="default" size="sm" asChild>
+              <Link to="/papers/new?method=doi">
+                <ClipboardPaste />A paper is missing? Paste its DOI
               </Link>
-            </span>
-            <span>
-              For a form:{" "}
-              <Link to="/papers/appraisal" className="text-(--area) hover:underline">
-                List for appraisal
-              </Link>
-              {", "}
-              <Link to="/papers/statement" className="text-(--area) hover:underline">
-                Payment statement
-              </Link>
-            </span>
-            <span>
-              <Link to="/faculty/me" className="text-(--area) hover:underline">
-                Your full record with the college
-              </Link>
-            </span>
-          </p>
+            </Button>
+            <Button kind="quiet" size="sm" asChild>
+              <Link to="/faculty/me">Your full record with the college</Link>
+            </Button>
+          </div>
         </>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg/95 p-3 backdrop-blur sm:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-bg p-3 sm:hidden">
         <Button kind="primary" asChild className="w-full">
           <Link to="/papers/new">
             <FilePlusCorner />
@@ -905,13 +890,18 @@ function WrittenWith({ p, me }: { p: RecordPaper; me: string }) {
   )
 }
 
-/** Where the paper's claim stands, in words, with the one next action. */
+/**
+ * Where the paper's claim stands, in words, with the one next action. A paid
+ * paper is a quiet line, not a chip: twenty-three green chips down a column
+ * say "paid" twenty-three times and bury the one paper that needs filing.
+ */
 function Standing({ p, isNew }: { p: RecordPaper; isNew: boolean }) {
   const state = tabOf(p)
   const stage = p.claim?.stage ?? null
   const paid = p.claim ? stageCode(p.claim.stage) === "PAID" : false
+  const days = p.claim?.days_waiting ?? null
   return (
-    <div className="flex min-w-0 flex-col items-start gap-1.5">
+    <div className="flex min-w-0 flex-col items-start gap-1">
       {isNew && <Chip tone="area">New from Scopus</Chip>}
       {state === "unclaimed" && (
         <Button asChild size="sm">
@@ -921,11 +911,16 @@ function Standing({ p, isNew }: { p: RecordPaper; isNew: boolean }) {
           </Link>
         </Button>
       )}
-      {stage && (
-        <Chip tone={paid ? "positive" : "area"} icon={paid ? IndianRupee : Hourglass}>
-          {paid ? `Paid${p.claim?.paid_month ? ` ${monthName(p.claim.paid_month)}` : ""}` : stage}
-          {!paid && p.claim?.days_waiting != null && `, ${p.claim.days_waiting} days`}
-        </Chip>
+      {stage && !paid && (
+        <span className="text-sm text-fg">
+          {stageName(stage)}
+          {days != null && <span className={cn("tabular", days > SLOW_DAYS ? "text-caution" : "text-fg-muted")}>{`, ${days} days`}</span>}
+        </span>
+      )}
+      {paid && (
+        <span className="text-sm text-fg-muted">
+          Paid{p.claim?.paid_month ? ` ${monthName(p.claim.paid_month)}` : ""}
+        </span>
       )}
       {paid && !!p.claim?.amount && (
         <span className="text-sm font-medium tabular-nums text-fg">{money(p.claim.amount)} to you</span>
@@ -937,6 +932,19 @@ function Standing({ p, isNew }: { p: RecordPaper; isNew: boolean }) {
       )}
     </div>
   )
+}
+
+/** The page's answer, in the order a person needs it. Real counts, and a zero says what it means. */
+export function answerSentence(total: number, c: Record<Tab, number>): string {
+  const n = (k: number, one: string, many: string) => `${formatCount(k)} ${k === 1 ? one : many}`
+  const parts: string[] = []
+  if (c.unclaimed) parts.push(`${n(c.unclaimed, "paper is", "papers are")} ready to file`)
+  if (c.progress) parts.push(`${n(c.progress, "is", "are")} with the college`)
+  if (c.paid) parts.push(`${formatCount(c.paid)} ${c.paid === 1 ? "has" : "have"} been paid`)
+  const head = `${n(total, "paper", "papers")} on your record.`
+  if (parts.length === 0) return head
+  const first = parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
+  return `${head} ${[first, ...parts.slice(1)].join(", ")}.`
 }
 
 /** "More than 10 authors" -> 10. */

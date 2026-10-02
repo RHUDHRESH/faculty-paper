@@ -1,3 +1,6 @@
+import { Plus } from "lucide-react"
+
+import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
 import { Avatar, initialsOf } from "@/ui/person"
 import {
@@ -260,9 +263,10 @@ function DayList({ day, items, onOpen, onAdd }: { day: string; items: CalItem[];
     <section aria-label={dayLabel(day, true)}>
       <h3 className="mb-1 text-sm font-semibold">{dayLabel(day, true)}</h3>
       {items.length === 0 ? (
-        <button type="button" onClick={() => onAdd(day)} className="text-sm text-fg-muted hover:text-fg">
-          Nothing this day. Add a reminder
-        </button>
+        <Button kind="default" size="sm" onClick={() => onAdd(day)}>
+          <Plus />
+          Add a reminder
+        </Button>
       ) : (
         <ul className="divide-y divide-line rounded-panel bg-surface ring-1 ring-line">
           {items.map((i) => (

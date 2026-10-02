@@ -10,18 +10,22 @@ import { useApi } from "@/lib/query"
 import { paperTitle } from "@/lib/names"
 import { Button } from "@/ui/button"
 import { CopyButton } from "@/ui/copy"
+import { stageOf } from "@/ui/paper"
+import { Avatar, initialsOf } from "@/ui/person"
+import { ClaimThread, type ThreadStage } from "@/ui/thread"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog"
 import { useQueueKeys } from "@/ui/queue-keys"
 import { checklistItems, composeSendBackReason, useMarks } from "@/ui/review-marks"
 import { ErrorState, Skeleton, SkeletonText } from "@/ui/state"
 
 import { useChecklist } from "./checklist"
+import { AuthoriseBar } from "./authorise-bar"
 import { DecisionBar, type DecisionDialog } from "./decision-bar"
 import { DecisionDialogs } from "./decision-dialogs"
 import { requestMark } from "./events"
 import { ResizeHandle, useStoredWidth } from "./panes"
 import { QueueRail } from "./queue-rail"
-import { ReviewPanel } from "./review-panel"
+import { PANEL_SECTIONS, ReviewPanel, type PanelSection } from "./review-panel"
 import type { QueueName, WorkspaceBundle } from "./types"
 import { filterRows, isQueueName, nextAfter, QUEUE_LABEL, QUEUE_PATH, useRail } from "./use-rail"
 import { DocumentViewer } from "./viewer/document-viewer"
@@ -122,6 +126,7 @@ export function ReviewWorkspace() {
   const [tab, setTab] = useState<Tab>("document")
   const [docIndex, setDocIndex] = useState(0)
   const [dialog, setDialog] = useState<DecisionDialog | null>(null)
+  const [section, setSection] = useState<PanelSection>("check")
   const [keysOpen, setKeysOpen] = useState(false)
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem("review.rail") !== "closed")
 
@@ -142,6 +147,8 @@ export function ReviewWorkspace() {
   const marks = useMarks(claimId)
 
   const atMyDesk = !!claim && !own && claim.status === "SUBMITTED" && perms.clear
+  // The Principal's own step: a cleared claim that is not hers.
+  const atMyApproval = !!claim && !own && claim.status === "CLEARED" && perms.approve
   const step = useCallback(
     (delta: 1 | -1) => {
       if (files.length === 0) return
@@ -150,6 +157,11 @@ export function ReviewWorkspace() {
     },
     [files.length]
   )
+
+  const showPanel = useCallback((s: PanelSection) => {
+    setSection(s)
+    setTab("review")
+  }, [])
 
   const keys = useMemo<Record<string, () => void>>(
     () => ({
@@ -162,12 +174,34 @@ export function ReviewWorkspace() {
         requestMark()
       },
       c: () => atMyDesk && setDialog("clear"),
-      s: () => atMyDesk && setDialog("sendback"),
-      h: () => atMyDesk && setDialog(claim?.on_hold ? null : "hold"),
+      a: () => atMyApproval && claim?.remuneration != null && setDialog("approve"),
+      s: () => (atMyDesk || atMyApproval) && setDialog("sendback"),
+      h: () => (atMyDesk || atMyApproval) && setDialog(claim?.on_hold ? null : "hold"),
+      f: () => perms.clear && !own && setDialog("flag"),
+      "?": () => setKeysOpen(true),
+      "1": () => showPanel(PANEL_SECTIONS[0]),
+      "2": () => showPanel(PANEL_SECTIONS[1]),
+      "3": () => showPanel(PANEL_SECTIONS[2]),
+      "4": () => showPanel(PANEL_SECTIONS[3]),
     }),
-    [atMyDesk, claim?.on_hold, move, step]
+    [atMyDesk, atMyApproval, claim?.on_hold, claim?.remuneration, move, step, perms.clear, own, showPanel]
   )
   useQueueKeys(keys, !!claim)
+
+  // The queue's `s` opens a claim already asking to send it back (`?do=sendback`),
+  // once, when the claim is at this desk. The address is cleaned so a refresh
+  // does not ask again.
+  const wanted = params.get("do")
+  useEffect(() => {
+    if (!wanted || !claim) return
+    if ((atMyDesk || atMyApproval) && (wanted === "sendback" || wanted === "clear" || wanted === "hold")) setDialog(wanted)
+    const next = new URLSearchParams(params)
+    next.delete("do")
+    navigate(`/review/${claimId}${next.toString() ? `?${next.toString()}` : ""}`, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, claim?.id, atMyDesk, atMyApproval])
+
+  const thread = ((claim?.status ? stageOf(claim.status).step : null)?.toLowerCase() ?? null) as ThreadStage | null
 
   /* ---- the states before the page is there ----------------------------- */
 
@@ -207,13 +241,35 @@ export function ReviewWorkspace() {
         <span aria-hidden className="h-5 w-px shrink-0 bg-line" />
         {claim ? (
           <>
-            <span className="flex min-w-0 shrink-0 items-center gap-0.5">
-              <span className="tabular text-sm font-medium">{claim.ticket_number || "No claim no."}</span>
-              {claim.ticket_number && <CopyButton value={claim.ticket_number} label="claim number" />}
-            </span>
-            <span className="hidden min-w-0 flex-1 truncate text-sm text-fg-muted md:block" title={claim.paper_title}>
-              {paperTitle(claim.paper_title)}
-            </span>
+            <Avatar
+              person={{ name: claim.owner_name, initials: initialsOf(claim.owner_name), photo_url: claim.owner_photo_url ?? null }}
+              size="sm"
+              className="max-sm:hidden"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm">
+                <span className="font-medium">{claim.owner_name}</span>
+                {claim.owner_department && <span className="text-fg-muted"> · {claim.owner_department}</span>}
+              </p>
+              <p className="flex min-w-0 items-center gap-0.5 text-xs text-fg-muted">
+                <span className="tabular shrink-0">{claim.ticket_number || "No claim no."}</span>
+                {claim.ticket_number && <CopyButton value={claim.ticket_number} label="claim number" />}
+                <span className="hidden min-w-0 truncate md:inline" title={claim.paper_title}>
+                  · {paperTitle(claim.paper_title)}
+                </span>
+              </p>
+            </div>
+            {thread && <ClaimThread at={thread} className="hidden w-[24rem] shrink-0 xl:grid" />}
+            {claim.waiting_days != null && claim.status === "SUBMITTED" && (
+              <span
+                className={cn(
+                  "hidden shrink-0 text-sm tabular sm:inline",
+                  claim.waiting_days > 30 ? "font-medium text-critical" : claim.waiting_days > 14 ? "font-medium text-caution" : "text-fg-muted"
+                )}
+              >
+                {claim.waiting_days <= 0 ? "Filed today" : `${claim.waiting_days} ${claim.waiting_days === 1 ? "day" : "days"} waiting`}
+              </span>
+            )}
           </>
         ) : (
           <Skeleton className="h-4 w-40" />
@@ -297,7 +353,7 @@ export function ReviewWorkspace() {
           className={cn("min-h-0 min-w-0 flex-1 flex-col lg:flex", tab === "document" ? "flex" : "hidden")}
         >
           {claim ? (
-            <DocumentViewer claimId={claim.id} files={files} index={docIndex} onIndex={setDocIndex} />
+            <DocumentViewer claimId={claim.id} files={files} index={docIndex} onIndex={setDocIndex} proofLinks={proofLinks(claim)} />
           ) : (
             <div className="grid h-full place-items-center bg-sunken p-8" role="status" aria-label="Opening the claim">
               <div className="w-full max-w-sm space-y-3">
@@ -324,6 +380,9 @@ export function ReviewWorkspace() {
               checklist={checklist}
               onChecklist={setChecklist}
               extras={{ own, showFlags: bundle.data?.review != null }}
+              section={section}
+              onSection={setSection}
+              markCount={marks.marks.length}
             />
           ) : (
             <div className="space-y-4 p-4">
@@ -336,7 +395,11 @@ export function ReviewWorkspace() {
 
       {claim && (
         <>
-          <DecisionBar claim={claim} own={own} canClear={perms.clear} isSuperAdmin={isSuperAdmin} queue={queue} open={setDialog} />
+          {queue === "authorisations" && perms.authorise && (me?.role === "DIRECTOR" || claim.status === "PRINCIPAL_APPROVED") ? (
+            <AuthoriseBar claim={claim} own={own} isSuperAdmin={isSuperAdmin} onDone={afterDecision} />
+          ) : (
+            <DecisionBar claim={claim} own={own} canClear={perms.clear} canApprove={perms.approve} isSuperAdmin={isSuperAdmin} queue={queue} open={setDialog} />
+          )}
 
           {!own && (
             <DecisionDialogs
@@ -356,6 +419,16 @@ export function ReviewWorkspace() {
   )
 }
 
+/** The proof a claimant linked in place of uploading (only web links, never a script). */
+function proofLinks(claim: { proof_url?: string | null; sec_proof_url?: string | null }): { label: string; url: string }[] {
+  const web = (u: string) => /^https?:\/\//i.test(u)
+  const out: { label: string; url: string }[] = []
+  for (const u of (claim.proof_url ?? "").split(/[\s,]+/).filter(web)) out.push({ label: "Open the paper proof", url: u })
+  const refs = (claim.sec_proof_url ?? "").split(/[\s,]+/).filter(web)
+  refs.forEach((u, i) => out.push({ label: refs.length === 1 ? "Open the reference proof" : `Open reference proof ${i + 1}`, url: u }))
+  return out
+}
+
 /** The bare page with a way out, for when there is no claim to show. */
 function Frame({ queue, children }: { queue: QueueName; children: React.ReactNode }) {
   return (
@@ -373,12 +446,17 @@ function Frame({ queue, children }: { queue: QueueName; children: React.ReactNod
 const KEYS: [string, string][] = [
   ["j", "Next claim in the queue"],
   ["k", "Previous claim in the queue"],
-  ["c", "Clear this claim"],
+  ["c", "Clear this claim (the research cell)"],
+  ["a", "Approve this claim (the Principal)"],
   ["s", "Send this claim back"],
   ["h", "Hold this claim"],
+  ["f", "Flag this claim"],
   ["m", "Add a mark to the document"],
   ["[", "Previous file"],
   ["]", "Next file"],
+  ["1 to 4", "Check, Marks, Past cases, History"],
+  ["Ctrl Enter", "Send a typed reason"],
+  ["?", "This list"],
 ]
 
 function KeysDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {

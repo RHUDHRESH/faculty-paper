@@ -120,7 +120,7 @@ describe("CrashGuard", () => {
       </CrashGuard>
     )
     expect(await screen.findByText("This page could not be drawn")).toBeInTheDocument()
-    expect(screen.getByText(/Nothing you saved has been lost/)).toBeInTheDocument()
+    expect(screen.getByText(/Something on this page failed/)).toBeInTheDocument()
     spy.mockRestore()
   })
 })

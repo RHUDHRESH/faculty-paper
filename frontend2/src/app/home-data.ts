@@ -47,7 +47,9 @@ export const HOME_DATA = {
   dashboard: { key: ["dashboard"], path: "/api/dashboard" },
   /** The same totals without the list, for the homes that print no list. */
   collegeTotals: { key: ["dashboard", "totals"], path: "/api/dashboard?recent=0" },
-  principalQueue: { key: ["principal", "queue", "home"], path: "/api/principal/queue?limit=8" },
+  principalQueue: { key: ["principal-queue", "home"], path: "/api/principal/queue?limit=200" },
+  /** The year in one call, for the Principal's Home and the year brief (same key). */
+  principalBrief: { key: ["reports-brief", ""], path: "/api/reports/brief" },
   directorQueue: { key: ["director-queue", "home"], path: "/api/director/queue?limit=200" },
   areas: { key: ["reports", "areas"], path: "/api/reports/areas?limit=12" },
   budget: { key: ["budgets", ""], path: "/api/budgets" },
@@ -63,7 +65,7 @@ const OWN = [D.ownClaims, D.myPayments]
 const BY_ROLE: Record<Role, readonly HomeQuery[]> = {
   FACULTY: [D.myHome, D.ownClaims, D.myPayments, D.myAssignments, D.nextPayout],
   HOD: [D.hodBrief, ...OWN],
-  PRINCIPAL: [D.principalQueue, D.collegeTotals, ...OWN],
+  PRINCIPAL: [D.principalQueue, D.principalBrief, D.collegeTotals, ...OWN],
   DIRECTOR: [D.directorQueue, D.areas, D.collegeTotals, D.budget, ...OWN],
   FINANCE: [D.budget, ...OWN],
   RESEARCH_CELL: [...OFFICE, ...OWN],

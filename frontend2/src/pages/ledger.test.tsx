@@ -83,7 +83,7 @@ describe("the ledger screen", () => {
     )
     renderWithProviders(<Ledger />, { route: "/ledger" })
     expect(await screen.findByText("₹26,55,784")).toBeInTheDocument()
-    expect(screen.getByText(/from Jan 2024 to Feb 2024, across 2 payments to 1 person/)).toBeInTheDocument()
+    expect(screen.getByText(/from Jan 2024 to Feb 2024, across 2 payments./)).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /47 possible duplicates to review/ })).toHaveAttribute(
       "href",
       "/duplicates"

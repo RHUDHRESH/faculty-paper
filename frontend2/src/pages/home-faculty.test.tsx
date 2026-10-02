@@ -8,7 +8,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 })
 
 import { api } from "@/lib/api"
-import { FacultyHome, greeting, homeSentence, monthOnly, type HomeRecord } from "@/pages/home-faculty"
+import { FacultyHome, greeting, homeSentence, monthOnly, reasonOf, type HomeRecord } from "@/pages/home-faculty"
 import { FACULTY, failing, fakeApi, ledgerOf, renderWithProviders } from "@/test/harness"
 
 /**
@@ -151,7 +151,8 @@ describe("FacultyHome", () => {
     const money = screen.getByRole("region", { name: "Your money" })
     expect(within(money).getByRole("link", { name: /₹52,377.50/ })).toHaveAttribute("href", "/papers/statement")
     expect(within(money).getByRole("link", { name: /₹23,000/ })).toHaveAttribute("href", "/papers/claims")
-    expect(money).toHaveTextContent("expected in October 2026")
+    // The payment-run sentence is behind "when the next payment is".
+    expect(within(money).getByRole("button", { name: /when the next payment is/ })).toBeInTheDocument()
   })
 
   it("shows one paper count from the record, with citations and h-index", async () => {
@@ -201,7 +202,6 @@ describe("FacultyHome", () => {
         }),
     })
     expect(await screen.findByText("An unfiled lattice paper")).toBeInTheDocument()
-    expect(screen.getByText(/10 papers on your record have no claim yet/)).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "File it" })).toHaveAttribute("href", "/papers/new?publication=p1")
     expect(screen.getByRole("link", { name: /all 10 unfiled papers/i })).toHaveAttribute("href", "/papers?filter=unclaimed")
   })
@@ -237,7 +237,7 @@ describe("FacultyHome", () => {
   it("says how far a claim has come and how long it has waited, never whose desk", async () => {
     mount([approved({ status: "PRINCIPAL_APPROVED", remuneration: 105_000, submitted_at: null, waiting_days: 21 })])
     const section = await screen.findByRole("region", { name: "Claims on the way" })
-    expect(within(section).getByText(/Being checked/)).toBeInTheDocument()
+    expect(within(section).getByText(/Being checked · Filed 21 days ago/)).toBeInTheDocument()
     expect(within(section).getByText(/Filed 21 days ago/)).toBeInTheDocument()
     expect(within(section).getByText("₹1,05,000")).toBeInTheDocument()
     expect(within(section).getByText(/Taking longer than usual/)).toBeInTheDocument()
@@ -266,7 +266,7 @@ describe("FacultyHome", () => {
     expect(await screen.findByText("Sent back to you")).toBeInTheDocument()
     expect(screen.getByText("Attach the SEC reference PDFs")).toBeInTheDocument()
     // The fix view lives on the claim page.
-    expect(screen.getByRole("link", { name: /fix this claim/i })).toHaveAttribute("href", "/papers/c1")
+    expect(screen.getByRole("link", { name: /fix this claim/i })).toHaveAttribute("href", "/papers/c1#fix")
     expect(screen.getByTestId("home-answer")).toHaveTextContent("1 claim needs a fix from you")
   })
 
@@ -356,6 +356,72 @@ describe("FacultyHome", () => {
     )
     renderWithProviders(<FacultyHome />)
     expect(await screen.findByRole("button", { name: /try again/i })).toBeInTheDocument()
+  })
+})
+
+describe("what the reason is", () => {
+  it("never shows a trace of an import as the college's reason", () => {
+    expect(reasonOf("Imported from Raw_Data")).toBeNull()
+    expect(reasonOf("ERP-RAW note")).toBeNull()
+    expect(reasonOf("")).toBeNull()
+    expect(reasonOf("Attach the SEC reference PDFs")).toBe("Attach the SEC reference PDFs")
+  })
+
+  it("sends a claim with only an import note to the fix page without inventing a reason", async () => {
+    mount([claim({ status: "REJECTED", status_note: "Imported from Raw_Data", paid_at: null })])
+    expect(await screen.findByText(/Open it to see what the college asked for/)).toBeInTheDocument()
+    expect(screen.queryByText(/Raw_Data/)).toBeNull()
+  })
+})
+
+describe("the record and the end of the journey", () => {
+  it("draws the papers as a dot field by quartile, with real counts", async () => {
+    mount([claim()], [], {
+      "/api/me/home": () => record({ papers: 20, quartiles: { Q1: 3, Q2: 4, Q3: 2, Q4: 1, none: 10 } }),
+    })
+    const field = await screen.findByRole("img", {
+      name: /20 papers: 3 in Q1 journals, 7 in Q2 to Q4 journals, 10 with no quartile/,
+    })
+    expect(field).toBeInTheDocument()
+  })
+
+  it("stamps money that reached the person this month or last, from the ledger", async () => {
+    const now = new Date()
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+    const paid = claim({ id: "c9" })
+    mount([paid], [], {
+      "/api/me/payments": () => ({
+        ...ledgerOf([paid]),
+        rows: [
+          {
+            id: 1,
+            claim_id: "c9",
+            payout_month: ym,
+            paper_title: "A finite element study of lattice struts",
+            journal_title: null,
+            amount: 9000,
+            voucher_number: null,
+          },
+        ],
+      }),
+    })
+    const box = await screen.findByTestId("just-paid")
+    expect(box).toHaveTextContent("₹9,000")
+    expect(box).toHaveTextContent(/reached you in/)
+    expect(within(box).getByRole("img", { name: /^Paid/ })).toBeInTheDocument()
+  })
+
+  it("says nothing about a payment that is more than a month old", async () => {
+    mount([claim()], [], {
+      "/api/me/payments": () => ({
+        ...ledgerOf([claim()]),
+        rows: [
+          { id: 1, claim_id: "c1", payout_month: "2020-01", paper_title: "Old", journal_title: null, amount: 9000, voucher_number: null },
+        ],
+      }),
+    })
+    await screen.findByRole("region", { name: "Your money" })
+    expect(screen.queryByTestId("just-paid")).toBeNull()
   })
 })
 

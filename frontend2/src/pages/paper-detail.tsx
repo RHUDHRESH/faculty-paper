@@ -1100,7 +1100,13 @@ function initialsOf(name: string): string {
 
 /** The authors in order; college co-authors carry a face, outside authors a name. */
 function AuthorList({ claim }: { claim: Claim }) {
-  const rows = authorRows(claim)
+  const { me } = useAuth()
+  // The signed-in person's own row wears their own face: the claim stores
+  // names, and a name that is the viewer's is the viewer.
+  const norm = (n: string | null | undefined) => (n ?? "").toLowerCase().replace(/[^a-z]/g, "")
+  const rows = authorRows(claim).map((r) =>
+    r.college && !r.photo_url && me?.photo_url && norm(r.name) === norm(me.name) ? { ...r, photo_url: me.photo_url } : r
+  )
   if (!rows.length) return null
   return (
     <div className="space-y-3">

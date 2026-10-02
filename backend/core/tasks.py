@@ -280,6 +280,24 @@ def run_integrity_audit() -> dict:
     return {"ok": True, "problems": report["problems"], "seconds": report["seconds"]}
 
 
+def run_safeguard_check() -> dict:
+    """Daily: sweep what has been paid for repeats, then recompute every money
+    safeguard from the rows (core.services.safeguards) and keep the report for
+    the Safeguards page and the readiness checklist."""
+    import io
+
+    from django.core.management import call_command
+
+    from core.services import safeguards
+
+    try:
+        call_command("find_duplicate_payments", stdout=io.StringIO())
+    except Exception:  # noqa: BLE001 -- the sweep failing must not stop the check
+        logger.exception("find_duplicate_payments failed in the daily safeguard check")
+    report = safeguards.run_and_store()
+    return {"ok": True, "problems": report["problems"], "seconds": report["seconds"]}
+
+
 def run_stored_backup(kind: str = "auto") -> dict:
     """Weekly, and on demand from the data-health page: a full backup kept in
     the database's own file store (the newest four)."""

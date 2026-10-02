@@ -403,6 +403,9 @@ class IssuePasswordsIn(Schema):
 #: Real runs an hour. Each one replaces passwords people may already be using;
 #: a script or a stuck double-click must not be able to do that on a loop.
 ISSUE_PASSWORDS_PER_HOUR = 5
+#: The same run by the same person inside this window is a double-click or a
+#: retry, not a decision to replace the passwords just handed out.
+ISSUE_PASSWORDS_REPEAT_SECONDS = 120
 
 
 @api.post("/admin/passwords/issue", auth=session_auth)
@@ -445,17 +448,46 @@ def admin_issue_passwords(request: HttpRequest, payload: IssuePasswordsIn):
         raise HttpError(400, "Nobody matches that. No passwords were changed.")
     rate_limit(request, "issue_passwords", ISSUE_PASSWORDS_PER_HOUR, "hour", what="password runs")
 
-    rows = issue_passwords.issue(qs)
-    scope = {"who": payload.who, "include_inactive": payload.include_inactive, "count": len(rows)}
+    scope = {"who": payload.who, "include_inactive": payload.include_inactive}
     if payload.who == "role":
         scope["role"] = payload.role
     elif payload.who == "department":
         scope["department"] = payload.department
     elif payload.who == "ids":
         scope["ids"] = len(payload.ids or [])
-    AuditLog.objects.create(
-        actor=actor, action="PASSWORDS_ISSUE", entity="User", detail_json=json.dumps(scope)
-    )
+        # Which accounts, not just how many: two single-person runs for two
+        # different people are not the same run.
+        import hashlib
+
+        scope["ids_digest"] = hashlib.sha256(",".join(sorted(map(str, payload.ids or []))).encode()).hexdigest()[:16]
+    # A double-click or a retry after a slow answer is the same run twice, and
+    # the second one replaces the passwords the first just handed out, so the
+    # list that was downloaded stops working. The same scope by the same person
+    # within two minutes is refused with the way out spelled out.
+    with transaction.atomic():
+        # Taking the actor's own row first serialises two runs by one person.
+        User.objects.select_for_update().filter(pk=actor.pk).first()
+        cutoff = timezone.now() - timedelta(seconds=ISSUE_PASSWORDS_REPEAT_SECONDS)
+        for earlier in AuditLog.objects.filter(action="PASSWORDS_ISSUE", actor=actor, created_at__gte=cutoff):
+            try:
+                before = json.loads(earlier.detail_json or "{}")
+            except ValueError:
+                continue
+            before.pop("count", None)
+            if before == scope:
+                raise HttpError(
+                    409,
+                    "Passwords for this group were issued a moment ago. That sign-in list is the only copy, and "
+                    "issuing again would replace those passwords. Use the list you downloaded, or wait two "
+                    "minutes if you really mean to issue them again.",
+                )
+        rows = issue_passwords.issue(qs)
+        scope["count"] = len(rows)
+        # Written in the same transaction as the passwords: a run with no
+        # record, or a record with no run, cannot be left behind.
+        AuditLog.objects.create(
+            actor=actor, action="PASSWORDS_ISSUE", entity="User", detail_json=json.dumps(scope)
+        )
     body = issue_passwords.to_csv(rows)
     del rows
     resp = HttpResponse(body.encode("utf-8"), content_type="text/csv; charset=utf-8")

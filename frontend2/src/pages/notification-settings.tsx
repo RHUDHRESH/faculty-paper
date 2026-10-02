@@ -7,6 +7,7 @@ import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Switch } from "@/ui/field"
 import { Callout, ErrorState, SkeletonRows } from "@/ui/state"
+import { Details } from "@/ui/section"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
@@ -115,14 +116,14 @@ export function NotificationSettings() {
   return (
     <div className="page max-w-3xl space-y-8 py-8">
       <div className="space-y-2">
-        <Button kind="quiet" size="sm" asChild className="-ml-2">
+        <Button kind="default" size="sm" asChild>
           <Link to="/notifications">
             <ArrowLeft />
             Notifications
           </Link>
         </Button>
         <PageTitle>Notification settings</PageTitle>
-        <Sub>Choose how each kind of alert reaches you. Each switch saves as you touch it.</Sub>
+        <Sub>Each switch saves as you touch it.</Sub>
       </div>
 
       {query.isPending ? (
@@ -135,15 +136,17 @@ export function NotificationSettings() {
         />
       ) : (
         <>
+          <Details label="about email">
           {!p.email_available ? (
-            <Callout tone="info">
+            <Meta className="block max-w-prose">
               {p.smtp
                 ? "Email needs the college's mail server (SMTP) to be set up, and it is not yet. Everything arrives in the app for now. The email switches below are kept for when it is."
                 : "Email is not switched on for the college yet, so everything arrives in the app for now. Your email choices below are kept for when it is."}
-            </Callout>
+            </Meta>
           ) : (
-            <Meta className="block">Email goes to {p.email}. Every email has a link to stop that kind.</Meta>
+            <Meta className="block pt-2">Email goes to {p.email}. Every email has a link to stop that kind.</Meta>
           )}
+          </Details>
 
           {p.smtp && <MailServer smtp={p.smtp} />}
 
@@ -161,10 +164,10 @@ export function NotificationSettings() {
                 {kinds.map((k) => (
                   <li key={k.key} className="flex items-center justify-between gap-3 py-3">
                     <div className="min-w-0 flex-1">
-                      <p id={`kind-${k.key}`} className="text-sm font-medium">
+                      <p id={`kind-${k.key}`} className="text-sm font-medium" title={k.description}>
                         {k.label}
                       </p>
-                      <Meta className="block">{k.description}</Meta>
+                      <span className="sr-only">{k.description}</span>
                     </div>
                     <KindToggles kind={k} onChange={(level) => choose(k, level)} />
                   </li>
@@ -268,9 +271,9 @@ function CalendarFeed() {
             <Copy />
             Copy link
           </Button>
-          <Link to="/calendar" className="text-sm underline underline-offset-2">
-            Open the calendar
-          </Link>
+          <Button kind="default" size="sm" asChild>
+            <Link to="/calendar">Open the calendar</Link>
+          </Button>
         </div>
       )}
     </section>
@@ -285,7 +288,8 @@ function groupKinds(kinds: Kind[]): [string, Kind[]][] {
     list.push(k)
     out.set(k.group, list)
   }
-  return Array.from(out.entries())
+  // What waits on her desk leads: it is the one thing a desk reader acts on.
+  return Array.from(out.entries()).sort(([a], [b]) => Number(b === "Your desk") - Number(a === "Your desk"))
 }
 
 function slug(text: string): string {

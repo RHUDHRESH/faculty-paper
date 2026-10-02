@@ -28,6 +28,8 @@ import { useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { InfoTip } from "@/ui/info"
+import { segmentClass } from "@/ui/toggle"
 import { Select } from "@/ui/field"
 import { PrintStamp } from "@/pages/reports-print"
 import { Distribution, RankedBars, Sparkline, Trend } from "@/ui/chart"
@@ -279,7 +281,7 @@ export function Leaderboard() {
           sub={
             view === "wall"
               ? "New papers, month by month."
-              : "Who is publishing what at the college, counted from the publication record."
+              : "Counted from the publication record."
           }
           action={view === "wall" ? null : <HowCounted board={b} />}
         />
@@ -297,8 +299,10 @@ export function Leaderboard() {
             aria-current={view === v.key ? "page" : undefined}
             onClick={() => set("view", v.key === "people" ? "" : v.key)}
             className={cn(
-              "shrink-0 border-b-2 px-3 py-2 text-sm",
-              view === v.key ? "border-gold font-semibold text-fg" : "border-transparent text-fg-muted hover:text-fg"
+              "shrink-0 rounded-t-control border-b-[3px] px-3 py-2.5 text-sm transition-colors duration-[var(--dur-1)]",
+              view === v.key
+                ? "border-gold bg-hover/60 font-semibold text-fg"
+                : "border-transparent font-medium text-fg-muted hover:border-control-edge hover:bg-hover/60 hover:text-fg active:bg-active"
             )}
           >
             {v.label}
@@ -326,7 +330,7 @@ export function Leaderboard() {
           />
 
           {query.isError ? (
-            <ErrorState title="Could not load the leaderboard." message="Nothing has changed." onRetry={() => void query.refetch()} />
+            <ErrorState title="Could not load the leaderboard." onRetry={() => void query.refetch()} />
           ) : !b ? (
             <SkeletonRows rows={8} />
           ) : view === "people" ? (
@@ -339,10 +343,14 @@ export function Leaderboard() {
             <ChartView board={b} />
           )}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 print:hidden">
-            <Meta className="block">
-              {b
-                ? `${count(b.totals.papers)} papers counted in this period, from the ${count(b.method.papers_in_record)} written by current faculty in the publication record. No money is shown.`
-                : "Counted from the college's publication record. No money is shown."}
+            <Meta className="flex items-center gap-1.5">
+              {b ? `${count(b.totals.papers)} papers counted in this period.` : "Counted from the publication record."}
+              <InfoTip label="About these counts">
+                {b
+                  ? `Counted from the ${count(b.method.papers_in_record)} papers written by current faculty in the publication record. `
+                  : "From the college's publication record. "}
+                No money is shown.
+              </InfoTip>
             </Meta>
             <Button kind="quiet" size="sm" onClick={() => window.print()} disabled={!b}>
               <Printer aria-hidden className="size-4" /> Print / PDF
@@ -466,15 +474,11 @@ function Controls({
   const more = MEASURES.filter((m) => !PRIMARY.includes(m.key))
   const chosenMore = more.find((m) => m.key === measure)
   const pick = (m: Measure) => set("category", m === "score" ? "" : m)
-  const seg = (on: boolean) =>
-    cn(
-      "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm whitespace-nowrap",
-      on ? "bg-paper font-semibold text-fg shadow-raise ring-1 ring-line" : "text-fg-muted hover:text-fg"
-    )
+  const seg = (on: boolean) => segmentClass(on, "h-8 rounded-md")
   return (
     <div className="space-y-3 print:hidden">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <div role="group" aria-label="Category" className="-mx-1 flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-sunken p-1">
+        <div role="group" aria-label="Category" className="well -mx-1 flex max-w-full gap-0.5 overflow-x-auto p-1">
           {MEASURES.filter((m) => PRIMARY.includes(m.key)).map((m) => (
             <button key={m.key} type="button" aria-pressed={measure === m.key} onClick={() => pick(m.key)} className={seg(measure === m.key)}>
               {m.label}
@@ -687,8 +691,9 @@ function PeopleView({ board }: { board: HonoursBoard }) {
   return (
     <div className="space-y-5">
       <Podium board={board} />
-      <p className="text-sm text-fg-muted">
-        {count(board.ranked)} of {count(board.population)} people ranked by {board.label.toLowerCase()} ({board.unit}). People with nothing counted this period show as not ranked yet.
+      <p className="flex items-center gap-1.5 text-sm text-fg-muted">
+        {count(board.ranked)} of {count(board.population)} people ranked by {board.label.toLowerCase()} ({board.unit}).
+        <InfoTip label="About unranked people">People with nothing counted this period show as not ranked yet.</InfoTip>
       </p>
 
       {/* Desktop table — ten columns need 1024px; below that the list (a11y audit: 992px wide at 768) */}
@@ -891,7 +896,7 @@ function HowCounted({ board }: { board: HonoursBoard | undefined }) {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button kind="quiet" size="sm"><Info aria-hidden className="size-4" /> How it's counted</Button>
+        <Button kind="default" size="sm"><Info aria-hidden /> How it's counted</Button>
       </SheetTrigger>
       <SheetContent>
         <SheetHeader>

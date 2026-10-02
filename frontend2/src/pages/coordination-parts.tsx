@@ -434,6 +434,31 @@ export function Assign({ slaDays }: { slaDays: number }) {
         ))}
       </div>
 
+      {scope === "unassigned" && rows.length > 1 && options.length > 0 && (
+        <ShareEvenly
+          rows={rows}
+          options={options}
+          busy={assign.isPending}
+          onShare={async (plan) => {
+            let total = 0
+            let people = 0
+            for (const [who, ids] of plan) {
+              if (ids.length === 0) continue
+              try {
+                const r = await assign.mutateAsync({ claim_ids: ids, assignee_id: who })
+                total += r.assigned
+                people += r.assigned > 0 ? 1 : 0
+                if (r.skipped.length > 0) toast.fail(new Error(`${r.skipped.length} skipped. ${r.skipped[0].ticket_number ?? "A claim"}: ${r.skipped[0].reason}`))
+              } catch (e) {
+                toast.fail(e)
+                return
+              }
+            }
+            toast.ok(`Shared. ${total} ${total === 1 ? "claim" : "claims"} given to ${people} ${people === 1 ? "reviewer" : "reviewers"}`)
+          }}
+        />
+      )}
+
       <div className="flex flex-wrap items-center gap-2 rounded-lg bg-sunken px-3 py-2">
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={allOn} onChange={() => setPicked(allOn ? new Set() : new Set(rows.map((r) => r.id)))} />
@@ -509,6 +534,89 @@ export function Assign({ slaDays }: { slaDays: number }) {
         <Meta className="block">Showing the oldest {rows.length} of {list.data.total}.</Meta>
       )}
     </section>
+  )
+}
+
+/**
+ * Who gets which claim when the un-given ones are shared out: oldest first,
+ * each to the chosen reviewer who holds the fewest at that moment, never the
+ * person who filed it. Pure, so the preview and the action agree.
+ */
+export function planShare(
+  rows: { id: string; owner_id: string }[],
+  reviewers: string[],
+  open: Record<string, number>
+): Map<string, string[]> {
+  const load = new Map(reviewers.map((id) => [id, open[id] ?? 0]))
+  const plan = new Map<string, string[]>(reviewers.map((id) => [id, []]))
+  for (const r of rows) {
+    const eligible = reviewers.filter((id) => id !== r.owner_id)
+    if (eligible.length === 0) continue
+    eligible.sort((a, b) => load.get(a)! - load.get(b)! || reviewers.indexOf(a) - reviewers.indexOf(b))
+    const pick = eligible[0]
+    plan.get(pick)!.push(r.id)
+    load.set(pick, load.get(pick)! + 1)
+  }
+  return plan
+}
+
+/** Share the un-given claims out evenly among the chosen reviewers (one button). */
+function ShareEvenly({
+  rows,
+  options,
+  onShare,
+  busy,
+}: {
+  rows: DeskRow[]
+  options: { value: string; label: string; hint?: string }[]
+  onShare: (plan: Map<string, string[]>) => Promise<void>
+  busy: boolean
+}) {
+  const overview = useApi<Overview>(["coordination", "overview"], "/api/coordination/overview")
+  const people = overview.data?.reviewers ?? []
+  const open = Object.fromEntries(people.map((p) => [p.user_id, p.open]))
+  // Start with the people whose job it is to clear: the cell and the coordinator.
+  const [chosen, setChosen] = useState<string[] | null>(null)
+  const defaults = options.filter((o) => /research cell|research coordinator/i.test(o.hint ?? "")).map((o) => o.value)
+  const ids = chosen ?? defaults
+  const plan = planShare(rows, ids, open)
+  const given = [...plan.values()].reduce((s, a) => s + a.length, 0)
+  const toggle = (id: string) => setChosen(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])
+  return (
+    <div className="space-y-3 rounded-panel bg-surface p-4 ring-1 ring-edge" aria-label="Share out evenly" role="group">
+      <div>
+        <p className="text-base font-medium">Share these {rows.length} out evenly</p>
+        <p className="text-sm text-fg-muted">Oldest first, each to whoever holds the fewest. Nobody gets their own claim.</p>
+      </div>
+      <ul className="flex flex-wrap gap-2" aria-label="Who to share with">
+        {options.map((o) => {
+          const on = ids.includes(o.value)
+          const n = plan.get(o.value)?.length ?? 0
+          return (
+            <li key={o.value}>
+              <button
+                type="button"
+                aria-pressed={on}
+                onClick={() => toggle(o.value)}
+                className={cn(
+                  "inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm ring-1 ring-inset max-sm:h-10",
+                  on ? "bg-accent-wash font-medium text-accent ring-accent-line" : "bg-surface text-fg-muted ring-line hover:text-fg"
+                )}
+              >
+                {o.label}
+                <span className="tabular text-xs text-fg-subtle">{open[o.value] ?? 0} open</span>
+                {on && n > 0 && <span className="tabular text-xs">+{n}</span>}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      <Button kind="primary" disabled={busy || given === 0} onClick={() => void onShare(plan)}>
+        {given > 0
+          ? `Share ${given} ${given === 1 ? "claim" : "claims"} among ${[...plan.values()].filter((a) => a.length > 0).length}`
+          : "Choose who to share with"}
+      </Button>
+    </div>
   )
 }
 

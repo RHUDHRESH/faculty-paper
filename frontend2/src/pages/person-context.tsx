@@ -150,18 +150,14 @@ export function HowConnected({
   const hops = toHops(conn.data)
   if (!hops.length) {
     return (
-      <p className="text-sm text-fg-muted">
-        You and {firstName(name)} aren't connected within 3 steps yet.{" "}
+      <div className="space-y-2">
+        <p className="text-sm text-fg-muted">You and {firstName(name)} aren't connected within 3 steps yet.</p>
         {messageTo ? (
-          <>
-            You could be the first.{" "}
-            <Link to={messageTo} className="text-accent underline-offset-4 hover:underline">
-              Message {firstName(name)}
-            </Link>
-            .
-          </>
+          <Button kind="default" size="sm" asChild>
+            <Link to={messageTo}>Message {firstName(name)}</Link>
+          </Button>
         ) : null}
-      </p>
+      </div>
     )
   }
   return (
@@ -406,29 +402,23 @@ export function PersonContext({
 
       <div className="flex flex-wrap gap-2 border-t border-line pt-4">
         {external ? (
-          <p className="w-full text-sm text-fg-muted">
-            {firstName(name)} isn't on this app.{" "}
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <p className="mr-1 text-sm text-fg-muted">{firstName(name)} isn't on this app.</p>
             {ext.data?.openalex_id && (
-              <a
-                href={`https://openalex.org/authors/${ext.data.openalex_id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-accent underline-offset-4 hover:underline"
-              >
-                OpenAlex profile <ExternalLink aria-hidden className="size-3" />
-              </a>
+              <Button kind="default" size="sm" asChild>
+                <a href={`https://openalex.org/authors/${ext.data.openalex_id}`} target="_blank" rel="noreferrer">
+                  OpenAlex profile <ExternalLink aria-hidden />
+                </a>
+              </Button>
             )}
             {ext.data?.orcid && (
-              <a
-                href={`https://orcid.org/${ext.data.orcid}`}
-                target="_blank"
-                rel="noreferrer"
-                className="ml-3 inline-flex items-center gap-1 text-accent underline-offset-4 hover:underline"
-              >
-                ORCID <ExternalLink aria-hidden className="size-3" />
-              </a>
+              <Button kind="default" size="sm" asChild>
+                <a href={`https://orcid.org/${ext.data.orcid}`} target="_blank" rel="noreferrer">
+                  ORCID <ExternalLink aria-hidden />
+                </a>
+              </Button>
             )}
-          </p>
+          </div>
         ) : (
           <Button kind="primary" size="md" asChild>
             <Link to={messageTo!}>

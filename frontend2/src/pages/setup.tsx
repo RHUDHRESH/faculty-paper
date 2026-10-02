@@ -58,13 +58,9 @@ export function Setup() {
     return (
       <Frame>
         <Card>
-          <CheckCircle2 className="size-10 text-ok" />
+          <CheckCircle2 className="size-10 text-positive" />
           <h1 className="display mt-4 text-[1.75rem] leading-9">Already set up</h1>
-          <p className="mt-2 text-base text-fg-muted">
-            This system has accounts in it, so setup is finished. Sign in as one
-            of them. The college's name can be changed afterwards under
-            Institution in the office settings.
-          </p>
+          <p className="mt-2 text-base text-fg-muted">This system has accounts, so setup is finished. Sign in as one of them.</p>
           <Button kind="primary" className="mt-6" onClick={() => navigate("/")}>
             Go to sign in
           </Button>
@@ -77,13 +73,11 @@ export function Setup() {
     return (
       <Frame>
         <Card>
-          <CheckCircle2 className="size-10 text-ok" />
+          <CheckCircle2 className="size-10 text-positive" />
           <h1 className="display mt-4 text-[1.75rem] leading-9">{collegeName.trim()} is set up</h1>
           <p className="mt-2 text-base text-fg-muted">
-            The administrator account <strong>{adminEmail.trim()}</strong> is
-            ready. Sign in with the password you just chose. Everything else
-            (people, departments, the incentive policy, journals) is set up from
-            inside.
+            Sign in as <strong>{adminEmail.trim()}</strong> with the password you chose. The first screen lists what is
+            left to do.
           </p>
           <Button kind="primary" className="mt-6" onClick={() => navigate("/")}>
             Sign in
@@ -148,10 +142,7 @@ export function Setup() {
 
         {step === 0 && (
           <div className="mt-6 space-y-4">
-            <Field
-              label="College name"
-              hint="Shown on the sign-in screen, the sidebar and every export."
-            >
+            <Field label="College name">
               <Input
                 autoFocus
                 value={collegeName}
@@ -159,10 +150,6 @@ export function Setup() {
                 placeholder="e.g. Saveetha Engineering College"
               />
             </Field>
-            <p className="text-sm text-fg-muted">
-              This installation will belong to that institution: its accounts,
-              its papers, its incentive policy. One installation per college.
-            </p>
           </div>
         )}
 
@@ -176,10 +163,7 @@ export function Setup() {
                 onChange={(e) => setAdminName(e.target.value)}
               />
             </Field>
-            <Field
-              label="Administrator email"
-              hint="Used to sign in. Accounts are never created by signing up. This is the one account the system makes for you."
-            >
+            <Field label="Administrator email" hint="You sign in with this.">
               <Input
                 type="email"
                 autoComplete="username"
@@ -187,10 +171,7 @@ export function Setup() {
                 onChange={(e) => setAdminEmail(e.target.value)}
               />
             </Field>
-            <Field
-              label="Administrator password"
-              hint="At least 12 characters. It guards every account in the college, so it is held to more than an ordinary reset password."
-            >
+            <Field label="Administrator password" hint="At least 12 characters.">
               <PasswordInput
                 autoComplete="new-password"
                 value={password}

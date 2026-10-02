@@ -37,6 +37,7 @@ function load(me: Me, st = statement()) {
       "/api/auth/me": () => me,
       "/api/payouts/months": () => ({ months: [{ month: "2026-09", label: "September 2026", amount: 7600, count: 1 }] }),
       "/api/payouts/statement": () => st,
+      "/api/payouts/bank-exports": () => ({ month: "2026-09", exports: [], new_count: 1, new_total: 7600, all_count: 1, all_total: 7600 }),
       "/api/payouts/financial-year": () => ({ financial_year: "2026-27", allocation: 2_000_000, paid: 7600, committed: 0, months: [] }),
     })
   )
@@ -60,13 +61,13 @@ describe("the monthly statement", () => {
   it("gives Finance the bank file and says it equals the statement; the Director gets none", async () => {
     load(FINANCE)
     const { unmount } = renderWithProviders(<Statements />)
-    expect(await screen.findByRole("link", { name: /Bank file/ })).toHaveAttribute("href", "/api/payouts/statement.csv?month=2026-09")
-    expect(screen.getByText(/the same as this statement/)).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: /Bank file/ })).toBeInTheDocument()
+    expect(await screen.findByText(/Bank file not released yet.*the same as this statement/)).toBeInTheDocument()
     unmount()
     load(DIRECTOR)
     renderWithProviders(<Statements />)
     expect(await screen.findByRole("link", { name: /Statement to sign/ })).toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: /Bank file/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Bank file/ })).toBeNull()
   })
 
   it("names each line to explain and links it to the claim", async () => {
@@ -106,7 +107,7 @@ describe("monthly statements, as a super admin", () => {
     load(ADMIN, adminStatement(true))
     renderWithProviders(<Statements />, { route: "/statements" })
     expect((await screen.findAllByText("₹2,37,690")).length).toBeGreaterThan(0)
-    expect(screen.getByText("Agrees with the ledger")).toBeTruthy()
+    expect(screen.getByText("agrees with the ledger")).toBeTruthy()
     // A missing title and voucher say so.
     expect(screen.getAllByText("Title not recorded").length).toBeGreaterThan(0)
   })
@@ -114,14 +115,14 @@ describe("monthly statements, as a super admin", () => {
   it("counts the lines to explain before signing, and links a super admin to the ledger checks", async () => {
     load(ADMIN, adminStatement(false))
     renderWithProviders(<Statements />, { route: "/statements" })
-    expect(await screen.findByText("Line to explain before signing")).toBeTruthy()
+    expect(await screen.findByText("1 line to explain")).toBeTruthy()
     expect(screen.getByRole("link", { name: "Open the ledger checks" }).getAttribute("href")).toBe("/ledger?problem=no-ledger")
   })
 
   it("does not send Finance to the ledger checks, which only a super admin can act on", async () => {
     load(FINANCE, adminStatement(false))
     renderWithProviders(<Statements />, { route: "/statements" })
-    expect(await screen.findByText("Line to explain before signing")).toBeTruthy()
+    expect(await screen.findByText("1 line to explain")).toBeTruthy()
     expect(screen.queryByRole("link", { name: "Open the ledger checks" })).toBeNull()
   })
 })

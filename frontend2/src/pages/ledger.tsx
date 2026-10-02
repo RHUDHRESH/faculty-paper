@@ -205,7 +205,6 @@ export function Ledger() {
     <div className="page space-y-10">
       <PageHeader
         title="Ledger"
-        sub="Every payment made, with its voucher and the month it went out. Nothing is deleted: a wrong payment is voided by a reversing row."
         spot="spot-payouts"
         action={
           <Button kind="default" asChild>
@@ -246,9 +245,11 @@ export function Ledger() {
           />
           <Totals data={data} filtered={filtered} month={month} loading={loadingFirst} />
           {data && (data.duplicates_open ?? 0) > 0 && (
-            <Link to="/duplicates" className="text-sm underline underline-offset-2">
-              {data.duplicates_open} possible {data.duplicates_open === 1 ? "duplicate" : "duplicates"} to review
-            </Link>
+            <Button kind="default" size="sm" asChild>
+              <Link to="/duplicates">
+                {data.duplicates_open} possible {data.duplicates_open === 1 ? "duplicate" : "duplicates"} to review
+              </Link>
+            </Button>
           )}
         </section>
       )}
@@ -398,6 +399,13 @@ export function Ledger() {
           )}
         </>
       )}
+
+      <Details label="how the ledger works">
+        <p className="max-w-prose text-sm text-fg-muted">
+          Every payment made, with its voucher and the month it went out. Nothing is deleted: a wrong payment is voided
+          by a reversing row, which shows here as a negative amount.
+        </p>
+      </Details>
     </div>
   )
 }
@@ -552,15 +560,13 @@ function Totals({
         ? `in ${monthLabel(first)}`
         : `from ${monthLabel(first)} to ${monthLabel(last)}`
       : ""
-  const people = data.people ?? 0
   // Rows are not payments: a ₹0 quota row pays nobody and a reversal cancels one.
   const payments = data.payments ?? data.total
   return (
     <p className="text-sm text-fg-muted">
       {filtered ? "Matching this filter, " : "Paid "}
       {span && `${span}, `}
-      across {payments.toLocaleString("en-IN")} {payments === 1 ? "payment" : "payments"}
-      {people > 0 && ` to ${people.toLocaleString("en-IN")} ${people === 1 ? "person" : "people"}`}.
+      across {payments.toLocaleString("en-IN")} {payments === 1 ? "payment" : "payments"}.
     </p>
   )
 }

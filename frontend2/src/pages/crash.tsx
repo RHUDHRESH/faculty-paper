@@ -46,20 +46,20 @@ class Boundary extends Component<Props, State> {
         <h1 className="display text-[1.75rem] leading-9">{stale ? "This page has been updated" : "This page could not be drawn"}</h1>
         <p className="text-base text-fg-muted">
           {stale
-            ? "A newer version of the app went live while this tab was open. Reload to pick it up. Nothing you saved has been lost."
-            : "Something on this page failed. Nothing you saved has been lost. Reload the page, or go back to the home page."}
+            ? "A newer version went live while this tab was open. Reload to pick it up."
+            : "Something on this page failed. Reload, or go to the home page."}
         </p>
         <div className="flex flex-wrap justify-center gap-2 pt-2">
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="inline-flex h-10 items-center rounded-control bg-accent px-4 text-sm font-medium text-accent-fg"
+            className="inline-flex h-10 items-center rounded-control bg-action px-4 text-sm font-medium text-action-fg shadow-action hover:bg-action-hover hover:shadow-action-hover active:shadow-press"
           >
             Reload the page
           </button>
           <a
             href="/"
-            className="inline-flex h-10 items-center rounded-control px-4 text-sm font-medium text-fg shadow-[inset_0_0_0_1px_var(--color-edge)] hover:bg-hover"
+            className="inline-flex h-10 items-center rounded-control bg-surface px-4 text-sm font-medium text-fg shadow-raise ring-1 ring-inset ring-control-edge hover:bg-hover hover:ring-field active:bg-active active:shadow-press"
           >
             Go to the home page
           </a>

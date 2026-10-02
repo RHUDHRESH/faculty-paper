@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 
+import { Button } from "@/ui/button"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { ClaimNo } from "@/ui/claim-number"
@@ -175,9 +176,9 @@ function ItemList({ items, showWho, showJournal, limit = 4 }: { items: CaseItem[
         ))}
       </ul>
       {items.length > limit && (
-        <button type="button" onClick={() => setAll(!all)} className="text-xs text-accent underline underline-offset-2">
+        <Button kind="quiet" size="sm" onClick={() => setAll(!all)} className="text-accent hover:text-accent">
           {all ? "Show fewer" : `Show ${items.length - limit} more`}
-        </button>
+        </Button>
       )}
     </>
   )

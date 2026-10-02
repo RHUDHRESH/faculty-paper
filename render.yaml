@@ -53,17 +53,20 @@ services:
         value: saveetha.ac.in
       - key: GOOGLE_OAUTH_CLIENT_ID
         value: 635082195334-p8h4j4o75r9jqk24hsfq6bbom0s8fjei.apps.googleusercontent.com
+      # AI: Groq over its OpenAI-compatible API (models fixed below). Paste the
+      # Groq key into AI_API_KEY in the Render dashboard; without it every AI
+      # panel shows its counted version. Previously:
       # AI suggestions from a hosted model (DEPLOY.md, section E). Leave all
       # three empty and every AI panel shows its counted version instead.
       # Claude (docs/DEPLOY-CHECKLIST.md): AI_PROVIDER=anthropic,
       # ANTHROPIC_API_KEY, AI_MODEL=claude-haiku-4-5. AI_BASE_URL/AI_API_KEY
       # are only for an OpenAI-compatible provider instead.
       - key: AI_PROVIDER
-        sync: false
+        value: openai
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: AI_FAST_MODEL
-        sync: false
+        value: llama-3.1-8b-instant
       # Publication harvest and Scopus sync. OpenAlex works without a key
       # (the key only raises the daily budget); Scopus sync needs its key.
       - key: SCOPUS_API_KEY
@@ -71,11 +74,11 @@ services:
       - key: OPENALEX_API_KEY
         sync: false
       - key: AI_BASE_URL
-        sync: false
+        value: https://api.groq.com/openai/v1
       - key: AI_API_KEY
         sync: false
       - key: AI_MODEL
-        sync: false
+        value: llama-3.3-70b-versatile
       # Alert email (DEPLOY.md, section F). Leave EMAIL_HOST empty and every
       # alert stays in the app. The free plan blocks ports 25/465/587, so use
       # Brevo on 2525 here; Gmail needs a paid instance.

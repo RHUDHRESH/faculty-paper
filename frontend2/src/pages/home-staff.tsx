@@ -1,14 +1,10 @@
 import { firstName, paperTitle } from "@/lib/names"
 import { Link } from "react-router-dom"
 import { motion } from "motion/react"
-import {
-  ArrowUpRight,
-  FileText,
-  Plus,
-} from "lucide-react"
+import { ArrowUpRight, Plus } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
-import { HOME_DATA, homeTrack } from "@/app/home-data"
+import { HOME_DATA } from "@/app/home-data"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import {
@@ -21,16 +17,11 @@ import {
 } from "@/pages/home-faculty"
 import { HomeTrack } from "@/pages/home-track"
 import { CellHome } from "@/pages/home-cell"
-import { Answer, type AnswerItem } from "@/ui/answer"
 import { Button } from "@/ui/button"
-import { Section } from "@/ui/section"
-import { type Brief, PushList } from "@/pages/principal-parts"
-import type { TrackPayload } from "@/pages/track-data"
 import { Avatar, initialsOf } from "@/ui/person"
 import { Picture } from "@/ui/picture"
 import { Plate } from "@/ui/plate"
 import type { IllustrationName } from "@/ui/illustration"
-import { ComingUp } from "@/ui/coming-up"
 import { money, Stage, stageOf } from "@/ui/paper"
 import { InlineError, Skeleton } from "@/ui/state"
 import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
@@ -479,163 +470,7 @@ function AdminHome() {
   )
 }
 
-/* ------------------------------------------------------------------------ */
-/* The Principal                                                             */
-/* ------------------------------------------------------------------------ */
-
-type PrincipalQueue = {
-  total: number
-  results: Claim[]
-  totals: { count: number; amount: number; longest_wait_days: number | null }
-}
-
-/**
- * The Principal's Home: what waits on her, then how the year is going.
- *
- * She opens it for two things and neither may cost a scroll. The first is the
- * approval desk, and the wait figure leads there because it is the only one
- * that gets worse by itself: forty claims is the same forty whether they
- * arrived this morning or in March. The second is "are we better than last
- * year?", which the year brief answers in one sentence, so the sentence is
- * here, with the departments that need a call and the way to the council PDF.
- * The rest of the pipeline is one line and a link to Track: it is not hers to
- * work, and a strip of stage counts above her own desk made the page longer
- * than the answer.
- */
-export function PrincipalHome() {
-  const { me } = useAuth()
-  const queue = useApi<PrincipalQueue>(HOME_DATA.principalQueue.key, HOME_DATA.principalQueue.path)
-  const brief = useApi<Brief>(["reports-brief", ""], "/api/reports/brief")
-  const mine = homeTrack(me?.role)
-  const track = useApi<TrackPayload>(mine.key, mine.path)
-
-  const totals = queue.data?.totals
-  const waiting = totals?.count ?? null
-  const longest = totals?.longest_wait_days ?? null
-  const b = brief.data
-  const late = track.data ? track.data.stages.reduce((sum, s) => sum + (s.ageing?.older ?? 0), 0) : null
-
-  const items: AnswerItem[] =
-    waiting != null && waiting > 0
-      ? [
-          { value: waiting, label: "waiting for your approval", to: "/approvals" },
-          { value: money(totals?.amount), label: "they are worth", to: "/approvals" },
-          {
-            value: longest == null ? "Today" : `${longest} ${longest === 1 ? "day" : "days"}`,
-            label: "the longest has waited",
-            tone: longest != null && longest > 30 ? "critical" : "neutral",
-            to: "/approvals",
-          },
-          {
-            value: b ? b.push.length : null,
-            label: "departments need a push",
-            zero: "No department needs a push",
-            to: "/reports/departments",
-          },
-        ]
-      : [
-          {
-            value: waiting,
-            label: "waiting for your approval",
-            zero: "Nothing is waiting for your approval",
-            to: "/approvals",
-          },
-          { value: b ? b.totals.papers.toLocaleString("en-IN") : null, label: b ? `papers in ${b.year}` : "papers", to: "/reports/brief" },
-          { value: b ? String(b.totals.per_teacher ?? "None") : null, label: "papers per teacher", to: "/reports/brief" },
-          {
-            value: b ? b.push.length : null,
-            label: "departments need a push",
-            zero: "No department needs a push",
-            to: "/reports/departments",
-          },
-        ]
-
-  return (
-    <div className="page space-y-10">
-      <HomeHead
-        name={me?.name}
-        picture="spot-approvals"
-        sentence="What waits for your approval, and how the year is going."
-      />
-
-      <Answer items={items} />
-
-      {queue.isError ? (
-        <InlineError message="Could not load the approval queue." onRetry={() => queue.refetch()} />
-      ) : waiting === 0 ? (
-        <ComingUp desk="principal" align="start" />
-      ) : waiting != null ? (
-        <Section
-          title="Waiting longest"
-          action={
-            <Link to="/approvals" className="text-accent underline-offset-4 hover:underline">
-              Open the queue ({waiting.toLocaleString("en-IN")})
-            </Link>
-          }
-        >
-          <DeskQueue claims={queue.data?.results ?? []} meId={me?.id} action="Approve" to="/approvals" limit={8} />
-        </Section>
-      ) : null}
-
-      <Section
-        title={b ? `The college, ${b.year}` : "The college, last full year"}
-        action={
-          <Link to="/reports/brief" className="text-accent underline-offset-4 hover:underline">
-            Open the year brief
-          </Link>
-        }
-      >
-        {b ? (
-          <div className="space-y-6">
-            <p data-testid="principal-brief-headline" className="max-w-3xl font-serif text-lg leading-snug text-fg">
-              {b.headline}
-            </p>
-            {b.push.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Departments to call about</p>
-                <PushList rows={b.push.slice(0, 3)} year={b.year} empty="" />
-                <Link to="/reports/departments" className="inline-block text-sm text-accent underline-offset-4 hover:underline">
-                  All departments
-                </Link>
-              </div>
-            )}
-          </div>
-        ) : brief.isError ? (
-          <InlineError message="Could not load the year brief." onRetry={() => brief.refetch()} />
-        ) : (
-          <div className="h-14 max-w-3xl animate-pulse rounded-control bg-sunken" />
-        )}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button size="sm" asChild>
-            <a href={`/api/reports/brief/export?fmt=pdf${b ? `&year=${b.year}` : ""}`} download>
-              <FileText />
-              Download council PDF
-            </a>
-          </Button>
-          <Button size="sm" kind="quiet" asChild>
-            <Link to="/accreditation">NAAC and NIRF tables</Link>
-          </Button>
-          <Button size="sm" kind="quiet" asChild>
-            <Link to="/budget">Budget</Link>
-          </Button>
-        </div>
-      </Section>
-
-      <p className="text-base text-fg-muted" role="status">
-        {late == null
-          ? ""
-          : late > 0
-            ? `${late.toLocaleString("en-IN")} ${late === 1 ? "claim has" : "claims have"} been in one place for over a month. `
-            : "Nothing has been in one place for over a month. "}
-        <Link to="/track" className="text-accent underline-offset-4 hover:underline">
-          Open Track
-        </Link>
-      </p>
-
-      <YourPapers />
-    </div>
-  )
-}
+/* The Principal's Home is in home-principal.tsx. */
 
 /* ------------------------------------------------------------------------ */
 /* Finance                                                                 */

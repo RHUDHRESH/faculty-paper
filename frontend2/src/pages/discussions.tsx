@@ -12,6 +12,7 @@ import { api, ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { segmentClass } from "@/ui/toggle"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Composer, renderBody, useMentionSearch, type Candidate } from "@/ui/composer"
 import {
@@ -385,17 +386,15 @@ export function Thread({ embedded = false }: { embedded?: boolean } = {}) {
 
       {direct && (
         <Callout tone="info" title="Private to the people in this conversation">
-          Nobody else can open it. Not your department, not the research
-          office, not an administrator. They cannot close or moderate it
-          either. {speakers(data.posts, me?.id)}
+          Nobody else can open it, and nobody can moderate it. {speakers(data.posts, me?.id)}
         </Callout>
       )}
 
       {withOffice && (
         <Callout tone="info" title="This conversation is with the research office">
           {me?.id === data.created_by_id
-            ? "You and the office, whoever is on duty. Colleagues cannot see it, and it never appears in an open list."
-            : "The research office, and whoever opened it. Nobody else can read it."}
+            ? "Colleagues cannot see it."
+            : "Nobody else can read it."}
         </Callout>
       )}
 
@@ -839,7 +838,7 @@ export function NewConversation({
           <div
             role="tablist"
             aria-label="Kind of conversation"
-            className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-md bg-sunken p-0.5"
+            className="well inline-flex max-w-full gap-0.5 overflow-x-auto p-0.5"
           >
             {LANES.map((t) => (
               <button
@@ -848,11 +847,7 @@ export function NewConversation({
                 role="tab"
                 aria-selected={lane === t.key}
                 onClick={() => setLane(t.key)}
-                className={cn(
-                  "h-7 shrink-0 rounded-sm px-3 text-sm font-medium transition-colors",
-                  "duration-[var(--dur-1)] ease-out",
-                  lane === t.key ? "bg-surface text-fg" : "text-fg-muted hover:text-fg"
-                )}
+                className={segmentClass(lane === t.key)}
               >
                 {t.label}
               </button>
@@ -862,7 +857,7 @@ export function NewConversation({
           {lane === "direct" ? (
             <Field
               label="To"
-              hint={`The people you name here are the only ones who can ever open this, the research office included. Up to ${DIRECT_MAX_PEOPLE}.`}
+              hint={`Only the people you name can open this. Up to ${DIRECT_MAX_PEOPLE}.`}
               error={nobodyChosen && title.trim() ? "Choose at least one person to talk to." : undefined}
             >
               <PeoplePicker chosen={people} onChange={setPeople} max={DIRECT_MAX_PEOPLE} />
@@ -874,11 +869,7 @@ export function NewConversation({
                 <Building2 className="size-4 shrink-0 text-accent" aria-hidden />
                 The research office
               </div>
-              <p className="text-xs text-fg-muted">
-                You and the research cell, whoever is on duty. Your colleagues
-                cannot see it. For something only one named person should read,
-                choose Direct instead.
-              </p>
+              <p className="text-xs text-fg-muted">Only you and the research cell can see it.</p>
             </div>
           )}
 

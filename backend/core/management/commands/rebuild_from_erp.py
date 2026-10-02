@@ -180,6 +180,12 @@ class Command(BaseCommand):
             help="Required. Deletes every imported claim, payment and faculty account.",
         )
         parser.add_argument(
+            "--erase-live-payments",
+            action="store_true",
+            help="Also required when payments were made in this system (not imported). "
+                 "They are deleted with everything else and are not in the workbook.",
+        )
+        parser.add_argument(
             "--credentials-out",
             default=None,
             help="Write the generated faculty passwords to this CSV. Keep it out of git.",
@@ -204,6 +210,23 @@ class Command(BaseCommand):
             raise CommandError(
                 "This clears every imported claim, payment and faculty account. "
                 "Re-run with --confirm once you mean it."
+            )
+
+        # The wipe below deletes every claim and ledger row, including payments
+        # Finance made here since the workbook was loaded: money that went out
+        # and that the workbook has never heard of. Rebuilding then pays them
+        # again. So a database holding any payment made through this system is
+        # refused unless the person says, in so many words, that it is meant.
+        made_here = (
+            ClaimAction.objects.filter(action="MARK_PAID").count()
+            + AuditLog.objects.filter(action="LEDGER_PAYMENT").count()
+        )
+        if made_here and not opts["erase_live_payments"]:
+            raise CommandError(
+                f"This database holds {made_here} payment record(s) made through this system, which the workbook "
+                "does not contain. Rebuilding would delete them and the next run of the workbook would pay them "
+                "again. Restore a backup into a fresh database instead, or re-run with --erase-live-payments "
+                "if erasing them is intended."
             )
 
         try:

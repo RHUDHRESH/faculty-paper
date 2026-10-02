@@ -23,6 +23,7 @@ import { Field, Input, Textarea } from "@/ui/field"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Pagination } from "@/ui/pagination"
+import { Details } from "@/ui/section"
 import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Table, type Column } from "@/ui/table"
 import { ColumnLabel, Meta } from "@/ui/text"
@@ -235,7 +236,7 @@ export function PaymentsDone() {
       label: "Undo",
       className: "w-24",
       cell: (c) => (
-        <Button kind="quiet" size="sm" onClick={() => setVoidId(c.id)}>
+        <Button kind="danger" size="sm" onClick={() => setVoidId(c.id)}>
           <Undo2 className="size-3.5" />
           Undo
         </Button>
@@ -248,7 +249,6 @@ export function PaymentsDone() {
       <PrintStamp title="Register of incentive payments" scope={chosen ? chosen.label : "every month paid"} />
       <PageHeader
         title="Paid"
-        sub="Every payment made through this app, with its voucher and the month it was paid. Nothing here is ever deleted."
         action={
           <Button kind="default" size="sm" asChild>
             <Link to="/statements">
@@ -292,10 +292,10 @@ export function PaymentsDone() {
             {chosen.count === 1 ? "payment" : "payments"} on the ledger.
           </p>
           <span className="flex flex-wrap gap-2">
-            <Button kind="quiet" size="sm" asChild>
+            <Button kind="default" size="sm" asChild>
               <Link to={`/statements?month=${chosen.month}`}>Open the statement</Link>
             </Button>
-            <Button kind="quiet" size="sm" asChild>
+            <Button kind="default" size="sm" asChild>
               <Link to={`/ledger?month=${chosen.month}`}>Open in the ledger</Link>
             </Button>
           </span>
@@ -325,7 +325,7 @@ export function PaymentsDone() {
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           {filtered && (
             <Button
-              kind="quiet"
+              kind="default"
               size="md"
               onClick={() => {
                 setDraft("")
@@ -336,23 +336,17 @@ export function PaymentsDone() {
               Clear filters
             </Button>
           )}
-          <Button kind="quiet" size="md" onClick={() => void exportCsv()} disabled={exporting || total === 0}>
+          <Button kind="default" size="md" onClick={() => void exportCsv()} disabled={exporting || total === 0}>
             <Download />
             {exporting ? "Exporting…" : `Export ${formatCount(total)} ${total === 1 ? "payment" : "payments"} (CSV)`}
           </Button>
-          <Button kind="quiet" size="md" onClick={() => window.print()}>
+          <Button kind="default" size="md" onClick={() => window.print()}>
             <Printer />
             Print register
           </Button>
         </div>
       </div>
 
-      {!isSuper && total > 0 && (
-        <p className="max-w-prose text-sm text-fg-muted">
-          Finance cannot undo a payment. If one went out in error, ask a super admin: they write a balancing row on the
-          ledger, so the person who paid and the person who reverses it are never the same.
-        </p>
-      )}
 
       {isLoading ? (
         <SkeletonRows rows={8} rowHeight={52} />
@@ -405,6 +399,14 @@ export function PaymentsDone() {
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
         </>
       )}
+
+      <Details label="who can undo a payment" className="print:hidden">
+        <p className="max-w-prose text-sm text-fg-muted">
+          {isSuper
+            ? "Undoing a payment writes a balancing row on the ledger; nothing is deleted."
+            : "Finance cannot undo a payment. If one went out in error, ask a super admin: they write a balancing row on the ledger, so the person who paid and the person who reverses it are never the same."}
+        </p>
+      </Details>
 
       {voidClaim && (
         <VoidDialog

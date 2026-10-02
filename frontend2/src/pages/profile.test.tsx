@@ -131,14 +131,13 @@ describe("Profile — what you change and what the office keeps", () => {
     expect(within(staff).getByRole("button", { name: /Request a change/ })).toBeInTheDocument()
   })
 
-  it("opens with the record, counted the way Home and My papers count it", async () => {
+  it("says in one sentence how complete the profile is, not with the record's figures", async () => {
     mount()
-    const glance = await screen.findByRole("group", { name: "At a glance" })
-    expect(await within(glance).findByText("₹3,96,703.75")).toBeInTheDocument()
-    expect(within(glance).getByText("papers on your record").previousSibling?.textContent).toBe("145")
-    expect(within(glance).getByText("papers ready to claim").previousSibling?.textContent).toBe("24")
-    // The old stage counts ("Filed", "In review") are gone: they disagreed with the record.
-    expect(screen.queryByText("In review")).toBeNull()
+    const box = await screen.findByTestId("profile-readiness")
+    expect(box).toHaveTextContent(/of \d are set/)
+    // The paper count and the money are Home's job, not this page's.
+    expect(screen.queryByRole("group", { name: "At a glance" })).toBeNull()
+    expect(within(box).getByText("A phone number").closest("li")).toHaveTextContent("not set yet")
   })
 
   it("lets the person add a photo from this page", async () => {
@@ -158,7 +157,7 @@ describe("Profile — what you change and what the office keeps", () => {
   it("saves a phone number through the self-service route", async () => {
     const user = mount()
     await user.type(await screen.findByLabelText("Phone"), "+91 98400 12345")
-    await user.click(screen.getByRole("button", { name: "Save phone number" }))
+    await user.click(screen.getByRole("button", { name: "Save details" }))
     await waitFor(() => expect(writes("/api/auth/profile/self", "PATCH")).toHaveLength(1))
     expect(writes("/api/auth/profile/self", "PATCH")[0]).toEqual({ phone: "+91 98400 12345" })
   })
@@ -168,7 +167,7 @@ describe("Profile — what you change and what the office keeps", () => {
       "/api/auth/profile/self": failing(400, "That does not look like a phone number."),
     })
     await user.type(await screen.findByLabelText("Phone"), "call me")
-    await user.click(screen.getByRole("button", { name: "Save phone number" }))
+    await user.click(screen.getByRole("button", { name: "Save details" }))
     expect(await screen.findByText("That does not look like a phone number.")).toBeInTheDocument()
   })
 
@@ -241,14 +240,31 @@ describe("Profile — what you change and what the office keeps", () => {
     expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument()
   })
 
-  it("says Google is not available rather than drawing a dead button", async () => {
+  it("draws no Google row, and no explanation, when Google is off and nothing is linked", async () => {
     mount(me(), {
       "/api/auth/google/config": () => ({ enabled: false, client_id: null, hosted_domain: null }),
     })
-    expect(
-      await screen.findByText("Google sign-in is not available on this server.")
-    ).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Sign-in methods" })).toBeInTheDocument()
+    await screen.findByRole("button", { name: "Change password" })
+    expect(screen.queryByText(/not available on this server/)).toBeNull()
     expect(screen.queryByRole("button", { name: "Link Google account" })).toBeNull()
+  })
+
+  it("saves the phone and the ORCID iD together, sending only what changed", async () => {
+    const user = mount()
+    await user.type(await screen.findByLabelText("Phone"), "+91 98400 12345")
+    await user.type(screen.getByLabelText("ORCID iD"), "0000-0002-1825-0097")
+    await user.click(screen.getByRole("button", { name: "Save details" }))
+    await waitFor(() => expect(writes("/api/auth/profile/self", "PATCH")).toHaveLength(1))
+    expect(writes("/api/auth/profile/self", "PATCH")[0]).toEqual({
+      phone: "+91 98400 12345",
+      orcid_id: "0000-0002-1825-0097",
+    })
+  })
+
+  it("keeps Save details off until something has changed", async () => {
+    mount()
+    expect(await screen.findByRole("button", { name: "Save details" })).toBeDisabled()
   })
 
   it("links a Google account — any domain — with the token Google hands back", async () => {

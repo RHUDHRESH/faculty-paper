@@ -39,6 +39,7 @@ import {
   RotateCw,
   HeartPulse,
   Route,
+  ListChecks,
   Wrench,
 } from "lucide-react"
 
@@ -747,6 +748,16 @@ const PAGES: NavItem[] = [
     keywords: ["tables", "explorer", "delete", "import", "export", "browse data", "database", "csv"],
   },
   {
+    to: "/safeguards",
+    label: "Safeguards",
+    icon: ShieldCheck,
+    // `api/safeguards.py`: the super admin sees every check, Finance the
+    // payment checks only.
+    roles: ["SUPER_ADMIN", "FINANCE"],
+    group: "Look at",
+    keywords: ["safeguards", "paid twice", "double payment", "duplicate payment", "money checks", "integrity", "is anything wrong with the money", "ledger without claim", "paid without ledger", "amount changed", "bank file twice", "audit checks"],
+  },
+  {
     to: "/data/health",
     label: "Data health",
     icon: HeartPulse,
@@ -786,6 +797,16 @@ const PAGES: NavItem[] = [
     keywords: ["set up", "settings", "system", "data", "people and roles", "hub", "everything else", "readiness", "checklist", "is anything broken", "admin", "setup"],
   },
   {
+    to: "/admin/start",
+    label: "Get the college running",
+    icon: ListChecks,
+    // The checklist reads the whole installation and says what is left before
+    // people can sign in; only the super admin can do the steps (docs/ux/29).
+    roles: ["SUPER_ADMIN"],
+    group: "Set up",
+    keywords: ["set up", "setup", "first run", "go live", "new host", "move host", "restore", "fresh install", "checklist", "what is left", "get started", "start"],
+  },
+  {
     to: "/money",
     label: "Money",
     icon: Wallet,
@@ -823,6 +844,7 @@ const PURPOSE: Record<string, string> = {
   "/data/fixes": "Imported claims that are missing an amount, a title or a quartile, one row each to put right.",
   "/data/record": "Duplicate papers, misspelt names and odd dates in the publication record.",
   "/data/health": "Broken links, duplicate IDs and missing files, with fixes, and the backups.",
+  "/safeguards": "Did any payment go out twice, change after it was authorised, or happen without a record? Checked every night.",
   "/duplicates": "A paper paid twice, or to two people, waiting for a decision.",
   "/data": "Browse and export any table in the system.",
   "/policy": "The rates and rules that decide an amount. Every change is a new version.",
@@ -845,6 +867,7 @@ const PURPOSE: Record<string, string> = {
   "/archive": "Every claim ever filed, imported ones included.",
   "/flags": "Doubts raised on claims, and how each was answered.",
   "/admin": "The pages that keep the system right, in four groups.",
+  "/admin/start": "What is left before people can sign in, in order.",
   "/money": "What is spent, the rules behind an amount, and the monthly statements.",
   "/reports/all": "Every report and lookup in one place.",
 }
@@ -883,12 +906,12 @@ export const HUBS: Record<HubKey, Hub> = {
       {
         title: "Money",
         blurb: "The rules, and the record of what was spent.",
-        items: ["/policy", "/calculator", "/budget", "/ledger", "/statements"],
+        items: ["/policy", "/calculator", "/budget", "/ledger", "/statements", "/safeguards"],
       },
       {
         title: "System",
         blurb: "What is running, what went wrong, and who did what.",
-        items: ["/jobs", "/faults", "/audit", "/settings"],
+        items: ["/admin/start", "/jobs", "/faults", "/audit", "/settings"],
       },
     ],
   },
@@ -896,7 +919,7 @@ export const HUBS: Record<HubKey, Hub> = {
     title: "Money",
     sub: "What the college spends, the rules behind an amount, and the monthly statements.",
     sections: [
-      { title: "Spending", items: ["/budget", "/ledger", "/statements"] },
+      { title: "Spending", items: ["/budget", "/ledger", "/statements", "/safeguards"] },
       { title: "The rules", items: ["/policy", "/calculator"] },
     ],
   },

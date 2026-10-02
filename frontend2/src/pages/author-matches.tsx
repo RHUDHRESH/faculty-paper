@@ -14,7 +14,8 @@ import { Answer } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
 import { Pagination } from "@/ui/pagination"
 import { Avatar } from "@/ui/person"
-import { Callout, EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Details } from "@/ui/section"
+import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, SectionTitle, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
 
@@ -99,7 +100,7 @@ export function AuthorMatches() {
     <div className="page space-y-6">
       <PageHeader
         title="Author matches"
-        sub="College authors from the paper harvest who are not yet placed on the roster. Say who each name is once and every later harvest follows."
+        sub="Say who each name is once. Later harvests follow."
         spot="spot-search"
         action={
           <Button
@@ -109,7 +110,7 @@ export function AuthorMatches() {
               rerun.mutate(
                 {},
                 {
-                  onSuccess: () => toast.ok("Matching queued. It runs in the background; refresh in a few minutes."),
+                  onSuccess: () => toast.ok("Matching queued. Refresh in a few minutes."),
                   onError: (e) => toast.fail(e),
                 }
               )
@@ -129,20 +130,6 @@ export function AuthorMatches() {
             zero: "Every name is placed",
             to: "/people/matches",
           },
-          {
-            value: c?.open_suggested,
-            label: "With a likely match on the roster",
-            zero: "None has a likely match",
-            to: "/people/matches?suggested=yes",
-            tone: "positive",
-          },
-          {
-            value: c?.open_unsuggested,
-            label: "Match nobody on the roster",
-            zero: "Nothing left to set aside",
-            to: "/people/matches?suggested=no",
-          },
-          { value: c?.hidden, label: "Set aside as not on our roster", zero: "None set aside", to: "/people/matches?tab=hidden" },
         ]}
       />
 
@@ -315,8 +302,10 @@ function Names({
           }}
           className="w-full max-w-sm"
         />
-        <Meta className="hidden sm:block">
-          Keys: <kbd>j</kbd> <kbd>k</kbd> move, <kbd>a</kbd> match the first suggestion,{" "}
+      </div>
+      <Details label="keyboard shortcuts" className="hidden sm:block">
+        <Meta className="block">
+          <kbd>j</kbd> <kbd>k</kbd> move, <kbd>a</kbd> match the first suggestion,{" "}
           {status !== "hidden" ? (
             <>
               <kbd>r</kbd> not on our roster,{" "}
@@ -324,7 +313,7 @@ function Names({
           ) : null}
           <kbd>o</kbd> pick someone else
         </Meta>
-      </div>
+      </Details>
       {isError ? (
         <ErrorState what="the names" onRetry={() => void refetch()} />
       ) : isLoading || !data ? (
@@ -346,8 +335,8 @@ function Names({
               ? "Try part of the surname."
               : status === "open"
                 ? shown === "yes"
-                  ? "Names that look like someone on the roster appear here, one click each. Look at the names that match nobody, or re-run matching after the next harvest."
-                  : "Every college author name has been placed or set aside. Re-run matching after the next harvest."
+                  ? "Look at the names that match nobody, or re-run matching after the next harvest."
+                  : "Re-run matching after the next harvest."
                 : "No names are in this list."
           }
         />
@@ -436,7 +425,7 @@ function NameRow({ group, status }: { group: Group; status: string }) {
         {/* Who on the roster it might be. */}
         <div className="min-w-0">
           {group.suggestions.length === 0 ? (
-            <Meta className="block py-2">Nobody on the roster looks like this name. Pick someone else, or set it aside.</Meta>
+            <Meta className="block py-2">No likely match on the roster.</Meta>
           ) : (
             <ul className="space-y-2">
               {group.suggestions.map((s) => (
@@ -551,13 +540,10 @@ function Duplicates() {
   if (isError) return <ErrorState what="the duplicate accounts" onRetry={() => void refetch()} />
   if (isLoading || !data) return <SkeletonRows rows={4} />
   if (data.groups.length === 0)
-    return <EmptyState icon={Users} title="No duplicate accounts" message="Two accounts that share a name would be listed here, to merge into one." />
+    return <EmptyState icon={Users} title="No duplicate accounts" message="Accounts that share a name are listed here." />
   return (
     <section className="space-y-4">
-      <Sub>
-        Accounts that share a name. Merging moves claims, papers, follows and name links onto the account you keep,
-        fills its blank IDs from the other, and switches the other off. It is written to the audit log.
-      </Sub>
+      <Sub>Merging moves everything onto the kept account and switches the other off.</Sub>
       {data.groups.map((g) => (
         <DupCard key={g.key + g.accounts.map((a) => a.id).join()} group={g} />
       ))}
@@ -658,11 +644,6 @@ function DupCard({ group }: { group: DupGroup }) {
           </tbody>
         </table>
       </div>
-      {confirm && drop && (
-        <Callout tone="caution" title="These accounts disagree">
-          They carry different {confirm.map((f) => FIELD_LABEL[f] ?? f).join(", ")}. Check they really are one person.
-        </Callout>
-      )}
       <ConfirmDialog
         open={!!confirm && !!drop}
         onOpenChange={(o) => {

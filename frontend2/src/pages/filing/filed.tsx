@@ -1,10 +1,11 @@
 import { Link } from "react-router-dom"
-import { ArrowRight, Check, FilePlusCorner } from "lucide-react"
+import { ArrowRight, FilePlusCorner } from "lucide-react"
 
 import { Button } from "@/ui/button"
 import { CopyButton } from "@/ui/copy"
-import { confirmations, type Ticks } from "@/ui/eligibility"
-import { money, StageTrack, stageOf } from "@/ui/paper"
+import { type Ticks } from "@/ui/eligibility"
+import { ClaimTrack } from "@/ui/claim-track"
+import { money } from "@/ui/paper"
 import { Picture } from "@/ui/picture"
 import { unshout } from "@/lib/names"
 
@@ -36,23 +37,27 @@ const fmt = (iso: string) =>
 export function FiledReceipt({
   claim,
   estimate,
+  thresholdNote,
   countOnly,
   ticks,
-  minReferences,
   unclaimedLeft,
   firstClaim = false,
 }: {
   claim: FiledClaim
   estimate: number | null
+  /** Research faculty: what this claim does to the yearly threshold. */
+  thresholdNote?: string | null
   countOnly: boolean
   ticks: Ticks
-  minReferences: number
   /** Papers on my record still without a claim, after this one; null if unknown. */
   unclaimedLeft: number | null
   /** The first claim this person has ever filed: the bigger celebration. */
   firstClaim?: boolean
 }) {
-  const stage = stageOf(claim.status || "SUBMITTED")
+  // What the claimant is allowed to see of the chain: four stages, no desk.
+  // The five-station thread is the office's picture and names steps (Approved,
+  // Authorised) that tell a claimant whose desk a claim is on.
+  const confirmedAt = Object.values(ticks).sort().at(-1)
   return (
     <div className="page pb-16 pt-8 md:pt-12" style={{ maxWidth: 740 }} data-testid="filed-receipt">
       <section className="space-y-8">
@@ -65,9 +70,9 @@ export function FiledReceipt({
           <h1 className="display mt-4 text-3xl sm:text-[34px]">Filed. Your claim is on its way.</h1>
           <p className="mt-2 text-fg-muted">Keep the claim number. It is how you and the college refer to this claim.</p>
           {claim.ticket_number ? (
-            <div className="mt-5 inline-flex items-center gap-3 rounded-2xl border border-line bg-surface px-5 py-3">
-              <span className="text-sm text-fg-muted">Claim</span>
-              <span className="font-mono text-2xl font-semibold tracking-wide sm:text-3xl" data-testid="filed-ticket">
+            <div className="mt-5 inline-flex items-center gap-3 rounded-panel bg-surface px-5 py-3 ring-1 ring-edge">
+              <span className="text-sm text-fg-muted">Claim no.</span>
+              <span className="figure text-figure tabular" data-testid="filed-ticket">
                 {claim.ticket_number}
               </span>
               <CopyButton value={claim.ticket_number} label="claim number" />
@@ -77,7 +82,7 @@ export function FiledReceipt({
           )}
         </div>
 
-        <StageTrack stage={stage} />
+        <ClaimTrack stage="Submitted" filedOn={new Date().toISOString()} className="mx-auto max-w-lg" />
 
         <dl className="divide-y divide-line border-y border-line text-sm">
           <div className="py-4">
@@ -89,32 +94,23 @@ export function FiledReceipt({
           </div>
           <div className="py-4">
             <dt className="text-fg-muted">Estimated incentive</dt>
-            <dd className="mt-1 text-xl font-semibold tabular">
+            <dd className="figure mt-1 text-figure tabular">
               {countOnly ? "Counted only, no payment" : estimate != null ? money(estimate) : "Worked out on review"}
             </dd>
             {!countOnly && <dd className="text-xs text-fg-muted">An estimate. The amount is fixed when the claim is checked.</dd>}
+            {!countOnly && thresholdNote && (
+              <dd className="mt-1 text-sm text-fg" data-testid="filed-threshold">
+                {thresholdNote}
+              </dd>
+            )}
           </div>
-          <div className="py-4">
+          <div className="py-4" data-testid="filed-confirmed">
             <dt className="text-fg-muted">What you confirmed</dt>
-            <dd>
-              <ul className="mt-2 space-y-2">
-                {confirmations(minReferences).map((c) => (
-                  <li key={c.id} className="flex gap-2.5" data-condition={c.id}>
-                    {ticks[c.id] ? (
-                      <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-positive" strokeWidth={2.25} />
-                    ) : (
-                      <span aria-hidden className="mt-1.5 size-2 shrink-0 rounded-full border border-edge" />
-                    )}
-                    <span>
-                      <span className="font-medium text-fg">{c.label}</span>
-                      <span className="block text-xs text-fg-muted">
-                        {ticks[c.id] ? `Confirmed ${fmt(ticks[c.id])}` : "Not confirmed"}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs text-fg-muted">These are stored with the claim.</p>
+            <dd className="mt-1 text-fg">
+              The article is indexed, no claim was filed for it before, and the files were ready.
+              <span className="block text-xs text-fg-muted">
+                {confirmedAt ? `Each box ticked by you, the last at ${fmt(confirmedAt)}. ` : ""}Stored with the claim.
+              </span>
             </dd>
           </div>
           <div className="py-4">

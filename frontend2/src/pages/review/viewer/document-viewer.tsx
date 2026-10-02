@@ -1,5 +1,5 @@
 import { lazy, Suspense, useRef } from "react"
-import { Download, FileText, FileWarning, Image as ImageIcon } from "lucide-react"
+import { Download, ExternalLink, FileText, FileWarning, Image as ImageIcon } from "lucide-react"
 
 import { cn } from "@/lib/cn"
 import { extensionOf, formatSize, mediumOf, type Attachment } from "@/ui/attachments"
@@ -35,23 +35,46 @@ export function DocumentViewer({
   files,
   index,
   onIndex,
+  proofLinks,
 }: {
   claimId: string
   files: Attachment[]
   index: number
   onIndex: (i: number) => void
+  /** Links the claimant gave instead of uploads; shown only when nothing is attached. */
+  proofLinks?: { label: string; url: string }[]
 }) {
   const tabsRef = useRef<HTMLDivElement>(null)
 
   if (files.length === 0) {
+    const linked = proofLinks ?? []
     return (
       <div className="grid h-full place-items-center bg-sunken p-8 text-center">
-        <div className="max-w-xs space-y-2">
+        <div className="max-w-sm space-y-3">
           <FileWarning className="mx-auto size-6 text-fg-subtle" aria-hidden />
-          <p className="text-sm font-medium">Nothing is attached to this claim</p>
-          <p className="text-sm text-fg-muted">
-            The claimant filed it without a paper or references. Send it back and ask for them.
-          </p>
+          <p className="text-base font-medium">Nothing is attached to this claim.</p>
+          {linked.length > 0 ? (
+            <>
+              <p className="text-sm text-fg-muted">The claimant linked their proof instead. Open it, then come back to decide.</p>
+              <ul className="flex flex-wrap justify-center gap-2">
+                {linked.map((l) => (
+                  <li key={l.url}>
+                    <a
+                      href={l.url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex h-10 items-center gap-1.5 rounded-control bg-surface px-3 text-sm font-medium text-fg shadow-well ring-1 ring-inset ring-field hover:bg-hover"
+                    >
+                      {l.label}
+                      <ExternalLink className="size-3.5" aria-hidden />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="text-sm text-fg-muted">The claimant filed it without a paper or references. Send it back and ask for the paper.</p>
+          )}
         </div>
       </div>
     )

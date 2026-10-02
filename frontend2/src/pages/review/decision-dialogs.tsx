@@ -1,6 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query"
 
 import { RaiseFlagDialog } from "@/pages/claim-review"
+import { ApproveDialog, RejectDialog, type ClaimDetail } from "@/pages/approvals-actions"
+import { useAuth } from "@/app/auth"
 import { EditClaimFieldsDialog, ReasonActionDialog } from "@/ui/desk-actions"
 
 import type { DecisionDialog } from "./decision-bar"
@@ -33,6 +35,11 @@ export function DecisionDialogs({
   onDone: () => void
 }) {
   const qc = useQueryClient()
+  const { me } = useAuth()
+  // At the Principal's desk the dialogs are hers: approve at the figure shown
+  // (and again if it moved), or send back to the research cell with a reason.
+  const approving = claim.status === "CLEARED" && (me?.role === "PRINCIPAL" || me?.role === "SUPER_ADMIN")
+  const asDetail = claim as unknown as ClaimDetail
   const control = (kind: DecisionDialog) => ({
     open: dialog === kind,
     onOpenChange: (o: boolean) => setDialog(o ? kind : null),
@@ -40,8 +47,21 @@ export function DecisionDialogs({
 
   return (
     <>
-      <ClearDialog claim={claim} {...control("clear")} isSuperAdmin={isSuperAdmin} onDone={onDone} />
-      <SendBackDialog claim={claim} {...control("sendback")} prefill={sendBackReason} onDone={onDone} />
+      {approving ? (
+        <>
+          {dialog === "approve" && (
+            <ApproveDialog claim={asDetail} open onOpenChange={(o) => !o && setDialog(null)} me={me} onApproved={onDone} />
+          )}
+          {dialog === "sendback" && (
+            <RejectDialog claim={asDetail} open onOpenChange={(o) => !o && setDialog(null)} onRejected={onDone} />
+          )}
+        </>
+      ) : (
+        <>
+          <ClearDialog claim={claim} {...control("clear")} isSuperAdmin={isSuperAdmin} onDone={onDone} />
+          <SendBackDialog claim={claim} {...control("sendback")} prefill={sendBackReason} onDone={onDone} />
+        </>
+      )}
       <HoldDialog claim={claim} {...control("hold")} onDone={onDone} />
       <ReasonActionDialog
         claim={claim}

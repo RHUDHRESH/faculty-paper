@@ -32,7 +32,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from core.models import (
-    Authorship, Budget, FormulaConfig, PriorPayment, Claim, DuplicateFinding, JournalWatch, PaidLedger, Publication, Role,
+    Authorship, BankExport, Budget, FormulaConfig, PriorPayment, Claim, DuplicateFinding, JournalWatch, PaidLedger, Publication, Role,
     ResearchThreshold, ScimagoJournal, SnipSource, Team, TeamMember, User,
 )
 
@@ -144,6 +144,11 @@ class Command(BaseCommand):
         PaidLedger.objects.filter(claim__in=fixture_claims).delete()
         PaidLedger.objects.filter(claim__isnull=True, faculty_name__startswith="E2E ").delete()
         fixture_claims.delete()
+        # A bank file is remembered per month, so a second one asks for a
+        # reason (docs/ops/safeguards.md). The scenario downloads the first
+        # file itself; a file left by an earlier run would turn that into the
+        # second. The year's and the fixtures' own exports go with their accounts.
+        BankExport.objects.filter(created_by_id__in=ids + fixture_ids).delete()
         DuplicateFinding.objects.filter(faculty_name__in=[c[0] for c in CAST.values()]).delete()
         Publication.objects.filter(source=TAG).delete()
         PriorPayment.objects.filter(claim_ref__startswith="ERP-YR").delete()

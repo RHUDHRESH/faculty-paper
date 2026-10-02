@@ -10,6 +10,12 @@ import { Button } from "@/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/ui/dialog"
 import { Picture } from "@/ui/picture"
 
+const FACULTY_FIRST: { id: string; title: string; when: string; to: string }[] = [
+  { id: "file", title: "File a paper", when: "Pull it from your Scopus record, tick three things, attach the files.", to: "/papers/new" },
+  { id: "profile", title: "Make your profile yours", when: "A photo, your ORCID iD and a phone number, in under a minute. They help the college match your papers.", to: "/me" },
+  { id: "claims", title: "See where a claim is", when: "How far it has come, and when the money is expected.", to: "/papers/claims" },
+]
+
 /** Whether the first-sign-in welcome should open for this session. */
 export function shouldWelcome(me: Me | null): boolean {
   return !!me && !me.impersonated_by && me.welcome_seen === false && !me.must_change_password
@@ -30,7 +36,10 @@ export function Welcome() {
     // Fire and forget: the worst case is seeing the welcome once more.
     void api("/api/auth/me/welcome-seen", { method: "POST" }).catch(() => {})
   }
-  const top = guidesFor(me.role).slice(0, 3)
+  // A faculty member's first minute is theirs to spend on three things, in
+  // this order: the paper, the face and IDs the college matches them by, and
+  // where a claim stands. The generic guides stay for every other role.
+  const top = me.role === "FACULTY" ? FACULTY_FIRST : guidesFor(me.role).slice(0, 3)
   const first = firstName(me.name) || me.name
 
   return (

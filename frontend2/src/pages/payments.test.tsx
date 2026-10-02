@@ -7,7 +7,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return { ...actual, api: vi.fn() }
 })
 
-import { api } from "@/lib/api"
+import { ApiError, api } from "@/lib/api"
 import { Payments } from "@/pages/payments"
 import { FINANCE, fakeApi, failing, renderWithProviders } from "@/test/harness"
 
@@ -301,12 +301,95 @@ describe("the payments desk says what it is doing", () => {
     await user.click(screen.getByRole("button", { name: "Pay 2 claims" }))
     const dialog = await screen.findByRole("dialog")
     expect(within(dialog).getByRole("heading", { name: "Pay 2 claims?" })).toBeInTheDocument()
-    expect(within(dialog).getByText("₹62,377.50", { selector: "dd" })).toBeInTheDocument()
+    expect(within(dialog).getByText("₹62,377.50", { selector: ".figure" })).toBeInTheDocument()
     await user.click(within(dialog).getByRole("button", { name: "Pay 2 claims, ₹62,377.50" }))
-    expect(await within(dialog).findByRole("link", { name: /Bank file/ })).toHaveAttribute(
-      "href",
-      "/api/payouts/statement.csv?month=2025-09"
-    )
+    // A button, not a bare link: it asks the server whether this month's file
+    // was already made before it offers one (pages/bank-file.tsx).
+    expect(await within(dialog).findByRole("button", { name: /Bank file/ })).toBeInTheDocument()
     expect(within(dialog).getByRole("heading", { name: "Paid 2 of 2" })).toBeInTheDocument()
+  })
+})
+
+
+/* ------------------------------------------------------------------------ */
+/* The safeguards on the pay dialog                                          */
+/* ------------------------------------------------------------------------ */
+
+describe("the pay dialog and the safeguards", () => {
+  function refusal(status: number, detail: string, body: Record<string, unknown>) {
+    return () => {
+      throw new ApiError(status, detail, { detail, ...body })
+    }
+  }
+
+  async function open(table: Record<string, () => unknown>) {
+    const user = userEvent.setup()
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => FINANCE,
+        "/api/admin/payouts": () => payoutsPage([PAYABLE]),
+        ...table,
+      } as Parameters<typeof fakeApi>[0])
+    )
+    renderWithProviders(<Payments />)
+    await user.click((await screen.findAllByRole("button", { name: "Pay" }))[0]!)
+    return { user, dialog: await screen.findByRole("dialog") }
+  }
+
+  it("says it was already paid, with the month, before the click, and offers no Pay", async () => {
+    const { dialog } = await open({
+      "/api/claims/claim-1/pay-check": () => ({
+        claim_id: "claim-1",
+        blocked: true,
+        problems: [{ code: "paid_before", message: "This paper is already on the payment ledger for Dr A, paid in March 2025. It is not paid again." }],
+      }),
+    })
+    expect(await within(dialog).findByText(/already on the payment ledger for Dr A, paid in March 2025/)).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Pay ₹52,377.50" })).toBeDisabled()
+  })
+
+  it("sends one idempotency key and sends the same one again on a retry", async () => {
+    let calls = 0
+    const { user, dialog } = await open({
+      "/api/claims/claim-1/pay-check": () => ({ claim_id: "claim-1", blocked: false, problems: [] }),
+      "/api/claims/claim-1/mark-paid": () => {
+        calls += 1
+        if (calls === 1) throw new ApiError(409, "The recomputed amount is ₹52,377.50. Review it and confirm again.")
+        return { ok: true }
+      },
+    })
+    await user.click(within(dialog).getByRole("button", { name: "Pay ₹52,377.50" }))
+    await user.click(await within(dialog).findByRole("button", { name: "Pay ₹52,377.50" }))
+    await waitFor(() => expect(markPaidCalls()).toHaveLength(2))
+    const keys = markPaidCalls().map(([, o]) => (o as { json: { idempotency_key: string } }).json.idempotency_key)
+    expect(keys[0]).toBeTruthy()
+    expect(keys[1]).toBe(keys[0])
+  })
+
+  it("tells Finance when the amount changed after authorisation and the claim went back", async () => {
+    const { user, dialog } = await open({
+      "/api/claims/claim-1/pay-check": () => ({ claim_id: "claim-1", blocked: false, problems: [] }),
+      "/api/claims/claim-1/mark-paid": refusal(
+        409,
+        "The amount changed after the Director authorised it (₹52,377.50 to ₹40,000.00). Nothing was paid. It has gone back to the Principal to approve the new amount.",
+        { code: "amount_changed" }
+      ),
+    })
+    await user.click(within(dialog).getByRole("button", { name: "Pay ₹52,377.50" }))
+    expect(await within(dialog).findByText("Sent back to the Principal")).toBeInTheDocument()
+    expect(within(dialog).getByText(/gone back to the Principal/)).toBeInTheDocument()
+    expect(within(dialog).queryByRole("button", { name: /^Pay ₹/ })).toBeNull()
+  })
+
+  it("asks a super admin for a reason when they would pay what they authorised", async () => {
+    const { user, dialog } = await open({
+      "/api/claims/claim-1/pay-check": () => ({ claim_id: "claim-1", blocked: false, problems: [] }),
+      "/api/claims/claim-1/mark-paid": refusal(400, "Paying this needs a reason, because you authorised it yourself.", {
+        code: "reason_needed",
+      }),
+    })
+    await user.click(within(dialog).getByRole("button", { name: "Pay ₹52,377.50" }))
+    expect(await within(dialog).findByLabelText("Why you are paying this")).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Pay ₹52,377.50" })).toBeDisabled()
   })
 })

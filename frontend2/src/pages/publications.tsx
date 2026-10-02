@@ -347,18 +347,9 @@ function GeneralQuery() {
     <div className="page space-y-6">
       <PageHeader
         title="Publications"
-        sub={
-          <>
-            Every claim filed under the incentive scheme, and where it stands. For every paper the college has
-            published, see{" "}
-            <Link to="/reports/papers" className="text-accent underline-offset-4 hover:underline">
-              Papers
-            </Link>
-            .
-          </>
-        }
+        sub="Claims under the incentive scheme, and where each stands."
         action={
-          <Button asChild>
+          <Button kind="primary" asChild>
             <a href={`/api/reports/search/export?${exportParams.toString()}`} target="_blank" rel="noreferrer">
               <Download />
               Download {data ? `these ${total.toLocaleString("en-IN")} claims` : "these claims"}

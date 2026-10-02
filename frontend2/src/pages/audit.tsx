@@ -327,10 +327,10 @@ export function Audit() {
     <div className="page space-y-10">
       <PageHeader
         title="Audit log"
-        sub="Who changed what, when, and from what to what. Nothing here can be edited or removed."
+        sub="Who changed what, and when. Nothing can be edited."
         spot="spot-audit"
         action={
-          <Button kind="default" asChild>
+          <Button kind="primary" asChild>
             <a href={csvHref} download>
               <Download aria-hidden />
               Download CSV
@@ -355,8 +355,7 @@ export function Audit() {
         />
         {total > AUDIT_CSV_CAP && (
           <p className="text-sm text-fg-muted">
-            The CSV stops at {count(AUDIT_CSV_CAP)} rows and says so on its first line. Narrow the dates to export
-            the rest.
+            The CSV stops at {count(AUDIT_CSV_CAP)} rows. Narrow the dates to export the rest.
           </p>
         )}
       </section>
@@ -440,12 +439,12 @@ export function Audit() {
             <ErrorState
               art="closed-gate"
               title="Not open to this account"
-              message="The audit log is open to the research cell, system admins, the Principal, the Director and Finance."
+              message="Open to the research cell, system admins, the Principal, the Director and Finance."
             />
           ) : (
             <ErrorState
               title="Could not load the audit log"
-              message="The server did not answer. Nothing has been lost. Try again."
+              message="The server did not answer."
               onRetry={() => refetch()}
             />
           )
@@ -456,8 +455,8 @@ export function Audit() {
             title={filtered ? "Nothing matches" : "No activity recorded yet"}
             message={
               filtered
-                ? "No entry matches this search and these filters. Try a wider date range or fewer filters."
-                : "Every change made by a person or the system appears here as it happens."
+                ? "Try a wider date range or fewer filters."
+                : "Every change appears here as it happens."
             }
             action={
               filtered ? (
@@ -517,7 +516,7 @@ export function Audit() {
                   </div>
                 ) : (
                   <p className="border-t border-line pt-4 text-sm text-fg-muted">
-                    No before and after was recorded with this entry.
+                    No before and after recorded.
                   </p>
                 )}
                 {selected.reason && (

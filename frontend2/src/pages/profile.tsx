@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react"
-import { Camera, LoaderCircle, Lock, X } from "lucide-react"
+import { Camera, Check, Circle, LoaderCircle, Lock, X } from "lucide-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 
 import {
@@ -11,10 +11,8 @@ import {
 import { can, useAuth } from "@/app/auth"
 import { loadGoogleIdentity, type GoogleConfig } from "@/app/google"
 import { PasswordDialog } from "@/app/password"
-import { HOME_DATA } from "@/app/home-data"
 import { api, ApiError } from "@/lib/api"
 import { useApi, useApiMutation } from "@/lib/query"
-import { Answer } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import {
@@ -112,14 +110,6 @@ type ChangeRequest = {
   decided_by: string | null
 }
 
-/** The slice of `/api/me/summary` this page uses. */
-type MeSummary = {
-  papers: number
-  unclaimed: number | null
-  returned: number
-  money: { to_date: number }
-}
-
 type RequestableKey =
   | "name"
   | "department"
@@ -210,13 +200,6 @@ export function Profile() {
   const seeMoney = can(sessionMe?.role).seeMoney
   const threshold = useMyThreshold()
 
-  // The same summary Home reads, so the paper count here is the one on Home,
-  // My papers and My research. (This page used to count claims by stage:
-  // "Filed 4, Paid 3" beside a person whose record holds 145 papers, 119 paid.)
-  const summaryQuery = useApi<MeSummary>(HOME_DATA.mySummary.key, HOME_DATA.mySummary.path, {
-    enabled: filesOwnPapers,
-  })
-
   const [manualPasswordOpen, setManualPasswordOpen] = useState(false)
   const [asking, setAsking] = useState<RequestableKey | null>(null)
 
@@ -290,7 +273,6 @@ export function Profile() {
     )
   }
 
-  const summary = summaryQuery.data
   const officeDetails = ["biometric_id", "role", "faculty_type", "scopus_author_url"] as const
   // A request in flight or turned down on a folded detail is news: keep it open.
   const officeOpen = officeDetails.some((k) => requestsByField.get(k)?.some((r) => r.status !== "APPROVED"))
@@ -299,9 +281,9 @@ export function Profile() {
     <div className="page space-y-10">
       <PageHeader
         title="Your profile"
-        sub="Your photo, IDs and password. You change some details here; the research office keeps the rest."
+        sub="Your photo, IDs and password."
         action={
-          <Button kind="primary" asChild>
+          <Button kind="default" asChild>
             <Link to="/u/me">See your public profile</Link>
           </Button>
         }
@@ -310,34 +292,11 @@ export function Profile() {
       </PageHeader>
 
       {filesOwnPapers && (
-        <Answer
-          items={[
-            {
-              value: summary?.papers,
-              label: "papers on your record",
-              zero: "No papers on your record yet",
-              to: "/papers",
-            },
-            ...(summary?.unclaimed == null
-              ? []
-              : [
-                  {
-                    value: summary.unclaimed,
-                    label: summary.unclaimed === 1 ? "paper ready to claim" : "papers ready to claim",
-                    zero: "Every paper is claimed",
-                    to: "/papers?tab=unclaimed",
-                  },
-                ]),
-            ...(seeMoney
-              ? [
-                  {
-                    value: summary ? money(summary.money.to_date) : null,
-                    label: "received, see the statement",
-                    to: "/papers/statement",
-                  },
-                ]
-              : []),
-          ]}
+        <Readiness
+          hasPhoto={!!sessionMe?.photo_url}
+          hasScopusId={!!me.scopus_author_id}
+          hasPhone={!!me.phone}
+          hasOrcid={!!me.orcid_id}
         />
       )}
 
@@ -361,13 +320,8 @@ export function Profile() {
       <section className="space-y-6">
         <div>
           <SectionTitle>Details you can change</SectionTitle>
-          <Sub className="mt-1">
-            Nothing here is paid on or checked against a claim, so a change saves straight
-            away.
-          </Sub>
         </div>
-        <PhoneForm phone={me.phone} />
-        <OrcidForm orcid={me.orcid_id ?? null} />
+        <YourDetails phone={me.phone} orcid={me.orcid_id ?? null} />
         <Interests />
       </section>
 
@@ -376,11 +330,7 @@ export function Profile() {
       <section className="space-y-4">
         <div>
           <SectionTitle>Details the research office keeps</SectionTitle>
-          <Sub className="mt-1">
-            These decide who gets paid and whose record a paper is checked against, so they
-            are not typed here. Ask for a change and the research office decides. You are
-            told either way.
-          </Sub>
+          <Sub className="mt-1">Ask for a change and the research office decides. You are told either way.</Sub>
         </div>
 
         {requestsQuery.isError && (
@@ -459,9 +409,6 @@ export function Profile() {
       <section className="space-y-4">
         <div>
           <SectionTitle>Sign-in methods</SectionTitle>
-          <Sub className="mt-1">
-            Your email and password always work. Google is an extra way in, if you link it.
-          </Sub>
         </div>
 
         <dl className="divide-y divide-line border-y border-line">
@@ -471,10 +418,7 @@ export function Profile() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-base break-words">{me.email}</p>
-                  <p className="mt-1 max-w-md text-sm text-fg-muted">
-                    An issued password is 24 random characters handed over on paper. Choose your
-                    own, and use the eye icon to check what you typed.
-                  </p>
+
                 </div>
                 <Button
                   kind="default"
@@ -536,154 +480,175 @@ export function Profile() {
 /* ------------------------------------------------------------------------ */
 
 /**
- * The ORCID iD, through the same self-service route. The server checks the
- * checksum; match_authors then puts every paper carrying it on this account.
+ * The phone number and the ORCID iD, in one form with one Save.
+ *
+ * They go through `PATCH /auth/profile/self`, the one route a person writes
+ * their own account through, and only the fields that changed are sent. The
+ * server's refusal is shown word for word beside the field it is about
+ * ("that does not look like a phone number, for example +91 98400 12345"); a
+ * refusal for either means nothing was saved, and it says so.
  */
-function OrcidForm({ orcid }: { orcid: string | null }) {
-  const saved = orcid ?? ""
-  const [value, setValue] = useState(saved)
-  const [error, setError] = useState<string | null>(null)
-  const id = useId()
-  useEffect(() => {
-    setValue(saved)
-  }, [saved])
-  const save = useApiMutation<{ orcid_id: string }, { orcid_id: string | null }>("/api/auth/profile/self", {
-    method: "PATCH",
-    invalidates: [["profile", "me"]],
-  })
-  const dirty = value.trim() !== saved
+function YourDetails({ phone, orcid }: { phone: string | null; orcid: string | null }) {
+  const savedPhone = phone ?? ""
+  const savedOrcid = orcid ?? ""
+  const [phoneValue, setPhoneValue] = useState(savedPhone)
+  const [orcidValue, setOrcidValue] = useState(savedOrcid)
+  const [error, setError] = useState<{ field: "phone" | "orcid" | "both"; message: string } | null>(null)
+  const phoneId = useId()
+  const orcidId = useId()
+
+  // After a save the page refetches `/auth/me`; the boxes follow what the
+  // server now holds (it tidies spacing) rather than what was typed.
+  useEffect(() => setPhoneValue(savedPhone), [savedPhone])
+  useEffect(() => setOrcidValue(savedOrcid), [savedOrcid])
+
+  const save = useApiMutation<
+    { phone?: string; orcid_id?: string },
+    { phone: string | null; orcid_id: string | null }
+  >("/api/auth/profile/self", { method: "PATCH", invalidates: [["profile", "me"]] })
+  const phoneDirty = phoneValue.trim() !== savedPhone
+  const orcidDirty = orcidValue.trim() !== savedOrcid
 
   function submit(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    save.mutate(
-      { orcid_id: value.trim() },
-      {
-        onSuccess: (data) => {
-          setValue(data.orcid_id ?? "")
-          toast.ok(data.orcid_id ? "ORCID saved. Papers carrying it will be matched to you." : "ORCID removed")
-        },
-        onError: (err) => setError(err.message),
-      }
-    )
+    const body: { phone?: string; orcid_id?: string } = {}
+    if (phoneDirty) body.phone = phoneValue.trim()
+    if (orcidDirty) body.orcid_id = orcidValue.trim()
+    save.mutate(body, {
+      onSuccess: (data) => {
+        setPhoneValue(data.phone ?? "")
+        setOrcidValue(data.orcid_id ?? "")
+        toast.ok(
+          body.orcid_id && data.orcid_id
+            ? "Saved. Papers carrying your ORCID iD will be matched to you"
+            : "Details saved"
+        )
+      },
+      onError: (err) => {
+        const only = phoneDirty && !orcidDirty ? "phone" : orcidDirty && !phoneDirty ? "orcid" : "both"
+        setError({ field: only, message: err.message })
+      },
+    })
   }
 
   return (
-    <form onSubmit={submit} className="space-y-1.5">
-      <label htmlFor={id} className="block text-sm font-medium">
-        ORCID iD
-      </label>
-      <div className="flex gap-2">
-        <Input
-          id={id}
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value)
-            setError(null)
-          }}
-          placeholder="0000-0002-1825-0097"
-          aria-describedby={`${id}-help`}
-          aria-invalid={error ? true : undefined}
-          className="min-w-0 max-w-xs flex-1"
-        />
-        <Button kind="primary" type="submit" disabled={!dirty || save.isPending} aria-label="Save ORCID iD">
-          {save.isPending && <LoaderCircle className="animate-spin" />}
-          {save.isPending ? "Saving…" : "Save"}
-        </Button>
+    <form onSubmit={submit} className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <label htmlFor={phoneId} className="block text-sm font-medium">
+            Phone
+          </label>
+          <Input
+            id={phoneId}
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={phoneValue}
+            onChange={(e) => {
+              setPhoneValue(e.target.value)
+              setError(null)
+            }}
+            placeholder="+91 98400 12345"
+            aria-describedby={`${phoneId}-help`}
+            aria-invalid={error?.field === "phone" ? true : undefined}
+          />
+          {error?.field === "phone" ? (
+            <p id={`${phoneId}-help`} role="alert" className="text-xs text-critical">
+              {error.message}
+            </p>
+          ) : (
+            <p id={`${phoneId}-help`} className="text-xs text-fg-muted">
+              Optional. The research office uses it to reach you about a paper.
+            </p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor={orcidId} className="block text-sm font-medium">
+            ORCID iD
+          </label>
+          <Input
+            id={orcidId}
+            value={orcidValue}
+            onChange={(e) => {
+              setOrcidValue(e.target.value)
+              setError(null)
+            }}
+            placeholder="0000-0002-1825-0097"
+            aria-describedby={`${orcidId}-help`}
+            aria-invalid={error?.field === "orcid" ? true : undefined}
+          />
+          {error?.field === "orcid" ? (
+            <p id={`${orcidId}-help`} role="alert" className="text-xs text-critical">
+              {error.message}
+            </p>
+          ) : (
+            <p id={`${orcidId}-help`} className="text-xs text-fg-muted">
+              Optional. Paste the iD or the orcid.org link; papers carrying it are matched to you.
+            </p>
+          )}
+        </div>
       </div>
-      {error ? (
-        <p id={`${id}-help`} role="alert" className="text-xs text-critical">
-          {error}
-        </p>
-      ) : (
-        <p id={`${id}-help`} className="text-xs text-fg-muted">
-          Optional. Paste the iD or the orcid.org link; papers carrying it are matched to you automatically.
+      {error?.field === "both" && (
+        <p role="alert" className="text-sm text-critical">
+          Nothing was saved. {error.message}
         </p>
       )}
+      <Button kind="primary" type="submit" disabled={(!phoneDirty && !orcidDirty) || save.isPending}>
+        {save.isPending && <LoaderCircle className="animate-spin" />}
+        {save.isPending ? "Saving…" : "Save details"}
+      </Button>
     </form>
   )
 }
 
 /**
- * The phone number, saved through `PATCH /auth/profile/self` — the one route
- * a person writes their own account through. The server's refusal is shown
- * word for word under the box: "that does not look like a phone number, for
- * example +91 98400 12345" is the whole of the help anybody needs.
+ * What would make the record easy to match, said as one sentence: a face, the
+ * Scopus ID the office holds, a phone, an ORCID iD. Not a score and not a
+ * nag: a thing that is missing is a plain "add" the person can act on below.
+ * The areas they work on are counted from the same list Discover writes.
  */
-function PhoneForm({ phone }: { phone: string | null }) {
-  const saved = phone ?? ""
-  const [value, setValue] = useState(saved)
-  const [error, setError] = useState<string | null>(null)
-  const id = useId()
-
-  // After a save the page refetches `/auth/me`; the box follows what the
-  // server now holds (it tidies spacing) rather than what was typed.
-  useEffect(() => {
-    setValue(saved)
-  }, [saved])
-
-  const save = useApiMutation<{ phone: string }, { phone: string | null }>(
-    "/api/auth/profile/self",
-    { method: "PATCH", invalidates: [["profile", "me"]] }
-  )
-  const dirty = value.trim() !== saved
-
-  function submit(e: FormEvent) {
-    e.preventDefault()
-    setError(null)
-    save.mutate(
-      { phone: value.trim() },
-      {
-        onSuccess: (data) => {
-          setValue(data.phone ?? "")
-          toast.ok(data.phone ? "Phone number saved" : "Phone number removed")
-        },
-        onError: (err) => setError(err.message),
-      }
-    )
-  }
-
+function Readiness({
+  hasPhoto,
+  hasScopusId,
+  hasPhone,
+  hasOrcid,
+}: {
+  hasPhoto: boolean
+  hasScopusId: boolean
+  hasPhone: boolean
+  hasOrcid: boolean
+}) {
+  const interests = useApi<{ domains: string[] }>(["me", "interests"], "/api/me/interests")
+  const items = [
+    { key: "photo", label: "A photo", done: hasPhoto },
+    { key: "scopus", label: "Your Scopus ID", done: hasScopusId },
+    { key: "phone", label: "A phone number", done: hasPhone },
+    { key: "orcid", label: "An ORCID iD", done: hasOrcid },
+    ...(interests.data ? [{ key: "areas", label: "Your research areas", done: interests.data.domains.length > 0 }] : []),
+  ]
+  const left = items.filter((i) => !i.done)
   return (
-    <form onSubmit={submit} className="space-y-1.5">
-      <label htmlFor={id} className="block text-sm font-medium">
-        Phone
-      </label>
-      <div className="flex gap-2">
-        <Input
-          id={id}
-          type="tel"
-          inputMode="tel"
-          autoComplete="tel"
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value)
-            setError(null)
-          }}
-          placeholder="+91 98400 12345"
-          aria-describedby={`${id}-help`}
-          aria-invalid={error ? true : undefined}
-          className="min-w-0 max-w-xs flex-1"
-        />
-        <Button
-          kind="primary"
-          type="submit"
-          disabled={!dirty || save.isPending}
-          aria-label="Save phone number"
-        >
-          {save.isPending && <LoaderCircle className="animate-spin" />}
-          {save.isPending ? "Saving…" : "Save"}
-        </Button>
-      </div>
-      {error ? (
-        <p id={`${id}-help`} role="alert" className="text-xs text-critical">
-          {error}
-        </p>
-      ) : (
-        <p id={`${id}-help`} className="text-xs text-fg-muted">
-          Optional. The research office uses it to reach you about a paper.
-        </p>
-      )}
-    </form>
+    <section aria-label="How complete your profile is" className="space-y-3" data-testid="profile-readiness">
+      <p className="max-w-prose text-base text-fg">
+        {left.length === 0
+          ? "Your profile is complete. Every paper that carries your name or your ORCID iD is matched to you."
+          : `${items.length - left.length} of ${items.length} are set. Add ${left.length === 1 ? "this" : "these"} and your papers are matched to you without anybody having to ask.`}
+      </p>
+      <ul className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
+        {items.map((i) => (
+          <li key={i.key} className={i.done ? "text-fg-muted" : "font-medium text-fg"}>
+            {i.done ? (
+              <Check aria-hidden className="mr-1 inline size-4 -translate-y-px text-positive" />
+            ) : (
+              <Circle aria-hidden className="mr-1 inline size-4 -translate-y-px text-fg-subtle" />
+            )}
+            {i.label}
+            <span className="sr-only">{i.done ? ", set" : ", not set yet"}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -754,7 +719,7 @@ function DetailRow({
           </div>
           {onAsk && (
             <Button
-              kind="quiet"
+              kind="default"
               size="sm"
               onClick={onAsk}
               className="shrink-0"
@@ -869,6 +834,11 @@ function GoogleRow({ link, email }: { link: GoogleLink | null; email: string }) 
       live = false
     }
   }, [picking, clientId, linkWith])
+
+  // Switched off here and nothing linked: there is nothing to do and nothing
+  // to explain, so the row is not drawn (a line saying "not available" is a
+  // sentence about the server, to a person who came to fix their own details).
+  if (!link && config.data && !config.data.enabled) return null
 
   let body: ReactNode
   if (link) {
@@ -1082,10 +1052,7 @@ function ScopusSection() {
         <SectionTitle>
           <span id="your-scopus">Your Scopus profile</span>
         </SectionTitle>
-        <Sub className="mt-1">
-          Publications, citations and your h-index, as Scopus had them when the research office
-          last imported the profile workbook.
-        </Sub>
+        <Sub className="mt-1">As Scopus had it when the research office last imported it.</Sub>
       </div>
       {q.isLoading ? (
         <SkeletonText lines={2} className="max-w-sm" />

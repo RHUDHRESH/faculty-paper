@@ -122,7 +122,7 @@ export function Data() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="The raw tables are an admin tool. Everything in them is reachable through the screens built for the job."
+          message="The raw tables are an admin tool."
         />
       </div>
     )
@@ -179,7 +179,7 @@ function TableIndex({ onOpen }: { onOpen: (name: string) => void }) {
     <div className="page space-y-10">
       <PageHeader
         title="Data"
-        sub="See the row behind a figure. Every table the system keeps, as it is stored."
+        sub="Every table the system keeps, as stored."
         spot="spot-imports"
       />
 
@@ -187,7 +187,7 @@ function TableIndex({ onOpen }: { onOpen: (name: string) => void }) {
         <section aria-label="What is here" className="space-y-3">
           <p className="text-base">
             {all.length.toLocaleString("en-IN")} tables holding {totalRows.toLocaleString("en-IN")} rows.{" "}
-            {all.filter((t) => t.editable).length} can be corrected here; the rest can only be read.
+            {all.filter((t) => t.editable).length} can be corrected here.
           </p>
           {data.note && (
             <Details label="what can be changed here">
@@ -386,10 +386,7 @@ function TableView({ name, onBack }: { name: string; onBack: () => void }) {
       </div>
 
       {data?.may_edit && (
-        <Meta className="block">
-          Correctable columns show a pencil on hover. Each change takes a reason and is written
-          to the audit log on its own.
-        </Meta>
+        <Meta className="block">Hover a correctable cell to see its pencil.</Meta>
       )}
 
       {isLoading && !data ? (
@@ -418,7 +415,7 @@ function TableView({ name, onBack }: { name: string; onBack: () => void }) {
           title={q ? "Nothing matches that search" : "This table is empty"}
           message={
             q
-              ? "No row in this table contains that text in any of its searchable columns."
+              ? "Try a shorter search."
               : "Nothing has been written to it yet."
           }
         />
@@ -598,8 +595,7 @@ function EditCellDialog({
         <DialogHeader>
           <DialogTitle>Correct {column.label}</DialogTitle>
           <DialogDescription>
-            On row {String(row.id)} of {table}. The change is written to the audit log with your
-            name and this reason against it.
+            Row {String(row.id)} of {table}. Written to the audit log with your reason.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
@@ -626,7 +622,7 @@ function EditCellDialog({
 
           <Field
             label="Reason"
-            hint="What was wrong and how you know. This is the whole record of the change."
+            hint="What was wrong and how you know."
             error={tooShort ? "At least 5 characters." : undefined}
           >
             <Textarea
@@ -702,15 +698,14 @@ function DeleteRowDialog({
         </DialogHeader>
         <DialogBody className="space-y-4">
           <Callout tone="caution" title="Anything carrying a payment is refused">
-            A paid publication, a ledger row and the audit log cannot be deleted — the server
-            refuses them outright. If a payment was made in error, void it instead: that keeps
-            the reversal on the ledger rather than erasing the fact that money moved.
+            A paid publication, a ledger row and the audit log cannot be deleted. If a payment was
+            made in error, void it instead; that keeps the reversal on the ledger.
           </Callout>
 
           <Field
             label="Reason"
-            hint="A sentence. It is written to the audit log before the row goes, because afterwards there is nothing left to describe."
-            error={tooShort ? "At least 10 characters — a sentence, not a word." : undefined}
+            hint="A sentence. It is written to the audit log before the row goes."
+            error={tooShort ? "At least 10 characters: a sentence, not a word." : undefined}
           >
             <Textarea
               value={reason}
@@ -768,9 +763,8 @@ function WipeSection() {
     <section className="space-y-3 border-t border-line pt-8">
       <SectionTitle className="text-critical">Empty the system</SectionTitle>
       <p className="max-w-2xl text-base text-fg-muted">
-        Removes every publication, claim, payment record and ledger row. Accounts, the audit log,
-        the journal reference data and the incentive policy all survive. There is no undo and no
-        backup taken on the way out.
+        Removes every publication, claim, payment record and ledger row. There is no undo and no
+        backup.
       </p>
       <Button kind="danger" size="md" onClick={() => setOpen(true)}>
         <TriangleAlert />
@@ -858,14 +852,13 @@ function WipeDialog({
           ) : failed || !preview ? (
             <ErrorState
               title="Could not read what would be deleted"
-              message="Nothing is going to be emptied without that list. Close this and try again."
+              message="Nothing is emptied without that list. Close this and try again."
             />
           ) : (
             <>
               {preview.paid_claims > 0 && (
                 <Callout tone="critical" title={`${preview.paid_claims.toLocaleString("en-IN")} settled payments would stop being on record`}>
-                  Worth {money(preview.paid_amount)}. That is the evidence the college would
-                  show if anybody asked why the money left the account.
+                  Worth {money(preview.paid_amount)}. That is the evidence of why the money left the account.
                 </Callout>
               )}
 
@@ -896,7 +889,7 @@ function WipeDialog({
 
               <Field
                 label="Reason"
-                hint="A sentence, kept in the audit log — which survives this."
+                hint="A sentence, kept in the audit log, which survives this."
               >
                 <Textarea
                   value={reason}

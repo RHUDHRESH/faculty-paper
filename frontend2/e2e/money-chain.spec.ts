@@ -141,12 +141,12 @@ test.describe("The money chain", () => {
     await page.goto("/papers/claims")
     await waitForSettled(page)
 
-    await page.getByLabel("Search your papers").fill(seeded.claim!.ticket_number)
+    await page.getByLabel("Search your claims").fill(seeded.claim!.ticket_number)
     const row = page.getByRole("listitem").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row).toHaveCount(1)
     // A claimant sees how far it has come, never whose desk it is on: a filed
     // paper is "Under review" from the moment it is filed (core/visibility.py).
-    await expect(row).toContainText("Being checked")
+    await expect(row.getByRole("list", { name: "Progress: Being checked" })).toBeVisible()
 
     await done(page)
   })
@@ -156,7 +156,7 @@ test.describe("The money chain", () => {
     await page.goto("/clearing")
     await waitForSettled(page)
 
-    const row = page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
+    const row = page.locator("[data-claim]").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row, "the seeded ticket is not in the clearing queue").toHaveCount(1)
 
     // The row opens the full-page review, not a side sheet.
@@ -183,7 +183,7 @@ test.describe("The money chain", () => {
 
     // And it leaves this queue, which is the visible half of the same fact.
     await expect(
-      page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
+      page.locator("[data-claim]").filter({ hasText: seeded.claim!.ticket_number })
     ).toHaveCount(0, { timeout: 30_000 })
 
     await done(page)
@@ -195,13 +195,13 @@ test.describe("The money chain", () => {
     await waitForSettled(page)
 
     await page.getByLabel("Search the queue").fill(seeded.claim!.ticket_number)
-    const row = page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
+    const row = page.locator("[data-claim]").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row, "the cleared ticket did not reach the Principal").toHaveCount(1)
 
     // One claim is approved on its own row, as the Director authorises on his;
     // the full-page review is for reading it, and has no decision bar at this
     // desk (the research cell's clearing does).
-    await row.getByRole("button", { name: "Approve", exact: true }).click()
+    await row.getByRole("button", { name: /^Approve/ }).click()
 
     const confirm = page.getByRole("button", { name: /^Approve ₹/ })
     // Same live-Scopus exposure as the clearing step above; these ran fast
@@ -216,7 +216,7 @@ test.describe("The money chain", () => {
       "approval"
     )
     await expect(
-      page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
+      page.locator("[data-claim]").filter({ hasText: seeded.claim!.ticket_number })
     ).toHaveCount(0, { timeout: 30_000 })
 
     await done(page)
@@ -227,7 +227,7 @@ test.describe("The money chain", () => {
     await page.goto("/authorisations")
     await waitForSettled(page)
 
-    const row = page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
+    const row = page.locator("[data-claim]").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row, "the approved ticket did not reach the Director").toHaveCount(1)
     await row.getByRole("button", { name: "Authorise", exact: true }).click()
 
@@ -244,7 +244,7 @@ test.describe("The money chain", () => {
       "authorisation"
     )
     await expect(
-      page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
+      page.locator("[data-claim]").filter({ hasText: seeded.claim!.ticket_number })
     ).toHaveCount(0, { timeout: 30_000 })
 
     await done(page)
@@ -402,10 +402,10 @@ test.describe("Filing a paper", () => {
     // And the draft really exists, on the server, as this account's.
     await page.goto("/papers/claims")
     await waitForSettled(page)
-    await page.getByLabel("Search your papers").fill(title)
+    await page.getByLabel("Search your claims").fill(title)
     const row = page.getByRole("listitem").filter({ hasText: title })
     await expect(row).toHaveCount(1)
-    await expect(row).toContainText("Finish your draft")
+    await expect(row).toContainText("Finish your draft and file it.")
   })
 
   test("a paper is filed from its DOI, from the paste box to a ticket", async ({ page }) => {
@@ -431,6 +431,12 @@ test.describe("Filing a paper", () => {
     // Step 2: the three conditions, about this article by name.
     await expect(page.getByText(title).first()).toBeVisible()
     await passTheConditions(page)
+    // docs/ux/25 option C: the form opens on the first section that still
+    // needs the person. A pasted DOI fills the paper section completely, so
+    // it opens on the journal; the paper section is one press away, and
+    // holds what the lookup found.
+    await expect(page.getByRole("heading", { name: "The journal", level: 2 })).toBeVisible()
+    await page.getByRole("navigation", { name: "Details sections" }).getByRole("button", { name: "The paper" }).click()
     await expect(page.getByLabel("Paper title")).toHaveValue(title)
     await expect(page.getByLabel("DOI", { exact: true })).toHaveValue(doi)
 
@@ -511,7 +517,7 @@ test.describe("Filing a paper", () => {
     await expect(page.getByText("Filed. Your claim is on its way.")).toBeVisible()
     await expect(page.getByTestId("filed-ticket")).not.toBeEmpty()
     await expect(receiptPlate).toContainText(title)
-    await expect(receiptPlate.locator("[data-condition]")).toHaveCount(3)
+    await expect(receiptPlate.getByTestId("filed-confirmed")).toContainText("Each box ticked by you")
     await page.getByRole("link", { name: /Track it/ }).click()
     await page.waitForURL(/\/papers\/[a-z0-9]+$/)
   })

@@ -156,19 +156,7 @@ export function FoundCard({
         </Callout>
       ))}
 
-      {res.already_filed && (
-        <Callout tone="caution" title="You have already filed this paper">
-          {res.already_filed.is_draft ? "It is one of your drafts" : `It is claim ${res.already_filed.ticket_number || "on your list"}`}
-          .{" "}
-          <Link
-            to={res.already_filed.is_draft ? `/papers/${res.already_filed.id}/edit` : `/papers/${res.already_filed.id}`}
-            className="font-medium text-accent underline underline-offset-2"
-          >
-            Open it
-          </Link>{" "}
-          instead of filing it twice — one claim per article.
-        </Callout>
-      )}
+      {res.already_filed && <AlreadyFiled found={res.already_filed} />}
 
       <dl className="divide-y divide-line">
         <Row label="Title" source={src.title}>
@@ -336,6 +324,7 @@ export function LookupProblem({
 }
 
 type ProfileCandidate = {
+  claimed_message?: string | null
   title: string | null
   doi: string | null
   journal_title: string | null
@@ -428,7 +417,7 @@ export function ScopusProfilePicker({
                 </Meta>
                 {c.already_claimed && (
                   <Tag tone="critical" icon={AlertTriangle} className="mt-1">
-                    You have already filed for this one
+                    {c.claimed_message || "You have already filed for this one"}
                   </Tag>
                 )}
               </button>
@@ -437,5 +426,41 @@ export function ScopusProfilePicker({
         </ul>
       )}
     </div>
+  )
+}
+
+/**
+ * The moment the claimant picks the paper: if it is already theirs, or already
+ * paid, the form says so in plain words and points at the claim to open. The
+ * sentence comes from the server (`core.services.claim_standing`), the same
+ * words it refuses with, and names no desk and no colleague.
+ */
+export function AlreadyFiled({ found }: { found: NonNullable<PaperLookup["already_filed"]> }) {
+  const stops = found.blocks !== false
+  const open = found.id
+    ? found.is_draft
+      ? `/papers/${found.id}/edit`
+      : `/papers/${found.id}`
+    : null
+  return (
+    <Callout
+      tone={stops ? "critical" : "caution"}
+      title={stops ? "This paper cannot be filed again" : found.is_draft ? "You have already started this paper" : "You have already filed this paper"}
+    >
+      <p>
+        {found.message ??
+          (found.is_draft
+            ? "It is one of your drafts."
+            : `It is claim ${found.ticket_number || "on your list"}.`)}
+      </p>
+      {open && (
+        <p className="mt-1">
+          <Link to={open} className="font-medium text-accent underline underline-offset-2">
+            Open {found.is_draft ? "the draft" : "that claim"}
+          </Link>{" "}
+          instead of filing it twice.
+        </p>
+      )}
+    </Callout>
   )
 }

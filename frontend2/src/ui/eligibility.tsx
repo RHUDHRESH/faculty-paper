@@ -315,13 +315,26 @@ export function confirmations(minReferences: number): Confirmation[] {
  * true before ticking. Folded away by default so the three cards stay short,
  * but always one press from the card it belongs to.
  */
-export function ConditionHelp({ item, className }: { item: Pick<Confirmation, "check" | "sure">; className?: string }) {
+export function ConditionHelp({
+  item,
+  stuck,
+  why,
+  className,
+}: {
+  item: Pick<Confirmation, "check" | "sure">
+  /** Why it matters: said in the fold, not under every title. */
+  why?: ReactNode
+  /** What to do if it is not true: said in the same fold, not under the title. */
+  stuck?: ReactNode
+  className?: string
+}) {
   return (
     <details className={cn("group text-sm", className)}>
       <summary className="cursor-pointer select-none font-medium text-accent">
         What the reviewer checks, and how to be sure
       </summary>
-      <div className="mt-2 space-y-2 border-l-2 border-line pl-3 leading-relaxed text-fg-muted">
+      <div className="mt-2 space-y-2 leading-relaxed text-fg-muted">
+        {why && <p>{why}</p>}
         <p>
           <span className="font-medium text-fg">The reviewer checks. </span>
           {item.check}
@@ -330,6 +343,12 @@ export function ConditionHelp({ item, className }: { item: Pick<Confirmation, "c
           <span className="font-medium text-fg">To be sure. </span>
           {item.sure}
         </p>
+        {stuck && (
+          <p>
+            <span className="font-medium text-fg">If it is not true. </span>
+            {stuck}
+          </p>
+        )}
       </div>
     </details>
   )
@@ -471,9 +490,13 @@ export function ClaimEligibilityGate({
     <div className="space-y-5" data-area="record">
       {paper}
 
-      <ol className="space-y-4">
+      {/* One ruled list, not three cards: the three conditions are the same
+          kind of thing, read once and ticked once each. The long advice
+          ("what to do if it is not true") is folded beside "what the reviewer
+          checks"; it is spelled out below only when Start is pressed with a
+          box still empty. */}
+      <ol className="divide-y divide-line rounded-panel bg-surface ring-1 ring-edge">
         {items.map((c, i) => {
-          const Icon = CONDITION_ICON[c.id] ?? ShieldCheck
           const on = !!ticked[c.id]
           const ev = evidence[c.id]
           return (
@@ -481,43 +504,29 @@ export function ClaimEligibilityGate({
               key={c.id}
               data-condition={c.id}
               data-ticked={on ? "true" : undefined}
-              className={cn(
-                "flex min-h-[120px] flex-col gap-4 rounded-2xl bg-surface p-5 shadow-[inset_0_0_0_1px_var(--color-line)] transition-colors duration-[var(--dur-1)] sm:flex-row",
-                on && "shadow-[inset_0_0_0_2px_var(--color-positive)]"
-              )}
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 p-5"
             >
-              <span
-                aria-hidden
-                className={cn(
-                  "inline-flex size-[88px] shrink-0 items-center justify-center rounded-3xl transition-colors duration-[var(--dur-1)]",
-                  on ? "bg-positive-wash text-positive" : "bg-(--area-wash) text-(--area)"
-                )}
-              >
-                <Icon className="size-12" strokeWidth={1.5} />
+              <span aria-hidden className="figure pt-0.5 text-figure leading-none text-accent tabular">
+                {i + 1}
               </span>
-              <div className="min-w-0 flex-1">
-                <h3 className="flex items-baseline gap-2 text-lg font-semibold text-fg">
-                  <span className="figure text-(--area) tabular">{i + 1}</span>
-                  <span>{c.label}</span>
-                </h3>
-                <p className="mt-1 text-sm leading-relaxed text-fg-muted">{c.hint}</p>
-                <p className="mt-1 text-sm leading-relaxed text-fg-muted">{c.stuck}</p>
-                <ConditionHelp item={c} className="mt-2" />
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold leading-snug text-fg">{c.label}</h3>
                 {ev && (
                   <p
                     className={cn(
-                      "mt-2 flex items-start gap-1.5 text-sm",
+                      "mt-2 text-sm leading-relaxed",
                       ev.tone === "positive" ? "text-positive" : ev.tone === "critical" ? "text-critical" : "text-fg-muted"
                     )}
                   >
-                    <span className="font-medium">Evidence we found:</span>
-                    <span className="min-w-0">{ev.text}</span>
+                    <span className="font-medium">What we found: </span>
+                    {ev.text}
                   </p>
                 )}
+                <ConditionHelp item={c} stuck={c.stuck} why={c.hint} className="mt-2" />
                 <label
                   htmlFor={`ack-${c.id}`}
                   className={cn(
-                    "mt-3 flex min-h-14 cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-base font-medium transition-colors duration-[var(--dur-1)]",
+                    "mt-3 flex min-h-12 cursor-pointer items-center gap-3 rounded-control px-4 py-2.5 text-base font-medium transition-colors duration-[var(--dur-1)]",
                     on ? "bg-positive-wash text-fg" : "bg-sunken hover:bg-hover"
                   )}
                 >
@@ -547,7 +556,7 @@ export function ClaimEligibilityGate({
         })}
       </ol>
 
-      <details className="panel p-4 [&[open]>summary]:mb-3">
+      <details className="rounded-panel bg-surface p-4 ring-1 ring-edge [&[open]>summary]:mb-3">
         <summary className="cursor-pointer text-sm font-medium text-accent">
           Read the full filing rules (claim reason and SNIP, affiliation)
         </summary>
@@ -560,7 +569,7 @@ export function ClaimEligibilityGate({
         </div>
       )}
 
-      <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-3 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
+      <div className="sticky bottom-0 z-10 -mx-4 flex flex-wrap items-center gap-3 border-t border-line bg-bg px-4 py-3 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0">
         <Button
           kind={allTicked ? "primary" : "default"}
           size="lg"

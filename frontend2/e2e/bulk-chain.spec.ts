@@ -108,7 +108,7 @@ test.describe("Moving a batch of claims through every desk", () => {
   function rowsFor(page: Page, as: "row" | "listitem") {
     return seeded.map((s) =>
       as === "row"
-        ? page.getByRole("row").filter({ hasText: s.claim!.ticket_number })
+        ? page.locator("[data-claim]").filter({ hasText: s.claim!.ticket_number })
         : page.getByRole("listitem").filter({ hasText: s.claim!.ticket_number })
     )
   }
@@ -128,7 +128,7 @@ test.describe("Moving a batch of claims through every desk", () => {
 
     // The selection bar is the only thing that says what is about to happen,
     // and it is what the person pressing the button reads.
-    const bar = page.getByText(`${BATCH} selected`, { exact: false })
+    const bar = page.getByText(`${BATCH} chosen`, { exact: false })
     await expect(bar, "the selection bar did not report three tickets").toBeVisible()
 
     await page.getByRole("button", { name: `Clear ${BATCH} claims` }).click()
@@ -153,7 +153,7 @@ test.describe("Moving a batch of claims through every desk", () => {
     // And what the person is shown says the same thing. A clean batch is
     // told in a toast; only a batch with skips opens a report, and this one
     // must have none.
-    await expect(page.getByText(`Cleared. ${BATCH} claims sent to the Principal`)).toBeVisible()
+    await expect(page.getByRole("status").filter({ hasText: new RegExp(`${BATCH} claims, .*sent to the Principal`) })).toBeVisible()
     await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 20_000 })
 
     // Only now, with no dialog holding the page `aria-hidden`, is an empty
@@ -176,7 +176,7 @@ test.describe("Moving a batch of claims through every desk", () => {
       await expect(row, "a cleared ticket did not reach the Principal").toHaveCount(1)
       await row.getByRole("checkbox").check()
     }
-    await expect(page.getByText(`${BATCH} selected`, { exact: false })).toBeVisible()
+    await expect(page.getByText(`${BATCH} chosen ·`, { exact: false })).toBeVisible()
 
     await page.getByRole("button", { name: `Approve ${BATCH} claims` }).click()
 
@@ -209,9 +209,9 @@ test.describe("Moving a batch of claims through every desk", () => {
       await expect(row, "an approved ticket did not reach the Director").toHaveCount(1)
       await row.getByRole("checkbox").check()
     }
-    await expect(page.getByText(`${BATCH} selected`, { exact: false })).toBeVisible()
+    await expect(page.getByText(`${BATCH} chosen ·`, { exact: false })).toBeVisible()
 
-    await page.getByRole("button", { name: `Review and authorise ${BATCH}` }).click()
+    await page.getByRole("button", { name: `Authorise ${BATCH} chosen` }).click()
 
     const confirm = page.getByRole("button", { name: /^Authorise ₹/ })
     await expect(confirm).toBeEnabled()
@@ -237,7 +237,7 @@ test.describe("Moving a batch of claims through every desk", () => {
     await page.goto("/payments")
     await waitForSettled(page)
 
-    for (const row of rowsFor(page, "row")) {
+    for (const row of seeded.map((s) => page.getByRole("row").filter({ hasText: s.claim!.ticket_number }))) {
       await expect(row, "an authorised ticket did not reach Finance").toHaveCount(1)
       const box = row.getByRole("checkbox")
       // A ticket that arrives needing a second signature has its box disabled

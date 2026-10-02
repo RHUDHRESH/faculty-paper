@@ -1,16 +1,16 @@
 import { useMemo } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { CheckCircle2, Download, FileText } from "lucide-react"
+import { CheckCircle2, FileText } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
 import { useApi } from "@/lib/query"
 import { ErpLegend } from "@/pages/pay-parts"
+import { BankFileButton, type BankExports } from "@/pages/bank-file"
 import { PrintStamp } from "@/pages/reports-print"
-import { Answer } from "@/ui/answer"
+import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
 import { Button } from "@/ui/button"
-import { Chip } from "@/ui/chip"
 import { Combobox } from "@/ui/combobox"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
@@ -21,15 +21,22 @@ import { ColumnLabel, Meta, SectionTitle } from "@/ui/text"
 import { unshout } from "@/lib/names"
 
 /**
- * One payment month, as the Director signs it and Finance reconciles it.
+ * One payment month, as the Director signs it and Finance reconciles it
+ * (docs/ux/28).
+ *
+ * The page is the on-screen twin of the PDF the Director signs: one sentence
+ * (what went out, and whether it agrees with the ledger), the total in words,
+ * then the files (the statement to sign; for Finance the bank file and
+ * whether it has gone), then the payments. Everything that explains the
+ * ledger check is behind a disclosure, open by itself only when a line needs
+ * explaining, because the person signing needs the conclusion and the person
+ * reconciling needs the lines.
  *
  * Every figure is the server's, read from the payments ledger
  * (`core/services/payout_statement.py`), so this page, the Ledger and Reports
  * agree about a month by construction. Nothing on it is a flag: the Director
- * and Finance are never shown one.
- *
- * The list is the payments. Claims the old ERP closed at ₹0 (there can be
- * eighty of them in the month an import landed) are counted and one click
+ * and Finance are never shown one. Claims the old ERP closed at ₹0 (there can
+ * be eighty of them in the month an import landed) are counted and one click
  * away, not printed between the payments a signer has to read.
  */
 
@@ -90,6 +97,8 @@ const SOURCE: Record<Row["source"], string> = {
   claim_only: "No ledger row",
 }
 
+const when = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+
 export function Statements() {
   const { me } = useAuth()
   const allowed = can(me?.role).viewReports
@@ -104,7 +113,9 @@ export function Statements() {
   const st = useApi<Statement>(["payouts", "statement", month], `/api/payouts/statement?month=${month}`, {
     enabled: allowed && !!month,
   })
-  const fy = useApi<FinancialYear>(["payouts", "fy"], "/api/payouts/financial-year", { enabled: allowed })
+  const bank = useApi<BankExports>(["bank-exports", month], `/api/payouts/bank-exports?month=${month}`, {
+    enabled: allowed && isFinance && !!month,
+  })
 
   const options = useMemo(
     () => list.map((m) => ({ value: m.month, label: m.label, hint: `${money(m.amount)} · ${m.count}` })),
@@ -135,7 +146,8 @@ export function Statements() {
   const departments = s ? s.by_department.filter((d) => Math.abs(d.amount) > 0.005) : []
   const zeroDepartments = s ? s.by_department.length - departments.length : 0
   const agrees = s ? Math.abs(s.total - s.ledger_total) < 0.5 && s.reconciliation.balanced : false
-  const toExplain = s ? s.reconciliation.issues.length + (s && Math.abs(s.total - s.ledger_total) >= 0.5 ? 1 : 0) : 0
+  const toExplain = s ? s.reconciliation.issues.length + (Math.abs(s.total - s.ledger_total) >= 0.5 ? 1 : 0) : 0
+  const sent = bank.data?.exports[0]
 
   const columns: Column<Row>[] = [
     {
@@ -161,22 +173,19 @@ export function Statements() {
           ) : (
             <span className="line-clamp-2">{unshout(r.paper_title) || "Title not recorded"}</span>
           )}
-          {r.ticket && (
-            <Meta className="block">
-              {r.ticket}
-              {r.authorised_on ? ` · authorised ${fmtDate(r.authorised_on)}` : ""}
-            </Meta>
-          )}
+          <Meta className="block">
+            {[
+              r.ticket,
+              r.authorised_on ? `authorised ${fmtDate(r.authorised_on)}` : null,
+              r.source !== "app" ? SOURCE[r.source] : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </Meta>
         </div>
       ),
     },
-    { key: "voucher", header: "Voucher", className: "w-36 break-all", empty: "None", cell: (r) => r.voucher },
-    {
-      key: "source",
-      header: "Where it was recorded",
-      className: "w-40",
-      cell: (r) => <Chip tone={r.source === "claim_only" ? "caution" : "neutral"}>{SOURCE[r.source]}</Chip>,
-    },
+    { key: "voucher", header: "Voucher", className: "w-44 whitespace-nowrap", empty: "None", cell: (r) => r.voucher },
     {
       key: "amount",
       header: "Amount",
@@ -184,7 +193,7 @@ export function Statements() {
       className: "w-52",
       cell: (r) => (
         <div className={cn(r.amount < 0 && "text-critical")}>
-          <span>{money(r.amount)}</span>
+          <span className="font-medium">{money(r.amount)}</span>
           {(r.held_back ?? 0) > 0.005 && (
             <Meta className="block">{money(r.held_back)} held back by the research threshold</Meta>
           )}
@@ -194,15 +203,10 @@ export function Statements() {
   ]
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-12">
       <PrintStamp title="Monthly payment statement" scope={s?.label ?? ""} />
       <PageHeader
         title="Monthly statements"
-        sub={
-          isFinance
-            ? "Does this month's statement agree with the ledger, and is it ready to sign and send to the bank?"
-            : "Does this month's statement agree with the ledger, and is it ready to sign?"
-        }
         action={
           <div className="print:hidden">
             <ColumnLabel className="mb-1 block">Month paid</ColumnLabel>
@@ -216,7 +220,6 @@ export function Statements() {
             />
           </div>
         }
-        spot="spot-payouts"
       />
 
       {months.isError ? (
@@ -228,7 +231,7 @@ export function Statements() {
           message="A month appears here once its first payment is on the ledger. Payments are made under Payments."
           action={
             isFinance ? (
-              <Button kind="default" size="sm" asChild>
+              <Button kind="default" asChild>
                 <Link to="/payments">Go to payments</Link>
               </Button>
             ) : undefined
@@ -244,51 +247,148 @@ export function Statements() {
         <SkeletonRows rows={6} />
       ) : (
         <>
-          <section className="space-y-4" aria-label={`Statement for ${s.label}`}>
-            <Answer
-              items={[
-                { label: `Paid in ${s.label}`, value: money(s.total), to: `/ledger?month=${s.month}` },
-                { label: s.count === 1 ? "Payment" : "Payments", value: s.count, zero: "No payments this month" },
-                { label: s.people === 1 ? "Person paid" : "People paid", value: s.people, zero: "Nobody was paid" },
-                {
-                  label: agrees ? "Agrees with the ledger" : toExplain === 1 ? "Line to explain before signing" : "Lines to explain before signing",
-                  value: agrees ? "Yes" : toExplain,
-                  tone: agrees ? "positive" : "caution",
-                  to: agrees ? undefined : "#ledger-check",
-                },
-              ]}
-            />
-            <p className="text-sm text-fg-muted">{s.total_in_words}</p>
-            <div className="flex flex-wrap gap-2 print:hidden">
-              <Button kind="primary" size="md" asChild>
+          <section className="space-y-5" aria-label={`Statement for ${s.label}`}>
+            <AnswerLine>
+              {tieNumbers(`${money(s.total)} went out in ${s.label.split(" ")[0]}.`)}{" "}
+              {agrees ? (
+                <>
+                  It <AnswerWord tone="sage">agrees with the ledger</AnswerWord>.
+                </>
+              ) : (
+                <>
+                  <AnswerWord tone="amber">
+                    {formatCount(toExplain)} {toExplain === 1 ? "line" : "lines"} to explain
+                  </AnswerWord>{" "}
+                  before it is signed.
+                </>
+              )}
+            </AnswerLine>
+            <p className="max-w-2xl text-lead text-fg-muted">
+              {s.total_in_words}. {formatCount(s.count)} {s.count === 1 ? "payment" : "payments"} to {formatCount(s.people)}{" "}
+              {s.people === 1 ? "person" : "people"}.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 print:hidden">
+              <Button kind="primary" size="lg" asChild>
                 <a href={`/api/payouts/statement.pdf?month=${s.month}`} download>
                   <FileText />
                   Statement to sign (PDF)
                 </a>
               </Button>
-              {isFinance && (
-                <Button kind="default" size="md" asChild>
-                  <a href={`/api/payouts/statement.csv?month=${s.month}`} download>
-                    <Download />
-                    Bank file (CSV)
-                  </a>
-                </Button>
-              )}
-              <Button kind="quiet" size="md" asChild>
+              {isFinance && <BankFileButton month={s.month} />}
+              <Button kind="default" asChild>
                 <Link to={`/ledger?month=${s.month}`}>Open in the ledger</Link>
               </Button>
             </div>
-            {isFinance && (
-              <p className="max-w-prose text-sm text-fg-muted">
-                The bank file has {formatCount(s.count)} {s.count === 1 ? "row" : "rows"} adding to {money(s.total)},
-                the same as this statement. Account number and IFSC are left empty for Accounts to fill from the
-                payroll master; this app holds no bank details. Tax is deducted through payroll.
+            {isFinance && bank.data && (
+              <p className={cn("text-sm print:hidden", sent ? "text-fg-muted" : "text-caution")}>
+                {sent
+                  ? `Bank file released ${when(sent.created_at)}${sent.by ? ` by ${sent.by}` : ""}: ${formatCount(sent.count)} ${sent.count === 1 ? "payment" : "payments"}, ${money(sent.total)}.`
+                  : `Bank file not released yet: ${formatCount(s.count)} ${s.count === 1 ? "row" : "rows"} adding to ${money(s.total)}, the same as this statement.`}
               </p>
             )}
           </section>
 
-          <Section id="ledger-check" title="Against the ledger" className="scroll-mt-4">
-            <dl className="divide-y divide-line text-sm">
+          {!s.reconciliation.balanced && (
+            <section id="ledger-check" className="scroll-mt-4 space-y-3 rounded-panel bg-caution-wash p-5" aria-label="Lines to explain">
+              <p className="text-base font-medium">
+                {formatCount(s.reconciliation.issues.length)}{" "}
+                {s.reconciliation.issues.length === 1 ? "line needs" : "lines need"} explaining before this month is signed
+              </p>
+              <ul className="space-y-1 text-sm">
+                {s.reconciliation.issues.map((i) => (
+                  <li key={i.claim_id} className="flex flex-wrap justify-between gap-x-4">
+                    <span>
+                      <Link to={`/papers/${i.claim_id}`} className="underline underline-offset-4">
+                        {i.ticket || "Claim"}
+                      </Link>
+                      : {i.problem}
+                    </span>
+                    <span className="tabular text-fg-muted">
+                      claim {money(i.claim)} · ledger {money(i.ledger)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {me?.role === "SUPER_ADMIN" ? (
+                <Button kind="default" size="sm" asChild>
+                  <Link to="/ledger?problem=no-ledger">Open the ledger checks</Link>
+                </Button>
+              ) : (
+                <p className="text-sm text-fg-muted">
+                  A super admin corrects the ledger; Finance cannot undo a payment. Ask them, naming the claim number.
+                </p>
+              )}
+            </section>
+          )}
+
+          <Section title={`Every payment in ${s.label}`}>
+            <Table
+              rows={paidRows}
+              columns={columns}
+              getKey={(r) => r.ledger_id ?? r.claim_id ?? `${r.ticket}-${r.name}`}
+              minWidth="56rem"
+              caption={`Payments made in ${s.label}`}
+              maxHeight="none"
+              empty={{
+                title: "No money was paid this month",
+                message: "Claims closed at ₹0 are listed below, and are not in the bank file.",
+              }}
+            />
+            <div className="mt-2 flex justify-between gap-4 px-3 text-base font-semibold">
+              <span>Total</span>
+              <span className="tabular">{money(s.total)}</span>
+            </div>
+            <div className="mt-2">
+              <ErpLegend rows={s.rows.map((r) => ({ ticket_number: r.ticket }))} />
+            </div>
+            {zeroRows.length > 0 && (
+              <Details count={zeroRows.length} label="claims closed at ₹0" className="mt-4">
+                <ul className="max-h-96 divide-y divide-line overflow-auto rounded-panel ring-1 ring-inset ring-edge">
+                  {zeroRows.map((r, i) => (
+                    <li key={r.ledger_id ?? r.claim_id ?? i} className="flex flex-wrap justify-between gap-x-4 px-3 py-2 text-sm">
+                      <span className="min-w-0 flex-1 basis-64">
+                        {r.name}: {unshout(r.paper_title) || "Title not recorded"}
+                      </span>
+                      <Meta>{r.ticket || "No claim number"}</Meta>
+                    </li>
+                  ))}
+                </ul>
+              </Details>
+            )}
+          </Section>
+
+          {departments.length > 0 && (
+            <Details label="the month by department" count={departments.length}>
+              <ul className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-3 sm:grid-cols-2">
+                {departments.map((d) => (
+                  <li key={d.department} className="min-w-0">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="truncate">{d.department}</span>
+                      <span className="tabular">{money(d.amount)}</span>
+                    </div>
+                    <div className="mt-1 h-1.5 rounded-full bg-hover" aria-hidden>
+                      <div
+                        className="h-1.5 rounded-full bg-navy"
+                        style={{ width: `${s.total > 0 ? Math.max(2, (d.amount / s.total) * 100) : 0}%` }}
+                      />
+                    </div>
+                    <Meta>
+                      {d.count} {d.count === 1 ? "payment" : "payments"}
+                    </Meta>
+                  </li>
+                ))}
+              </ul>
+              {zeroDepartments > 0 && (
+                <Meta className="mt-3 block">
+                  {formatCount(zeroDepartments)} more {zeroDepartments === 1 ? "department has" : "departments have"} only
+                  claims closed at ₹0.
+                </Meta>
+              )}
+            </Details>
+          )}
+
+          <Details label="how this agrees with the ledger">
+            <dl className="mt-1 max-w-3xl divide-y divide-line text-sm">
               <Fact
                 label="Claims paid here"
                 value={`${formatCount(s.reconciliation.matched)} of ${formatCount(s.reconciliation.app_tickets)} have one ledger row for the same amount`}
@@ -312,133 +412,19 @@ export function Statements() {
                 sit in the month they were imported.
               </p>
             )}
-            {s.reconciliation.balanced ? (
+            {s.reconciliation.balanced && (
               <p className="mt-3 flex items-center gap-2 text-sm text-positive">
                 <CheckCircle2 className="size-4" aria-hidden />
                 Every claim paid in {s.label} has one ledger row for the same amount.
               </p>
-            ) : (
-              <div className="mt-3 space-y-2 rounded-panel bg-caution-wash p-4">
-                <p className="font-medium">
-                  {formatCount(s.reconciliation.issues.length)}{" "}
-                  {s.reconciliation.issues.length === 1 ? "line needs" : "lines need"} explaining before this month is
-                  signed
-                </p>
-                <ul className="space-y-1 text-sm">
-                  {s.reconciliation.issues.map((i) => (
-                    <li key={i.claim_id} className="flex flex-wrap justify-between gap-x-4">
-                      <span>
-                        <Link to={`/papers/${i.claim_id}`} className="underline underline-offset-4">
-                          {i.ticket || "Claim"}
-                        </Link>
-                        : {i.problem}
-                      </span>
-                      <span className="tabular text-fg-muted">
-                        claim {money(i.claim)} · ledger {money(i.ledger)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                {me?.role === "SUPER_ADMIN" ? (
-                  <p className="text-sm text-fg-muted">
-                    <Link to="/ledger?problem=no-ledger" className="underline underline-offset-4">
-                      Open the ledger checks
-                    </Link>{" "}
-                    to add the missing ledger row or link a payment to its claim.
-                  </p>
-                ) : (
-                  <p className="text-sm text-fg-muted">
-                    A super admin corrects the ledger; Finance cannot undo a payment. Ask them, naming the claim number.
-                  </p>
-                )}
-              </div>
             )}
-          </Section>
-
-          {departments.length > 0 && (
-            <Section title="By department">
-              <ul className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-3 sm:grid-cols-2">
-                {departments.map((d) => (
-                  <li key={d.department} className="min-w-0">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="truncate">{d.department}</span>
-                      <span className="tabular">{money(d.amount)}</span>
-                    </div>
-                    <div className="mt-1 h-1.5 rounded-full bg-hover" aria-hidden>
-                      <div
-                        className="h-1.5 rounded-full bg-accent"
-                        style={{ width: `${s.total > 0 ? Math.max(2, (d.amount / s.total) * 100) : 0}%` }}
-                      />
-                    </div>
-                    <Meta>
-                      {d.count} {d.count === 1 ? "payment" : "payments"}
-                    </Meta>
-                  </li>
-                ))}
-              </ul>
-              {zeroDepartments > 0 && (
-                <Meta className="mt-3 block">
-                  {formatCount(zeroDepartments)} more {zeroDepartments === 1 ? "department has" : "departments have"} only
-                  claims closed at ₹0.
-                </Meta>
-              )}
-            </Section>
-          )}
-
-          <Section title={`Every payment in ${s.label}`}>
-            <Table
-              rows={paidRows}
-              columns={columns}
-              getKey={(r) => r.ledger_id ?? r.claim_id ?? `${r.ticket}-${r.name}`}
-              minWidth="60rem"
-              caption={`Payments made in ${s.label}`}
-              maxHeight="none"
-              empty={{
-                title: "No money was paid this month",
-                message: "Claims closed at ₹0 are listed below, and are not in the bank file.",
-              }}
-            />
-            <div className="mt-2 flex justify-between gap-4 px-3 font-semibold">
-              <span>Total</span>
-              <span className="tabular">{money(s.total)}</span>
-            </div>
-            <div className="mt-2">
-              <ErpLegend rows={s.rows.map((r) => ({ ticket_number: r.ticket }))} />
-            </div>
-            {zeroRows.length > 0 && (
-              <Details
-                count={zeroRows.length}
-                label="claims closed at ₹0"
-                className="mt-4"
-              >
-                <ul className="max-h-96 divide-y divide-line overflow-auto rounded-panel ring-1 ring-inset ring-edge">
-                  {zeroRows.map((r, i) => (
-                    <li key={r.ledger_id ?? r.claim_id ?? i} className="flex flex-wrap justify-between gap-x-4 px-3 py-2 text-sm">
-                      <span className="min-w-0 flex-1 basis-64">
-                        {r.name}: {unshout(r.paper_title) || "Title not recorded"}
-                      </span>
-                      <Meta>{r.ticket || "No claim number"}</Meta>
-                    </li>
-                  ))}
-                </ul>
-              </Details>
-            )}
-          </Section>
-
-          {fy.data && (
-            <div className="space-y-3">
-              <p className="text-sm text-fg-muted">
-                For FY {fy.data.financial_year}, {money(fy.data.paid)} is paid
-                {fy.data.allocation != null ? ` of ${money(fy.data.allocation)} allocated` : "; no allocation is set"}.{" "}
-                <Link to="/budget" className="text-accent underline-offset-4 hover:underline">
-                  See the budget
-                </Link>
+            {isFinance && (
+              <p className="mt-3 max-w-prose text-sm text-fg-muted">
+                The bank file has no account numbers or IFSC codes: this app holds none, so Accounts adds them from the
+                payroll master. Tax is deducted through payroll.
               </p>
-              <Details label="the year's spending against the budget">
-                <BudgetBurn fy={fy.data} />
-              </Details>
-            </div>
-          )}
+            )}
+          </Details>
         </>
       )}
     </div>
@@ -453,6 +439,7 @@ function Fact({ label, value }: { label: string; value: string }) {
     </div>
   )
 }
+
 
 /**
  * Month by month spend for the financial year against the college allocation:
@@ -474,18 +461,10 @@ export function BudgetBurn({ fy }: { fy: FinancialYear }) {
     .filter((m) => m.month <= today)
     .map((m, i) => `${i ? "L" : "M"}${pad.l + step * i + step / 2},${y(m.cumulative)}`)
     .join(" ")
-  const left = alloc - fy.paid - fy.committed
   return (
     <section className="space-y-3" aria-label={`Budget against spend, FY ${fy.financial_year}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <SectionTitle>FY {fy.financial_year}: spend against the budget</SectionTitle>
-        <Meta>
-          {fy.allocation != null
-            ? `${money(fy.paid)} paid and ${money(fy.committed)} committed of ${money(alloc)}; ${
-                left >= 0 ? `${money(left)} left` : `${money(-left)} over`
-              }`
-            : `${money(fy.paid)} paid; no college allocation set for this year`}
-        </Meta>
       </div>
       <div tabIndex={0} role="region" aria-label="Months" className="overflow-x-auto">
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full min-w-[36rem]" role="img"
@@ -506,8 +485,8 @@ export function BudgetBurn({ fy }: { fy: FinancialYear }) {
               width={step * 0.6}
               height={Math.max(0, pad.t + ih - y(m.amount))}
               rx={2}
-              fill="var(--color-accent)"
-              opacity={0.55}
+              fill="var(--color-navy)"
+              opacity={0.7}
             >
               <title>{`${m.label}: ${money(m.amount)} paid, ${money(m.cumulative)} so far`}</title>
             </rect>
@@ -519,7 +498,7 @@ export function BudgetBurn({ fy }: { fy: FinancialYear }) {
         <path d={line} fill="none" stroke="var(--color-fg)" strokeWidth={1.5} />
       </svg>
       </div>
-      <Meta>Bars: paid that month. Line: paid so far this year.</Meta>
+      <Meta>Bars are each month paid; the line is the total so far this year.</Meta>
     </section>
   )
 }

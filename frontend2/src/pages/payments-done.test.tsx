@@ -62,6 +62,8 @@ describe("the paid register", () => {
     renderWithProviders(<PaymentsDone />)
     expect(await screen.findByText("Dr Senthil Sundaram")).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull()
+    // Said once, behind a disclosure, not above the table.
+    await userEvent.click(screen.getByRole("button", { name: /who can undo a payment/ }))
     expect(screen.getByText(/Finance cannot undo a payment/)).toBeInTheDocument()
   })
 

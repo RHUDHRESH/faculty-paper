@@ -25,6 +25,7 @@ import { Answer } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
 import { Details, Rows, Section } from "@/ui/section"
 import { ImportTask } from "./import-task"
+import { useStart } from "@/pages/admin-start"
 import { toast } from "@/ui/toast"
 
 /**
@@ -146,7 +147,7 @@ export function Imports() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="Loading the roster and the payment history is the research office's job. Every reading on this screen is refused to other roles by the server as well, so there would be nothing here to show."
+          message="Loading the roster and the payment history is the research office's job."
         />
       </div>
     )
@@ -170,7 +171,7 @@ export function Imports() {
     <div className="page space-y-10">
       <PageHeader
         title="Imports"
-        sub="Bring in a file, see what it changes, then check that it landed."
+        sub="Load a file, then check that it landed."
         spot="spot-imports"
         action={
           <Button kind="default" onClick={refreshStats} disabled={stats.isFetching}>
@@ -182,12 +183,12 @@ export function Imports() {
 
       <AlreadyLoaded query={stats} />
 
-      <Section title="Load a file" sub="The three files this system is built from. Each one asks before it changes anything.">
+      <Section title="Load a file">
         <Rows>
           <ImportTask
             {...task("workbook")}
             title="The ERP workbook"
-            purpose="The roster, the payment history, the journal tables and every paper, in one Excel file."
+            purpose="Roster, payment history, journal tables and papers, in one Excel file."
             summary={s ? `${nf(s.claims)} papers, ${nf(s.claims_paid)} paid` : undefined}
           >
             <WorkbookSection stats={s} onImported={refreshStats} />
@@ -195,7 +196,7 @@ export function Imports() {
           <ImportTask
             {...task("prior")}
             title="Payment history"
-            purpose="What the college paid before this system. It stops the same paper being paid twice."
+            purpose="Earlier payments. Stops the same paper being paid twice."
             summary={s ? `${nf(s.prior_payments)} payments held` : undefined}
           >
             <PriorPaymentsSection stats={s} onImported={refreshStats} />
@@ -203,7 +204,7 @@ export function Imports() {
           <ImportTask
             {...task("faculty-master")}
             title="Faculty roster"
-            purpose="The list every name is matched against. A paper by someone not on it appears in nobody's figures."
+            purpose="The list every name is matched against."
             summary={s ? `${nf(s.faculty_master)} on the roster` : undefined}
           >
             <FacultyMasterSection onImported={refreshStats} />
@@ -216,28 +217,28 @@ export function Imports() {
           <ImportTask
             {...task("scopus-ids")}
             title="Scopus author IDs"
-            purpose="Set every account's Scopus ID from the workbook. A different ID already on an account is listed, never overwritten."
+            purpose="Sets each account's Scopus ID. A different ID already there is listed, not overwritten."
           >
             <ScopusIdsSection />
           </ImportTask>
           <ImportTask
             {...task("scopus-profiles")}
             title="Scopus author profiles"
-            purpose="Publications, citations and h-index for each author, matched to an account by Scopus ID."
+            purpose="Publications, citations and h-index for each author."
           >
             <ScopusProfilesSection />
           </ImportTask>
           <ImportTask
             {...task("fyp-roster")}
             title="Final-year project teams"
-            purpose="The department's project teams. Only a team's mentor can claim for it."
+            purpose="Project teams. Only a team's mentor can claim."
           >
             <FypRosterSection />
           </ImportTask>
           <ImportTask
             {...task("college-site")}
             title="Photos and bios from the college website"
-            purpose="Fills only what people left empty, once per person."
+            purpose="Fills what people left empty, once per person."
           >
             <CollegeSiteSection />
           </ImportTask>
@@ -249,7 +250,7 @@ export function Imports() {
           <ImportTask
             {...task("queue")}
             title="Papers waiting to be checked against Scopus"
-            purpose="A check sets the quartile and SNIP, and so what the paper is worth."
+            purpose="A check sets the quartile and SNIP."
           >
             <ProcessQueueSection />
           </ImportTask>
@@ -257,7 +258,7 @@ export function Imports() {
             <ImportTask
               {...task("harvest")}
               title="Refresh the publication record"
-              purpose="Pull the college's papers from OpenAlex, or sync each author's Scopus profile."
+              purpose="Pull papers from OpenAlex, or sync Scopus profiles."
             >
               <PublicationHarvestSection />
             </ImportTask>
@@ -316,7 +317,6 @@ function PublicationHarvestSection() {
   const s = status.data
   return (
     <section className="space-y-4">
-      <p className="text-sm text-fg-muted">Both run in the background. The status below updates when they finish.</p>
       <div className="flex flex-wrap gap-2">
         <Button kind="default" disabled={harvest.isPending} onClick={() => void queue("harvest")}>
           <RefreshCw /> {harvest.isPending ? "Queuing…" : "Refresh from OpenAlex"}
@@ -380,7 +380,7 @@ function AlreadyLoaded({ query }: { query: UseQueryResult<ErpStats, ApiError> })
     return (
       <ErrorState
         title="Could not count what is loaded"
-        message="The counts did not come back, so this page cannot say whether an earlier import worked. Nothing has been changed. Try again."
+        message="Nothing has been changed. Try again."
         onRetry={() => void refetch()}
       />
     )
@@ -396,30 +396,28 @@ function AlreadyLoaded({ query }: { query: UseQueryResult<ErpStats, ApiError> })
           { value: data.prior_payments, label: "Earlier payments held", to: "/ledger", zero: "No payment history loaded" },
         ]}
       />
-      <p className="text-sm text-fg-muted">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {last?.at ? (
-          <>
+          <p className="text-sm text-fg-muted">
             Last import: {last.title.toLowerCase()}, {new Date(last.at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-            {last.by ? ` by ${last.by}` : ""}.{" "}
-          </>
+            {last.by ? ` by ${last.by}` : ""}.
+          </p>
         ) : null}
-        <Link to="/audit?q=IMPORT" className="underline underline-offset-2">
-          Every import in the audit log
-        </Link>
-        {" and "}
-        <Link to="/jobs" className="underline underline-offset-2">
-          jobs still running
-        </Link>
-        .
-      </p>
+        <Button kind="default" size="sm" asChild>
+          <Link to="/audit?q=IMPORT">Import history</Link>
+        </Button>
+        <Button kind="default" size="sm" asChild>
+          <Link to="/jobs">Jobs in progress</Link>
+        </Button>
+      </div>
       <Details label="every count" count={STAT_ROWS.length}>
         <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
           {STAT_ROWS.map((s) => (
-            <div key={s.key}>
+            <div key={s.key} title={s.about}>
               <dt className="text-sm text-fg-muted">{s.label}</dt>
               <dd>
                 <span className="figure tabular text-xl">{nf(data[s.key])}</span>
-                <Meta className="block">{data[s.key] === 0 ? `None yet. ${s.about}` : s.about}</Meta>
+                {data[s.key] === 0 && <Meta className="block">None yet</Meta>}
               </dd>
             </div>
           ))}
@@ -571,7 +569,7 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
         body,
       } as unknown as Parameters<typeof api>[1])
       setResult(
-        `${nf(res.imported)} rows imported. Any row with no staff id or no name was skipped, and the server does not count those — if this figure is short of the rows in your file, that is where the difference is.`
+        `${nf(res.imported)} rows imported. Rows with no staff ID or no name are skipped and not counted, so a shortfall against your file is probably those.`
       )
       toast.ok(`${nf(res.imported)} faculty rows imported.`)
       setFile(null)
@@ -597,24 +595,20 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
         </span>
       ),
     },
-    { key: "staff", header: "Staff ID", cell: (f) => f.staff_id || "—" },
+    { key: "staff", header: "Staff ID", cell: (f) => f.staff_id || null },
     {
       key: "dept",
       header: "Department",
       className: "max-w-[12rem]",
-      cell: (f) => (
-        <span className="block truncate text-fg-muted">{f.department || "—"}</span>
-      ),
+      cell: (f) => (f.department ? <span className="block truncate text-fg-muted">{f.department}</span> : null),
     },
     {
       key: "email",
       header: "Email",
       className: "max-w-[14rem]",
-      cell: (f) => (
-        <span className="block truncate text-fg-muted">{f.email || "—"}</span>
-      ),
+      cell: (f) => (f.email ? <span className="block truncate text-fg-muted">{f.email}</span> : null),
     },
-    { key: "scopus", header: "Scopus ID", cell: (f) => f.scopus_author_id || "—" },
+    { key: "scopus", header: "Scopus ID", cell: (f) => f.scopus_author_id || null },
   ]
 
   const rows = list.data ?? []
@@ -627,7 +621,7 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
         <SkeletonText lines={2} />
       ) : list.error ? (
         <InlineError
-          message="Could not read the faculty master. The importer below still works, but you will not see the result of it here."
+          message="Could not read the faculty master. The importer still works."
           onRetry={() => void list.refetch()}
         />
       ) : (
@@ -639,10 +633,9 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
       )}
 
       <Callout tone="caution" title="This one replaces rows it already has">
-        Every row is matched on its staff ID. A staff ID already in the table is{" "}
-        <strong>overwritten in every column</strong> (department, biometric ID, Scopus ID,
-        designation, email and phone) with whatever the file says, including nothing at all. A
-        partial export blanks the columns it leaves out. Rows whose staff ID is new are added.
+        A staff ID already held is <strong>overwritten in every column</strong> with whatever the file
+        says, including nothing at all, so a partial export blanks the columns it leaves out. New
+        staff IDs are added.
       </Callout>
 
       <Details label="which columns are read">
@@ -653,13 +646,12 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
           <br />
           <strong>Also read:</strong> <code>department</code>, <code>biometric_id</code> /{" "}
           <code>Biometric ID</code>, <code>scopus_author_id</code> / <code>Scopus Author ID</code>,{" "}
-          <code>designation</code>, <code>email</code>, <code>phone</code>. Every other column is kept
-          on the row but never read back.
+          <code>designation</code>, <code>email</code>, <code>phone</code>.
         </p>
       </Details>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
-        <Field label="Roster CSV" hint="A comma-separated export, not the ERP workbook.">
+        <Field label="Roster CSV" hint="Not the ERP workbook.">
           <FileInput accept=".csv,text/csv" file={file} onPick={setFile} disabled={busy} />
         </Field>
         <div className="space-y-1.5">
@@ -682,7 +674,7 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
         onOpenChange={setConfirming}
         danger
         title="Replace the rows this file matches?"
-        description={`${file?.name || "The file"} has ${fileRows == null ? "some" : nf(fileRows)} rows. The roster holds ${nf(rows.length)} now. Every row whose staff ID is already held will have all of its columns replaced by what the file says, including columns the file leaves out, which are set to nothing. People not named in the file are untouched. There is no undo.`}
+        description={`${file?.name || "The file"} has ${fileRows == null ? "some" : nf(fileRows)} rows. The roster holds ${nf(rows.length)} now. Every row whose staff ID is already held has all its columns replaced by the file, and columns the file leaves out are set to nothing. People not named in the file are untouched. There is no undo.`}
         confirmLabel="Replace and import"
         onConfirm={() => run()}
       />
@@ -695,7 +687,7 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
         <EmptyState
           art="nothing-filed"
           title="No faculty loaded yet"
-          message="The roster is empty. Import a CSV above, or load the whole ERP workbook further down — until then, no paper can be matched to a department."
+          message="Import a CSV above, or load the ERP workbook. Until then no paper can be matched to a department."
         />
       ) : preview.length > 0 ? (
         <div className="space-y-2">
@@ -708,14 +700,12 @@ function FacultyMasterSection({ onImported }: { onImported: () => void }) {
             minWidth="46rem"
           />
           {rows.length > preview.length ? (
-            <Meta className="block">
-              The first 25 of {nf(rows.length)}. The endpoint returns the whole
-              table at once; the rest is on the{" "}
-              <Link to="/data?table=facultymaster" className="underline underline-offset-2">
-                Data screen
-              </Link>
-              , which pages it.
-            </Meta>
+            <div className="flex flex-wrap items-center gap-3">
+              <Meta>The first 25 of {nf(rows.length)}.</Meta>
+              <Button kind="default" size="sm" asChild>
+                <Link to="/data?table=facultymaster">See all on the Data screen</Link>
+              </Button>
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -751,10 +741,7 @@ function FacultyLookup() {
 
   return (
     <div className="well space-y-3 p-3 sm:p-4">
-      <Field
-        label="Find somebody on the roster"
-        hint="Name, staff id, email or department. Says whether they also have an account to sign in with."
-      >
+      <Field label="Find somebody on the roster" hint="Name, staff ID, email or department.">
         <Input
           value={typed}
           onChange={(e) => setTyped(e.target.value)}
@@ -762,21 +749,12 @@ function FacultyLookup() {
         />
       </Field>
 
-      {!enabled ? (
-        <Meta className="block">
-          <Search className="mr-1 inline size-3.5 align-[-2px]" aria-hidden />
-          Nothing is searched until you have typed two characters.
-        </Meta>
-      ) : error ? (
+      {!enabled ? null : error ? (
         <InlineError message={messageOf(error)} onRetry={() => void refetch()} />
       ) : isLoading || isFetching ? (
         <SkeletonText lines={2} />
       ) : !data || data.length === 0 ? (
-        <p className="text-sm text-fg-muted">
-          Nobody on the roster or in the accounts matches “{q}”. That is an
-          answer, not a failure — the search reached the server and came back
-          with none.
-        </p>
+        <p className="text-sm text-fg-muted">Nobody on the roster or in the accounts matches “{q}”.</p>
       ) : (
         <ul className="divide-y divide-line text-sm">
           {data.slice(0, 12).map((f) => (
@@ -797,7 +775,7 @@ function FacultyLookup() {
                   f.has_user_account ? "text-fg-muted" : "text-caution"
                 )}
               >
-                {f.has_user_account ? "Has an account" : "No account — cannot sign in"}
+                {f.has_user_account ? "Has an account" : "No account, cannot sign in"}
               </span>
             </li>
           ))}
@@ -880,12 +858,15 @@ function CollegeSiteSection() {
   return (
     <section className="space-y-4">
       <p className="text-sm text-fg-muted">
-        Faculty photos, qualifications and designations, and department descriptions, taken from the
-        college's public website. Upload the zip of the scrape folder. A photo, bio or designation
-        somebody set is never replaced, and each is filled for a person once, so a photo somebody
-        removes stays removed when this is run again. Matching is by email, then Scopus author ID,
-        then an unambiguous name in the same department.
+        Photos, qualifications, designations and department descriptions from the college website. A
+        value somebody set is never replaced.
       </p>
+      <Details label="how people are matched">
+        <p className="text-sm text-fg-muted">
+          By email, then Scopus author ID, then an unambiguous name in the same department. Each value is
+          filled once per person, so a photo somebody removes stays removed when this is run again.
+        </p>
+      </Details>
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
         <Field label="Scrape zip" hint="faculty.json, departments.json, photos/ and images/.">
           <FileInput accept=".zip,application/zip" file={file} onPick={setFile} disabled={busy} />
@@ -894,7 +875,7 @@ function CollegeSiteSection() {
           <Button kind="default" disabled={reason !== null} onClick={() => void run(true)}>
             Preview
           </Button>
-          <Button kind="primary" disabled={reason !== null} onClick={() => void run(false)}>
+          <Button kind="default" disabled={reason !== null} onClick={() => void run(false)}>
             <Upload />
             {busy ? "Importing…" : "Import"}
           </Button>
@@ -906,7 +887,7 @@ function CollegeSiteSection() {
       ) : report ? (
         <ImportResult>
           <p>
-            {report.dry_run ? "Preview — nothing saved. " : ""}
+            {report.dry_run ? "Preview, nothing saved. " : ""}
             {nf(report.scraped)} on the website, {nf(report.matched)} matched to accounts,{" "}
             {nf(report.unmatched_count)} unmatched. Filled {nf(report.photos)} photos,{" "}
             {nf(report.bios)} bios, {nf(report.designations)} designations,{" "}
@@ -953,7 +934,8 @@ function RecleanBios() {
   return (
     <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
       <Button
-        kind="quiet"
+        kind="default"
+        size="sm"
         disabled={run.isPending}
         onClick={async () => {
           try {
@@ -970,7 +952,7 @@ function RecleanBios() {
       <Meta>
         {result
           ? `${nf(result.changed)} of ${nf(result.checked)} imported bios changed.`
-          : "Removes leftover table text such as “Completion, Full, Time/Part”. Bios people wrote are left alone."}
+          : "Removes leftover table text from imported bios. Bios people wrote are left alone."}
       </Meta>
     </div>
   )
@@ -1003,7 +985,7 @@ function PriorPaymentsSection({
         { method: "POST", body } as unknown as Parameters<typeof api>[1]
       )
       setResult(
-        `${nf(res.imported)} rows imported, 0 skipped — this importer keeps every row it reads. Batch ${res.batch_id}.`
+        `${nf(res.imported)} rows imported, 0 skipped. Batch ${res.batch_id}.`
       )
       toast.ok(`${nf(res.imported)} prior payments added.`)
       setFile(null)
@@ -1024,11 +1006,10 @@ function PriorPaymentsSection({
   return (
     <section className="space-y-4">
       <Callout tone="info" title="This one adds, it never replaces">
-        Every row in the file becomes a new record under a fresh batch. Nothing already held is
-        matched, changed or removed, so importing the same file twice leaves two copies of that
-        history, and papers matching it are flagged as duplicates twice over.{" "}
+        Every row becomes a new record. Nothing already held is changed, so importing the same file
+        twice leaves two copies.{" "}
         {stats ? `${nf(stats.prior_payments)} payments are held now.` : ""} A bad amount stops the whole
-        file: nothing is half-loaded, and the error names the line.
+        file, and the error names the line.
       </Callout>
 
       <Details label="which columns are read">
@@ -1038,14 +1019,13 @@ function PriorPaymentsSection({
           <strong>amount</strong> from <code>amount</code> only; <strong>who</strong> from{" "}
           <code>faculty_name</code> or <code>name</code>, plus <code>employee_id</code>; and the
           journal from <code>issn</code> and <code>journal</code>. The amount column has no other
-          spelling: a file whose amount is under <code>Amount</code> or <code>amount_paid</code>{" "}
-          imports as history with no money on it, and nothing says so. Amounts are read with commas
-          removed.
+          spelling: a file with <code>Amount</code> or <code>amount_paid</code> imports with no money
+          on it, and nothing says so. Commas in amounts are removed.
         </p>
       </Details>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
-        <Field label="History CSV" hint="One row per payment already made.">
+        <Field label="History CSV">
           <FileInput accept=".csv,text/csv" file={file} onPick={setFile} disabled={busy} />
         </Field>
         <div className="space-y-1.5">
@@ -1146,13 +1126,13 @@ function WorkbookSection({ stats, onImported }: { stats: ErpStats | undefined; o
     : !file
       ? "Choose an .xlsx workbook first."
       : wrongType
-        ? "The server accepts .xlsx and .xlsm only, and refuses anything else outright."
+        ? "Only .xlsx and .xlsm files are accepted."
         : tooBig
           ? `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is 40 MB.`
           : !yearOk
             ? "The dataset year has to be four digits."
             : readsNothing
-              ? "No sheet is selected, so the workbook would be uploaded and read for nothing."
+              ? "Select at least one sheet to read."
               : null
 
   // What this run will actually do, in the order the command does it. Built
@@ -1211,7 +1191,7 @@ function WorkbookSection({ stats, onImported }: { stats: ErpStats | undefined; o
       )
       setJobId(res.job_id)
       setFile(null)
-      toast.ok("Workbook accepted. It runs in the background. Watch the job below.")
+      toast.ok("Workbook uploaded. It runs in the background. Watch the job below.")
     } catch (err) {
       toast.fail(err)
     } finally {
@@ -1222,18 +1202,14 @@ function WorkbookSection({ stats, onImported }: { stats: ErpStats | undefined; o
   return (
     <section className="space-y-4">
       <Callout tone="critical" title="This overwrites records that are already here">
-        <code>Publication_Processing_ERP.xlsx</code> is a statement about what the database should
-        say, not an addition to it. The roster is replaced row for row, papers already filed are
-        overwritten by any cell the sheet fills, and if the two journal sheets are switched on the
-        entire SCImago and SNIP tables <strong>for the chosen year are deleted</strong> before
-        being rebuilt. Both are off by default here, as they are on the server.
+        The roster is replaced row for row, filed papers are overwritten by any cell the sheet
+        fills, and if the two journal sheets are switched on, the SCImago and SNIP rows{" "}
+        <strong>for the chosen year are deleted</strong> and rebuilt. Both journal sheets are off by
+        default.
       </Callout>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
-        <Field
-          label="The workbook"
-          hint="Excel only — .xlsx or .xlsm, up to 40 MB."
-        >
+        <Field label="The workbook" hint="Publication_Processing_ERP.xlsx. .xlsx or .xlsm, up to 40 MB.">
           <FileInput
             accept=".xlsx,.xlsm"
             file={file}
@@ -1308,14 +1284,13 @@ function WorkbookSection({ stats, onImported }: { stats: ErpStats | undefined; o
       </fieldset>
 
       {effects.length > 0 ? (
-        <div className="space-y-1.5">
-          <ColumnLabel>What this run would do</ColumnLabel>
+        <Details label="what this run would do" count={effects.length}>
           <ul className="list-disc space-y-1 pl-5 text-sm text-fg-muted">
             {effects.map((e) => (
               <li key={e}>{e}</li>
             ))}
           </ul>
-        </div>
+        </Details>
       ) : null}
 
       <div className="space-y-1.5">
@@ -1496,7 +1471,7 @@ function ProcessQueueSection() {
       cell: (c) => (
         <span className="block">
           <span className="line-clamp-2 text-sm text-fg-muted">
-            {c.journal_title || "—"}
+            {c.journal_title || "Not recorded"}
           </span>
           {c.doi ? <Meta className="block truncate">{c.doi}</Meta> : null}
         </span>
@@ -1520,22 +1495,22 @@ function ProcessQueueSection() {
       key: "waiting",
       header: "Waiting",
       align: "right",
-      cell: (c) => (c.waiting_days == null ? "—" : `${nf(c.waiting_days)} d`),
+      cell: (c) => (c.waiting_days == null ? null : `${nf(c.waiting_days)} d`),
     },
   ]
 
   return (
     <section className="space-y-4">
       <Callout tone="caution" title="Checking a paper rewrites what it is worth">
-        A check pulls the paper's indexing, quartile and SNIP from Scopus and recalculates the
-        amount from them, replacing what is on the claim now. A paper that has already been paid is
-        refused by the server, so ticking one only puts a line in the failures list.
+        A check pulls indexing, quartile and SNIP from Scopus and recalculates the amount, replacing
+        what is on the claim now. A paper already paid is refused and only adds a line to the
+        failures list.
       </Callout>
 
       <div className="well flex flex-wrap items-end gap-3 p-3">
         <Field
           label="Status"
-          hint="Whatever you pick, papers already marked Indexed are left out — that is what this queue is."
+          hint="Papers already marked Indexed are always left out."
           className="min-w-0 flex-1 sm:max-w-md"
         >
           <Select size="sm" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -1547,7 +1522,7 @@ function ProcessQueueSection() {
           </Select>
         </Field>
         <Button
-          kind="quiet"
+          kind="default"
           size="md"
           onClick={() => void refetch()}
           disabled={isFetching}
@@ -1599,7 +1574,7 @@ function ProcessQueueSection() {
       ) : error ? (
         <ErrorState
           title="Could not read the queue"
-          message="The list of papers waiting to be checked did not come back. Nothing has been queued and no paper has changed."
+          message="Nothing has been queued and no paper has changed. Try again."
           onRetry={() => void refetch()}
         />
       ) : rows.length === 0 ? (
@@ -1608,8 +1583,8 @@ function ProcessQueueSection() {
           title="Nothing waiting to be checked"
           message={
             status
-              ? "No paper at that status is still unconfirmed. Try another status, or the default, which covers drafts and submitted claims."
-              : "Every draft and submitted paper has had its indexing confirmed. This is the queue being empty, not the request failing."
+              ? "No paper at that status is still unconfirmed. Try another status."
+              : "Every draft and submitted paper has its indexing confirmed."
           }
         />
       ) : (
@@ -1625,7 +1600,7 @@ function ProcessQueueSection() {
           <Meta className="block">
             {nf(rows.length)} shown
             {rows.length === 200
-              ? " — which is the server's limit, so there may be more behind it. Narrow by status to see the rest."
+              ? ". This is the server's limit, so there may be more. Narrow by status to see the rest."
               : "."}
           </Meta>
         </div>
@@ -1691,7 +1666,7 @@ function JobProgress({
   if (error) {
     return (
       <InlineError
-        message={`Lost track of ${what}: ${messageOf(error)} The job itself is unaffected — it runs on the server whether or not this page can see it.`}
+        message={`Lost track of ${what}: ${messageOf(error)} The job itself is unaffected.`}
         onRetry={() => void refetch()}
       />
     )
@@ -1705,8 +1680,7 @@ function JobProgress({
       <p>{jobExplanation(data, what)}</p>
       {!settled ? (
         <p className="mt-1 tabular">
-          Watching for {formatElapsed(elapsed)}. Checked every three seconds.
-          Nothing is lost if you leave — it runs on the server.
+          Watching for {formatElapsed(elapsed)}. Nothing is lost if you leave.
         </p>
       ) : null}
       {settled && data ? <p className="mt-1">{describeResult(data)}</p> : null}
@@ -1737,11 +1711,11 @@ function jobExplanation(job: Job | undefined, what: string): string {
         job.stopped ? ` at ${new Date(job.stopped).toLocaleTimeString()}` : ""
       }.`
     case "failed":
-      return "The worker picked it up and it did not complete. Nothing further will happen on its own."
+      return "It did not complete. Nothing further will happen on its own."
     case "queued":
-      return "It is on the queue and no worker has taken it yet. That is normal for the first few seconds; if it stays here, no worker is running."
+      return "No worker has taken it yet. Normal for the first few seconds; if it stays here, no worker is running."
     case "running_or_unknown":
-      return "A worker most likely has it. The server cannot be more precise than that — this same answer is what it gives for a job id it does not recognise, so it is not proof of progress."
+      return "A worker most likely has it. The server cannot say more, and gives this same answer for an id it does not recognise."
     default:
       return "Asking the server where this got to."
   }
@@ -1777,7 +1751,7 @@ function describeResult(job: Job): string {
         const v = s[row.key]
         return typeof v === "number" ? `${row.label} ${nf(v)}` : null
       }).filter((x): x is string => !!x)
-      return `The database now holds — ${parts.join(", ")}.`
+      return `The database now holds: ${parts.join(", ")}.`
     }
   }
   if (typeof r === "string" && r) return r
@@ -1823,15 +1797,26 @@ const RESTORE_KEY = ["admin", "restore"] as const
  *  an interrupted one is never hidden behind a closed disclosure. */
 function RestoreDetails({ onImported }: { onImported: () => void }) {
   const { data } = useApi<{ run: RestoreRun | null }>(RESTORE_KEY, "/api/admin/restore/status", { staleTime: 0 })
-  const open = restoreUnfinished(data?.run)
+  // A college with nothing loaded is the very case this is for: open it and bring it into view.
+  const { me } = useAuth()
+  const start = useStart(me?.role === "SUPER_ADMIN")
+  const fresh = start.data?.steps.find((s) => s.key === "record")?.state === "todo"
+  const open = restoreUnfinished(data?.run) || fresh
+  const anchor = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (fresh) anchor.current?.scrollIntoView?.({ block: "start" })
+  }, [fresh])
   return (
+    <div ref={anchor}>
     <Details
       key={open ? "unfinished" : "idle"}
       label="restore a full export (new installation only)"
+      className="max-w-3xl"
       defaultOpen={open}
     >
       <RestoreSection onImported={onImported} />
     </Details>
+    </div>
   )
 }
 
@@ -1908,10 +1893,15 @@ function RestoreSection({ onImported }: { onImported: () => void }) {
   return (
     <section className="space-y-4">
       <p className="text-sm text-fg-muted">
-        For a new installation only. It loads everything from a previous one (accounts, claims,
-        payments, reference data) and is refused once any claim exists here — except to
-        continue an interrupted restore of the same file.
+        Loads everything from a previous installation. Refused once any claim exists here.
       </p>
+      <Details label="how restore works">
+        <p className="text-sm text-fg-muted">
+          It loads accounts, claims, payments and reference data. The one exception to the refusal is
+          continuing an interrupted restore of the same file, which the server recognises by its
+          checksum. It saves its place, so it survives a restart of the host and of this page.
+        </p>
+      </Details>
       {run && <RestoreStatus run={run} live={live} />}
       {resumable && (
         <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -1922,7 +1912,7 @@ function RestoreSection({ onImported }: { onImported: () => void }) {
           ) : (
             <span>
               The uploaded copy is gone from the server. Choose <strong>the same file</strong> again below; it
-              carries on from {nf(run.done)} of {run.total ? nf(run.total) : "?"} instead of starting over.
+              carries on from {nf(run.done)} of {run.total ? nf(run.total) : "unknown"} records.
             </span>
           )}
         </div>
@@ -1976,7 +1966,7 @@ function RestoreStatus({ run, live }: { run: RestoreRun; live: boolean }) {
       : run.status === "failed"
         ? "Restore stopped"
         : run.stalled
-          ? "Restore stalled — the server stopped working on it"
+          ? "Restore stalled. The server stopped working on it"
           : RESTORE_PHASE[run.phase]
   const dropped = Object.entries(run.dropped ?? {})
   return (
@@ -1998,11 +1988,11 @@ function RestoreStatus({ run, live }: { run: RestoreRun; live: boolean }) {
           </div>
           <p className="tabular">
             {run.total ? `${nf(run.done)} of ${nf(run.total)} records` : `${nf(run.done)} records`}
-            {run.phase === "load" && run.model ? ` — now ${run.model.replace("core.", "")}` : ""}
-            {run.phase === "links" ? ` — ${nf(run.links)} links so far` : ""}
-            {run.chain > 0 ? ` — continued in ${nf(run.chain)} follow-up job${run.chain === 1 ? "" : "s"}` : ""}.
+            {run.phase === "load" && run.model ? `, now ${run.model.replace("core.", "")}` : ""}
+            {run.phase === "links" ? `, ${nf(run.links)} links so far` : ""}
+            {run.chain > 0 ? `, continued in ${nf(run.chain)} follow-up job${run.chain === 1 ? "" : "s"}` : ""}.
           </p>
-          {live && <p>Checked every three seconds. Nothing is lost if you leave: it runs on the server and saves its place.</p>}
+          {live && <p>Nothing is lost if you leave. It saves its place.</p>}
           {run.error && <p>{run.error}</p>}
         </div>
       )}
@@ -2015,8 +2005,8 @@ function RestoreStatus({ run, live }: { run: RestoreRun; live: boolean }) {
       {dropped.length > 0 && (
         <p className="mt-1">
           Left out because they pointed at nothing in the file:{" "}
-          {dropped.map(([k, n]) => `${nf(n)} ${k.replace("core.", "")}`).join(", ")}. Run author re-matching to rebuild
-          what can be rebuilt.
+          {dropped.map(([k, n]) => `${nf(n)} ${k.replace("core.", "")}`).join(", ")}. Run author re-matching to
+          rebuild what can be.
         </p>
       )}
       <Meta className="mt-1 block">{run.filename}</Meta>
@@ -2105,14 +2095,14 @@ function FypRosterSection() {
   const unmatched = summary.data?.mentors_unmatched ?? []
   const columns: Column<UnmatchedMentor>[] = [
     { key: "code", header: "Team", cell: (m) => m.code },
-    { key: "fid", header: "Faculty ID", cell: (m) => m.faculty_id || "—" },
+    { key: "fid", header: "Faculty ID", cell: (m) => m.faculty_id || null },
     {
       key: "name",
       header: "Mentor, as the roster names them",
       className: "max-w-[16rem]",
-      cell: (m) => <span className="block truncate">{m.mentor_name || "—"}</span>,
+      cell: (m) => (m.mentor_name ? <span className="block truncate">{m.mentor_name}</span> : null),
     },
-    { key: "dept", header: "Department", cell: (m) => m.department || "—" },
+    { key: "dept", header: "Department", cell: (m) => m.department || null },
   ]
   const reason = busy ? "Importing." : !file ? "Choose the roster workbook first." : null
 
@@ -2123,7 +2113,7 @@ function FypRosterSection() {
         <SkeletonText lines={2} />
       ) : summary.error ? (
         <InlineError
-          message="Could not read the roster. The importer below still works, but you will not see the result of it here."
+          message="Could not read the roster. The importer still works."
           onRetry={() => void summary.refetch()}
         />
       ) : summary.data ? (
@@ -2143,12 +2133,12 @@ function FypRosterSection() {
           <code>Faculty ID</code>, <code>Reg No - 1</code> to <code>Reg No - 4</code> with{" "}
           <code>Name - 1</code> to <code>Name - 4</code>, and <code>Project Title</code>. The academic
           year is read off the sheet name (<code>25-26</code> is 2025-26). A row with no Team ID is
-          skipped and said so. A second copy of the file changes nothing.
+          skipped and listed. Importing a second copy changes nothing.
         </p>
       </Details>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
-        <Field label="Roster workbook" hint="The .xlsx the department sends, not a CSV export of it.">
+        <Field label="Roster workbook" hint="The .xlsx, not a CSV export.">
           <FileInput
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             file={file}
@@ -2171,7 +2161,7 @@ function FypRosterSection() {
           {result.academic_year ? ` (${result.academic_year})` : ""}: {nf(result.created)} created,{" "}
           {nf(result.updated)} updated, {nf(result.unchanged)} unchanged.{" "}
           {result.mentors_unmatched.length
-            ? `${nf(result.mentors_unmatched.length)} mentors matched no account — listed below.`
+            ? `${nf(result.mentors_unmatched.length)} mentors matched no account, listed below.`
             : "Every mentor matched an account."}
           {result.skipped.length ? ` ${result.skipped.join(" ")}` : ""}
         </ImportResult>
@@ -2180,9 +2170,9 @@ function FypRosterSection() {
       {unmatched.length > 0 ? (
         <div className="space-y-2">
           <p className="text-sm">
-            <span className="font-medium">Mentors with no account.</span> These teams are
-            loaded, and cannot be claimed for until an account carries the Faculty ID as its staff
-            id. Create or correct the account, then import the roster again.
+            <span className="font-medium">Mentors with no account.</span> Their teams are loaded
+            but cannot be claimed until an account carries the Faculty ID as its staff ID. Fix the
+            account, then import again.
           </p>
           <Table
             rows={unmatched}
@@ -2302,8 +2292,7 @@ export function ScopusIdsSection() {
   return (
     <section className="space-y-4">
       <p className="text-sm text-fg-muted">
-        Read from the workbook's Faculty_Data sheet and matched by staff ID, then biometric ID, then
-        email. Safe to run again.
+        Matched by staff ID, then biometric ID, then email. Safe to run again.
       </p>
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
         <Field label="ERP workbook" hint="Publication_Processing_ERP .xlsx">
@@ -2385,14 +2374,14 @@ function ScopusProfilesSection() {
 
   const orphanColumns: Column<ProfileRow>[] = [
     { key: "id", header: "Scopus ID", cell: (p) => <ScopusLink id={p.scopus_id} url={p.url} /> },
-    { key: "sheet", header: "Sheet", cell: (p) => p.sheet || "—" },
-    { key: "pubs", header: "Publications", align: "right", cell: (p) => (p.publications ?? "—").toString() },
-    { key: "cites", header: "Citations", align: "right", cell: (p) => (p.citations ?? "—").toString() },
+    { key: "sheet", header: "Sheet", cell: (p) => p.sheet || null },
+    { key: "pubs", header: "Publications", align: "right", cell: (p) => (p.publications == null ? null : p.publications.toString()) },
+    { key: "cites", header: "Citations", align: "right", cell: (p) => (p.citations == null ? null : p.citations.toString()) },
   ]
   const bareColumns: Column<ScopusVerification["faculty_without_scopus"][number]>[] = [
     { key: "name", header: "Faculty member", cell: (p) => <PersonLink person={p} /> },
-    { key: "dept", header: "Department", cell: (p) => p.department || "—" },
-    { key: "staff", header: "Staff ID", cell: (p) => p.staff_id || "—" },
+    { key: "dept", header: "Department", cell: (p) => p.department || null },
+    { key: "staff", header: "Staff ID", cell: (p) => p.staff_id || null },
     {
       key: "hint",
       header: "Faculty master says",
@@ -2413,17 +2402,10 @@ function ScopusProfilesSection() {
 
   return (
     <section className="space-y-4">
-      <p className="text-sm text-fg-muted">
-        One sheet per author: publications, citations, h-index and the document list. Each profile
-        is matched to an account by its Scopus ID (the account's own, or the roster's for that staff
-        ID) and shown on the person's profile, their record, and the department and report screens.
-      </p>
+      <p className="text-sm text-fg-muted">One sheet per author, matched to an account by Scopus ID.</p>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
-        <Field
-          label="Profile workbook"
-          hint="The .xlsx with a sheet per author and a Scopus ID at the top of each."
-        >
+        <Field label="Profile workbook" hint="The .xlsx with a Scopus ID at the top of each author's sheet.">
           <FileInput
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             file={file}
@@ -2448,7 +2430,7 @@ function ScopusProfilesSection() {
             ? `No account carries ${result.unmatched.map((u) => u.scopus_id).join(", ")}.`
             : "Every profile matched an account."}
           {result.ambiguous.length
-            ? ` ${result.ambiguous.map((a) => `${a.scopus_id} is on ${a.accounts.join(" and ")}`).join("; ")} — linked to neither.`
+            ? ` ${result.ambiguous.map((a) => `${a.scopus_id} is on ${a.accounts.join(" and ")}`).join("; ")}, so linked to neither.`
             : ""}
           {result.warnings.length ? ` ${result.warnings.join(" ")}` : ""}
         </ImportResult>
@@ -2458,7 +2440,7 @@ function ScopusProfilesSection() {
         <SkeletonRows rows={4} rowHeight={40} />
       ) : report.error ? (
         <InlineError
-          message="Could not work out what needs putting right. The importer above still works."
+          message="Could not work out what needs fixing. The importer still works."
           onRetry={() => void report.refetch()}
         />
       ) : data ? (
@@ -2477,10 +2459,7 @@ function ScopusProfilesSection() {
               <Meta className="block">None. Every profile matched an account.</Meta>
             ) : (
               <>
-                <Meta className="block">
-                  Set this Scopus ID on the right person's account (People, then the account), and
-                  the profile shows on their record straight away.
-                </Meta>
+                <Meta className="block">Set this Scopus ID on the right person's account.</Meta>
                 <Table
                   rows={data.profiles_without_account}
                   columns={orphanColumns}
@@ -2509,8 +2488,8 @@ function ScopusProfilesSection() {
             ) : (
               <>
                 <Meta className="block">
-                  The sheet carries this person's name and a different ID from the one on their
-                  account. One of the two is wrong — check the Scopus link before changing either.
+                  The sheet carries this person's name and a different ID from their account. One is
+                  wrong; check the Scopus link before changing either.
                 </Meta>
                 <Table
                   rows={data.name_mismatches}

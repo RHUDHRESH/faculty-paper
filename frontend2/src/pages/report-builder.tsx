@@ -402,12 +402,10 @@ export function ReportBuilder() {
       />
       <PageHeader
         title="Build a report"
-        sub="Choose what to count, how to group it and which slice to look at. The preview below is the report; the files carry exactly the same rows."
-        spot="spot-reports"
         action={
           <span className="flex flex-wrap items-center gap-1 print:hidden">
             {FORMATS.filter((f) => f.key !== "csv" || chosen.length === 1).map((fmt, i) => (
-              <Button key={fmt.key} kind={i === 0 ? "default" : "quiet"} asChild>
+              <Button key={fmt.key} kind={i === 0 ? "primary" : "default"} asChild>
                 <a href={`/api/reports/build?${downloadQuery.toString()}&fmt=${fmt.key}`} download>
                   {i === 0 && <Download />}
                   {i === 0 ? `Download as ${fmt.label}` : fmt.label}
@@ -422,7 +420,7 @@ export function ReportBuilder() {
       {/* ---- the three steps: what to count, how to group, which slice ---- */}
       <section
         aria-label="Build the report"
-        className="grid grid-cols-[minmax(0,1fr)] gap-6 rounded-panel border border-line bg-surface p-5 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,15rem)] print:hidden"
+        className="grid grid-cols-[minmax(0,1fr)] gap-6 border-y border-line py-6 lg:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,15rem)] print:hidden"
       >
         <Step n={1} title="What to count">
           <div className="flex flex-wrap gap-1" role="group" aria-label="What to count">
@@ -447,7 +445,7 @@ export function ReportBuilder() {
             </div>
           </div>
         </Step>
-        <Step n={2} title="How to group" hint="Pick one or more. Each becomes its own breakdown.">
+        <Step n={2} title="How to group">
           {data ? (
             <div className="flex flex-wrap gap-1" role="group" aria-label="How to group">
               {data.available.map((d) => (
@@ -1025,12 +1023,11 @@ function BuilderSkeleton() {
 }
 
 function Step({
-  n,
   title,
   hint,
   children,
 }: {
-  n: number
+  n?: number
   title: string
   hint?: string
   children: React.ReactNode
@@ -1038,9 +1035,6 @@ function Step({
   return (
     <div className="min-w-0">
       <div className="mb-2 flex items-baseline gap-2">
-        <span className="grid size-5 shrink-0 place-items-center rounded-full bg-accent-wash text-xs font-medium text-accent tabular">
-          {n}
-        </span>
         <span className="text-sm font-medium text-fg">{title}</span>
       </div>
       {hint && <Meta className="mb-2 block">{hint}</Meta>}

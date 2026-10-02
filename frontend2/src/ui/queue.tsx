@@ -160,14 +160,16 @@ export function QuietSelect({
   onChange,
   label,
   children,
+  className,
 }: {
   value: string
   onChange: (v: string) => void
   label: string
   children: React.ReactNode
+  className?: string
 }) {
   return (
-    <Select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className="w-auto max-sm:w-full">
+    <Select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className={cn("w-auto max-sm:w-full", className)}>
       {children}
     </Select>
   )

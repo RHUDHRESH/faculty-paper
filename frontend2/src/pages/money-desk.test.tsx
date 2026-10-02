@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -30,7 +30,7 @@ describe("Money, for the Director and Finance", () => {
   it("answers where the year stands and puts a live line under each page (Finance)", async () => {
     load(FINANCE)
     renderWithProviders(<MoneyHub />)
-    expect(await screen.findByText("₹5,00,000", { selector: ".figure" })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/₹12,00,000 is left in the 2026-27 budget/))
     const budget = await screen.findByRole("link", { name: /Budget/ })
     expect(await within(budget).findByText("₹12,00,000 left of ₹20,00,000 for 2026-27")).toBeInTheDocument()
     expect(within(screen.getByRole("link", { name: /Payments/ })).getByText("1 ready to pay, ₹100")).toBeInTheDocument()

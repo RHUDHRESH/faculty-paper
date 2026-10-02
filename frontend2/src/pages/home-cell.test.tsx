@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -63,6 +63,7 @@ function mount(me: Me, today: unknown = TODAY) {
       "/api/admin/faults": () => ({ total: 0 }),
       "/api/admin/profile-requests": () => ({ pending: 0 }),
       "/api/admin/duplicate-findings": () => ({ summary: { open: 0 } }),
+      "/api/admin/clearing-queue": () => [],
       "/api/claims": () => ({ results: [], total: 0 }),
       "/api/me/payments": () => ({ payments: [], total: 0 }),
     })(path, ...(rest as []))
@@ -73,13 +74,12 @@ function mount(me: Me, today: unknown = TODAY) {
 describe("the first desk's home", () => {
   it("answers first: what is given to me, what is late, what came back", async () => {
     mount(CELL)
-    expect(await screen.findByText(/3 claims are waiting to be cleared, 2 of them past 14 days/)).toBeInTheDocument()
-    const given = screen.getByRole("link", { name: "1 Given to you" })
+    await waitFor(() => expect(screen.getAllByRole("status").map((e) => e.textContent).join(" ")).toMatch(/2 claims are.past 14 days/))
+    const given = screen.getByRole("link", { name: /1 is given to you/ })
     expect(given).toHaveAttribute("href", "/clearing?assigned=me")
-    expect(screen.getByRole("link", { name: "2 Past 14 days, over the service level" })).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "2 Came back, fixed or returned" })).toHaveAttribute("href", "/#came-back")
+    expect(screen.getAllByRole("link", { name: "Open the queue (3)" }).length).toBeGreaterThan(0)
     // The coordinator's own figure is not on the cell's home.
-    expect(screen.queryByText("Not given to anyone")).toBeNull()
+    expect(screen.queryByText(/not given to anyone/)).toBeNull()
   })
 
   it("puts my claims before the oldest and opens the review page", async () => {
@@ -116,13 +116,13 @@ describe("the first desk's home", () => {
 
   it("gives the coordinator the un-given count and who holds what", async () => {
     mount(COORD)
-    expect(await screen.findByRole("link", { name: "2 Not given to anyone" })).toHaveAttribute("href", "/coordination")
+    expect(await screen.findByRole("link", { name: /2 are not given to anyone/ })).toHaveAttribute("href", "/coordination")
     expect(await screen.findByText("Who holds what")).toBeInTheDocument()
   })
 
   it("says so when nothing is waiting", async () => {
     mount(CELL, { ...TODAY, desk_open: 0, mine_count: 0, past_sla: 0, mine: [], rest: [], came_back: [], came_back_count: 0 })
-    expect(await screen.findByText("Nothing is waiting to be cleared.")).toBeInTheDocument()
+    expect(await screen.findByText(/Nothing is waiting. The desk is clear./)).toBeInTheDocument()
     expect(screen.getByText(/Nothing has come back/)).toBeInTheDocument()
   })
 })

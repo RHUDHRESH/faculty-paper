@@ -4,6 +4,7 @@ import {
   Award,
   Bell,
   CalendarDays,
+  CheckCheck,
   Clock,
   FileCheck2,
   FilePen,
@@ -339,13 +340,10 @@ export function NotificationBell({ className }: { className?: string }) {
           <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
             <span className="text-sm font-medium">Notifications</span>
             {unread > 0 && (
-              <button
-                type="button"
-                onClick={() => void markAll()}
-                className="text-sm text-fg-muted underline-offset-2 hover:text-fg hover:underline"
-              >
+              <Button kind="quiet" size="sm" onClick={() => void markAll()} className="-mr-1.5">
+                <CheckCheck />
                 Mark all read
-              </button>
+              </Button>
             )}
           </div>
 
@@ -362,9 +360,11 @@ export function NotificationBell({ className }: { className?: string }) {
                 aria-selected={section === t.key}
                 onClick={() => setSection(t.key)}
                 className={cn(
-                  "h-6 shrink-0 rounded-sm px-2 text-xs font-medium transition-colors",
+                  "h-7 shrink-0 rounded-full px-2.5 text-xs font-medium ring-1 ring-inset transition-colors",
                   "duration-[var(--dur-1)] ease-out",
-                  section === t.key ? "bg-sunken text-fg" : "text-fg-muted hover:text-fg"
+                  section === t.key
+                    ? "bg-action text-action-fg ring-transparent"
+                    : "text-fg-muted ring-transparent hover:bg-hover hover:text-fg hover:ring-edge"
                 )}
               >
                 {t.label}
@@ -383,9 +383,7 @@ export function NotificationBell({ className }: { className?: string }) {
               <div className="flex flex-col items-center gap-2 px-3 py-6 text-center">
                 <Picture name="empty-no-notifications" className="w-28" />
                 <p className="text-sm text-fg-muted">
-                  {section
-                    ? "Nothing in this tab. Try All."
-                    : "You are all caught up. You will hear here when something concerns you."}
+                  {section ? "Nothing in this tab." : "You are all caught up."}
                 </p>
               </div>
             ) : (

@@ -187,6 +187,7 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const q = searchParams.get("q") ?? ""
   const [draft, setDraft] = useState(q)
+  const [showAll, setShowAll] = useState(false)
   useEffect(() => setDraft(q), [q])
   useEffect(() => {
     if (draft === q) return
@@ -279,6 +280,7 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
           <ErrorState title="Could not load the watch-list" message="The server did not answer. Nothing has been changed." onRetry={() => watch.refetch()} />
         ) : watched.length === 0 ? (
           <EmptyState
+            size="compact"
             illustration="empty-nothing-to-review"
             title="No journal is being watched"
             message="Watch a journal when a venue looks doubtful: a cloned title, one about to be discontinued, a publisher with complaints."
@@ -380,7 +382,12 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
           />
         ) : (
           <>
-            <Table rows={journals} columns={columns} getKey={(j) => j.key} rowLink={(j) => `/journals/${encodeURIComponent(j.key)}`} maxHeight="none" minWidth="34rem" caption="Journals the college has published in" />
+            <Table rows={q || showAll ? journals : journals.slice(0, 15)} columns={columns} getKey={(j) => j.key} rowLink={(j) => `/journals/${encodeURIComponent(j.key)}`} maxHeight="none" minWidth="34rem" caption="Journals the college has published in" />
+            {!q && !showAll && journals.length > 15 && (
+              <Button kind="quiet" size="sm" className="mt-2" onClick={() => setShowAll(true)}>
+                Show all {journals.length.toLocaleString("en-IN")} journals
+              </Button>
+            )}
             {journals.length >= 500 && <Meta className="mt-2 block">Showing the top 500. Narrow the search to find one further down.</Meta>}
           </>
         )}

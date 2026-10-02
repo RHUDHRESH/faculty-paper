@@ -1,7 +1,11 @@
 import { cn } from "@/lib/cn"
 import { Breadcrumbs, type Crumb } from "@/ui/breadcrumbs"
 import type { IllustrationName } from "@/ui/illustration"
+import { InfoTip } from "@/ui/info"
 import { Plate } from "@/ui/plate"
+
+/** Longest `sub` shown whole; past this it is one clipped line plus an (i). */
+const SUB_MAX = 80
 
 /** The small mounted print at the right of a `.page-head` header. */
 export function HeaderSpot({ name }: { name: IllustrationName }) {
@@ -19,7 +23,12 @@ export function HeaderSpot({ name }: { name: IllustrationName }) {
  * so a reader always knows where they are standing before they read anything
  * else. The line under it is the lead, 18px, no wider than 40rem.
  *
- *   `sub`        the one line. A sentence, not a paragraph.
+ *   `sub`        the one line. A sentence, not a paragraph. Held to one line:
+ *                a longer string is clipped with an ellipsis and its full text
+ *                moves behind the (i) "About this page" beside the title, so
+ *                the header never grows a paragraph.
+ *   `about`      the explanation that does not need to be on the page: how the
+ *                numbers are worked out, who can see what. Opens from the (i).
  *   `action`     the one primary action (a `Button kind="primary"`). Only one.
  *   `actions`    the older slot for several buttons; kept so existing pages
  *                keep working, but a new page uses `action`.
@@ -37,6 +46,7 @@ export function PageHeader({
   eyebrow,
   title,
   sub,
+  about,
   action,
   actions,
   breadcrumbs,
@@ -47,6 +57,7 @@ export function PageHeader({
   eyebrow?: React.ReactNode
   title: React.ReactNode
   sub?: React.ReactNode
+  about?: React.ReactNode
   action?: React.ReactNode
   actions?: React.ReactNode
   breadcrumbs?: Crumb[]
@@ -55,18 +66,25 @@ export function PageHeader({
   className?: string
 }) {
   const buttons = action ?? actions
+  const long = typeof sub === "string" && sub.length > SUB_MAX
+  const aboutBody = about ?? (long ? sub : null)
   return (
     <header className={cn("flex items-start gap-8 pb-2", className)}>
       <div className="min-w-0 flex-1">
         {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} className="mb-2" />}
         {eyebrow && <p className="text-sm text-fg-muted">{eyebrow}</p>}
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-          <h1 className="display text-display text-balance text-fg">{title}</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="display text-display text-balance text-fg">{title}</h1>
+            {aboutBody && <InfoTip label="About this page">{aboutBody}</InfoTip>}
+          </div>
           {buttons && (
             <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:mt-1 sm:shrink-0 print:hidden">{buttons}</div>
           )}
         </div>
-        {sub && <div className="mt-2 max-w-[40rem] text-pretty text-lead text-fg-muted">{sub}</div>}
+        {sub && (
+          <div className={cn("mt-2 max-w-[48rem] text-lead text-fg-muted", long ? "line-clamp-1" : "text-pretty")}>{sub}</div>
+        )}
         {children}
       </div>
       {spot && <Plate name={spot} width={120} className="hidden sm:block print:hidden" eager />}

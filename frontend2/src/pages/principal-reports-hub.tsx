@@ -1,15 +1,15 @@
 import { Link } from "react-router-dom"
-import { ChevronRight, Download } from "lucide-react"
+import { Download, FileText } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { hubSections } from "@/app/nav"
 import { useApi } from "@/lib/query"
-import { Answer } from "@/ui/answer"
+import { AnswerLine, AnswerWord } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { PageHeader } from "@/ui/page-header"
-import { Rows, Section } from "@/ui/section"
-import { Meta } from "@/ui/text"
-import { type Brief, change, n, papersUrl, rupees } from "@/pages/principal-parts"
+import { Details, Rows, Section } from "@/ui/section"
+import { type Brief, change, n, rupees } from "@/pages/principal-parts"
+import { packHref } from "@/pages/principal/year-column"
 
 /**
  * Reports, as the Principal meets them (docs/jtbd/principal.md).
@@ -35,37 +35,42 @@ function Question({
   question,
   answer,
   to,
+  open,
   action,
 }: {
   question: string
   answer: React.ReactNode
   to: string
+  /** What the button says ("Open the brief"). */
+  open: string
   action?: React.ReactNode
 }) {
   return (
-    <li className="flex items-start gap-3 px-1 py-3 sm:px-2">
-      <Link to={to} className="row group -m-1 flex min-w-0 flex-1 items-start gap-3 rounded-control p-1">
-        <span className="min-w-0 flex-1">
-          <span className="block text-base font-medium group-hover:underline group-hover:underline-offset-4">{question}</span>
-          <span className="mt-0.5 block text-pretty text-sm text-fg-muted">{answer}</span>
-        </span>
-        {!action && <ChevronRight className="mt-1 size-4 shrink-0 text-fg-subtle max-sm:hidden" aria-hidden />}
-      </Link>
-      {action}
+    <li className="flex items-start gap-4 px-1 py-3.5 sm:px-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-base font-medium">{question}</p>
+        <p className="mt-0.5 text-pretty text-sm text-fg-muted">{answer}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2 max-sm:flex-col max-sm:items-stretch">
+        {action}
+        <Button kind="default" size="sm" asChild>
+          <Link to={to}>{open}</Link>
+        </Button>
+      </div>
     </li>
   )
 }
 
 function Tool({ to, label, purpose }: { to: string; label: string; purpose: string }) {
   return (
-    <li>
-      <Link to={to} className="row group flex items-start gap-3 rounded-control px-1 py-2.5 sm:px-2">
-        <span className="min-w-0 flex-1">
-          <span className="block text-base font-medium group-hover:underline group-hover:underline-offset-4">{label}</span>
-          <Meta className="block">{purpose}</Meta>
-        </span>
-        <ChevronRight className="mt-1 size-4 shrink-0 text-fg-subtle max-sm:hidden" aria-hidden />
-      </Link>
+    <li className="flex items-center gap-4 px-1 py-2.5 sm:px-2">
+      <span className="min-w-0 flex-1">
+        <span className="block text-base font-medium">{label}</span>
+        <span className="block text-sm text-fg-muted max-sm:hidden">{purpose}</span>
+      </span>
+      <Button kind="default" size="sm" asChild>
+        <Link to={to}>Open</Link>
+      </Button>
     </li>
   )
 }
@@ -94,39 +99,40 @@ export function PrincipalMoneyHub() {
     <div className="page space-y-10">
       <PageHeader
         title="Money"
-        sub="What the incentive scheme has spent against the budget, the rules behind an amount, and the monthly statements."
+        action={
+          <Button kind="primary" asChild>
+            <Link to="/budget">Open the budget</Link>
+          </Button>
+        }
       />
 
-      <Answer
-        items={[
-          {
-            value: c ? (c.allocated == null ? "Not set" : rupees(c.allocated)) : null,
-            label: fy ? (c?.allocated == null ? `budget for FY ${fy}: nothing to weigh spending against` : `budget for FY ${fy}`) : "budget",
-            to: "/budget",
-            tone: c && c.allocated == null ? "caution" : "neutral",
-          },
-          { value: c ? (c.spent ? rupees(c.spent) : "None") : null, label: c?.spent ? "paid so far this year" : "paid yet this year", to: "/budget" },
-          {
-            value: c ? (c.committed ? rupees(c.committed) : "None") : null,
-            label: c?.committed ? "approved or authorised, not yet paid" : "approved and waiting to be paid",
-            to: "/budget",
-          },
-          ...(c && c.remaining != null
-            ? [
-                {
-                  value: rupees(Math.abs(c.remaining)),
-                  label: c.remaining < 0 ? "over the budget" : "left this year",
-                  to: "/budget",
-                  tone: (c.remaining < 0 ? "critical" : "positive") as "critical" | "positive",
-                },
-              ]
-            : []),
-        ]}
-      />
+      <div className="-mt-6 space-y-4">
+        <AnswerLine>
+          {!c ? (
+            "Where the year's money stands."
+          ) : (
+            <>
+              {rupees(c.spent)} paid
+              {c.committed ? `, ${rupees(c.committed)} on its way` : ""}
+              {fy ? ` in FY ${fy}.` : "."}{" "}
+              {c.allocated == null ? (
+                <AnswerWord tone="amber">No budget set</AnswerWord>
+              ) : c.remaining != null && c.remaining < 0 ? (
+                <AnswerWord tone="amber">{rupees(Math.abs(c.remaining))} over</AnswerWord>
+              ) : (
+                <AnswerWord tone="sage">{rupees(c.remaining ?? 0)} left</AnswerWord>
+              )}
+            </>
+          )}
+        </AnswerLine>
+        {c && c.allocated == null && (
+          <p className="max-w-[40rem] text-lead text-fg-muted">There is nothing to weigh spending against. Finance sets the budget.</p>
+        )}
+      </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-10 lg:grid-cols-2">
         {sections.map((s) => (
-          <Section key={s.title} title={s.title} sub={s.blurb}>
+          <Section key={s.title} title={s.title}>
             <Rows>
               {s.items.map((item) => (
                 <Tool key={item.to} to={item.to} label={item.label} purpose={item.purpose ?? ""} />
@@ -151,39 +157,38 @@ export function PrincipalReportsHub() {
     <div className="page space-y-10">
       <PageHeader
         title="Reports"
-        sub="The questions the council, NAAC and NIRF ask, each with today's answer and the proof one click away."
+        action={
+          <Button kind="primary" asChild>
+            <a href={packHref(b?.year)} download>
+              <FileText />
+              Download the council pack
+            </a>
+          </Button>
+        }
       />
 
-      <Answer
-        items={[
-          {
-            value: t ? n(t.papers) : null,
-            label: b ? `papers in ${b.year}` : "papers",
-            to: papersUrl({ year: b?.year }),
-          },
-          { value: t ? n(t.per_teacher) : null, label: "papers per teacher", to: "/reports/brief#departments" },
-          {
-            value: b ? b.push.length : null,
-            label: "departments need a push",
-            zero: "No department needs a push",
-            to: "/reports/departments",
-            tone: b && b.push.length > 0 ? "caution" : "neutral",
-          },
-          {
-            value: toSettle,
-            label: "things to settle before the council pack goes",
-            zero: "The council pack is ready",
-            to: "/reports/brief#pack",
-            tone: toSettle ? "caution" : "neutral",
-          },
-        ]}
-      />
+      <div className="-mt-6">
+        <AnswerLine>
+          {toSettle == null ? (
+            "What the council will ask."
+          ) : toSettle === 0 ? (
+            <>
+              The council pack is <AnswerWord tone="sage">ready</AnswerWord>.
+            </>
+          ) : (
+            <>
+              {toSettle} {toSettle === 1 ? "thing" : "things"} to settle before the pack goes.
+            </>
+          )}
+        </AnswerLine>
+      </div>
 
       <Section title="Your questions">
         <Rows>
           <Question
             question="Are we better than last year, and where?"
             to="/reports/brief"
+            open="Open the brief"
             answer={
               t && b
                 ? `${n(t.papers)} papers in ${b.year}, ${change(t.papers, t.papers_prev)}; ${n(t.per_teacher)} per teacher, ${change(t.per_teacher, t.per_teacher_prev)}.`
@@ -193,6 +198,7 @@ export function PrincipalReportsHub() {
           <Question
             question="Which departments need a push?"
             to="/reports/departments"
+            open="Open departments"
             answer={
               b
                 ? names.length
@@ -203,7 +209,8 @@ export function PrincipalReportsHub() {
           />
           <Question
             question="What goes in the council pack?"
-            to="/reports/brief"
+            to="/reports/brief#pack"
+            open="See what to settle"
             answer={
               b
                 ? toSettle
@@ -214,27 +221,29 @@ export function PrincipalReportsHub() {
                   : "Nothing to settle. The PDF and the Excel are ready."
                 : "Checking the pack."
             }
+          />
+          <Question
+            question="Where do we stand for NAAC and NIRF?"
+            to="/accreditation"
+            open="Open accreditation"
+            answer={
+              b
+                ? `${n(b.naac_331.per_teacher)} papers per teacher over five years, band ${b.naac_331.band} of 4 on NAAC 3.3.1.`
+                : "Loading the figures."
+            }
             action={
-              <Button size="sm" asChild className="mt-0.5 shrink-0 max-sm:hidden">
-                <a href={`/api/reports/brief/export?fmt=pdf${b ? `&year=${b.year}` : ""}`} download>
+              <Button kind="default" size="sm" asChild className="max-sm:hidden">
+                <a href="/api/reports/pack?fmt=xlsx" download>
                   <Download />
-                  Council PDF
+                  Workbook
                 </a>
               </Button>
             }
           />
           <Question
-            question="Where do we stand for NAAC and NIRF?"
-            to="/accreditation"
-            answer={
-              b
-                ? `${n(b.naac_331.per_teacher)} papers per teacher over five years, band ${b.naac_331.band} of 4 on NAAC 3.3.1 (the ceiling until UGC-CARE is checked).`
-                : "Loading the figures."
-            }
-          />
-          <Question
             question="What did the scheme cost, against the budget?"
             to="/budget"
+            open="Open the budget"
             answer={
               t && b
                 ? `${rupees(t.paid)} paid in FY ${b.financial_year}${
@@ -246,31 +255,30 @@ export function PrincipalReportsHub() {
           <Question
             question="Which papers make up a figure?"
             to="/reports/papers"
-            answer={
-              all.data
-                ? `${n(all.data.total)} papers on record. Filter by year, department or journal quartile, then download.`
-                : "Loading the papers."
-            }
+            open="Open the papers"
+            answer={all.data ? `${n(all.data.total)} papers on record.` : "Loading the papers."}
           />
         </Rows>
       </Section>
 
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-10 lg:grid-cols-2">
-        <Section title="Look something up" sub="A paper, a journal, a person or a past claim.">
-          <Rows>
-            <Tool to="/search" label="Search" purpose="Papers, journals and colleagues, inside the college and outside it." />
-            <Tool to="/journals" label="Journals" purpose="A journal's quartile, SNIP and standing, and the college's history with it." />
-            <Tool to="/archive" label="Past claims" purpose="Every claim ever filed, imported ones included." />
-            <Tool to="/publications" label="Claims by stage" purpose="Every claim the scheme has handled, filtered by department, journal and stage." />
-          </Rows>
-        </Section>
-        <Section title="Make your own" sub="When no page above answers what you were asked.">
-          <Rows>
-            <Tool to="/reports" label="Analysis" purpose="Output by department, journal, quartile and year." />
-            <Tool to="/reports/build" label="Build a report" purpose="Choose what to count and how to group it, then download Excel or PDF." />
-          </Rows>
-        </Section>
-      </div>
+      <Details label="more reports and look-ups">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-8 pt-3 lg:grid-cols-2">
+          <Section title="Look something up">
+            <Rows>
+              <Tool to="/search" label="Search" purpose="Papers, journals and colleagues." />
+              <Tool to="/journals" label="Journals" purpose="A journal's quartile and standing." />
+              <Tool to="/archive" label="Past claims" purpose="Every claim ever filed." />
+              <Tool to="/publications" label="Claims by stage" purpose="Every claim the scheme has handled." />
+            </Rows>
+          </Section>
+          <Section title="Make your own">
+            <Rows>
+              <Tool to="/reports" label="Analysis" purpose="Output by department, journal, quartile and year." />
+              <Tool to="/reports/build" label="Build a report" purpose="Choose what to count, then download." />
+            </Rows>
+          </Section>
+        </div>
+      </Details>
     </div>
   )
 }

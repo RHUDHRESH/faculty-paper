@@ -165,14 +165,10 @@ function Directory() {
     <div className="page space-y-6">
       <PageHeader
         title="Faculty"
-        sub={
-          data?.scope === "department"
-            ? "Everyone in your department, with their Scopus ID and papers. Open a name for the whole record."
-            : "Every faculty member with their photo, Scopus ID, papers and claims. Open a name for the whole record."
-        }
+        sub={data ? `${count(data.counts.people)} ${seesEveryone ? "faculty at the college" : "faculty in your department"}.` : undefined}
         spot="spot-people"
-        actions={
-          <Button asChild kind="default" size="md">
+        action={
+          <Button asChild kind="primary" size="md">
             <a href={`/api/directory/faculty/export.csv?${filters.toString()}`} download>
               <Download />
               Export as CSV
@@ -183,7 +179,6 @@ function Directory() {
 
       <Answer
         items={[
-          { value: data?.counts.people, label: seesEveryone ? "Faculty at the college" : "Faculty in your department", to: "/faculty" },
           { value: data?.counts.no_photo, label: "Without a photo", zero: "Everyone has a photo", to: "/faculty?missing=photo", tone: "caution" },
           { value: data?.counts.no_scopus, label: "Without a Scopus ID", zero: "Everyone has a Scopus ID", to: "/faculty?missing=scopus", tone: "caution" },
           { value: data?.counts.no_papers_year, label: `With no paper in ${year}`, zero: `Everyone has a paper in ${year}`, to: "/faculty?nopapers=1" },
@@ -280,7 +275,7 @@ function Directory() {
         list.error?.status === 403 ? (
           <ErrorState
             title="Not open to this account"
-            message="The faculty directory is for the college office and heads of department. You can open your own record from the menu."
+            message="The directory is for the college office and heads of department."
           />
         ) : (
           <ErrorState
@@ -293,11 +288,7 @@ function Directory() {
         <EmptyState
           icon={filtered ? SearchX : Users}
           title={filtered ? "Nobody matches" : "No faculty yet"}
-          message={
-            filtered
-              ? "No faculty member fits this search and these filters. Try clearing one."
-              : "Faculty appear here once their accounts are created."
-          }
+          message={filtered ? "Try clearing a filter." : "Faculty appear here once their accounts are created."}
           action={
             filtered ? (
               <Button kind="default" size="sm" onClick={clear}>
@@ -417,15 +408,12 @@ function FacultyRowView({
           {r.missing.length > 0 && (
             <span className="block text-sm text-caution" title="Missing from the record">
               Missing: {r.missing.map((m) => MISSING_WORDS[m].replace(/^No /, "")).join(", ")}
-              {office && r.missing.some((m) => m !== "photo") && (
-                <>
-                  {" · "}
-                  <Link to={`/people/${r.id}`} className="text-accent underline underline-offset-2">
-                    Fix on the account
-                  </Link>
-                </>
-              )}
             </span>
+          )}
+          {r.missing.length > 0 && office && r.missing.some((m) => m !== "photo") && (
+            <Button kind="quiet" size="sm" asChild className="-ml-2 mt-0.5">
+              <Link to={`/people/${r.id}`}>Fix on the account</Link>
+            </Button>
           )}
         </div>
       </div>
@@ -565,9 +553,9 @@ function Cell({
 
 const MISSING_HINT: Record<string, { who: "person" | "office"; text: string }> = {
   photo: { who: "person", text: "Only they can add a photo, so ask them." },
-  scopus: { who: "office", text: "Add the Scopus author ID on their account. Each row has a link to it." },
-  department: { who: "office", text: "Choose the department on their account. Each row has a link to it." },
-  designation: { who: "office", text: "Add the designation on their account. Each row has a link to it." },
+  scopus: { who: "office", text: "Add the Scopus author ID on their account." },
+  department: { who: "office", text: "Choose the department on their account." },
+  designation: { who: "office", text: "Add the designation on their account." },
 }
 
 /** One line under the filters saying who fixes what the list is showing. */

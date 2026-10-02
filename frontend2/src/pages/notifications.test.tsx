@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { screen, waitFor, within, fireEvent } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -110,7 +110,9 @@ describe("notification settings", () => {
       "/api/calendar/feed-link": () => ({ url: "https://x.edu/api/calendar/feed/tok.ics" }),
     })
     renderWithProviders(<NotificationSettings />, { route: "/settings/notifications" })
-    // A faculty member cannot set up a mail server, so the notice does not mention one.
+    // The email notice is one step away (it is not what she came to change); a faculty member
+    // cannot set up a mail server, so it does not mention one.
+    fireEvent.click(await screen.findByRole("button", { name: /about email/i }))
     expect(await screen.findByText(/Email is not switched on for the college yet/i)).toBeInTheDocument()
     expect(screen.queryByText(/SMTP/)).toBeNull()
     expect(await screen.findByDisplayValue("https://x.edu/api/calendar/feed/tok.ics")).toBeInTheDocument()

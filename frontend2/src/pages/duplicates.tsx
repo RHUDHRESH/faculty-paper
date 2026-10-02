@@ -190,7 +190,7 @@ export function Duplicates() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="Possible duplicate payments are reviewed by the research cell and the Principal. By the college's rule they are not shown to the Director or Finance."
+          message="The research cell and the Principal review these. They are not shown to the Director or Finance."
         />
       </div>
     )
@@ -203,7 +203,7 @@ export function Duplicates() {
     <div className="page space-y-8">
       <PageHeader
         title="Duplicates"
-        sub="Was anyone paid twice for one paper? Compare the payments side by side, then record what you decided and why."
+        sub="Compare the payments side by side, then record your decision."
         spot="spot-audit"
       />
 
@@ -219,9 +219,8 @@ export function Duplicates() {
       </div>
 
       {kind === "CROSS_PERSON" && (
-        <Callout tone="info" title="These are usually correct">
-          The scheme pays each co-author by author position, so one paper against several names is
-          the design working. Check the names against the author list before recording anything.
+        <Callout tone="info" title="Usually correct">
+          Each co-author is paid by author position. Check the names against the author list.
         </Callout>
       )}
 
@@ -252,19 +251,19 @@ export function Duplicates() {
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="View">
           <Chip active={!history} onClick={() => setParam("view", "")}>
-            To review{summary ? ` (${summary.open})` : ""}
+            To review
           </Chip>
           <Chip active={history} onClick={() => setParam("view", "history")}>
-            History{summary ? ` (${decided})` : ""}
+            History
           </Chip>
         </div>
         {findings.length > 0 && (
           <Meta className="hidden sm:block">
-            <Kbd>j</Kbd> <Kbd>k</Kbd> to move
+            <Kbd>j</Kbd> <Kbd>k</Kbd> move
             {mayReview && !history && (
               <>
                 {" · "}
-                <Kbd>a</Kbd> confirm duplicate · <Kbd>r</Kbd> not a duplicate
+                <Kbd>a</Kbd> confirm · <Kbd>r</Kbd> not a duplicate
               </>
             )}
           </Meta>
@@ -279,7 +278,7 @@ export function Duplicates() {
           message={
             error?.status === 403
               ? "Not allowed. The research cell and the Principal review these."
-              : "The server did not answer. Nothing has been reviewed or changed."
+              : "The server did not answer."
           }
           onRetry={error?.status === 403 ? false : () => refetch()}
         />
@@ -290,8 +289,8 @@ export function Duplicates() {
           title={history ? "Nothing decided yet" : "Nothing left to review"}
           message={
             history
-              ? "Decisions recorded here move to this history, with who made them and why."
-              : "Every group the sweep found has a decision. The next sweep over the ledger adds any new ones here."
+              ? "Decisions you record move here."
+              : "The next sweep adds any new groups here."
           }
         />
       ) : (
@@ -413,8 +412,7 @@ function FindingRow({
         <div className="space-y-4 px-2 pb-4 pt-2">
           {finding.matched_on !== "doi" && (
             <Meta className="block">
-              Grouped on the title, not a DOI. Different papers can share a title, so check the
-              paper row below before deciding.
+              Grouped on the title, not a DOI. Check the paper row before deciding.
             </Meta>
           )}
 
@@ -693,7 +691,7 @@ function ReviewDialog({
         </DialogHeader>
         <DialogBody className="space-y-4">
           {decision === "RECOVERED" && (
-            <Field label="Amount recovered" hint="What actually came back, not what was at issue.">
+            <Field label="Amount recovered" hint="What came back, not what was at issue.">
               <NumberInput
                 value={recovered}
                 onChange={(e) => setRecovered(e.target.value)}
@@ -715,8 +713,8 @@ function ReviewDialog({
             }
             hint={
               decision === "DISMISSED"
-                ? "The next sweep raises this group again. This is what the next reader has to go on."
-                : "Optional, but the next reader will thank you."
+                ? "The next sweep raises this group again. Your reason is all the next reader sees."
+                : "Optional."
             }
             error={noteTooShort ? `At least ${minNote} characters.` : undefined}
           >

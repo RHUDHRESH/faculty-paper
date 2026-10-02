@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -50,7 +50,8 @@ describe("the budget as the Director reads it", () => {
       })
     )
     renderWithProviders(<Budget />, { route: "/budget" })
-    expect(await screen.findByText("₹12,00,000 Left in the allocation", { selector: ".sr-only" })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/₹12,00,000 is left of ₹20,00,000/))
+    expect(screen.getByRole("img", { name: /Budget: ₹5,00,000 paid/ })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Set an allocation/ })).toBeNull()
   })
 })

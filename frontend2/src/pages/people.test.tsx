@@ -491,7 +491,7 @@ describe("a person's record, seen by the office, carries their Scopus profile", 
 })
 
 describe("People — the answer first", () => {
-  it("opens with active accounts, leavers, empty desks and research posts, each a link", async () => {
+  it("says the roster in one line and raises only a desk with nobody on it", async () => {
     vi.mocked(api).mockReset()
     vi.mocked(api).mockImplementation(
       fakeApi({
@@ -505,10 +505,26 @@ describe("People — the answer first", () => {
     )
     renderWithProviders(<People />, { route: "/people" })
     const glance = await screen.findByRole("group", { name: "At a glance" })
-    expect(await within(glance).findByRole("link", { name: /413 Active accounts/ })).toHaveAttribute("href", "/people?status=active")
-    expect(within(glance).getByRole("link", { name: /1 Have left/ })).toHaveAttribute("href", "/people?status=inactive")
-    expect(within(glance).getByRole("link", { name: /2 Desks with nobody on them/ })).toHaveAttribute("href", "/admin")
-    expect(within(glance).getByRole("link", { name: /Nobody on a research post/ })).toBeInTheDocument()
+    expect(await within(glance).findByRole("link", { name: /2 Desks with nobody on them/ })).toHaveAttribute("href", "/admin")
+    expect(within(glance).getAllByRole("link")).toHaveLength(1)
+    expect(screen.getByText("413 active, 1 has left.")).toBeInTheDocument()
+  })
+
+  it("shows no figures at all when every desk has a person", async () => {
+    vi.mocked(api).mockReset()
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        "/api/auth/me": () => SUPER_ADMIN,
+        "/api/admin/users?": () => ({
+          total: 1, limit: 20, offset: 0, results: [account()],
+          counts: { active: 417, left: 0, research: 0, desks_empty: 0 },
+        }),
+        "/api/meta/departments": () => ["CSE"],
+      })
+    )
+    renderWithProviders(<People />, { route: "/people" })
+    expect(await screen.findByText("417 active, nobody has left.")).toBeInTheDocument()
+    expect(screen.queryByRole("group", { name: "At a glance" })).toBeNull()
   })
 
   it("asks the server for leavers only when the status is chosen", async () => {

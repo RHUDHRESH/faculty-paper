@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn"
 import { CheckTab } from "@/pages/calculator-check"
 import { ManyTab } from "@/pages/calculator-many"
 import { PriceTab } from "@/pages/calculator-price"
+import { Button } from "@/ui/button"
 import { PageHeader } from "@/ui/page-header"
 import { ErrorState } from "@/ui/state"
 
@@ -31,9 +32,9 @@ const TABS = [
 type Tab = (typeof TABS)[number]["id"]
 
 const SUB: Record<Tab, string> = {
-  price: "Enter a paper's details to see what it pays, and how that was worked out.",
-  claim: "Enter a claim number to see what was recorded, what the formula gives, and what was paid.",
-  many: "Every approved, authorised and paid claim, checked against the price it was made under.",
+  price: "What a paper pays, and how it was worked out.",
+  claim: "One claim: recorded, formula, paid.",
+  many: "Every approved, authorised and paid claim against its price.",
 }
 
 export function Calculator() {
@@ -51,10 +52,10 @@ export function Calculator() {
           title="Not open to this account"
           message="The incentive calculator is for the research cell, the Principal, the Director and Finance. When you file a paper, the form shows the estimate."
         />
-        <p className="mt-4 text-sm">
-          <Link to="/" className="underline underline-offset-2">
-            Back to your home
-          </Link>
+        <p className="mt-4">
+          <Button asChild>
+            <Link to="/">Back to your home</Link>
+          </Button>
         </p>
       </div>
     )

@@ -61,14 +61,14 @@ export function InstitutionSettings() {
         support_email: supportEmail.trim(),
       },
       {
-        onSuccess: () => toast.ok("Saved. The college's details are updated everywhere they are shown."),
+        onSuccess: () => toast.ok("Saved"),
         onError: (err) => toast.fail(err, "Could not save. Nothing was changed."),
       }
     )
   }
 
   const header = (
-    <PageHeader title="Institution" sub="The college's name and contact details, as people see them." spot="spot-settings" />
+    <PageHeader title="Institution" sub="The college's name and contact details." spot="spot-settings" />
   )
 
   if (isLoading) {
@@ -109,7 +109,7 @@ export function InstitutionSettings() {
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,32rem)_minmax(0,1fr)]">
         <form onSubmit={onSubmit} className="space-y-5">
-          <Field label="College name" hint="On the sign-in screen, in the sidebar and on every export.">
+          <Field label="College name">
             <Input
               value={collegeName}
               onChange={(e) => setCollegeName(e.target.value)}
@@ -118,7 +118,7 @@ export function InstitutionSettings() {
               maxLength={200}
             />
           </Field>
-          <Field label="Sign-in note (optional)" hint="One sentence under the college name on the sign-in screen, for what everybody asks anyway.">
+          <Field label="Sign-in note (optional)" hint="Shown under the name on the sign-in screen.">
             <Input
               value={signInNote}
               onChange={(e) => setSignInNote(e.target.value)}
@@ -126,7 +126,7 @@ export function InstitutionSettings() {
               placeholder="Passwords are issued by the research cell. Call ext. 214 to reset."
             />
           </Field>
-          <Field label="Support email (optional)" hint="Shown where the app says to ask the research cell.">
+          <Field label="Support email (optional)">
             <Input
               type="email"
               value={supportEmail}
@@ -142,7 +142,7 @@ export function InstitutionSettings() {
           </div>
         </form>
 
-        <Section title="How it reads" sub="The sign-in screen, as it will look with what is typed on the left.">
+        <Section title="How the sign-in screen reads">
           <div className="rounded-panel bg-sunken p-6 text-center shadow-well">
             <p className="display text-2xl">{shownName}</p>
             {signInNote.trim() && <p className="mt-2 text-sm text-fg-muted">{signInNote.trim()}</p>}

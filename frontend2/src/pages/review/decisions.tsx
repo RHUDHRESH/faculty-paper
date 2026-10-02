@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { useQueryClient } from "@tanstack/react-query"
 
@@ -69,6 +69,7 @@ export function ClearDialog({
   const [confirmedAmount, setConfirmedAmount] = useState<number | null>(null)
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
+  const confirmRef = useRef<HTMLButtonElement>(null)
 
   const recalc = useApiMutation<{ skip_external?: boolean }, Recalc>(`/api/claims/${claim.id}/recalculate`, {
     // Recalculating saves the fresh figures even if this dialog is then
@@ -107,6 +108,11 @@ export function ClearDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // Enter confirms once the figure has been checked: c, then Enter.
+  useEffect(() => {
+    if (open && phase === "ready") confirmRef.current?.focus()
+  }, [open, phase])
 
   async function confirmClear() {
     if (amount == null) return
@@ -166,7 +172,7 @@ export function ClearDialog({
 
           {phase === "ready" && (
             <>
-              <p className="text-2xl font-semibold tabular">{money(amount)}</p>
+              <p className="figure text-figure tabular">{money(amount)}</p>
               <p className="text-sm text-fg-muted">
                 This clears {money(amount)} and sends the claim to the Principal to approve. It leaves this queue.
               </p>
@@ -194,7 +200,7 @@ export function ClearDialog({
               Work it out again
             </Button>
           ) : (
-            <Button kind="primary" disabled={phase !== "ready" || amount == null || busy} onClick={() => void confirmClear()}>
+            <Button ref={confirmRef} kind="primary" disabled={phase !== "ready" || amount == null || busy} onClick={() => void confirmClear()}>
               {busy ? "Clearing…" : `Clear ${amount != null ? money(amount) : ""}`.trim()}
             </Button>
           )}
@@ -269,7 +275,7 @@ export function SendBackDialog({
             label="Reason"
             hint={
               prefill
-                ? "Written from your marks and checklist. The claimant sees this exactly as it stands here."
+                ? "Written from your marks and checklist. The claimant sees this exactly as it stands here. Ctrl and Enter send it."
                 : "The claimant sees this sentence first, at the top of their paper. Say what to fix."
             }
             error={tooShort ? "At least 10 characters." : undefined}
@@ -277,6 +283,12 @@ export function SendBackDialog({
             <Textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && trimmed.length >= 10 && !send.isPending) {
+                  e.preventDefault()
+                  void submit()
+                }
+              }}
               rows={5}
               placeholder="What needs to change before this can be filed again"
             />

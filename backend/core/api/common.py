@@ -703,7 +703,29 @@ __all__ = [
     'health',
     'logger',
     'session_auth',
+    'PayRefusal',
 ]
+
+
+class PayRefusal(HttpError):
+    """A refusal to move money that says why in a form a screen can act on.
+
+    The body carries `code` (and any figures) beside the sentence, so the pay
+    dialog can show "already paid in October" instead of matching words in an
+    error message. Subclasses HttpError so a bulk run still skips the row.
+    """
+
+    def __init__(self, status_code: int, message: str, *, code: str, **extra: Any) -> None:
+        super().__init__(status_code, message)
+        self.code = code
+        self.extra = extra
+
+
+@api.exception_handler(PayRefusal)
+def _pay_refusal(request: HttpRequest, exc: PayRefusal):
+    return api.create_response(
+        request, {"detail": exc.message, "code": exc.code, **exc.extra}, status=exc.status_code
+    )
 
 
 def require_user(request: HttpRequest) -> User:

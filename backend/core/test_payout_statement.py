@@ -47,7 +47,8 @@ class StatementTests(TestCase):
         voided = Claim.objects.create(owner=self.fac, status=ClaimStatus.DIRECTOR_APPROVED,
                                       remuneration=9000, payout_month=aug, ticket_number="FP-2026-000002")
         PaidLedger.objects.create(claim=voided, payout_month=aug, amount=9000, department="CSE")
-        PaidLedger.objects.create(claim=voided, payout_month=aug, amount=-9000, department="CSE")
+        PaidLedger.objects.create(claim=voided, payout_month=aug, amount=-9000, department="CSE",
+                                  kind=PaidLedger.Kind.REVERSAL)
         # A paid ticket with no ledger row at all.
         Claim.objects.create(owner=self.fac, status=ClaimStatus.PAID, remuneration=5000,
                              payout_month=aug, ticket_number="FP-2026-000003")

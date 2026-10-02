@@ -33,7 +33,10 @@ class ReadinessChecks(Base):
     def test_each_empty_desk_is_reported_with_where_to_fix_it(self):
         body = self.c.get("/api/admin/readiness").json()
         by = {i["key"]: i for i in body["items"]}
-        self.assertEqual(body["total"], 9)
+        self.assertEqual(body["total"], 10)
+        # The daily money check has not run on a fresh install, and says so.
+        self.assertFalse(by["safeguards"]["ok"])
+        self.assertEqual(by["safeguards"]["to"], "/safeguards")
         # The super admin holds the clearing desk; nobody holds the others.
         self.assertTrue(by["desk_clearing"]["ok"])
         for key in ("desk_principal", "desk_director", "desk_finance"):

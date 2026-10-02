@@ -39,10 +39,10 @@ function overMonth(stages: TrackStage[]): number {
 }
 
 /** The thread says "Filed"; Track's own key for that stage is "submitted". */
-const trackKey = (k: ThreadStage): string => (k === "filed" ? "submitted" : k)
+export const trackKey = (k: ThreadStage): string => (k === "filed" ? "submitted" : k)
 
 /** The station each desk works at (the same mapping as the sidebar badges). */
-const THREAD_DESK: Partial<Record<Role, ThreadStage>> = {
+export const THREAD_DESK: Partial<Record<Role, ThreadStage>> = {
   SUPER_ADMIN: "filed",
   RESEARCH_CELL: "filed",
   RESEARCH_COORDINATOR: "filed",
@@ -51,13 +51,13 @@ const THREAD_DESK: Partial<Record<Role, ThreadStage>> = {
   FINANCE: "authorised",
 }
 
-function threadCounts(stages: TrackStage[]): Partial<Record<ThreadStage, number>> {
+export function threadCounts(stages: TrackStage[]): Partial<Record<ThreadStage, number>> {
   const by = new Map(stages.map((s) => [s.key, s]))
   return Object.fromEntries(THREAD_STAGES.map((s) => [s.key, by.get(trackKey(s.key))?.count ?? 0]))
 }
 
 /** Of each station's claims, how many have waited past the fortnight. */
-function threadLate(stages: TrackStage[]): Partial<Record<ThreadStage, number>> {
+export function threadLate(stages: TrackStage[]): Partial<Record<ThreadStage, number>> {
   const by = new Map(stages.map((s) => [s.key, s]))
   return Object.fromEntries(
     THREAD_STAGES.map((s) => {

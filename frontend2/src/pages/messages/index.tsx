@@ -168,7 +168,6 @@ function InboxPane({ onNew }: { onNew: () => void }) {
           <div className="px-4">
             <ErrorState
               title="Could not load your messages"
-              message="The server did not answer. Nothing has been sent, lost or deleted."
               onRetry={() => void inbox.refetch()}
             />
           </div>
@@ -367,20 +366,18 @@ function StartPane({ onNew }: { onNew: () => void }) {
       <h2 className="display mt-4 text-2xl">
         {me?.name ? `Hello, ${firstName(me.name)}` : "Start a conversation"}
       </h2>
-      <p className="mt-1 max-w-sm text-sm text-fg-muted">
-        Write to a co-author about a paper, a venue or an idea. Only the two of you can read it.
-      </p>
+      <p className="mt-1 max-w-sm text-sm text-fg-muted">Private between the two of you.</p>
 
       {worked.length > 0 && (
         <div className="mt-8 w-full max-w-lg">
-          <p className="mb-3 text-sm text-fg-muted">People you have written papers with</p>
+          <p className="mb-3 text-sm text-fg-muted">Co-authors</p>
           <ul className="flex flex-wrap justify-center gap-2">
             {worked.map((p) => (
               <li key={p.id}>
                 <Link
                   to={`/messages?to=${p.id}`}
                   title={`${p.name}${p.department ? `, ${p.department}` : ""} · ${p.together} paper${p.together === 1 ? "" : "s"} together`}
-                  className="group inline-flex items-center gap-2 rounded-full border border-line bg-surface py-1 pl-1 pr-3 text-sm transition-colors duration-[var(--dur-1)] ease-out hover:border-[var(--area-people-line)] hover:bg-[var(--area-people-wash)]"
+                  className="group inline-flex items-center gap-2 rounded-full bg-surface py-1 pl-1 pr-3 text-sm shadow-raise ring-1 ring-inset ring-control-edge transition-colors duration-[var(--dur-1)] ease-out hover:bg-[var(--area-people-wash)] hover:ring-[var(--area-people)]"
                 >
                   <Avatar person={p} size="sm" />
                   <span className="max-w-[10rem] truncate font-medium">{p.name}</span>
@@ -404,11 +401,11 @@ function StartPane({ onNew }: { onNew: () => void }) {
 function InboxSuggestions() {
   const worked = useCoauthors(4)
   if (worked.length === 0) {
-    return <Meta className="block px-4 py-6 text-sm">No conversations yet. Press New to write to a colleague.</Meta>
+    return <Meta className="block px-4 py-6 text-sm">No conversations yet.</Meta>
   }
   return (
     <div className="pt-1">
-      <Meta className="block px-4 pb-1 text-xs">No conversations yet. Say hello to a co-author.</Meta>
+      <Meta className="block px-4 pb-1 text-xs">No conversations yet. Say hello.</Meta>
       <ul>
         {worked.map((p) => (
           <li key={p.id}>
@@ -481,24 +478,18 @@ function OfficePane() {
           : "Only you and the research office can read this."}
       </p>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {!isOffice && (
-          <p className="mx-auto max-w-md rounded-control bg-sunken px-3 py-2 text-center text-xs text-fg-muted">
-            Ask the research office anything about your claims. The answer appears here and you get a notification.
-          </p>
-        )}
         {office.isPending ? (
           <SkeletonRows rows={3} rowHeight={56} />
         ) : office.isError ? (
           <ErrorState
             title="Could not load your conversations with the office"
-            message="The server did not answer. Nothing has been sent, lost or deleted."
             onRetry={() => void office.refetch()}
           />
         ) : threads.length === 0 ? (
           <p className="mx-auto max-w-sm py-8 text-center text-sm text-fg-muted">
             {isOffice
               ? "No questions from faculty right now. A new one shows here and in Notifications."
-              : "You have not written to the research office yet. Press Ask the research office to start."}
+              : "You have not written to the research office yet."}
           </p>
         ) : (
           <ul className="divide-y divide-line">

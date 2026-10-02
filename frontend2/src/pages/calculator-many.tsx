@@ -149,18 +149,19 @@ export function ManyTab() {
                 },
               ]}
             />
-            <p className="max-w-prose text-pretty text-sm text-fg-muted" data-testid="many-note">
-              {sentence(t, d.policy)}
-            </p>
+            {sentence(t) && (
+              <p className="max-w-prose text-pretty text-sm text-fg-muted" data-testid="many-note">
+                {sentence(t)}
+              </p>
+            )}
           </div>
 
           <Section
             id="differences"
             title={filtered ? `The ${formatCount(d.row_total)} that differ, filtered` : "Claims that differ"}
-            sub="Largest difference first. Amounts are what the claim records against what the formula gives."
             action={
               d.row_total > 0 && (
-                <Button kind="default" size="sm" asChild>
+                <Button kind="primary" size="sm" asChild>
                   <a href={`/api/calculator/many.csv?${qs}`} download>
                     <Download aria-hidden />
                     Download {formatCount(d.row_total)} {d.row_total === 1 ? "row" : "rows"} (CSV)
@@ -176,9 +177,9 @@ export function ManyTab() {
                   .filter(Boolean)
                   .join(", ")}
                 .{" "}
-                <button type="button" className="underline underline-offset-2" onClick={() => setFilter({ cause: null, direction: null })}>
+                <Button type="button" kind="default" size="sm" onClick={() => setFilter({ cause: null, direction: null })}>
                   Show all
-                </button>
+                </Button>
               </p>
             )}
             <Table<ManyRow>
@@ -309,10 +310,11 @@ function causeLink(params: URLSearchParams, cause: string): string {
   return `/calculator?${p}#differences`
 }
 
-function sentence(t: Many["totals"], policy: string): string {
-  if (t.checked === 0) return "There are no claims in these stages to check."
-  if (t.differ === 0) return `All ${formatCount(t.checked)} claims agree with the policy they were priced with. The policy in force now is ${policy}.`
-  return `${formatCount(t.differ)} of ${formatCount(t.checked)} claims are more than ₹1 away from what the formula gives. Net, the records are ${
+/** Only when something differs: the figures above already say "none" and
+ *  "every claim agrees". */
+function sentence(t: Many["totals"]): string | null {
+  if (t.checked === 0 || t.differ === 0) return null
+  return `${formatCount(t.differ)} of ${formatCount(t.checked)} claims are more than ₹1 from the formula. Net, the records are ${
     t.net < 0 ? `${rs(-t.net)} below` : `${rs(t.net)} above`
   } the formula.`
 }
@@ -321,17 +323,14 @@ function FixLink({ r, role, mine }: { r: ManyRow; role: string | undefined; mine
   const office = role === "SUPER_ADMIN" || role === "RESEARCH_CELL" || role === "RESEARCH_COORDINATOR"
   if (r.fix === "data" && office) {
     return (
-      <Link to="/data/fixes?kind=paid_no_amount" className="text-sm underline underline-offset-2">
-        Fix imported claims
-      </Link>
+      <Button kind="default" size="sm" asChild>
+        <Link to="/data/fixes?kind=paid_no_amount">Fix imported claims</Link>
+      </Button>
     )
   }
   return (
-    <Link
-      to={claimHref(role as Parameters<typeof claimHref>[0], { id: r.id, is_mine: mine })}
-      className="text-sm underline underline-offset-2"
-    >
-      Open the claim
-    </Link>
+    <Button kind="default" size="sm" asChild>
+      <Link to={claimHref(role as Parameters<typeof claimHref>[0], { id: r.id, is_mine: mine })}>Open the claim</Link>
+    </Button>
   )
 }

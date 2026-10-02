@@ -10,6 +10,7 @@ import { BadgeTile, type Badge } from "@/ui/badge-shelf"
 import type { FeedPost } from "@/pages/feed"
 import { PaperCard } from "@/pages/feed"
 import { Button } from "@/ui/button"
+import { InfoTip } from "@/ui/info"
 import {
   ConfirmDialog,
   Dialog,
@@ -48,7 +49,7 @@ export function BadgeStrip({ userId, own = false, shown = 3 }: { userId: string;
       </div>
       {badges.length === 0 ? (
         <p className="max-w-prose text-base text-fg-muted">
-          No badges yet. They arrive on their own when a paper is approved for payment or paid: a first paper, a first Q1, a paper led as first author, and more.
+          No badges yet. They arrive when a paper is approved for payment or paid.
         </p>
       ) : (
         <>
@@ -123,7 +124,7 @@ export function CompletenessMeter({
     <section aria-label="How complete your profile is" className="panel space-y-3 px-4 py-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <SectionTitle className="text-base">Your profile is {completeness.score}% complete</SectionTitle>
-        <Meta className="text-xs">Complete profiles come first in people search and suggestions.</Meta>
+        <InfoTip label="Why complete it">Complete profiles come first in people search and suggestions.</InfoTip>
       </div>
       <div
         role="progressbar"
@@ -185,7 +186,7 @@ export function PinnedPapers({
         )}
       </div>
       {pinned.length === 0 ? (
-        <Meta className="block">Pin up to three papers and they show here first, for everybody who opens your profile.</Meta>
+        <Meta className="block">Pin up to three papers to show them first.</Meta>
       ) : (
         <div className="grid gap-2">
           {pinned.map((p) => (
@@ -467,7 +468,7 @@ export function Collaborations({
         )}
       </div>
       {collaborations.length === 0 ? (
-        <Meta className="block">No collaborations yet. Propose one and it lands in your messages with them.</Meta>
+        <Meta className="block">No collaborations yet.</Meta>
       ) : (
         <ul className="divide-y divide-line border-y border-line">
           {collaborations.map((c) => (

@@ -31,7 +31,7 @@ import re
 import time
 from datetime import timedelta
 from typing import Any, Optional
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Min, Q, Sum
 from django.http import HttpRequest
 from django.shortcuts import get_object_or_404
@@ -235,6 +235,9 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
     _apply_faculty_payload(claim, payload)
     validation.as_http(validation.check_claim, claim)
     _bind_identity_from_user(claim, owner, payload)
+    # Before anything is written: a paper already claimed, sent back, refused
+    # or paid is told so in words, and no second claim is started for it.
+    _refuse_already_claimed(owner, claim)
 
     paid_check = check_already_paid(
         title=claim.paper_title,
@@ -264,6 +267,24 @@ def create_claim(request: HttpRequest, payload: ClaimIn):
             note=f"submitted_by={user.email}" if admin_proxy else None,
         )
     return claim_to_dict(claim)
+
+
+def _refuse_already_claimed(owner: User, claim: Claim) -> None:
+    """409, in the claimant's words, when this paper is already spoken for.
+
+    The same answer the filing form shows when the paper is looked up
+    (`core.services.claim_standing`); this is the server saying it again for
+    anyone who skipped the form. The unique index on (person, DOI) behind it
+    is what holds when two requests arrive together.
+    """
+    from core.services import claim_standing
+
+    found = claim_standing.own_standing(
+        owner, doi=claim.doi, eid=claim.eid, title=claim.paper_title,
+        exclude_claim_id=claim.pk if claim.pk else None,
+    )
+    if found and found["blocks"]:
+        raise HttpError(409, found["message"])
 
 
 _ANNEXURE_LEVELS = {"AU Annexure", "UGC Care"}
@@ -448,6 +469,54 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
             claim.override_by = user
             claim.override_at = timezone.now()
 
+    try:
+        _file_claim(claim)
+    except IntegrityError:
+        # Two filings of one paper by one person raced past the check in
+        # create/patch; the unique index let one through and stopped this one.
+        raise HttpError(
+            409, "You have just claimed this paper already. Open it from My papers instead of filing it again."
+        )
+    _raise_routing_flags(claim)
+    ClaimAction.objects.create(
+        claim=claim,
+        actor=user,
+        from_status=ClaimStatus.DRAFT,
+        to_status=ClaimStatus.SUBMITTED,
+        action="CONTEST_FORWARD" if claim.contest_forward else "SUBMIT",
+        note=claim.contest_note,
+    )
+    headline = f"{'Needs review: ' if claim.contest_forward else ''}{claim.paper_title}"
+    _notify_admins(claim, f"To clear · {claim.ticket_number}", headline)
+    # Read the files now the claim says what it will say. Queued, and never
+    # able to undo or refuse the filing: a paper that does not match its
+    # files is flagged for the desk, not bounced back to the claimant.
+    from core.services.content_check import enqueue_file_check
+
+    enqueue_file_check(claim.id)
+
+
+def _raise_routing_flags(claim: Claim) -> None:
+    """Tell the research cell about doubts a claim raises beside others.
+
+    A co-author who has also claimed the paper, or the same person's similar
+    title. Automatic DUPLICATE flags, one per other claim, so running it twice
+    raises nothing twice. Never blocks the filing and never fails it.
+    """
+    from core.services import claim_standing, flags
+
+    try:
+        for n in claim_standing.routing_notes(claim):
+            flags.raise_flag(
+                claim, kind="DUPLICATE", note=n["note"], source="AUTO",
+                auto_key=n["auto_key"], notify=False,
+            )
+    except Exception:  # noqa: BLE001 -- a doubt that cannot be recorded must not undo a filing
+        logger.exception("routing_flags_failed claim=%s", claim.pk)
+
+
+def _file_claim(claim: Claim) -> None:
+    """The write that turns a checked draft into a filed claim."""
     with transaction.atomic():
         if claim.claim_reason == ClaimReason.STUDENT_PROJECT and claim.team_id:
             # Once per team, made to hold under concurrency: two submits for
@@ -469,22 +538,6 @@ def _submit_claim(claim: Claim, user: User, *, contest: bool, contest_note: str 
         claim.submitted_at = timezone.now()
         _apply_calc(claim)
         claim.save()
-    ClaimAction.objects.create(
-        claim=claim,
-        actor=user,
-        from_status=ClaimStatus.DRAFT,
-        to_status=ClaimStatus.SUBMITTED,
-        action="CONTEST_FORWARD" if claim.contest_forward else "SUBMIT",
-        note=claim.contest_note,
-    )
-    headline = f"{'Needs review: ' if claim.contest_forward else ''}{claim.paper_title}"
-    _notify_admins(claim, f"To clear · {claim.ticket_number}", headline)
-    # Read the files now the claim says what it will say. Queued, and never
-    # able to undo or refuse the filing: a paper that does not match its
-    # files is flagged for the desk, not bounced back to the claimant.
-    from core.services.content_check import enqueue_file_check
-
-    enqueue_file_check(claim.id)
 
 
 @api.patch("/claims/{claim_id}", auth=session_auth)
@@ -503,6 +556,7 @@ def patch_claim(request: HttpRequest, claim_id: str, payload: ClaimIn):
     _apply_faculty_payload(claim, payload)
     validation.as_http(validation.check_claim, claim)
     _bind_identity_from_user(claim, user, payload)
+    _refuse_already_claimed(user, claim)
     paid_check = check_already_paid(
         title=claim.paper_title,
         doi=claim.doi,
@@ -681,6 +735,7 @@ def _withdraw_approvals(claim: Claim) -> None:
     claim.principal_approved_at = None
     claim.director_approved_by = None
     claim.director_approved_at = None
+    claim.authorised_amount = None
 
 
 def _transition(claim: Claim, user: User, to_status: str, action: str, note: str | None = None):

@@ -16,11 +16,10 @@ from typing import Any
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db.models import Count, Q
 from django.http import HttpRequest
 from ninja import File, UploadedFile
 from ninja.errors import HttpError
-from core.models import Claim, ClaimAttachment, ClaimReason, ClaimStatus, FormulaConfig
+from core.models import ClaimAttachment, ClaimReason, FormulaConfig, User
 from core.services import rbac
 from core.services.normalize import normalize_doi, normalize_issn
 from core.services.remuneration import CATEGORY_LABELS, calculate_remuneration, calculate_student_project, formula_from_model, snapshot_formula
@@ -196,29 +195,20 @@ def lookup_candidates(request: HttpRequest, payload: CandidateSearchIn):
         found = _crossref_records(state, doi=doi, title=title or None, limit=limit)
 
     # Rule 2 of the submission conditions is one claim per article, and the
-    # claimant cannot see their own filed tickets from here — so say it on the row.
-    dois = [d for d in (c.get("doi") for c in found) if d]
-    eids = [e for e in (c.get("eid") for c in found) if e]
-    claimed_q = Q()
-    if dois:
-        claimed_q |= Q(doi__in=dois)
-    if eids:
-        claimed_q |= Q(eid__in=eids)
-    claimed_dois: set[str] = set()
-    claimed_eids: set[str] = set()
-    if claimed_q:
-        # Only an admin proxy may ask about someone else's claims; for anyone
-        # else owner_id is ignored rather than trusted.
-        owner = user.id
-        if payload.owner_id and rbac.can_clear_claims(user.role):
-            owner = payload.owner_id
-        for c in Claim.objects.filter(claimed_q, owner_id=owner).exclude(
-            status=ClaimStatus.REJECTED
-        ).only("doi", "eid"):
-            if c.doi:
-                claimed_dois.add(c.doi)
-            if c.eid:
-                claimed_eids.add(c.eid)
+    # claimant cannot see their own filed tickets from here, so say it on the
+    # row, in words: core.services.claim_standing is the one place that knows
+    # whether the paper is already claimed, sent back, not accepted, or paid.
+    # Only an admin proxy may ask about someone else's claims; for anyone
+    # else owner_id is ignored rather than trusted.
+    from core.services import claim_standing
+
+    asked_for = user
+    if payload.owner_id and rbac.can_clear_claims(user.role):
+        asked_for = User.objects.filter(pk=payload.owner_id).first() or user
+    standing = [
+        claim_standing.own_standing(asked_for, doi=c.get("doi"), eid=c.get("eid"), title=c.get("title"))
+        for c in found
+    ]
 
     candidates = [
         {
@@ -238,15 +228,16 @@ def lookup_candidates(request: HttpRequest, payload: CandidateSearchIn):
             "linked_to_author": (
                 (str(c.get("eid")) in linked_eids) if author_id and state == "ok" else None
             ),
-            "already_claimed": bool(
-                (c.get("doi") and c["doi"] in claimed_dois)
-                or (c.get("eid") and c["eid"] in claimed_eids)
-            ),
+            "already_claimed": st is not None,
+            # In words, with no desk and no colleague named.
+            "claimed_message": st["message"] if st else None,
+            "claimed_code": st["code"] if st else None,
+            "claimed_claim_id": st["claim_id"] if st else None,
             "authors": c.get("authors") or [],
             "source": c.get("source") or "scopus",
             "verified": c.get("source") != "crossref",
         }
-        for c in found
+        for c, st in zip(found, standing)
     ]
     return {
         "scopus_status": state,

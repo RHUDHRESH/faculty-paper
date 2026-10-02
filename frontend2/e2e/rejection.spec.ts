@@ -87,7 +87,7 @@ test.describe("A ticket sent back, and filed again", () => {
     await page.goto("/clearing")
     await waitForSettled(page)
 
-    const row = page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number })
+    const row = page.locator("[data-claim]").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row, "the seeded ticket is not in the clearing queue").toHaveCount(1)
     const review = await openFromQueue(page, row, "clearing")
     await review.getByRole("button", { name: "Send back" }).click()
@@ -134,7 +134,7 @@ test.describe("A ticket sent back, and filed again", () => {
     ).toHaveCount(0, { timeout: 20_000 })
     await page.keyboard.press("Escape")
     await expect(
-      page.getByRole("row").filter({ hasText: seeded.claim!.ticket_number }),
+      page.locator("[data-claim]").filter({ hasText: seeded.claim!.ticket_number }),
       "a ticket that was sent back is still in the clearing queue"
     ).toHaveCount(0, { timeout: 30_000 })
 
@@ -188,7 +188,7 @@ test.describe("A ticket sent back, and filed again", () => {
     // The list says the same thing, because that is the screen they land on.
     await page.goto("/papers/claims")
     await waitForSettled(page)
-    await page.getByLabel("Search your papers").fill(seeded.claim!.ticket_number)
+    await page.getByLabel("Search your claims").fill(seeded.claim!.ticket_number)
     const row = page.getByRole("listitem").filter({ hasText: seeded.claim!.ticket_number })
     await expect(row).toHaveCount(1)
     await expect(row).toContainText("Sent back")
@@ -350,7 +350,7 @@ test.describe("A ticket sent back, and filed again", () => {
     await cell.goto("/clearing")
     await waitForSettled(cell)
     await expect(
-      cell.getByRole("row").filter({ hasText: seeded.claim!.ticket_number }),
+      cell.locator("[data-claim]").filter({ hasText: seeded.claim!.ticket_number }),
       "a re-filed ticket did not come back to the clearing queue"
     ).toHaveCount(1, { timeout: 30_000 })
     await done(cell)

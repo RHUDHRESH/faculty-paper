@@ -240,3 +240,52 @@ describe("the review workspace", () => {
     expect(screen.queryByRole("button", { name: /try again/i })).toBeNull()
   })
 })
+
+/**
+ * The Principal reads the evidence in order to decide, so the workspace lets
+ * her (docs/ux/27, T3): Approve at the figure shown, Send back with a reason,
+ * Hold, in view; and never on a claim she filed herself.
+ */
+describe("the review workspace at the Principal's desk", () => {
+  const PRINCIPAL: Me = { id: "u-p", email: "p@example.edu", name: "Dr Rao", role: "PRINCIPAL", department: null }
+  const cleared = { status: "CLEARED", cleared_by_name: "R Cell" }
+  const table = (own = false): ApiTable => ({
+    "/api/claims/c1/workspace": () => bundle("c1", cleared, { own, role: "PRINCIPAL" }),
+    "/api/principal/queue": () => ({ results: QUEUE.map((c) => ({ ...c, status: "CLEARED" })) }),
+  })
+
+  it("offers Approve with the amount, Send back and Hold, and none of the clearing desk's buttons", async () => {
+    mount("/review/c1?queue=approvals", table(), PRINCIPAL)
+    const bar = await screen.findByRole("region", { name: "Decision" })
+    expect(await within(bar).findByRole("button", { name: /^Approve ₹55,000/ })).toBeEnabled()
+    expect(within(bar).getByRole("button", { name: /^Send back/ })).toBeInTheDocument()
+    expect(within(bar).getByRole("button", { name: /^Hold/ })).toBeInTheDocument()
+    expect(within(bar).queryByRole("button", { name: /^Clear/ })).toBeNull()
+    expect(within(bar).getByText(/Cleared by R Cell/)).toBeInTheDocument()
+  })
+
+  it("approves at the figure shown with a, then Enter, and opens the next claim", async () => {
+    const user = userEvent.setup()
+    const sent: unknown[] = []
+    mount("/review/c1?queue=approvals", table(), PRINCIPAL, (path, init) => {
+      if (path === "/api/claims/c1/principal-approve") {
+        sent.push(init?.json)
+        return { ...claim("c1", cleared), status: "PRINCIPAL_APPROVED" }
+      }
+      return undefined
+    })
+    await within(await screen.findByRole("region", { name: "Decision" })).findByRole("button", { name: /^Approve/ })
+    await user.keyboard("a")
+    const dialog = await screen.findByRole("dialog")
+    await user.click(within(dialog).getByRole("button", { name: /^Approve ₹55,000/ }))
+    await waitFor(() => expect(sent).toEqual([{ expected_amount: 55000 }]))
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/review/c2"))
+  })
+
+  it("draws no decision on her own claim, only the reason", async () => {
+    mount("/review/c1?queue=approvals", table(true), PRINCIPAL)
+    const bar = await screen.findByRole("region", { name: "Decision" })
+    expect(await within(bar).findByText(/This is your own claim/)).toBeInTheDocument()
+    expect(within(bar).queryByRole("button", { name: /Approve/ })).toBeNull()
+  })
+})

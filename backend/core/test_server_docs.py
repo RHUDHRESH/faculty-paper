@@ -60,7 +60,9 @@ class DocsTests(TestCase):
         self.client.force_login(self.fin)
         r = self.client.get("/api/payouts/statement.pdf", {"month": "2026-08"})
         self.assertEqual(r.status_code, 200)
-        self.assertIn(b"DejaVuSans", r.content)  # a font that has the glyph is embedded
+        # A font that has the rupee glyph is embedded: the statement is set in
+        # Inter (which carries U+20B9); older documents set the sign in DejaVu.
+        self.assertTrue(b"DejaVuSans" in r.content or b"Inter" in r.content)
         text = pdf_text(r.content)
         self.assertIn("₹12,34,567", text)
         self.assertNotIn("Rs.", text)

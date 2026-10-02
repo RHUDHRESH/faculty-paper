@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -39,8 +39,10 @@ describe("the budget", () => {
       })
     )
     renderWithProviders(<Budget />, { route: "/budget" })
-    expect((await screen.findAllByText("Not set")).length).toBeGreaterThan(0)
-    expect(screen.getAllByText("₹23,02,959").length).toBeGreaterThan(0)
-    expect(screen.getByText(/It shows only what it has spent and what it owes/)).toBeTruthy()
+    // The answer says so in words, and the figures still read as spent and owed, not as zero.
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/No budget is set for 2026-27/))
+    expect(screen.getAllByText("Not set").length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/₹23,02,959/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/no ceiling to measure against/)).toBeTruthy()
   })
 })

@@ -30,6 +30,7 @@ from django.utils import timezone
 
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, PaidLedger, Role, User
 from core.services import data_fixes as base
+from core.services import payment_guards
 from core.services.normalize import normalize_title
 
 KINDS = tuple(k for k, _label, _why in base.KINDS)
@@ -298,8 +299,7 @@ def apply_fix(
                 orphan = PaidLedger.objects.select_for_update().filter(pk=link_ledger_row_id).first()
                 if orphan is None or orphan.claim_id:
                     raise FixError("That ledger payment is not available to link. Reload the list.")
-                orphan.claim = claim
-                orphan.save(update_fields=["claim"])
+                orphan.save(update_fields=payment_guards.attach_row(orphan, claim))
                 before["ledger_payment"], after["ledger_payment"] = None, f"{orphan.amount:g} linked"
 
         if no_payment:
@@ -349,6 +349,8 @@ def apply_fix(
                     paper_title=claim.paper_title,
                     journal_title=claim.journal_title,
                     amount=delta,
+                    kind=PaidLedger.Kind.ADJUSTMENT,
+                    cycle=payment_guards.current_cycle(claim),
                     voucher_number=f"{claim.voucher_number or claim.ticket_number}-ADJ",
                 )
 

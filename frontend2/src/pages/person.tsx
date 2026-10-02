@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowRight,
   Camera,
   ExternalLink,
   FileText,
@@ -60,7 +61,7 @@ import { Checkbox, Field, Input, Textarea } from "@/ui/field"
 import { Pagination } from "@/ui/pagination"
 import { Avatar, PersonLink, type PersonBrief } from "@/ui/person"
 import { EmptyState, ErrorState, InlineError, Skeleton, SkeletonRows, SkeletonText } from "@/ui/state"
-import { Figure, Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
+import { Figure, Meta, PageTitle, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { unshout } from "@/lib/names"
 
@@ -289,7 +290,7 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
                 <Link
                   key={i}
                   to={`/search?scope=people&q=${encodeURIComponent(i)}`}
-                  className="rounded-sm bg-sunken px-1.5 py-0.5 text-xs text-fg-muted hover:bg-hover hover:text-fg"
+                  className="rounded-full bg-sunken px-2.5 py-1 text-xs font-medium text-fg-muted ring-1 ring-inset ring-transparent hover:bg-hover hover:text-fg hover:ring-edge active:bg-active"
                 >
                   {i}
                 </Link>
@@ -325,9 +326,10 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
               return missing.length ? ` · still to add: ${missing.slice(0, 3).join(", ")}` : ""
             })()}
           </span>
-          <button type="button" onClick={() => setFinishing(true)} className="font-medium text-accent hover:underline">
-            Finish profile →
-          </button>
+          <Button kind="default" size="sm" onClick={() => setFinishing(true)}>
+            Finish profile
+            <ArrowRight />
+          </Button>
         </div>
       )}
 
@@ -348,8 +350,10 @@ function ProfileView({ data, routeId }: { data: Profile; routeId: string }) {
                 aria-selected={tab === t.id}
                 onClick={() => setTab(t.id)}
                 className={cn(
-                  "-mb-px border-b-2 px-3 pb-2.5 pt-1 text-sm",
-                  tab === t.id ? "border-(--area) font-medium text-fg" : "border-transparent text-fg-muted hover:text-fg"
+                  "-mb-px h-11 rounded-t-control border-b-[3px] px-3 text-sm transition-colors duration-[var(--dur-1)]",
+                  tab === t.id
+                    ? "border-(--area) bg-hover/60 font-semibold text-fg"
+                    : "border-transparent font-medium text-fg-muted hover:border-control-edge hover:bg-hover/60 hover:text-fg active:bg-active"
                 )}
               >
                 {t.label}
@@ -1048,8 +1052,8 @@ function ResearchPostEditor({
       <div>
         <SectionTitle className="text-base">Research post</SectionTitle>
         <Meta className="block">
-          Only the research coordinator and the super admin see this box. Research faculty are already paid to
-          do research, so the first part of their incentives each year, up to their threshold, is not paid.
+          Only the research coordinator and the super admin see this. Incentives up to the threshold are not
+          paid.
           {isMe ? " This is your own account." : ""}
         </Meta>
       </div>
@@ -1137,8 +1141,7 @@ function EditProfile({ data, routeId, onClose }: { data: Profile; routeId: strin
         <DialogHeader>
           <DialogTitle>Edit your profile</DialogTitle>
           <DialogDescription>
-            Everybody in the college can see this page. Your name, department and Scopus link are kept by the
-            research office. Ask for a change on your account page.
+            Everybody in the college can see this page. Name, department and Scopus link change on your account page.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-5">
@@ -1169,15 +1172,11 @@ function EditProfile({ data, routeId, onClose }: { data: Profile; routeId: strin
               )}
             </div>
           </div>
-          <Meta className="block text-xs">
-            A photo is cropped square and made small, and the camera's details are removed before anyone sees it.
-          </Meta>
-
-          <Field label="About you" hint={`${bio.length} of 600 characters. What you work on, and what you would like to hear about.`}>
+          <Field label="About you" hint={`${bio.length} of 600 characters.`}>
             <Textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={3} maxRows={8} maxLength={600} />
           </Field>
 
-          <Field label="ORCID iD" hint="Paste the link from orcid.org or the sixteen characters.">
+          <Field label="ORCID iD">
             <Input value={orcid} onChange={(e) => setOrcid(e.target.value)} placeholder="0000-0002-1825-0097" />
           </Field>
 
@@ -1250,7 +1249,6 @@ export function PeopleDirectory() {
     <div className="page space-y-6">
       <header>
         <PageTitle>People</PageTitle>
-        <Sub className="mt-1">Everybody at the college. Open a profile to see their work and follow them.</Sub>
       </header>
 
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">

@@ -35,6 +35,7 @@ import { api, ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { segmentClass } from "@/ui/toggle"
 import { Composer, renderBody, type Candidate, type MentionKind, type ResolvedMention } from "@/ui/composer"
 import {
   ConfirmDialog,
@@ -273,7 +274,7 @@ export function Feed() {
     <div className="page max-w-5xl space-y-6">
       <PageHeader
         title="Discussions"
-        sub="Stay in touch with the college's research: celebrate a colleague, ask a question, answer one."
+        sub="Celebrate a colleague, ask a question, answer one."
         spot="spot-discussions"
       />
 
@@ -299,7 +300,7 @@ export function Feed() {
             <div
               role="tablist"
               aria-label="Which posts"
-              className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-control bg-sunken p-1"
+              className="well inline-flex max-w-full gap-0.5 overflow-x-auto p-1"
             >
               {tabs.map((t) => (
                 <button
@@ -315,13 +316,7 @@ export function Feed() {
                       return next
                     })
                   }
-                  className={cn(
-                    "h-8 shrink-0 rounded-control px-3 text-sm transition-colors max-sm:h-10",
-                    "duration-[var(--dur-1)] ease-out",
-                    tab === t.key
-                      ? "bg-surface font-medium text-fg shadow-raise"
-                      : "text-fg-muted hover:text-fg"
-                  )}
+                  className={segmentClass(tab === t.key, "h-8 rounded-control")}
                 >
                   {t.label}
                 </button>
@@ -779,7 +774,7 @@ function PostComposer({
             setOpen(true)
             requestAnimationFrame(() => textareaRef.current?.focus())
           }}
-          className="flex w-full items-center gap-3 rounded-full border border-line bg-surface py-1.5 pl-1.5 pr-4 text-left text-sm text-fg-subtle transition-colors duration-[var(--dur-1)] ease-out hover:border-line-strong hover:text-fg-muted"
+          className="flex w-full items-center gap-3 rounded-full bg-surface py-1.5 pl-1.5 pr-4 text-left text-sm text-fg-muted shadow-raise ring-1 ring-inset ring-control-edge transition-[background-color,box-shadow] duration-[var(--dur-1)] ease-out hover:bg-hover hover:text-fg hover:ring-field active:shadow-press"
         >
           <Avatar person={meAsAuthor(me)} size="sm" />
           <span className="min-w-0 flex-1 truncate">Share a paper, a seminar or a question</span>
@@ -943,7 +938,7 @@ function Audience({
     { key: "DEPARTMENT", label: department ? `${department} only` : "My department only", disabled: !department },
   ]
   return (
-    <div role="radiogroup" aria-label="Who can see it" className="inline-flex max-w-full rounded-md bg-sunken p-0.5">
+    <div role="radiogroup" aria-label="Who can see it" className="well inline-flex max-w-full gap-0.5 p-0.5">
       {options.map((o) => (
         <button
           key={o.key}
@@ -953,11 +948,7 @@ function Audience({
           disabled={o.disabled}
           title={o.disabled ? "Your account has no department set" : undefined}
           onClick={() => onChange(o.key)}
-          className={cn(
-            "h-6 max-w-44 truncate rounded-sm px-2 text-xs font-medium transition-colors",
-            "duration-[var(--dur-1)] ease-out disabled:opacity-50",
-            value === o.key ? "bg-surface text-fg" : "text-fg-muted hover:text-fg"
-          )}
+          className={segmentClass(value === o.key, "h-7 max-w-44 truncate text-xs disabled:opacity-50")}
         >
           {o.label}
         </button>
@@ -1416,9 +1407,9 @@ function Comments({
   return (
     <div className="space-y-2">
       {hiddenCount > 0 && (
-        <button type="button" onClick={onShowAll} className="text-sm text-fg-muted hover:text-fg hover:underline">
-          {all.isFetching ? "Loading…" : `View all ${post.comment_count} comments`}
-        </button>
+        <Button kind="quiet" size="sm" onClick={onShowAll} loading={all.isFetching} className="-ml-2">
+          {`View all ${post.comment_count} comments`}
+        </Button>
       )}
       {shown.length > 0 && (
         <ul className="space-y-2">
@@ -1440,7 +1431,7 @@ function Comments({
                     <button
                       type="button"
                       onClick={() => setConfirming(c)}
-                      className="ml-auto text-xs text-fg-subtle hover:text-critical"
+                      className="ml-auto rounded-sm px-1.5 py-0.5 text-xs text-fg-subtle hover:bg-critical-wash hover:text-critical"
                     >
                       Delete
                     </button>

@@ -53,7 +53,7 @@ export function ReasonChips({ onPick }: { onPick: (text: string) => void }) {
           key={c}
           type="button"
           onClick={() => onPick(c)}
-          className="max-w-full truncate rounded-full bg-sunken px-2.5 py-1 text-left text-xs text-fg-muted ring-1 ring-inset ring-line hover:text-fg"
+          className="max-w-full truncate rounded-full bg-surface px-3 py-1 text-left text-xs font-medium text-fg-muted shadow-raise ring-1 ring-inset ring-control-edge hover:bg-hover hover:text-fg hover:ring-field active:bg-active active:shadow-press"
           title={c}
         >
           {c}

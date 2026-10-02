@@ -20,13 +20,17 @@ import { ErrorState, Skeleton, Delayed } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { money } from "@/ui/paper"
 import { Journey, claimStatus, facultyStage } from "@/ui/journey"
+import { ClaimTrack } from "@/ui/claim-track"
+import { Chip } from "@/ui/chip"
+import { DotField, type DotGroup } from "@/ui/dot-field"
+import { Stamp } from "@/ui/stamp"
 import { cn } from "@/lib/cn"
 import { toast } from "@/ui/toast"
 import { Due, When } from "@/ui/when"
 import { Celebrations } from "@/ui/celebrations"
 import { PageHeader } from "@/ui/page-header"
 import { Avatar, type PersonBrief } from "@/ui/person"
-import { Rows, Section } from "@/ui/section"
+import { Details, Rows, Section } from "@/ui/section"
 import { ClaimThresholdNote, ThresholdCard, type ThresholdSummary } from "@/ui/research-threshold"
 
 /**
@@ -200,11 +204,25 @@ export type HomeRecord = {
   papers: number
   citations: number | null
   h_index: number | null
+  /** The record by journal quartile; the groups add up to `papers`. */
+  quartiles?: { Q1: number; Q2: number; Q3: number; Q4: number; none: number }
   /** null until the publication record exists: the row is hidden, never "0". */
   unfiled: {
     count: number
-    items: { id: string; title: string; venue: string | null; year: number | null }[]
+    items: { id: string; title: string; venue: string | null; year: number | null; quartile?: string | null }[]
   } | null
+}
+
+/**
+ * The college's reason a claim was sent back, in the college's words, or null
+ * when the note is only a trace of how the claim came into the system (a
+ * claim carried over from the old workbook says "Imported from Raw_Data"),
+ * which a claimant must never be shown as a reason.
+ */
+export function reasonOf(note: string | null | undefined): string | null {
+  const t = (note || "").trim()
+  if (!t || /^imported\b/i.test(t) || /^erp[-_ ]/i.test(t)) return null
+  return t
 }
 
 /** `/api/discover/next`, the part Home uses. */
@@ -361,6 +379,8 @@ export function FacultyHome() {
 
       {empty && <FirstSteps />}
 
+      <JustPaid own={own} />
+
       <NeedsYouSection own={own} assigned={assigned.data ?? []} />
 
       {rec?.unfiled && rec.unfiled.count > 0 && <UnfiledPapers unfiled={rec.unfiled} />}
@@ -374,6 +394,58 @@ export function FacultyHome() {
         <Suggestion />
       </div>
     </div>
+  )
+}
+
+/**
+ * The end of the journey (peak-end): money that reached the person this month
+ * or last is said once, plainly, with the college's own mark for a payment.
+ * The Stamp is the app's one authored moment and "Pay" is one of the four
+ * decisions it stands for. It comes from the ledger (the record of what was
+ * actually paid, including everything paid before this app existed), and it
+ * leaves on its own when the month is two months old; the statement is the
+ * record after that. Nothing to dismiss, nothing asked in return.
+ */
+function JustPaid({ own, now = new Date() }: { own: OwnPapers; now?: Date }) {
+  const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+  const thisMonth = ym(now)
+  const lastMonth = ym(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+  const recent = own.payments.filter(
+    (p) => p.amount > 0 && p.payout_month && (p.payout_month.slice(0, 7) === thisMonth || p.payout_month.slice(0, 7) === lastMonth)
+  )
+  if (recent.length === 0) return null
+  const total = recent.reduce((s, p) => s + p.amount, 0)
+  const first = recent[0]
+  const [y, m] = (first.payout_month as string).split("-").map(Number)
+  const when = new Date(y, m - 1, 1)
+  const month = when.toLocaleDateString("en-IN", { month: "long" })
+  return (
+    <section aria-label="Paid" className="flex flex-wrap items-center gap-x-6 gap-y-3" data-testid="just-paid">
+      <Stamp verb="Paid" date={when.toLocaleDateString("en-IN", { month: "short", year: "numeric" })} className="shrink-0" />
+      <p className="min-w-0 max-w-prose text-base text-fg">
+        {recent.length === 1 && first.paper_title ? (
+          <>
+            <span className="font-medium">{money(total)}</span> for{" "}
+            {first.claim_id ? (
+              <Link to={`/papers/${first.claim_id}`} className="underline underline-offset-4 hover:text-accent">
+                {unshout(first.paper_title)}
+              </Link>
+            ) : (
+              unshout(first.paper_title)
+            )}{" "}
+            reached you in {month}.
+          </>
+        ) : (
+          <>
+            <span className="font-medium">{money(total)}</span> for {plural(recent.length, "paper", "papers")} reached you in{" "}
+            {month}.
+          </>
+        )}{" "}
+        <Link to="/papers/statement" className="whitespace-nowrap text-accent hover:underline">
+          See your payment statement
+        </Link>
+      </p>
+    </section>
   )
 }
 
@@ -396,26 +468,33 @@ function NeedsYouSection({ own, assigned }: { own: OwnPapers; assigned: MyAssign
       {(sentBack.length > 0 || drafts.length > 0) && (
         <Section title="Needs you" aria-label="Needs you" data-area="record">
           <Rows>
-            {sentBack.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-caution">Sent back to you</p>
-                  <p className="mt-0.5 font-medium">{unshout(c.paper_title)}</p>
-                  {c.status_note && (
-                    <p className="mt-1 text-sm text-fg-muted">
-                      <span className="text-fg">Why: </span>
-                      {c.status_note}
+            {sentBack.map((c) => {
+              const why = reasonOf(c.status_note)
+              return (
+                <li key={c.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-caution">Sent back to you</p>
+                    <p className="mt-0.5 line-clamp-2 text-base font-medium">{unshout(c.paper_title)}</p>
+                    <p className="mt-1 max-w-prose text-sm text-fg-muted">
+                      {why ? (
+                        <>
+                          <span className="text-fg">The college asked: </span>
+                          {why}
+                        </>
+                      ) : (
+                        "Open it to see what the college asked for."
+                      )}
                     </p>
-                  )}
-                </div>
-                <Button kind="primary" asChild>
-                  <Link to={`/papers/${c.id}`}>
-                    Fix this claim
-                    <ArrowRight />
-                  </Link>
-                </Button>
-              </li>
-            ))}
+                  </div>
+                  <Button kind="primary" asChild>
+                    <Link to={`/papers/${c.id}#fix`}>
+                      Fix this claim
+                      <ArrowRight />
+                    </Link>
+                  </Button>
+                </li>
+              )
+            })}
             {drafts.map((c) => (
               <li key={c.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
                 <div className="flex min-w-0 flex-1 items-start gap-2">
@@ -450,12 +529,13 @@ function UnfiledPapers({ unfiled }: { unfiled: NonNullable<HomeRecord["unfiled"]
   return (
     <Section
       title="Papers you can still file"
-      sub={`${plural(count, "paper", "papers")} on your record ${count === 1 ? "has" : "have"} no claim yet.`}
       action={
-        <Link to="/papers?filter=unclaimed" className="inline-flex items-center gap-1 text-accent hover:underline">
-          {count > items.length ? `All ${formatCount(count)} unfiled papers` : "Open in My papers"}
-          <ArrowRight aria-hidden className="size-4" />
-        </Link>
+        <Button kind="default" size="sm" asChild>
+          <Link to="/papers?filter=unclaimed">
+            {count > items.length ? `All ${formatCount(count)} unfiled papers` : "Open in My papers"}
+            <ArrowRight aria-hidden />
+          </Link>
+        </Button>
       }
     >
       <Rows>
@@ -467,9 +547,16 @@ function UnfiledPapers({ unfiled }: { unfiled: NonNullable<HomeRecord["unfiled"]
                 {[p.venue, p.year].filter(Boolean).join(", ") || "Journal not recorded"}
               </p>
             </div>
-            <Button asChild>
-              <Link to={`/papers/new?publication=${p.id}`}>File it</Link>
-            </Button>
+            <div className="flex shrink-0 items-center gap-3">
+              {p.quartile && (
+                <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"} title="The journal's quartile on the college's record">
+                  {p.quartile} journal
+                </Chip>
+              )}
+              <Button asChild>
+                <Link to={`/papers/new?publication=${p.id}`}>File it</Link>
+              </Button>
+            </div>
           </li>
         ))}
       </Rows>
@@ -486,12 +573,12 @@ function MoneySection({ own, outlook }: { own: OwnPapers; outlook: PayoutOutlook
       title="Your money"
       aria-label="Your money"
       action={
-        <Link to="/papers/statement" className="text-accent hover:underline">
-          Payment statement
-        </Link>
+        <Button kind="default" size="sm" asChild>
+          <Link to="/papers/statement">Payment statement</Link>
+        </Button>
       }
     >
-      <Answer
+      <Answer className="max-sm:grid-cols-1"
         items={[
           {
             value: load ? null : money(received),
@@ -500,7 +587,13 @@ function MoneySection({ own, outlook }: { own: OwnPapers; outlook: PayoutOutlook
               : "paid to you so far",
             to: "/papers/statement",
           },
-          { value: load ? null : money(thisYear), label: `paid since ${sinceLabel(since)}`, to: "/papers/statement" },
+          {
+            value: load ? null : money(thisYear),
+            label: `paid since ${sinceLabel(since)}`,
+            // The statement is by financial year, so this opens the year that
+            // date falls in: one click from the figure to the lines behind it.
+            to: `/papers/statement?fy=${since.getMonth() >= 3 ? since.getFullYear() : since.getFullYear() - 1}`,
+          },
           {
             value: load ? null : money(coming),
             label: moving.length ? `on its way, from ${plural(moving.length, "claim", "claims")}` : "on its way, nothing is waiting to be paid",
@@ -508,7 +601,11 @@ function MoneySection({ own, outlook }: { own: OwnPapers; outlook: PayoutOutlook
           },
         ]}
       />
-      {outlook?.sentence && <p className="mt-4 max-w-prose text-sm text-fg-muted">{outlook.sentence}</p>}
+      {outlook?.sentence && (
+        <Details label="when the next payment is" className="mt-3">
+          <p className="max-w-prose text-sm text-fg-muted">{outlook.sentence}</p>
+        </Details>
+      )}
       <ThresholdCard s={research} link={false} className="mt-4 max-w-prose" />
     </Section>
   )
@@ -523,9 +620,11 @@ function OnTheWaySection({ own }: { own: OwnPapers }) {
     <Section
       title="Claims on the way"
       action={
-        <Link to="/papers/claims" className="text-accent hover:underline">
-          {moving.length > shown.length ? `All ${formatCount(moving.length)} on the way` : "My claims"}
-        </Link>
+        <Button kind="default" size="sm" asChild>
+          <Link to="/papers/claims">
+            {moving.length > shown.length ? `All ${formatCount(moving.length)} on the way` : "My claims"}
+          </Link>
+        </Button>
       }
     >
       <Rows>
@@ -538,32 +637,33 @@ function OnTheWaySection({ own }: { own: OwnPapers }) {
             <li key={c.id}>
               <Link
                 to={`/papers/${c.id}`}
-                className="row -mx-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-control px-2 py-3"
+                className="row -mx-2 block rounded-control px-2 py-4"
               >
-                <span className="min-w-0 flex-1">
-                  <span className="line-clamp-2 block font-medium">{unshout(c.paper_title)}</span>
-                  <span className="mt-0.5 block text-sm text-fg-muted">
-                    {stageWord(t)}
-                    {" · "}
-                    {filedSentence(t)}
-                    {slow && <span className="text-caution">{" · "}Taking longer than usual</span>}
-                    {c.ticket_number?.startsWith("FP-") ? ` · Claim no. ${c.ticket_number}` : ""}
+                <span className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+                  <span className="line-clamp-2 min-w-0 flex-1 font-medium">{unshout(c.paper_title)}</span>
+                  <span className="shrink-0 text-right">
+                    {view.amount != null ? (
+                      <>
+                        <span className="figure block">{money(view.amount)}</span>
+                        <span className="block text-xs text-fg-muted">
+                          {view.caption}
+                          {c.remuneration_is_estimate ? ", an estimate" : ""}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-sm text-fg-subtle">{view.note}</span>
+                    )}
                   </span>
-                  <ClaimThresholdNote c={c} mine className="mt-1 text-xs" />
                 </span>
-                <span className="shrink-0 text-right">
-                  {view.amount != null ? (
-                    <>
-                      <span className="figure block">{money(view.amount)}</span>
-                      <span className="block text-xs text-fg-muted">
-                        {view.caption}
-                        {c.remuneration_is_estimate ? ", an estimate" : ""}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-sm text-fg-subtle">{view.note}</span>
-                  )}
+                <ClaimTrack stage={stageOfClaim(c)} filedOn={c.submitted_at} size="sm" className="mt-3 max-w-lg" />
+                <span className="mt-2 block text-sm text-fg-muted">
+                  {stageWord(t)}
+                  {" · "}
+                  {filedSentence(t)}
+                  {slow && <span className="text-caution">{" · "}Taking longer than usual</span>}
+                  {c.ticket_number?.startsWith("FP-") ? ` · Claim no. ${c.ticket_number}` : ""}
                 </span>
+                <ClaimThresholdNote c={c} mine className="mt-1 text-xs" />
               </Link>
             </li>
           )
@@ -587,9 +687,9 @@ function ResearchSection({
     <Section
       title="Your research"
       action={
-        <Link to="/research" className="text-accent hover:underline">
-          My research
-        </Link>
+        <Button kind="default" size="sm" asChild>
+          <Link to="/research">My research</Link>
+        </Button>
       }
     >
       {failed ? (
@@ -610,6 +710,24 @@ function ResearchSection({
             <Fact to="/research#citations" value={rec.citations} label="citations" />
             <Fact to="/research#metrics" value={rec.h_index} label="h-index" />
           </p>
+          {rec.quartiles && rec.papers > 0 && (
+            <DotField
+              className="mt-5"
+              dot={9}
+              max={160}
+              unit="papers"
+              groups={([
+                { key: "q1", label: "in Q1 journals", count: rec.quartiles.Q1, tone: "gold", to: "/papers?quartile=Q1" },
+                {
+                  key: "q2-4",
+                  label: "in Q2 to Q4 journals",
+                  count: rec.quartiles.Q2 + rec.quartiles.Q3 + rec.quartiles.Q4,
+                  tone: "navy",
+                },
+                { key: "other", label: "with no quartile", count: rec.quartiles.none, tone: "slate", to: "/papers?quartile=none" },
+              ] as DotGroup[]).filter((g) => g.count > 0)}
+            />
+          )}
           {rec.citations == null && rec.papers > 0 && (
             <p className="mt-2 max-w-prose text-sm text-fg-muted">
               We are still matching you to your Scopus profile, so citations are not shown yet.{" "}
@@ -653,9 +771,9 @@ function Suggestion() {
     <Section
       title="Something to try next"
       action={
-        <Link to="/collaborate" className="text-accent hover:underline">
-          Who to work with
-        </Link>
+        <Button kind="default" size="sm" asChild>
+          <Link to="/collaborate">Who to work with</Link>
+        </Button>
       }
     >
       {person ? (
@@ -698,9 +816,7 @@ function FirstSteps() {
   return (
     <section className="panel-lead p-6 sm:p-8">
       <h2 className="text-lg font-semibold">File your first paper</h2>
-      <p className="mt-1 max-w-prose text-fg-muted">
-        It takes about five minutes if you have the DOI and the PDFs to hand.
-      </p>
+      <p className="mt-1 max-w-prose text-fg-muted">About five minutes, with the DOI and the PDFs to hand.</p>
       <ol className="mt-6 grid gap-6 sm:grid-cols-3">
         {steps.map(({ icon: Icon, title, text }, i) => (
           <li key={title} className="flex gap-3">

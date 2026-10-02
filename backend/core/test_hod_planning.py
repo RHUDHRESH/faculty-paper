@@ -627,7 +627,9 @@ class NudgeTests(_Base):
 
     def test_a_reminder_can_be_sent_again_after_a_day(self):
         self.nudge(self.head, [self.mine.id])
-        AuditLog.objects.filter(action="HOD_NUDGE").update(
+        # Backdating the row is the one thing the audit log's own manager
+        # refuses, so the test goes round it with the plain base manager.
+        AuditLog._base_manager.filter(action="HOD_NUDGE").update(
             created_at=timezone.now() - timedelta(hours=25)
         )
         r = self.nudge(self.head, [self.mine.id])

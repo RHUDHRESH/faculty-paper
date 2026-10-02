@@ -192,7 +192,7 @@ export function PersonCard({
 }) {
   const sub = [person.department, person.designation].filter(Boolean).join(" · ")
   const btn =
-    "inline-flex h-8 items-center gap-1.5 rounded-md bg-surface px-3 text-sm text-fg shadow-[inset_0_0_0_1px_var(--color-edge)] hover:bg-hover"
+    "inline-flex h-8 items-center gap-1.5 rounded-control bg-surface px-3 text-sm font-medium text-fg shadow-raise ring-1 ring-inset ring-control-edge transition-[background-color,box-shadow] hover:bg-hover hover:ring-field active:bg-active active:shadow-press max-sm:h-10"
   return (
     <article data-area="people" className={cn("panel flex flex-col gap-3 p-4", className)}>
       <div className="flex items-start gap-3">

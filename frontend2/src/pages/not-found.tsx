@@ -66,13 +66,11 @@ export function NotFound() {
                   </>
                 )}
                 {me?.role === "FACULTY" ? "That page is not one this account may open. " : "it is not one this account may open. "}
-                Nothing is broken and nothing has been lost. Ask the research office if you think it
-                should be yours.
+                Ask the research office if you think it should be yours.
               </>
             ) : (
               <>
-                Nothing in this app answers to that address. It may have been a link from an
-                older version, or a typo.
+                Nothing answers to that address. It may be an old link or a typo.
               </>
             )}
           </Sub>
@@ -121,7 +119,6 @@ export function NotFound() {
           )}
         </div>
 
-        {me && <Meta className="block pt-2">Ctrl-K opens every page you can reach.</Meta>}
       </div>
     </div>
   )

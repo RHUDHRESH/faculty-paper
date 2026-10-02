@@ -46,7 +46,7 @@ export function CheckTab() {
   return (
     <div className="space-y-8">
       <form onSubmit={submit} className="flex max-w-xl flex-wrap items-end gap-2">
-        <Field label="Claim no." hint="Type it as you say it: FP-2026-000123, fp 2026 123 or ERP-PROCESSED-120." className="min-w-0 flex-1">
+        <Field label="Claim no." hint="FP-2026-000123 or fp 2026 123 both work." className="min-w-0 flex-1">
           <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="FP-2026-000123" autoComplete="off" />
         </Field>
         <Button type="submit" kind="primary" disabled={!typed.trim()} className="mb-[1.35rem] max-sm:mb-0">
@@ -55,10 +55,7 @@ export function CheckTab() {
       </form>
 
       {!q.trim() ? (
-        <p className="max-w-prose text-base text-fg-muted">
-          Enter a claim number above. You will see what was recorded, what the formula gives under the policy the claim
-          was priced with and under today's, and what the ledger shows paid.
-        </p>
+        <p className="max-w-prose text-base text-fg-muted">Enter a claim number above.</p>
       ) : claim.isLoading ? (
         <SkeletonText lines={5} />
       ) : claim.isError || !claim.data ? (
@@ -66,7 +63,7 @@ export function CheckTab() {
           <EmptyState
             art="no-results"
             title="No claim has that number"
-            message="Check the number and try again. A draft is not a claim yet, so it is not found."
+            message="Check the number. A draft is not a claim yet."
           />
         ) : (
           <ErrorState what="that claim's check" onRetry={() => void claim.refetch()} />
@@ -142,9 +139,9 @@ function Result({ c }: { c: ClaimCheck }) {
         ]}
       />
 
-      <Section title="Differences and their causes" sub={c.differences.length === 0 ? undefined : "Expected ones are not faults."}>
+      <Section title="Differences and their causes">
         {c.differences.length === 0 ? (
-          <p className="text-base text-fg-muted">None. The recorded amount, the formula and the ledger agree.</p>
+          <p className="text-base text-fg-muted">None. All three agree.</p>
         ) : (
           <Rows>
             {c.differences.map((d) => (
@@ -168,14 +165,13 @@ function Result({ c }: { c: ClaimCheck }) {
             </Button>
           )}
           {isAdmin && !c.agrees && (
-            <Button kind="primary" asChild>
+            <Button kind="default" asChild>
               <Link to={wantsDataFix ? "/data/fixes?kind=paid_no_amount" : open}>
                 {wantsDataFix ? "Fix it in the imported-claims queue" : "Fix it on the claim"}
               </Link>
             </Button>
           )}
         </div>
-        <p className="mt-2 text-xs text-fg-muted">The calculator only reads. It never changes a claim.</p>
       </Section>
 
       <div className="space-y-3">

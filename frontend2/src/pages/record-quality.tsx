@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/ui/dialog"
 import { Answer } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
 import { Avatar } from "@/ui/person"
+import { Details } from "@/ui/section"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { toast } from "@/ui/toast"
@@ -112,7 +113,7 @@ export function RecordQuality() {
     <div className="page space-y-10">
       <PageHeader
         title="Record quality"
-        sub="Is any paper recorded twice, or any name or record wrong? Nothing changes until you choose."
+        sub="Nothing changes until you choose."
         spot="spot-audit"
         action={
           <Button asChild size="md" kind="default">
@@ -177,7 +178,7 @@ function DuplicatesTab() {
         method: "POST",
         json: { keep_id: keep.id, drop_id: drop.id, reason: pair.reason },
       })
-      toast.ok("Merged. You can undo it below.")
+      toast.ok("Merged. Undo it under recent merges.")
       await refresh()
     } catch (e) {
       toast.fail(e, "The merge did not go through")
@@ -215,7 +216,6 @@ function DuplicatesTab() {
   if (isLoading) return <SkeletonRows rows={6} />
   if (error || !data) return <ErrorState onRetry={() => void refetch()} />
 
-  const s = data.summary
   return (
     <div className="space-y-6">
       <ConfirmDialog
@@ -232,19 +232,11 @@ function DuplicatesTab() {
           if (asking) await merge(asking.pair, asking.swap)
         }}
       />
-      <p className="text-sm text-fg-muted">
-        {s.pairs === 0
-          ? "No paper is recorded twice."
-          : `${s.pairs.toLocaleString("en-IN")} pairs on ${s.people_affected} people's records: ${Object.entries(s.by_reason)
-              .map(([k, n]) => `${n} ${data.reasons[k] ?? k}`)
-              .join(", ")}.`}
-      </p>
-
       {data.pairs.length === 0 ? (
         <EmptyState
           illustration="empty-nothing-to-review"
           title="Nothing recorded twice"
-          message="Every paper appears once on each person's record. The nightly data-health check looks again."
+          message="The nightly check looks again."
         />
       ) : (
         <>
@@ -267,8 +259,7 @@ function DuplicatesTab() {
         </>
       )}
 
-      <section className="space-y-2">
-        <SectionTitle>Recent merges</SectionTitle>
+      <Details label="recent merges" count={(merges.data?.merges ?? []).length}>
         {(merges.data?.merges ?? []).length === 0 ? (
           <p className="text-sm text-fg-muted">No merges yet.</p>
         ) : (
@@ -291,7 +282,7 @@ function DuplicatesTab() {
             ))}
           </ul>
         )}
-      </section>
+      </Details>
     </div>
   )
 }
@@ -323,7 +314,7 @@ function PairRow({
         <SideCard side={pair.drop} label="Fold in" muted />
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" kind="primary" onClick={() => onMerge(false)} disabled={busy}>
+        <Button size="sm" onClick={() => onMerge(false)} disabled={busy}>
           Merge into the fuller record
         </Button>
         <Button size="sm" onClick={() => onMerge(true)} disabled={busy}>
@@ -410,9 +401,6 @@ function NamesTab() {
           if (asking) await act(asking, "apply")
         }}
       />
-      <p className="text-sm text-fg-muted">
-        Suggestions only. A name changes when you accept it; check with the person if unsure.
-      </p>
       <ul className="divide-y divide-line">
         {data.suggestions.map((s) => (
           <li key={s.user_id} className="flex flex-wrap items-start gap-3 py-4">
@@ -428,12 +416,17 @@ function NamesTab() {
                 Papers say <span className="font-medium">{s.suggested}</span>
               </p>
               <Meta className="block">
-                {s.papers} paper{s.papers === 1 ? "" : "s"} spell it "{s.spelt}" ({s.unmatched_papers} not yet on their
-                record), {s.roster_spelling_papers} spell it "{s.word}". Seen as {s.samples.join(", ")}.
+                {s.papers} paper{s.papers === 1 ? "" : "s"}, {s.unmatched_papers} not yet on their record
               </Meta>
+              <Details label="the spellings">
+                <Meta className="block">
+                  {s.papers} paper{s.papers === 1 ? "" : "s"} spell it "{s.spelt}", {s.roster_spelling_papers} spell
+                  it "{s.word}". Seen as {s.samples.join(", ")}.
+                </Meta>
+              </Details>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" kind="primary" onClick={() => setAsking(s)} disabled={busy === s.user_id}>
+              <Button size="sm" onClick={() => setAsking(s)} disabled={busy === s.user_id}>
                 Use this spelling
               </Button>
               <Button size="sm" kind="quiet" onClick={() => void act(s, "dismiss")} disabled={busy === s.user_id}>
@@ -455,18 +448,16 @@ function AnomaliesTab() {
   if (error || !data) return <ErrorState onRetry={() => void refetch()} />
   return (
     <div className="space-y-6">
-      <p className="text-sm text-fg-muted">
-        Web addresses in the journal name can be cleared in one step on{" "}
-        <Link to="/data/health" className="underline underline-offset-2">
-          Data health
-        </Link>
-        . The rest need a look at the paper itself.
-      </p>
       {Object.entries(data.anomalies).map(([key, a]) => (
         <section key={key} className="space-y-2">
           <SectionTitle>
             {ANOMALY_LABEL[key] ?? key} <span className="tabular-nums text-fg-muted">({a.count})</span>
           </SectionTitle>
+          {key === "venue_is_url" && a.count > 0 && (
+            <Button size="sm" asChild>
+              <Link to="/data/health">Clear web addresses in Data health</Link>
+            </Button>
+          )}
           {a.count === 0 ? (
             <p className="text-sm text-fg-muted">None.</p>
           ) : (

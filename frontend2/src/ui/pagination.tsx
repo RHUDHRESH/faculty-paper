@@ -43,7 +43,7 @@ export function Pagination({
         {start}–{end} of {total}
       </Meta>
       <div className="flex items-center gap-1">
-        <Button kind="quiet" size="sm" onClick={() => onChange(page - 1)} disabled={page === 0}>
+        <Button kind="default" size="sm" onClick={() => onChange(page - 1)} disabled={page === 0}>
           <ChevronLeft />
           Previous
         </Button>

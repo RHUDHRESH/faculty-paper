@@ -1,4 +1,5 @@
-import { screen } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -63,10 +64,31 @@ describe("Finance home", () => {
     )
     renderWithProviders(<FinanceHome />)
     // 38 is the queue, not the one row in hand
-    expect(await screen.findByText("38 Ready to pay", { selector: ".sr-only" })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/38 claims, ₹3,90,000, are ready to pay/))
     expect(screen.getByRole("link", { name: /Pay 38 claims/ })).toBeInTheDocument()
     expect(screen.getAllByText(/of ₹17,600; ₹10,000 held back by the research threshold/).length).toBeGreaterThan(0)
     expect(document.body.textContent).not.toMatch(/flag|duplicate|watch/i)
+  })
+
+  it("opens the whole run in place, with what paying does to the budget, and never sends Finance to another page first", async () => {
+    vi.mocked(api).mockImplementation(
+      fakeApi({
+        ...COMMON,
+        "/api/auth/me": () => FINANCE,
+        "/api/admin/payouts": () => ({
+          total: 1, limit: 200, offset: 0,
+          totals: { count: 1, amount: 7_600, ready_count: 1, ready_amount: 7_600, held_count: 0, held_amount: 0, no_amount_count: 0, held_back: 10_000, held_back_count: 1, zero_count: 0 },
+          results: [CLAIM],
+        }),
+      })
+    )
+    renderWithProviders(<FinanceHome />)
+    const pay = await screen.findByRole("button", { name: /Pay all 1 · ₹7,600/ })
+    await userEvent.click(pay)
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByRole("heading", { name: "Pay 1 claim?" })).toBeInTheDocument()
+    expect(await within(dialog).findByText("Paying it leaves ₹12,00,000 in the 2026-27 budget.")).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Pay 1 claim, ₹7,600" })).toBeInTheDocument()
   })
 
   it("says a failed queue failed, not that nothing is waiting", async () => {
@@ -94,9 +116,10 @@ describe("Director home", () => {
     )
     renderWithProviders(<DirectorHome />)
     const means = await screen.findByTestId("authorising-means")
-    expect(means).toHaveTextContent("Authorising all of it releases ₹7,600 to Finance")
-    expect(means).toHaveTextContent("₹12,00,000 left")
-    expect(means).toHaveTextContent("taken ₹10,000 off 1 claim")
+    // The sentence is the answer; the line under it is what authorising does to the budget.
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/1 claim, ₹7,600, is waiting for you/))
+    expect(means).toHaveTextContent("Authorising it leaves ₹12,00,000 in the 2026-27 budget.")
+    expect(screen.getByRole("img", { name: /Budget: ₹5,00,000 paid/ })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Authorise all 1 · ₹7,600/ })).toBeInTheDocument()
     expect(screen.getAllByText(/held back by the research threshold/).length).toBeGreaterThan(0)
   })

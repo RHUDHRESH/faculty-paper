@@ -5,6 +5,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { chipClass, segmentClass } from "@/ui/toggle"
 import { PageHeader } from "@/ui/page-header"
 import { SectionTitle } from "@/ui/text"
 import { Avatar, initialsOf } from "@/ui/person"
@@ -200,17 +201,15 @@ export function Calendar() {
         >
           Today
         </Button>
-        <div role="tablist" aria-label="View" className="inline-flex rounded-control bg-surface p-0.5 ring-1 ring-line">
+        <div role="tablist" aria-label="View" className="well inline-flex gap-0.5 p-0.5">
           {(["month", "week", "agenda"] as const).map((v) => (
             <button
               key={v}
+              type="button"
               role="tab"
               aria-selected={view === v}
               onClick={() => go({ view: v })}
-              className={cn(
-                "h-8 rounded-control px-3 text-sm capitalize",
-                view === v ? "bg-[var(--area-time-wash)] font-medium text-[var(--area-time)]" : "text-fg-muted hover:text-fg"
-              )}
+              className={segmentClass(view === v, cn("capitalize", view === v && "text-[var(--area-time)]"))}
             >
               {v}
             </button>
@@ -231,11 +230,9 @@ export function Calendar() {
               type="button"
               aria-pressed={on}
               onClick={() => toggle(l.key)}
-              className={cn(
-                "h-7 rounded-full px-3 text-xs font-medium ring-1",
-                on
-                  ? "bg-[var(--area-time-wash)] text-[var(--area-time)] ring-[var(--area-time)]"
-                  : "bg-surface text-fg-muted ring-line hover:text-fg"
+              className={chipClass(
+                on,
+                on ? "bg-[var(--area-time-wash)] text-[var(--area-time)] ring-[var(--area-time)] hover:bg-[var(--area-time-wash)]" : undefined
               )}
             >
               {l.label}
@@ -249,7 +246,6 @@ export function Calendar() {
       ) : isError ? (
         <ErrorState
           title="Could not load the calendar"
-          message="Could not load the calendar. Nothing on it has been changed."
           onRetry={() => refetch()}
         />
       ) : view === "agenda" ? (
@@ -347,7 +343,7 @@ function UpNext({ items, today, horizon, onOpen }: { items: CalItem[]; today: st
       <SectionTitle id="up-next">Up next</SectionTitle>
       <p className="text-sm text-fg-muted">The next 30 days</p>
       {days.length === 0 ? (
-        <p className="mt-4 text-sm text-fg-muted">Nothing ahead yet. Dates you add, and dates from the record, show here.</p>
+        <p className="mt-4 text-sm text-fg-muted">Nothing ahead yet.</p>
       ) : (
         <ol className="mt-3 space-y-4">
           {days.map(([day, list]) => (
@@ -392,7 +388,6 @@ function QuietMonth({ onAdd }: { onAdd: () => void }) {
       icon={CalendarDays}
       illustration="empty-calendar"
       title="A quiet month"
-      message="Nothing on the record for this month. Add a reminder, or step to another month."
       action={
         <Button kind="primary" size="sm" onClick={onAdd}>
           <Plus />

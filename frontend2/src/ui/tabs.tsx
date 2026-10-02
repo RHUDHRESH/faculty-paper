@@ -51,7 +51,7 @@ export function Tabs({
     <div
       role="tablist"
       aria-label={label}
-      className={cn("flex gap-x-6 overflow-x-auto border-b border-line", className)}
+      className={cn("flex gap-x-1 overflow-x-auto border-b border-edge", className)}
       onKeyDown={(e) => {
         const i = tabs.findIndex((t) => t.id === value)
         const to =
@@ -77,15 +77,24 @@ export function Tabs({
             tabIndex={on ? 0 : -1}
             onClick={() => onChange(t.id)}
             className={cn(
-              "relative -mb-px inline-flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none px-0.5 text-base",
-              "border-b-2 transition-colors duration-[var(--dur-1)]",
+              "relative -mb-px inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-t-control px-2.5 text-base",
+              "border-b-[3px] transition-colors duration-[var(--dur-1)]",
               on
-                ? "border-fg font-medium text-fg"
-                : "border-transparent text-fg-muted hover:border-edge hover:text-fg"
+                ? "border-action bg-hover/60 font-semibold text-fg"
+                : "border-transparent font-medium text-fg-muted hover:border-control-edge hover:bg-hover/60 hover:text-fg active:bg-active"
             )}
           >
             {t.label}
-            {t.count != null && <span className="tabular text-sm text-fg-subtle">{formatCount(t.count)}</span>}
+            {t.count != null && (
+              <span
+                className={cn(
+                  "tabular inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium",
+                  on ? "bg-action text-action-fg" : "bg-hover text-fg-muted"
+                )}
+              >
+                {formatCount(t.count)}
+              </span>
+            )}
           </button>
         )
       })}

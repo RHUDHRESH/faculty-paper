@@ -3,6 +3,8 @@ import { forwardRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
+import { KbdChord } from "@/ui/kbd"
+import { chipClass } from "@/ui/toggle"
 
 export const SEARCH_SCOPES = [
   { id: "all", label: "All" },
@@ -72,12 +74,10 @@ export const BigSearch = forwardRef<
           placeholder={placeholder}
           className="h-16 w-full rounded-3xl bg-surface pr-24 pl-14 text-lg text-fg shadow-[inset_0_0_0_1px_var(--color-edge),0_2px_12px_-4px_rgb(43_42_39/0.08)] placeholder:text-fg-subtle focus:shadow-[inset_0_0_0_1px_var(--color-accent-line),0_2px_16px_-4px_rgb(43_42_39/0.12)] focus:outline-none max-sm:text-lg"
         />
-        <kbd
-          aria-hidden
-          className="pointer-events-none absolute top-1/2 right-5 -translate-y-1/2 rounded-md bg-sunken px-2 py-0.5 font-sans text-xs text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)] max-sm:hidden"
-        >
-          Ctrl K
-        </kbd>
+        <KbdChord
+          keys={["Ctrl", "K"]}
+          className="pointer-events-none absolute top-1/2 right-5 -translate-y-1/2 text-fg-muted max-sm:hidden"
+        />
       </form>
       {!hideScopes && (
         <div role="tablist" aria-label="Search in" className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -90,12 +90,7 @@ export const BigSearch = forwardRef<
                 role="tab"
                 aria-selected={on}
                 onClick={() => onScope?.(s.id)}
-                className={cn(
-                  "h-8 shrink-0 rounded-full px-3 text-sm transition-colors duration-[var(--dur-1)]",
-                  on
-                    ? "bg-accent text-accent-fg"
-                    : "bg-surface text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-hover"
-                )}
+                className={chipClass(on)}
               >
                 {s.label}
               </button>

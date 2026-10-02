@@ -148,7 +148,7 @@ describe("the faculty directory", () => {
     expect(within(item).queryByText("EEE")).toBeNull()
     expect(screen.queryByText(/Claims in/)).toBeNull()
     expect(screen.queryByText(/claims filed and/)).toBeNull()
-    expect(screen.getByText(/with their Scopus ID and papers/)).toBeInTheDocument()
+    expect(screen.getByText(/faculty in your department/)).toBeInTheDocument()
     expect(screen.queryByRole("combobox", { name: "Filter by department" })).toBeNull()
   })
 

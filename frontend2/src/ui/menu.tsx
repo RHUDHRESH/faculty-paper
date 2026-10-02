@@ -95,19 +95,23 @@ export function MenuItem({
   return (
     <RadixMenu.Item
       className={cn(
-        "flex h-9 cursor-pointer select-none items-center gap-2 rounded-control px-2.5 text-sm outline-none",
+        "flex h-9 max-sm:h-11 cursor-pointer select-none items-center gap-2.5 rounded-control px-2.5 text-sm font-medium outline-none",
+        "transition-colors duration-[var(--dur-1)] [&_svg]:size-4 [&_svg]:shrink-0",
         "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        // Highlighted is the keyboard's cursor and the pointer's hover at
+        // once, so it has to be unmistakable: a wash and an outline, and the
+        // icon takes the text colour.
         danger
-          ? "text-critical data-[highlighted]:bg-critical-wash"
-          : "text-fg data-[highlighted]:bg-hover",
+          ? "text-critical data-[highlighted]:bg-critical-wash data-[highlighted]:ring-1 data-[highlighted]:ring-inset data-[highlighted]:ring-critical-line"
+          : "text-fg data-[highlighted]:bg-hover data-[highlighted]:ring-1 data-[highlighted]:ring-inset data-[highlighted]:ring-edge [&_svg]:text-fg-subtle data-[highlighted]:[&_svg]:text-fg",
         className
       )}
       {...props}
     >
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {shortcut && (
-        <span className="shrink-0 text-xs text-fg-subtle" aria-hidden>
-          {shortcut}
+        <span className="shrink-0 text-fg-subtle" aria-hidden>
+          <kbd>{shortcut}</kbd>
         </span>
       )}
     </RadixMenu.Item>

@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom"
-import { ChevronRight } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { HOME_DATA } from "@/app/home-data"
@@ -8,10 +7,12 @@ import { formatCount } from "@/lib/count"
 import { useApi } from "@/lib/query"
 import { isPayableTotals, payableKey, payablePath, useBudgetNow, type PayoutsPage } from "@/pages/pay-parts"
 import type { FinancialYear, StatementMonth } from "@/pages/statements"
-import { Answer } from "@/ui/answer"
+import { BudgetStrip } from "@/pages/budget-strip"
+import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
+import { Button } from "@/ui/button"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
-import { Rows, Section } from "@/ui/section"
+import { Section } from "@/ui/section"
 import { ErrorState } from "@/ui/state"
 import { Meta } from "@/ui/text"
 
@@ -26,16 +27,16 @@ import { Meta } from "@/ui/text"
  * opened. Pages come from the same catalogue as the sidebar and Ctrl K.
  */
 
-const GROUPS: Record<"DIRECTOR" | "FINANCE", { title: string; blurb: string; items: string[] }[]> = {
+const GROUPS: Record<"DIRECTOR" | "FINANCE", { title: string; items: string[] }[]> = {
   DIRECTOR: [
-    { title: "Your desk", blurb: "What waits on your signature.", items: ["/authorisations"] },
-    { title: "The month and the year", blurb: "Where the money stands, and the papers to sign.", items: ["/statements", "/budget", "/ledger"] },
-    { title: "The rules", blurb: "What decides an amount, and a way to check one.", items: ["/policy", "/calculator"] },
+    { title: "Your desk", items: ["/authorisations"] },
+    { title: "The month and the year", items: ["/statements", "/budget", "/ledger"] },
+    { title: "The rules", items: ["/policy", "/calculator"] },
   ],
   FINANCE: [
-    { title: "Your desk", blurb: "Pay what the Director authorised, and check what has gone out.", items: ["/payments", "/payments/done"] },
-    { title: "The month and the year", blurb: "The bank file, the ledger check, and the budget.", items: ["/statements", "/ledger", "/budget"] },
-    { title: "The rules", blurb: "What decides an amount, and a way to check one.", items: ["/policy", "/calculator"] },
+    { title: "Your desk", items: ["/payments", "/payments/done"] },
+    { title: "The month and the year", items: ["/statements", "/ledger", "/budget"] },
+    { title: "The rules", items: ["/policy", "/calculator"] },
   ],
 }
 
@@ -52,8 +53,6 @@ export function MoneyDesk({ role }: { role: "DIRECTOR" | "FINANCE" }) {
   )
 
   const mine = new Map(pagesFor(me?.role ?? role).map((p) => [p.to, p]))
-  const nowMonth = new Date().toISOString().slice(0, 7)
-  const thisMonth = months.data?.months.find((m) => m.month === nowMonth)
   const newest = months.data?.months.find((m) => m.count > 0)
   const remaining = budget.data?.college.remaining ?? null
   const allocated = budget.data?.college.allocated ?? null
@@ -96,52 +95,59 @@ export function MoneyDesk({ role }: { role: "DIRECTOR" | "FINANCE" }) {
   }
 
   return (
-    <div className="page space-y-10">
-      <PageHeader title="Money" sub="Where the year stands, and the paper for the month." spot="spot-budget" />
+    <div className="page space-y-12">
+      <PageHeader title="Money" spot="spot-budget" />
 
-      <Answer
-        items={[
-          { label: fy.data ? `Paid in FY ${fy.data.financial_year}` : "Paid this year", value: fy.data ? money(fy.data.paid) : null, to: "/ledger" },
-          {
-            label: "Approved, not yet paid",
-            value: fy.data ? money(fy.data.committed) : null,
-            zero: "Nothing is owed",
-            to: "/budget",
-          },
-          {
-            label: over ? "Over the budget" : "Left in the budget",
-            value: !budget.data ? null : remaining == null ? "Not set" : money(Math.abs(remaining)),
-            tone: over ? "critical" : undefined,
-            to: "/budget",
-          },
-          { label: "Paid this month", value: months.data ? money(thisMonth?.amount ?? 0) : null, to: `/payments/done?month=${nowMonth}` },
-        ]}
-      />
+      <div className="space-y-5">
+        <AnswerLine>
+          {!budget.data ? (
+            "Where the year stands."
+          ) : remaining == null ? (
+            `No budget is set for ${budget.data.financial_year}.`
+          ) : over ? (
+            <>
+              The {budget.data.financial_year} budget is <AnswerWord tone="crimson">{money(Math.abs(remaining))} over</AnswerWord>.
+            </>
+          ) : (
+            <>
+              {tieNumbers(`${money(remaining)} is`)} <AnswerWord tone="sage">left</AnswerWord> in the {budget.data.financial_year} budget.
+            </>
+          )}
+        </AnswerLine>
+        {budget.data && (
+          <div className="max-w-2xl">
+            <BudgetStrip budget={budget.data.college} batch={0} labels="wide" />
+          </div>
+        )}
+      </div>
 
       {GROUPS[role].map((g) => {
         const items = g.items.map((to) => mine.get(to)).filter((p): p is NavItem => !!p)
         if (items.length === 0) return null
         return (
-          <Section key={g.title} title={g.title} sub={g.blurb}>
-            <Rows>
+          <Section key={g.title} title={g.title}>
+            <ul className="divide-y divide-line">
               {items.map((item) => {
                 const Icon = item.icon
                 const line = note(item.to)
                 return (
-                  <li key={item.to}>
-                    <Link to={item.to} className="row group flex items-start gap-3 rounded-control px-1 py-3">
+                  <li key={item.to} className="flex items-center gap-3 py-3">
+                    <Link to={item.to} className="row group flex min-w-0 flex-1 items-start gap-3 rounded-control px-1 py-1" title={item.purpose}>
                       <Icon className="mt-0.5 size-4 shrink-0 text-fg-subtle" aria-hidden />
                       <span className="min-w-0 flex-1">
                         <span className="block text-base font-medium">{item.label}</span>
-                        {item.purpose && <Meta className="mt-0.5 block text-pretty">{item.purpose}</Meta>}
                         {line && <Meta className="mt-0.5 block text-fg">{line}</Meta>}
                       </span>
-                      <ChevronRight className="mt-1 size-4 shrink-0 text-fg-subtle max-sm:hidden" aria-hidden />
                     </Link>
+                    <Button kind="default" size="sm" asChild>
+                      <Link to={item.to} tabIndex={-1} aria-hidden>
+                        Open
+                      </Link>
+                    </Button>
                   </li>
                 )
               })}
-            </Rows>
+            </ul>
           </Section>
         )
       })}

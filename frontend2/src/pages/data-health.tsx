@@ -144,7 +144,7 @@ export function DataHealth() {
     setBackingUp(true)
     try {
       const { job_id } = await api<{ job_id: string }>("/api/admin/backups", { method: "POST" })
-      toast.ok("Backup queued. It takes a few minutes; this page updates when it is done.")
+      toast.ok("Backup queued. This page updates when it is done.")
       for (let i = 0; i < 200; i++) {
         await new Promise((r) => setTimeout(r, 3000))
         const job = await api<Job>(`/api/admin/jobs/${job_id}`)
@@ -175,7 +175,7 @@ export function DataHealth() {
     <div className="page space-y-10">
       <PageHeader
         title="Data health"
-        sub="Does the record contradict itself, and is there a recent backup?"
+        sub="Contradictions in the record, and the newest backup."
         spot="spot-audit"
         action={
           <Button kind="primary" onClick={() => void runNow()} disabled={running}>
@@ -206,7 +206,7 @@ export function DataHealth() {
       ) : error ? (
         <ErrorState
           title="Could not load the data health report"
-          message="The server did not answer. Nothing has been changed. Try again."
+          message="The server did not answer."
           onRetry={() => void refetch()}
         />
       ) : (
@@ -240,10 +240,10 @@ export function DataHealth() {
             <p className="text-sm text-fg-muted">
               {report ? (
                 <>
-                  Checked <Ago iso={report.ran_at} /> in {report.seconds} seconds. It runs every night.
+                  Checked <Ago iso={report.ran_at} />. Runs every night.
                 </>
               ) : (
-                "Not checked yet. It runs every night, or press Check now."
+                "Not checked yet. Runs every night."
               )}
             </p>
           </section>
@@ -272,7 +272,6 @@ export function DataHealth() {
           <Section
             id="backups"
             title="Backups"
-            sub="A backup is every record in one .json.gz file. The newest four are kept here, and one is made automatically each week."
             className="space-y-4"
             action={
               <Button kind="default" size="sm" onClick={() => void backupNow()} disabled={backingUp}>
@@ -282,19 +281,26 @@ export function DataHealth() {
             }
           >
             <Callout tone="info" title="Keep a copy off this server">
-              The free database is deleted on 23 October 2026. Download the newest backup and keep it somewhere
-              else. DEPLOY.md explains how to restore it into a new database.
+              The free database is deleted on 23 October 2026. Download the newest backup and keep it elsewhere.
             </Callout>
             <BackupTable backups={backups} />
+            <Details label="how backups work">
+              <Meta className="block max-w-prose">
+                A backup is every record in one .json.gz file. The newest four are kept here, and one is made each
+                week. DEPLOY.md explains how to restore one into a new database.
+              </Meta>
+            </Details>
           </Section>
 
           <Details label="other tools">
-            <div className="flex flex-wrap items-center gap-3">
-              <Button kind="default" onClick={() => void runBadges()} disabled={badging}>
-                {badging ? "Awarding badges" : "Award badges now"}
-              </Button>
-              <Meta>Badges are awarded every hour. Use this to bring them up to date at once.</Meta>
-            </div>
+            <Button
+              kind="default"
+              onClick={() => void runBadges()}
+              disabled={badging}
+              title="Badges are awarded every hour. This brings them up to date at once."
+            >
+              {badging ? "Awarding badges" : "Award badges now"}
+            </Button>
           </Details>
         </>
       )}
@@ -321,18 +327,18 @@ function ShowFilter({
   if (problems.length === 0) {
     return (
       <p className="rounded-panel bg-sunken px-4 py-8 text-center text-sm text-fg-muted">
-        Every check found nothing. The record agrees with itself.
+        Every check found nothing.
       </p>
     )
   }
   return (
     <div className="space-y-10">
       {show && (
-        <p className="text-sm text-fg-muted">
-          Showing {WORD[show as Finding["severity"]]?.toLowerCase()}s only.{" "}
-          <Link to="/data/health" className="underline underline-offset-2">
-            Show all {count(problems.length)} checks
-          </Link>
+        <p className="flex flex-wrap items-center gap-3 text-sm text-fg-muted">
+          Showing {WORD[show as Finding["severity"]]?.toLowerCase()}s only.
+          <Button kind="default" size="sm" asChild>
+            <Link to="/data/health">Show all {count(problems.length)} checks</Link>
+          </Button>
         </p>
       )}
       {[...groups.entries()].map(([group, findings]) => (
@@ -374,24 +380,28 @@ function FindingRow({
             <span className="font-medium">{f.title}</span>
             <span className={cn("text-xs font-medium", TONE[f.severity])}>{WORD[f.severity]}</span>
           </p>
-          <p className="mt-0.5 text-sm text-fg-muted">{f.help}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-3">
           <span className={cn("figure text-2xl tabular", TONE[f.severity])}>{count(f.count)}</span>
           {fixLabel ? (
-            <Button kind="default" onClick={onFix} disabled={busy}>
+            <Button kind="default" size="sm" onClick={onFix} disabled={busy}>
               <Wrench aria-hidden />
               {busy ? "Working" : fixLabel}
             </Button>
           ) : elsewhere ? (
-            <Button kind="default" asChild>
+            <Button kind="default" size="sm" asChild>
               <Link to={elsewhere.to}>{elsewhere.label}</Link>
             </Button>
           ) : null}
         </div>
       </div>
-      {f.rows.length > 0 && (
-        <Details label="the rows" count={f.count} className="mt-1">
+      <Details
+        label={f.rows.length > 0 ? "the rows" : "what this means"}
+        count={f.rows.length > 0 ? f.count : undefined}
+        className="mt-1"
+      >
+        <p className="mb-2 max-w-prose text-sm text-fg-muted">{f.help}</p>
+        {f.rows.length > 0 && (
           <ul className="space-y-1 text-sm">
             {f.rows.map((r) => (
               <li key={r.id} className="truncate">
@@ -410,8 +420,8 @@ function FindingRow({
               </Meta>
             )}
           </ul>
-        </Details>
-      )}
+        )}
+      </Details>
     </li>
   )
 }

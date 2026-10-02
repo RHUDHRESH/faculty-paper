@@ -428,6 +428,10 @@ class ActionIn(Schema):
     expected_amount: Optional[float] = None
     #: Super-admin escape hatch for a Scopus outage. Same ACL as /recalculate.
     skip_external: bool = False
+    #: A pay request only: a key the screen makes once per dialog and sends
+    #: again on every retry. The payment it made is found by it, so a retry
+    #: after a timeout cannot make a second one.
+    idempotency_key: Optional[str] = None
     #: A send-back only: the reviewer's checklist, [{key, status, note}] with
     #: status ok, issue or needs_info. The failed items are kept with the
     #: send-back (`core.services.review_marks`).

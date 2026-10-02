@@ -1,8 +1,11 @@
 import { Link } from "react-router-dom"
+import { ArrowLeft } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { useInstitution } from "@/app/institution"
 import { Mark } from "@/ui/art"
+import { Button } from "@/ui/button"
+import { chipClass } from "@/ui/toggle"
 
 /**
  * What this system holds about a person and why -- public, because Google
@@ -27,13 +30,18 @@ export function Privacy() {
         </Link>
       )}
       <h1 className="display text-[1.75rem] leading-9">Privacy</h1>
-      <p className="mt-1.5 text-base text-fg-muted">What this system holds about you, who sees it, and how to correct it.</p>
 
-      <nav aria-label="On this page" className="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        <a href="#holds" className="text-accent hover:underline">What it holds</a>
-        <a href="#google" className="text-accent hover:underline">Signing in with Google</a>
-        <a href="#sees" className="text-accent hover:underline">Who sees it</a>
-        <a href="#corrections" className="text-accent hover:underline">Corrections and questions</a>
+      <nav aria-label="On this page" className="mt-6 flex flex-wrap gap-2">
+        {[
+          ["holds", "What it holds"],
+          ["google", "Signing in with Google"],
+          ["sees", "Who sees it"],
+          ["corrections", "Corrections and questions"],
+        ].map(([id, label]) => (
+          <a key={id} href={`#${id}`} className={chipClass(false)}>
+            {label}
+          </a>
+        ))}
       </nav>
 
       <div className="mt-8 max-w-[65ch] space-y-10 text-base leading-relaxed text-fg">
@@ -95,11 +103,12 @@ export function Privacy() {
           </p>
         </section>
       </div>
-      <p className="mt-12 text-sm">
-        <Link to="/" className="rounded-sm text-accent underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-accent">
+      <Button asChild kind="default" className="mt-12">
+        <Link to="/">
+          <ArrowLeft />
           Back to Faculty Publications
         </Link>
-      </p>
+      </Button>
     </main>
   )
 }

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2 } from "lucide-react"
@@ -8,6 +8,7 @@ import { ApiError, api } from "@/lib/api"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Field, Input, NumberInput, Select } from "@/ui/field"
+import { ErpRemark } from "@/pages/erp-remark"
 import { PageHeader } from "@/ui/page-header"
 import { Answer } from "@/ui/answer"
 import { Rows, Section } from "@/ui/section"
@@ -22,7 +23,6 @@ import {
   count,
   FaceName,
   type Face,
-  ImportedNote,
   plural,
 } from "./admin-b-parts"
 
@@ -30,10 +30,11 @@ import {
  * Fix the claims the old ERP left wrong.
  *
  * The workbook brought across paid claims with no amount, papers with no
- * title ("-", "Untitled") and journals with no quartile. This is one row per
- * claim with only the boxes that claim needs. A save changes the claim, writes
- * the balancing ledger row for a settled amount, records who did it and why,
- * and says whether the ledger now agrees.
+ * title ("-", "Untitled") and journals with no quartile. The answer figures are
+ * the filters; each row is one line of trouble and one Fix button, and the form
+ * with only the boxes that claim needs opens beneath it. A save changes the
+ * claim, writes the balancing ledger row for a settled amount, records who did
+ * it and why, and says whether the ledger now agrees.
  */
 
 type Kind = "paid_no_amount" | "untitled" | "no_quartile" | "no_claimant"
@@ -96,6 +97,7 @@ export function DataFixes() {
   const stage = params.get("stage") === "review" ? "review" : params.get("stage") === "paid" ? "paid" : null
   const [reason, setReason] = useState(DEFAULT_REASON)
   const [shown, setShown] = useState(PAGE)
+  const [openId, setOpenId] = useState<string | null>(null)
   const [fixed, setFixed] = useState<{ id: string; no: string | null; text: string; ok: boolean }[]>([])
 
   const qs = new URLSearchParams()
@@ -119,6 +121,7 @@ export function DataFixes() {
     }
     setParams(p)
     setShown(PAGE)
+    setOpenId(null)
   }
 
   function done(row: Row, result: FixResult) {
@@ -135,6 +138,7 @@ export function DataFixes() {
       { id: row.id, no: row.ticket_number, text: `Saved ${bits.join(", ") || "the change"}. ${ledger}`, ok: result.ledger.matches },
       ...f,
     ])
+    setOpenId(null)
     void qc.invalidateQueries({ queryKey: ["data-fixes"] })
     void qc.invalidateQueries({ queryKey: ["admin-faults"] })
     void qc.invalidateQueries({ queryKey: ["ledger"] })
@@ -143,18 +147,16 @@ export function DataFixes() {
 
   return (
     <div className="page space-y-10">
-      <PageHeader
-        title="Fix imported claims"
-        sub="Claims brought across from the old ERP that are missing an amount, a title, a quartile or a claimant."
-        spot="spot-audit"
-      />
+      <PageHeader title="Fix imported claims" sub="Missing an amount, title, quartile or claimant." spot="spot-audit" />
+
+      <ErpRemark />
 
       {isLoading ? (
-        <SkeletonRows rows={5} rowHeight={120} />
+        <SkeletonRows rows={5} rowHeight={72} />
       ) : isError || !data || !c ? (
         <ErrorState
           title="Could not load the fix list"
-          message="The server did not answer. Nothing has been changed. Try again."
+          message="Nothing has been changed. Try again."
           onRetry={() => refetch()}
         />
       ) : (
@@ -168,20 +170,12 @@ export function DataFixes() {
                 { value: c.no_claimant, label: "With the claimant not identified", to: "?kind=no_claimant", tone: "caution", zero: "Every claim has a claimant" },
               ]}
             />
-            <p className="text-sm text-fg-muted">
-              <Link className="underline underline-offset-2" to="/data/fixes">
-                {plural(c.claims, "claim")} to fix in all
-              </Link>
-              .
-            </p>
             {c.no_quartile_in_review > 0 && (
-              <p className="text-sm text-fg-muted">
-                {plural(c.no_quartile_in_review, "claim")} with no quartile{" "}
-                {c.no_quartile_in_review === 1 ? "is" : "are"} still in review and cannot be cleared until it is set.{" "}
-                <Link className="underline underline-offset-2" to="?kind=no_quartile&stage=review">
-                  Show those first
-                </Link>
-                .
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-fg-muted">
+                {plural(c.no_quartile_in_review, "claim")} in review cannot be cleared without a quartile.
+                <Button kind="default" size="sm" onClick={() => setFilter({ kind: "no_quartile", stage: "review" })}>
+                  Show those {count(c.no_quartile_in_review)}
+                </Button>
               </p>
             )}
           </section>
@@ -206,31 +200,21 @@ export function DataFixes() {
             sub={plural(data.total, "claim")}
             action={
               kind || stage ? (
-                <Button kind="quiet" size="sm" onClick={() => setFilter({ kind: null, stage: null })}>
+                <Button kind="default" size="sm" onClick={() => setFilter({ kind: null, stage: null })}>
                   Show all {count(c.claims)}
                 </Button>
               ) : undefined
             }
             className="space-y-4"
           >
-            {mayFix ? (
-              <div className="well flex flex-wrap items-end gap-3 p-3">
-                <Field label="Where the corrections come from" hint="Kept with every change on this page." className="min-w-0 flex-1 basis-72">
-                  <Input value={reason} onChange={(e) => setReason(e.target.value)} />
-                </Field>
-              </div>
-            ) : (
-              <p className="text-sm text-fg-muted">Only a super admin can save a fix. You can read the list.</p>
-            )}
-
-            <ImportedNote show={rows.some((r) => r.imported)} />
+            {!mayFix && <p className="text-sm text-fg-muted">Read only. A super admin saves fixes.</p>}
 
             {rows.length === 0 ? (
               <EmptyState
                 art="empty-queue"
                 icon={CheckCircle2}
                 title="Nothing left to fix here"
-                message="Every claim in this list has what it needs. Check the ledger for anything paid that the ledger does not show."
+                message="Every claim in this list has what it needs."
                 action={
                   <Button kind="default" asChild>
                     <Link to="/ledger?problem=no-ledger">Open the ledger checks</Link>
@@ -240,7 +224,16 @@ export function DataFixes() {
             ) : (
               <Rows>
                 {rows.slice(0, shown).map((r) => (
-                  <FixRow key={r.id} row={r} reason={reason} mayFix={mayFix} onDone={done} />
+                  <FixRow
+                    key={r.id}
+                    row={r}
+                    reason={reason}
+                    onReason={setReason}
+                    mayFix={mayFix}
+                    open={openId === r.id}
+                    onToggle={() => setOpenId((id) => (id === r.id ? null : r.id))}
+                    onDone={done}
+                  />
                 ))}
               </Rows>
             )}
@@ -256,16 +249,74 @@ export function DataFixes() {
   )
 }
 
-
+/** One claim, one line of trouble, one button. The form opens beneath it. */
 function FixRow({
   row,
   reason,
+  onReason,
   mayFix,
+  open,
+  onToggle,
   onDone,
 }: {
   row: Row
   reason: string
+  onReason: (v: string) => void
   mayFix: boolean
+  open: boolean
+  onToggle: () => void
+  onDone: (row: Row, result: FixResult) => void
+}) {
+  const stage = stageOf(row.status)
+  const formId = useId()
+  return (
+    <li className="py-4">
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <FaceName person={row.owner} />
+            <ClaimNo no={row.ticket_number} className="text-fg-muted" />
+          </div>
+          <p className="text-base">{row.title && !isBlankTitle(row.title) ? row.title : "No title recorded"}</p>
+          <p className="text-sm text-fg-muted">
+            <span className="font-medium text-critical">{row.issues.map((i) => ISSUE_WORD[i]).join(", ")}</span>
+            {" · "}
+            {row.status === "PAID" && row.month_paid ? `Paid for ${monthName(row.month_paid)}` : stage.label}
+            {row.journal && row.journal !== "-" ? ` · ${row.journal}` : ""}
+            {row.year ? ` · ${row.year}` : ""}
+          </p>
+        </div>
+        {mayFix && (
+          <Button
+            kind={open ? "quiet" : "default"}
+            size="sm"
+            aria-expanded={open}
+            aria-controls={formId}
+            aria-label={`${open ? "Close" : "Fix"} ${row.ticket_number ?? "this claim"}`}
+            onClick={onToggle}
+          >
+            {open ? "Close" : "Fix"}
+          </Button>
+        )}
+      </div>
+      {open && mayFix && (
+        <div id={formId} className="mt-4">
+          <FixForm row={row} reason={reason} onReason={onReason} onDone={onDone} />
+        </div>
+      )}
+    </li>
+  )
+}
+
+function FixForm({
+  row,
+  reason,
+  onReason,
+  onDone,
+}: {
+  row: Row
+  reason: string
+  onReason: (v: string) => void
   onDone: (row: Row, result: FixResult) => void
 }) {
   const wantsAmount = row.issues.includes("paid_no_amount")
@@ -282,7 +333,6 @@ function FixRow({
   const [error, setError] = useState<string | null>(null)
 
   const something = (wantsAmount && (amount !== "" || noPayment)) || (wantsTitle && title.trim() !== "") || (wantsQuartile && quartile !== "") || (wantsClaimant && ownerEmail.trim() !== "")
-  const stage = stageOf(row.status)
 
   async function save() {
     setBusy(true)
@@ -305,157 +355,122 @@ function FixRow({
   }
 
   return (
-    <li className="space-y-3 py-5">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <ClaimNo no={row.ticket_number} className="font-medium" />
-        <FaceName person={row.owner} />
-        <span className="text-sm text-fg-muted">
-          {row.status === "PAID" && row.month_paid
-            ? `Paid for ${monthName(row.month_paid)}`
-            : stage.label}
-        </span>
-        <span className="flex flex-wrap gap-x-2 text-xs font-medium text-critical">
-          {row.issues.map((i) => (
-            <span key={i}>{ISSUE_WORD[i]}</span>
-          ))}
-        </span>
-      </div>
-
-      <div className="min-w-0">
-        <p className="text-base">{row.title && !isBlankTitle(row.title) ? row.title : "No title recorded"}</p>
-        <p className="text-sm text-fg-muted">
-          {[row.journal && row.journal !== "-" ? row.journal : "No journal recorded", row.year ? String(row.year) : null]
-            .filter(Boolean)
-            .join(" · ")}
-          {row.status === "PAID" && (
-            <>
-              {" · "}
-              Ledger holds {money(row.ledger_total)} in {plural(row.ledger_rows, "row")}
-            </>
-          )}
-        </p>
-      </div>
-
-      {mayFix && (
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {wantsAmount && (
-            <div className="space-y-1.5">
-              <Field
-                label="Amount paid"
-                hint={row.amount == null ? "Now: not recorded" : `Now: ${money(row.amount)}`}
-              >
-                <NumberInput
-                  unit="₹"
-                  min={1}
-                  step="any"
-                  value={amount}
-                  disabled={noPayment}
-                  onChange={(e) => {
-                    setAmount(e.target.value)
-                    setLinkId(null)
-                  }}
-                />
-              </Field>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                {(row.ledger_matches ?? []).map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className="min-h-8 max-w-full rounded-control px-1 py-1 text-left text-sm text-accent underline underline-offset-2 hover:bg-hover max-sm:min-h-10"
-                    onClick={() => {
-                      setNoPayment(false)
-                      setAmount(String(m.amount))
-                      setLinkId(m.id)
-                    }}
-                  >
-                    The ledger already has a {money(m.amount)} payment with this title
-                    {m.voucher_number ? `, voucher ${m.voucher_number}` : ""}
-                    {m.month ? `, ${monthName(m.month)}` : ""}. Use it and link it
-                  </button>
-                ))}
-                {row.suggestion && (
-                  <Button
-                    kind="quiet"
-                    size="sm"
-                    className="-ml-2"
-                    onClick={() => {
-                      setNoPayment(false)
-                      setAmount(String(row.suggestion!.amount))
-                    }}
-                    title={row.suggestion.note ?? undefined}
-                  >
-                    The policy would pay {money(row.suggestion.amount)}. Use it
-                  </Button>
-                )}
-                <label className="flex items-center gap-1.5 text-fg-muted">
-                  <input
-                    type="checkbox"
-                    checked={noPayment}
-                    onChange={(e) => {
-                      setNoPayment(e.target.checked)
-                      if (e.target.checked) setAmount("")
-                    }}
-                  />
-                  No payment was due
-                </label>
-              </div>
-            </div>
-          )}
-          {wantsTitle && (
-            <Field label="Paper title" hint="Now: none">
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Type the paper's real title" />
-            </Field>
-          )}
-          {wantsQuartile && (
+    <div className="space-y-3">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {wantsAmount && (
+          <div className="space-y-1.5">
             <Field
-              label="Quartile"
-              hint={row.claimed_quartile ? `The claimant wrote: ${row.claimed_quartile}` : "Not stated by the claimant"}
+              label="Amount paid"
+              hint={
+                (row.amount == null ? "Now: not recorded" : `Now: ${money(row.amount)}`) +
+                `. Ledger holds ${money(row.ledger_total)} in ${plural(row.ledger_rows, "row")}`
+              }
             >
-              <Select size="sm" value={quartile} onChange={(e) => setQuartile(e.target.value)}>
-                <option value="">Choose a quartile</option>
-                <option value="Q1">Q1</option>
-                <option value="Q2">Q2</option>
-                <option value="Q3">Q3</option>
-                <option value="Q4">Q4</option>
-                <option value="Others">Others (not ranked)</option>
-              </Select>
-            </Field>
-          )}
-          {wantsClaimant && (
-            <Field label="Whose paper is this?" hint={`Now: ${row.owner.name}. Type the email of the right account.`}>
-              <Input
-                type="email"
-                value={ownerEmail}
-                onChange={(e) => setOwnerEmail(e.target.value)}
-                placeholder="name@college.edu"
+              <NumberInput
+                unit="₹"
+                min={1}
+                step="any"
+                value={amount}
+                disabled={noPayment}
+                onChange={(e) => {
+                  setAmount(e.target.value)
+                  setLinkId(null)
+                }}
               />
             </Field>
-          )}
-        </div>
-      )}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+              {(row.ledger_matches ?? []).map((m) => (
+                <Button
+                  key={m.id}
+                  kind="default"
+                  size="sm"
+                  title={`The ledger already has this payment${m.voucher_number ? `, voucher ${m.voucher_number}` : ""}${m.month ? `, ${monthName(m.month)}` : ""}.`}
+                  onClick={() => {
+                    setNoPayment(false)
+                    setAmount(String(m.amount))
+                    setLinkId(m.id)
+                  }}
+                >
+                  Use the ledger payment of {money(m.amount)}
+                </Button>
+              ))}
+              {row.suggestion && (
+                <Button
+                  kind="default"
+                  size="sm"
+                  onClick={() => {
+                    setNoPayment(false)
+                    setAmount(String(row.suggestion!.amount))
+                  }}
+                  title={row.suggestion.note ?? undefined}
+                >
+                  The policy would pay {money(row.suggestion.amount)}. Use it
+                </Button>
+              )}
+              <label className="flex items-center gap-1.5 text-fg-muted">
+                <input
+                  type="checkbox"
+                  checked={noPayment}
+                  onChange={(e) => {
+                    setNoPayment(e.target.checked)
+                    if (e.target.checked) setAmount("")
+                  }}
+                />
+                No payment was due
+              </label>
+            </div>
+          </div>
+        )}
+        {wantsTitle && (
+          <Field label="Paper title">
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Type the paper's real title" />
+          </Field>
+        )}
+        {wantsQuartile && (
+          <Field label="Quartile" hint={row.claimed_quartile ? `The claimant wrote: ${row.claimed_quartile}` : undefined}>
+            <Select size="sm" value={quartile} onChange={(e) => setQuartile(e.target.value)}>
+              <option value="">Choose a quartile</option>
+              <option value="Q1">Q1</option>
+              <option value="Q2">Q2</option>
+              <option value="Q3">Q3</option>
+              <option value="Q4">Q4</option>
+              <option value="Others">Others (not ranked)</option>
+            </Select>
+          </Field>
+        )}
+        {wantsClaimant && (
+          <Field label="Email of the right account" hint={`Now: ${row.owner.name}`}>
+            <Input
+              type="email"
+              value={ownerEmail}
+              onChange={(e) => setOwnerEmail(e.target.value)}
+              placeholder="name@college.edu"
+            />
+          </Field>
+        )}
+      </div>
+
+      <Field
+        label="Where the correction comes from"
+        error={reason.trim().length < 10 ? "Write at least 10 characters." : undefined}
+        className="max-w-xl"
+      >
+        <Input value={reason} onChange={(e) => onReason(e.target.value)} />
+      </Field>
 
       {error && <InlineError message={error} />}
 
       <div className="flex flex-wrap items-center gap-3">
-        {mayFix && (
-          <Button kind="primary" disabled={busy || !something || reason.trim().length < 10} onClick={save}>
-            {busy ? "Saving" : `Save fix for ${row.ticket_number ?? "this claim"}`}
-          </Button>
-        )}
-        {mayFix && reason.trim().length < 10 && (
-          <span className="text-sm text-fg-muted">Say where the corrections come from above.</span>
-        )}
-        <Button kind="quiet" size="sm" asChild>
+        <Button kind="primary" disabled={busy || !something || reason.trim().length < 10} onClick={save}>
+          {busy ? "Saving" : `Save fix for ${row.ticket_number ?? "this claim"}`}
+        </Button>
+        <Button kind="default" size="sm" asChild>
           <Link to={`/papers/${row.id}`}>Open the claim</Link>
         </Button>
         <ChangeHistory entity="Claim" id={row.id} />
-        {row.last_fix && (
-          <span className="text-sm text-fg-muted">
-            Last fixed by {row.last_fix.by}.
-          </span>
-        )}
+        {row.last_fix && <span className="text-sm text-fg-muted">Last fixed by {row.last_fix.by}.</span>}
       </div>
-    </li>
+    </div>
   )
 }
 

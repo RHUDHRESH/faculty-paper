@@ -1,80 +1,60 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { AlertTriangle, Inbox, PauseCircle, RefreshCw } from "lucide-react"
+import { Inbox, ListFilter } from "lucide-react"
 
 import { can, useAuth } from "@/app/auth"
 import { openShortcuts } from "@/app/shortcuts"
 import { cn } from "@/lib/cn"
 import { CHAIN, useApi, useApiMutation } from "@/lib/query"
 import { countAssignedToMe, isAssignedToMe } from "@/ui/assignee"
+import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { ClaimNoJump, matchesClaimNo } from "@/ui/claim-number"
-import { filterBar } from "@/ui/filter-bar"
-import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
-import { Meta, PageTitle, Sub } from "@/ui/text"
+import { Checkbox } from "@/ui/field"
+import { OwnPapersNote } from "@/ui/own-papers"
+import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { useSlashToSearch } from "@/ui/queue-keys"
-import { toast } from "@/ui/toast"
-import { OwnPapersNote } from "@/ui/own-papers"
-import { HeaderSpot } from "@/ui/page-header"
 import {
   BulkHoldDialog,
-  BulkSummaryDialog,
   NoBulkSendBack,
-  QueueTable,
   QuietSelect,
-  RowFlag,
   SearchBox,
   SkippedDialog,
   reviewLink,
   useUrlFilters,
-  waitTone,
   waitingLabel,
-  type SummaryRow,
 } from "@/ui/queue"
-import { thresholdFlag } from "@/ui/research-threshold"
-import { AGE_BUCKETS, ageSplit, inBucket, isAgeBucket, isClean, MonthlyReport } from "@/pages/clearing-desk"
+import { Rows } from "@/ui/section"
+import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
+import { Meta } from "@/ui/text"
+import { toast } from "@/ui/toast"
+import { AGE_BUCKETS, ageSplit, inBucket, isAgeBucket } from "@/pages/clearing-desk"
 import type { BulkClearResult, QueueClaim } from "@/pages/clearing-actions"
+import { ClearConfirmDialog } from "@/pages/cell/clear-confirm"
+import { ClearingRow, isReady, notReady } from "@/pages/cell/clearing-rows"
 
 /**
- * The research cell's daily job: every submitted claim, oldest first, and the
- * one screen where a figure turns into a payment on its way.
+ * The research cell's daily job: every submitted claim, oldest first, in two
+ * lanes (docs/ux/26). **Ready to clear** is the batch: every check passed, no
+ * journal watched, an amount worked out. **Needs a look** is the job, each row
+ * saying why in a phrase. The cursor walks both, ready first.
  *
  * Two things this page cannot afford to get wrong. First, the order:
  * `waiting_days` is the queue's own priority, so nothing here re-sorts what
- * the server already put oldest-first. Second, the amount: the server
- * recomputes it inside the same request, and a bulk clear skips a claim whose
- * amount has moved instead of clearing it at the wrong number.
+ * the server already put oldest-first; the lanes only split it. Second, the
+ * amount: the server recomputes it inside the same request, and a bulk clear
+ * skips a claim whose amount has moved instead of clearing it at the wrong
+ * number.
  *
- * A row opens the full-page review (`/review/:id?queue=clearing`). The old
- * side sheet is gone; its dialogs live on in `clearing-actions.tsx`.
+ * Keys: j/k move, x chooses, a chooses every ready claim, c clears the chosen
+ * (or the claim under the cursor, if it is ready), s opens the claim to send
+ * back, h holds, Enter opens, / searches.
  */
 
+export { isReady } from "@/pages/cell/clearing-rows"
+
 const FILTER_KEYS = ["q", "department", "check", "age", "assigned"] as const
-
-/** Why a claim is not ready to clear, in words for the desk. Empty when it is ready. */
-function notReady(c: QueueClaim): string[] {
-  const why: string[] = []
-  if (c.on_hold) why.push("on hold")
-  if (c.verification_ok === false) why.push("checks failed")
-  else if (c.verification_ok == null) why.push("not checked yet")
-  if (c.duplicate_warning) why.push("possible duplicate")
-  if (c.contest_forward) why.push("contested by the claimant")
-  if (c.journal_watch) why.push("watched journal")
-  if (c.affiliation_ok === false) why.push("affiliation not confirmed")
-  if (c.calc_error || c.remuneration == null) why.push("no amount")
-  return why
-}
-
-/** All checks pass and nothing is watch-listed. */
-export function isReady(c: QueueClaim): boolean {
-  return !c.on_hold && isClean(c)
-}
-
-function summaryRow(c: QueueClaim, withNote: boolean): SummaryRow {
-  const why = withNote ? notReady(c) : []
-  return { ...c, note: why.length ? why.join(", ") : null }
-}
 
 export function Clearing() {
   const { me } = useAuth()
@@ -85,7 +65,6 @@ export function Clearing() {
     data: claims,
     isLoading,
     isError,
-    isFetching,
     refetch,
   } = useApi<QueueClaim[]>(["clearing-queue"], "/api/admin/clearing-queue?status=SUBMITTED", {
     enabled: allowed,
@@ -99,6 +78,7 @@ export function Clearing() {
   const age = isAgeBucket(values.age) ? values.age : ""
   const searchRef = useRef<HTMLInputElement>(null)
   useSlashToSearch(searchRef)
+  const [showFilters, setShowFilters] = useState(false)
 
   const needle = q.trim().toLowerCase()
   // Narrowing only: the server's oldest-first order is never re-sorted.
@@ -110,9 +90,9 @@ export function Clearing() {
         (assigned === "me" && isAssignedToMe(c, me?.id)) ||
         (assigned === "none" && !c.assigned_to)) &&
       (!check ||
+        (check === "ready" && isReady(c)) ||
         (check === "passed" && c.verification_ok === true) ||
         (check === "failed" && c.verification_ok === false) ||
-        (check === "ready" && isReady(c)) ||
         (check === "flagged" && (c.duplicate_warning || c.contest_forward || !!c.journal_watch))) &&
       (!needle ||
         matchesClaimNo(c.ticket_number, q) ||
@@ -120,6 +100,11 @@ export function Clearing() {
           .filter(Boolean)
           .some((v) => String(v).toLowerCase().includes(needle)))
   )
+  const ready = rows.filter(isReady)
+  const rest = rows.filter((c) => !isReady(c))
+  // The cursor's order is the screen's order: the ready lane, then the rest.
+  const ordered = useMemo(() => [...ready, ...rest], [ready, rest]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const byDept = [
     ...all.reduce(
       (m, c) => m.set(c.owner_department || "No department", (m.get(c.owner_department || "No department") || 0) + 1),
@@ -129,13 +114,15 @@ export function Clearing() {
   const queueTotal = all.reduce((s, c) => s + (c.remuneration || 0), 0)
   const priced = all.filter((c) => c.remuneration != null).length
   const oldest = all.reduce((m, c) => Math.max(m, c.waiting_days ?? 0), 0)
-  const ready = rows.filter(isReady)
+  const late = all.filter((c) => (c.waiting_days ?? 0) > 14).length
+  const readyAll = all.filter(isReady)
+  const readyTotal = ready.reduce((s, c) => s + (c.remuneration || 0), 0)
 
   // Whole rows, not ids: a row that has left this fetch still has to be able
-  // to say its own title and amount in the bar and the summary.
+  // to say its own title and amount in the dialog and the summary.
   const [selected, setSelected] = useState<Map<string, QueueClaim>>(new Map())
   const [activeRow, setActiveRow] = useState(0)
-  const [dialog, setDialog] = useState<null | "ready" | "selected" | "hold">(null)
+  const [dialog, setDialog] = useState<null | { kind: "clear"; rows: QueueClaim[] } | { kind: "hold" }>(null)
   const [result, setResult] = useState<{ result: BulkClearResult; lookup: Map<string, QueueClaim> } | null>(null)
   const [holdResult, setHoldResult] = useState<{ skipped: { id: string; reason: string }[]; lookup: Map<string, QueueClaim> } | null>(null)
 
@@ -147,9 +134,8 @@ export function Clearing() {
   }
 
   useEffect(() => {
-    setActiveRow((i) => Math.min(i, Math.max(0, rows.length - 1)))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows.length])
+    setActiveRow((i) => Math.min(i, Math.max(0, ordered.length - 1)))
+  }, [ordered.length])
 
   function toggleSelected(c: QueueClaim) {
     setSelected((prev) => {
@@ -159,11 +145,11 @@ export function Clearing() {
       return next
     })
   }
-  function toggleAllVisible() {
+  function toggleLane(lane: QueueClaim[]) {
     setSelected((prev) => {
       const next = new Map(prev)
-      const every = rows.length > 0 && rows.every((c) => next.has(c.id))
-      for (const c of rows) {
+      const every = lane.length > 0 && lane.every((c) => next.has(c.id))
+      for (const c of lane) {
         if (every) next.delete(c.id)
         else next.set(c.id, c)
       }
@@ -171,34 +157,62 @@ export function Clearing() {
     })
   }
 
+  const selectedRows = [...selected.values()]
+  const selectedTotal = selectedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
+
+  /** `c`: clear what is chosen, or the claim under the cursor if it is ready. */
+  function clearKey() {
+    if (selectedRows.length > 0) return setDialog({ kind: "clear", rows: selectedRows })
+    const row = ordered[activeRow]
+    if (!row) return
+    if (!isReady(row)) {
+      toast.info(`${row.ticket_number ?? "This claim"} is not ready: ${notReady(row).join(", ").toLowerCase()}. Press Enter to look at it.`)
+      return
+    }
+    setDialog({ kind: "clear", rows: [row] })
+  }
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (dialog) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (dialog || result || holdResult) return
       const target = e.target as HTMLElement | null
       const tag = target?.tagName
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return
       if (document.querySelector('[role="dialog"]')) return
-      if (rows.length === 0) return
+      if (ordered.length === 0) return
+      const row = ordered[activeRow]
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault()
-        setActiveRow((i) => Math.min(i + 1, rows.length - 1))
+        setActiveRow((i) => Math.min(i + 1, ordered.length - 1))
       } else if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault()
         setActiveRow((i) => Math.max(i - 1, 0))
-      } else if (e.key === "x") {
+      } else if (e.key === "x" && row) {
         e.preventDefault()
-        const row = rows[activeRow]
-        if (row) toggleSelected(row)
-      } else if (e.key === "Enter") {
+        toggleSelected(row)
+      } else if (e.key === "a") {
         e.preventDefault()
-        const row = rows[activeRow]
-        if (row) navigate(href(row))
+        toggleLane(ready)
+      } else if (e.key === "c") {
+        e.preventDefault()
+        clearKey()
+      } else if (e.key === "s" && row) {
+        e.preventDefault()
+        navigate(`${href(row)}&do=sendback`)
+      } else if (e.key === "h") {
+        e.preventDefault()
+        if (selected.size === 0 && row) toggleSelected(row)
+        setDialog({ kind: "hold" })
+      } else if (e.key === "Enter" && row) {
+        e.preventDefault()
+        navigate(href(row))
       }
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, activeRow, dialog])
+  }, [ordered, activeRow, dialog, result, holdResult, selected])
 
   const bulkClear = useApiMutation<{ claim_ids: string[]; note?: string }, BulkClearResult>("/api/admin/bulk-clear", {
     invalidates: [...CHAIN],
@@ -212,18 +226,13 @@ export function Clearing() {
     )
   }
 
-  const selectedRows = [...selected.values()]
-  const selectedTotal = selectedRows.reduce((sum, c) => sum + (c.remuneration || 0), 0)
-  const selectedNotReady = selectedRows.filter((c) => !isReady(c)).length
-  const selectedOffList = selected.size - rows.filter((c) => selected.has(c.id)).length
-
-  /** What the ready batch leaves out, by reason, for the summary. */
+  /** What a batch leaves out, by reason, for the dialog. */
   function leftOutOf(pool: QueueClaim[], batch: Set<string>) {
-    const rest = pool.filter((c) => !batch.has(c.id))
+    const left = pool.filter((c) => !batch.has(c.id))
     const tally = new Map<string, number>()
-    for (const c of rest) for (const w of notReady(c)) tally.set(w, (tally.get(w) ?? 0) + 1)
+    for (const c of left) for (const w of notReady(c)) tally.set(w.toLowerCase(), (tally.get(w.toLowerCase()) ?? 0) + 1)
     return {
-      count: rest.length,
+      count: left.length,
       reasons: [...tally].sort((a, b) => b[1] - a[1]).map(([label, count]) => ({ label, count })),
     }
   }
@@ -239,9 +248,16 @@ export function Clearing() {
         for (const id of ids) if (!skippedIds.has(id)) next.delete(id)
         return next
       })
+      const sum = batch.filter((c) => !skippedIds.has(c.id)).reduce((s, c) => s + (c.remuneration || 0), 0)
       if (res.skipped.length === 0) {
-        toast.ok(`Cleared. ${res.cleared} ${res.cleared === 1 ? "claim" : "claims"} sent to the Principal`)
+        toast.stamp(
+          "Cleared",
+          res.cleared === 1
+            ? `${money(sum)} sent to the Principal${batch[0].ticket_number ? `. ${batch[0].ticket_number}` : ""}.`
+            : `${res.cleared} claims, ${money(sum)}, sent to the Principal.`
+        )
       } else {
+        if (res.cleared > 0) toast.stamp("Cleared", `${res.cleared} claims, ${money(sum)}, sent to the Principal.`)
         setResult({ result: res, lookup })
       }
     } catch (err) {
@@ -250,68 +266,121 @@ export function Clearing() {
     }
   }
 
-  const readyIds = new Set(ready.map((c) => c.id))
-  const flagsFor = (c: QueueClaim) => (
-    <>
-      {c.on_hold && (
-        <RowFlag tone="caution">
-          <PauseCircle className="size-3" aria-hidden /> On hold
-        </RowFlag>
-      )}
-      {c.duplicate_warning && (
-        <RowFlag tone="critical">
-          <AlertTriangle className="size-3" aria-hidden /> Possible duplicate
-        </RowFlag>
-      )}
-      {c.contest_forward && <RowFlag tone="caution">Contested</RowFlag>}
-      {c.journal_watch && <RowFlag tone="critical">Watched journal</RowFlag>}
-      {thresholdFlag(c) && <RowFlag tone="caution">{thresholdFlag(c)}</RowFlag>}
-      {c.owner_threshold_unset && <RowFlag tone="caution">Research faculty, threshold not set</RowFlag>}
-      {(c.calc_error || c.remuneration == null) && <RowFlag tone="critical">No amount</RowFlag>}
-      {!c.calc_error && c.remuneration_is_estimate && <RowFlag tone="caution">Estimate</RowFlag>}
-      {c.verification_ok === false && <RowFlag tone="critical">Checks failed</RowFlag>}
-    </>
+  const dialogRows = dialog?.kind === "clear" ? dialog.rows : []
+  const dialogIds = new Set(dialogRows.map((c) => c.id))
+  const notReadyInBatch = dialogRows.filter((c) => !isReady(c)).map((c) => ({ id: c.id, note: `${c.ticket_number ?? c.paper_title}: ${notReady(c).join(", ").toLowerCase()}` }))
+
+  // The answer, in a sentence. Two short clauses, at most.
+  const answer =
+    all.length === 0 ? (
+      <>Nothing is waiting. The desk is clear.</>
+    ) : readyAll.length > 0 ? (
+      <>
+        {readyAll.length} of {all.length} are <AnswerWord tone="sage">ready to clear</AnswerWord>.
+      </>
+    ) : (
+      <>
+        None of the {all.length} is <AnswerWord tone="amber">ready</AnswerWord> yet.
+      </>
+    )
+
+  let cursor = -1
+  const lane = (list: QueueClaim[], isReadyLane: boolean) => (
+    <Rows>
+      {list.map((c) => {
+        cursor += 1
+        const i = cursor
+        return (
+          <ClearingRow
+            key={c.id}
+            claim={c}
+            ready={isReadyLane}
+            active={i === activeRow}
+            selected={selected.has(c.id)}
+            onToggle={() => toggleSelected(c)}
+            onActive={() => setActiveRow(i)}
+            href={href(c)}
+          />
+        )
+      })}
+    </Rows>
+  )
+
+  const laneHead = (title: string, list: QueueClaim[], hint: string) => (
+    <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1">
+      <div className="flex items-baseline gap-3">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <span className="tabular text-sm text-fg-muted">
+          {list.length}
+          {list.some((c) => c.remuneration != null) && ` · ${money(list.reduce((s, c) => s + (c.remuneration || 0), 0))}`}
+        </span>
+      </div>
+      <div className="flex items-center gap-3">
+        <Meta className="hidden sm:inline">{hint}</Meta>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+          <Checkbox
+            checked={list.length > 0 && list.every((c) => selected.has(c.id))}
+            onCheckedChange={() => toggleLane(list)}
+            aria-label={`Choose all ${list.length} in ${title.toLowerCase()}`}
+          />
+          Choose all
+        </label>
+      </div>
+    </div>
   )
 
   return (
-    <div className="page space-y-5">
-      <header className="page-head">
-        <div>
-          <PageTitle>Clearing queue</PageTitle>
-          <Sub className="mt-1">Submitted claims, oldest first. The one that has waited longest is next.</Sub>
-          <OwnPapersNote className="mt-1" />
-        </div>
-        <Button kind="quiet" size="sm" onClick={() => void refetch()} disabled={isFetching}>
-          <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
-          Refresh
-        </Button>
-        <HeaderSpot name="spot-approvals" />
-      </header>
+    <div className="page space-y-10">
+      <PageHeader
+        title="Clearing queue"
+        action={
+          ready.length > 0 ? (
+            <Button kind="primary" onClick={() => setDialog({ kind: "clear", rows: ready })}>
+              Clear the {ready.length} ready
+            </Button>
+          ) : undefined
+        }
+      />
 
-      {all.length > 0 && (
-        <section aria-label="The queue at a glance" className="space-y-3">
+      <div className="space-y-3">
+        <AnswerLine>{answer}</AnswerLine>
+        {all.length > 0 && (
           <p className="text-sm text-fg-muted">
-            <span className="font-semibold text-fg">{all.length}</span> waiting ·{" "}
             {priced === 0 ? (
-              "amounts not worked out yet"
+              "Amounts are not worked out yet. "
             ) : (
               <>
-                <span className="tabular font-semibold text-fg">{money(queueTotal)}</span>{" "}
-                {priced < all.length ? `across the ${priced} priced` : "in all"}
+                <span className="tabular text-fg">{money(queueTotal)}</span>{" "}
+                {priced < all.length ? `across the ${priced} priced. ` : "in all. "}
               </>
-            )}{" "}
-            · oldest{" "}
-            <span className={cn("font-semibold", waitTone(oldest) || "text-fg")}>{waitingLabel(oldest).toLowerCase()}</span>
+            )}
+            Oldest {waitingLabel(oldest).toLowerCase()}.{" "}
+            {late > 0 && (
+              <span className="text-critical">
+                {tieNumbers(`${late} past 14 days`)}.
+              </span>
+            )}
           </p>
+        )}
+      </div>
 
-          <div className={filterBar}>
-            <SearchBox
-              inputRef={searchRef}
-              value={q}
-              onCommit={(next) => set({ q: next })}
-              placeholder="Claim no., title, claimant or journal"
-              label="Filter the queue"
-            />
+      {all.length > 0 && (
+        <section aria-label="Find and narrow" className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <SearchBox
+                inputRef={searchRef}
+                value={q}
+                onCommit={(next) => set({ q: next })}
+                placeholder="Claim no., title, claimant or journal"
+                label="Search the queue"
+                className="min-w-0 flex-1 sm:w-80"
+              />
+              <Button kind="default" size="icon" className="sm:hidden" aria-label="Filters" aria-expanded={showFilters} onClick={() => setShowFilters((v) => !v)}>
+                <ListFilter />
+              </Button>
+            </div>
+            <div className={cn("gap-3", showFilters ? "grid w-full grid-cols-2 sm:contents" : "hidden sm:contents")}>
             <QuietSelect value={department} onChange={(v) => set({ department: v })} label="Filter by department">
               <option value="">All departments</option>
               {byDept.map(([d, n]) => (
@@ -328,13 +397,6 @@ export function Clearing() {
                 </option>
               ))}
             </QuietSelect>
-            <QuietSelect value={check} onChange={(v) => set({ check: v })} label="Filter by checks">
-              <option value="">Any checks</option>
-              <option value="ready">Ready to clear</option>
-              <option value="passed">Checks passed</option>
-              <option value="failed">Checks failed</option>
-              <option value="flagged">Duplicate, contested or watched</option>
-            </QuietSelect>
             <QuietSelect value={assigned} onChange={(v) => set({ assigned: v })} label="Filter by who it is given to">
               <option value="">Given to anyone</option>
               <option value="me">Given to me ({countAssignedToMe(all, me?.id)})</option>
@@ -345,54 +407,37 @@ export function Clearing() {
                 Show all {all.length}
               </Button>
             )}
-            <Button kind="quiet" size="sm" className="ml-auto" onClick={() => downloadQueue(rows)}>
-              Download these {rows.length} as CSV
-            </Button>
+            </div>
           </div>
           <ClaimNoJump term={q} skip={new Set(all.map((c) => c.id))} />
+          <Meta className="hidden md:block">
+            <Kbd>j</Kbd> <Kbd>k</Kbd> move · <Kbd>c</Kbd> clear · <Kbd>a</Kbd> choose the ready · <Kbd>x</Kbd> choose one ·{" "}
+            <Kbd>s</Kbd> send back · <Kbd>Enter</Kbd> open · <Kbd>/</Kbd> search ·{" "}
+            <button type="button" onClick={openShortcuts} className="underline underline-offset-2">
+              all shortcuts
+            </button>
+          </Meta>
         </section>
       )}
 
-      {ready.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-sunken px-4 py-3">
-          <p className="text-sm">
-            <span className="font-semibold">{ready.length}</span> of {rows.length} shown {ready.length === 1 ? "is" : "are"} ready to clear.{" "}
-            <span className="text-fg-muted">Every check passed and no journal is on the watch-list.</span>
-          </p>
-          <Button kind="primary" size="sm" className="ml-auto" onClick={() => setDialog("ready")}>
-            Review the {ready.length} ready
-          </Button>
-        </div>
-      )}
-
-      <Meta className="hidden md:block">
-        <kbd className="rounded border border-edge px-1 text-[10px]">j</kbd>/
-        <kbd className="rounded border border-edge px-1 text-[10px]">k</kbd> to move ·{" "}
-        <kbd className="rounded border border-edge px-1 text-[10px]">x</kbd> to select ·{" "}
-        <kbd className="rounded border border-edge px-1 text-[10px]">Enter</kbd> to open ·{" "}
-        <kbd className="rounded border border-edge px-1 text-[10px]">/</kbd> to search ·{" "}
-        <button type="button" onClick={openShortcuts} className="underline underline-offset-2">
-          all shortcuts
-        </button>
-      </Meta>
-
       {selected.size > 0 && (
-        <div className="sticky top-14 z-20 space-y-2 rounded-lg bg-accent-wash px-4 py-3 shadow-pop md:top-2">
+        <div className="sticky top-14 z-20 space-y-2 rounded-panel bg-surface px-4 py-3 shadow-pop ring-1 ring-edge md:top-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm">
-              <span className="font-semibold">{selected.size}</span> selected ·{" "}
-              <span className="font-semibold tabular">{money(selectedTotal)}</span>
-              {selectedOffList > 0 && <span className="text-fg-muted"> · {selectedOffList} not in view</span>}
-              {selectedNotReady > 0 && <span className="text-fg-muted"> · {selectedNotReady} not ready</span>}
+              <span className="font-semibold">{selected.size}</span> chosen ·{" "}
+              <span className="tabular font-semibold">{money(selectedTotal)}</span>
+              {selectedRows.some((c) => !isReady(c)) && (
+                <span className="text-caution"> · {selectedRows.filter((c) => !isReady(c)).length} not ready</span>
+              )}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button kind="quiet" size="sm" onClick={() => setSelected(new Map())}>
-                Clear selection
+                Choose none
               </Button>
-              <Button kind="default" size="sm" onClick={() => setDialog("hold")}>
+              <Button kind="default" size="sm" onClick={() => setDialog({ kind: "hold" })}>
                 Put on hold
               </Button>
-              <Button kind="primary" size="sm" onClick={() => setDialog("selected")}>
+              <Button kind="primary" size="sm" onClick={() => setDialog({ kind: "clear", rows: selectedRows })}>
                 Clear {selected.size} {selected.size === 1 ? "claim" : "claims"}
               </Button>
             </div>
@@ -403,8 +448,8 @@ export function Clearing() {
 
       {isLoading ? (
         <>
-          <SkeletonRows rows={8} rowHeight={52} className="hidden md:block" />
-          <SkeletonRows rows={5} rowHeight={96} className="md:hidden" />
+          <SkeletonRows rows={8} rowHeight={72} className="hidden md:block" />
+          <SkeletonRows rows={5} rowHeight={112} className="md:hidden" />
         </>
       ) : isError ? (
         <ErrorState
@@ -413,9 +458,10 @@ export function Clearing() {
           onRetry={() => refetch()}
         />
       ) : all.length > 0 && rows.length === 0 ? (
-        <EmptyState icon={Inbox} title="No claim matches these filters" message={`${all.length} are waiting in all.`} />
+        <EmptyState size="region" icon={Inbox} title="No claim matches these filters" message={`${all.length} are waiting in all.`} />
       ) : rows.length === 0 ? (
         <EmptyState
+          size="region"
           guide="clear-a-claim"
           art="empty-queue"
           icon={Inbox}
@@ -423,48 +469,41 @@ export function Clearing() {
           message="Every submitted claim has been checked. Come back when the next one lands."
         />
       ) : (
-        <QueueTable
-          label="Claims waiting to be cleared"
-          rows={rows}
-          reviewHref={href}
-          showAmount
-          flags={flagsFor}
-          active={activeRow}
-          onActive={setActiveRow}
-          select={{
-            selected: new Set(selected.keys()),
-            onToggle: toggleSelected,
-            onToggleAll: toggleAllVisible,
-          }}
-        />
+        <div className="space-y-10">
+          {ready.length > 0 && (
+            <section aria-label="Ready to clear">
+              {laneHead("Ready to clear", ready, "Every check passed and no journal is watched.")}
+              {lane(ready, true)}
+            </section>
+          )}
+          {rest.length > 0 && (
+            <section aria-label="Needs a look">
+              {laneHead("Needs a look", rest, "Open each one to decide.")}
+              {lane(rest, false)}
+            </section>
+          )}
+          <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2 text-xs text-fg-muted">
+            <p>Numbers that start with ERP were brought across from the old ERP workbook. They have no filing date of their own.</p>
+            <Button kind="quiet" size="sm" onClick={() => downloadQueue(ordered)}>
+              Download these {ordered.length} as CSV
+            </Button>
+          </div>
+          <OwnPapersNote />
+          {readyTotal > 0 && ready.length > 0 && <span className="sr-only">{ready.length} ready, {money(readyTotal)}</span>}
+        </div>
       )}
 
-      <MonthlyReport />
-
-      <BulkSummaryDialog
-        open={dialog === "ready"}
-        onOpenChange={(o) => setDialog(o ? "ready" : null)}
-        title={`Clear ${ready.length} ready ${ready.length === 1 ? "claim" : "claims"}?`}
-        rows={ready.map((c) => summaryRow(c, false))}
-        showMoney
-        leftOut={leftOutOf(rows, readyIds)}
-        confirmLabel={`Clear ${ready.length} for ${money(ready.reduce((s, c) => s + (c.remuneration || 0), 0))}`}
-        footnote="Each claim is checked again as it clears. One whose amount has moved is skipped, not cleared at the wrong number."
-        onConfirm={() => runBulkClear(ready)}
-      />
-      <BulkSummaryDialog
-        open={dialog === "selected"}
-        onOpenChange={(o) => setDialog(o ? "selected" : null)}
-        title={`Clear ${selectedRows.length} ${selectedRows.length === 1 ? "claim" : "claims"}?`}
-        rows={selectedRows.map((c) => summaryRow(c, true))}
-        showMoney
-        confirmLabel={`Clear ${selectedRows.length} for ${money(selectedTotal)}`}
-        footnote="Each claim is checked again as it clears. A claim on a watched journal is skipped."
-        onConfirm={() => runBulkClear(selectedRows)}
+      <ClearConfirmDialog
+        open={dialog?.kind === "clear"}
+        onOpenChange={(o) => !o && setDialog(null)}
+        rows={dialogRows}
+        notes={notReadyInBatch}
+        leftOut={dialogRows.length > 1 && dialogRows.length === ready.length && dialogRows.every((c) => isReady(c)) ? leftOutOf(rows, dialogIds) : undefined}
+        onConfirm={() => runBulkClear(dialogRows)}
       />
       <BulkHoldDialog
-        open={dialog === "hold"}
-        onOpenChange={(o) => setDialog(o ? "hold" : null)}
+        open={dialog?.kind === "hold"}
+        onOpenChange={(o) => !o && setDialog(null)}
         rows={selectedRows}
         onDone={(res) => {
           const held = new Set(res.held_ids)
@@ -498,6 +537,10 @@ export function Clearing() {
       )}
     </div>
   )
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return <kbd className="rounded border border-edge px-1 text-[0.6875rem]">{children}</kbd>
 }
 
 /** The queue as it stands on screen, for the office's own spreadsheet. */

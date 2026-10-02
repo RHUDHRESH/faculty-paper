@@ -1,7 +1,7 @@
 import { paperTitle } from "@/lib/names"
 import { useEffect, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { ArrowRight, FilePlus, Plus, Receipt, Search, SearchX, X } from "lucide-react"
+import { ArrowRight, FilePlus, Plus, Search, SearchX, X } from "lucide-react"
 
 import { useApi } from "@/lib/query"
 import { api } from "@/lib/api"
@@ -18,12 +18,16 @@ import { CopyButton } from "@/ui/copy"
 import { claimStatus, facultyStage } from "@/ui/journey"
 import { ClaimThresholdNote, ThresholdCard, useMyThreshold, type ClaimThreshold } from "@/ui/research-threshold"
 import { Pagination } from "@/ui/pagination"
+import { Details, Rows, Section } from "@/ui/section"
+import { Tabs } from "@/ui/tabs"
+import { reasonOf } from "@/pages/home-faculty"
 import {
   amountView,
   filedSentence,
   monthPaid,
   needFromYou,
   payoutLine,
+  SLOW_DAYS,
   stageWord,
   statementLink,
   type PayoutOutlook,
@@ -32,32 +36,31 @@ import {
 
 /**
  * My claims: every paper a faculty member has filed, and every draft still
- * waiting on them, each as a timeline.
+ * waiting on them, sorted by what each one asks of them.
  *
- * The question this page answers, for each claim and in this order: where is
- * it (the timeline, in faculty stages only), how long since I filed it, what
- * will I be paid and when, and is there anything I have to do. The last one
- * is a single sentence, always present, so a claimant never has to work out
- * from a stage whether they should be doing something: "Nothing. We'll tell
- * you when it moves." is an answer too.
+ * Three groups, in the order a person needs them (docs/ux/25):
  *
- * Never which desk or person holds a claim. The server withholds that from
- * the claimant's copy, and nothing here reintroduces it: the stage filters
- * are the claimant's stages, not the chain's.
+ *   Needs you   a draft, or a claim the college sent back. One button each.
+ *   On the way  claims with the college. Each is drawn with its thread (four
+ *               stages, no desk), how long it has waited and what it will pay.
+ *   Paid        one line each: the month the money went out and the amount.
+ *               A claim that is paid needs nothing from anybody, so it does
+ *               not get a thread and a paragraph.
  *
- * It is one of the two screens almost every faculty account opens, usually
- * looking for one paper among dozens, so finding it fast (a stage filter and
- * a search, both in the URL) and never mistaking "the server did not answer"
- * for "you have filed nothing" both matter.
+ * The stages are the claimant's own and never say which desk or person holds
+ * a claim. Four tabs cut the same list; each is a count the server worked out
+ * (`/api/claims/counts`), and each is in the URL, so a link and a reload keep
+ * the place. A failed request is never drawn as "you have filed nothing".
  */
 
 type Claim = TrackClaim &
   ClaimThreshold & {
-  id: string
-  paper_title: string
-  journal_title: string | null
-  publication_year: number | null
-}
+    id: string
+    paper_title: string
+    journal_title: string | null
+    publication_year: number | null
+    status_note?: string | null
+  }
 
 type ClaimsPayload = {
   total: number
@@ -66,51 +69,54 @@ type ClaimsPayload = {
   results: Claim[]
 }
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 50
 
 /**
- * The stage chips. Each is one of the claimant's stages, and asks the server
- * for every status that stage covers (comma-separated); the counts come from
- * `/api/claims/counts`, summed the same way. "Being checked" is three of the
- * chain's steps to the college and one to the claimant.
+ * The tabs. Each is a set of the claimant's stages and asks the server for
+ * every status that set covers; the counts come from `/api/claims/counts`,
+ * summed the same way. "On the way" is five of the chain's steps to the
+ * college and, to the claimant, one wait.
  */
-const STAGE_FILTERS: { key: string; label: string; statuses: string; counts: string[] }[] = [
+const GROUPS = [
   { key: "", label: "All", statuses: "", counts: ["all"] },
-  { key: "DRAFT", label: "Draft", statuses: "DRAFT", counts: ["draft"] },
+  { key: "NEEDS", label: "Needs you", statuses: "DRAFT,REJECTED", counts: ["draft", "sent_back"] },
   {
-    key: "CHECKING",
-    label: "Being checked",
-    statuses: "SUBMITTED,HOD_APPROVED,CLEARED,RESEARCH_APPROVED,PRINCIPAL_APPROVED",
-    counts: ["filed", "checked", "approved"],
-  },
-  {
-    key: "APPROVED",
-    label: "Approved for payment",
-    statuses: "DIRECTOR_APPROVED,FINANCE_APPROVED",
-    counts: ["authorised"],
+    key: "WAY",
+    label: "On the way",
+    statuses:
+      "SUBMITTED,HOD_APPROVED,CLEARED,RESEARCH_APPROVED,PRINCIPAL_APPROVED,DIRECTOR_APPROVED,FINANCE_APPROVED",
+    counts: ["filed", "checked", "approved", "authorised"],
   },
   { key: "PAID", label: "Paid", statuses: "PAID", counts: ["paid"] },
-  { key: "REJECTED", label: "Sent back", statuses: "REJECTED", counts: ["sent_back"] },
-]
+] as const
 
-/** A link written before the chips were the claimant's stages still lands on the right one. */
-function filterKeyOf(param: string): string {
+/** A link written before the tabs were these four still lands on the right one. */
+function groupKeyOf(param: string): string {
   if (!param) return ""
-  const direct = STAGE_FILTERS.find((f) => f.key === param)
-  if (direct) return direct.key
-  return STAGE_FILTERS.find((f) => f.key && f.statuses.split(",").includes(param))?.key ?? ""
+  if (GROUPS.some((g) => g.key === param)) return param
+  if (param === "DRAFT" || param === "REJECTED") return "NEEDS"
+  if (param === "PAID") return "PAID"
+  if (param === "CHECKING" || param === "APPROVED") return "WAY"
+  return GROUPS.find((g) => g.key && g.statuses.split(",").includes(param))?.key ?? ""
+}
+
+function groupOf(c: Claim): "NEEDS" | "WAY" | "PAID" {
+  const s = stageWord(c)
+  if (s === "Draft" || s === "Withdrawn" || s === "Sent back" || s === "Not accepted") return "NEEDS"
+  if (s === "Paid") return "PAID"
+  return "WAY"
 }
 
 export function ClaimsList() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const stageKey = filterKeyOf(searchParams.get("status") ?? "")
-  const stageFilter = STAGE_FILTERS.find((f) => f.key === stageKey)!
+  const groupKey = groupKeyOf(searchParams.get("status") ?? "")
+  const group = GROUPS.find((g) => g.key === groupKey)!
   const q = searchParams.get("q") ?? ""
   const page = Math.max(0, Number.parseInt(searchParams.get("page") ?? "0", 10) || 0)
 
   // The box's own state, so typing feels instant; the URL only catches up
-  // once typing pauses, which is what keeps a search from rewriting history
-  // on every keystroke.
+  // once typing pauses, which keeps a search from rewriting history on every
+  // keystroke.
   const [searchDraft, setSearchDraft] = useState(q)
 
   useEffect(() => {
@@ -134,7 +140,7 @@ export function ClaimsList() {
     return () => clearTimeout(t)
   }, [searchDraft, q, setSearchParams])
 
-  function selectStage(next: string) {
+  function selectGroup(next: string) {
     setSearchParams((prev) => {
       const params = new URLSearchParams(prev)
       if (next) params.set("status", next)
@@ -153,16 +159,6 @@ export function ClaimsList() {
     })
   }
 
-  function clearSearch() {
-    setSearchDraft("")
-    setSearchParams((prev) => {
-      const params = new URLSearchParams(prev)
-      params.delete("q")
-      params.delete("page")
-      return params
-    })
-  }
-
   function clearFilters() {
     setSearchDraft("")
     setSearchParams(new URLSearchParams())
@@ -171,24 +167,22 @@ export function ClaimsList() {
   // `mine`: for an officer who files their own papers `/api/claims` is the
   // college's; this page is theirs alone. A no-op for faculty and a head.
   const listQuery = new URLSearchParams({ mine: "1" })
-  if (stageFilter.statuses) listQuery.set("status", stageFilter.statuses)
+  if (group.statuses) listQuery.set("status", group.statuses)
   if (q) listQuery.set("q", q)
   listQuery.set("limit", String(PAGE_SIZE))
   listQuery.set("offset", String(page * PAGE_SIZE))
 
   const threshold = useMyThreshold()
   const { data, isLoading, isError, refetch } = useApi<ClaimsPayload>(
-    ["claims", stageKey, q, page],
+    ["claims", groupKey, q, page],
     `/api/claims?${listQuery.toString()}`,
     // Keeps the previous page's rows on screen while the next page loads,
-    // so turning a page doesn't flash a skeleton over a list already full
-    // of real rows.
+    // so turning a page doesn't flash a skeleton over a list already full.
     { placeholderData: (prev) => prev }
   )
 
-  // Every chip's number in one request, scoped to the current search text so
-  // the counts describe what is actually reachable right now rather than the
-  // whole account.
+  // Every tab's number in one request, scoped to the current search text so
+  // the counts describe what is reachable right now.
   const { data: countData } = useApi<{ counts: Record<string, number> }>(
     ["claims-counts", q] as const,
     `/api/claims/counts?mine=1${q ? `&q=${encodeURIComponent(q)}` : ""}`,
@@ -202,8 +196,7 @@ export function ClaimsList() {
   })
 
   // The offset can end up past the end after a filter narrows the result
-  // set out from under the current page — back to the last real page
-  // rather than showing a page that no longer exists.
+  // set out from under the current page.
   useEffect(() => {
     if (!data) return
     const maxPage = Math.max(0, Math.ceil(data.total / PAGE_SIZE) - 1)
@@ -213,17 +206,28 @@ export function ClaimsList() {
 
   const claims = data?.results ?? []
   const total = data?.total ?? 0
-  const filtered = Boolean(stageKey) || Boolean(q)
+  const filtered = Boolean(groupKey) || Boolean(q)
+  const needs = claims.filter((c) => groupOf(c) === "NEEDS")
+  const way = claims
+    .filter((c) => groupOf(c) === "WAY")
+    .sort((a, b) => (b.days_waiting ?? -1) - (a.days_waiting ?? -1))
+  const paid = claims.filter((c) => groupOf(c) === "PAID")
+
+  const tabs = GROUPS.map((g) => ({
+    id: g.key || "all",
+    label: g.label,
+    count: counts ? g.counts.reduce((sum, k) => sum + (counts[k] ?? 0), 0) : null,
+  }))
 
   return (
-    <div className="page space-y-6">
+    <div className="page space-y-10">
       <PageHeader
         title="My claims"
-        sub="Where each paper you have filed is, what you will be paid and when, and whether anything is needed from you."
+        sub="Where each paper you have filed is, and when the money comes."
         action={
           <>
-            <Button kind="quiet" onClick={() => downloadMine().catch((err) => toast.fail(err))}>
-              Download all as CSV
+            <Button kind="default" onClick={() => downloadMine().catch((err) => toast.fail(err))}>
+              Download as spreadsheet
             </Button>
             <Button kind="primary" asChild>
               <Link to="/papers/new">
@@ -236,95 +240,55 @@ export function ClaimsList() {
       />
 
       {outlook && (
-        <p className="max-w-3xl text-base leading-relaxed" data-testid="payout-line">
-          <span className="font-medium">When the money comes. </span>
-          <span className="text-fg-muted">{outlook.sentence}</span>{" "}
-          <Link to="/papers/statement" className="whitespace-nowrap text-accent underline-offset-4 hover:underline">
-            See your payment statement
-          </Link>
-        </p>
+        <Details label="when the next payment is" className="-mt-4" data-testid="payout-line">
+          <p className="max-w-prose text-sm leading-relaxed text-fg-muted">{outlook.sentence}</p>
+        </Details>
       )}
 
-      <ThresholdCard s={threshold.data} link={false} />
+      <ThresholdCard s={threshold.data} link={false} className="-mt-4" />
 
-      <div className="flex flex-wrap items-center gap-4">
-        {/* These are filter toggles, not tabs: they set one query parameter
-            and the single results region below redraws. A pressed-or-not
-            button is what each one is. Every stage stays on the bar, even at
-            zero, so the bar keeps its shape and is also the place this screen
-            says what the stages are; an empty stage is dimmed and disabled
-            until it has something in it, and the active chip is never
-            disabled, which would trap a reader in a filter they could not
-            clear. */}
-        <div role="group" aria-label="Filter by stage" className="flex flex-wrap gap-1">
-          {STAGE_FILTERS.map((f) => {
-            const active = stageKey === f.key
-            const count = counts ? f.counts.reduce((sum, k) => sum + (counts[k] ?? 0), 0) : undefined
-            const empty = count === 0 && !active
-            return (
-              <button
-                key={f.label}
-                type="button"
-                aria-pressed={active}
-                disabled={empty}
-                aria-label={count == null ? f.label : `${f.label}, ${count}`}
-                onClick={() => selectStage(f.key)}
-                className={cn(
-                  "rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors duration-[var(--dur-1)] ease-out",
-                  active && "bg-selected text-accent",
-                  !active && empty && "cursor-default text-fg-subtle",
-                  !active && !empty && "text-fg-muted hover:bg-hover hover:text-fg"
-                )}
-              >
-                {f.label}
-                <span aria-hidden className={cn("ml-1.5 tabular", active ? "text-accent" : "text-fg-subtle")}>
-                  {count ?? "…"}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="relative w-full sm:ml-auto sm:max-w-xs">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
-            aria-hidden
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+          <Tabs
+            label="Filter claims"
+            idPrefix="claims"
+            value={groupKey || "all"}
+            onChange={(id) => selectGroup(id === "all" ? "" : id)}
+            tabs={tabs}
+            className="min-w-0 flex-1 sm:flex-none"
           />
-          <Input
-            value={searchDraft}
-            onChange={(e) => setSearchDraft(e.target.value)}
-            placeholder="Search title or claim number"
-            aria-label="Search your papers"
-            className="pl-8"
-          />
+          <div className="relative w-full sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-fg-subtle"
+              aria-hidden
+            />
+            <Input
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              placeholder="Search title or claim number"
+              aria-label="Search your claims"
+              className="pl-9"
+            />
+          </div>
         </div>
-      </div>
-
-      {/* What is being asked, and how much came back. A stage filter shows
-          in the button above, but a search term typed three minutes ago does
-          not read as a filter at all, which is how somebody ends up
-          believing the account is empty. Both say so here, and both can be
-          undone from here. */}
-      <div className="flex min-h-7 flex-wrap items-center gap-2">
-        <div role="status" aria-live="polite">
-          {!isLoading && !isError && (
+        {/* A search typed three minutes ago does not read as a filter at all,
+            which is how somebody ends up believing the account is empty.
+            It says so here, and can be undone from here. */}
+        {q && (
+          <div className="flex min-h-7 flex-wrap items-center gap-2" role="status" aria-live="polite">
             <Meta className="tabular">
-              {total === 1 ? "1 claim" : `${total} claims`}
-              {filtered ? " matching these filters" : ""}
+              {total === 1 ? "1 claim" : `${total} claims`} matching “{q}”
             </Meta>
-          )}
-        </div>
-        {stageKey && <Chip label={`Stage: ${stageFilter.label}`} onRemove={() => selectStage("")} />}
-        {q && <Chip label={`Search: ${q}`} onRemove={clearSearch} />}
-        {filtered && (
-          <Button kind="quiet" size="sm" onClick={clearFilters}>
-            Clear all
-          </Button>
+            <Button kind="quiet" size="sm" onClick={clearFilters}>
+              <X />
+              Clear search
+            </Button>
+          </div>
         )}
       </div>
 
       {isLoading ? (
-        <SkeletonRows rows={5} rowHeight={112} />
+        <SkeletonRows rows={5} rowHeight={96} />
       ) : isError ? (
         <ErrorState
           title="Could not load your claims"
@@ -338,8 +302,8 @@ export function ClaimsList() {
           title={filtered ? "Nothing matches" : "Nothing filed yet"}
           message={
             filtered
-              ? "No claim matches this stage and search. Try a different stage or clear the search."
-              : "File a paper and you can follow it here from filing to payment, and see what is needed from you at each step."
+              ? "No claim matches this tab and search. Try another tab or clear the search."
+              : "File a paper and follow it here from filing to payment, with what is needed from you at each step."
           }
           action={
             filtered ? (
@@ -347,7 +311,7 @@ export function ClaimsList() {
                 Clear filters
               </Button>
             ) : (
-              <Button kind="primary" size="sm" asChild>
+              <Button kind="primary" asChild>
                 <Link to="/papers/new">
                   <Plus />
                   File your first paper
@@ -357,154 +321,173 @@ export function ClaimsList() {
           }
         />
       ) : (
-        <>
-          <ul className="divide-y divide-line border-y border-line">
-            {claims.map((c) => (
-              <ClaimRow key={c.id} claim={c} outlook={outlook} />
-            ))}
-          </ul>
-
+        <div role="tabpanel" id={`claims-${groupKey || "all"}`} aria-labelledby={`claims-tab-${groupKey || "all"}`} className="space-y-12">
+          {needs.length > 0 && (
+            <Section title="Needs you" aria-label="Needs you">
+              <Rows>
+                {needs.map((c) => (
+                  <NeedsRow key={c.id} claim={c} />
+                ))}
+              </Rows>
+            </Section>
+          )}
+          {way.length > 0 && (
+            <Section title="On the way" aria-label="On the way">
+              <Rows>
+                {way.map((c) => (
+                  <WayRow key={c.id} claim={c} outlook={outlook} />
+                ))}
+              </Rows>
+            </Section>
+          )}
+          {paid.length > 0 && (
+            <Section
+              title="Paid"
+              aria-label="Paid"
+              action={
+                <Link to="/papers/statement" className="text-accent hover:underline">
+                  Payment statement
+                </Link>
+              }
+            >
+              <Rows>
+                {paid.map((c) => (
+                  <PaidRow key={c.id} claim={c} />
+                ))}
+              </Rows>
+            </Section>
+          )}
           <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={goToPage} />
-        </>
+        </div>
       )}
     </div>
   )
 }
 
-/** One active filter, said as a removable chip. Never a naked value: every
- *  chip names its own dimension. */
-function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
+function Title({ claim, to }: { claim: Claim; to: string }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-selected px-2 py-1 text-sm text-fg">
-      {/* A pasted search term is not length-limited, and a chip that cannot
-          shrink pushes the page itself sideways on a phone. */}
-      <span className="min-w-0 truncate">{label}</span>
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove filter: ${label}`}
-        className="grid size-4 shrink-0 place-items-center rounded-sm text-fg-muted hover:bg-hover hover:text-fg"
-      >
-        <X className="size-3" aria-hidden />
-      </button>
+    <Link to={to} className="line-clamp-2 text-base font-medium leading-snug hover:text-accent">
+      {paperTitle(claim.paper_title)}
+    </Link>
+  )
+}
+
+function ClaimNo({ claim }: { claim: Claim }) {
+  if (!claim.ticket_number?.startsWith("FP-")) return null
+  return (
+    <span className="inline-flex items-center gap-0.5 tabular">
+      Claim no. {claim.ticket_number}
+      <CopyButton value={claim.ticket_number} label="claim number" />
     </span>
   )
 }
 
-/**
- * One claim: title and number, the timeline, the amount, and the sentence
- * that says what is needed from the claimant.
- */
-export function ClaimRow({ claim, outlook }: { claim: Claim; outlook?: PayoutOutlook | null }) {
+/** A draft or a claim that came back: one sentence on what to do, and the button that does it. */
+function NeedsRow({ claim }: { claim: Claim }) {
   const stage = stageWord(claim)
   const need = needFromYou(claim)
-  const amount = amountView(claim)
-  const paidIn = monthPaid(claim)
+  const sentBack = stage === "Sent back"
   const draft = stage === "Draft" || stage === "Withdrawn"
-  const line = payoutLine(claim, outlook)
-
+  const why = sentBack ? reasonOf(claim.status_note) : null
+  const to = draft ? `/papers/${claim.id}/edit` : `/papers/${claim.id}`
   return (
-    <li className="relative grid grid-cols-[minmax(0,1fr)] gap-x-8 gap-y-3 py-5 [&>*]:min-w-0 lg:grid-cols-[minmax(0,1fr)_11rem]">
-      <div className="space-y-3">
-        <div>
-          <Link
-            to={draft ? `/papers/${claim.id}/edit` : `/papers/${claim.id}`}
-            className="block text-base font-medium leading-snug after:absolute after:inset-0 hover:text-accent"
-          >
-            <span className="line-clamp-2">{paperTitle(claim.paper_title)}</span>
-          </Link>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-sm text-fg-muted">
-            {claim.ticket_number ? (
-              <>
-                <span className="tabular">Claim no. {claim.ticket_number}</span>
-                <span className="relative z-10">
-                  <CopyButton value={claim.ticket_number} label="claim number" />
-                </span>
-              </>
-            ) : (
-              <span>{draft ? "Not filed yet" : "No claim number"}</span>
-            )}
-            {[claim.journal_title, claim.publication_year].filter(Boolean).length > 0 && (
-              <span className="min-w-0 truncate">
-                · {[claim.journal_title, claim.publication_year].filter(Boolean).join(" · ")}
-              </span>
-            )}
-          </p>
-        </div>
-
-        {!draft && (
-          <ClaimTrack
-            stage={stage}
-            filedOn={claim.submitted_at}
-            paidMonth={paidIn}
-            className="max-w-xl"
-          />
-        )}
-
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          {!draft && <Meta className="tabular">{filedSentence(claim)}</Meta>}
-          <p className={cn("text-sm", need.action ? "font-medium text-fg" : "text-fg-muted")}>
-            <span className="text-fg-muted">Needed from you: </span>
-            {need.text}
-          </p>
-        </div>
-        {line && stage === "Approved for payment" && <p className="text-sm text-fg-muted">{line}</p>}
-        <ClaimThresholdNote c={{ ...claim, remuneration: claim.remuneration ?? null }} mine />
-      </div>
-
-      <div className="flex items-start justify-between gap-3 lg:flex-col lg:items-end lg:justify-start lg:text-right">
-        <div>
-          <p className="text-xs text-fg-muted">{amount.caption}</p>
-          {amount.amount != null ? (
-            <p className="figure text-xl tabular">{money(amount.amount)}</p>
+    <li className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 py-5">
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className={cn("text-sm font-medium", sentBack ? "text-caution" : "text-fg-muted")}>
+          {sentBack ? "Sent back to you" : stage === "Not accepted" ? "Not accepted" : "Draft"}
+        </p>
+        <Title claim={claim} to={to} />
+        <p className="max-w-prose text-sm text-fg-muted">
+          {why ? (
+            <>
+              <span className="text-fg">The college asked: </span>
+              {why}
+            </>
           ) : (
-            <p className="text-sm text-fg-muted">{amount.note}</p>
+            need.text
           )}
-          {amount.amount != null && amount.note && (
-            <p className={cn("text-xs", amount.note.startsWith("An estimate") ? "text-caution" : "text-fg-muted")}>
-              {amount.note}
-            </p>
-          )}
-          {paidIn && <p className="text-sm text-fg-muted">Paid in {paidIn}</p>}
-        </div>
-        <RowAction claim={claim} />
+        </p>
+        <p className="text-sm text-fg-muted">
+          <ClaimNo claim={claim} />
+        </p>
       </div>
+      {sentBack && (
+        <Button kind="primary" asChild>
+          <Link to={`/papers/${claim.id}#fix`}>
+            Fix this claim
+            <ArrowRight />
+          </Link>
+        </Button>
+      )}
+      {draft && (
+        <Button kind="default" asChild>
+          <Link to={to}>Finish and file</Link>
+        </Button>
+      )}
     </li>
   )
 }
 
-function RowAction({ claim }: { claim: Claim }) {
+/** A claim with the college: its thread, how long it has waited, what it will pay. */
+function WayRow({ claim, outlook }: { claim: Claim; outlook?: PayoutOutlook | null }) {
   const stage = stageWord(claim)
-  // Sits above the stretched title link so it can be pressed on its own.
-  const on = "relative z-10"
-  if (stage === "Sent back") {
-    return (
-      <Button kind="primary" size="sm" asChild className={on}>
-        <Link to={`/papers/${claim.id}#fix`}>
-          Fix this claim
-          <ArrowRight />
-        </Link>
-      </Button>
-    )
-  }
-  if (stage === "Draft" || stage === "Withdrawn") {
-    return (
-      <Button kind="default" size="sm" asChild className={on}>
-        <Link to={`/papers/${claim.id}/edit`}>Continue</Link>
-      </Button>
-    )
-  }
-  if (stage === "Paid") {
-    return (
-      <Button kind="quiet" size="sm" asChild className={on}>
-        <Link to={statementLink(claim)}>
-          <Receipt />
-          Payment statement
-        </Link>
-      </Button>
-    )
-  }
-  return null
+  const amount = amountView(claim)
+  const line = payoutLine(claim, outlook)
+  const slow = (claim.days_waiting ?? 0) > SLOW_DAYS
+  return (
+    <li className="py-5">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-1">
+        <div className="min-w-0 flex-1">
+          <Title claim={claim} to={`/papers/${claim.id}`} />
+          <p className="mt-0.5 line-clamp-1 text-sm text-fg-muted">
+            {[claim.journal_title, claim.publication_year].filter(Boolean).join(", ")}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          {amount.amount != null ? (
+            <>
+              <p className="figure text-xl tabular">{money(amount.amount)}</p>
+              <p className="text-xs text-fg-muted">{claim.remuneration_is_estimate ? "Expected, an estimate" : "Expected"}</p>
+            </>
+          ) : (
+            <p className="text-sm text-fg-muted">{amount.note}</p>
+          )}
+        </div>
+      </div>
+      <ClaimTrack stage={stage} filedOn={claim.submitted_at} className="mt-4 max-w-xl" />
+      <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-fg-muted">
+        <span className="tabular">{filedSentence(claim)}</span>
+        {slow && <span className="text-caution">Taking longer than usual</span>}
+        <ClaimNo claim={claim} />
+      </p>
+      {line && stage === "Approved for payment" && <p className="mt-1 text-sm text-fg-muted">{line}</p>}
+      <ClaimThresholdNote c={{ ...claim, remuneration: claim.remuneration ?? null }} mine className="mt-2 text-sm" />
+    </li>
+  )
+}
+
+/** A paid claim is one line: when the money went out, and how much. */
+function PaidRow({ claim }: { claim: Claim }) {
+  const month = monthPaid(claim)
+  const amount = amountView(claim)
+  return (
+    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-0.5 py-3.5 sm:grid-cols-[8.5rem_minmax(0,1fr)_8rem]">
+      <p className="order-2 col-span-2 text-sm text-fg-muted sm:order-none sm:col-span-1">{month ?? "Month not recorded"}</p>
+      <div className="order-1 min-w-0 sm:order-none">
+        <Title claim={claim} to={`/papers/${claim.id}`} />
+        <p className="mt-0.5 text-sm text-fg-muted">
+          <ClaimNo claim={claim} />
+        </p>
+      </div>
+      <p className="order-1 text-right tabular sm:order-none">
+        {amount.amount ? (
+          <Link to={statementLink(claim)} className="font-medium hover:underline hover:underline-offset-4">
+            {money(amount.amount)}
+          </Link>
+        ) : null}
+      </p>
+    </li>
+  )
 }
 
 /** Every paper on record, for the claimant's own spreadsheet or appraisal

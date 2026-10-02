@@ -1,7 +1,11 @@
 import { useState } from "react";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Check, ChevronRight, MoreHorizontal, Plus, Trash2, X } from "lucide-react";
 
 import { Button } from "@/ui/button";
+import { InfoTip } from "@/ui/info";
+import { Details } from "@/ui/section";
+import { Kbd, KbdChord } from "@/ui/kbd";
+import { FilterChip, Segmented } from "@/ui/toggle";
 import { AnswerLine, AnswerWord } from "@/ui/answer";
 import { Chip } from "@/ui/chip";
 import { DotField } from "@/ui/dot-field";
@@ -148,6 +152,114 @@ const ROWS: Row[] = [
   },
 ];
 
+const KINDS = ["primary", "default", "quiet", "danger"] as const;
+
+/** Every kind in every state, so a change to one is judged against all. */
+function ButtonMatrix() {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="space-y-5" data-testid="button-matrix">
+      <div className="grid gap-x-4 gap-y-3 sm:grid-cols-[6rem_repeat(4,max-content)] sm:items-center">
+        {KINDS.map((k) => (
+          <div key={k} className="contents">
+            <span className="text-sm text-fg-muted">{k}</span>
+            <Button kind={k}>
+              {k === "danger" ? "Delete paper" : k === "primary" ? "Clear 12 papers" : k === "quiet" ? "Cancel" : "Export"}
+            </Button>
+            <Button kind={k}>
+              {k === "danger" ? <Trash2 /> : <Plus />}
+              With icon
+            </Button>
+            <Button kind={k} loading>
+              Working
+            </Button>
+            <Button kind={k} disabled>
+              Disabled
+            </Button>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button kind="primary" loading={busy} onClick={() => { setBusy(true); window.setTimeout(() => setBusy(false), 1600); }}>
+          <Check />
+          Press me: loading
+        </Button>
+        <Button kind="primary">
+          Clear <Kbd>C</Kbd>
+        </Button>
+        <Button>
+          Send back <Kbd>S</Kbd>
+        </Button>
+        <Button kind="quiet">
+          Open <Kbd>Enter</Kbd>
+        </Button>
+        <Button>
+          Next
+          <ChevronRight />
+        </Button>
+        <Button asChild kind="default">
+          <a href="#links">A link that acts</a>
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm">Small 32</Button>
+        <Button size="md">Medium 40</Button>
+        <Button size="lg">Large 48</Button>
+        <Button size="icon" aria-label="More">
+          <MoreHorizontal />
+        </Button>
+        <Button size="icon" kind="default" aria-label="Add">
+          <Plus />
+        </Button>
+        <Button size="icon-sm" kind="quiet" aria-label="Close">
+          <X />
+        </Button>
+        <Button size="icon-sm" kind="danger" aria-label="Remove">
+          <Trash2 />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ChoiceDemos() {
+  const [seg, setSeg] = useState("month");
+  const [chips, setChips] = useState<string[]>(["Q1"]);
+  const toggle = (c: string) => setChips((v) => (v.includes(c) ? v.filter((x) => x !== c) : [...v, c]));
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <Segmented
+          label="Calendar view"
+          value={seg}
+          onChange={setSeg}
+          items={[
+            { id: "month", label: "Month" },
+            { id: "week", label: "Week" },
+            { id: "list", label: "List" },
+          ]}
+        />
+        {["Q1", "Q2", "Scopus", "Paid"].map((c) => (
+          <FilterChip key={c} on={chips.includes(c)} onClick={() => toggle(c)} count={c === "Paid" ? 119 : undefined}>
+            {c}
+          </FilterChip>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-4 text-sm">
+        <span className="inline-flex items-center gap-1.5">
+          Indexed score <InfoTip label="About the indexed score">Scopus and Web of Science count; a journal on neither list scores nothing.</InfoTip>
+        </span>
+        <span className="inline-flex items-center gap-1 text-fg-muted">
+          Palette <KbdChord keys={["Ctrl", "K"]} />
+        </span>
+      </div>
+      <Details summary="More about this" defaultOpen>
+        <p>The paragraph a careful reader wants but the page can do without.</p>
+      </Details>
+    </div>
+  );
+}
+
 function GalleryTabs() {
   const [tab, setTab] = useState("all");
   return (
@@ -280,24 +392,11 @@ export function Gallery() {
         </Block>
 
         <Block title="Buttons">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button kind="primary">Clear 12 papers</Button>
-            <Button>Export</Button>
-            <Button kind="quiet">Cancel</Button>
-            <Button kind="danger">
-              <Trash2 />
-              Delete
-            </Button>
-            <Button disabled>Disabled</Button>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button size="sm">Small</Button>
-            <Button size="md">Medium</Button>
-            <Button size="lg">Large</Button>
-            <Button size="icon" aria-label="More">
-              <MoreHorizontal />
-            </Button>
-          </div>
+          <ButtonMatrix />
+        </Block>
+
+        <Block title="Choices, hints and hidden text">
+          <ChoiceDemos />
         </Block>
 
         <Block title="Stage — how a paper is going">

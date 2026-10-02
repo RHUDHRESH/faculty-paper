@@ -93,6 +93,36 @@ def _backup_check() -> dict[str, Any]:
                   "/data/health", "See backups")
 
 
+def _safeguards_check() -> dict[str, Any]:
+    """Did the money safeguards hold on the last daily check, and did it run?"""
+    from core.services import safeguards
+
+    label = "The money safeguards held on the last check"
+    report = safeguards.last_report()
+    if report is None:
+        return _check("safeguards", label, False,
+                      "The daily check has not run yet. Run it now to see whether any payment was doubled.",
+                      "/safeguards", "Run the check")
+    ran = report.get("ran_at")
+    age = None
+    if ran:
+        from datetime import datetime
+
+        try:
+            age = _age_days(datetime.fromisoformat(ran))
+        except ValueError:
+            age = None
+    errors = report["problems"]["error"]
+    if errors:
+        return _check("safeguards", label, False,
+                      f"{errors} {'check' if errors == 1 else 'checks'} found a problem with payments or claims.",
+                      "/safeguards", "See what failed", "critical")
+    if age is not None and age > 2:
+        return _check("safeguards", label, False, f"The daily check last ran {int(age)} days ago.",
+                      "/safeguards", "Run the check")
+    return _check("safeguards", label, True, "Every money check passed.", "/safeguards", "See the checks")
+
+
 def _email_check() -> dict[str, Any]:
     from core.services.notify import smtp_status
 
@@ -138,6 +168,7 @@ def checks() -> list[dict[str, Any]]:
         *_desk_checks(),
         _policy_check(),
         _backup_check(),
+        _safeguards_check(),
         _email_check(),
         _worker_check(),
         _scopus_check(),

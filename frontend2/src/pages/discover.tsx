@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
   AlertTriangle,
+  ChevronRight,
   Compass,
   LoaderCircle,
   Plus,
@@ -15,6 +16,7 @@ import { ApiError, api } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { InfoTip } from "@/ui/info"
 import { Chip } from "@/ui/chip"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Field, Input, NumberInput, Textarea } from "@/ui/field"
@@ -25,7 +27,7 @@ import { Rows, Section } from "@/ui/section"
 import { money } from "@/ui/paper"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { Callout, EmptyState, ErrorState, InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
-import { Meta, SectionTitle, Sub } from "@/ui/text"
+import { Meta, SectionTitle } from "@/ui/text"
 import { StreamingText, ThinkingIndicator } from "@/ui/motion/stream"
 import { toast } from "@/ui/toast"
 import { IndustryPartners } from "@/pages/discover-next"
@@ -88,7 +90,8 @@ export function Discover() {
       <div className="space-y-6">
         <PageHeader
           title="Discover"
-          sub="What to write about, where to publish and who to meet, drawn from the college's own record."
+          sub="Where to write, publish and who to meet."
+          about="What to write about, where to publish and who to meet, drawn from the college's own record."
           spot="discover-ideas"
           action={
             nothingKnown ? null : (
@@ -130,8 +133,10 @@ export function Discover() {
             aria-selected={tab === key}
             onClick={() => goTab(key)}
             className={cn(
-              "-mb-px shrink-0 border-b-2 px-3 pb-2.5 pt-1 text-sm transition-colors duration-[var(--dur-1)]",
-              tab === key ? "border-(--area) font-medium text-fg" : "border-transparent text-fg-muted hover:text-fg"
+              "-mb-px h-11 shrink-0 rounded-t-control border-b-[3px] px-3 text-sm transition-colors duration-[var(--dur-1)]",
+              tab === key
+                ? "border-(--area) bg-hover/60 font-semibold text-fg"
+                : "border-transparent font-medium text-fg-muted hover:border-control-edge hover:bg-hover/60 hover:text-fg active:bg-active"
             )}
           >
             {label}
@@ -253,9 +258,10 @@ function ForYouSections({
   const papers = of("paper")
   const all = (tab: Tab, n: number, shown: number) =>
     n > shown ? (
-      <button type="button" className="text-accent hover:underline" onClick={() => goTab(tab)}>
+      <Button kind="quiet" size="sm" className="-mr-2 text-accent hover:text-accent" onClick={() => goTab(tab)}>
         See all {formatCount(n)}
-      </button>
+        <ChevronRight />
+      </Button>
     ) : null
   const [lead, ...moreDirections] = directions
   return (
@@ -958,10 +964,14 @@ function SearchProgress({ wait, hosted }: { wait: Wait; hosted: boolean }) {
         {wait.tokens > 0 ? ` · ${wait.tokens} words written` : ""}
       </Meta>
 
-      <Meta className="block">
-        {hosted
-          ? "Stopping is safe at any point."
-          : "The model runs on this server's processor rather than in a data centre, so it is slower and nothing you typed leaves the building. Stopping is safe at any point."}
+      <Meta className="flex items-center gap-1.5">
+        Stopping is safe at any point.
+        {!hosted && (
+          <InfoTip label="About the model">
+            The model runs on this server's processor rather than in a data centre, so it is slower and nothing you typed
+            leaves the building.
+          </InfoTip>
+        )}
       </Meta>
     </div>
   )
@@ -1152,10 +1162,12 @@ function Interests() {
   return (
     <section className="space-y-3 border-t border-line pt-8">
       <div>
-        <SectionTitle>The domains you work in</SectionTitle>
-        <Sub className="mt-1">
-          Feeds the suggestions above and who you might collaborate with. Up to {MAX_INTERESTS}.
-        </Sub>
+        <span className="inline-flex items-center gap-1.5">
+          <SectionTitle>The domains you work in</SectionTitle>
+          <InfoTip label="About domains">
+            Feeds the suggestions above and who you might collaborate with. Up to {MAX_INTERESTS}.
+          </InfoTip>
+        </span>
       </div>
 
       {interests.isLoading ? (
@@ -1176,7 +1188,7 @@ function Interests() {
                   type="button"
                   onClick={() => setSelected(current.filter((x) => x !== d))}
                   aria-label={`Remove ${d}`}
-                  className="shrink-0 rounded-sm p-0.5 hover:bg-accent-line"
+                  className="shrink-0 rounded-sm p-0.5 hover:bg-accent-line hover:text-accent-hover active:bg-accent-line"
                 >
                   <X className="size-3.5" aria-hidden />
                 </button>

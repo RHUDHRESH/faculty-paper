@@ -69,6 +69,7 @@ export function FlagLine({
   onChoose,
   onSelect,
   onResolve,
+  same = false,
 }: {
   flag: FlagWithClaim
   selected: boolean
@@ -76,6 +77,9 @@ export function FlagLine({
   onChoose: () => void
   onSelect: () => void
   onResolve: () => void
+  /** The question and its note are the same as the row above: say so once
+   *  instead of printing them again, as a ledger does ("do."). */
+  same?: boolean
 }) {
   const [more, setMore] = useState(false)
   const c = flag.claim
@@ -87,7 +91,7 @@ export function FlagLine({
       aria-current={selected || undefined}
       onClick={onSelect}
       className={cn(
-        "row grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 py-4 sm:px-2",
+        "row grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 py-3 sm:px-2",
         "lg:grid-cols-[1.5rem_minmax(0,16rem)_minmax(0,1fr)_11rem_6rem] lg:gap-x-5",
         selected && "bg-sunken/60",
         !flag.open && "text-fg-muted"
@@ -113,9 +117,15 @@ export function FlagLine({
       </div>
 
       <div className="col-start-2 min-w-0 lg:col-start-auto">
-        <p className="text-base font-medium text-fg">{flag.headline}</p>
-        <p className={cn("mt-0.5 text-sm text-pretty", !more && long && "line-clamp-3", flag.open ? "text-fg" : "text-fg-muted")}>{flag.note}</p>
-        {long && (
+        {same && flag.open ? (
+          <p className="text-sm text-fg-muted">Same question and answer as the row above.</p>
+        ) : (
+          <>
+            <p className="text-base font-medium text-fg">{flag.headline}</p>
+            <p className={cn("mt-0.5 text-sm text-pretty", !more && long && "line-clamp-2", flag.open ? "text-fg" : "text-fg-muted")}>{flag.note}</p>
+          </>
+        )}
+        {long && !(same && flag.open) && (
           <button
             type="button"
             aria-expanded={more}

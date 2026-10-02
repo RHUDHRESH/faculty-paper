@@ -16,7 +16,7 @@ import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
 import { Ago } from "@/ui/when"
 
-import { count, plural } from "./admin-b-parts"
+import { count } from "./admin-b-parts"
 
 /**
  * Background jobs from django-q2: harvests, the Scopus sync, backups,
@@ -58,7 +58,6 @@ export type RunningJob = { id: string; func: string; name: string; started?: str
 export function RunningJobs({ rows }: { rows: RunningJob[] }) {
   return (
     <section className="space-y-2">
-      <h3 className="text-base font-semibold">In progress now</h3>
       {rows.length === 0 ? (
         <Meta>Nothing is running at the moment.</Meta>
       ) : (
@@ -161,7 +160,7 @@ export function Jobs() {
     <div className="page space-y-10">
       <PageHeader
         title="Jobs"
-        sub="Did the background work finish, and is the worker alive? Harvests, the Scopus sync, backups and imports run there."
+        sub="Harvests, the Scopus sync, backups and imports."
         spot="spot-imports"
       />
 
@@ -170,7 +169,7 @@ export function Jobs() {
       ) : isError || !data ? (
         <ErrorState
           title="Could not load the jobs"
-          message="The server did not answer. Nothing has been changed. Try again."
+          message="The server did not answer."
           onRetry={() => void refetch()}
         />
       ) : (
@@ -192,25 +191,21 @@ export function Jobs() {
                   : { value: "Alive", label: "The worker finished a job recently", tone: "positive" as const },
               ]}
             />
-            <p className="text-sm text-fg-muted">
-              {lastDone ? (
-                <>
-                  The last job finished <Ago iso={lastDone} />.{" "}
-                </>
-              ) : null}
-              {plural(data.total, "job")} on record.
-            </p>
+            {lastDone && (
+              <p className="text-sm text-fg-muted">
+                Last job finished <Ago iso={lastDone} />.
+              </p>
+            )}
           </section>
 
           {(data.failed_count > 0 || failedOnly) && (
             <Section
               title={`Failed (${count(data.failed_count)})`}
-              sub="The last line of what went wrong. Run it again only where it is safe to."
               action={
                 failedOnly ? (
-                  <Link to="/jobs" className="text-fg-muted underline underline-offset-2 hover:text-fg">
-                    Show everything
-                  </Link>
+                  <Button kind="default" size="sm" asChild>
+                    <Link to="/jobs">Show everything</Link>
+                  </Button>
                 ) : undefined
               }
             >
@@ -221,7 +216,7 @@ export function Jobs() {
                   <EmptyState
                     illustration="empty-nothing-to-review"
                     title="No failed jobs"
-                    message="Every background job on record finished."
+                    message="Every job on record finished."
                   />
                 )
               ) : (
@@ -230,7 +225,7 @@ export function Jobs() {
                     <li key={j.id} className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-3">
                       <div className="min-w-0 flex-1 basis-64 space-y-0.5">
                         <p className="font-medium">
-                          {j.name} <span className="text-sm font-normal text-critical">Failed</span>
+                          {j.name}
                         </p>
                         <Meta className="block">
                           Started {when(j.started)}
@@ -243,7 +238,7 @@ export function Jobs() {
                           <RotateCw aria-hidden /> Retry job
                         </Button>
                       ) : (
-                        <Meta className="max-w-[16rem]">This one is not safe to repeat. Run it again from its own page.</Meta>
+                        <Meta className="max-w-[16rem]">Not safe to repeat. Run it from its own page.</Meta>
                       )}
                     </li>
                   ))}
@@ -269,15 +264,12 @@ export function Jobs() {
           )}
 
           {!failedOnly && (
-            <Section
-              title="What has run"
-              sub={`The last ${count(data.jobs.length)} runs, one line for each job.`}
-            >
+            <Section title="What has run">
               {groups.length === 0 ? (
                 <EmptyState
                   illustration="empty-nothing-to-review"
                   title="No jobs have run yet"
-                  message="Take a backup from Data health, or start a harvest, and it will appear here."
+                  message="Jobs appear here once they run."
                 />
               ) : (
                 <GroupTable groups={groups} />
@@ -317,7 +309,7 @@ export function Jobs() {
         open={retrying !== null}
         onOpenChange={(o) => !o && setRetrying(null)}
         title={`Retry ${retrying?.name.toLowerCase() ?? "this job"}?`}
-        description="It is queued with the same settings as the run shown. Nothing else changes until it finishes."
+        description="It is queued with the same settings as the failed run."
         confirmLabel="Retry job"
         onConfirm={async () => {
           if (!retrying) return

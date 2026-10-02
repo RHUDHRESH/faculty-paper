@@ -67,7 +67,7 @@ const FinanceHome = page(() => import("@/pages/home-finance"), "FinanceHome")
 const HodHome = page(() => import("@/pages/home-hod"), "HodHome")
 const OfficeHome = page(() => import("@/pages/home-staff"), "OfficeHome")
 const AdminHome = page(() => import("@/pages/home-admin"), "AdminHome")
-const PrincipalHome = page(() => import("@/pages/home-staff"), "PrincipalHome")
+const PrincipalHome = page(() => import("@/pages/home-principal"), "PrincipalHome")
 const Accreditation = page(() => import("@/pages/accreditation"), "Accreditation")
 const Approvals = page(() => import("@/pages/approvals"), "Approvals")
 const Budget = page(() => import("@/pages/budget"), "Budget")
@@ -84,6 +84,7 @@ const Coordination = page(() => import("@/pages/coordination"), "Coordination")
 const ReviewWorkspace = page(() => import("@/pages/review/review-workspace"), "ReviewWorkspace")
 const Data = page(() => import("@/pages/data"), "Data")
 const DataHealth = page(() => import("@/pages/data-health"), "DataHealth")
+const Safeguards = page(() => import("@/pages/safeguards"), "Safeguards")
 const RecordQuality = page(() => import("@/pages/record-quality"), "RecordQuality")
 const HodPaper = page(() => import("@/pages/hod-paper"), "HodPaper")
 const Department = page(() => import("@/pages/department"), "Department")
@@ -125,6 +126,7 @@ const ReportBuilder = page(() => import("@/pages/report-builder"), "ReportBuilde
 const Reports = page(() => import("@/pages/reports"), "Reports")
 const Track = page(() => import("@/pages/track"), "Track")
 const AdminHub = page(() => import("@/pages/hub"), "AdminHub")
+const AdminStart = page(() => import("@/pages/admin-start"), "AdminStart")
 const MoneyHub = page(() => import("@/pages/hub"), "MoneyHub")
 const ReportsHub = page(() => import("@/pages/hub"), "ReportsHub")
 const YearBrief = page(() => import("@/pages/brief"), "YearBrief")
@@ -202,6 +204,7 @@ const PRELOADS: [string, Page][] = [
   ["/reports/build", ReportBuilder],
   ["/track", Track],
   ["/admin", AdminHub],
+  ["/admin/start", AdminStart],
   ["/money", MoneyHub],
   ["/reports/all", ReportsHub],
   ["/reports/brief", YearBrief],
@@ -239,6 +242,7 @@ const PRELOADS: [string, Page][] = [
   ["/data/fixes", DataFixes],
   ["/calculator", Calculator],
   ["/data/health", DataHealth],
+  ["/safeguards", Safeguards],
   ["/data", Data],
   ["/me", Profile],
 ]
@@ -439,6 +443,7 @@ function App() {
           <Route path="/publications" element={<Publications />} />
           <Route path="/track" element={<Track />} />
           <Route path="/admin" element={<AdminHub />} />
+          <Route path="/admin/start" element={<AdminStart />} />
           <Route path="/money" element={<MoneyHub />} />
           <Route path="/reports/all" element={<ReportsHub />} />
           <Route path="/reports/brief" element={<YearBrief />} />
@@ -481,6 +486,7 @@ function App() {
           <Route path="/data/fixes" element={<DataFixes />} />
           <Route path="/calculator" element={<Calculator />} />
           <Route path="/data/health" element={<DataHealth />} />
+          <Route path="/safeguards" element={<Safeguards />} />
           <Route path="/data/record" element={<RecordQuality />} />
           <Route path="/data" element={<Data />} />
           <Route path="/me" element={<Profile />} />

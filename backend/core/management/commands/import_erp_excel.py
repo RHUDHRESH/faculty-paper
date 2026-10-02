@@ -266,8 +266,13 @@ class Command(BaseCommand):
             # These rows drive the already-paid duplicate warning on every future
             # claim, so importing the workbook twice used to make legitimate new
             # submissions look like duplicates.
+            # Keyed on the person too: two co-authors paid the same amount for
+            # the same paper are two payments, and keying without the person
+            # silently dropped the second one from the history.
             if PriorPayment.objects.filter(
-                normalized_title=norm_title, doi=norm_doi, amount_paid=amount
+                normalized_title=norm_title, doi=norm_doi, amount_paid=amount,
+                employee_id=_s(_cell(row, "Faculty ID"), 64),
+                faculty_name=_s(_cell(row, "Faculty Name"), 255),
             ).exists():
                 continue
 

@@ -132,24 +132,29 @@ export function ThresholdCard({
 }) {
   if (!s?.research) return null
   return (
+    // One sentence and one quiet meter, on the page's own ground: no panel.
+    // The sentence is the server's, so it reads the same in an email, a
+    // statement and here (DESIGN.md: research faculty are told "₹x of ₹y
+    // used this year", never shown a penalty).
     <section
       aria-label="Your research threshold"
       data-testid="research-threshold"
-      className={cn("rounded-lg bg-sunken px-4 py-3 text-sm", className)}
+      className={cn("text-sm", className)}
     >
-      <p className="leading-relaxed text-fg">{s.message}</p>
+      <p className="text-pretty leading-relaxed text-fg">{s.message}</p>
       {!s.unset && s.threshold != null && (
-        <div className="mt-2.5 space-y-1.5">
+        <div className="mt-3 max-w-md space-y-1.5">
           <ThresholdMeter used={s.used ?? 0} threshold={s.threshold} onTheWay={s.on_the_way ?? 0} />
           <p className="text-xs text-fg-muted">
             {s.year ? `For ${s.year}. ` : ""}
-            Solid is used: only incentives approved or paid. Hatched is what claims still on the way would use.
+            Counted: incentives approved or paid.
+            {(s.on_the_way ?? 0) > 0 ? " Hatched: what claims still on the way would add." : ""}
           </p>
         </div>
       )}
       {link && (
         <p className="mt-2 text-xs">
-          <Link to="/papers" className="text-accent underline-offset-2 hover:underline">
+          <Link to="/papers/claims" className="text-accent underline-offset-2 hover:underline">
             See which claims it applies to
           </Link>
         </p>
@@ -192,6 +197,47 @@ export function ClaimThresholdNote({
       {text}
     </p>
   )
+}
+
+/**
+ * What a claim that is about to be filed would do to the research threshold,
+ * said in one sentence. It mirrors the server's rule (a claim is taken from
+ * what is left once the claims ahead of it have taken theirs: backend
+ * `research_threshold.plan`), but it is the form's own estimate and says so:
+ * the college works the real figure out when the claim is approved.
+ *
+ * Only approved or paid claims count as used; claims still on the way are in
+ * front of a new one and take their part first. Returns null for regular
+ * faculty and for a threshold that has not been set.
+ */
+export function estimateEffect(
+  estimate: number | null | undefined,
+  s: ThresholdSummary | undefined
+): { absorbed: number; payable: number; sentence: string } | null {
+  if (!s?.research || s.unset || s.threshold == null || estimate == null || estimate <= 0) return null
+  const ahead = (s.used ?? 0) + (s.on_the_way ?? 0)
+  const left = Math.max(0, s.threshold - ahead)
+  const absorbed = Math.round(Math.min(estimate, left) * 100) / 100
+  const payable = Math.round((estimate - absorbed) * 100) / 100
+  if (payable <= 0.005) {
+    return {
+      absorbed,
+      payable: 0,
+      sentence: `Inside your research threshold: ${money(left)} of the threshold is left this year, so nothing would be paid on this claim.`,
+    }
+  }
+  if (absorbed > 0.005) {
+    return {
+      absorbed,
+      payable,
+      sentence: `Crosses your research threshold: ${money(absorbed)} of it counts against the threshold, and about ${money(payable)} above it would be paid.`,
+    }
+  }
+  return {
+    absorbed: 0,
+    payable,
+    sentence: "Your research threshold for this year is already used, so this claim would be paid in full.",
+  }
 }
 
 /** A few words for a queue row. */

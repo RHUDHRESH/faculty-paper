@@ -67,7 +67,7 @@ a ramp. If you cannot say which sentence applies, the answer is no shadow.
 | Token            | The claim it makes             | Allowed on                                  |
 | ---------------- | ------------------------------ | ------------------------------------------- |
 | `--shadow-well`  | content sits *in* this         | a control you type into; `.well`            |
-| `--shadow-raise` | you can press this             | a filled or bordered button — nothing else  |
+| `--shadow-raise` | you can press this             | a button, a filter chip, the chosen segment — nothing else. `--shadow-action` is the navy button's own, `--shadow-press` is what pressing spends |
 | `--shadow-lift`  | this is the page's answer      | `.panel-lead`, one per page                 |
 | `--shadow-under` | content passes beneath this    | a pinned head or sticky bar, **while** something is under it |
 | `--shadow-pop`   | this left the page             | menu, popover, tooltip, toast               |
@@ -77,12 +77,14 @@ a ramp. If you cannot say which sentence applies, the answer is no shadow.
 
 1. **Never lift on hover.** Unchanged and non-negotiable. Hover is a
    background change (`--color-hover`). A row that rises under the pointer
-   makes a fifty-row list twitch. `active:shadow-none` on a button is the
-   opposite move and is fine — a press *spends* height, it does not gain it.
+   makes a fifty-row list twitch. A button *deepens* its colour and edge on
+   hover and spends its height on press (`active:shadow-press`, one pixel
+   down) — a press loses height, it never gains it.
 2. **Never put `raise` on something inert.** The shadow is the affordance, so
    a raised non-control is a lie about what happens when you click. `quiet`
-   and `danger` buttons stay flat on purpose: quiet must not compete, and a
-   destructive action should not look inviting to press.
+   and `danger` buttons stay flat on purpose: quiet is flat at rest and gets
+   a wash and an outline on hover, and a destructive action wears a crimson
+   wash and only fills crimson under the pointer.
 3. **Never elevate a card, a panel or a row.** `.panel` has no shadow. The
    tone step and the hairline are the whole treatment.
 4. **Never show `under` permanently.** It describes an occlusion. Wire it to
@@ -257,8 +259,10 @@ run `node audit/clarity.mjs --update` to lock it in.
 
 ## Sizes
 
-Buttons are 32px (`sm`), 40px (`md`), 48px (`lg`) tall (44px for `md` on a
-phone); fields are 44px (48px on a phone). Body text is `text-base` (14px,
+Buttons are 32px (`sm`, 40px on a phone), 40px (`md`, 44px on a phone), 48px
+(`lg`) tall; `loading` swaps the leading icon for a spinner; a `<Kbd>` inside a
+button is the key hint; secondary text goes behind `InfoTip` (`ui/info`) or
+`Details` (`ui/section`), never in a second line under the title; fields are 44px (48px on a phone). Body text is `text-base` (14px,
 15px on a phone). Dense rows and secondary text are `text-sm` (13px, 14px on a
 phone). Metadata is `text-xs` (12px).
 

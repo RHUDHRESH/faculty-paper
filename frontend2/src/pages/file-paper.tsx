@@ -12,7 +12,8 @@ import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { ConfirmDialog } from "@/ui/dialog"
 import { ClaimEligibilityGate, ClaimRulesDialog, CONDITION_IDS, ConfirmedConditions, type ConditionEvidence, type Ticks } from "@/ui/eligibility"
 import { PaperCard } from "@/ui/entity"
-import { HeroBand } from "@/ui/hero"
+import { PageHeader } from "@/ui/page-header"
+import { estimateEffect, useMyThreshold } from "@/ui/research-threshold"
 import { IconTile } from "@/ui/choice"
 import { Checkbox, DateInput, Field, Input, NumberInput, Radio, Textarea } from "@/ui/field"
 import { money } from "@/ui/paper"
@@ -541,6 +542,7 @@ export function FilePaper() {
   } = useApi<ClaimDetail>(["claim", id], `/api/claims/${id}`, { enabled: editingExisting })
 
   const { data: me } = useApi<MeProfile>(["auth-me-full"], "/api/auth/me")
+  const myThreshold = useMyThreshold()
   const { data: fetchedRules } = useApi<FilingRules>(["meta", "filing-rules"], "/api/meta/filing-rules")
   const rules = fetchedRules ?? RULE_FALLBACK
 
@@ -1363,11 +1365,15 @@ export function FilePaper() {
   // Drafts already going — shown on the gate too, because "not claimed
   // before" is one of its confirmations and their own draft is the likeliest
   // answer to it.
+  // Drafts other than the one being filled in now: the first autosave makes
+  // this very claim a draft, and offering it back as "already started" tells a
+  // person who is in the middle of filing that they are about to start twice.
+  const otherDrafts = drafts.filter((d) => d.id !== claimId)
   const draftsNotice =
-    !isEditRoute && !filingFor && drafts.length > 0 ? (
-      <Callout tone="info" title={`You have ${drafts.length === 1 ? "a draft" : `${drafts.length} drafts`} already started`}>
+    !isEditRoute && !filingFor && otherDrafts.length > 0 ? (
+      <Callout tone="info" title={`You have ${otherDrafts.length === 1 ? "a draft" : `${otherDrafts.length} drafts`} already started`}>
         <ul className="mt-1 space-y-1">
-          {drafts.slice(0, 3).map((d) => (
+          {otherDrafts.slice(0, 3).map((d) => (
             <li key={d.id}>
               <Link to={`/papers/${d.id}/edit`} className="text-sm underline-offset-2 hover:underline">
                 {d.paper_title?.trim() || "Untitled draft"}
@@ -1382,7 +1388,11 @@ export function FilePaper() {
     ) : null
 
   const countOnly = form.claimReason === "COUNT_ONLY"
+  // Research faculty are told what the threshold does to this claim, beside
+  // the figure, while there is still time to change the claim.
+  const thresholdNote = estimateEffect(calc?.remuneration, myThreshold.data)?.sentence ?? null
   const estimateProps = {
+    thresholdNote,
     calc,
     calcBusy,
     calcFailed,
@@ -1423,31 +1433,28 @@ export function FilePaper() {
               : "Add the details"
   const heroSentence =
     phase === "choose"
-      ? "Pick it from your record and almost everything fills itself."
+      ? "Pick it and most of the form fills itself."
       : phase === "confirm"
-        ? "All three have to be true. Tick each one yourself; they are recorded with your claim."
+        ? "Tick each one yourself."
         : filingFor
-          ? "The claim will be theirs, not yours. It goes on their record and is paid to them."
+          ? "The claim goes on their record and is paid to them."
           : step === STEPS.length - 1
-            ? "Read it back once. Change anything with the link beside it."
-            : "Four short sections. Most of it filled itself from the paper you chose."
+            ? "Read it back once."
+            : undefined
+  // The title says where you are; the four dots say how far. No kicker above
+  // the title (docs/ux/25): "step 2 of 4" is the phase track's job.
   const hero = (
-    <div className="space-y-2">
+    <div className="space-y-5">
       {backToPapers}
-      <HeroBand
-        area="record"
-        eyebrow={`File a paper · step ${phaseIndex + 1} of 4`}
+      <PageHeader
         title={heroTitle}
-        titleClassName="text-2xl sm:text-display"
-        sentence={heroSentence}
-        actions={phase === "form" ? <SaveStatus state={savingState} lastSavedAt={lastSavedAt} onRetry={() => void save()} /> : undefined}
-        className="[&>div:last-of-type]:p-5 sm:[&>div:last-of-type]:p-6"
-      >
-        <PhaseTrack current={phaseIndex} />
-        {phase === "form" && step < STEPS.length - 1 && (
-          <SectionList current={step} furthest={furthest} onJump={(i) => goTo(i)} />
-        )}
-      </HeroBand>
+        sub={heroSentence}
+        action={phase === "form" ? <SaveStatus state={savingState} lastSavedAt={lastSavedAt} onRetry={() => void save()} /> : undefined}
+      />
+      <PhaseTrack current={phaseIndex} />
+      {phase === "form" && step < STEPS.length - 1 && (
+        <SectionList current={step} furthest={furthest} onJump={(i) => goTo(i)} />
+      )}
     </div>
   )
 
@@ -1457,9 +1464,9 @@ export function FilePaper() {
       <FiledReceipt
         claim={filed}
         estimate={receiptAmount(filed.remuneration, calc?.remuneration)}
+        thresholdNote={estimateEffect(receiptAmount(filed.remuneration, calc?.remuneration), myThreshold.data)?.sentence ?? null}
         countOnly={countOnly}
         ticks={ticks ?? {}}
-        minReferences={rules.min_sec_references}
         unclaimedLeft={left}
         firstClaim={!!pull && pull.papers.every((p) => !p.claim_id || p.publication_id === picked?.publication_id)}
       />
@@ -1640,6 +1647,20 @@ export function FilePaper() {
             setTicks(t)
             setTicksFor(articleKey)
             setPhase("form")
+            // Land on the first section that still needs the person. A paper
+            // chosen from the record arrives with its title, journal and
+            // authors filled in, so section 1 is already done; opening on it
+            // costs a click for nothing. Not while a lookup is still filling
+            // the form in (the sections are not known yet), and never past a
+            // section with something missing.
+            if (!lookupBusy && !editingExisting) {
+              const missingSteps = problems.filter((p) => p.kind === "missing").map((p) => p.step)
+              const target = missingSteps.length ? Math.min(...missingSteps, STEPS.length - 2) : STEPS.length - 1
+              if (target > 0) {
+                setStep(target)
+                setFurthest((f0) => Math.max(f0, target))
+              }
+            }
           }}
           onCancel={() => navigate("/papers")}
           cancelLabel="Not yet, back to my papers"
@@ -1676,21 +1697,17 @@ export function FilePaper() {
 
       {draftsNotice}
 
-      <p className="text-sm text-fg-muted">
-        <AlertTriangle className="mr-1.5 inline size-3.5 -translate-y-px text-caution" aria-hidden />
-        <span>
-          File once the article is in Scopus and on your author profile, with {collegeName} printed as
-          the affiliation. One claim per article.{" "}
-        </span>
+      <div className="flex justify-end">
         <ClaimRulesDialog
           minReferences={rules.min_sec_references}
           trigger={
-            <button type="button" className="inline font-medium text-accent underline underline-offset-2">
-              Read the full conditions
-            </button>
+            <Button kind="quiet" size="sm" type="button">
+              <AlertTriangle aria-hidden className="text-caution" />
+              Filing conditions
+            </Button>
           }
         />
-      </p>
+      </div>
 
       <EstimateBar {...estimateProps} />
 
@@ -1759,6 +1776,11 @@ export function FilePaper() {
         {step === 4 && (
           <div className="space-y-8">
             <Receipt form={form} calc={calc} countOnly={countOnly} onChange={(s, field) => goTo(s, field)} />
+            {thresholdNote && !countOnly && (
+              <p className="-mt-4 text-sm text-fg" data-testid="threshold-readback">
+                {thresholdNote}
+              </p>
+            )}
             <section className="space-y-3" data-field={verify ? "prior" : "verify"}>
               <h3 className="text-base font-semibold">Does it check out?</h3>
               <VerifyPanel
@@ -1893,7 +1915,7 @@ function SectionList({ current, furthest, onJump }: { current: number; furthest:
 /** Choose · Confirm · Details · File, as four dots on a line (docs/ux/04). */
 function PhaseTrack({ current }: { current: number }) {
   return (
-    <ol aria-label="Filing progress" className="mt-4 flex max-w-md items-start">
+    <ol aria-label="Filing progress" className="flex max-w-md items-start">
       {PHASES.map((label, i) => {
         const done = i < current
         const here = i === current

@@ -41,6 +41,51 @@ def register() -> tuple[str, str]:
     return SANS, SANS_BOLD
 
 
+#: The college's own faces (docs/design, DESIGN.md "Typography"), cut as static
+#: instances of the variable fonts the web app serves, with the rupee sign
+#: merged in and lining, tabular figures set as the default digits (reportlab
+#: does not run OpenType features, so a column of money has to align in the
+#: font itself). Both are SIL Open Font Licence; the licences sit beside them.
+BRYGADA = "Brygada"
+BRYGADA_MEDIUM = "Brygada-Medium"
+BRYGADA_ITALIC = "Brygada-Italic"
+INTER = "Inter"
+INTER_MEDIUM = "Inter-Medium"
+INTER_SEMI = "Inter-SemiBold"
+
+_brand_done = False
+
+
+def register_brand() -> None:
+    """Register Brygada 1918 and Inter with reportlab (idempotent)."""
+    global _brand_done
+    if _brand_done:
+        return
+    from reportlab.lib.fonts import addMapping
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    for name, file in (
+        (BRYGADA, "Brygada-Regular.ttf"),
+        (BRYGADA_MEDIUM, "Brygada-Medium.ttf"),
+        (BRYGADA_ITALIC, "Brygada-Italic.ttf"),
+        (INTER, "Inter-Regular.ttf"),
+        (INTER_MEDIUM, "Inter-Medium.ttf"),
+        (INTER_SEMI, "Inter-SemiBold.ttf"),
+    ):
+        pdfmetrics.registerFont(TTFont(name, str(FONT_DIR / file)))
+    # <b> and <i> inside a Paragraph look the face up through these.
+    addMapping(INTER, 0, 0, INTER)
+    addMapping(INTER, 1, 0, INTER_SEMI)
+    addMapping(INTER, 0, 1, INTER)
+    addMapping(INTER, 1, 1, INTER_SEMI)
+    addMapping(BRYGADA, 0, 0, BRYGADA)
+    addMapping(BRYGADA, 1, 0, BRYGADA_MEDIUM)
+    addMapping(BRYGADA, 0, 1, BRYGADA_ITALIC)
+    addMapping(BRYGADA, 1, 1, BRYGADA_MEDIUM)
+    _brand_done = True
+
+
 def group_in(n: Optional[float]) -> str:
     """Indian digit grouping for a whole number: 1586 -> "1,586", 3250610 -> "32,50,610"."""
     if n is None:
@@ -58,3 +103,46 @@ def group_in(n: Optional[float]) -> str:
             parts.insert(0, head)
         s = ",".join(parts + [tail])
     return ("-" if neg else "") + s
+
+
+#: The college's own type for documents it hands over: Brygada 1918 for the
+#: headline and figures, Inter for everything else (the same two faces as the
+#: app, instanced from the variable fonts to static TrueType so reportlab can
+#: embed them). They carry no rupee sign, so a rupee is set in DejaVu Sans:
+#: see `rupee_markup`.
+HOUSE = {
+    "Brygada": "Brygada1918-Regular.ttf",
+    "Brygada-SemiBold": "Brygada1918-SemiBold.ttf",
+    "Brygada-Italic": "Brygada1918-Italic.ttf",
+    "InterH": "Inter-Regular.ttf",
+    "InterH-SemiBold": "Inter-SemiBold.ttf",
+}
+_house_done = False
+
+
+def register_house() -> None:
+    """Register Brygada 1918 and Inter (idempotent), plus DejaVu for the rupee sign."""
+    global _house_done
+    register()
+    if _house_done:
+        return
+    from reportlab.lib.fonts import addMapping
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    for name, file in HOUSE.items():
+        pdfmetrics.registerFont(TTFont(name, str(FONT_DIR / file)))
+    addMapping("InterH", 0, 0, "InterH")
+    addMapping("InterH", 1, 0, "InterH-SemiBold")
+    addMapping("InterH", 0, 1, "InterH")
+    addMapping("InterH", 1, 1, "InterH-SemiBold")
+    addMapping("Brygada", 0, 0, "Brygada")
+    addMapping("Brygada", 1, 0, "Brygada-SemiBold")
+    addMapping("Brygada", 0, 1, "Brygada-Italic")
+    addMapping("Brygada", 1, 1, "Brygada-SemiBold")
+    _house_done = True
+
+
+def rupee_markup(text: str) -> str:
+    """Paragraph markup with every rupee sign set in the face that has one."""
+    return text.replace("₹", f'<font name="{SANS}">₹</font>')

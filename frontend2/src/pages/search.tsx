@@ -1,4 +1,4 @@
-import { BookOpen, Building2, FilePlusCorner, MessageCircle, RotateCw, UsersRound, X } from "lucide-react"
+import { BookOpen, Building2, ChevronRight, FilePlusCorner, MessageCircle, RotateCw, UsersRound, X } from "lucide-react"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom"
@@ -24,7 +24,12 @@ import {
 import { RowLead, subtitleOf } from "@/app/search-row"
 import { useApi } from "@/lib/query"
 import { BigSearch, SEARCH_SCOPES, type SearchScope } from "@/ui/big-search"
+import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
+import { InfoTip } from "@/ui/info"
+import { Details } from "@/ui/section"
+import { Kbd } from "@/ui/kbd"
+import { chipClass } from "@/ui/toggle"
 import { Select } from "@/ui/field"
 import { Avatar } from "@/ui/person"
 import { Picture } from "@/ui/picture"
@@ -187,7 +192,7 @@ const JUMPS = [
   { to: "/search?scope=departments&q=eng", icon: Building2, title: "Departments", description: "Who works where." },
 ]
 
-const pill = "h-8 rounded-full px-3 text-sm shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-hover focus-visible:ring-2 focus-visible:ring-(--color-accent) outline-none"
+const pill = chipClass(false)
 
 function Idle({ box, onTry, meId, department }: { box: React.ReactNode; onTry: (t: string) => void; meId?: string; department: string }) {
   const [recent, setRecent] = useState(readRecent)
@@ -198,28 +203,32 @@ function Idle({ box, onTry, meId, department }: { box: React.ReactNode; onTry: (
   const people = (suggested.data?.results ?? []).filter((p) => p.id !== meId).slice(0, 6)
   return (
     <div className="mx-auto max-w-4xl pt-[96px] max-sm:pt-8">
-      <h1 className="mb-6 display text-center text-[2rem] leading-[2.5rem] text-fg">Find anything</h1>
+      <h1 className="mb-6 flex items-center justify-center gap-2 display text-center text-[2rem] leading-[2.5rem] text-fg">
+        Find anything
+        <InfoTip label="About search">
+          Results appear as you type. Paste a DOI to see whether a paper is already in the record and who has claimed it.
+        </InfoTip>
+      </h1>
       {box}
-      <p className="mt-3 text-sm text-fg-muted">Results appear as you type. Paste a DOI to see whether a paper is already in the record and who has claimed it.</p>
 
       {recent.length > 0 ? (
         <section aria-label="Recent searches" className="mt-8">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-sm font-medium text-fg">Recent searches</h2>
-            <button
-              type="button"
+            <Button
+              kind="quiet"
+              size="sm"
               onClick={() => {
                 clearRecent()
                 setRecent([])
               }}
-              className="rounded text-sm text-fg-muted outline-none hover:text-fg focus-visible:ring-2 focus-visible:ring-(--color-accent)"
             >
-              Clear recent searches
-            </button>
+              Clear
+            </Button>
           </div>
           <div className="flex flex-wrap gap-2">
             {recent.map((r) => (
-              <button key={r} type="button" onClick={() => onTry(r)} className={`${pill} bg-surface text-fg`}>
+              <button key={r} type="button" onClick={() => onTry(r)} className={pill}>
                 {r}
               </button>
             ))}
@@ -229,7 +238,7 @@ function Idle({ box, onTry, meId, department }: { box: React.ReactNode; onTry: (
         <div className="mt-6 flex flex-wrap items-center gap-2">
           <span className="text-sm text-fg-subtle">Try</span>
           {TRY.map((t) => (
-            <button key={t} type="button" onClick={() => onTry(t)} className={`${pill} bg-sunken text-fg-muted`}>
+            <button key={t} type="button" onClick={() => onTry(t)} className={pill}>
               “{t}”
             </button>
           ))}
@@ -240,9 +249,12 @@ function Idle({ box, onTry, meId, department }: { box: React.ReactNode; onTry: (
         <section aria-label="People you might look for" className="mt-10">
           <div className="mb-3 flex items-baseline justify-between">
             <h2 className="text-sm font-medium text-fg">{department ? `People in ${department}` : "People at the college"}</h2>
-            <Link to="/search?scope=people" className="rounded text-sm text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--color-accent)">
-              Browse everyone
-            </Link>
+            <Button asChild kind="quiet" size="sm" className="text-accent hover:text-accent">
+              <Link to="/search?scope=people">
+                Browse everyone
+                <ChevronRight />
+              </Link>
+            </Button>
           </div>
           <ul className="grid gap-x-6 sm:grid-cols-2">
             {people.map((p) => (
@@ -335,9 +347,9 @@ function Results({
     return (
       <div role="alert" className="mt-6 flex items-center gap-3 rounded-xl bg-caution-wash px-4 py-3 text-sm text-caution">
         Could not load the results for “{q}”. Nothing was lost.
-        <button type="button" onClick={onRetry} className="inline-flex items-center gap-1 font-medium underline">
-          <RotateCw aria-hidden className="size-4" /> Try again
-        </button>
+        <Button kind="default" size="sm" onClick={onRetry}>
+          <RotateCw aria-hidden /> Try again
+        </Button>
       </div>
     )
   if (groups.length === 0) return <NoResults q={q} scope={scope} onScope={onScope} onTry={onTry} />
@@ -347,7 +359,12 @@ function Results({
     <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-12">
       <div id="search-results" role="listbox" aria-label={`${total} results`} className="min-w-0 space-y-8 lg:col-span-8">
         <p className="text-sm text-fg-muted" aria-live="polite">
-          {total} {total === 1 ? "result" : "results"} for “{q}” <span className="text-fg-subtle max-sm:hidden">· ↑↓ to move, Enter to open, Esc to clear</span>
+          {total} {total === 1 ? "result" : "results"} for “{q}”{" "}
+          <span className="max-sm:hidden">
+            <InfoTip label="Keyboard">
+              <Kbd>↑</Kbd> <Kbd>↓</Kbd> move, <Kbd>Enter</Kbd> opens, <Kbd>Esc</Kbd> clears.
+            </InfoTip>
+          </span>
         </p>
         {groups.map((g) => (
           <section key={g.kind} aria-label={GROUP_LABEL[g.kind]}>
@@ -357,9 +374,10 @@ function Results({
                 {g.kind !== "exact" && <span className="ml-1.5 font-normal text-fg-subtle">{g.total}</span>}
               </h2>
               {g.total > g.rows.length && scopeOf(g.kind) !== scope && (
-                <button type="button" onClick={() => onScope(scopeOf(g.kind))} className="rounded text-sm text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-(--color-accent)">
+                <Button kind="quiet" size="sm" onClick={() => onScope(scopeOf(g.kind))} className="text-accent hover:text-accent">
                   See all {g.total} {GROUP_LABEL[g.kind].toLowerCase()}
-                </button>
+                  <ChevronRight />
+                </Button>
               )}
             </header>
             {g.status === "error" && (
@@ -462,9 +480,9 @@ function Preview({ row, meId, onOpen }: { row: Row; meId?: string; onOpen: () =>
         <p className="mt-3 text-sm text-fg-muted">{[m.snip ? `SNIP ${m.snip}` : null, m.colleagues ? `${m.colleagues} colleagues published here` : null].filter(Boolean).join(" · ")}</p>
       )}
       {openLabel && (row.url || row.run) && (
-        <button type="button" onClick={onOpen} className="mt-5 inline-flex h-9 items-center rounded-full bg-accent px-4 text-sm font-medium text-accent-fg outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-(--color-accent) focus-visible:ring-offset-2">
+        <Button kind="primary" onClick={onOpen} className="mt-5">
           {openLabel}
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -475,7 +493,7 @@ function NoResults({ q, scope, onScope, onTry }: { q: string; scope: SearchScope
   const words = q.split(/\s+/).filter((w) => w.length >= 3)
   const longest = [...words].sort((a, b) => b.length - a.length)[0] ?? q
   const shorter = longest.length > 4 ? longest.slice(0, Math.max(4, longest.length - 1)) : null
-  const fix = "rounded text-accent underline outline-none focus-visible:ring-2 focus-visible:ring-(--color-accent)"
+  const fix = "rounded-sm font-medium text-accent underline underline-offset-2 hover:text-accent-hover"
   return (
     <div className="mx-auto mt-10 flex max-w-md flex-col items-center text-center">
       <Picture name="empty-no-results" className="h-40 w-64" />
@@ -497,9 +515,10 @@ function NoResults({ q, scope, onScope, onTry }: { q: string; scope: SearchScope
             instead of only {SEARCH_SCOPES.find((s) => s.id === scope)?.label.toLowerCase()}
           </li>
         )}
-        <li>Names work without titles: “Kumar”, not “Dr. Kumar”.</li>
-        <li>For a paper, paste its DOI.</li>
       </ul>
+      <Details summary="Search tips" className="mt-3 text-left">
+        <p>Names work without titles: “Kumar”, not “Dr. Kumar”. For a paper, paste its DOI.</p>
+      </Details>
       {DOI_PATTERN.test(q) && <p className="mt-3 text-sm text-fg-muted">This DOI is not in the college's record yet. You can file it as a paper.</p>}
     </div>
   )
@@ -532,7 +551,7 @@ function Directory({ dept, onDept }: { dept: string; onDept: (d: string) => void
     <section data-area="people" className="mt-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-fg-muted">
-          {total == null ? "Everyone at the college." : `${formatCount(total)} ${total === 1 ? "person" : "people"}${dept ? ` in ${dept}` : " at the college"}.`} Type a name above to find one person.
+          {total == null ? "Everyone at the college." : `${formatCount(total)} ${total === 1 ? "person" : "people"}${dept ? ` in ${dept}` : " at the college"}.`}
         </p>
         <label className="flex items-center gap-2 text-sm text-fg-muted">
           Department
@@ -545,18 +564,18 @@ function Directory({ dept, onDept }: { dept: string; onDept: (d: string) => void
             ))}
           </Select>
           {dept && (
-            <button type="button" aria-label="Clear department" onClick={() => onDept("")} className="rounded-control p-2 hover:bg-hover">
-              <X className="size-4" />
-            </button>
+            <Button kind="quiet" size="icon-sm" aria-label="Clear department" onClick={() => onDept("")}>
+              <X />
+            </Button>
           )}
         </label>
       </div>
       {list.isError && (
         <p role="alert" className="mt-4 text-sm text-critical">
           Could not load the list of people. Nothing was lost.{" "}
-          <button type="button" className="underline" onClick={() => void list.refetch()}>
+          <Button kind="danger" size="sm" onClick={() => void list.refetch()}>
             Try again
-          </button>
+          </Button>
         </p>
       )}
       <ul className="mt-3 divide-y divide-line">
@@ -576,14 +595,12 @@ function Directory({ dept, onDept }: { dept: string; onDept: (d: string) => void
                   </span>
                   <span className="shrink-0 text-sm text-fg-muted tabular max-sm:hidden">{p.papers ? papersOf(p.papers) : "No papers yet"}</span>
                 </Link>
-                <Link
-                  to={`/messages?to=${p.id}`}
-                  aria-label={`Message ${p.name}`}
-                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-control px-3 text-sm text-fg-muted shadow-[inset_0_0_0_1px_var(--color-line)] outline-none hover:bg-hover hover:text-fg focus-visible:ring-2 focus-visible:ring-(--color-accent) max-sm:w-10 max-sm:justify-center max-sm:px-0"
-                >
-                  <MessageCircle aria-hidden className="size-4" />
-                  <span className="max-sm:sr-only">Message</span>
-                </Link>
+                <Button asChild kind="default" className="max-sm:w-11 max-sm:px-0">
+                  <Link to={`/messages?to=${p.id}`} aria-label={`Message ${p.name}`}>
+                    <MessageCircle aria-hidden />
+                    <span className="max-sm:sr-only">Message</span>
+                  </Link>
+                </Button>
               </li>
             ))}
       </ul>
@@ -592,9 +609,9 @@ function Directory({ dept, onDept }: { dept: string; onDept: (d: string) => void
           <p className="text-sm text-fg-muted">
             Showing {formatCount(people.length)} of {formatCount(total ?? people.length)}.
           </p>
-          <button type="button" disabled={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()} className="mt-1 inline-flex h-10 items-center rounded-control px-4 text-sm font-medium text-accent hover:bg-hover disabled:opacity-60">
-            {list.isFetchingNextPage ? "Loading" : `Show ${Math.min(PAGE, (total ?? 0) - people.length)} more`}
-          </button>
+          <Button kind="default" loading={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()} className="mt-2">
+            {`Show ${Math.min(PAGE, (total ?? 0) - people.length)} more`}
+          </Button>
         </div>
       )}
     </section>

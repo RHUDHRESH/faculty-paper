@@ -133,15 +133,10 @@ export function Requests() {
 
   const weekAgo = Date.now() - 7 * 86_400_000
   const overWeek = pendingRows.filter((r) => r.created_at && new Date(r.created_at).getTime() < weekAgo).length
-  const superOnly = pendingRows.filter((r) => r.identity).length
 
   return (
     <div className="page space-y-8">
-      <PageHeader
-        title="Profile requests"
-        sub="Name, staff ID and Scopus corrections that people cannot make themselves. Applying one changes the record."
-        spot="spot-people"
-      />
+      <PageHeader title="Profile requests" spot="spot-people" />
 
       <Answer
         items={[
@@ -156,11 +151,6 @@ export function Requests() {
             label: "Waiting over a week",
             zero: "None waiting over a week",
             tone: "critical",
-          },
-          {
-            value: data ? superOnly : null,
-            label: "Only a super admin can decide",
-            zero: "None need a super admin",
           },
         ]}
       />
@@ -180,22 +170,19 @@ export function Requests() {
       ) : (
         <>
           <section className="space-y-3">
-            <div className="flex items-baseline justify-between gap-3">
-              <SectionTitle>Waiting for you</SectionTitle>
-              <Meta>Oldest first</Meta>
-            </div>
+            <SectionTitle>Waiting for you, oldest first</SectionTitle>
 
             {pendingRows.length === 0 ? (
               <EmptyState
                 art="empty-queue"
                 icon={Inbox}
                 title="Nothing waiting"
-                message="A request appears here when someone asks to change their name, staff ID or Scopus link on their profile."
+                message="Requests to change a name, staff ID or Scopus link appear here."
               />
             ) : (
               <ul className="divide-y divide-line border-y border-line">
-                {pendingRows.map((r) => (
-                  <RequestRow key={r.id} request={r} isSuperAdmin={isSuperAdmin} />
+                {pendingRows.map((r, i) => (
+                  <RequestRow key={r.id} request={r} isSuperAdmin={isSuperAdmin} lead={i === 0} />
                 ))}
               </ul>
             )}
@@ -236,7 +223,7 @@ function IdentityBadge() {
  * stale — a super admin correcting the same field a different way after
  * this was asked would otherwise be silently overwritten by "approve".
  */
-function RequestRow({ request, isSuperAdmin }: { request: ProfileRequest; isSuperAdmin: boolean }) {
+function RequestRow({ request, isSuperAdmin, lead }: { request: ProfileRequest; isSuperAdmin: boolean; lead: boolean }) {
   const [approveOpen, setApproveOpen] = useState(false)
   const [declineOpen, setDeclineOpen] = useState(false)
 
@@ -273,26 +260,21 @@ function RequestRow({ request, isSuperAdmin }: { request: ProfileRequest; isSupe
       {moved && (
         <Callout tone="caution" title="The record moved while this was waiting">
           {request.label} now reads “{shown(request, request.value_now) || "not set"}”, not “
-          {shown(request, request.current_value) || "not set"}”, which is what was asked about. Applying it
-          replaces today's value, not the one this request was compared against.
+          {shown(request, request.current_value) || "not set"}”. Applying replaces today's value.
         </Callout>
       )}
 
       {request.note && <p className="text-sm text-fg-muted">“{request.note}”</p>}
 
-      {canAct ? (
+      {canAct && (
         <div className="flex gap-2">
           <Button kind="danger" size="sm" onClick={() => setDeclineOpen(true)}>
             Decline
           </Button>
-          <Button kind="primary" size="sm" onClick={() => setApproveOpen(true)}>
+          <Button kind={lead ? "primary" : "default"} size="sm" onClick={() => setApproveOpen(true)}>
             Apply
           </Button>
         </div>
-      ) : (
-        <p className="text-sm text-fg-muted">
-          Only a super admin can decide this one. It changes pay or identity, not routing.
-        </p>
       )}
 
       <ApproveDialog request={request} open={approveOpen} onOpenChange={setApproveOpen} moved={moved} />
@@ -407,7 +389,7 @@ function DeclineDialog({
         <DialogBody>
           <Field
             label="Reason"
-            hint="The person reads this on their own profile page. Say what was wrong, not just no."
+            hint="The person reads this on their profile."
             error={tooShort ? "At least 5 characters." : undefined}
           >
             <Textarea

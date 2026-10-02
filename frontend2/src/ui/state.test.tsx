@@ -56,7 +56,7 @@ describe("EmptyState and ErrorState are not the same thing", () => {
     // The sentence is the whole product here. "No papers" would be a lie.
     render(<ErrorState />)
     expect(screen.getByText(/could not load/i)).toBeInTheDocument()
-    expect(screen.getByText(/nothing has been deleted or lost/i)).toBeInTheDocument()
+    expect(screen.getByText(/nothing was lost/i)).toBeInTheDocument()
   })
 
   it("offers a way out of the failure", () => {

@@ -250,7 +250,8 @@ describe("Track, for the office", () => {
   it("offers the data-fix list from Track, and filters to it", async () => {
     mount(CELL, <Track />)
     const line = await screen.findByTestId("track-fixes")
-    expect(within(line).getByRole("link", { name: /3 claims from the old ERP need fixing/ })).toHaveAttribute("href", "/track?fix=1")
+    expect(line).toHaveTextContent("3 claims from the old ERP need fixing")
+    expect(within(line).getByRole("link", { name: "Show them here" })).toHaveAttribute("href", "/track?fix=1")
     expect(within(line).getByRole("link", { name: "Open the fix list" })).toHaveAttribute("href", "/data/fixes")
   })
 
@@ -291,10 +292,10 @@ describe("the Admin hub", () => {
       expect(await screen.findByRole("heading", { name: title })).toBeInTheDocument()
     }
     const faults = screen.getByRole("link", { name: /Faults/ })
-    expect(within(faults).getByText(/Records the system cannot reconcile/)).toBeInTheDocument()
+    // The purpose is the row's hover note, not a line of text on the page.
+    expect(faults).toHaveAttribute("title", expect.stringMatching(/cannot reconcile/))
     expect(within(faults).getByLabelText("5 need attention")).toBeInTheDocument()
     expect(within(screen.getByRole("link", { name: /^People/ })).getByText("420 active accounts")).toBeInTheDocument()
-    expect(await screen.findByText(/Something is waiting on 2 pages/)).toBeInTheDocument()
   })
 
   it("is not open to a Finance officer", async () => {

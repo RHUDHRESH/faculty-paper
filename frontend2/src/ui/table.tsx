@@ -348,7 +348,7 @@ export function Table<T>({
                       type="button"
                       onClick={() => onSort(col.key)}
                       className={cn(
-                        "-mx-1 inline-flex items-center gap-1 rounded-control px-1 hover:text-fg",
+                        "-mx-1.5 inline-flex items-center gap-1 rounded-control px-1.5 py-0.5 hover:bg-hover hover:text-fg active:bg-active",
                         col.align === "right" && "flex-row-reverse"
                       )}
                     >

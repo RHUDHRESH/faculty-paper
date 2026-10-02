@@ -41,7 +41,7 @@ import httpx
 from django.conf import settings
 from django.db.models import Q
 
-from core.models import Claim, ClaimStatus, ScimagoJournal, SnipSource
+from core.models import ScimagoJournal, SnipSource
 from core.services.discover import categories_of, find_journal
 from core.services.normalize import normalize_doi, normalize_issn, normalize_title
 from core.services.scimago import (
@@ -883,18 +883,24 @@ def _warnings(paper: dict[str, Any], records: list[tuple[str, dict[str, Any]]]) 
     return out
 
 
-def _already_filed(claimant, doi: str | None, exclude_claim_id: str | None) -> dict[str, Any] | None:
-    if not doi or claimant is None:
+def _already_filed(claimant, doi: str | None, exclude_claim_id: str | None,
+                   title: str | None = None, eid: str | None = None) -> dict[str, Any] | None:
+    """What the claimant is told the moment this paper is looked up.
+
+    One answer for every way a paper can already be spoken for: their own
+    claim in any state, a claim that was sent back or not accepted, and a
+    payment already on the college's record. `core.services.claim_standing`
+    holds the rules; this only reshapes the answer for the form. The stage is
+    the faculty stage, never the desk that holds the paper.
+    """
+    from core.services import claim_standing
+
+    s = claim_standing.own_standing(claimant, doi=doi, eid=eid, title=title, exclude_claim_id=exclude_claim_id)
+    if s is None:
         return None
-    qs = Claim.objects.filter(owner=claimant, doi__iexact=doi).exclude(status=ClaimStatus.REJECTED)
-    if exclude_claim_id:
-        qs = qs.exclude(pk=exclude_claim_id)
-    found = qs.order_by("-created_at").only("id", "ticket_number", "status").first()
-    if not found:
-        return None
-    # No status: a faculty member is not told which desk holds their paper.
-    return {"id": found.id, "ticket_number": found.ticket_number,
-            "is_draft": found.status == ClaimStatus.DRAFT}
+    return {"id": s["claim_id"], "ticket_number": s["ticket_number"], "is_draft": s["is_draft"],
+            "code": s["code"], "message": s["message"], "stage": s["stage"],
+            "blocks": s["blocks"], "paid_month": s["paid_month"]}
 
 
 def _answer(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -1064,6 +1070,7 @@ def lookup(
                               metrics=metrics, college_name=college_name,
                               scopus_answered=bool(results.get("scopus")),
                               authors_from=origin.get("authors")),
-        "already_filed": _already_filed(claimant, paper["doi"], exclude_claim_id),
+        "already_filed": _already_filed(claimant, paper["doi"], exclude_claim_id,
+                                         title=paper.get("title"), eid=paper.get("eid")),
         "candidates": [],
     }

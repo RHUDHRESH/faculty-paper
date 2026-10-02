@@ -1,7 +1,6 @@
 import { useSearchParams } from "react-router-dom"
 
 import { can, useAuth } from "@/app/auth"
-import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { MonthlyReport } from "@/pages/cell/monthly-report"
 import {
@@ -15,6 +14,7 @@ import {
   type Overview,
 } from "@/pages/coordination-parts"
 import { PageHeader } from "@/ui/page-header"
+import { Tabs } from "@/ui/tabs"
 import { ErrorState, SkeletonRows } from "@/ui/state"
 
 /**
@@ -65,29 +65,17 @@ export function Coordination() {
 
   return (
     <div className="page space-y-8">
-      <PageHeader title="Coordination" sub={SUB[tab]} spot="spot-home-admin" />
+      <PageHeader title="Coordination" sub={SUB[tab]} />
 
-      <div role="tablist" aria-label="Coordination" className="flex flex-wrap gap-1 border-b border-line">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            id={`tab-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls={`panel-${t.id}`}
-            onClick={() => setParams(t.id === "desk" ? {} : { tab: t.id }, { replace: true })}
-            className={cn(
-              "-mb-px h-10 border-b-2 px-3 text-sm transition-colors duration-[var(--dur-1)] ease-out max-sm:h-11",
-              tab === t.id ? "border-accent font-medium text-fg" : "border-transparent text-fg-muted hover:text-fg"
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Coordination"
+        idPrefix="coord"
+        value={tab}
+        onChange={(id) => setParams(id === "desk" ? {} : { tab: id }, { replace: true })}
+        tabs={TABS.map((t) => ({ id: t.id, label: t.label }))}
+      />
 
-      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+      <div role="tabpanel" id={`coord-${tab}`} aria-labelledby={`coord-tab-${tab}`}>
         {tab === "desk" && <DeskTab />}
         {tab === "report" && <MonthlyReport />}
         {tab === "research" && <ResearchPanel />}

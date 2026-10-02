@@ -79,6 +79,23 @@ def teachers_by_department() -> dict[str, int]:
 
 
 
+def heads_by_department() -> dict[str, dict[str, str]]:
+    """The head of each department, on the roll's own spelling.
+
+    One person per department by the college's rule (core/services/heads.py), so
+    the first active head is the head. The Principal's next move after "CIVIL
+    needs a push" is a call, and the call is to a person: the brief names them
+    and the response renderer adds their photograph (core/faces.py).
+    """
+    canon = college_totals.canonical_departments()
+    out: dict[str, dict[str, str]] = {}
+    for u in User.objects.filter(active=True, role=Role.HOD).order_by("created_at", "email"):
+        d = canon(u.department)
+        if d != NO_DEPARTMENT and d not in out:
+            out[d] = {"user_id": str(u.id), "name": u.name or u.email, "email": u.email}
+    return out
+
+
 def cached_brief(year: Optional[int] = None) -> dict[str, Any]:
     """The brief for every reader, worked out once per change to the data."""
     from core.services.aggregate_cache import shared as cached
@@ -146,8 +163,25 @@ def brief(year: Optional[int] = None) -> dict[str, Any]:
     now, prev = trend[-1], trend[-2]
     five_year = sum(t["papers"] for t in trend)
 
+    # The year that is still running, when the one being reported is over. It is
+    # drawn beside the five years as a part year (hollow, "to date") and never
+    # compared with a whole one, so a year nine months old does not read as a fall.
+    running = None
+    if year < today.year:
+        ry = today.year
+        rp = by_year.get(ry, 0)
+        running = {
+            "year": ry,
+            "papers": rp,
+            "per_teacher": _ratio(rp, college_teachers),
+            "financial_year": fy_label(ry),
+            "paid": round(paid_fy.get(ry, 0), 2),
+            "as_of": today.isoformat(),
+        }
+
     dept_names = {d for d in teachers if d != NO_DEPARTMENT}
     dept_names |= {d for d in by_dept_year if d != NO_DEPARTMENT}
+    heads = heads_by_department()
     departments = []
     for d in dept_names:
         n_t = teachers.get(d, 0)
@@ -167,6 +201,7 @@ def brief(year: Optional[int] = None) -> dict[str, Any]:
             "paid": paid,
             "budget": budgets.get((fy, d)),
             "cost_per_paper": _ratio(paid, papers_now, 0),
+            "head": heads.get(d),
         })
     departments.sort(key=lambda r: (-(r["per_teacher"] or 0), -r["papers"], r["department"]))
 
@@ -201,6 +236,7 @@ def brief(year: Optional[int] = None) -> dict[str, Any]:
             "teachers": college_teachers, "per_teacher": per5, "band": naac_331_band(per5),
         },
         "unassigned_papers": unassigned,
+        "running": running,
         "notes": [
             "Papers: the publication record plus recognised claim papers it does not hold, "
             "counted once per paper by calendar publication year. A paper shared by two "
@@ -215,6 +251,7 @@ def brief(year: Optional[int] = None) -> dict[str, Any]:
         ],
     }
     brief["headline"] = headline(brief)
+    brief.update(headline_parts(brief))
     brief["push"] = needs_a_push(brief)
     brief["rising"] = rising(brief)
     brief["pack"] = pack_checks(brief)
@@ -276,7 +313,7 @@ def pack_checks(b: dict[str, Any]) -> list[dict[str, Any]]:
         if b["partial"] else f"{y} is complete.", None)
     add("budget", f"A budget is set for FY {b['financial_year']}", t["budget"] is not None,
         f"Budget {_inr(t['budget'])}; {t['budget_used']:g}% used." if t["budget"] is not None
-        else "No budget is set, so the council cannot see spend against it.", "/budget")
+        else "No budget is set, so the council cannot see spend against it. Finance sets it.", "/budget")
     add("department", "Every paper has a department", b["unassigned_papers"] == 0,
         "All papers are in a department." if b["unassigned_papers"] == 0
         else f"{pdf_fonts.group_in(b['unassigned_papers'])} papers of {y} have no department, so no row above holds them.",
@@ -312,30 +349,44 @@ def _inr(n: Optional[float], sign: str = "₹") -> str:
     return ("-" if neg else "") + sign + s
 
 
-def headline(b: dict[str, Any]) -> str:
+def headline_parts(b: dict[str, Any]) -> dict[str, str]:
+    """The year in words, in the pieces the page sets differently.
+
+    caveat   what a running year needs said first (empty for a full year)
+    finding  the one short sentence that carries the answer
+    context  per teacher, across how many
+    detail   the money, and who leads and who is lowest
+
+    `headline` joins them in the order the PDF and the Excel print them.
+    """
     t, y = b["totals"], b["year"]
-    parts = [f"In {y} the college published {pdf_fonts.group_in(t['papers'])} papers"]
-    if t["change"] is not None and not b.get("partial"):
+    partial = bool(b.get("partial"))
+    core = (f"So far in {y} the college has published " if partial else f"In {y} the college published ") + (
+        f"{pdf_fonts.group_in(t['papers'])} papers")
+    if t["change"] is not None and not partial:
         word = "up" if t["change"] > 0 else "down" if t["change"] < 0 else "level"
-        parts.append(
-            f", {word} {abs(t['change']):g}% on {y - 1}" if word != "level" else f", the same as {y - 1}"
-        )
-    if t["per_teacher"] is not None:
-        parts.append(f": {t['per_teacher']:g} per teacher across {pdf_fonts.group_in(t['teachers'])} teachers")
-    s = "".join(parts) + "."
-    if b.get("partial"):
-        s = f"{y} is not over, so these are figures to date. " + s.replace(
-            f"In {y} the college published", f"So far in {y} the college has published")
+        core += f", {word} {abs(t['change']):g}% on {y - 1}" if word != "level" else f", the same as {y - 1}"
+    per = (f"{t['per_teacher']:g} papers per teacher across {pdf_fonts.group_in(t['teachers'])} teachers"
+           if t["per_teacher"] is not None else "")
+    caveat = f"{y} is not over, so these are figures to date." if partial else ""
     if t["budget"]:
-        s += f" It paid {_inr(t['paid'])} in incentives in FY {b['financial_year']}, {t['budget_used']:g}% of the {_inr(t['budget'])} budget."
+        detail = f"It paid {_inr(t['paid'])} in incentives in FY {b['financial_year']}, {t['budget_used']:g}% of the {_inr(t['budget'])} budget."
     else:
-        s += f" It paid {_inr(t['paid'])} in incentives in FY {b['financial_year']}; no budget is set for that year."
+        detail = f"It paid {_inr(t['paid'])} in incentives in FY {b['financial_year']}; no budget is set for that year."
     ranked = [d for d in b["departments"] if d["teachers"] >= MIN_TEACHERS and d["per_teacher"] is not None]
     if len(ranked) >= 2:
         top, low = ranked[0], ranked[-1]
-        s += (f" {top['department']} leads with {top['per_teacher']:g} papers per teacher;"
-              f" {low['department']} is lowest at {low['per_teacher']:g}.")
-    return s
+        detail += (f" {top['department']} leads with {top['per_teacher']:g} papers per teacher;"
+                   f" {low['department']} is lowest at {low['per_teacher']:g}.")
+    return {"caveat": caveat, "finding": core + ".", "context": (per[0].upper() + per[1:] + ".") if per else "", "detail": detail}
+
+
+def headline(b: dict[str, Any]) -> str:
+    """The same words as one paragraph: the caveat, then the finding with its per-teacher
+    clause after a colon, then the money and the ranking."""
+    p = headline_parts(b)
+    lead = p["finding"][:-1] + (": " + p["context"].replace("papers per teacher", "per teacher", 1) if p["context"] else ".")
+    return " ".join(x for x in (p["caveat"], lead, p["detail"]) if x)
 
 
 # ------------------------------------------------------------ downloads ----

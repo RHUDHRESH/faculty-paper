@@ -57,6 +57,31 @@ class PrincipalBriefTests(TestCase):
         self.assertIn("not over", b["headline"])
         self.assertNotIn(" on ", b["headline"].split(".")[1])
 
+    def test_the_head_is_named_and_the_running_year_stands_apart(self):
+        b = principal_brief.brief(2025)
+        depts = {d["department"]: d for d in b["departments"]}
+        self.assertEqual(depts["CSE"]["head"]["name"], "H")      # the one active head
+        self.assertIsNone(depts["MECH"]["head"])                 # nobody is set: said, not invented
+        # The year being reported is over, so the running year rides beside it.
+        run = b["running"]
+        self.assertEqual(run["year"], date.today().year)
+        self.assertIn("as_of", run)
+        # A running year is never reported against itself.
+        self.assertIsNone(principal_brief.brief(date.today().year)["running"])
+        # The finding is one short sentence; the rest is in its own pieces.
+        self.assertEqual(b["finding"], "In 2025 the college published 6 papers, up 200% on 2024.")
+        self.assertTrue(b["context"].startswith("1.2 papers per teacher across 5 teachers"))
+        self.assertIn("It paid", b["detail"])
+
+    def test_the_council_pack_is_three_pages(self):
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        b = principal_brief.brief(2025)
+        pdf = principal_brief.pdf(b, "Saveetha Engineering College")
+        self.assertEqual(len(PdfReader(BytesIO(pdf)).pages), 3)
+
     def test_naac_band(self):
         self.assertEqual([principal_brief.naac_331_band(v) for v in (None, 1, 3, 5, 10)], [0, 1, 2, 3, 4])
 

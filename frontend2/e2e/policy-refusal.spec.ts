@@ -261,7 +261,7 @@ test.describe("A claim whose cited references carry no numbers", () => {
     await cell.goto("/clearing")
     await waitForSettled(cell)
 
-    const row = cell.getByRole("row").filter({ hasText: claimA.claim!.ticket_number })
+    const row = cell.locator("[data-claim]").filter({ hasText: claimA.claim!.ticket_number })
     await expect(row, "the filed ticket is not in the clearing queue").toHaveCount(1)
     await expect(row, "the ticket reached the queue without an amount").toContainText(/₹\s*[1-9]/)
 

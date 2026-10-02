@@ -516,8 +516,29 @@ class Loader:
         reset_queries()
 
 
+def _ledger_upgrades(path: str) -> dict:
+    """Kind and cycle for ledger rows from an export made before migration 0075.
+
+    Such a file carries a payment, its reversal and a later payment as plain
+    rows; loaded as they stand they would all be "PAYMENT, cycle 1", and the
+    one-live-payment rule refuses them. One quick pass over the ledger rows
+    only (a few thousand) gives each the kind and cycle 0075 would have given
+    it (core/services/restore_upgrade.py), keyed by pk, so a resumed job
+    recomputes the same answer.
+    """
+    from core.services import restore_upgrade
+
+    rows = [obj for _, obj, _ in iter_objects(path, only={"core.paidledger"})
+            if "kind" not in obj.get("fields", {})]
+    if not rows:
+        return {}
+    restore_upgrade.upgrade_records(rows)
+    return {str(r.get("pk")): (r["fields"]["kind"], r["fields"]["cycle"]) for r in rows if "kind" in r["fields"]}
+
+
 def _load_rows(run: dict, path: str, loader: Loader, deadline: float) -> bool:
     """True when the whole file is loaded, False when stopped by the time budget."""
+    upgrades = _ledger_upgrades(path)
     batch: list = []
     label, nbytes, last = None, 0, run["done"] - 1
 
@@ -538,6 +559,10 @@ def _load_rows(run: dict, path: str, loader: Loader, deadline: float) -> bool:
             flush()
             if time.monotonic() > deadline:
                 return False
+        if lab == "core.paidledger" and upgrades:
+            fields = obj.setdefault("fields", {})
+            if "kind" not in fields and str(obj.get("pk")) in upgrades:
+                fields["kind"], fields["cycle"] = upgrades[str(obj.get("pk"))]
         if not batch:
             label = lab
         batch.append(obj)

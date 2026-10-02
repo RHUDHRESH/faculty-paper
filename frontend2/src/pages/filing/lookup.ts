@@ -106,7 +106,18 @@ export type PaperLookup = {
   scopus_status: "ok" | "not_configured" | "unavailable"
   warnings: string[]
   to_check: { key: string; text: string }[]
-  already_filed: { id: string; ticket_number: string | null; is_draft: boolean } | null
+  already_filed: {
+    id: string | null
+    ticket_number: string | null
+    is_draft: boolean
+    /** filed, draft, paid, paid_before, sent_back, not_accepted. */
+    code?: string
+    /** The sentence to show, in plain words, naming no desk and no colleague. */
+    message?: string
+    /** True when the server will refuse a second claim for this paper. */
+    blocks?: boolean
+    paid_month?: string | null
+  } | null
   candidates: {
     doi: string | null
     title: string | null

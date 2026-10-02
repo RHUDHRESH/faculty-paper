@@ -9,23 +9,27 @@ import { ClaimFlagsPanel, useClaimReview } from "@/pages/claim-review"
 import { ClaimOfficeThread } from "@/pages/clearing-thread"
 import { SchemeRules, WatchCallout } from "@/pages/clearing-desk"
 import { HoldNote } from "@/ui/desk-actions"
-import { categoryLabel, money } from "@/ui/paper"
-import { Avatar, initialsOf } from "@/ui/person"
+import { money } from "@/ui/paper"
 import { PastCases } from "@/ui/past-cases"
 import { MarkList, type ChecklistKey, type ChecklistState } from "@/ui/review-marks"
 import { Callout } from "@/ui/state"
-import { Meta, SectionTitle } from "@/ui/text"
+import { Tabs } from "@/ui/tabs"
+import { Meta } from "@/ui/text"
 
 import { Checklist } from "./checklist"
 import { claimDiff, type DiffRow } from "./claim-diff"
 import { actionSentence, formatDateTime } from "./history"
 import type { WorkspaceClaim } from "./types"
+import { DirectorVerdict } from "./director-verdict"
+import { Verdict } from "./verdict"
 
 /**
  * Everything the reviewer needs to judge one claim, in the order they judge
- * it: who filed it, what they claimed against what the record says, what they
- * confirmed, then the reviewer's own checklist and marks, and last the
- * background (flags, past cases, history).
+ * it. First the answer (can this go, and for how much), then four tabs so the
+ * panel is never a 3,000 px scroll: **Check** (the claim against the record,
+ * what the claimant confirmed, the reviewer's checklist), **Marks** (what was
+ * marked on the documents), **Past cases** (flags and the claimant's history)
+ * and **History** (the numbered notes of this claim's file).
  *
  * It only reads from the claim it is given. The one request that produced
  * the claim (`/api/claims/{id}/workspace`) also filled the flags' cache, so
@@ -39,18 +43,28 @@ type Extras = {
   showFlags: boolean
 }
 
+export type PanelSection = "check" | "marks" | "past" | "history"
+
+export const PANEL_SECTIONS: PanelSection[] = ["check", "marks", "past", "history"]
+
 export function ReviewPanel({
   claim,
   role,
   checklist,
   onChecklist,
   extras,
+  section,
+  onSection,
+  markCount,
 }: {
   claim: WorkspaceClaim
   role: Role | undefined
   checklist: ChecklistState
   onChecklist: (key: ChecklistKey, change: { status?: "ok" | "issue" | "needs_info" | null; note?: string }) => void
   extras: Extras
+  section: PanelSection
+  onSection: (s: PanelSection) => void
+  markCount: number
 }) {
   const rows = claimDiff(claim)
   const issues = verificationIssues(claim)
@@ -67,192 +81,195 @@ export function ReviewPanel({
   }
   if (claim.duplicate_warning) hints.duplicate = "The record shows this paper may already have been paid."
 
+  const noteCount = claim.actions?.length ?? 0
+
   return (
-    <div className="space-y-7 px-4 py-4">
-      <div className="space-y-3 empty:hidden">
-        <HoldNote claim={claim} />
-        {claim.status_note && !/^Imported from/i.test(claim.status_note) && (
-          <Callout tone="caution" title="Sent back to this desk">
-            <p>{claim.status_note}</p>
-          </Callout>
-        )}
-        {claim.journal_watch && <WatchCallout watch={claim.journal_watch} />}
-        {claim.duplicate_warning && (
-          <Callout tone="critical" title="This paper may already have been paid">
-            {duplicateMatches.length > 0 ? (
-              <ul className="mt-1.5 space-y-1">
-                {duplicateMatches.map((m, i) => (
-                  <li key={m.id ?? i} className="text-sm">
-                    {m.source === "claim" && m.id ? (
-                      <Link to={`/papers/${m.id}`} className="underline underline-offset-2">
-                        {[m.reference, m.who, m.when].filter(Boolean).join(" · ") || "The other claim"}
-                      </Link>
-                    ) : (
-                      [m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"
-                    )}
-                    {m.amount != null && <> · {money(m.amount)}</>}
+    <div className="space-y-6 px-4 py-4">
+      {role === "DIRECTOR" ? <DirectorVerdict claim={claim} /> : <Verdict claim={claim} rows={rows} />}
+
+      <Tabs
+        label="Parts of the review"
+        idPrefix="rv"
+        value={section}
+        onChange={(id) => onSection(id as PanelSection)}
+        tabs={[
+          { id: "check", label: "Check" },
+          { id: "marks", label: "Marks", count: markCount > 0 ? markCount : null },
+          { id: "past", label: "Past cases" },
+          { id: "history", label: "History", count: noteCount > 0 ? noteCount : null },
+        ]}
+        className="-mx-4 px-4 [&>button]:text-sm [&>button]:h-10"
+      />
+
+      {section === "check" && (
+        <div role="tabpanel" id="rv-check" aria-labelledby="rv-tab-check" className="space-y-7">
+          <div className="space-y-3 empty:hidden">
+            <HoldNote claim={claim} />
+            {claim.status_note && !/^Imported from/i.test(claim.status_note) && (
+              <Callout tone="caution" title="Sent back to this desk">
+                <p>{claim.status_note}</p>
+              </Callout>
+            )}
+            {claim.journal_watch && <WatchCallout watch={claim.journal_watch} />}
+            {claim.duplicate_warning && (
+              <Callout tone="critical" title="This paper may already have been paid">
+                {duplicateMatches.length > 0 ? (
+                  <ul className="mt-1.5 space-y-1">
+                    {duplicateMatches.map((m, i) => (
+                      <li key={m.id ?? i} className="text-sm">
+                        {m.source === "claim" && m.id ? (
+                          <Link to={`/papers/${m.id}`} className="underline underline-offset-2">
+                            {[m.reference, m.who, m.when].filter(Boolean).join(" · ") || "The other claim"}
+                          </Link>
+                        ) : (
+                          [m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"
+                        )}
+                        {m.amount != null && <> · {money(m.amount)}</>}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>Check the payment history before this goes any further.</p>
+                )}
+                {claim.override_duplicate && (
+                  <p className="mt-1.5 text-sm">
+                    Overridden{claim.override_by_name ? ` by ${claim.override_by_name}` : ""}
+                    {claim.override_reason ? `: ${claim.override_reason}` : "."}
+                  </p>
+                )}
+              </Callout>
+            )}
+          </div>
+
+          <section aria-label="The paper" className="space-y-1.5">
+            <p className="break-words text-sm text-fg-muted">
+              <span className="text-fg">{paperTitle(claim.paper_title)}</span>
+              {claim.journal_title ? ` · ${claim.journal_title}` : ""}
+              {claim.publication_year ? ` · ${claim.publication_year}` : ""}
+            </p>
+            <PaperLinks doi={claim.doi} eid={claim.eid} scopusUrl={claim.scopus_url} />
+            <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              {claim.owner_id && (
+                <Link to={`/u/${claim.owner_id}`} className="text-accent underline-offset-2 hover:underline">
+                  {claim.owner_name}'s profile
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={() => onSection("past")}
+                className="text-accent underline underline-offset-2"
+              >
+                Past cases
+              </button>
+            </p>
+            <ClaimOfficeThread claimId={claim.id} />
+          </section>
+
+          <section aria-labelledby="rv-diff" className="space-y-2">
+            <h3 id="rv-diff" className="text-base font-semibold">
+              Claimed and on record
+            </h3>
+            <DiffTable rows={rows} />
+            {claim.verification_ok === false && issues.length > 0 && (
+              <ul className="space-y-1 text-sm text-critical">
+                {issues.map((issue, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <XCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                    {issue}
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p>Check the payment history before this goes any further.</p>
             )}
-            {claim.override_duplicate && (
-              <p className="mt-1.5 text-sm">
-                Overridden{claim.override_by_name ? ` by ${claim.override_by_name}` : ""}
-                {claim.override_reason ? `: ${claim.override_reason}` : "."}
+            {claim.verification_ok === true && !rows.some((r) => r.differs) && (
+              <p className="flex items-center gap-1.5 text-sm text-positive">
+                <CheckCircle2 className="size-3.5" aria-hidden /> The automatic checks found no issues.
               </p>
             )}
-          </Callout>
-        )}
-      </div>
+            {claim.verification_ok == null && (
+              <p className="text-sm text-fg-muted">The automatic checks have not run on this claim.</p>
+            )}
+            <SchemeRules c={claim} />
+          </section>
 
-      <section aria-label="Claimant" className="space-y-2">
-        <div className="flex items-center gap-3">
-          <Avatar
-            person={{ name: claim.owner_name, initials: initialsOf(claim.owner_name), photo_url: claim.owner_photo_url ?? null }}
-            size="md"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="break-words text-sm font-medium">{claim.owner_name}</p>
-            <Meta className="block break-words">{[claim.owner_department, claim.owner_email].filter(Boolean).join(" · ")}</Meta>
-            <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs">
-              {claim.owner_id && (
-                <Link to={`/u/${claim.owner_id}`} className="text-accent underline-offset-2 hover:underline">
-                  Profile
-                </Link>
-              )}
-              <a href="#past-cases" className="text-accent underline-offset-2 hover:underline">
-                Past cases
-              </a>
-            </p>
-          </div>
+          <section aria-labelledby="rv-confirm" className="space-y-2">
+            <h3 id="rv-confirm" className="text-base font-semibold">
+              What the claimant confirmed
+            </h3>
+            {!claim.confirmations || claim.confirmations.length === 0 ? (
+              <p className="text-sm text-fg-muted">No confirmations on record for this claim.</p>
+            ) : (
+              <ul className="space-y-2">
+                {claim.confirmations.map((cf) => (
+                  <li key={cf.id} className="flex gap-2 text-sm">
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-positive" aria-hidden />
+                    <span className="min-w-0">
+                      <span className="block text-pretty">{cf.text}</span>
+                      <Meta className="block">
+                        Ticked {formatDateTime(cf.ticked_at)}
+                        {cf.user_name ? ` by ${cf.user_name}` : ""}
+                      </Meta>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section aria-labelledby="rv-checklist" className="space-y-2">
+            <h3 id="rv-checklist" className="text-base font-semibold">
+              Your checklist
+            </h3>
+            <Checklist state={checklist} onChange={onChecklist} hints={hints} />
+          </section>
         </div>
-        <p className="break-words text-sm text-fg-muted">
-          <span className="text-fg">{paperTitle(claim.paper_title)}</span>
-          {claim.journal_title ? ` · ${claim.journal_title}` : ""}
-          {claim.publication_year ? ` · ${claim.publication_year}` : ""}
-        </p>
-        <PaperLinks doi={claim.doi} eid={claim.eid} scopusUrl={claim.scopus_url} />
-        <ClaimOfficeThread claimId={claim.id} />
-      </section>
-
-      <section aria-labelledby="rv-diff" className="space-y-2">
-        <SectionTitle>
-          <span id="rv-diff">Claimed and on record</span>
-        </SectionTitle>
-        <DiffTable rows={rows} />
-        {claim.verification_ok === false && issues.length > 0 && (
-          <ul className="space-y-1 text-sm text-critical">
-            {issues.map((issue, i) => (
-              <li key={i} className="flex gap-1.5">
-                <XCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                {issue}
-              </li>
-            ))}
-          </ul>
-        )}
-        {claim.verification_ok === true && (
-          <p className="flex items-center gap-1.5 text-sm text-positive">
-            <CheckCircle2 className="size-3.5" aria-hidden /> The automatic checks found no issues.
-          </p>
-        )}
-        {claim.verification_ok == null && <p className="text-sm text-fg-muted">The automatic checks have not run on this claim.</p>}
-      </section>
-
-      <section aria-labelledby="rv-amount" className="space-y-2">
-        <SectionTitle>
-          <span id="rv-amount">The incentive</span>
-        </SectionTitle>
-        <p className="tabular text-2xl font-semibold">{claim.calc_error ? "No amount" : money(claim.remuneration)}</p>
-        {claim.remuneration_category && <p className="text-sm text-fg-muted">{categoryLabel(claim.remuneration_category)}</p>}
-        {claim.calc_error && (
-          <Callout tone="critical" title="This amount could not be worked out">
-            {claim.calc_error}
-          </Callout>
-        )}
-        {claim.remuneration_is_estimate && !claim.calc_error && (
-          <Callout tone="caution" title="This is an estimate">
-            It rests on figures the claimant reported, not confirmed ones.
-          </Callout>
-        )}
-        <SchemeRules c={claim} />
-      </section>
-
-      <section aria-labelledby="rv-confirm" className="space-y-2">
-        <SectionTitle>
-          <span id="rv-confirm">What the claimant confirmed</span>
-        </SectionTitle>
-        {!claim.confirmations || claim.confirmations.length === 0 ? (
-          <p className="text-sm text-fg-muted">No confirmations on record for this claim.</p>
-        ) : (
-          <ul className="space-y-2">
-            {claim.confirmations.map((cf) => (
-              <li key={cf.id} className="flex gap-2 text-sm">
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-positive" aria-hidden />
-                <span className="min-w-0">
-                  <span className="block text-pretty">{cf.text}</span>
-                  <Meta className="block">
-                    Ticked {formatDateTime(cf.ticked_at)}
-                    {cf.user_name ? ` by ${cf.user_name}` : ""}
-                  </Meta>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section aria-labelledby="rv-checklist" className="space-y-2">
-        <SectionTitle>
-          <span id="rv-checklist">Your checklist</span>
-        </SectionTitle>
-        <Checklist state={checklist} onChange={onChecklist} hints={hints} />
-      </section>
-
-      <section aria-labelledby="rv-marks" className="space-y-2">
-        <SectionTitle>
-          <span id="rv-marks">Marks on the document</span>
-        </SectionTitle>
-        <MarkList claimId={claim.id} />
-      </section>
-
-      {extras.showFlags && !extras.own && (
-        <ClaimFlagsPanel
-          claimId={claim.id}
-          review={review.data}
-          loading={review.isLoading}
-          failed={review.isError}
-          onRetry={() => void review.refetch()}
-        />
       )}
 
-      <section id="past-cases" aria-labelledby="rv-past" className="scroll-mt-4 space-y-2">
-        <SectionTitle>
-          <span id="rv-past">Past cases</span>
-        </SectionTitle>
-        <PastCases claimId={claim.id} role={role} />
-      </section>
+      {section === "marks" && (
+        <div role="tabpanel" id="rv-marks" aria-labelledby="rv-tab-marks" className="space-y-2">
+          <p className="text-sm text-fg-muted">
+            Press <kbd className="rounded border border-edge px-1 text-xs">m</kbd> and draw on the document to mark a problem. Marks for the
+            claimant become the send-back reason.
+          </p>
+          <MarkList claimId={claim.id} />
+        </div>
+      )}
 
-      <section aria-labelledby="rv-history" className="space-y-2">
-        <SectionTitle>
-          <span id="rv-history">History</span>
-        </SectionTitle>
-        {!claim.actions || claim.actions.length === 0 ? (
-          <p className="text-sm text-fg-muted">No history recorded.</p>
-        ) : (
-          <ul className="space-y-3 border-l border-line pl-4">
-            {[...claim.actions].reverse().map((a) => (
-              <li key={a.id} className="text-sm">
-                <p>{actionSentence(a)}</p>
-                <Meta>
-                  {a.actor_name} · {formatDateTime(a.created_at)}
-                </Meta>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {section === "past" && (
+        <div role="tabpanel" id="rv-past" aria-labelledby="rv-tab-past" className="space-y-7">
+          {extras.showFlags && !extras.own && (
+            <ClaimFlagsPanel
+              claimId={claim.id}
+              review={review.data}
+              loading={review.isLoading}
+              failed={review.isError}
+              onRetry={() => void review.refetch()}
+            />
+          )}
+          <PastCases claimId={claim.id} role={role} />
+        </div>
+      )}
+
+      {section === "history" && (
+        <div role="tabpanel" id="rv-history" aria-labelledby="rv-tab-history">
+          {!claim.actions || claim.actions.length === 0 ? (
+            <p className="text-sm text-fg-muted">No history recorded.</p>
+          ) : (
+            <ol className="space-y-3 border-l border-line pl-4">
+              {[...claim.actions].reverse().map((a, i, all) => (
+                <li key={a.id} className="text-sm">
+                  <p>
+                    <span className="tabular text-fg-subtle">{all.length - i}. </span>
+                    {actionSentence(a)}
+                  </p>
+                  <Meta>
+                    {a.actor_name} · {formatDateTime(a.created_at)}
+                  </Meta>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
     </div>
   )
 }

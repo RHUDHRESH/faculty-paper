@@ -1,5 +1,5 @@
 import type { ClaimThreshold } from "@/ui/research-threshold"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
@@ -64,6 +64,7 @@ export type QueueClaim = ClaimThreshold & {
   ticket_number: string | null
   paper_title: string
   journal_title: string | null
+  owner_id?: string | null
   owner_name: string
   owner_email: string
   owner_department: string | null
@@ -225,6 +226,7 @@ export function ApproveDialog({
   const [changedMessage, setChangedMessage] = useState<string | null>(null)
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
+  const confirmRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (open) {
@@ -276,9 +278,18 @@ export function ApproveDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="sm">
+      <DialogContent
+        size="sm"
+        onOpenAutoFocus={(e) => {
+          // Enter is the answer to the question on screen, so the button that says
+          // what will happen holds the focus (docs/ux/27). The server still checks
+          // the figure as it approves, and a moved figure is shown before it is sent.
+          e.preventDefault()
+          confirmRef.current?.focus()
+        }}
+      >
         <DialogHeader>
-          <DialogTitle>Approve this spend?</DialogTitle>
+          <DialogTitle>Approve this claim?</DialogTitle>
           <DialogDescription>
             {claim.owner_name} · {unshout(claim.paper_title)}
           </DialogDescription>
@@ -291,7 +302,7 @@ export function ApproveDialog({
             </Callout>
           ) : phase === "ready" ? (
             <>
-              <p className="text-2xl font-semibold tabular">{money(amount)}</p>
+              <p className="figure text-figure tabular">{money(amount)}</p>
               {/* What confirming does, in the dialog rather than only in the
                   toast afterwards — by then it has already happened. */}
               <p className="text-sm text-fg-muted">
@@ -327,6 +338,7 @@ export function ApproveDialog({
             </Button>
           ) : (
             <Button
+              ref={confirmRef}
               kind="primary"
               disabled={amount == null || !!claim.calc_error || busy}
               onClick={() => void confirmApprove()}
@@ -373,7 +385,7 @@ export function RejectDialog({
   async function submit() {
     try {
       await reject.mutateAsync({ note: trimmed })
-      toast.ok(`Sent back to the research cell${claim.ticket_number ? `: ${claim.ticket_number}` : ""}`)
+      toast.ok(`Sent back to the research cell${claim.ticket_number ? `. ${claim.ticket_number}` : ""}`)
       onOpenChange(false)
       onRejected()
     } catch (err) {
@@ -385,13 +397,13 @@ export function RejectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="sm">
         <DialogHeader>
-          <DialogTitle>Send back to the research cell?</DialogTitle>
+          <DialogTitle>Send this claim back?</DialogTitle>
           <DialogDescription>{unshout(claim.paper_title)}</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <Field
             label="Reason"
-            hint="Goes back to the research cell to fix, with this note attached. Say what to check again."
+            hint="It goes back to the research cell with this note. Say what to check again. Ctrl and Enter sends it."
             error={tooShort ? "At least 5 characters." : undefined}
           >
             <Textarea
@@ -399,6 +411,12 @@ export function RejectDialog({
               onChange={(e) => setNote(e.target.value)}
               rows={3}
               placeholder="What needs a second look before this can be approved"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && canSubmit && !reject.isPending) {
+                  e.preventDefault()
+                  void submit()
+                }
+              }}
             />
           </Field>
         </DialogBody>

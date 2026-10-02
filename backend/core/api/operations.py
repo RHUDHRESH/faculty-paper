@@ -17,8 +17,15 @@ from django.http import HttpRequest
 from django.utils import timezone
 from ninja.errors import HttpError
 from core.models import Claim, ClaimStatus, Role, User
-from core.services import claim_fixes, rbac
+from core.services import claim_fixes, rbac, safeguards
 from core.services.aggregate_cache import cached
+
+#: The claim-shaped safeguard checks the Faults screen lists (the rest live on
+#: the Safeguards page only).
+_SAFEGUARD_FAULTS = (
+    "dup_payment", "ledger_unpaid", "ledger_mismatch", "authorised_drift", "dup_filed", "paid_no_audit",
+    "self_paid", "override_unseconded",
+)
 
 # ---------- operations: what is wrong right now ----------
 
@@ -204,6 +211,10 @@ def _fault_sets(now) -> dict[str, Any]:
         "self_cleared": paid.filter(cleared_by__isnull=False, cleared_by=F("owner")),
         "no_ledger": paid.filter(ledger_rows__isnull=True),
         "voided": claims.filter(ledger_rows__amount__lt=0).distinct(),
+        # The daily money safeguards (core.services.safeguards): the Safeguards
+        # page counts these same queries, so the two screens cannot disagree.
+        **{f"sg_{k}": qs for k, qs in safeguards.claim_sets().items()
+           if k in _SAFEGUARD_FAULTS},
     }
 
 
@@ -303,6 +314,53 @@ def _faults_now() -> dict[str, Any]:
                    "A reversing row was written. Expected after a correction; unexpected otherwise.",
                    found=_probe(S["voided"], "ticket_number"), severity="info",
                    to="/ledger"),
+        ],
+    })
+
+    # ---- the safeguards that guard the money itself ----
+    # From the last run of the safeguards check (nightly, or "Check now"): the
+    # counts are one stored read, not eight more queries on every visit, and the
+    # list behind each one (`/admin/faults/{key}`) is the live query.
+    report = safeguards.last_report() or {}
+    reported = {c["key"]: c for c in report.get("checks", [])}
+
+    def _reported(key: str):
+        c = reported.get(key)
+        if not c:
+            return 0, []
+        return c["count"], [r["label"].split(" ")[0] for r in c["rows"][:4]]
+
+    groups.append({
+        "key": "safeguards",
+        "title": "Money safeguards",
+        "blurb": "Payments that were doubled, changed or made without a record",
+        "faults": [
+            _fault("sg_dup_payment", "Claims with more than one live payment",
+                   "The database allows one payment per claim, so these got round it. Money may have gone out twice.",
+                   found=_reported("dup_payment"), severity="critical", to="/safeguards"),
+            _fault("sg_ledger_unpaid", "Money on the ledger for a claim not marked paid",
+                   "Paying it again would pay it twice.",
+                   found=_reported("ledger_unpaid"), severity="critical", to="/safeguards"),
+            _fault("sg_ledger_mismatch", "Ledger total differs from the paid amount",
+                   "The claim and the ledger disagree about how much was paid.",
+                   found=_reported("ledger_mismatch"), severity="critical",
+                   to="/ledger?problem=mismatch"),
+            _fault("sg_authorised_drift", "Authorised amount no longer matches",
+                   "Priced differently since the Director authorised it. Paying sends it back to the Principal.",
+                   found=_reported("authorised_drift"), to="/payments"),
+            _fault("sg_dup_filed", "The same paper filed twice by one person",
+                   "Only possible where the data was doubled before the rule was added. Reject all but one.",
+                   found=_reported("dup_filed"), severity="critical", to="/clearing"),
+            _fault("sg_paid_no_audit", "Paid with no record of who paid it",
+                   "Money moved and the claim's history does not say who moved it.",
+                   found=_reported("paid_no_audit"), severity="critical", to="/audit"),
+            _fault("sg_self_paid", "Paid by the person who authorised it",
+                   "A super admin standing in. Check the reason in the audit trail.",
+                   found=_reported("self_paid"), severity="info", to="/audit"),
+            _fault("sg_override_unseconded", "A duplicate warning was set aside with no second approver",
+                   "It needed a second, different person before any money moved.",
+                   found=_reported("override_unseconded"), severity="critical",
+                   to="/duplicates"),
         ],
     })
 

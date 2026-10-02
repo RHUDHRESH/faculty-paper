@@ -1,51 +1,52 @@
 import { useState } from "react"
-import { Link } from "react-router-dom"
-import { Stamp } from "lucide-react"
+import { Link, useNavigate } from "react-router-dom"
+import { FileText, Stamp } from "lucide-react"
 
 import { useAuth } from "@/app/auth"
 import { HOME_DATA } from "@/app/home-data"
+import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
 import { paperTitle } from "@/lib/names"
 import { useApi } from "@/lib/query"
-import { BulkAuthoriseDialog, type Claim as QueueClaim } from "@/pages/authorisations"
+import { AuthoriseDialog, BulkAuthoriseDialog, thresholdClause, type AuthClaim } from "@/pages/authorise-dialogs"
+import { BudgetStrip, budgetLine, claimsWord } from "@/pages/budget-strip"
 import { greeting, YourPapers, type BudgetSummary, type Claim } from "@/pages/home-staff"
-import { HomeTrack } from "@/pages/home-track"
-import { MonthPaperwork } from "@/pages/month-paperwork"
-import { AmountCell, waitingLabel } from "@/pages/pay-parts"
-import { Answer } from "@/ui/answer"
+import { MonthPaperwork, useNewestMonth } from "@/pages/month-paperwork"
+import { MoneyThread } from "@/pages/money-thread"
+import { AnswerLine, AnswerWord, tieNumbers } from "@/ui/answer"
 import { Button } from "@/ui/button"
 import { ComingUp } from "@/ui/coming-up"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Avatar, initialsOf } from "@/ui/person"
-import { Details, Rows, Section } from "@/ui/section"
-import { InlineError, SkeletonRows } from "@/ui/state"
-import { Meta } from "@/ui/text"
-import { cn } from "@/lib/cn"
+import { reviewLink, waitTone, waitingLabel } from "@/ui/queue"
+import { Details, Section } from "@/ui/section"
+import { InlineError, SkeletonRows, SkeletonText } from "@/ui/state"
+import { thresholdFlag } from "@/ui/research-threshold"
 
 /**
- * The Director's first screen: what is waiting on a signature, what it does to
- * the budget, and whether anything about it is unusual.
+ * The Director's first screen (docs/ux/28).
  *
- * This is the one desk whose silence stops payments outright, so it leads. The
- * four figures are over the whole queue (never a page of it). The sentence
- * under them is the decision in words: what authorising releases, what the
- * year's budget would still have, and which claims are largest. Where the
- * research threshold has already cut an amount, each row says so, so the
- * Director authorises the figure that will be paid and not the policy figure.
+ * One sentence says what is waiting for the signature, in the biggest type on
+ * the page; the line under it says what authorising does to the year's budget,
+ * and the strip beneath draws it (paid, already committed, this batch, left).
+ * Then the work: the claims that have waited longest, with a face, the
+ * amount (the research threshold beside it where it cut one) and an Authorise
+ * button that acts in place. The Thread shows where every claim is with "Your
+ * desk" at Approved; the month's statement is one row, with the statement to
+ * sign when there is nothing else to do. One primary button at a time:
+ * "Authorise all" while claims wait, "Statement to sign" when they do not.
  *
  * What the college researches (the subject areas) used to fill half of this
  * screen. It is a real question but not the morning one, so it is one click
- * down, with the share of the record it can classify beside it: an area chart
- * shown without its denominator reads as "this is what we do" when it means
- * "this is what we do, among the half we can classify".
+ * down, with the share of the record it can classify beside it.
  *
  * Nothing here is a flag. The Director is contest-blind (`core.visibility`).
  */
 
 type DirectorQueue = {
   total: number
-  results: (Claim & Partial<QueueClaim>)[]
+  results: (Claim & Partial<AuthClaim>)[]
   /** Over everything that matches, not the page. */
   totals: {
     count: number
@@ -67,35 +68,42 @@ export function DirectorHome() {
   const { me } = useAuth()
   const D = HOME_DATA
 
-  // The whole queue, not a page of it: the summary sums it, the batch button
+  // The whole queue, not a page of it: the sentence sums it, the batch button
   // authorises it, and the list below shows the six that have waited longest.
   const queue = useApi<DirectorQueue>(D.directorQueue.key, D.directorQueue.path)
-  const budget = useApi<BudgetSummary>(D.budget.key, D.budget.path)
+  const budget = useApi<BudgetSummary & { financial_year: string }>(D.budget.key, D.budget.path)
+  const counts = useApi<{ counts: Record<string, number> }>(D.stageCounts.key, D.stageCounts.path)
+  const newest = useNewestMonth()
   const [batchOpen, setBatchOpen] = useState(false)
+  const [acting, setActing] = useState<AuthClaim | null>(null)
 
   const totals = queue.data?.totals
-  const longest = totals?.longest_wait_days ?? null
-  const waiting = queue.data?.results ?? []
-  const largest = [...waiting].sort((a, b) => (b.remuneration || 0) - (a.remuneration || 0)).slice(0, 3)
-  const remaining = budget.data?.college.remaining ?? null
-  const over = remaining != null && remaining < 0
-  const allFetched = (queue.data?.total ?? 0) <= waiting.length
-  const year = budget.data?.financial_year ?? "this year"
-  const oldestFirst = waiting
-    .filter((c) => !me?.id || c.owner_id !== me.id)
-    .slice()
-    .sort((a, b) => (b.waiting_days ?? 0) - (a.waiting_days ?? 0))
+  const waiting = (queue.data?.results ?? []).filter((c) => !me?.id || c.owner_id !== me.id)
+  const allFetched = (queue.data?.total ?? 0) <= (queue.data?.results.length ?? 0)
+  const oldestFirst = waiting.slice().sort((a, b) => (b.waiting_days ?? 0) - (a.waiting_days ?? 0))
+  const n = totals?.count ?? 0
+  const withPrincipal = counts.data?.counts.checked ?? 0
+  const line = budgetLine(budget.data, "authorising", n !== 1)
+  const stripBudget = budget.data?.college
+
+  const statementPrimary = !!newest.month && n === 0
 
   return (
-    <div className="page space-y-10">
+    <div className="page space-y-14">
       <PageHeader
         title={greeting(me?.name)}
-        sub="What needs your authorisation, and what it does to the budget."
         action={
-          waiting.length > 0 && allFetched ? (
+          n > 0 && allFetched ? (
             <Button kind="primary" size="lg" onClick={() => setBatchOpen(true)}>
               <Stamp />
-              Authorise all {formatCount(waiting.length)} · {money(totals?.amount)}
+              Authorise all {formatCount(n)} · {money(totals?.amount)}
+            </Button>
+          ) : statementPrimary && newest.month ? (
+            <Button kind="primary" size="lg" asChild>
+              <a href={`/api/payouts/statement.pdf?month=${newest.month.month}`} download>
+                <FileText />
+                Statement to sign (PDF)
+              </a>
             </Button>
           ) : undefined
         }
@@ -106,114 +114,84 @@ export function DirectorHome() {
         <InlineError message="Could not load the authorisation queue." onRetry={() => void queue.refetch()} />
       ) : (
         <>
-          <div className="space-y-3">
-            <Answer
-              items={[
-                {
-                  label: "Waiting for you to authorise",
-                  value: totals ? totals.count : null,
-                  zero: "Nothing is waiting for you",
-                  to: "/authorisations",
-                },
-                { label: "Worth, released to Finance", value: totals ? money(totals.amount) : null, to: "/authorisations" },
-                {
-                  label: "Days the longest has waited",
-                  value: totals ? (longest ?? 0) : null,
-                  zero: "Nothing is waiting",
-                  tone: longest != null && longest > 30 ? "critical" : undefined,
-                  to: "/authorisations",
-                },
-                budget.isError
-                  ? { label: "Budget", value: "Not loaded", to: "/budget" }
-                  : {
-                      label: over ? "Over the budget, counting these" : "Left in the budget, counting these",
-                      value: !budget.data ? null : remaining == null ? "Not set" : money(Math.abs(remaining)),
-                      tone: over ? "critical" : undefined,
-                      to: "/budget",
-                    },
-              ]}
-            />
-            {waiting.length > 0 && (totals?.amount ?? 0) > 0 && (
-              <p className="max-w-prose text-pretty text-base text-fg-muted" data-testid="authorising-means">
-                {remaining == null
-                  ? `No budget is set for ${year}, so there is nothing to weigh the ${money(totals?.amount)} against.`
-                  : over
-                    ? `The budget for ${year} is already over by ${money(Math.abs(remaining))}, and the ${money(totals?.amount)} waiting is counted in that.`
-                    : `Authorising all of it releases ${money(totals?.amount)} to Finance. The budget for ${year} would still have ${money(remaining)} left.`}
-                {(totals?.held_back_count ?? 0) > 0 && (
-                  <>
-                    {" "}
-                    The research threshold has already taken {money(totals?.held_back)} off{" "}
-                    {formatCount(totals?.held_back_count)} {totals?.held_back_count === 1 ? "claim" : "claims"}; the
-                    amounts shown are what will be paid.
-                  </>
-                )}
-                {largest.length > 0 && (
-                  <>
-                    {" "}
-                    The largest {largest.length === 1 ? "is" : "are"}{" "}
-                    {largest.map((c, i) => (
-                      <span key={c.id}>
-                        {i > 0 && (i === largest.length - 1 ? " and " : ", ")}
-                        <Link to={`/papers/${c.id}`} className="text-accent underline-offset-4 hover:underline">
-                          {c.owner_name || "one"} ({money(c.remuneration)})
-                        </Link>
-                      </span>
-                    ))}
-                    .
-                  </>
-                )}
-              </p>
+          <div className="space-y-5">
+            <AnswerLine>
+              {!totals ? (
+                "What needs your signature."
+              ) : n === 0 ? (
+                tieNumbers(
+                  withPrincipal > 0
+                    ? `Nothing is waiting for your signature. ${claimsWord(withPrincipal)} ${withPrincipal === 1 ? "is" : "are"} with the Principal.`
+                    : "Nothing is waiting for your signature."
+                )
+              ) : (
+                <>
+                  {tieNumbers(`${claimsWord(n)}, ${money(totals.amount)}, ${n === 1 ? "is" : "are"}`)}{" "}
+                  <AnswerWord tone="clay">waiting for you</AnswerWord>.
+                </>
+              )}
+            </AnswerLine>
+            {(n > 0 || (stripBudget?.allocated ?? null) != null) && (
+              <div className="max-w-2xl space-y-3">
+                <p className="text-lead text-fg-muted" data-testid="authorising-means">
+                  {n > 0
+                    ? (line ?? " ")
+                    : budget.data && stripBudget
+                      ? stripBudget.allocated == null
+                        ? null
+                        : `The ${budget.data.financial_year} budget has ${money(stripBudget.allocated - stripBudget.spent - stripBudget.committed)} left.`
+                      : " "}
+                </p>
+                <BudgetStrip budget={stripBudget} batch={totals?.amount ?? 0} labels="wide" />
+              </div>
             )}
           </div>
 
           {batchOpen && (
             <BulkAuthoriseDialog
-              claims={waiting as QueueClaim[]}
+              claims={waiting as AuthClaim[]}
               onClose={() => setBatchOpen(false)}
               onDone={() => void queue.refetch()}
             />
           )}
+          {acting && <AuthoriseDialog claim={acting} onClose={() => setActing(null)} />}
 
           <Section
-            title="Longest waiting"
+            title="Waiting longest"
             action={
-              <Link to="/authorisations" className="text-accent underline-offset-4 hover:underline">
-                {queue.data && queue.data.total > 0 ? `All ${formatCount(queue.data.total)} in Authorisations` : "Authorisations"}
-              </Link>
+              <Button kind="default" size="sm" asChild>
+                <Link to="/authorisations">
+                  {queue.data && queue.data.total > 0 ? `All ${formatCount(queue.data.total)} in Authorisations` : "Authorisations"}
+                </Link>
+              </Button>
             }
           >
             {queue.isLoading ? (
-              <SkeletonRows rows={4} rowHeight={52} />
+              <SkeletonRows rows={4} rowHeight={64} />
             ) : oldestFirst.length === 0 ? (
               <div className="space-y-4">
-                <p className="text-base text-fg-muted">
-                  Nothing is waiting for your signature. Every claim the Principal approved is authorised and with
-                  Finance.
-                </p>
+                <p className="text-base text-fg-muted">The Principal's next approvals appear here as soon as they are signed.</p>
                 <ComingUp desk="director" align="start" />
               </div>
             ) : (
-              <Rows>
+              <ul className="divide-y divide-line">
                 {oldestFirst.slice(0, 6).map((c) => (
-                  <AuthoriseRow key={c.id} c={c} />
+                  <AuthoriseRow key={c.id} c={c as AuthClaim} onAuthorise={() => setActing(c as AuthClaim)} />
                 ))}
-              </Rows>
+              </ul>
             )}
           </Section>
         </>
       )}
 
-      <MonthPaperwork title="The month's statement" />
+      <Section title="Where every claim is">
+        <MoneyThread />
+      </Section>
+
+      <MonthPaperwork title="The month's statement" primary={statementPrimary} />
 
       <Details label="what the college researches" className="border-t border-line pt-6">
         <ResearchAreas />
-      </Details>
-
-      <Details label="where every claim is">
-        <div className="mt-3">
-          <HomeTrack heading="Every claim, by stage" />
-        </div>
       </Details>
 
       {/* The Director's own research, after the authorising: another officer
@@ -223,39 +201,45 @@ export function DirectorHome() {
   )
 }
 
-function AuthoriseRow({ c }: { c: Claim & Partial<QueueClaim> }) {
+function AuthoriseRow({ c, onAuthorise }: { c: AuthClaim; onAuthorise: () => void }) {
+  const navigate = useNavigate()
   const days = c.waiting_days ?? null
+  const held = thresholdClause(c) ?? thresholdFlag(c)
+  const href = reviewLink(c.id, "authorisations")
   return (
-    <li className="flex items-center gap-3 py-3 sm:gap-4">
+    <li
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button, a")) return
+        navigate(href)
+      }}
+      className="flex cursor-pointer items-center gap-3 px-1 py-3 hover:bg-hover sm:gap-4"
+    >
       <Avatar
         size="md"
         person={{ name: c.owner_name || "", initials: initialsOf(c.owner_name), photo_url: c.owner_photo_url ?? null }}
       />
       <div className="min-w-0 flex-1">
-        <Link to={`/papers/${c.id}`} className="block truncate text-base font-medium underline-offset-4 hover:underline">
+        <p className="truncate text-sm">
+          <span className="font-medium">{c.owner_name}</span>
+          {c.owner_department && <span className="text-fg-muted"> · {c.owner_department}</span>}
+        </p>
+        <Link to={href} className="block truncate text-base underline-offset-4 hover:underline">
           {paperTitle(c.paper_title)}
         </Link>
-        <Meta className="block truncate">{[c.owner_name, c.owner_department].filter(Boolean).join(" · ")}</Meta>
-        <div className="sm:hidden">
-          <AmountCell c={c} className="text-left" />
-        </div>
+        <p className="mt-0.5 text-xs text-fg-muted sm:hidden">
+          <span className="tabular font-medium text-fg">{money(c.remuneration)}</span>{" "}
+          <span className={cn("tabular", waitTone(days) && `font-medium ${waitTone(days)}`)}>{waitingLabel(days)}</span>
+        </p>
+        {held && <p className="mt-0.5 text-sm text-caution">{held}</p>}
       </div>
-      <div className="hidden w-56 shrink-0 sm:block">
-        <AmountCell c={c} />
-      </div>
+      <span className="hidden w-28 shrink-0 text-right text-base font-medium tabular sm:block">{money(c.remuneration)}</span>
       <span
-        className={cn(
-          "hidden w-16 shrink-0 text-right text-sm tabular text-fg-muted sm:block",
-          days != null && days > 30 && "font-medium text-critical",
-          days != null && days > 14 && days <= 30 && "text-caution"
-        )}
+        className={cn("hidden w-16 shrink-0 text-right text-sm tabular text-fg-muted sm:block", waitTone(days) && `font-medium ${waitTone(days)}`)}
       >
         {waitingLabel(days)}
       </span>
-      <Button size="sm" asChild>
-        <Link to="/authorisations" aria-label={`Authorise: ${paperTitle(c.paper_title)}`}>
-          Authorise
-        </Link>
+      <Button size="sm" onClick={onAuthorise} aria-label={`Authorise: ${paperTitle(c.paper_title)}`}>
+        Authorise
       </Button>
     </li>
   )
@@ -268,7 +252,7 @@ function ResearchAreas() {
   return (
     <div className="mt-3 space-y-3">
       {areas.isLoading ? (
-        <SkeletonRows rows={6} rowHeight={28} />
+        <SkeletonText lines={4} />
       ) : areas.isError ? (
         <InlineError message="Could not load the subject areas." onRetry={() => void areas.refetch()} />
       ) : !areas.data || areas.data.areas.length === 0 ? (
@@ -276,22 +260,20 @@ function ResearchAreas() {
       ) : (
         <>
           <p className="max-w-prose text-base text-fg-muted">
-            {formatCount(areas.data.distinct)} subject areas across the record, showing the{" "}
-            {Math.min(6, areas.data.shown)} largest. A paper spanning three areas is counted under each, so these add
-            to more than the number of papers.
+            {formatCount(areas.data.distinct)} subject areas, the {Math.min(6, areas.data.shown)} largest shown. A paper
+            in three areas counts under each.
             {coverage && coverage.fraction < 0.95 && (
               <>
                 {" "}
-                Subject areas are known for {formatCount(coverage.classified)} of {formatCount(coverage.total)} papers,{" "}
-                {Math.round(coverage.fraction * 100)}%. The other {formatCount(coverage.unclassified)} could not be
-                matched to a journal and are absent from every bar, not counted as unclassified.
+                Known for {formatCount(coverage.classified)} of {formatCount(coverage.total)} papers (
+                {Math.round(coverage.fraction * 100)}%); the rest could not be matched to a journal and are in no bar.
               </>
             )}
           </p>
           <AreaBars areas={areas.data.areas.slice(0, 6)} />
-          <Link to="/reports" className="text-sm text-accent underline-offset-4 hover:underline">
-            Build a report
-          </Link>
+          <Button kind="default" size="sm" asChild>
+            <Link to="/reports">Build a report</Link>
+          </Button>
         </>
       )}
     </div>

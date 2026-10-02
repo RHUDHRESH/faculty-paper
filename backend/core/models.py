@@ -805,6 +805,16 @@ class Claim(models.Model):
         related_name="director_approvals",
     )
     director_approved_at = models.DateTimeField(null=True, blank=True)
+    #: The policy amount the Director authorised (before the research
+    #: threshold takes its share, so remuneration + research_absorbed),
+    #: written in the same step as the authorisation. If the claim prices to
+    #: anything else at payment time (a policy edit, a corrected SNIP, a
+    #: changed author count), it goes back to the Principal with an audit row
+    #: instead of being paid at a figure nobody signed. The threshold's own
+    #: re-ordering between a person's claims moves only the split, never this
+    #: figure, so it does not trip the lock. Null on claims authorised before
+    #: the column existed and not backfilled, which are not locked.
+    authorised_amount = models.FloatField(null=True, blank=True)
     override_by = models.ForeignKey(
         "User",
         null=True,
@@ -891,6 +901,29 @@ class Claim(models.Model):
             models.UniqueConstraint(
                 fields=["owner", "publication_year", "quota_position"],
                 name="uniq_claim_quota_slot_per_owner_year",
+            ),
+            # One filed claim per person per paper (migration 0075). Filed
+            # means anything past a draft and not sent back: a draft can be
+            # abandoned and a sent-back claim is the same claim edited and
+            # filed again, so neither holds the paper. The application checks
+            # first and says so in words; this is what holds when two requests
+            # race past that check.
+            #
+            # Claims imported from the old workbook (ticket "ERP-...") are
+            # history, not filings, and are left out: the workbook records
+            # some papers paid twice to one person, those payments are real,
+            # and the import has to keep every one so its total reconciles.
+            # They are watched by the duplicate sweep instead.
+            models.UniqueConstraint(
+                Lower("doi"),
+                "owner",
+                condition=(
+                    models.Q(doi__isnull=False)
+                    & ~models.Q(doi="")
+                    & ~models.Q(status__in=["DRAFT", "REJECTED"])
+                    & (models.Q(ticket_number__isnull=True) | ~models.Q(ticket_number__startswith="ERP-"))
+                ),
+                name="one_filed_claim_per_person_per_doi",
             ),
             # Money and author counts that cannot be (migration 0062).
             models.CheckConstraint(
@@ -1120,10 +1153,67 @@ class ScopusProfile(models.Model):
         return f"{self.scopus_id} ({self.source_sheet})"
 
 
+class BankExport(models.Model):
+    """One bank-upload file Finance generated for a payout month.
+
+    Without a record, the same month's file could be downloaded and sent to
+    the bank twice, and the bank pays what it is sent. Each file lists the
+    ledger rows it carried (`PaidLedger.bank_export`), so the next file for the
+    month defaults to what has *not* gone yet, and a full re-export is a
+    deliberate act with a reason.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    #: "YYYY-MM".
+    month = models.CharField(max_length=7, db_index=True)
+    created_by = models.ForeignKey(
+        "User", null=True, blank=True, on_delete=models.SET_NULL, related_name="bank_exports"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    row_count = models.PositiveIntegerField(default=0)
+    total_amount = models.FloatField(default=0)
+    #: sha256 of the file's bytes, so two identical files are recognisable.
+    sha256 = models.CharField(max_length=64, blank=True, default="")
+    #: "new" (only payments not yet sent) or "all" (the whole month again).
+    scope = models.CharField(max_length=8, default="all")
+    #: Why a month was sent again; required for scope "all" after a first file.
+    reason = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.month} {self.scope} {self.row_count} rows"
+
+
 class PaidLedger(models.Model):
-    """Master_List_Accounts style month ledger."""
+    """Master_List_Accounts style month ledger.
+
+    Append-only. A payment is one `PAYMENT` row; voiding it writes a
+    `REVERSAL` row for the same `cycle` rather than editing anything, and
+    paying the claim again starts the next cycle. The two partial unique
+    indexes below are what make "one live payment per claim" a fact of the
+    database rather than a habit of the code: a second PAYMENT in the same
+    cycle is refused by the database, whatever the application did.
+    """
+
+    class Kind(models.TextChoices):
+        PAYMENT = "PAYMENT", "Payment"
+        REVERSAL = "REVERSAL", "Reversal of a payment"
+        ADJUSTMENT = "ADJUSTMENT", "Correction to a payment"
+
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
     claim = models.ForeignKey(Claim, null=True, blank=True, on_delete=models.SET_NULL, related_name="ledger_rows")
+    kind = models.CharField(max_length=12, choices=Kind.choices, default=Kind.PAYMENT)
+    #: 1 for the first payment of a claim; one more after each void.
+    cycle = models.PositiveSmallIntegerField(default=1)
+    #: Sent by the client with a pay request and stored with the row it made,
+    #: so a retry after a timeout finds its own payment instead of making a
+    #: second one. Null on rows that did not come from a pay request.
+    idempotency_key = models.CharField(max_length=128, null=True, blank=True, unique=True)
+    bank_export = models.ForeignKey(
+        BankExport, null=True, blank=True, on_delete=models.SET_NULL, related_name="rows"
+    )
     payout_month = models.DateField(db_index=True)
     department = models.CharField(max_length=128, blank=True, null=True)
     faculty_name = models.CharField(max_length=255, blank=True, null=True)
@@ -1135,6 +1225,24 @@ class PaidLedger(models.Model):
     voucher_number = models.CharField(max_length=64, blank=True, null=True)
     raw_json = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            # One live payment per claim (migration 0075). NULL claims -- the
+            # old workbook's history -- are distinct, so they are unaffected.
+            models.UniqueConstraint(
+                fields=["claim", "cycle"],
+                condition=models.Q(kind="PAYMENT"),
+                name="one_payment_per_claim_cycle",
+            ),
+            # A payment can be reversed once; two Super Admins pressing Void
+            # together write one reversal and one refusal, never two.
+            models.UniqueConstraint(
+                fields=["claim", "cycle"],
+                condition=models.Q(kind="REVERSAL"),
+                name="one_reversal_per_claim_cycle",
+            ),
+        ]
 
 
 class ResearchThreshold(models.Model):
@@ -1176,7 +1284,39 @@ class ResearchThreshold(models.Model):
         return f"{self.user_id} from {self.effective_from}: {self.amount}"
 
 
+class ImmutableRecord(Exception):
+    """Somebody tried to edit or delete a row that is a record of what happened."""
+
+
+class AuditQuerySet(models.QuerySet):
+    """A queryset that cannot rewrite history.
+
+    Without this, `AuditLog.objects.filter(...).update(...)` or `.delete()` --
+    from a shell, a data fix, a well-meant clean-up -- quietly erases who moved
+    money. `_base_manager` stays plain for the rare test that must backdate a
+    row, and Django's own SET NULL when a user is deleted does not pass here.
+    """
+
+    def update(self, **kwargs):
+        raise ImmutableRecord("The audit log is append-only: rows cannot be edited.")
+
+    def delete(self):
+        raise ImmutableRecord("The audit log is append-only: rows cannot be deleted.")
+
+    def bulk_update(self, *args, **kwargs):
+        raise ImmutableRecord("The audit log is append-only: rows cannot be edited.")
+
+
 class AuditLog(models.Model):
+    """Who did what, and when. Append-only: written once, never changed.
+
+    Enforced in three places so that no single mistake undoes it: this model
+    (save and delete refuse once a row exists), the queryset (update and delete
+    refuse), and on PostgreSQL a trigger from migration 0075 that refuses any
+    UPDATE or DELETE except the SET NULL Django writes when a person's account
+    is removed.
+    """
+
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
     actor = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL, related_name="audit_logs"
@@ -1186,6 +1326,16 @@ class AuditLog(models.Model):
     entity_id = models.CharField(max_length=64, blank=True, null=True)
     detail_json = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AuditQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ImmutableRecord("The audit log is append-only: a row cannot be edited.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ImmutableRecord("The audit log is append-only: a row cannot be deleted.")
 
 
 class ClaimConfirmation(models.Model):

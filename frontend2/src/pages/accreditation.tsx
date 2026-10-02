@@ -22,7 +22,7 @@ import { EmptyState, ErrorState, InlineError, SkeletonRows } from "@/ui/state"
 import { stickyHeadCell, Table, TableScroller } from "@/ui/table"
 import { ColumnLabel, Meta, Sub } from "@/ui/text"
 import { toast } from "@/ui/toast"
-import { Answer } from "@/ui/answer"
+import { AnswerLine, AnswerWord } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
 import { Details, Rows, Section } from "@/ui/section"
 import { n, papersUrl } from "@/pages/principal-parts"
@@ -182,8 +182,6 @@ export function Accreditation() {
     <div className="page space-y-10">
       <PageHeader
         title="Accreditation"
-        sub="Where the college stands for NAAC Criterion 3 and NIRF, and the paper list an assessor would check."
-        spot="spot-accreditation"
         action={
           <Button kind="primary" asChild>
             <a href={`/api/reports/pack?${new URLSearchParams({ ...(year ? { year } : {}), fmt: "xlsx" }).toString()}`} download>
@@ -196,10 +194,8 @@ export function Accreditation() {
 
       <Standing year={year} ugcLoaded={data?.ugc_list_loaded} gaps={gaps} />
 
-      <Section
-        title="The paper list"
-        sub="One row for each college author of each paper, in the order NAAC 3.4.3 asks. The workbook above carries all of it; here you find what an assessor would send back."
-      >
+      <Details label="the paper list an assessor would check" count={total}>
+      <Section title="The paper list" sub="One row for each college author of each paper, in the order NAAC 3.4.3 asks." className="pt-3">
       <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
         <div>
@@ -318,6 +314,7 @@ export function Accreditation() {
       )}
       </div>
       </Section>
+      </Details>
     </div>
   )
 }
@@ -372,38 +369,62 @@ function Standing({
   const last = d?.table[d.table.length - 1]
   const perTeacher = d?.naac_331.per_teacher
   const loaded = d?.ugc_list_loaded ?? ugcLoaded
+  const weakCount = (!loaded ? 1 : 0) + (missing("No ISSN") ? 1 : 0) + (missing("No link to the paper") ? 1 : 0) + ((d?.retraction_signals ?? 0) > 0 ? 1 : 0)
 
   return (
     <div className="space-y-8">
-      <Answer
-        items={[
-          {
-            value: d ? (perTeacher == null ? "None" : String(perTeacher)) : null,
-            label: d
-              ? `papers per teacher, ${d.naac_331.from} to ${d.naac_331.to} (NAAC 3.3.1, band ${d.naac_331.band} of 4)`
-              : "NAAC 3.3.1",
-            to: d ? `/reports/brief?year=${d.year}#departments` : undefined,
-          },
-          {
-            value: d ? `${d.scopus_share}%` : null,
-            label: "of the record's papers are listed in Scopus, which NIRF reads",
-            to: d ? papersUrl({ year: d.year }) : undefined,
-          },
-          {
-            value: last && last.record_papers ? `${Math.round((100 * last.top_quartile) / last.record_papers)}%` : d ? "None" : null,
-            label: d ? `of ${d.year}'s papers are in Q1 or Q2 journals, the NIRF quality measure` : "in Q1 or Q2 journals",
-            to: d ? papersUrl({ year: d.year, quartile: "top" }) : undefined,
-          },
-          {
-            value: d ? d.retraction_signals : null,
-            label: "papers with a retraction notice in the title",
-            zero: "No retraction notice in a title",
-            tone: d && d.retraction_signals > 0 ? "critical" : "neutral",
-          },
-        ]}
-      />
+      <div className="space-y-4">
+        <AnswerLine>
+          {!d ? (
+            "Where the college stands."
+          ) : (
+            <>
+              NAAC 3.3.1: {perTeacher == null ? "no papers" : `${perTeacher} papers per teacher`}, band {d.naac_331.band} of 4.
+            </>
+          )}
+        </AnswerLine>
+        {d && (
+          <p className="max-w-[40rem] text-lead text-fg-muted">
+            Five years, {d.naac_331.from} to {d.naac_331.to}.{" "}
+            {weakCount === 0 ? (
+              <AnswerWord tone="sage">Nothing could weaken it</AnswerWord>
+            ) : (
+              <>
+                {weakCount} {weakCount === 1 ? "thing" : "things"} could weaken it.
+              </>
+            )}
+          </p>
+        )}
+        {d && (
+          <Rows className="max-w-xl">
+            {[
+              { label: "Of the record's papers, listed in Scopus (NIRF reads Scopus)", value: `${d.scopus_share}%`, to: papersUrl({ year: d.year }) },
+              {
+                label: `Of ${d.year}'s papers, in Q1 or Q2 journals (the NIRF quality measure)`,
+                value: last && last.record_papers ? `${Math.round((100 * last.top_quartile) / last.record_papers)}%` : "None",
+                to: papersUrl({ year: d.year, quartile: "top" }),
+              },
+              { label: "Papers with a retraction notice in the title", value: d.retraction_signals ? n(d.retraction_signals) : "None", to: d.retraction_signals ? "/reports/papers?q=retract" : "" },
+            ].map((x) => (
+              <li key={x.label}>
+                {x.to ? (
+                  <Link to={x.to} className="row flex items-baseline justify-between gap-4 px-1 py-2.5 sm:px-2">
+                    <span className="text-base">{x.label}</span>
+                    <span className="tabular text-base font-medium">{x.value}</span>
+                  </Link>
+                ) : (
+                  <div className="flex items-baseline justify-between gap-4 px-1 py-2.5 sm:px-2">
+                    <span className="text-base">{x.label}</span>
+                    <span className="tabular text-base font-medium">{x.value}</span>
+                  </div>
+                )}
+              </li>
+            ))}
+          </Rows>
+        )}
+      </div>
 
-      <Section title="What would weaken it" sub="Each is a check the college can settle before the IQAC submits.">
+      <Section title="What would weaken it">
         <Rows>
           <Check
             ok={loaded === true}
@@ -453,10 +474,7 @@ function Standing({
         )}
       </Section>
 
-      <Section
-        title="Five years, as the assessors ask"
-        sub="Papers and the rate per teacher come from the year brief. Scopus, Q1 or Q2 and retraction columns count the papers on the publication record."
-      >
+      <Section title="Five years, as the assessors ask">
         <Table
           rows={d ? [...d.table].reverse() : []}
           columns={[
@@ -474,9 +492,11 @@ function Standing({
           caption="Five years of papers for NAAC and NIRF"
           empty={{ title: "No papers on record", message: "Nothing has been published in these years." }}
         />
-        <Sub className="mt-2 text-sm">
-          Teachers are today&apos;s roll of {d ? n(d.teachers) : "…"}; earlier years are divided by it, because no headcount history is kept.
-        </Sub>
+        <Details label="how these are counted" className="mt-2">
+          <Sub className="pt-2 text-sm">
+            Papers and the rate per teacher come from the year brief; Scopus, Q1 or Q2 and retraction columns count the papers on the publication record. Teachers are today&apos;s roll of {d ? n(d.teachers) : "…"}; earlier years are divided by it, because no headcount history is kept.
+          </Sub>
+        </Details>
       </Section>
     </div>
   )
@@ -498,9 +518,9 @@ function Check({ ok, label, detail, to }: { ok: boolean; label: string; detail: 
         <span className="block text-sm text-fg-muted">{detail}</span>
       </span>
       {to && (
-        <Link to={to} className="shrink-0 text-sm text-accent underline-offset-4 hover:underline">
-          Open
-        </Link>
+        <Button kind="default" size="sm" asChild className="shrink-0">
+          <Link to={to}>Open</Link>
+        </Button>
       )}
     </li>
   )

@@ -101,6 +101,18 @@ class ChainBase(TestCase):
             submitted_at=timezone.now(),
         )
         fields.update(extra)
+        # One person files a paper once (a database constraint now says so), so
+        # a second fixture for the same DOI is the paper's co-author.
+        doi = fields.get("doi")
+        if doi and "owner" not in extra and Claim.objects.filter(
+            owner=self.faculty, doi__iexact=doi,
+        ).exclude(status__in=[ClaimStatus.DRAFT, ClaimStatus.REJECTED]).exists() and fields["status"] not in (
+            ClaimStatus.DRAFT, ClaimStatus.REJECTED,
+        ):
+            fields["owner"] = User.objects.create_user(
+                email=f"co-{ticket.lower()}@test.edu", password=None, name=f"Co-author {ticket}",
+                role=Role.FACULTY, department="CSE", staff_id=f"STF-{ticket}",
+            )
         claim = Claim.objects.create(**fields)
         for n in ("14", "15"):
             ClaimAttachment.objects.create(

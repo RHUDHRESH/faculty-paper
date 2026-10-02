@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/ui/dialog"
 import { DateInput, Field, Input, NumberInput, Textarea } from "@/ui/field"
+import { Details } from "@/ui/section"
 import { PageHeader } from "@/ui/page-header"
 import { money } from "@/ui/paper"
 import { Avatar } from "@/ui/person"
@@ -105,10 +106,20 @@ export function ResearchFaculty() {
   return (
     <div className="page space-y-6 pb-24">
       <PageHeader
-        eyebrow="Research"
         title="Research faculty"
-        sub="Research faculty are already paid to do research, so the first part of the incentives they earn each year is not paid. Set that amount for each person here."
-        spot="spot-my-research"
+        sub={d ? `${d.count} on research posts. Threshold year ${d.year}: ${yearRange}.` : undefined}
+        action={
+          <>
+            {me?.role === "SUPER_ADMIN" && (
+              <Button kind="quiet" size="md" asChild>
+                <Link to="/policy">Change the year in policy</Link>
+              </Button>
+            )}
+            <Button kind="default" size="md" asChild>
+              <Link to="/people?research=RESEARCH">Mark someone as research faculty</Link>
+            </Button>
+          </>
+        }
       />
 
       {list.isError ? (
@@ -119,26 +130,12 @@ export function ResearchFaculty() {
         />
       ) : (
         <>
-          {d && (
-            <p className="text-sm text-fg-muted">
-              {d.count} research faculty. Threshold year {d.year}: {yearRange}. The year is one setting in the{" "}
-              {me?.role === "SUPER_ADMIN" ? (
-                <Link to="/policy" className="text-accent underline-offset-2 hover:underline">
-                  policy
-                </Link>
-              ) : (
-                "policy"
-              )}
-              .
-            </p>
-          )}
-
           {d && d.unset_count > 0 && (
             <Callout tone="caution" title={`${d.unset_count} ${d.unset_count === 1 ? "person has" : "people have"} no threshold set`}>
               <p>
-                Until you set one they are paid as regular faculty, so every incentive they earn is paid in full.
+                Until you set one they are paid as regular faculty, in full.
                 {d.old_rule_count > 0
-                  ? ` ${d.old_rule_count} of them still carry the old papers-a-year rule, which no longer decides anything. Please set a rupee threshold.`
+                  ? ` ${d.old_rule_count} of them still carry the old papers-a-year rule. Please set a rupee threshold.`
                   : ""}
               </p>
             </Callout>
@@ -164,9 +161,6 @@ export function ResearchFaculty() {
               />
               Only those with no threshold
             </label>
-            <Link to="/people?research=RESEARCH" className="ml-auto text-sm text-accent underline-offset-2 hover:underline">
-              Tick someone as research faculty
-            </Link>
           </div>
 
           {list.isLoading ? (
@@ -177,7 +171,7 @@ export function ResearchFaculty() {
               title={d && d.count === 0 ? "No research faculty yet" : "Nobody matches"}
               message={
                 d && d.count === 0
-                  ? "Open a person on the People page and tick research faculty. They will appear here to be given a threshold."
+                  ? "Mark someone as research faculty on their People page."
                   : "Try a different name, or clear the filter."
               }
             />
@@ -223,9 +217,7 @@ export function ResearchFaculty() {
                   </div>
 
                   <div className="min-w-0">
-                    {r.unset || r.threshold == null ? (
-                      <p className="text-sm text-fg-muted">Paid as regular faculty until a threshold is set.</p>
-                    ) : (
+                    {r.unset || r.threshold == null ? null : (
                       <>
                         <div className="flex flex-wrap items-baseline justify-between gap-x-4 text-sm">
                           <span>
@@ -249,7 +241,7 @@ export function ResearchFaculty() {
                   <div className="md:justify-self-end">
                     <Button size="sm" onClick={() => setEditing({ id: r.user_id, name: r.name })}>
                       <Pencil aria-hidden />
-                      {r.unset ? "Set threshold" : "Change"}
+                      {r.unset ? "Set threshold" : "Change threshold"}
                     </Button>
                   </div>
                 </li>
@@ -325,9 +317,7 @@ export function ThresholdDialog({
       <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Research threshold for {name}</DialogTitle>
-          <DialogDescription>
-            Incentives this person earns each year count against this amount, in the order claims are paid. A claim wholly inside it pays nothing, the claim that crosses it pays only the part above, and later claims are paid in full.
-          </DialogDescription>
+          <DialogDescription className="sr-only">Set a yearly rupee threshold.</DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
           {detail.isLoading ? (
@@ -353,10 +343,17 @@ export function ThresholdDialog({
                   unit="₹"
                 />
               </Field>
-              <Field label="Takes effect from" hint="Today unless you say otherwise. Money already paid is never changed.">
+              <Details label="how the threshold works">
+                <p className="text-sm text-fg-muted">
+                  Each year&apos;s incentives count against this amount, in the order claims are paid. A claim wholly
+                  inside it pays nothing, the claim that crosses it pays only the part above, and later claims are
+                  paid in full.
+                </p>
+              </Details>
+              <Field label="Takes effect from" hint="Money already paid is never changed.">
                 <DateInput value={from} onChange={(e) => setFrom(e.target.value)} />
               </Field>
-              <Field label="Note" hint="Why this amount, for the record. Shown to the person.">
+              <Field label="Note" hint="Shown to the person.">
                 <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Agreed at appointment, 2026-27" />
               </Field>
               {error && (
@@ -451,9 +448,9 @@ export function ResearchThresholdPanel({ userId, name }: { userId: string; name:
           <Pencil aria-hidden />
           {s.unset ? "Set threshold" : "Change threshold"}
         </Button>
-        <Link to="/research-faculty" className="text-sm text-accent underline-offset-2 hover:underline">
-          All research faculty
-        </Link>
+        <Button kind="quiet" size="sm" asChild>
+          <Link to="/research-faculty">All research faculty</Link>
+        </Button>
       </div>
       {open && <ThresholdDialog userId={userId} name={name} open onOpenChange={setOpen} />}
     </div>

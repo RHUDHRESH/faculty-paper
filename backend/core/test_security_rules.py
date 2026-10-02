@@ -378,9 +378,12 @@ class BankFile(ChainBase):
     def test_bank_csv_is_finance_and_super_admin_only(self):
         PaidLedger.objects.create(payout_month=date(2026, 8, 1), amount=10, department="CSE",
                                   faculty_name="A", staff_id="S1")
-        for who, code in ((self.finance, 200), (self.admin, 200), (self.director, 403),
-                          (self.principal, 403), (self.cell, 403)):
-            r = self._as(who).get("/api/payouts/statement.csv?month=2026-08")
+        # The first file for a month is plain; a second one is a deliberate act
+        # (see core/test_safeguards_bank.py), so the super admin asks for it.
+        for who, code, extra in ((self.finance, 200, ""),
+                                 (self.admin, 200, "&scope=all&reason=Checking+the+file+again"),
+                                 (self.director, 403, ""), (self.principal, 403, ""), (self.cell, 403, "")):
+            r = self._as(who).get(f"/api/payouts/statement.csv?month=2026-08{extra}")
             self.assertEqual(r.status_code, code, who.role)
 
 

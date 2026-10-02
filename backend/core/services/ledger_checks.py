@@ -24,6 +24,7 @@ from django.db.models import Count, F, Q, Sum
 from django.utils import timezone
 
 from core.models import AuditLog, Claim, ClaimAction, ClaimStatus, PaidLedger
+from core.services import payment_guards
 from core.services.normalize import normalize_title
 
 MIN_REASON = 10
@@ -190,8 +191,7 @@ def link_row(actor, row_id: str, claim_ref: str, reason: str) -> dict[str, Any]:
         _refuse_own_claim(actor, claim)
         if claim.status != ClaimStatus.PAID:
             raise LedgerError("That claim is not marked paid, so a payment cannot be linked to it.")
-        row.claim = claim
-        row.save(update_fields=["claim"])
+        row.save(update_fields=payment_guards.attach_row(row, claim))
         AuditLog.objects.create(
             actor=actor,
             action="LEDGER_ROW_LINK",
@@ -237,6 +237,8 @@ def add_missing(actor, claim_id: str, reason: str) -> dict[str, Any]:
             paper_title=claim.paper_title,
             journal_title=claim.journal_title,
             amount=delta,
+            kind=PaidLedger.Kind.ADJUSTMENT,
+            cycle=payment_guards.current_cycle(claim),
             voucher_number=f"{claim.voucher_number or claim.ticket_number}-ADJ",
         )
         AuditLog.objects.create(

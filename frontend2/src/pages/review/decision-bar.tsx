@@ -5,7 +5,7 @@ import { useApiMutation } from "@/lib/query"
 import { cn } from "@/lib/cn"
 import { Button } from "@/ui/button"
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/ui/menu"
-import { stageOf } from "@/ui/paper"
+import { money, stageOf } from "@/ui/paper"
 import { toast } from "@/ui/toast"
 
 import { decisionKeys } from "./decisions"
@@ -16,6 +16,7 @@ import type { QueueName, WorkspaceClaim } from "./types"
  *  keyboard (c, s, h) and the buttons open the very same dialog. */
 export type DecisionDialog =
   | "clear"
+  | "approve"
   | "sendback"
   | "hold"
   | "reject"
@@ -44,6 +45,7 @@ export function DecisionBar({
   claim,
   own,
   canClear,
+  canApprove = false,
   isSuperAdmin,
   queue,
   open,
@@ -52,6 +54,8 @@ export function DecisionBar({
   own: boolean
   /** The account sits at the research cell's desk (or is a super admin). */
   canClear: boolean
+  /** The account is the Principal (or a super admin standing in): it approves cleared claims. */
+  canApprove?: boolean
   isSuperAdmin: boolean
   queue: QueueName
   open: (d: DecisionDialog) => void
@@ -70,6 +74,45 @@ export function DecisionBar({
             at this desk has to review it.
           </span>
         </p>
+      </Bar>
+    )
+  }
+
+  // The Principal reads the evidence in order to decide, so she decides here:
+  // a cleared claim at her desk gets Approve, Send back and Hold, in view
+  // whatever is scrolled (docs/ux/27, T3). Never on her own claim: that case
+  // returned above, and the server refuses it too.
+  if (claim.status === "CLEARED" && canApprove) {
+    const by = (claim as { cleared_by_name?: string | null }).cleared_by_name
+    return (
+      <Bar>
+        <div className="flex flex-wrap items-center gap-2 max-lg:flex-nowrap">
+          <Button kind="primary" onClick={() => open("approve")} aria-keyshortcuts="a" disabled={claim.remuneration == null || !!claim.calc_error}>
+            Approve{claim.remuneration != null ? ` ${money(claim.remuneration)}` : ""}
+            <Key>a</Key>
+          </Button>
+          <Button kind="danger" onClick={() => open("sendback")} aria-keyshortcuts="s">
+            Send back
+            <Key>s</Key>
+          </Button>
+          {claim.on_hold ? (
+            <Button
+              kind="default"
+              disabled={resume.isPending}
+              aria-keyshortcuts="h"
+              onClick={() => resume.mutate({}, { onSuccess: () => toast.ok("Resumed"), onError: (err) => toast.fail(err) })}
+            >
+              {resume.isPending ? "Resuming…" : "Resume"}
+              <Key>h</Key>
+            </Button>
+          ) : (
+            <Button kind="default" onClick={() => open("hold")} aria-keyshortcuts="h">
+              Hold
+              <Key>h</Key>
+            </Button>
+          )}
+        </div>
+        {by && <p className="text-sm text-fg-muted max-lg:hidden">Cleared by {by}.</p>}
       </Bar>
     )
   }

@@ -48,10 +48,26 @@ def unfiled_of(user: User) -> Optional[dict]:
         if key in seen:
             continue
         seen.add(key)
-        items.append({"id": p["id"], "title": p["title"], "venue": p["venue"], "year": p["year"]})
+        items.append({
+            "id": p["id"], "title": p["title"], "venue": p["venue"], "year": p["year"],
+            # The journal's quartile as the record holds it, or null. It says
+            # how much a paper is worth filing without guessing an amount:
+            # the figure itself needs the journal's SNIP and subject class,
+            # which are only settled while filing.
+            "quartile": p.get("quartile") or None,
+        })
         if len(items) == UNFILED_SHOWN:
             break
     return {"count": len(rows), "items": items}
+
+
+def quartile_counts(papers) -> dict:
+    """The record by journal quartile. Every paper is in exactly one group."""
+    out = {"Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0, "none": 0}
+    for r in papers:
+        q = (r.quartile or "").upper()
+        out[q if q in out else "none"] += 1
+    return out
 
 
 @api.get("/me/home", auth=session_auth)
@@ -63,6 +79,7 @@ def my_home(request: HttpRequest):
         "papers": len(mine),
         "citations": sum(known) if known else None,
         "h_index": h_index(known) if known else None,
+        "quartiles": quartile_counts(mine),
         "unfiled": unfiled_of(user),
     }
 

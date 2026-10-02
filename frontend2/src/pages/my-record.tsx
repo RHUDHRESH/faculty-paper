@@ -147,7 +147,7 @@ export function AppraisalList() {
       <PageHeader
         className="print:hidden"
         title="Publication list for appraisal"
-        sub="Your papers laid out the way the appraisal (API/PBAS) and promotion forms ask. Print it or download it."
+        sub="Your papers, laid out for appraisal and promotion forms."
         action={
           all.length > 0 ? (
             <Button kind="primary" onClick={() => window.print()}>
@@ -333,7 +333,7 @@ export function PaymentStatement() {
       <PageHeader
         className="print:hidden"
         title="Payment statement"
-        sub="Every incentive the college has paid you, by financial year (April to March), for your income tax return."
+        sub="Paid to you, by financial year (April to March)."
         action={
           d && d.years.length > 0 ? (
             <Button kind="primary" onClick={() => window.print()}>
@@ -449,7 +449,9 @@ export function PaymentStatement() {
                       ) : (
                         (r.paper_title ?? "Paper title not recorded")
                       )}
-                      {r.journal_title && <div className="text-fg-muted">{unshout(r.journal_title)}</div>}
+                      {r.journal_title && /[p{L}p{N}]/u.test(r.journal_title) && (
+                        <div className="text-fg-muted">{unshout(r.journal_title)}</div>
+                      )}
                       {(r.held_back ?? 0) > 0 && (
                         <div className="text-fg-muted">{money(r.held_back)} of this claim was inside your research threshold.</div>
                       )}

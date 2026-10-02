@@ -21,6 +21,8 @@ type EstimateProps = {
   /** Set while the estimate assumes the policy's references will be
    *  attached on the proof step, which has not been reached yet. */
   assumedReferences?: number | null
+  /** Research faculty: what this claim would do to the threshold (estimateEffect). */
+  thresholdNote?: string | null
 }
 
 function Amount({ calc, calcBusy, calcFailed, countOnly, className }: Pick<EstimateProps, "calc" | "calcBusy" | "calcFailed" | "countOnly"> & { className?: string }) {
@@ -82,6 +84,11 @@ export function EstimatePanel(props: EstimateProps) {
           Assumes the {props.assumedReferences} cited references you attach on the proof step.
         </p>
       ) : null}
+      {props.thresholdNote && !countOnly && (
+        <p className="text-xs text-fg" data-testid="threshold-estimate">
+          {props.thresholdNote}
+        </p>
+      )}
       {calcFailed && !countOnly && (
         <InlineError message="The server did not answer. Filing still works." onRetry={onRetryCalc} />
       )}
@@ -119,7 +126,7 @@ export function EstimateBar(props: EstimateProps) {
   return (
     <section
       aria-label="Incentive estimate"
-      className="sticky top-12 z-20 -mx-4 flex min-h-11 items-center justify-between gap-3 border-b border-line bg-bg/95 px-4 py-1.5 backdrop-blur sm:-mx-8 sm:px-8 md:top-0 md:mx-0 md:rounded-xl md:border md:px-4"
+      className="sticky top-12 z-20 -mx-4 flex min-h-11 flex-wrap items-center justify-between gap-x-3 border-b border-line bg-bg px-4 py-1.5 sm:-mx-8 sm:px-8 md:top-0 md:mx-0 md:rounded-panel md:border md:px-4"
     >
       <span className="text-xs text-fg-muted">
         {countOnly
@@ -141,6 +148,11 @@ export function EstimateBar(props: EstimateProps) {
         )}
         <Amount {...props} className="text-lg" />
       </span>
+      {props.thresholdNote && !countOnly && (
+        <span className="basis-full pb-0.5 text-xs text-fg" data-testid="threshold-estimate">
+          {props.thresholdNote}
+        </span>
+      )}
     </section>
   )
 }

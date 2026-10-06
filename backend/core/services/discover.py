@@ -27,7 +27,8 @@ from typing import Any
 from django.db.models import Q
 
 from core.models import Claim, FormulaConfig, ScimagoJournal, SnipSource
-from core.services import ai
+from core.services import ai  # noqa: F401 - AIError is what the endpoints catch
+from core.services import ai_harness as harness
 from core.services.normalize import normalize_title
 from core.services.remuneration import calculate_remuneration, formula_from_model
 from core.services.scimago import best_by_quartile, parse_categories_field
@@ -229,23 +230,47 @@ def publication_history(user, limit: int = 25) -> list[dict[str, str]]:
 # The two questions                                                           #
 # --------------------------------------------------------------------------- #
 
-_VENUE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "journals": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "why": {"type": "string"},
-                },
-                "required": ["title", "why"],
+_VENUES_SYSTEM = (
+    "You are helping an engineering academic in India choose where to submit a paper. "
+    "The paper's title, abstract and keywords are in the data blocks. "
+    f"Name up to {ASK_FOR} peer-reviewed journals indexed in Scopus that genuinely "
+    "publish work of this kind. Use each journal's exact full title as it appears in "
+    "Scopus, with no abbreviation and no publisher name appended. Do not invent "
+    "journals. Prefer established venues over new ones. For each, give one short "
+    "sentence on why this paper fits it, about scope and fit, not about prestige."
+)
+
+#: Every field but the name is optional with an empty default, because the code
+#: below always tolerated a missing "why" and a model that leaves one out has
+#: still named a journal. A bare list where the object was asked for (the
+#: commonest way a smaller model misses a schema) is wrapped rather than
+#: refused, and entries that are not objects are dropped.
+VENUES = harness.register(
+    harness.Feature(
+        name="discover.venues",
+        model="considered",
+        system=_VENUES_SYSTEM,
+        schema=harness.Obj(
+            {
+                "journals": harness.Arr(
+                    harness.Obj(
+                        {
+                            "title": harness.Str(200, truncate=True),
+                            "why": harness.Str(400, truncate=True, required=False, default=""),
+                        }
+                    ),
+                    max_items=ASK_FOR + 3,
+                    drop_invalid=True,
+                )
             },
-        }
-    },
-    "required": ["journals"],
-}
+            from_list="journals",
+        ),
+        guards=[harness.no_urls_except(), harness.no_pii()],
+        temperature=0.3,
+        # It names journals from what it knows; the rows below check each one.
+        closed_world=False,
+    )
+)
 
 
 def suggest_venues(
@@ -255,31 +280,28 @@ def suggest_venues(
     keywords: str = "",
     author_position: int = 1,
     total_authors: int = 1,
+    user=None,
 ) -> dict[str, Any]:
     """Where this paper could go, with what each venue would actually pay.
 
     Returns both what we could verify and what we could not, separately. The
     unverified ones are still worth showing — the model may well be right and
     the journal simply absent from a 2025 dump — but they carry no numbers.
-    """
-    prompt = (
-        "You are helping an engineering academic in India choose where to submit a paper.\n"
-        f"Paper title: {title}\n"
-        + (f"Abstract: {abstract[:1500]}\n" if abstract else "")
-        + (f"Keywords: {keywords}\n" if keywords else "")
-        + f"\nName up to {ASK_FOR} peer-reviewed journals indexed in Scopus that genuinely "
-        "publish work of this kind. Use each journal's exact full title as it appears in "
-        "Scopus, with no abbreviation and no publisher name appended. Do not invent "
-        "journals. Prefer established venues over new ones. For each, give one short "
-        "sentence on why this paper fits it — about scope and fit, not about prestige."
-    )
 
-    raw = ai.ask_json(prompt, schema=_VENUE_SCHEMA, temperature=0.3)
-    # A bare list where an object was asked for is the commonest way a
-    # smaller model misses a schema, and `.get` on a list is an uncaught
-    # AttributeError -- a 500 where a shrug would do.
-    proposed = raw.get("journals") or [] if isinstance(raw, dict) else (raw or [])
-    proposed = [entry for entry in proposed if isinstance(entry, dict)]
+    The model is asked through `ai_harness`: the title and abstract are
+    untrusted text and go in fenced data blocks, and the answer is checked
+    against a schema before anything below reads it. A failure raises
+    `ai.AIError`, as it always did, so the endpoints' status mapping holds.
+    """
+    blocks = [
+        harness.DataBlock("paper title", title, 500),
+        harness.DataBlock("abstract", abstract, 1500),
+        harness.DataBlock("keywords", keywords, 600),
+    ]
+    # The same paper asked about twice within a quarter of an hour is the same
+    # answer: the person's own copy is returned instead of a second call.
+    raw = VENUES.run(user=user, data_blocks=blocks, cache_key=harness.AUTO).unwrap()
+    proposed = [entry for entry in raw["journals"] if isinstance(entry, dict)]
 
     verified: list[dict[str, Any]] = []
     unverified: list[dict[str, Any]] = []
@@ -329,24 +351,45 @@ def suggest_venues(
     }
 
 
-_DIRECTION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "directions": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string"},
-                    "why": {"type": "string"},
-                    "first_step": {"type": "string"},
-                },
-                "required": ["topic", "why", "first_step"],
+_DIRECTIONS_SYSTEM = (
+    "You are advising an engineering academic in India on what to work on next. "
+    "Their recent publications, and the domains they have said they are interested in, are "
+    "in the data blocks. Suggest 5 specific research directions they are well placed to "
+    "pursue in the next year. Build on what they have already done rather than proposing a "
+    "change of field. For each: a concrete topic, one sentence on why it suits them "
+    "specifically given the work above, and a first step they could take within a week. "
+    "Be concrete and avoid buzzwords. Do not suggest anything that requires equipment or "
+    "funding they have shown no sign of having."
+)
+
+DIRECTIONS = harness.register(
+    harness.Feature(
+        name="discover.directions",
+        model="considered",
+        system=_DIRECTIONS_SYSTEM,
+        schema=harness.Obj(
+            {
+                "directions": harness.Arr(
+                    harness.Obj(
+                        {
+                            "topic": harness.Str(300, truncate=True),
+                            "why": harness.Str(600, truncate=True, required=False, default=""),
+                            "first_step": harness.Str(600, truncate=True, required=False, default=""),
+                        }
+                    ),
+                    max_items=8,
+                    drop_invalid=True,
+                )
             },
-        }
-    },
-    "required": ["directions"],
-}
+            from_list="directions",
+        ),
+        guards=[harness.no_urls_except(), harness.no_pii()],
+        # Higher on purpose, and so not cached: asking again should not give
+        # the same five.
+        temperature=0.6,
+        closed_world=False,
+    )
+)
 
 
 def _as_rows(raw, key: str) -> list[dict]:
@@ -360,7 +403,9 @@ def _as_rows(raw, key: str) -> list[dict]:
     return [r for r in (rows or []) if isinstance(r, dict)]
 
 
-def suggest_directions(*, history: list[dict[str, str]], interests: list[str]) -> dict[str, Any]:
+def suggest_directions(
+    *, history: list[dict[str, str]], interests: list[str], user=None
+) -> dict[str, Any]:
     """What this person might write next, given what they have written.
 
     Each suggestion carries a first step, because a research direction without
@@ -370,19 +415,11 @@ def suggest_directions(*, history: list[dict[str, str]], interests: list[str]) -
         return {"directions": [], "grounded_on": {"papers": 0, "interests": []}}
 
     lines = [f"- {h['title']} ({h['journal']}, {h['year']})" for h in history[:20]]
-    prompt = (
-        "You are advising an engineering academic in India on what to work on next.\n\n"
-        + ("Their recent publications:\n" + "\n".join(lines) + "\n\n" if lines else "")
-        + ("Domains they have said they are interested in: " + ", ".join(interests) + "\n\n" if interests else "")
-        + "Suggest 5 specific research directions they are well placed to pursue in the next "
-        "year. Build on what they have already done rather than proposing a change of field. "
-        "For each: a concrete topic, one sentence on why it suits them specifically given the "
-        "work above, and a first step they could take within a week. Be concrete and avoid "
-        "buzzwords. Do not suggest anything that requires equipment or funding they have "
-        "shown no sign of having."
-    )
-
-    raw = ai.ask_json(prompt, schema=_DIRECTION_SCHEMA, temperature=0.6)
+    blocks = [
+        harness.DataBlock("recent publications", "\n".join(lines)),
+        harness.DataBlock("domains of interest", ", ".join(interests)),
+    ]
+    raw = DIRECTIONS.run(user=user, data_blocks=blocks).unwrap()
     directions = [
         {
             "topic": (d.get("topic") or "").strip(),

@@ -20,6 +20,9 @@ import { ReasonChips, rememberReason } from "@/ui/reasons"
 import { Callout } from "@/ui/state"
 import { toast } from "@/ui/toast"
 
+import { useAuth } from "@/app/auth"
+
+import { AiReasonDraft } from "./ai-precheck"
 import type { WorkspaceClaim } from "./types"
 import { unshout } from "@/lib/names"
 
@@ -236,6 +239,7 @@ export function SendBackDialog({
   prefill: string
   onDone: () => void
 }) {
+  const { me } = useAuth()
   const [note, setNote] = useState("")
   const send = useApiMutation<{ note: string }, unknown>(`/api/claims/${claim.id}/reject`, {
     invalidates: decisionKeys(claim.id),
@@ -293,7 +297,13 @@ export function SendBackDialog({
               placeholder="What needs to change before this can be filed again"
             />
           </Field>
-          <div className="mt-3">
+          <div className="mt-3 space-y-3">
+            <AiReasonDraft
+              claimId={claim.id}
+              version={claim.updated_at}
+              role={me?.role}
+              onUse={(t) => setNote((n) => (n.trim() ? `${n.trim()}\n\n${t}` : t))}
+            />
             <ReasonChips onPick={(t) => setNote((n) => (n.trim() ? `${n.trim()} ${t}` : t))} />
           </div>
         </DialogBody>

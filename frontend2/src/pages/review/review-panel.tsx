@@ -16,6 +16,7 @@ import { Callout } from "@/ui/state"
 import { Tabs } from "@/ui/tabs"
 import { Meta } from "@/ui/text"
 
+import { AiPrecheckSection } from "./ai-precheck"
 import { Checklist } from "./checklist"
 import { claimDiff, type DiffRow } from "./claim-diff"
 import { actionSentence, formatDateTime } from "./history"
@@ -214,6 +215,15 @@ export function ReviewPanel({
               </ul>
             )}
           </section>
+
+          <AiPrecheckSection
+            key={claim.id}
+            claimId={claim.id}
+            version={claim.updated_at}
+            role={role}
+            own={extras.own}
+            auto={claim.status === "SUBMITTED"}
+          />
 
           <section aria-labelledby="rv-checklist" className="space-y-2">
             <h3 id="rv-checklist" className="text-base font-semibold">

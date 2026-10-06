@@ -136,13 +136,17 @@ def _database_from_url(url: str) -> dict:
         sslmode = (qs.get("sslmode") or [None])[0]
         if sslmode:
             opts["sslmode"] = sslmode
+        # Neon's connection strings carry channel_binding=require (SCRAM over TLS).
+        channel_binding = (qs.get("channel_binding") or [None])[0]
+        if channel_binding:
+            opts["channel_binding"] = channel_binding
         # libpq spells a unix socket as ?host=/dir, which is how Cloud SQL is
         # reached from Cloud Run. Reading the hostname alone left HOST empty and
         # the connection fell back to a default socket that does not exist.
         socket_dir = (qs.get("host") or [None])[0]
     host = socket_dir or parsed.hostname or ""
     # Supabase always needs SSL
-    if "supabase" in host and "sslmode" not in opts:
+    if ("supabase" in host or host.endswith(".neon.tech")) and "sslmode" not in opts:
         opts["sslmode"] = "require"
     return {
         "ENGINE": "django.db.backends.postgresql",
@@ -483,6 +487,41 @@ HARNESS_FAST_KEEP_ALIVE = (os.getenv("HARNESS_FAST_KEEP_ALIVE") or "30m").strip(
 # process is the whole deployment. If workers ever multiply, the caps become
 # per-worker -- core/api/common.py says so next to the implementation.
 AI_DAILY_LIMIT = int(os.getenv("AI_DAILY_LIMIT", "100"))
+# Model calls one research-cell member may spend on the claim pre-check and its
+# send-back drafts in 24 hours (core/services/ai_precheck.py). Cached answers are free.
+AI_PRECHECK_DAILY_LIMIT = int(os.getenv("AI_PRECHECK_DAILY_LIMIT", "40"))
+
+# ---------------------------------------------------------------------------
+# The AI harness (core/services/ai_harness.py). Every AI call goes through it,
+# so these are the whole of the cost and reliability dials; docs/ops/ai-harness.md
+# says what each one protects.
+#
+# Per person, per day, across every feature (a feature may set a lower number
+# of its own); and the whole college, per calendar month. Counted from the
+# AIUsage rows, so they survive a restart of the free host, which forgets
+# everything held in memory.
+AI_PERSON_DAILY_CALLS = int(os.getenv("AI_PERSON_DAILY_CALLS", "60"))
+AI_COLLEGE_MONTHLY_CALLS = int(os.getenv("AI_COLLEGE_MONTHLY_CALLS", "6000"))
+# Zero means "count calls only". Set it to cap the month by tokens as well
+# (a hosted model's free allowance is usually counted in tokens).
+AI_COLLEGE_MONTHLY_TOKENS = int(os.getenv("AI_COLLEGE_MONTHLY_TOKENS", "0"))
+# At most this many model calls at once in one process: the free host has
+# 512 MB and a tenth of a CPU, and the hosted key has a per-minute allowance.
+# A call that cannot get a place within AI_QUEUE_WAIT_SECONDS is refused as
+# busy instead of piling up behind the others.
+AI_MAX_IN_FLIGHT = int(os.getenv("AI_MAX_IN_FLIGHT", "2"))
+AI_QUEUE_WAIT_SECONDS = float(os.getenv("AI_QUEUE_WAIT_SECONDS", "15"))
+# After this many failures in a row (the service down, a spent allowance, a
+# refused key) the AI is treated as unavailable for the cool-down, and every
+# page falls back to what it can do without it. Off under tests.
+AI_BREAKER_FAILURES = 0 if _RUNNING_TESTS else int(os.getenv("AI_BREAKER_FAILURES", "5"))
+AI_BREAKER_COOLDOWN_SECONDS = float(os.getenv("AI_BREAKER_COOLDOWN_SECONDS", "300"))
+# Retry on 429 and 5xx with jittered exponential backoff. Zero under tests,
+# where nothing should sleep.
+AI_BACKOFF_BASE_SECONDS = 0.0 if _RUNNING_TESTS else float(os.getenv("AI_BACKOFF_BASE_SECONDS", "0.6"))
+# How long an answer is reused for the same question from the same person.
+# Off under tests, where each case patches the model and expects to be asked.
+AI_CACHE_TTL_SECONDS = 0 if _RUNNING_TESTS else int(os.getenv("AI_CACHE_TTL_SECONDS", "900"))
 AGENT_DAILY_LIMIT = int(os.getenv("AGENT_DAILY_LIMIT", "50"))
 SEARCH_DAILY_LIMIT = int(os.getenv("SEARCH_DAILY_LIMIT", "200"))
 EXPORT_HOURLY_LIMIT = int(os.getenv("EXPORT_HOURLY_LIMIT", "40"))
@@ -611,3 +650,22 @@ GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
 # Optional. Set to a Workspace domain to refuse anything else even where an
 # account exists with, say, a gmail address.
 GOOGLE_HOSTED_DOMAIN = os.getenv("GOOGLE_HOSTED_DOMAIN", "")
+
+# ---------------------------------------------------------------------------
+# Error tracking (Sentry). Off unless SENTRY_DSN is set. No personal data is
+# sent (send_default_pii=False): no cookies, no user emails, no request bodies,
+# so a faculty member's papers and payments never leave for a third party.
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+if SENTRY_DSN and not _RUNNING_TESTS:
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
+            release=os.getenv("RENDER_GIT_COMMIT") or None,
+            send_default_pii=False,
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0")),
+        )
+    except ImportError:  # the package is optional; the app runs without it
+        pass

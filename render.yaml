@@ -1,7 +1,8 @@
-# Render blueprint: the whole app on Render's free plan, with no secret to paste.
+# Render blueprint: the app on Render's free plan; the database is Neon Postgres.
 #
-#   saveetha-publications-db   free Postgres (expires 30 days after creation unless
-#                      upgraded -- see DEPLOY.md); Render wires DATABASE_URL.
+#   Database   Neon Postgres (free tier, never expires, point-in-time restore).
+#              Paste Neon's DIRECT connection string (not the "-pooler" one)
+#              into DATABASE_URL; it ends ?sslmode=require&channel_binding=require.
 #   saveetha-publications-api  the Django API (Docker). Uploaded PDFs are stored in the
 #                      database (DJANGO_MEDIA_STORAGE=db): the free plan has no
 #                      persistent disk. Sleeps after ~15 min idle; the first
@@ -11,13 +12,6 @@
 #
 # Data: open https://saveetha-publications.onrender.com/setup, create the first
 # administrator, then Imports -> "Restore a full export" with the dumpdata file.
-databases:
-  - name: saveetha-publications-db
-    plan: free
-    region: singapore
-    databaseName: faculty
-    user: faculty
-
 services:
   - type: web
     name: saveetha-publications-api
@@ -29,10 +23,23 @@ services:
     healthCheckPath: /api/health
     autoDeploy: false
     envVars:
+      # Neon Postgres: the direct (non-pooler) connection string. Secret.
       - key: DATABASE_URL
-        fromDatabase:
-          name: saveetha-publications-db
-          property: connectionString
+        sync: false
+      # Files (paper PDFs, photos) and the daily off-site backup go to a
+      # Cloudflare R2 bucket when these are set; without them files stay in the
+      # database (DJANGO_MEDIA_STORAGE=db below) and the off-site backup is off.
+      - key: S3_BUCKET_NAME
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      # Error tracking (Sentry). Optional; no personal data is sent.
+      - key: SENTRY_DSN
+        sync: false
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DJANGO_DEBUG

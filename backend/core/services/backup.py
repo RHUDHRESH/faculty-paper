@@ -193,6 +193,49 @@ def store_weekly(kind: str = "auto") -> dict:
     return {"ok": True, "name": name, "bytes": len(data), "pruned": len(old)}
 
 
+#: Off-site copies kept in the object store (one a day: two weeks back).
+OFFSITE_KEEP = 14
+OFFSITE_DIR = "backups/"
+
+
+def store_offsite(kind: str = "daily") -> dict:
+    """Copy a full backup to the object store (Cloudflare R2), keep the newest
+    OFFSITE_KEEP.
+
+    The weekly copy above lives in the same database it backs up, so it goes
+    down with it. This one lands in the bucket the app's files already use
+    (`S3_BUCKET_NAME`), under `backups/`, and survives losing the database.
+    Without a bucket it does nothing and says so.
+    """
+    from django.conf import settings
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    from core.models import AuditLog
+
+    if not getattr(settings, "S3_BUCKET_NAME", ""):
+        return {"ok": False, "reason": "no object store configured (S3_BUCKET_NAME)"}
+    try:
+        data = build_bytes()
+    except Exception as exc:  # a failed dump must not take the job queue down
+        AuditLog.objects.create(action="BACKUP_OFFSITE_FAILED", entity="Backup",
+                                detail_json=json.dumps({"reason": str(exc)[:500]}))
+        return {"ok": False, "reason": str(exc)[:500]}
+    name = default_storage.save(OFFSITE_DIR + filename(kind), ContentFile(data))
+    pruned = 0
+    try:
+        _dirs, files = default_storage.listdir(OFFSITE_DIR.rstrip("/"))
+        ours = sorted(f for f in files if f.endswith(".json.gz"))  # names sort by time
+        for old in ours[:-OFFSITE_KEEP]:
+            default_storage.delete(OFFSITE_DIR + old)
+            pruned += 1
+    except Exception:  # pruning is housekeeping; the copy is what matters
+        pass
+    AuditLog.objects.create(action="BACKUP_OFFSITE_STORED", entity="Backup", entity_id=name[:64],
+                            detail_json=json.dumps({"bytes": len(data), "pruned": pruned}))
+    return {"ok": True, "name": name, "bytes": len(data), "pruned": pruned}
+
+
 def stored() -> list[dict]:
     from core.models import StoredFile
 

@@ -6,6 +6,7 @@ import { can, useAuth } from "@/app/auth"
 import { formatCount } from "@/lib/count"
 import { useApi } from "@/lib/query"
 import { Answer } from "@/ui/answer"
+import { BatchCheck } from "@/pages/batch-check"
 import { BudgetStrip, budgetLine } from "@/pages/budget-strip"
 import { BulkPayDialog, SinglePayDialog } from "@/pages/pay-dialogs"
 import { Button } from "@/ui/button"
@@ -292,6 +293,7 @@ export function Payments() {
                 )}
               </div>
             )}
+            {totals.count > 0 && <BatchCheck stage="pay" />}
           </div>
 
           {anySelected && (

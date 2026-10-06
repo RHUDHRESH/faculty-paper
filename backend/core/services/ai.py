@@ -468,6 +468,8 @@ def ask_json(
     temperature: float = 0.4,
     timeout: float | None = None,
     fast: bool = False,
+    system: str | None = None,
+    max_tokens: int | None = None,
 ) -> Any:
     """Ask for a JSON answer and return it parsed.
 
@@ -493,6 +495,12 @@ def ask_json(
     prompt length or time of day: which features can afford which wait is a
     product judgement, and a heuristic that got it wrong would silently
     downgrade the one answer that had a rupee figure attached.
+
+    `system` and `max_tokens` are for `ai_harness`, which keeps the
+    instructions (ours, trusted) apart from the data (untrusted, spotlighted
+    in the prompt) and bounds the answer. Left out, nothing changes. Features
+    should not call this directly: `ai_harness.run` is the one entry point and
+    adds validation, guards, limits and an audit row around it.
     """
     name = provider_name()
     if name not in PROVIDERS:
@@ -514,15 +522,18 @@ def ask_json(
     backend = _backend()
     sink = _SINK.get()
     seconds = int(timeout or backend.DEFAULT_TIMEOUT)
+    extra: dict[str, Any] = {"system": system} if system else {}
+    ceiling = max_tokens or _MAX_OUTPUT_TOKENS
     try:
         if sink is None:
             raw = backend.generate(
                 prompt,
                 timeout=seconds,
-                max_tokens=_MAX_OUTPUT_TOKENS,
+                max_tokens=ceiling,
                 temperature=temperature,
                 fmt=schema or "json",
                 fast=fast,
+                **extra,
             )
         else:
             raw = _generate_watched(
@@ -533,6 +544,8 @@ def ask_json(
                 temperature=temperature,
                 fmt=schema or "json",
                 fast=fast,
+                max_tokens=ceiling,
+                **extra,
             )
     except (
         ollama.OllamaError,
@@ -565,6 +578,8 @@ def _generate_watched(
     temperature: float,
     fmt: str | dict,
     fast: bool = False,
+    system: str | None = None,
+    max_tokens: int | None = None,
 ) -> str:
     """The same answer as `backend.generate`, assembled where it can be watched.
 
@@ -590,14 +605,16 @@ def _generate_watched(
     sink.note("connecting")
 
     try:
+        stream_extra: dict[str, Any] = {"system": system} if system else {}
         for piece in backend.stream(
             prompt,
             timeout=timeout,
-            max_tokens=_MAX_OUTPUT_TOKENS,
+            max_tokens=max_tokens or _MAX_OUTPUT_TOKENS,
             temperature=temperature,
             fmt=fmt,
             should_stop=sink.is_cancelled,
             fast=fast,
+            **stream_extra,
         ):
             pieces.append(piece)
             chars += len(piece)

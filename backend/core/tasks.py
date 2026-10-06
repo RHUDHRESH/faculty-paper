@@ -304,3 +304,11 @@ def run_stored_backup(kind: str = "auto") -> dict:
     from core.services import backup
 
     return backup.store_weekly(kind)
+
+
+def run_offsite_backup(kind: str = "daily") -> dict:
+    """Daily: a full backup copied to the object store (R2), the newest 14 kept.
+    Does nothing until S3_BUCKET_NAME is set."""
+    from core.services import backup
+
+    return backup.store_offsite(kind)

@@ -33,7 +33,7 @@ from datetime import date
 from typing import Any, Callable
 
 from core.models import ResearchInterest
-from core.services import ai, paper_facts
+from core.services import ai, ai_harness as harness, paper_facts
 from core.services.paper_facts import Fact, Facts
 from core.services.trends import _as_rows
 
@@ -374,27 +374,51 @@ def _topics(recent, names, breadth, publishing, grounding, since):
 # Industry partners -- the model's part                                       #
 # --------------------------------------------------------------------------- #
 
-_PARTNERS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "partners": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "kind": {"type": "string"},
-                    "why": {"type": "string"},
-                    "first_step": {"type": "string"},
-                },
-                "required": ["name", "why"],
-            },
-        }
-    },
-    "required": ["partners"],
-}
-
 ASK_FOR_PARTNERS = 5
+
+_PARTNERS_SYSTEM = (
+    "You advise engineering academics at an Indian college on industry collaboration. "
+    "Their recent papers, the subject areas they publish in and the domains they follow are "
+    "in the data blocks. "
+    f"Name up to {ASK_FOR_PARTNERS} real organisations -- companies, government "
+    "laboratories or non-profits, preferably with a presence in India -- that work on "
+    "these topics and could plausibly collaborate with this academic. For each give "
+    "'name', 'kind' (company, government lab, non-profit or other), 'why' (one "
+    "sentence tied to their work above) and 'first_step' (one concrete, low-cost first "
+    "step). Only name organisations you are confident exist; give fewer rather than guess."
+)
+
+#: Only the name is required; the code below always accepted a partner with no
+#: reason or first step. No links and no contact details: the page names
+#: organisations and the person finds the way in themselves.
+PARTNERS = harness.register(
+    harness.Feature(
+        name="suggestions.partners",
+        model="considered",
+        system=_PARTNERS_SYSTEM,
+        schema=harness.Obj(
+            {
+                "partners": harness.Arr(
+                    harness.Obj(
+                        {
+                            "name": harness.Str(120, truncate=True),
+                            "kind": harness.Str(40, truncate=True, required=False, default=""),
+                            "why": harness.Str(400, truncate=True, required=False, default=""),
+                            "first_step": harness.Str(400, truncate=True, required=False, default=""),
+                        }
+                    ),
+                    max_items=ASK_FOR_PARTNERS + 3,
+                    drop_invalid=True,
+                )
+            },
+            from_list="partners",
+        ),
+        guards=[harness.no_urls_except(), harness.no_pii()],
+        temperature=0.4,
+        # Organisations come from what the model knows; the page says they are unverified.
+        closed_world=False,
+    )
+)
 
 
 def industry_partners(
@@ -435,21 +459,16 @@ def industry_partners(
             "model": ai.model_name(),
         }
 
-    prompt = (
-        "You advise engineering academics at an Indian college on industry collaboration.\n\n"
-        + ("Their recent papers:\n" + "\n".join(f"- {t}" for t in titles) + "\n\n" if titles else "")
-        + (f"Subject areas they publish in: {', '.join(areas)}\n" if areas else "")
-        + (f"Domains they follow: {', '.join(interests[:6])}\n" if interests else "")
-        + f"\nName up to {ASK_FOR_PARTNERS} real organisations -- companies, government "
-        "laboratories or non-profits, preferably with a presence in India -- that work on "
-        "these topics and could plausibly collaborate with this academic. For each give "
-        "'name', 'kind' (company, government lab, non-profit or other), 'why' (one "
-        "sentence tied to their work above) and 'first_step' (one concrete, low-cost first "
-        "step). Only name organisations you are confident exist; give fewer rather than guess."
-    )
+    blocks = [
+        harness.DataBlock("recent papers", "\n".join(f"- {t}" for t in titles)),
+        harness.DataBlock("subject areas they publish in", ", ".join(areas)),
+        harness.DataBlock("domains they follow", ", ".join(interests[:6])),
+    ]
     if before_asking is not None:
         before_asking()
-    raw = ai.ask_json(prompt, schema=_PARTNERS_SCHEMA, temperature=0.4)
+    # Cached for the person: a second look at the same page inside a quarter
+    # of an hour is not a second question to a hosted model.
+    raw = PARTNERS.run(user=user, data_blocks=blocks, cache_key=harness.AUTO).unwrap()
 
     partners: list[dict[str, str]] = []
     seen: set[str] = set()

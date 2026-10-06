@@ -55,7 +55,7 @@ from django.db.models import Max
 
 from core import hod
 from core.models import Claim, ClaimStatus, ResearchInterest, User
-from core.services import ai, discover
+from core.services import ai, ai_harness as harness, discover
 
 logger = logging.getLogger(__name__)
 
@@ -611,26 +611,53 @@ def people_to_work_with(user, *, limit: int = 8) -> dict[str, Any]:
 # 3. The model's part                                                         #
 # --------------------------------------------------------------------------- #
 
-_OPENINGS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "openings": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "topic": {"type": "string"},
-                    "why": {"type": "string"},
-                    "first_step": {"type": "string"},
-                    "area": {"type": "string"},
-                    "with_whom": {"type": "string"},
-                },
-                "required": ["topic", "why", "first_step"],
+_OPENINGS_SYSTEM = (
+    "You advise engineering academics in an Indian college on what to work on next. "
+    "Their recent papers, the subject areas they publish in, the domains they follow, the "
+    "areas growing across the college and the colleagues publishing nearby are in the data "
+    "blocks. "
+    f"Give {ASK_FOR} specific openings this person is well placed to take in the "
+    "next year, building on the work above rather than changing field. For each: "
+    "'topic' (concrete, no buzzwords), 'why' (one sentence, specific to them), "
+    "'first_step' (something doable in a week without new equipment or funding), "
+    "'area' (one subject area from the lists above, copied exactly), and "
+    "'with_whom' (one colleague from the list above, copied exactly, or an empty "
+    "string). Never invent a name."
+)
+
+#: `area` and `with_whom` are deliberately *not* grounded by a guard here: the
+#: code below resolves each against our own tables and reports what it could
+#: not as `unverified`, which is part of what the page shows. A guard that
+#: dropped them first would turn "the model named somebody we cannot find"
+#: into silence.
+OPENINGS = harness.register(
+    harness.Feature(
+        name="trends.openings",
+        model="considered",
+        system=_OPENINGS_SYSTEM,
+        schema=harness.Obj(
+            {
+                "openings": harness.Arr(
+                    harness.Obj(
+                        {
+                            "topic": harness.Str(300, truncate=True),
+                            "why": harness.Str(600, truncate=True, required=False, default=""),
+                            "first_step": harness.Str(600, truncate=True, required=False, default=""),
+                            "area": harness.Str(160, truncate=True, required=False, default=""),
+                            "with_whom": harness.Str(160, truncate=True, required=False, default=""),
+                        }
+                    ),
+                    max_items=ASK_FOR + 4,
+                    drop_invalid=True,
+                )
             },
-        }
-    },
-    "required": ["openings"],
-}
+            from_list="openings",
+        ),
+        guards=[harness.no_urls_except(), harness.no_pii()],
+        temperature=0.6,
+        closed_world=False,
+    )
+)
 
 
 def _person_index(exclude_id: str | None = None) -> dict[str, dict[str, Any] | None]:
@@ -723,27 +750,15 @@ def suggest_openings(
     # four and a half tokens a second, so every line of context is paid for
     # twice -- once reading it and once in the longer answer it invites.
     lines = [f"- {h['title']} ({h['year']})" for h in history[:8]]
-    prompt = (
-        "You advise engineering academics in an Indian college on what to work on next.\n\n"
-        + ("Their recent papers:\n" + "\n".join(lines) + "\n\n" if lines else "")
-        + (f"Subject areas they publish in: {', '.join(mine)}\n" if mine else "")
-        + (
-            f"Domains they follow: {', '.join(profile['interests'][:6])}\n"
-            if profile["interests"]
-            else ""
-        )
-        + (f"Areas growing across this college: {', '.join(rising)}\n" if rising else "")
-        + (f"Colleagues here publishing nearby: {', '.join(offered)}\n" if offered else "")
-        + f"\nGive {ASK_FOR} specific openings this person is well placed to take in the "
-        "next year, building on the work above rather than changing field. For each: "
-        "'topic' (concrete, no buzzwords), 'why' (one sentence, specific to them), "
-        "'first_step' (something doable in a week without new equipment or funding), "
-        "'area' (one subject area from the lists above, copied exactly), and "
-        "'with_whom' (one colleague from the list above, copied exactly, or an empty "
-        "string). Never invent a name."
-    )
+    blocks = [
+        harness.DataBlock("recent papers", "\n".join(lines)),
+        harness.DataBlock("subject areas they publish in", ", ".join(mine)),
+        harness.DataBlock("domains they follow", ", ".join(profile["interests"][:6])),
+        harness.DataBlock("areas growing across this college", ", ".join(rising)),
+        harness.DataBlock("colleagues here publishing nearby", ", ".join(offered)),
+    ]
 
-    raw = ai.ask_json(prompt, schema=_OPENINGS_SCHEMA, temperature=0.6)
+    raw = OPENINGS.run(user=user, data_blocks=blocks).unwrap()
     proposed = _as_rows(raw, "openings")
 
     directory = _person_index(exclude_id=getattr(user, "pk", None))

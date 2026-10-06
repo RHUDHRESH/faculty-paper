@@ -55,3 +55,4 @@ hypothesis>=6.100
 tblib>=3.0
 # QR code on the impact card (pure Python, BSD-3). Draws the verify link.
 segno>=1.6
+sentry-sdk[django]>=2.0  # error tracking; used only when SENTRY_DSN is set

@@ -86,6 +86,8 @@ export type WorkspaceClaim = {
   actions?: ClaimAction[]
   confirmations?: Confirmation[]
   waiting_days: number | null
+  /** Changes whenever the claim is saved; what an AI check is keyed to on screen. */
+  updated_at?: string | null
   submitted_at?: string | null
 } & Omit<
   DeskFields,

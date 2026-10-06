@@ -31,6 +31,7 @@ import { Meta, SectionTitle } from "@/ui/text"
 import { StreamingText, ThinkingIndicator } from "@/ui/motion/stream"
 import { toast } from "@/ui/toast"
 import { IndustryPartners } from "@/pages/discover-next"
+import { ResearchHelperLink } from "@/pages/research-helper"
 import { FeedCard, FeedRow, ModelCard, VenueRow, useHidden, type FeedItem, type ForYou } from "@/pages/discover-feed"
 
 /**
@@ -122,6 +123,7 @@ export function Discover() {
             ))}
           </div>
         ) : null}
+        {me && me.role !== "SUPER_ADMIN" && <ResearchHelperLink />}
       </div>
 
       <div role="tablist" aria-label="Discover" className="-mx-4 flex gap-1 overflow-x-auto border-b border-line px-4 sm:mx-0 sm:px-0">

@@ -25,5 +25,10 @@ class CoreConfig(AppConfig):
         post_delete.connect(research_threshold.on_claim_deleted, sender=claim_model, dispatch_uid="research-threshold-delete")
 
         for model in self.get_models():
+            if model.__name__ == "AIUsage":
+                # The AI audit is written on every model call and feeds no
+                # college-wide figure; bumping for it would throw the cached
+                # reports away every time somebody asked the assistant.
+                continue
             post_save.connect(bump, sender=model, dispatch_uid=f"aggregates-save-{model.__name__}")
             post_delete.connect(bump, sender=model, dispatch_uid=f"aggregates-delete-{model.__name__}")

@@ -11,7 +11,9 @@ import { Input } from "@/ui/field"
 import { InlineError } from "@/ui/state"
 import { Meta } from "@/ui/text"
 import { toast } from "@/ui/toast"
+import { useDetail } from "@/ui/detail-sheet"
 import {
+  evidenceDetail,
   evidenceHref,
   progressLine,
   type Action,
@@ -32,10 +34,12 @@ import {
 const EVIDENCE_ICON = { paper: FileText, journal: BookOpen, person: UserRound, metric: Gauge } as const
 
 export function EvidenceChips({ items, className }: { items: Evidence[]; className?: string }) {
+  const { open } = useDetail()
   if (!items.length) return null
   return (
     <ul className={cn("flex flex-wrap gap-1.5", className)} aria-label="Evidence">
       {items.map((e) => {
+        const detail = evidenceDetail(e)
         const to = evidenceHref(e)
         const chip = (
           <Chip icon={EVIDENCE_ICON[e.kind]} className="max-w-[18rem]">
@@ -44,7 +48,15 @@ export function EvidenceChips({ items, className }: { items: Evidence[]; classNa
         )
         return (
           <li key={`${e.kind}-${e.id}-${e.label}`} className="min-w-0">
-            {to ? (
+            {detail ? (
+              <button
+                type="button"
+                onClick={() => open(detail)}
+                className="cursor-pointer rounded-full hover:brightness-95"
+              >
+                {chip}
+              </button>
+            ) : to ? (
               <Link to={to} className="rounded-full hover:brightness-95">
                 {chip}
               </Link>

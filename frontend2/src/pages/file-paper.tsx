@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { AlertTriangle, ArrowLeft, BookOpen, Check, ExternalLink, FilePlusCorner, FileStack, LoaderCircle, PenLine, Search, Send, FileText } from "lucide-react"
 
@@ -20,6 +21,7 @@ import { money } from "@/ui/paper"
 import { claimStatus, stageName } from "@/ui/journey"
 import { Callout, EmptyState, ErrorState, SkeletonText } from "@/ui/state"
 import { toast } from "@/ui/toast"
+import { JournalVerdictInline } from "@/pages/journal-check"
 import { Wizard, type Step } from "@/ui/wizard"
 
 import { AuthorList } from "./filing/authors"
@@ -45,6 +47,7 @@ import {
 } from "./filing/identifiers"
 import { applyLookup, type PaperLookup, type StoredAuthor } from "./filing/lookup"
 import { useDebouncedSave } from "./filing/autosave"
+import { LOCKER_KEY } from "./filing/locker"
 import { AttachmentGroup, ReferenceFields, ReferenceTally } from "./filing/proof"
 import { PreSubmitCheck } from "./filing/precheck"
 import { readiness, sameFileOnThisForm, type Problem } from "./filing/readiness"
@@ -304,7 +307,11 @@ function buildPayload(
 /** Sent with XMLHttpRequest rather than `api()`: fetch cannot report upload
  *  progress, and a 9 MB scan on a slow link needs a moving bar, not a spinner. */
 let uploadCsrf: string | null = null
-async function uploadAttachment(file: File, onProgress?: (pct: number) => void): Promise<UploadResult> {
+async function uploadAttachment(
+  file: File,
+  onProgress?: (pct: number) => void,
+  lockerKind: "ARTICLE" | "REFERENCE" = "ARTICLE"
+): Promise<UploadResult> {
   if (!uploadCsrf) {
     const r = await fetch("/api/auth/csrf", { credentials: "same-origin" })
     uploadCsrf = ((await r.json()) as { csrfToken: string }).csrfToken
@@ -313,7 +320,8 @@ async function uploadAttachment(file: File, onProgress?: (pct: number) => void):
   body.append("file", file)
   return new Promise<UploadResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open("POST", "/api/claims/upload")
+    // Saved to the proof locker as well, so next time it is there.
+    xhr.open("POST", `/api/claims/upload?locker_kind=${lockerKind}`)
     xhr.withCredentials = true
     xhr.setRequestHeader("X-CSRFToken", uploadCsrf as string)
     xhr.upload.onprogress = (e) => {
@@ -847,6 +855,7 @@ export function FilePaper() {
 
   /* ------------------------------- proof --------------------------------- */
 
+  const queryClient = useQueryClient()
   const [uploadingKind, setUploadingKind] = useState<AttachmentRow["kind"] | null>(null)
   const [uploadProgress, setUploadProgress] = useState<{ name: string; pct: number } | null>(null)
   const [uploadError, setUploadError] = useState<{ kind: AttachmentRow["kind"]; message: string } | null>(null)
@@ -871,7 +880,12 @@ export function FilePaper() {
     setUploadingKind(kind)
     setUploadProgress({ name: file.name, pct: 0 })
     try {
-      const res = await uploadAttachment(file, (pct) => setUploadProgress({ name: file.name, pct }))
+      const res = await uploadAttachment(
+        file,
+        (pct) => setUploadProgress({ name: file.name, pct }),
+        kind === "PUBLISHED_PAPER" ? "ARTICLE" : "REFERENCE"
+      )
+      void queryClient.invalidateQueries({ queryKey: LOCKER_KEY })
       // A match on this same claim is a mis-drop, said by the on-form check;
       // a match on a *different* ticket stays, as a warning.
       const elsewhere =
@@ -904,6 +918,17 @@ export function FilePaper() {
       setUploadingKind(null)
       setUploadProgress(null)
     }
+  }
+
+  /** A file from the proof locker joins the form like a fresh upload: the
+   *  same URL and fingerprint, so the claim gets the same attachment row. */
+  function pickFromLocker(row: AttachmentRow) {
+    patchForm((prev) => {
+      const rest =
+        row.kind === "PUBLISHED_PAPER" ? prev.attachments.filter((a) => a.kind !== "PUBLISHED_PAPER") : prev.attachments
+      if (rest.some((a) => a.url === row.url)) return { attachments: rest }
+      return { attachments: [...rest, row] }
+    })
   }
 
   function removeAttachment(url: string) {
@@ -1796,6 +1821,7 @@ export function FilePaper() {
             onAdd={addAttachment}
             onRemove={removeAttachment}
             onUpdate={updateAttachment}
+            onPick={filingFor?.id ? undefined : pickFromLocker}
             ownerId={filingFor?.id}
           />
         )}
@@ -2246,6 +2272,7 @@ function JournalStep({
             <Input value={form.journalTitle} onChange={(e) => patchForm({ journalTitle: e.target.value })} />
           </Field>
           <SourceTag source={src.journal} className="mt-1 block" />
+          <JournalVerdictInline journal={form.journalTitle} issn={form.issn} />
         </div>
         <div data-field="issn">
           <Field label="ISSN" hint="Print or online." error={err("issn") ?? issnProblem(form.issn) ?? undefined}>
@@ -2548,6 +2575,7 @@ function ProofStep({
   onAdd,
   onRemove,
   onUpdate,
+  onPick,
   ownerId,
 }: {
   form: FormState
@@ -2560,6 +2588,7 @@ function ProofStep({
   onAdd: (kind: AttachmentRow["kind"], file: File) => Promise<void>
   onRemove: (url: string) => void
   onUpdate: (url: string, patch: Partial<AttachmentRow>) => void
+  onPick?: (row: AttachmentRow) => void
   ownerId?: string | null
 }) {
   const collegeName = useCollegeName()
@@ -2582,6 +2611,7 @@ function ProofStep({
           sameAs={sameAs}
           onAdd={onAdd}
           onRemove={onRemove}
+          onPick={onPick}
           form={form}
           ownerId={ownerId}
           error={err("paper-file")}
@@ -2604,6 +2634,7 @@ function ProofStep({
           sameAs={sameAs}
           onAdd={onAdd}
           onRemove={onRemove}
+          onPick={onPick}
           form={form}
           ownerId={ownerId}
           error={err("refs-none", "ref-numbers", "refs-url-only", "ref-numbers-zero", "refs-few")}

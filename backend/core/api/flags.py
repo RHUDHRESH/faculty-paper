@@ -28,6 +28,7 @@ from ninja.errors import HttpError
 
 from core.api.common import _refuse_own_claim, api, require_user, session_auth
 from core.api.dashboard import _SEARCH_SORTS, _search_queryset
+from core.services import proof_locker
 from core.models import AttachmentCheck, AuditLog, Claim, ClaimFlag, ClaimStatus, User
 from core.services import rbac
 from core.services import flags as flag_service
@@ -332,6 +333,8 @@ def claim_review(request: HttpRequest, claim_id: str):
             for f in claim.flags.select_related("raised_by", "resolved_by").order_by("-raised_at")
         ],
         "file_checks": [file_check_to_dict(c) for c in claim.file_checks.all()],
+        # What the claimant's proof locker found on the same files, by URL.
+        "locker_checks": proof_locker.checks_by_url(claim),
     }
 
 

@@ -20,6 +20,7 @@ import { Meta } from "@/ui/text"
 
 import { formatBytes } from "./bits"
 import { normaliseDoi } from "./identifiers"
+import { LockerChecksForRow, LockerPicker, useLocker } from "./locker"
 import type { AttachmentRow, CarriedEvidence, FileCheck, FormState } from "./types"
 
 export const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.tif,.tiff,.doc,.docx"
@@ -120,6 +121,7 @@ export function AttachmentGroup({
   sameAs,
   onAdd,
   onRemove,
+  onPick,
   renderExtra,
   form,
   ownerId,
@@ -145,6 +147,8 @@ export function AttachmentGroup({
   sameAs: Map<string, string>
   onAdd: (kind: AttachmentRow["kind"], file: File) => Promise<void>
   onRemove: (url: string) => void
+  /** Attach a file from the proof locker. Omitted when filing for someone else. */
+  onPick?: (row: AttachmentRow) => void
   renderExtra?: (row: AttachmentRow) => React.ReactNode
   form: FormState
   ownerId?: string | null
@@ -155,6 +159,7 @@ export function AttachmentGroup({
   const inputRef = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
   const many = kind === "SEC_REFERENCE"
+  const locker = useLocker(Boolean(onPick) && rows.length > 0)
 
   async function addAll(files: FileList | File[] | null | undefined) {
     const list = Array.from(files || [])
@@ -197,6 +202,7 @@ export function AttachmentGroup({
                     <span className="block break-all text-sm sm:truncate">{row.filename}</span>
                     <Meta className="block">{formatBytes(row.size_bytes)}</Meta>
                     <FileCheckLine row={row} form={form} ownerId={ownerId} />
+                    {onPick && <LockerChecksForRow row={row} proofs={locker.data?.items} />}
                     {sameAs.has(row.url) && (
                       <span className="mt-0.5 flex items-start gap-1.5 text-sm text-caution">
                         <Copy className="mt-0.5 size-3.5 shrink-0" aria-hidden />
@@ -291,6 +297,7 @@ export function AttachmentGroup({
           )}
         </div>
       </div>
+      {onPick && !busy && <LockerPicker kind={kind} attached={rows} onPick={onPick} />}
       {uploadError && (
         <p role="alert" className="flex items-start gap-1.5 text-sm text-critical">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />

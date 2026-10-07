@@ -9,6 +9,7 @@ import { useAuth } from "@/app/auth"
 import { reviewsFlags } from "@/app/nav"
 import { useApi, useApiMutation } from "@/lib/query"
 import { ClaimFlagsPanel, FileCheckLine, useClaimReview } from "@/pages/claim-review"
+import { ProofChecks } from "@/pages/filing/locker"
 import { AttachmentGallery, extensionOf, isOwnMedia, type Attachment } from "@/ui/attachments"
 import { Button } from "@/ui/button"
 import { ConfirmDialog } from "@/ui/dialog"
@@ -710,10 +711,15 @@ export function PaperDetail() {
           annotate={
             reviewer
               ? (file) => (
-                  <FileCheckLine
-                    check={checksByUrl.get(file.url)}
-                    readable={isOwnMedia(file.url) && extensionOf(file) === "pdf"}
-                  />
+                  <>
+                    <FileCheckLine
+                      check={checksByUrl.get(file.url)}
+                      readable={isOwnMedia(file.url) && extensionOf(file) === "pdf"}
+                    />
+                    {review.data?.locker_checks?.[file.url] && (
+                      <ProofChecks checks={review.data.locker_checks[file.url]} compact />
+                    )}
+                  </>
                 )
               : undefined
           }

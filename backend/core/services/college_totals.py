@@ -93,7 +93,7 @@ def payments(year: Optional[int] = None, department: Optional[str] = None,
 
 def _payments(year: Optional[int] = None, department: Optional[str] = None,
               month: Optional[str] = None) -> list[dict[str, Any]]:
-    """Every payment once: {month (date), department, amount, owner_id, name}."""
+    """Every payment once: {month (date), department, amount, owner_id, name, staff_id}."""
     canon = canonical_departments()
     ledger = PaidLedger.objects.annotate(
         dept=Coalesce(F("claim__owner__department"), F("department")),
@@ -111,19 +111,23 @@ def _payments(year: Optional[int] = None, department: Optional[str] = None,
     if ym:
         ledger = ledger.filter(payout_month__year=ym[0], payout_month__month=ym[1])
         orphans = orphans.filter(payout_month__year=ym[0], payout_month__month=ym[1])
+    # `staff_id` lets a reader put a name to a historic row with no claim
+    # behind it, by the rule `paper_facts` uses (case-insensitive staff id).
     out = [
         {"month": r["payout_month"], "department": canon(r["dept"]), "amount": r["amount"] or 0,
          "owner_id": r["claim__owner_id"], "name": r["claim__owner__name"] or r["faculty_name"],
+         "staff_id": r["staff_id"] or "",
          # The "Processed" sheet names no month; the one stored is the import's.
          "month_recorded": ledger_month_recorded(r["raw_json"])}
         for r in ledger.values("payout_month", "dept", "amount", "claim__owner_id",
-                               "claim__owner__name", "faculty_name", "raw_json")
+                               "claim__owner__name", "faculty_name", "staff_id", "raw_json")
     ]
     out += [
         {"month": r["payout_month"], "department": canon(r["owner__department"]),
-         "amount": r["remuneration"] or 0, "owner_id": r["owner_id"], "name": r["owner__name"], "month_recorded": True}
+         "amount": r["remuneration"] or 0, "owner_id": r["owner_id"], "name": r["owner__name"],
+         "staff_id": r["owner__staff_id"] or "", "month_recorded": True}
         for r in orphans.values("payout_month", "owner__department", "remuneration",
-                                "owner_id", "owner__name")
+                                "owner_id", "owner__name", "owner__staff_id")
     ]
     return out
 

@@ -352,6 +352,7 @@ function Figure({
   total,
   showAmounts = true,
   gapWhy,
+  countLabel = "Papers",
   children,
   className,
 }: {
@@ -360,6 +361,12 @@ function Figure({
   dimension: string
   unit: Unit
   points: Point[]
+  /**
+   * What `count` counts, for the numbers table's column. "Papers" is right for
+   * every report this file was written for; a chart of claims, citations or
+   * payments that kept it would label its own figures wrongly.
+   */
+  countLabel?: string
   /** Denominator for the share column. Defaults to the sum of what is drawn. */
   total?: number
   /**
@@ -416,7 +423,7 @@ function Figure({
               <thead>
                 <tr className="border-b border-line text-left text-xs text-fg-muted">
                   <th className="py-1.5 pr-3 font-medium">{dimension}</th>
-                  <th className="py-1.5 pr-3 text-right font-medium">Papers</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">{countLabel}</th>
                   {anyMoney && <th className="py-1.5 pr-3 text-right font-medium">Paid</th>}
                   <th className="py-1.5 text-right font-medium">Share</th>
                 </tr>
@@ -480,6 +487,7 @@ export function RankedBars({
   limit = 10,
   showAmounts,
   gapWhy,
+  countLabel,
   className,
 }: {
   title: string
@@ -492,6 +500,8 @@ export function RankedBars({
   showAmounts?: boolean
   /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
   gapWhy?: ReactNode
+  /** See `Figure`. What `count` counts, when it is not papers. */
+  countLabel?: string
   className?: string
 }) {
   const sorted = [...points].sort((a, b) => valueOf(b, unit) - valueOf(a, unit))
@@ -507,6 +517,7 @@ export function RankedBars({
       points={sorted}
       showAmounts={showAmounts}
       gapWhy={gapWhy}
+      countLabel={countLabel}
       className={className}
     >
       {shown.length === 0 ? (
@@ -677,6 +688,7 @@ export function Trend({
   height = 180,
   showAmounts,
   gapWhy,
+  countLabel,
   className,
 }: {
   title: string
@@ -689,6 +701,8 @@ export function Trend({
   showAmounts?: boolean
   /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
   gapWhy?: ReactNode
+  /** See `Figure`. What `count` counts, when it is not papers. */
+  countLabel?: string
   className?: string
 }) {
   const [box, w] = useWidth<HTMLDivElement>()
@@ -724,6 +738,7 @@ export function Trend({
       points={points}
       showAmounts={showAmounts}
       gapWhy={gapWhy}
+      countLabel={countLabel}
       className={className}
     >
       <div ref={box} className="min-w-0">
@@ -856,6 +871,7 @@ export function Distribution({
   height = 160,
   showAmounts,
   gapWhy,
+  countLabel,
   mark,
   markLabel = "You",
   className,
@@ -870,6 +886,8 @@ export function Distribution({
   showAmounts?: boolean
   /** See `Figure`. Why the field is empty, if the gap guard has to say so. */
   gapWhy?: ReactNode
+  /** See `Figure`. What `count` counts, when it is not papers. */
+  countLabel?: string
   /** The key of one column to mark ("you are here"), drawn in the area colour. */
   mark?: string
   markLabel?: string
@@ -887,6 +905,7 @@ export function Distribution({
       points={points}
       showAmounts={showAmounts}
       gapWhy={gapWhy}
+      countLabel={countLabel}
       className={className}
     >
       {points.length === 0 ? (

@@ -2,6 +2,7 @@ import { Link } from "react-router-dom"
 
 import { cn } from "@/lib/cn"
 import { formatCount } from "@/lib/count"
+import { useDetail, type DetailSpec } from "@/ui/detail-sheet"
 
 export type AnswerItem = {
   /** A number is shown in full ("1,284", never "99+"). A string is shown as
@@ -11,6 +12,9 @@ export type AnswerItem = {
   label: string
   /** The list behind the figure. Every figure that can be a link is one. */
   to?: string
+  /** Opens the panel listing what makes up the figure (`ui/detail-sheet`), in
+   *  place of `to`: the reader keeps their place on the page. */
+  detail?: DetailSpec
   /** What a zero means, in place of the label ("Nothing waiting"). A bare 0
    *  makes the reader work out whether that is good news. */
   zero?: string
@@ -57,8 +61,27 @@ export function Answer({ items, className }: { items: AnswerItem[]; className?: 
   )
 }
 
+/** A figure that opens the list behind it. The dotted underline at rest is
+ *  the hint: a plain number gives nobody a reason to try clicking it. */
+function DetailFigure({ spec, children }: { spec: DetailSpec; children: React.ReactNode }) {
+  const { open } = useDetail()
+  return (
+    <button
+      type="button"
+      onClick={() => open(spec)}
+      className={cn(
+        "block w-full min-w-0 cursor-pointer border-t border-edge pt-3 text-left hover:border-fg-muted",
+        "[&_.figure]:underline [&_.figure]:decoration-dotted [&_.figure]:decoration-fg-subtle [&_.figure]:decoration-1 [&_.figure]:underline-offset-[6px]",
+        "hover:[&_.figure]:decoration-solid"
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
 function Figure({ item }: { item: AnswerItem }) {
-  const { value, label, to, zero, tone = "neutral" } = item
+  const { value, label, to, zero, tone = "neutral", detail } = item
   const loading = value == null
   const isZero = value === 0
   const text = loading ? "" : typeof value === "number" ? formatCount(value) : value
@@ -92,6 +115,7 @@ function Figure({ item }: { item: AnswerItem }) {
   )
   // Each figure hangs from a short rule, like a column in a register: it
   // says "this is one entry" without drawing a box round it.
+  if (detail && !loading) return <DetailFigure spec={detail}>{body}</DetailFigure>
   return to ? (
     <Link
       to={to}

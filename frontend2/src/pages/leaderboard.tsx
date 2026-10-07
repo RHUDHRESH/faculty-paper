@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { keepPreviousData } from "@tanstack/react-query"
 import {
-  ArrowDown,
-  ArrowUp,
+  CalendarDays,
   ChevronDown,
   Download,
   SlidersHorizontal,
@@ -11,7 +10,6 @@ import {
   Gem,
   Globe2,
   Info,
-  Minus,
   Network,
   PenLine,
   Printer,
@@ -28,12 +26,11 @@ import { useAuth } from "@/app/auth"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
+import { DetailLink, detailHref } from "@/ui/detail-sheet"
 import { InfoTip } from "@/ui/info"
-import { segmentClass } from "@/ui/toggle"
 import { Select } from "@/ui/field"
 import { PrintStamp } from "@/pages/reports-print"
 import { Distribution, RankedBars, Sparkline, Trend } from "@/ui/chart"
-import { Answer, type AnswerItem } from "@/ui/answer"
 import { PageHeader } from "@/ui/page-header"
 import { departmentArt } from "@/ui/illustration"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/ui/menu"
@@ -44,12 +41,15 @@ import { ErrorState, SkeletonRows } from "@/ui/state"
 import { EmptyCell } from "@/ui/table"
 import { Meta, SectionTitle, Sub } from "@/ui/text"
 import { WallBoard } from "@/pages/wall"
+import { nextStep, stepSentence } from "@/pages/leaderboard-next"
 
 /**
- * The leaderboard (docs/ux/07): report-grade, counted from the publication
- * record, many categories and four views, all in the URL. Wall of fame is a
- * tab (docs/ux/14). No money anywhere: the server builds these boards
- * without reading an amount, and nothing here would show one.
+ * The leaderboard (docs/ux/07), counted from the publication record. It opens
+ * on the reader: where they stand, who is around them and what would move
+ * them, then a short Top 10 and the people rising. The full table is one
+ * click away (and is what Print and CSV use). Three tabs; old `?view=trend`
+ * and `?view=chart` links open Departments, where those charts now live.
+ * No money anywhere: the server builds these boards without reading an amount.
  */
 
 export type Measure =
@@ -149,16 +149,21 @@ const PERIOD_LABELS: Record<string, string> = {
   all: "All time",
 }
 
+/** Everybody opens on the last 12 months: a full year, whatever the month. */
+export const DEFAULT_PERIOD = "last12"
+
 const VIEWS = [
   { key: "people", label: "People" },
   { key: "departments", label: "Departments" },
-  { key: "trend", label: "Over the years" },
-  { key: "chart", label: "How it is spread" },
   { key: "wall", label: "Wall of fame" },
 ] as const
 type View = (typeof VIEWS)[number]["key"]
 
-const TOP = 50
+/** Old links (`?view=trend`, `?view=chart`) open Departments, where those charts live now. */
+export function viewOf(v: string | null): View {
+  if (v === "trend" || v === "chart") return "departments"
+  return VIEWS.some((x) => x.key === v) ? (v as View) : "people"
+}
 
 export function ordinal(n: number): string {
   const teen = n % 100
@@ -235,11 +240,36 @@ export function csvQuery(qs: URLSearchParams): string {
   return q.toString()
 }
 
+
+/** Short, plain names for the board on screen. */
+const BOARD_NAME: Partial<Record<Measure, string>> = { score: "Overall", papers: "Papers", q1: "Q1 papers", first: "First author", cited: "Cited" }
+
+/** One sentence under the chips saying what the chosen board counts. */
+export function describeBoard(measure: Measure, weights: Record<string, number> | undefined, newcomerMonths = 24): string {
+  const w = weights ?? { Q1: 4, Q2: 3, Q3: 2, Q4: 1, other: 1 }
+  switch (measure) {
+    case "score":
+      return w.Q4 === w.other
+        ? `Points for each paper: Q1 ${w.Q1}, Q2 ${w.Q2}, Q3 ${w.Q3}, Q4 and others ${w.Q4}.`
+        : `Points for each paper: Q1 ${w.Q1}, Q2 ${w.Q2}, Q3 ${w.Q3}, Q4 ${w.Q4}, others ${w.other}.`
+    case "papers": return "Every paper counts once."
+    case "q1": return "Papers in Q1 journals, the top quarter of their field."
+    case "first": return "Papers where you are the first author."
+    case "cited": return "Citations to your papers, from the record."
+    case "h_index": return "Your h-index, from the citations in the record."
+    case "rising": return "Your score this period minus the period before."
+    case "collab": return "How many different co-authors you wrote with."
+    case "cross_dept": return "Papers written with a colleague from another department."
+    case "international": return "Papers with a co-author abroad."
+    case "newcomer": return `People whose first paper came in the last ${newcomerMonths} months.`
+  }
+}
+
 export function Leaderboard() {
   const [params, setParams] = useSearchParams()
   const measure = (MEASURES.some((m) => m.key === params.get("category")) ? params.get("category") : "score") as Measure
-  const period = params.get("period") && PERIOD_LABELS[params.get("period")!] ? params.get("period")! : "academic"
-  const view = (VIEWS.some((v) => v.key === params.get("view")) ? params.get("view") : "people") as View
+  const period = params.get("period") && PERIOD_LABELS[params.get("period")!] ? params.get("period")! : DEFAULT_PERIOD
+  const view = viewOf(params.get("view"))
   // A head of department opens on their own department; "all" is the whole
   // college, chosen on purpose. Everybody else opens on the whole college.
   const { me } = useAuth()
@@ -271,27 +301,34 @@ export function Leaderboard() {
   })
   const b = query.data
 
+  const controls = (
+    <Controls
+      measure={measure}
+      period={period}
+      department={department}
+      topic={topic}
+      journal={journal}
+      board={b}
+      set={(key, value) => set(key, key === "department" && !value && home ? "all" : value)}
+    />
+  )
+
   return (
-    <div className="page space-y-6">
+    <div className="page mx-auto max-w-[1100px] space-y-6">
       <style>{"@media print { @page { size: A4 landscape; margin: 12mm } }"}</style>
-      <div className="space-y-6 print:hidden">
+      <div className="print:hidden">
         <PageHeader
           spot="leaderboard-honours"
           title="Leaderboard"
-          sub={
-            view === "wall"
-              ? "New papers, month by month."
-              : "Counted from the publication record."
-          }
+          sub={view === "wall" ? "New papers, month by month." : "Counted from the publication record."}
           action={view === "wall" ? null : <HowCounted board={b} />}
         />
-        {view === "wall" ? null : <Standing board={b} measure={measure} />}
       </div>
 
       {/* Print-only report header. */}
       {b ? <PrintStamp title="Research leaderboard" scope={`${b.label} · ${b.period.label} · ${b.scope ?? "Whole college"}`} /> : null}
 
-      <nav aria-label="Views" className="flex gap-1 overflow-x-auto border-b border-line print:hidden">
+      <nav aria-label="Views" className="well flex w-full gap-1 p-1 sm:w-fit print:hidden">
         {VIEWS.map((v) => (
           <button
             key={v.key}
@@ -299,10 +336,8 @@ export function Leaderboard() {
             aria-current={view === v.key ? "page" : undefined}
             onClick={() => set("view", v.key === "people" ? "" : v.key)}
             className={cn(
-              "shrink-0 rounded-t-control border-b-[3px] px-3 py-2.5 text-sm transition-colors duration-[var(--dur-1)]",
-              view === v.key
-                ? "border-gold bg-hover/60 font-semibold text-fg"
-                : "border-transparent font-medium text-fg-muted hover:border-control-edge hover:bg-hover/60 hover:text-fg active:bg-active"
+              "h-10 flex-1 rounded-lg px-4 text-sm whitespace-nowrap transition-colors duration-[var(--dur-1)] sm:flex-none",
+              view === v.key ? "bg-surface font-semibold text-fg shadow-raise ring-1 ring-line" : "font-medium text-fg-muted hover:bg-hover hover:text-fg"
             )}
           >
             {v.label}
@@ -317,136 +352,299 @@ export function Leaderboard() {
           onMonth={(m) => set("month", m)}
           onDepartment={(d) => set("dept", d)}
         />
-      ) : (
+      ) : query.isError ? (
         <>
-          <Controls
-            measure={measure}
-            period={period}
-            department={department}
-            topic={topic}
-            journal={journal}
-            board={b}
-            set={(key, value) => set(key, key === "department" && !value && home ? "all" : value)}
-          />
-
-          {query.isError ? (
-            <ErrorState title="Could not load the leaderboard." onRetry={() => void query.refetch()} />
-          ) : !b ? (
-            <SkeletonRows rows={8} />
-          ) : view === "people" ? (
-            <PeopleView board={b} />
-          ) : view === "departments" ? (
-            <DepartmentsView board={b} />
-          ) : view === "trend" ? (
-            <TrendView board={b} />
-          ) : (
-            <ChartView board={b} />
-          )}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 print:hidden">
-            <Meta className="flex items-center gap-1.5">
-              {b ? `${count(b.totals.papers)} papers counted in this period.` : "Counted from the publication record."}
-              <InfoTip label="About these counts">
-                {b
-                  ? `Counted from the ${count(b.method.papers_in_record)} papers written by current faculty in the publication record. `
-                  : "From the college's publication record. "}
-                No money is shown.
-              </InfoTip>
-            </Meta>
-            <Button kind="quiet" size="sm" onClick={() => window.print()} disabled={!b}>
-              <Printer aria-hidden className="size-4" /> Print / PDF
-            </Button>
-            {/* The server's CSV, with the same filters as the board on screen. */}
-            <Button kind="quiet" size="sm" asChild>
-              <a href={`/api/leaderboard?${csvQuery(qs)}`} download>
-                <Download aria-hidden className="size-4" /> Download CSV
-              </a>
-            </Button>
-          </div>
+          {controls}
+          <ErrorState title="Could not load the leaderboard." onRetry={() => void query.refetch()} />
         </>
+      ) : view === "people" ? (
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+          <aside aria-label="Your place" className="space-y-6 lg:col-start-2 lg:row-start-1 print:hidden">
+            {b ? <YouCard board={b} measure={measure} /> : <div className="h-48 animate-pulse rounded-2xl bg-sunken" />}
+          </aside>
+          <div className="min-w-0 space-y-6 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+            {controls}
+            {b ? <PeopleView board={b} /> : <SkeletonRows rows={8} />}
+          </div>
+          <div className="lg:col-start-2 lg:row-start-2 print:hidden">
+            {b ? <Rising period={period} department={department} /> : null}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {controls}
+          {b ? <DepartmentsTab board={b} /> : <SkeletonRows rows={8} />}
+        </div>
+      )}
+
+      {view === "wall" ? null : (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-4 print:hidden">
+          <Meta className="flex items-center gap-1.5">
+            {b ? `${count(b.totals.papers)} papers counted in this period.` : "Counted from the publication record."}
+            <InfoTip label="About these counts">
+              {b
+                ? `Counted from the ${count(b.method.papers_in_record)} papers written by current faculty in the publication record. `
+                : "From the college's publication record. "}
+              No money is shown.
+            </InfoTip>
+          </Meta>
+          <Button kind="quiet" size="sm" onClick={() => window.print()} disabled={!b}>
+            <Printer aria-hidden className="size-4" /> Print / PDF
+          </Button>
+          {/* The server's CSV, with the same filters as the board on screen. */}
+          <Button kind="quiet" size="sm" asChild>
+            <a href={`/api/leaderboard?${csvQuery(qs)}`} download>
+              <Download aria-hidden className="size-4" /> Download CSV
+            </a>
+          </Button>
+        </div>
       )}
     </div>
   )
 }
 
-/**
- * The answer at the top: where the reader stands, in three figures, each a
- * link to the list behind it. Without it the reader has to find their own row
- * in a table of 139 to learn the one thing they came for.
- *
- * The movement is set against the period before. When this period is still
- * running that is a part-year against a whole year, and the note says so, so a
- * fall in September is not read as a fall in standing.
- */
-function Standing({ board, measure }: { board: HonoursBoard | undefined; measure: Measure }) {
-  if (!board) {
-    return <Answer items={[{ value: null, label: "Your place" }, { value: null, label: "In your department" }, { value: null, label: "Of the college" }]} />
-  }
+/** The reader's bucket in the spread, from their own figure. */
+function myBucket(board: HonoursBoard): string | undefined {
   const me = board.me
-  const link = (o: Record<string, string>) => `/leaderboard?${new URLSearchParams({ ...(measure !== "score" ? { category: measure } : {}), ...o })}`
-  const where = board.scope ?? "the college"
-  const then = board.period.compared_with
-  const running = isRunning(board.period)
+  if (!me) return undefined
+  return board.distribution.find((d) => (me.value <= 0 ? d.bucket === "0" : d.lo != null && me.value >= d.lo && me.value <= d.hi))?.bucket
+}
 
-  if (!me) {
-    return (
-      <div className="space-y-3">
-        <Sub>{standing(board)}</Sub>
-        <Answer
-          items={[
-            { value: board.ranked, label: `People ranked in ${where}`, zero: "Nobody ranked yet" },
-            { value: board.totals.papers, label: "Papers counted", zero: "No papers counted" },
-            { value: Math.max(0, board.population - board.ranked), label: "Not ranked yet", zero: "Everyone is ranked" },
-          ]}
-        />
-      </div>
-    )
-  }
-  if (me.rank == null) {
-    return (
-      <div className="space-y-3">
-        <Answer
-          items={[
-            { value: 0, label: "Papers counted for you in this period", zero: `Nothing counted for you in ${board.period.label.replace("This ", "this ")} yet` },
-            ...(me.alltime_rank != null ? [{ value: `#${me.alltime_rank}`, label: "Your all-time place", to: link({ period: "all" }) }] : []),
-          ]}
-        />
-      </div>
-    )
-  }
-  const items: AnswerItem[] = [
-    { value: `${me.joint ? "=" : "#"}${me.rank}`, label: `of ${count(me.of)} in ${where}${me.joint ? ", level with others" : ""}` },
-  ]
-  if (!board.scope && me.dept_rank != null && me.department) {
-    items.push({ value: `#${me.dept_rank}`, label: `of ${count(me.dept_of)} in ${me.department}`, to: link({ department: me.department }) })
-  }
-  if (me.percentile != null) {
-    items.push({ value: `Top ${me.percentile}%`, label: `of ${where}`, to: link({ view: "chart" }) })
-  }
-  if (me.move != null && then) {
-    // A running year is a part-year: give last year's final place as a fact, not a rise or fall.
-    if (running) {
-      items.push({ value: `#${me.rank + me.move}`, label: `Last year: your final place in ${then.label}` })
-    } else {
-      items.push({
-        value: me.move === 0 ? 0 : `${me.move > 0 ? "Up" : "Down"} ${Math.abs(me.move)}`,
-        label: `places since ${then.label}`,
-        zero: `Same place as in ${then.label}`,
-        tone: me.move > 0 ? "positive" : undefined,
-      })
-    }
-  }
+/** A slim histogram of the board with the reader's bar in the accent. */
+function YouAreHere({ board }: { board: HonoursBoard }) {
+  const mark = myBucket(board)
+  const bars = board.distribution.filter((d) => d.bucket !== "0")
+  if (!bars.length) return null
+  const max = Math.max(1, ...bars.map((d) => d.count))
+  const label = `How ${board.label.toLowerCase()} is spread: ${bars.map((d) => `${d.bucket}: ${d.count} people`).join(", ")}.${mark ? ` You are in ${mark}.` : ""}`
   return (
-    <div className="space-y-2">
-      <Answer items={items} />
-      {me.move != null && then && running ? (
-        <Meta className="block">{board.period.label} is still running, so places are not compared with last year yet.</Meta>
-      ) : null}
-    </div>
+    <figure className="space-y-1.5">
+      <div role="img" aria-label={label} className="flex h-12 items-end gap-1">
+        {bars.map((d) => (
+          <div key={d.bucket} className="relative flex h-full flex-1 items-end" title={`${d.bucket} ${board.unit}: ${d.count} people`}>
+            <div
+              className={cn("w-full rounded-t-sm", d.bucket === mark ? "bg-accent" : "bg-fg/15")}
+              style={{ height: `${Math.max(6, (d.count / max) * 100)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+      <figcaption className="flex justify-between text-xs text-fg-muted">
+        <span>Fewer {board.unit}</span>
+        {mark ? <span className="font-medium text-accent">You are here</span> : null}
+        <span>More</span>
+      </figcaption>
+    </figure>
   )
 }
 
-/** The six everyday categories; the rarer ones sit behind "More". */
-const PRIMARY: Measure[] = ["score", "papers", "q1", "first", "cited", "h_index"]
+/**
+ * The two people just above the reader and the two just below. People level
+ * with the reader are counted, not listed: a run of "=105" says nothing.
+ */
+export function around(board: HonoursBoard): { above: BoardRow[]; below: BoardRow[]; level: number } {
+  const me = board.me
+  if (!me || me.rank == null) return { above: [], below: [], level: 0 }
+  const ranked = board.rows.filter((r) => r.rank != null && !isMe(board, r))
+  const above = ranked.filter((r) => r.value > me.value).slice(-2)
+  const below = ranked.filter((r) => r.value < me.value).slice(0, 2)
+  const level = ranked.filter((r) => r.value === me.value).length
+  return { above, below, level }
+}
+
+function Neighbour({ row }: { row: BoardRow }) {
+  return (
+    <li>
+      <DetailLink kind="person" id={row.person.id} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-hover hover:no-underline">
+        <span className="w-9 shrink-0 tabular-nums text-fg-muted">{rankText(row.rank, row.joint)}</span>
+        <Avatar person={row.person} size="xs" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium">{row.person.name}</span>
+          <span className="block truncate text-xs text-fg-muted">{row.person.department}</span>
+        </span>
+        <span className="font-semibold tabular-nums">{count(row.value)}</span>
+      </DetailLink>
+    </li>
+  )
+}
+
+/**
+ * The answer at the top, and the one decorated surface on the page: who you
+ * are, your place, where that sits in the spread, the people around you and
+ * what would move you. Leads with the best true thing; never a bare zero.
+ */
+function YouCard({ board, measure }: { board: HonoursBoard; measure: Measure }) {
+  const me = board.me
+  const link = (o: Record<string, string>) => `/leaderboard?${new URLSearchParams({ ...(measure !== "score" ? { category: measure } : {}), ...o })}`
+  const where = board.scope ?? "the college"
+  const shell = "rounded-2xl bg-surface p-5 shadow-raise ring-1 ring-line sm:p-6"
+
+  if (!me) {
+    return (
+      <section className={cn(shell, "space-y-4")}>
+        <p className="text-sm text-fg-muted">{board.scope ? `${board.scope} at a glance. The board ranks faculty members.` : "The college at a glance. The board ranks faculty members."}</p>
+        <dl className="grid grid-cols-2 gap-4">
+          <div>
+            <dt className="text-sm text-fg-muted">People ranked</dt>
+            <dd className="font-display text-3xl tabular-nums">{count(board.ranked)}</dd>
+          </div>
+          <div>
+            <dt className="text-sm text-fg-muted">Papers counted</dt>
+            <dd className="font-display text-3xl tabular-nums">{count(board.totals.papers)}</dd>
+          </div>
+        </dl>
+        <YouAreHere board={board} />
+      </section>
+    )
+  }
+
+  const mine = board.rows.find((r) => isMe(board, r))
+  const head = (
+    <div className="flex items-center gap-3">
+      <Avatar person={mine?.person ?? { name: "You", initials: "You", photo_url: null }} size="md" />
+      <div className="min-w-0">
+        <p className="truncate font-semibold">{mine?.person.name ?? "You"}</p>
+        <p className="truncate text-sm text-fg-muted">{me.department ?? board.label}</p>
+      </div>
+    </div>
+  )
+
+  if (me.rank == null) {
+    const period = board.period.label.replace(/^(This|Last) /, (m) => m.toLowerCase())
+    return (
+      <section className={cn(shell, "space-y-4")}>
+        {head}
+        <div className="space-y-1">
+          <p className="font-display text-lg leading-snug sm:text-xl">No papers counted for you in {period} yet.</p>
+          {me.alltime_rank != null ? (
+            <p className="text-sm text-fg-muted">
+              Your all-time place is <span className="font-semibold text-fg">#{me.alltime_rank}</span>.
+            </p>
+          ) : (
+            <p className="text-sm text-fg-muted">Once your first paper is in the record, you will show here.</p>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {board.period.key !== "last_academic" ? (
+            <Button kind="default" size="sm" asChild><Link to={link({ period: "last_academic" })}>See last academic year</Link></Button>
+          ) : null}
+          {board.period.key !== "all" ? (
+            <Button kind="quiet" size="sm" asChild><Link to={link({ period: "all" })}>All time</Link></Button>
+          ) : null}
+          {me.alltime_rank == null ? (
+            <Button kind="primary" size="sm" asChild><Link to="/papers/new">File a paper</Link></Button>
+          ) : null}
+        </div>
+      </section>
+    )
+  }
+
+  const leads = !board.scope && me.dept_rank === 1 && me.department
+  const quiet = [
+    me.percentile != null ? `Top ${me.percentile}%` : null,
+    !board.scope && me.dept_rank != null && me.department && !leads ? `#${me.dept_rank} in ${me.department}` : null,
+  ].filter(Boolean)
+  const step = nextStep(board)
+  const near = around(board)
+
+  return (
+    <section className={cn(shell, "space-y-5")}>
+      {head}
+      <div>
+        <p className="leading-tight">
+          <span className="font-display text-5xl tabular-nums text-accent">#{me.rank}</span>
+          <span className="ml-2 text-base text-fg-muted">of {count(me.of)} in {where}</span>
+        </p>
+        {leads ? <p className="mt-2 font-medium">You lead {me.department}.</p> : null}
+        {quiet.length ? <p className="mt-1 text-sm text-fg-muted">{quiet.join(" · ")}</p> : null}
+      </div>
+
+      <YouAreHere board={board} />
+
+      {near.above.length || near.below.length ? (
+        <div>
+          <h3 className="mb-2 text-sm font-semibold">Around you</h3>
+          <ol className="-mx-2 space-y-0.5">
+            {near.above.map((r) => <Neighbour key={r.person.id} row={r} />)}
+            <li aria-current="true" className="flex items-center gap-2.5 rounded-lg bg-accent-wash px-2 py-1.5 text-sm">
+              <span className="w-9 shrink-0 tabular-nums text-fg-muted">{rankText(me.rank, me.joint)}</span>
+              {mine ? <Avatar person={mine.person} size="xs" /> : null}
+              <span className="min-w-0 flex-1 truncate font-semibold">
+                You{near.level ? <span className="font-normal text-fg-muted"> and {near.level} level with you</span> : null}
+              </span>
+              <span className="font-semibold tabular-nums">{count(me.value)}</span>
+            </li>
+            {near.below.map((r) => <Neighbour key={r.person.id} row={r} />)}
+          </ol>
+        </div>
+      ) : null}
+
+      {step ? (
+        <div className="space-y-1.5 border-t border-line pt-4 text-sm">
+          <h3 className="font-semibold">Your next step</h3>
+          {step.kind === "first" ? (
+            <p>You are first. Keep going.</p>
+          ) : (
+            <p>
+              {step.ahead.person.name} is next, {count(step.theirs)} {board.unit} to your {count(step.yours)}. {stepSentence(step)}
+            </p>
+          )}
+          <Link to="/journal-check" className="inline-block text-accent underline-offset-2 hover:underline">
+            Check a journal first
+          </Link>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+/** Most improved and Newcomers: something to aim for outside the top 10. */
+function Rising({ period, department }: { period: string; department: string }) {
+  const q = (category: string) => {
+    const s = new URLSearchParams({ category, period })
+    if (department) s.set("department", department)
+    return `/api/leaderboard?${s}`
+  }
+  const rising = useApi<HonoursBoard>(["leaderboard", "honours", "rising", period, department, "", ""], q("rising"))
+  const fresh = useApi<HonoursBoard>(["leaderboard", "honours", "newcomer", period, department, "", ""], q("newcomer"))
+  const cards = [
+    { title: "Most improved", icon: TrendingUp, board: rising.data },
+    { title: "Newcomers", icon: Sprout, board: fresh.data },
+  ]
+    .map((c) => ({ ...c, top: (c.board?.rows ?? []).filter((r) => r.rank != null).slice(0, 3) }))
+    .filter((c) => c.top.length)
+  if (!cards.length) return null
+  return (
+    <section aria-label="Rising" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+      {cards.map((c) => (
+        <div key={c.title} className="rounded-2xl bg-surface p-4 ring-1 ring-line">
+          <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <c.icon aria-hidden className="size-4 text-fg-muted" /> {c.title}
+          </h3>
+          <ol className="-mx-2">
+            {c.top.map((r) => (
+              <li key={r.person.id}>
+                <DetailLink kind="person" id={r.person.id} className="flex w-full items-center gap-2.5 rounded-lg hover:no-underline px-2 py-1.5 text-sm hover:bg-hover">
+                  <Avatar person={r.person} size="xs" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{r.person.name}</span>
+                    <span className="block truncate text-xs text-fg-muted">{r.person.department}</span>
+                  </span>
+                  <span className="font-semibold tabular-nums">
+                    {c.title === "Most improved" ? "+" : ""}{count(r.value)}
+                  </span>
+                </DetailLink>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+/** The five everyday boards; the rarer ones sit behind "More". */
+const PRIMARY: Measure[] = ["score", "papers", "q1", "first", "cited"]
 
 function Controls({
   measure,
@@ -465,67 +663,72 @@ function Controls({
   board: HonoursBoard | undefined
   set: (key: string, value: string) => void
 }) {
-  const active = [department, topic, journal].filter(Boolean).length
+  const active = [topic, journal].filter(Boolean).length
   const [open, setOpen] = useState(active > 0)
-  // A head's own department arrives once the account has loaded: show it.
   useEffect(() => {
     if (active) setOpen(true)
   }, [active])
   const more = MEASURES.filter((m) => !PRIMARY.includes(m.key))
   const chosenMore = more.find((m) => m.key === measure)
   const pick = (m: Measure) => set("category", m === "score" ? "" : m)
-  const seg = (on: boolean) => segmentClass(on, "h-8 rounded-md")
+  const chip = (on: boolean) =>
+    cn(
+      "inline-flex h-10 shrink-0 items-center gap-1 rounded-full px-4 text-sm font-medium transition-colors duration-[var(--dur-1)]",
+      on ? "bg-accent text-accent-fg" : "bg-surface text-fg ring-1 ring-inset ring-control-edge hover:bg-hover"
+    )
+  const pill = "h-10 w-auto max-w-[15rem] rounded-full pl-9"
   return (
     <div className="space-y-3 print:hidden">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <div role="group" aria-label="Category" className="well -mx-1 flex max-w-full gap-0.5 overflow-x-auto p-1">
-          {MEASURES.filter((m) => PRIMARY.includes(m.key)).map((m) => (
-            <button key={m.key} type="button" aria-pressed={measure === m.key} onClick={() => pick(m.key)} className={seg(measure === m.key)}>
-              {m.label}
+      <div role="group" aria-label="Board" className="flex flex-wrap gap-2">
+        {MEASURES.filter((m) => PRIMARY.includes(m.key)).map((m) => (
+          <button key={m.key} type="button" aria-pressed={measure === m.key} onClick={() => pick(m.key)} className={chip(measure === m.key)}>
+            {BOARD_NAME[m.key] ?? m.label}
+          </button>
+        ))}
+        <Menu>
+          <MenuTrigger asChild>
+            <button type="button" aria-pressed={!!chosenMore} className={chip(!!chosenMore)}>
+              {chosenMore ? chosenMore.label : "More"} <ChevronDown aria-hidden className="size-4" />
             </button>
-          ))}
-          <Menu>
-            <MenuTrigger asChild>
-              <button type="button" aria-pressed={!!chosenMore} className={seg(!!chosenMore)}>
-                {chosenMore ? chosenMore.label : "More"} <ChevronDown aria-hidden className="size-3.5" />
-              </button>
-            </MenuTrigger>
-            <MenuContent align="end">
-              {more.map((m) => (
-                <MenuItem key={m.key} onSelect={() => pick(m.key)}>
-                  <span className="inline-flex items-center gap-2">
-                    <m.icon aria-hidden className="size-4 text-fg-muted" /> {m.label}
-                  </span>
-                </MenuItem>
-              ))}
-            </MenuContent>
-          </Menu>
-        </div>
-        <div className="flex items-center gap-2 sm:ml-auto">
-          <label className="flex items-center gap-2 text-sm">
-            <span className="sr-only">Period</span>
-            <Select size="sm" className="w-auto max-w-[14rem]" value={period} onChange={(e) => set("period", e.target.value === "academic" ? "" : e.target.value)}>
-              {Object.entries(PERIOD_LABELS).map(([k, l]) => (
-                <option key={k} value={k}>{l}</option>
-              ))}
-            </Select>
-          </label>
-          <Button kind="quiet" size="sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-            <SlidersHorizontal aria-hidden className="size-4" /> Filters{active ? ` (${active})` : ""}
-          </Button>
-        </div>
+          </MenuTrigger>
+          <MenuContent align="start">
+            {more.map((m) => (
+              <MenuItem key={m.key} onSelect={() => pick(m.key)}>
+                <span className="inline-flex items-center gap-2">
+                  <m.icon aria-hidden className="size-4 text-fg-muted" /> {m.label}
+                </span>
+              </MenuItem>
+            ))}
+          </MenuContent>
+        </Menu>
+      </div>
+      <p className="text-sm text-fg-muted">{describeBoard(measure, board?.method.weights, board?.method.newcomer_months)}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="relative flex items-center">
+          <span className="sr-only">Period</span>
+          <CalendarDays aria-hidden className="pointer-events-none absolute left-3 size-4 text-fg-muted" />
+          <Select className={pill} value={period} onChange={(e) => set("period", e.target.value === DEFAULT_PERIOD ? "" : e.target.value)}>
+            {Object.entries(PERIOD_LABELS).map(([k, l]) => (
+              <option key={k} value={k}>{l}</option>
+            ))}
+          </Select>
+        </label>
+        <label className="relative flex items-center">
+          <span className="sr-only">Scope</span>
+          <UsersRound aria-hidden className="pointer-events-none absolute left-3 size-4 text-fg-muted" />
+          <Select className={pill} value={department} onChange={(e) => set("department", e.target.value)}>
+            <option value="">Whole college</option>
+            {(board?.departments_list ?? []).map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </Select>
+        </label>
+        <Button kind="quiet" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="h-10 rounded-full">
+          <SlidersHorizontal aria-hidden className="size-4" /> Filters{active ? ` (${active})` : ""}
+        </Button>
       </div>
       {open ? (
-        <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-fg-muted">Scope</span>
-            <Select size="sm" className="w-auto max-w-[14rem]" value={department} onChange={(e) => set("department", e.target.value)}>
-              <option value="">Whole college</option>
-              {(board?.departments_list ?? []).map((d) => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </Select>
-          </label>
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-sunken p-3">
           <label className="flex items-center gap-2 text-sm">
             <span className="text-fg-muted">Topic</span>
             <Select size="sm" className="w-auto max-w-[14rem]" value={topic} onChange={(e) => set("topic", e.target.value)}>
@@ -545,7 +748,7 @@ function Controls({
             </Select>
           </label>
           {active ? (
-            <Button kind="quiet" size="sm" onClick={() => { set("department", ""); set("topic", ""); set("journal", "") }}>
+            <Button kind="quiet" size="sm" onClick={() => { set("topic", ""); set("journal", "") }}>
               Clear filters
             </Button>
           ) : null}
@@ -554,6 +757,7 @@ function Controls({
     </div>
   )
 }
+
 
 const DEPT_HINTS: [RegExp, string][] = [
   [/PHY/, "dept-sh-physics"], [/CHY|CHEM/, "dept-sh-chemistry"], [/MATH/, "dept-sh-maths"], [/ENG(L|$)/, "dept-sh-english"],
@@ -578,34 +782,6 @@ export function RankCell({ rank, joint }: { rank: number | null; joint: boolean 
   )
 }
 
-function Move({ row, running, then }: { row: Pick<BoardRow, "move" | "new" | "rank">; running: boolean; then: string | undefined }) {
-  if (row.rank == null) return null
-  if (row.new) return <span className="text-xs text-fg-muted">new</span>
-  if (row.move == null) return null
-  if (running)
-    return (
-      <span className="text-xs tabular-nums text-fg-muted" title={`Final place in ${then ?? "the last period"}`}>
-        #{row.rank + row.move}
-        <span className="sr-only"> last year</span>
-      </span>
-    )
-  if (row.move === 0)
-    return (
-      <span className="inline-flex items-center text-fg-muted" title="No change">
-        <Minus aria-hidden className="size-3" /><span className="sr-only">no change</span>
-      </span>
-    )
-  const up = row.move > 0
-  const Icon = up ? ArrowUp : ArrowDown
-  return (
-    <span className={cn("inline-flex items-center gap-0.5 text-xs tabular-nums", up ? "text-positive" : "text-critical")}>
-      <Icon aria-hidden className="size-3" />
-      {Math.abs(row.move)}
-      <span className="sr-only">{up ? " places up" : " places down"}</span>
-    </span>
-  )
-}
-
 function breakdownText(r: BoardRow): string {
   const parts = Object.entries(r.breakdown)
     .filter(([, n]) => n > 0)
@@ -613,165 +789,186 @@ function breakdownText(r: BoardRow): string {
   return `${r.papers} paper${r.papers === 1 ? "" : "s"}${parts.length ? `: ${parts.join(", ")}` : ""}`
 }
 
-/** Gold, silver, bronze: the plinth colour, the ring round the face, the plinth height. */
-const MEDAL = [
-  { plinth: "bg-gradient-to-b from-[#f3dc93] to-[#e2bf5c] text-[#6b4f0c]", ring: "ring-[#d9b24a]", h: "h-16 sm:h-32" },
-  { plinth: "bg-gradient-to-b from-[#e6e8ec] to-[#c7cbd2] text-[#4a4f58]", ring: "ring-[#b4b8bf]", h: "h-11 sm:h-24" },
-  { plinth: "bg-gradient-to-b from-[#ecc9a6] to-[#cf9a68] text-[#5e3a18]", ring: "ring-[#c08a5a]", h: "h-8 sm:h-16" },
-]
 
-function Podium({ board }: { board: HonoursBoard }) {
-  if (!board.podium.length) return null
-  // Visual order 2 · 1 · 3, the classic podium.
-  const order = [1, 0, 2].filter((i) => board.podium[i])
+/** Q1 to other, darkest to lightest: quality reads left to right. */
+const MIX = [
+  { key: "q1", label: "Q1", cls: "bg-navy" },
+  { key: "q2", label: "Q2", cls: "bg-navy/70" },
+  { key: "q3", label: "Q3", cls: "bg-navy/45" },
+  { key: "q4", label: "Q4", cls: "bg-navy/25" },
+  { key: "other", label: "Other", cls: "bg-fg/15" },
+] as const
+
+/** The breakdown keys arrive as "q1" or "Q1"; read either. */
+function part(r: Pick<BoardRow, "breakdown">, key: string): number {
+  return r.breakdown[key] ?? r.breakdown[key.toUpperCase()] ?? 0
+}
+
+export function MixBar({ row }: { row: Pick<BoardRow, "breakdown"> }) {
+  const parts = MIX.map((m) => ({ ...m, n: part(row, m.key) })).filter((m) => m.n > 0)
+  const total = parts.reduce((s, m) => s + m.n, 0)
+  if (!total) return null
+  const title = `Paper mix: ${parts.map((m) => `${m.n} ${m.label}`).join(", ")}`
   return (
-    <section className="rounded-2xl bg-paper px-3 pt-6 ring-1 ring-line sm:px-8">
-      <p className="text-center text-sm text-fg-muted">
-        {board.label} · {board.period.label}
-      </p>
-      <ol aria-label="Podium" className="mx-auto mt-4 grid max-w-3xl grid-cols-3 items-end gap-2 sm:gap-6">
-        {order.map((i) => {
-          const r = board.podium[i]
-          const first = i === 0
-          const m = MEDAL[Math.min((r.rank ?? i + 1) - 1, 2)] ?? MEDAL[i]
-          return (
-            <li key={r.person.id} className="flex min-w-0 flex-col items-center">
-              <Link to={`/people/${r.person.id}`} className="group flex min-w-0 flex-col items-center gap-1 px-1 pb-3 text-center">
-                <span className={cn("rounded-full ring-4 ring-offset-2 ring-offset-paper", m.ring)}>
-                  <Avatar person={r.person} size={first ? "xl" : "lg"} className={cn(!first && "sm:size-20")} />
-                </span>
-                <span className="mt-2 line-clamp-2 text-sm font-semibold group-hover:underline sm:text-base">{r.person.name}</span>
-                <span className="hidden max-w-full truncate text-xs text-fg-muted sm:block">{r.person.department}</span>
-                <span className="figure text-2xl sm:text-3xl" title={breakdownText(r)}>
-                  {count(r.value)}
-                </span>
-                <span className="text-xs text-fg-muted">{board.unit}</span>
-                <Sparkline values={r.spark} label={`Papers per year, ${board.spark_years[0]}–${board.spark_years.at(-1)}`} className="hidden sm:block" />
-              </Link>
-              <div aria-hidden className={cn("flex w-full items-start justify-center rounded-t-lg pt-1 font-display text-lg sm:pt-2 sm:text-4xl", m.plinth, m.h)}>
-                {r.rank}
-              </div>
-              <span className="sr-only">{r.joint ? `joint ${r.rank}` : `#${r.rank}`}</span>
-            </li>
-          )
-        })}
-      </ol>
-    </section>
+    <span role="img" aria-label={title} title={title} data-mix className="flex h-1 w-full max-w-48 overflow-hidden rounded-full bg-sunken">
+      {parts.map((m) => (
+        <span key={m.key} className={m.cls} style={{ width: `${(m.n / total) * 100}%` }} />
+      ))}
+    </span>
   )
 }
 
+function MixLegend() {
+  return (
+    <p aria-hidden className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-muted">
+      <span>Paper mix</span>
+      {MIX.map((m) => (
+        <span key={m.key} className="inline-flex items-center gap-1">
+          <span className={cn("inline-block size-2 rounded-full", m.cls)} /> {m.label}
+        </span>
+      ))}
+    </p>
+  )
+}
+
+/** Gold, silver and bronze, quietly: a small chip, not a plinth. */
+const MEDAL = [
+  "bg-[#f3e3b0] text-[#5c430a] ring-[#d9b24a]",
+  "bg-[#e6e8ec] text-[#3f444c] ring-[#b4b8bf]",
+  "bg-[#efd6bd] text-[#5e3a18] ring-[#c08a5a]",
+]
+
+const TOP = 10
+
 function PeopleView({ board }: { board: HonoursBoard }) {
   const [all, setAll] = useState(false)
-  const running = isRunning(board.period)
-  const shown = all ? board.rows : board.rows.filter((r, i) => i < TOP || isMe(board, r))
-  // The overall score is the first figure when it is the category, so a second
-  // "Score" column would say the same number twice.
-  const every: { key: Measure; head: string; of: (r: BoardRow) => number }[] = [
-    { key: "score", head: "Score", of: (r) => r.score },
-    { key: "papers", head: "Papers", of: (r) => r.papers },
-    { key: "q1", head: "Q1", of: (r) => r.q1 },
-    { key: "first", head: "First author", of: (r) => r.first },
-    { key: "cited", head: "Citations", of: (r) => r.cited },
-  ]
-  const figures = every.filter((c) => c.key !== board.measure)
-  const heads = ["#", "Name and department", board.label, ...figures.map((c) => c.head), "Papers a year", running ? "Last year" : "Change"]
+  const [withZero, setWithZero] = useState(false)
+  const ranked = board.rows.filter((r) => r.rank != null)
+  const unranked = board.rows.length - ranked.length
+  const top = ranked.slice(0, TOP)
+  const table = withZero ? board.rows : ranked
   const myRef = useRef<HTMLTableRowElement | null>(null)
   const [offscreen, setOffscreen] = useState(false)
   useEffect(() => {
     const el = myRef.current
-    if (!el || typeof IntersectionObserver === "undefined") return
+    if (!all || !el || typeof IntersectionObserver === "undefined") {
+      setOffscreen(false)
+      return
+    }
     const io = new IntersectionObserver(([e]) => setOffscreen(!e.isIntersecting))
     io.observe(el)
     return () => io.disconnect()
-  }, [shown.length])
+  }, [all, table.length])
 
   if (board.measure === "rising" && !board.ranked)
     return <Sub>Nobody has risen yet this period. It starts counting once two periods have papers.</Sub>
+  if (!ranked.length) return <Sub>Nobody has anything counted in this period yet.</Sub>
 
   return (
-    <div className="space-y-5">
-      <Podium board={board} />
-      <p className="flex items-center gap-1.5 text-sm text-fg-muted">
-        {count(board.ranked)} of {count(board.population)} people ranked by {board.label.toLowerCase()} ({board.unit}).
-        <InfoTip label="About unranked people">People with nothing counted this period show as not ranked yet.</InfoTip>
-      </p>
-
-      {/* Desktop table — ten columns need 1024px; below that the list (a11y audit: 992px wide at 768) */}
-      <div className="hidden lg:block print:block">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-fg-muted">
-              {heads.map((h, i) => (
-                <th key={h} scope="col" className={cn("sticky top-0 z-10 border-b border-line bg-bg px-3 py-2 font-normal print:static", i >= 2 && i < heads.length - 2 && "text-right")}>
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r) => {
-              const me = isMe(board, r)
-              return (
-                <tr
-                  key={r.person.id}
-                  ref={me ? myRef : undefined}
-                  aria-current={me ? "true" : undefined}
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-2 print:hidden">
+        <h2 className="font-display text-2xl">Top {Math.min(TOP, ranked.length)}</h2>
+        <MixLegend />
+      </div>
+      <ol aria-label="Top 10" className="divide-y divide-line overflow-hidden rounded-2xl bg-surface ring-1 ring-line print:hidden">
+        {top.map((r) => {
+          const you = isMe(board, r)
+          const medal = r.rank != null && r.rank <= 3 ? MEDAL[r.rank - 1] : null
+          return (
+            <li key={r.person.id} aria-current={you ? "true" : undefined}>
+              <DetailLink
+                kind="person"
+                id={r.person.id}
+                className={cn("flex w-full min-h-16 hover:no-underline items-center gap-3 px-4 py-2 hover:bg-hover sm:gap-4", you && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)]")}
+              >
+                <span
                   className={cn(
-                    "border-b border-line/60 hover:bg-hover/50",
-                    me && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)] hover:bg-accent-wash",
-                    r.rank == null && "text-fg-muted"
+                    "flex size-8 shrink-0 items-center justify-center rounded-full text-sm tabular-nums",
+                    medal ? cn("font-semibold ring-1", medal) : "text-fg-muted"
                   )}
                 >
-                  <td className="px-3 py-2.5 tabular-nums text-fg-muted"><RankCell rank={r.rank} joint={r.joint} /></td>
-                  <td className="px-3 py-2">
-                    <Link to={`/people/${r.person.id}`} className="flex items-center gap-2 hover:underline">
-                      <Avatar person={r.person} size="sm" className="print:hidden" />
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium text-fg">{r.person.name}{me ? " (you)" : ""}</span>
-                        <span className="block truncate text-xs text-fg-muted">{r.person.department}</span>
-                      </span>
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums" title={breakdownText(r)}>{count(r.value)}</td>
-                  {figures.map((c) => (
-                    <td key={c.key} className="px-3 py-2 text-right tabular-nums">{c.of(r)}</td>
-                  ))}
-                  <td className="px-3 py-2"><Sparkline values={r.spark} /></td>
-                  <td className="px-3 py-2"><Move row={r} running={running} then={board.period.compared_with?.label} /></td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Phone list */}
-      <ol className="divide-y divide-line/60 border-y border-line lg:hidden print:hidden">
-        {shown.map((r) => (
-          <li key={r.person.id} className={cn(isMe(board, r) && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)]")}>
-            <Link to={`/people/${r.person.id}`} className="flex items-center gap-3 px-3 py-2">
-              <span className={cn("shrink-0 tabular-nums text-fg-muted", r.rank == null ? "w-14 text-xs leading-tight" : "w-8 text-sm")}><RankCell rank={r.rank} joint={r.joint} /></span>
-              <Avatar person={r.person} size="sm" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{r.person.name}</span>
-                <span className="block truncate text-xs text-fg-muted">{r.person.department}</span>
-              </span>
-              <span className="text-right">
-                <span className="block font-semibold tabular-nums">{count(r.value)}</span>
-                <Move row={r} running={running} then={board.period.compared_with?.label} />
-              </span>
-            </Link>
-          </li>
-        ))}
+                  {rankText(r.rank, r.joint)}
+                </span>
+                <Avatar person={r.person} size="sm" />
+                <span className="min-w-0 flex-1 space-y-0.5">
+                  <span className="block truncate font-semibold text-fg">{r.person.name}{you ? " (you)" : ""}</span>
+                  <span className="block truncate text-sm text-fg-muted">{r.person.department}</span>
+                  <MixBar row={r} />
+                </span>
+                <span className="shrink-0 text-right">
+                  <span className="text-xl font-semibold tabular-nums">{count(r.value)}</span>
+                  <span className="ml-1 text-xs text-fg-muted">{board.unit}</span>
+                </span>
+              </DetailLink>
+            </li>
+          )
+        })}
       </ol>
 
-      {!all && board.rows.length > TOP ? (
-        <Button kind="quiet" size="sm" onClick={() => setAll(true)} className="print:hidden">
-          Show all {count(board.rows.length)}
-        </Button>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 print:hidden">
+        {ranked.length > TOP || unranked ? (
+          <Button kind="default" size="sm" aria-expanded={all} onClick={() => setAll((a) => !a)}>
+            {all ? "Hide the full list" : `Show everyone (${count(ranked.length)})`}
+          </Button>
+        ) : null}
+        {unranked ? (
+          <Meta>
+            {count(unranked)} {unranked === 1 ? "person has" : "people have"} nothing counted in this period.
+          </Meta>
+        ) : null}
+      </div>
 
-      {board.me && offscreen ? <PinnedMe board={board} /> : null}
+      {/* The full table: on screen when asked for, always in print. */}
+      <div className={cn(all ? "block" : "hidden print:block")}>
+        {unranked ? (
+          <label className="mb-2 flex items-center gap-2 text-sm text-fg-muted print:hidden">
+            <input type="checkbox" checked={withZero} onChange={(e) => setWithZero(e.target.checked)} className="size-4" />
+            Include people with nothing counted
+          </label>
+        ) : null}
+        <div className="overflow-x-auto rounded-2xl ring-1 ring-line print:ring-0">
+          <table className="w-full min-w-[36rem] bg-surface text-sm">
+            <thead>
+              <tr className="text-left text-xs text-fg-muted">
+                {["#", "Name and department", board.label, "Papers", "Q1", "Citations", "Paper mix"].map((h, i) => (
+                  <th key={h} scope="col" className={cn("border-b border-line px-3 py-2 font-medium", i >= 2 && i <= 5 && "text-right")}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {table.map((r) => {
+                const me = isMe(board, r)
+                return (
+                  <tr
+                    key={r.person.id}
+                    ref={me ? myRef : undefined}
+                    aria-current={me ? "true" : undefined}
+                    className={cn("border-b border-line/60 last:border-0 hover:bg-hover/50", me && "bg-accent-wash shadow-[inset_3px_0_0_var(--color-accent)] hover:bg-accent-wash")}
+                  >
+                    <td className="px-3 py-2 tabular-nums text-fg-muted"><RankCell rank={r.rank} joint={r.joint} /></td>
+                    <td className="px-3 py-2">
+                      <DetailLink kind="person" id={r.person.id} className="flex items-center gap-2">
+                        <Avatar person={r.person} size="xs" className="print:hidden" />
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-fg">{r.person.name}{me ? " (you)" : ""}</span>
+                          <span className="block truncate text-xs text-fg-muted">{r.person.department}</span>
+                        </span>
+                      </DetailLink>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums" title={breakdownText(r)}>{count(r.value)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{r.papers}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{r.q1}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{r.cited}</td>
+                    <td className="px-3 py-2"><MixBar row={r} /></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {board.me && all && offscreen ? <PinnedMe board={board} /> : null}
     </div>
   )
 }
@@ -780,16 +977,49 @@ function isMe(board: HonoursBoard, r: BoardRow): boolean {
   return !!board.me && r.person.id === board.me.id
 }
 
+/** Shown only while the reader's own row is in the open table and scrolled away. */
 function PinnedMe({ board }: { board: HonoursBoard }) {
   const me = board.me!
   return (
-    <div
-      role="status"
-      className="sticky bottom-3 z-20 flex items-center gap-3 rounded-xl bg-paper px-4 py-2 text-sm shadow-raise ring-1 ring-line print:hidden"
-    >
+    <div role="status" className="sticky bottom-3 z-20 flex items-center gap-3 rounded-xl bg-surface px-4 py-2 text-sm shadow-raise ring-1 ring-accent-line print:hidden">
       <span className="font-display text-lg tabular-nums text-accent">{rankText(me.rank, me.joint)}</span>
       <span className="flex-1 text-fg-muted">Your place{me.percentile != null ? `, top ${me.percentile}%` : ""}</span>
       <span className="font-semibold tabular-nums">{count(me.value)} <span className="font-normal text-fg-muted">{board.unit}</span></span>
+    </div>
+  )
+}
+
+/** Departments, then the college over the years and how the board is spread. */
+function DepartmentsTab({ board }: { board: HonoursBoard }) {
+  const me = board.me
+  return (
+    <div className="space-y-10">
+      <DepartmentsView board={board} />
+      <section className="space-y-4">
+        <h2 className="font-display text-2xl">Over the years</h2>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Trend
+            title={`Papers by year · ${board.scope ?? "whole college"}`}
+            dimension="Year"
+            points={board.college_trend.map((t) => ({ key: String(t.year), count: t.papers }))}
+            showAmounts={false}
+            className="lg:col-span-2"
+          />
+          <RankedBars title="Top topics this period" dimension="Topic" points={board.top_topics.map((t) => ({ key: t.topic, count: t.papers }))} showAmounts={false} />
+          <RankedBars title="Top journals this period" dimension="Journal" points={board.top_journals.map((t) => ({ key: t.journal, count: t.papers, to: detailHref({ kind: "journal", name: t.journal }) }))} showAmounts={false} />
+        </div>
+      </section>
+      <section className="space-y-4">
+        <h2 className="font-display text-2xl">How it is spread</h2>
+        <Distribution
+          title={`How ${board.label.toLowerCase()} is spread`}
+          caption={me?.percentile != null ? `You're in the top ${me.percentile}% of ${board.scope ?? "the college"}.` : undefined}
+          dimension={board.unit}
+          points={board.distribution.map((d) => ({ key: d.bucket, count: d.count }))}
+          mark={myBucket(board)}
+          showAmounts={false}
+        />
+      </section>
     </div>
   )
 }
@@ -854,39 +1084,6 @@ function DepartmentsView({ board }: { board: HonoursBoard }) {
           </tbody>
         </table>
       </div>
-    </div>
-  )
-}
-
-function TrendView({ board }: { board: HonoursBoard }) {
-  return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      <Trend
-        title={`Papers by year · ${board.scope ?? "whole college"}`}
-        dimension="Year"
-        points={board.college_trend.map((t) => ({ key: String(t.year), count: t.papers }))}
-        showAmounts={false}
-        className="lg:col-span-2"
-      />
-      <RankedBars title="Top topics this period" dimension="Topic" points={board.top_topics.map((t) => ({ key: t.topic, count: t.papers }))} showAmounts={false} />
-      <RankedBars title="Top journals this period" dimension="Journal" points={board.top_journals.map((t) => ({ key: t.journal, count: t.papers }))} showAmounts={false} />
-    </div>
-  )
-}
-
-function ChartView({ board }: { board: HonoursBoard }) {
-  const me = board.me
-  const mark = me ? board.distribution.find((d) => (me.value <= 0 ? d.bucket === "0" : d.lo != null && me.value >= d.lo && me.value <= d.hi))?.bucket : undefined
-  return (
-    <div className="space-y-3">
-      <Distribution
-        title={`How ${board.label.toLowerCase()} is spread`}
-        caption={me?.percentile != null ? `You're in the top ${me.percentile}% of ${board.scope ?? "the college"}.` : undefined}
-        dimension={board.unit}
-        points={board.distribution.map((d) => ({ key: d.bucket, count: d.count }))}
-        mark={mark}
-        showAmounts={false}
-      />
     </div>
   )
 }

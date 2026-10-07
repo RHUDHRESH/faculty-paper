@@ -19,6 +19,7 @@ import { Button } from "@/ui/button"
 import { ErrorState, Skeleton, Delayed } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { money } from "@/ui/paper"
+import { DetailLink, detailHref } from "@/ui/detail-sheet"
 import { Journey, claimStatus, facultyStage } from "@/ui/journey"
 import { ClaimTrack } from "@/ui/claim-track"
 import { Chip } from "@/ui/chip"
@@ -546,9 +547,16 @@ function UnfiledPapers({ unfiled }: { unfiled: NonNullable<HomeRecord["unfiled"]
         {items.map((p) => (
           <li key={p.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
             <div className="min-w-0 flex-1">
-              <p className="line-clamp-2 font-medium">{unshout(p.title)}</p>
+              <p className="line-clamp-2 font-medium">
+                <DetailLink kind="paper" id={p.id}>
+                  {unshout(p.title)}
+                </DetailLink>
+              </p>
               <p className="truncate text-sm text-fg-muted">
-                {[p.venue, p.year].filter(Boolean).join(", ") || "Journal not recorded"}
+                {p.venue && <DetailLink kind="journal" name={p.venue} />}
+                {p.venue && p.year ? ", " : ""}
+                {p.year}
+                {!p.venue && !p.year && "Journal not recorded"}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-3">
@@ -710,9 +718,9 @@ function ResearchSection({
       ) : (
         <>
           <p className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-            <Fact to="/papers" value={rec.papers} label={rec.papers === 1 ? "paper" : "papers"} />
-            <Fact to="/research#citations" value={rec.citations} label="citations" />
-            <Fact to="/research#metrics" value={rec.h_index} label="h-index" />
+            <Fact to="/papers" metric="papers" value={rec.papers} label={rec.papers === 1 ? "paper" : "papers"} />
+            <Fact to="/research#citations" metric="citations" value={rec.citations} label="citations" />
+            <Fact to="/research#metrics" metric="h_index" value={rec.h_index} label="h-index" />
           </p>
           {rec.quartiles && rec.papers > 0 && (
             <DotField
@@ -721,7 +729,7 @@ function ResearchSection({
               max={160}
               unit="papers"
               groups={([
-                { key: "q1", label: "in Q1 journals", count: rec.quartiles.Q1, tone: "gold", to: "/papers?quartile=Q1" },
+                { key: "q1", label: "in Q1 journals", count: rec.quartiles.Q1, tone: "gold", to: detailHref({ kind: "metric", metric: "quartile", value: "Q1" }) },
                 {
                   key: "q2-4",
                   label: "in Q2 to Q4 journals",
@@ -746,7 +754,20 @@ function ResearchSection({
   )
 }
 
-function Fact({ to, value, label }: { to: string; value: number | null; label: string }) {
+function Fact({ to, metric, value, label }: { to: string; metric: string; value: number | null; label: string }) {
+  // A known number opens the papers behind it; one not known yet still goes
+  // to the page that explains why.
+  if (value)
+    return (
+      <DetailLink kind="metric" metric={metric} label={`${formatCount(value)} ${label}`} className="group">
+        <span aria-hidden className="figure text-figure underline decoration-dotted decoration-fg-subtle decoration-1 underline-offset-[6px] group-hover:decoration-solid">
+          {formatCount(value)}
+        </span>{" "}
+        <span aria-hidden className="text-sm text-fg-muted group-hover:text-fg">
+          {label}
+        </span>
+      </DetailLink>
+    )
   return (
     <Link to={to} aria-label={value == null ? `${label}: not known yet` : `${formatCount(value)} ${label}`} className="group">
       <span aria-hidden className="figure text-figure">

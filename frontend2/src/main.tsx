@@ -119,6 +119,7 @@ const Papers = page(() => import("@/pages/papers"), "Papers")
 const ClaimsList = page(() => import("@/pages/claims-list"), "ClaimsList")
 const AppraisalList = page(() => import("@/pages/my-record"), "AppraisalList")
 const PaymentStatement = page(() => import("@/pages/my-record"), "PaymentStatement")
+const ProofLocker = page(() => import("@/pages/proof-locker"), "ProofLocker")
 const Payments = page(() => import("@/pages/payments"), "Payments")
 const PaymentsDone = page(() => import("@/pages/payments"), "PaymentsDone")
 const Publications = page(() => import("@/pages/publications"), "Publications")
@@ -147,6 +148,8 @@ const Profile = page(() => import("@/pages/profile"), "Profile")
 const Research = page(() => import("@/pages/research"), "Research")
 const Scout = page(() => import("@/pages/scout"), "Scout")
 const Compass = page(() => import("@/pages/compass"), "Compass")
+const JournalCheck = page(() => import("@/pages/journal-check"), "JournalCheckPage")
+const Insights = page(() => import("@/pages/insights"), "Insights")
 const Setup = page(() => import("@/pages/setup"), "Setup")
 const InstitutionSettings = page(() => import("@/pages/institution-settings"), "InstitutionSettings")
 const WallOfFame = page(() => import("@/pages/wall"), "WallOfFame")
@@ -171,6 +174,7 @@ const PRELOADS: [string, Page][] = [
   ["/papers/claims", ClaimsList],
   ["/papers/appraisal", AppraisalList],
   ["/papers/statement", PaymentStatement],
+  ["/papers/locker", ProofLocker],
   ["/papers/new", FilePaper],
   ["/papers/:id/edit", FilePaper],
   ["/papers/:id", PaperDetail],
@@ -198,6 +202,8 @@ const PRELOADS: [string, Page][] = [
   ["/research", Research],
   ["/scout", Scout],
   ["/compass", Compass],
+  ["/journal-check", JournalCheck],
+  ["/insights", Insights],
   ["/leaderboard", Leaderboard],
   ["/wall", WallOfFame],
   ["/calendar", Calendar],
@@ -410,6 +416,7 @@ function App() {
           <Route path="/papers/claims" element={<ClaimsList />} />
           <Route path="/papers/appraisal" element={<AppraisalList />} />
           <Route path="/papers/statement" element={<PaymentStatement />} />
+          <Route path="/papers/locker" element={<ProofLocker />} />
           <Route path="/papers/new" element={<FilePaper />} />
           <Route path="/papers/:id/edit" element={<FilePaper />} />
           <Route path="/papers/:id" element={<PaperDetail />} />
@@ -426,6 +433,8 @@ function App() {
           <Route path="/discover" element={<Discover />} />
           <Route path="/scout" element={<Scout />} />
           <Route path="/compass" element={<Compass />} />
+          <Route path="/journal-check" element={<JournalCheck />} />
+          <Route path="/insights" element={<Insights />} />
           <Route path="/collaborate" element={<Collaborate />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/discussions" element={<Feed />} />

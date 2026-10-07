@@ -1,4 +1,4 @@
-"""One request for the review workspace.
+﻿"""One request for the review workspace.
 
 The full-page review workspace (`/review/:claimId`) used to be a side sheet
 that fetched the claim, then its flags, then asked again for its history. On a
@@ -24,6 +24,7 @@ from __future__ import annotations
 from django.http import HttpRequest
 from ninja.errors import HttpError
 
+from core.services import proof_locker
 from core.api.common import api, require_user, session_auth
 from core.api.flags import file_check_to_dict, flag_to_dict
 from core.api.journals import get_claim
@@ -55,6 +56,8 @@ def claim_workspace(request: HttpRequest, claim_id: str):
                 for f in claim.flags.select_related("raised_by", "resolved_by").order_by("-raised_at")
             ],
             "file_checks": [file_check_to_dict(c) for c in claim.file_checks.all()],
+            # What the claimant's proof locker found on the same files, by URL.
+            "locker_checks": proof_locker.checks_by_url(claim),
         }
 
     return {

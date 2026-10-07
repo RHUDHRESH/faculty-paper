@@ -7,6 +7,7 @@ import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Sparkline } from "@/ui/chart"
 import { Chip } from "@/ui/chip"
+import { DetailLink } from "@/ui/detail-sheet"
 import { PersonCard } from "@/ui/entity"
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/ui/menu"
 import { Avatar, initialsOf } from "@/ui/person"
@@ -179,7 +180,7 @@ export function VenueCard({ item, onHide }: { item: FeedItem; onHide: () => void
   return (
     <article data-area="research" className={card}>
       <CardHead item={item} icon={BookOpen} label="Venue" onHide={onHide} />
-      <h3 className="line-clamp-2 text-lg font-semibold text-fg">{item.title}</h3>
+      <h3 className="line-clamp-2 text-lg font-semibold text-fg"><DetailLink kind="journal" name={item.title} /></h3>
       <div className="flex flex-wrap gap-2">
         {p.quartile && (
           <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"} icon={p.quartile === "Q1" ? Gem : undefined}>
@@ -210,7 +211,7 @@ export function VenueRow({ item, onHide }: { item: FeedItem; onHide: () => void 
     <article data-area="research" className="flex min-w-0 items-start gap-3">
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-base font-semibold text-fg">{item.title}</h3>
+          <h3 className="text-base font-semibold text-fg"><DetailLink kind="journal" name={item.title} /></h3>
           {p.quartile && (
             <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"} icon={p.quartile === "Q1" ? Gem : undefined}>
               {p.quartile}

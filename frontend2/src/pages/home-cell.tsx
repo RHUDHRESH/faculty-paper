@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn"
 import { ClaimNo, ClaimNoLegend, daysText, useHashScroll, Waited } from "@/pages/cell/parts"
 import { HomeTrack } from "@/pages/home-track"
 import { fromBefore, greeting, QueueRow, Waiting, YourPapers } from "@/pages/home-staff"
+import { AskTheData } from "@/pages/insights-link"
 import { homeTrack } from "@/app/home-data"
 import type { QueueClaim } from "@/pages/clearing-actions"
 import { isReady } from "@/pages/cell/clearing-rows"
@@ -209,6 +210,8 @@ export function CellHome() {
           </div>
 
           <HomeTrack />
+
+          <AskTheData about="A question about the papers or the claims? Ask it in plain English." />
 
           {target && d && d.desk_open > 0 && (
             <p className="max-w-3xl text-base" role="status">

@@ -157,16 +157,16 @@ describe("FacultyHome", () => {
 
   it("shows one paper count from the record, with citations and h-index", async () => {
     mount([claim()])
-    expect(await screen.findByRole("link", { name: "20 papers" })).toHaveAttribute("href", "/papers")
-    expect(screen.getByRole("link", { name: "46 citations" })).toHaveAttribute("href", "/research#citations")
-    expect(screen.getByRole("link", { name: "3 h-index" })).toHaveAttribute("href", "/research#metrics")
+    expect(await screen.findByRole("button", { name: "20 papers" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "46 citations" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "3 h-index" })).toBeInTheDocument()
     // The old page also drew a department rank and a search box; neither is Home's job.
     expect(screen.queryByRole("search")).toBeNull()
   })
 
   it("asks the server for the record once, in one light request", async () => {
     mount([claim()])
-    await screen.findByRole("link", { name: "20 papers" })
+    await screen.findByRole("button", { name: "20 papers" })
     const paths = vi.mocked(api).mock.calls.map(([p]) => String(p))
     expect(paths.filter((p) => p === "/api/me/home")).toHaveLength(1)
     expect(paths).not.toContain("/api/me/summary")
@@ -272,7 +272,7 @@ describe("FacultyHome", () => {
 
   it("adds nothing under Needs you when nothing is needed", async () => {
     mount([claim()])
-    await screen.findByRole("link", { name: "20 papers" })
+    await screen.findByRole("button", { name: "20 papers" })
     expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull()
     expect(screen.getByTestId("home-answer")).toHaveTextContent("Nothing needs you")
   })
@@ -326,7 +326,7 @@ describe("FacultyHome", () => {
 
   it("draws no suggestion, and no error, when there is nothing to suggest", async () => {
     mount([claim()], [], { "/api/discover/next": failing(500) })
-    await screen.findByRole("link", { name: "20 papers" })
+    await screen.findByRole("button", { name: "20 papers" })
     expect(screen.queryByText("Something to try next")).toBeNull()
     expect(screen.queryByRole("alert")).toBeNull()
   })

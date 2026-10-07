@@ -4,6 +4,7 @@ import {
   FilePlusCorner,
   Lightbulb,
   MessageCircle,
+  MessageCircleQuestionMark,
   UsersRound,
   Library,
   CalendarClock,
@@ -261,6 +262,18 @@ const PAGES: NavItem[] = [
     keywords: ["ideas", "topics", "what is new", "ai"],
   },
   {
+    to: "/journal-check",
+    label: "Check a journal",
+    icon: ShieldCheck,
+    group: "Research",
+    area: "research",
+    purpose: "See whether a journal is safe and worth it before you submit.",
+    keywords: [
+      "journal", "safe", "predatory", "hijacked", "discontinued", "scopus", "issn", "website", "fake journal",
+      "watch list", "is this journal good",
+    ],
+  },
+  {
     to: "/compass",
     label: "Research compass",
     icon: Compass,
@@ -372,6 +385,15 @@ const PAGES: NavItem[] = [
     findOnly: true,
     purpose: "What the college has paid you, month by month.",
     keywords: ["paid", "money", "incentive", "voucher", "bank", "how much"],
+  },
+  {
+    to: "/papers/locker",
+    label: "Proof locker",
+    icon: FileText,
+    roles: CLAIMANTS,
+    findOnly: true,
+    purpose: "Your paper and reference PDFs, checked before you file and reusable on any claim.",
+    keywords: ["pdf", "upload", "proof", "reference", "affiliation", "files", "locker"],
   },
   {
     to: "/payments/done",
@@ -837,6 +859,20 @@ const PAGES: NavItem[] = [
     group: "Look at",
     keywords: ["figures", "output", "year brief", "accreditation", "publications", "journals", "download", "reports", "all reports"],
   },
+  {
+    // Mirrors `insights.may_ask`: everybody who reads the reports, and a head
+    // for their own department, with no money. Faculty have My research.
+    to: "/insights",
+    label: "Ask the data",
+    icon: MessageCircleQuestionMark,
+    roles: TRACK_ROLES,
+    group: "Look at",
+    purpose: "Ask about papers, journals, people, claims or payouts in plain English, and get the counted answer.",
+    keywords: [
+      "ask", "question", "plain english", "how many", "which journals", "who has the most", "this year vs last",
+      "compare", "year on year", "waiting longest", "paid out", "per department", "ai", "insights", "query",
+    ],
+  },
 ]
 
 /** One plain line for what each page is for, by route. */
@@ -1036,6 +1072,14 @@ const DOORS: Door[] = [
     covers: ["/reports", "/publications", "/journals", "/accreditation", "/search"],
   },
   {
+    to: "/insights",
+    label: "Ask the data",
+    icon: MessageCircleQuestionMark,
+    roles: TRACK_ROLES,
+    covers: ["/insights"],
+    keywords: ["ask", "question", "how many", "which", "who"],
+  },
+  {
     to: "/admin",
     label: "Admin",
     icon: Wrench,
@@ -1052,7 +1096,7 @@ export const DOOR_LABELS: Record<string, string> = Object.fromEntries(DOORS.map(
 
 /** The pages an office role reaches through the folded Research group. */
 const RESEARCH_PAGES = [
-  "/papers", "/papers/new", "/research", "/discover", "/compass", "/scout",
+  "/papers", "/papers/new", "/research", "/discover", "/journal-check", "/compass", "/scout",
   "/collaborate", "/messages", "/discussions", "/leaderboard",
 ]
 

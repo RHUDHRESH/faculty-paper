@@ -116,13 +116,21 @@ describe("the office sidebar", () => {
   const labels = (role: (typeof ROLES)[number]) => doors(role).map((i) => i.label)
 
   it("gives each role the doors on its own work, in this order", () => {
-    expect(labels("SUPER_ADMIN")).toEqual(["Home", "Claims", "Track", "Faculty", "Reports", "Admin"])
-    expect(labels("RESEARCH_CELL")).toEqual(["Home", "Claims", "Track", "Faculty", "Reports", "Admin"])
-    expect(labels("RESEARCH_COORDINATOR")).toEqual(["Home", "Claims", "Track", "Faculty", "Reports", "Admin"])
-    expect(labels("PRINCIPAL")).toEqual(["Home", "Approvals", "Track", "Faculty", "Money", "Reports"])
-    expect(labels("DIRECTOR")).toEqual(["Home", "Authorisations", "Track", "Money", "Reports"])
-    expect(labels("FINANCE")).toEqual(["Home", "Payments", "Track", "Money", "Reports"])
-    expect(labels("HOD")).toEqual(["Home", "Department", "Track", "Reports"])
+    expect(labels("SUPER_ADMIN")).toEqual(["Home", "Claims", "Track", "Faculty", "Reports", "Ask the data", "Admin"])
+    expect(labels("RESEARCH_CELL")).toEqual(["Home", "Claims", "Track", "Faculty", "Reports", "Ask the data", "Admin"])
+    expect(labels("RESEARCH_COORDINATOR")).toEqual(["Home", "Claims", "Track", "Faculty", "Reports", "Ask the data", "Admin"])
+    expect(labels("PRINCIPAL")).toEqual(["Home", "Approvals", "Track", "Faculty", "Money", "Reports", "Ask the data"])
+    expect(labels("DIRECTOR")).toEqual(["Home", "Authorisations", "Track", "Money", "Reports", "Ask the data"])
+    expect(labels("FINANCE")).toEqual(["Home", "Payments", "Track", "Money", "Reports", "Ask the data"])
+    expect(labels("HOD")).toEqual(["Home", "Department", "Track", "Reports", "Ask the data"])
+  })
+
+  it("offers Ask the data to every office seat and a head, and never to faculty", () => {
+    // Mirrors `insights.may_ask` on the server: the reports' readers and a head.
+    for (const role of ROLES) expect(pagesFor(role).map((i) => i.to), role).toContain("/insights")
+    expect(pagesFor("FACULTY").map((i) => i.to)).not.toContain("/insights")
+    expect(navFor("FACULTY").map((i) => i.to)).not.toContain("/insights")
+    expect(activeDoor("HOD", "/insights")).toBe("/insights")
   })
 
   it("never has more than seven doors, and the desk queue is always the second", () => {
@@ -263,7 +271,7 @@ describe("the Convocation sidebar", () => {
     expect(items.map((i) => i.label)).toEqual([
       "Search", "Home",
       "My papers", "File a paper",
-      "My research", "Discover", "Research compass",
+      "My research", "Discover", "Check a journal", "Research compass",
       "Who to work with", "Messages", "Discussions",
       "Leaderboard",
       "Calendar",

@@ -17,7 +17,8 @@ import { Button } from "@/ui/button"
 import { InfoTip } from "@/ui/info"
 import { FilterChip } from "@/ui/toggle"
 import { formatCount } from "@/lib/count"
-import { Avatar, PersonLink, initialsOf } from "@/ui/person"
+import { Avatar, initialsOf } from "@/ui/person"
+import { DetailLink } from "@/ui/detail-sheet"
 import { Picture } from "@/ui/picture"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/ui/sheet"
 import { ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
@@ -414,7 +415,7 @@ function CoauthorRow({ c, inside, onPick, meId }: { c: Coauthor; inside: boolean
         <PersonFace person={face} outside={!inside} institution={c.institutions[0]} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base">
-            {c.user_id ? <PersonLink id={c.user_id} name={c.name} /> : <span className="font-medium text-fg">{c.name}</span>}
+            {c.user_id ? <DetailLink kind="person" id={c.user_id} className="font-medium text-fg">{c.name}</DetailLink> : <span className="font-medium text-fg">{c.name}</span>}
           </p>
           <p className="truncate text-sm text-fg-muted">{where}</p>
           <p className="text-sm text-fg-subtle">
@@ -571,7 +572,7 @@ function Suggested({ loading, items, onPick, meId }: { loading: boolean; items: 
                       {isExternalKey(s.id) || s.id === meId ? (
                         <span className="font-medium text-fg">{s.name}</span>
                       ) : (
-                        <PersonLink id={s.id} name={s.name} />
+                        <DetailLink kind="person" id={s.id} className="font-medium text-fg">{s.name}</DetailLink>
                       )}
                     </p>
                     {s.sub && <p className="truncate text-sm text-fg-muted">{s.sub}</p>}

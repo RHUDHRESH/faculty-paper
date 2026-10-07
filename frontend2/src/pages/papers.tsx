@@ -18,6 +18,7 @@ import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
 import { Chip } from "@/ui/chip"
 import { ConfirmDialog } from "@/ui/dialog"
+import { DetailLink } from "@/ui/detail-sheet"
 import { Input, Select } from "@/ui/field"
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/ui/menu"
 import { PageHeader } from "@/ui/page-header"
@@ -343,9 +344,18 @@ export function Papers() {
       header: "Paper",
       cell: (p) => (
         <div className="min-w-0">
-          <p className="line-clamp-2 text-base font-medium text-fg">{unshout(p.title)}</p>
+          <p className="line-clamp-2 text-base font-medium text-fg">
+            <DetailLink kind="paper" id={p.id}>
+              {unshout(p.title)}
+            </DetailLink>
+          </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-muted">
-            <span className="min-w-0 break-words">{[p.venue, p.year].filter(Boolean).join(" · ") || "Venue not recorded"}</span>
+            <span className="min-w-0 break-words">
+              {p.venue && <DetailLink kind="journal" name={p.venue} />}
+              {p.venue && p.year ? " · " : ""}
+              {p.year}
+              {!p.venue && !p.year && "Venue not recorded"}
+            </span>
             {p.quartile && <Chip tone={p.quartile === "Q1" ? "gold" : "neutral"}>{p.quartile}</Chip>}
             {p.citations != null && p.citations > 0 && <span className="tabular">Cited {formatCount(p.citations)}</span>}
             {twins.has(p.id) && <Chip tone="caution">Listed twice</Chip>}
@@ -471,6 +481,9 @@ export function Papers() {
             </Button>
             <Button kind="default" size="sm" asChild>
               <Link to="/papers/statement">Payment statement</Link>
+            </Button>
+            <Button kind="default" size="sm" asChild>
+              <Link to="/papers/locker">Proof locker</Link>
             </Button>
           </div>
 

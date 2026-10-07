@@ -90,3 +90,7 @@ from core.api.ai_precheck import *  # noqa: F401,F403
 from core.api.batch_check import *  # noqa: F401,F403
 from core.api.research_helper import *  # noqa: F401,F403
 from core.api.compass import *  # noqa: F401,F403
+from core.api.detail import *  # noqa: F401,F403
+from core.api.journal_check import *  # noqa: F401,F403
+from core.api.proof_locker import *  # noqa: F401,F403
+from core.api.insights import *  # noqa: F401,F403

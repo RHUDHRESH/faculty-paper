@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import {
   AlertTriangle,
   ChevronRight,
@@ -21,6 +21,7 @@ import { Chip } from "@/ui/chip"
 import { Combobox, type ComboboxOption } from "@/ui/combobox"
 import { Field, Input, NumberInput, Textarea } from "@/ui/field"
 import { Answer } from "@/ui/answer"
+import { DetailLink } from "@/ui/detail-sheet"
 import { formatCount } from "@/lib/count"
 import { PageHeader } from "@/ui/page-header"
 import { Rows, Section } from "@/ui/section"
@@ -988,7 +989,9 @@ function JournalCard({ journal }: { journal: VerifiedJournal }) {
     <li className="py-4">
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
-          <p className="text-base font-medium text-fg">{journal.title}</p>
+          <p className="text-base font-medium text-fg">
+            <DetailLink kind="journal" name={journal.title} />
+          </p>
           <Meta className="mt-0.5 block">
             {[journal.quartile, journal.subject, journal.issn].filter(Boolean).join(" · ") || "—"}
           </Meta>
@@ -997,6 +1000,12 @@ function JournalCard({ journal }: { journal: VerifiedJournal }) {
             <span>SNIP {journal.snip != null ? journal.snip.toFixed(2) : "—"}</span>
             <span>SJR {journal.sjr != null ? journal.sjr.toFixed(3) : "—"}</span>
             {journal.dataset_year && <span>{journal.dataset_year} data</span>}
+            <Link
+              to={`/journal-check?q=${encodeURIComponent(journal.issn || journal.title)}`}
+              className="font-medium text-accent hover:underline"
+            >
+              Check
+            </Link>
           </div>
         </div>
         <div className="shrink-0 text-right">

@@ -27,6 +27,7 @@ import { ROLE_LABEL } from "@/app/account"
 import { Welcome } from "@/app/welcome"
 import { motion, useReducedMotion } from "motion/react"
 import { PageTransition, sidebarSpring } from "@/ui/motion/page"
+import { DetailHost } from "@/ui/detail-sheet"
 
 /**
  * Who you are signed in as, and the two things you can do about it.
@@ -332,6 +333,7 @@ export function Shell({
                 <Outlet />
               </PageTransition>
             </Suspense>
+            <DetailHost />
           </main>
         </div>
       </div>

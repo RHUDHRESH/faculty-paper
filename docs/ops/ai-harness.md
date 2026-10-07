@@ -199,6 +199,7 @@ answer is ever stored.
 | Batch anomaly check (`batch_check_ai`) | `batch.check` | considered |
 | Research helper (`research_helper`) | `research.rank`, `research.draft` | considered, fast; harness cache |
 | Research compass (`compass`) | `compass.portrait`, `compass.paths`, `compass.plan`, `compass.ask` | considered, fast (ask, 20 a day); harness cache, kept in `CompassState` |
+| Ask the data (`insights`) | `insights.ask` | fast (40 a day); picks a catalogue query and its settings only, numbers counted in code, matched by its words when AI is off |
 
 Three notes from moving the last three. Where a feature already has validators that
 count what they drop, the schema passes entries through (`ai_harness.Raw`) and the

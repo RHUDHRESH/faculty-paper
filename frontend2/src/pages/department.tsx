@@ -48,6 +48,7 @@ import {
 } from "@/ui/dialog"
 import { DateInput, Field, Input, NumberInput, Radio, Textarea } from "@/ui/field"
 import { PageHeader } from "@/ui/page-header"
+import { AskTheData } from "@/pages/insights-link"
 import { Avatar } from "@/ui/person"
 import { Details, Rows, Section } from "@/ui/section"
 import { Delayed, ErrorState, SkeletonRows } from "@/ui/state"
@@ -256,6 +257,8 @@ export function Department() {
               },
             ]}
           />
+
+          <AskTheData about={`A question about ${b.department} this page does not answer? Ask it in plain English.`} />
 
           <nav aria-label="Department views" className="-mx-1 flex flex-wrap gap-1 border-b border-line print:hidden">
             {TABS.map((t) => {

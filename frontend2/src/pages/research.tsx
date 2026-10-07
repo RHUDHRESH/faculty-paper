@@ -23,6 +23,7 @@ import { EmptyState, ErrorState, Skeleton, SkeletonRows } from "@/ui/state"
 import { Meta, SectionTitle } from "@/ui/text"
 import { Timeline, type TimelineEvent, type TimelineKind } from "@/ui/timeline"
 import { toast } from "@/ui/toast"
+import { DetailLink, detailHref } from "@/ui/detail-sheet"
 import { ChoiceChips } from "@/pages/record-bits"
 import { ResearchHelper } from "@/pages/research-helper"
 import { CompassCard } from "@/pages/compass-parts"
@@ -227,6 +228,7 @@ function MeTab({ q }: { q: Q<MyResearch> }) {
             label: "papers on your record",
             zero: "No papers on your record yet",
             to: "/papers",
+            detail: m?.papers ? { kind: "metric", metric: "papers" } : undefined,
           },
           {
             value: m ? (m.citations ?? "Not yet") : null,
@@ -234,14 +236,21 @@ function MeTab({ q }: { q: Q<MyResearch> }) {
               m && m.citations == null
                 ? "Citations arrive with your Scopus record"
                 : `citations, h-index ${m?.h_index ?? 0}`,
+            detail: m?.citations ? { kind: "metric", metric: "citations" } : undefined,
           },
           {
             value: d?.this_year.papers,
             label: `papers so far in ${year}`,
             zero: `None yet in ${year}`,
             to: `/papers?year=${year}`,
+            detail: d?.this_year.papers ? { kind: "metric", metric: "year", value: year } : undefined,
           },
-          { value: m?.first_author, label: "as first author", zero: "None as first author" },
+          {
+            value: m?.first_author,
+            label: "as first author",
+            zero: "None as first author",
+            detail: m?.first_author ? { kind: "metric", metric: "first_author" } : undefined,
+          },
         ]}
       />
 
@@ -307,11 +316,23 @@ const TL_KIND: Record<string, TimelineKind> = {
 }
 
 function Past({ d }: { d: MyResearch }) {
+  // Every entry opens what it names: a "first" opens its paper, a year's
+  // count opens that year's papers.
   const events: TimelineEvent[] = d.timeline.map((e) => ({
     date: String(e.year),
     kind: TL_KIND[e.kind] ?? "paper",
-    title: e.text,
-    to: e.kind === "year" ? `/papers?year=${e.year}` : undefined,
+    title:
+      e.kind === "year" ? (
+        <DetailLink kind="metric" metric="year" params={{ value: e.year }}>
+          {e.text}
+        </DetailLink>
+      ) : e.ref ? (
+        <DetailLink kind="paper" id={e.ref}>
+          {e.text}
+        </DetailLink>
+      ) : (
+        e.text
+      ),
   }))
   const cites = d.citations_by_year.filter((c) => c.year >= (d.metrics.first_year ?? 0))
   const endYear = new Date().getFullYear()
@@ -329,12 +350,19 @@ function Past({ d }: { d: MyResearch }) {
                 title="Citations by year of publication"
                 caption="What the papers you published each year have been cited since."
                 dimension="Year"
-                points={cites.map((c) => ({ key: String(c.year), count: c.count }))}
+                points={cites.map((c) => ({
+                  key: String(c.year),
+                  count: c.count,
+                  to: detailHref({ kind: "metric", metric: "year", value: c.year }),
+                }))}
                 height={200}
               />
               {!!h && (
                 <p className="mt-3 text-sm text-fg-muted">
-                  h-index {h} means {h} of your papers have at least {h} citations each.
+                  <DetailLink kind="metric" metric="h_index" number className="text-fg">
+                    h-index {h}
+                  </DetailLink>{" "}
+                  means {h} of your papers have at least {h} citations each.
                 </p>
               )}
             </div>
@@ -348,26 +376,20 @@ function Past({ d }: { d: MyResearch }) {
                 {d.top_papers.map((p) => (
                   <li key={p.id} className="flex items-start gap-3 py-3">
                     <span className="figure w-10 shrink-0 text-right text-lg text-(--area)">
-                      {p.citations}
-                      <span className="sr-only"> citations</span>
+                      <DetailLink kind="paper" id={p.id} number label={`${p.citations} citations: ${unshout(p.title)}`}>
+                        {p.citations}
+                      </DetailLink>
                     </span>
                     <div className="min-w-0">
                       <p className="line-clamp-2 text-sm font-medium text-fg">
-                        {p.doi ? (
-                          <a
-                            href={`https://doi.org/${p.doi}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="hover:underline hover:underline-offset-4"
-                          >
-                            {unshout(p.title)}
-                          </a>
-                        ) : (
-                          unshout(p.title)
-                        )}
+                        <DetailLink kind="paper" id={p.id}>
+                          {unshout(p.title)}
+                        </DetailLink>
                       </p>
                       <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-                        {[p.venue, p.year].filter(Boolean).join(" · ")}
+                        {p.venue && <DetailLink kind="journal" name={p.venue} />}
+                        {p.venue && p.year ? " · " : ""}
+                        {p.year}
                         {p.position && (
                           <span>
                             · {p.position === 1 ? "first author" : `author ${p.position} of ${p.authors}`}
@@ -403,9 +425,14 @@ function Present({ d }: { d: MyResearch }) {
             <>
               <RankedBars
                 title="Your topics"
-                caption="From the topics of your own papers. Pick one to see who else works on it."
+                caption="From the topics of your own papers. Pick one to see your papers on it."
                 dimension="Topic"
-                points={d.topics.map((t) => ({ key: t.id, label: t.label, count: t.papers, to: topicHref(t.label) }))}
+                points={d.topics.map((t) => ({
+                  key: t.id,
+                  label: t.label,
+                  count: t.papers,
+                  to: detailHref({ kind: "metric", metric: "topic", value: t.label }),
+                }))}
                 limit={8}
               />
               <div className="mt-3 flex flex-wrap gap-2">
@@ -413,15 +440,24 @@ function Present({ d }: { d: MyResearch }) {
                   .filter((t) => t.recent > 0)
                   .slice(0, 5)
                   .map((t) => (
-                    <Link key={t.id} to={topicHref(t.label)} className="min-w-0 max-w-full">
+                    <DetailLink
+                      key={t.id}
+                      kind="metric"
+                      metric="topic"
+                      params={{ value: t.label }}
+                      className="min-w-0 max-w-full rounded-full"
+                    >
                       <Chip tone="area" icon={Sparkles} className="max-w-full">
                         <span className="truncate">
                           {t.label}, {t.recent} lately
                         </span>
                       </Chip>
-                    </Link>
+                    </DetailLink>
                   ))}
               </div>
+              <Link to={topicHref(d.topics[0].label)} className="mt-2 inline-block text-sm text-accent hover:underline">
+                Who else works on {d.topics[0].label}
+              </Link>
             </>
           ) : (
             <Meta>
@@ -450,9 +486,9 @@ function Present({ d }: { d: MyResearch }) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-fg">
                     {c.user_id ? (
-                      <Link to={`/u/${c.user_id}`} className="hover:underline">
+                      <DetailLink kind="person" id={c.user_id}>
                         {c.name}
-                      </Link>
+                      </DetailLink>
                     ) : (
                       c.name
                     )}
@@ -478,6 +514,7 @@ function Present({ d }: { d: MyResearch }) {
                 quartile={v.quartile}
                 colleagues={v.colleagues}
                 subjects={[`${v.papers} of yours`]}
+                detail
               />
             ))}
           </div>
@@ -614,9 +651,25 @@ function ThisYear({ t }: { t: MyResearch["this_year"] }) {
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1 space-y-1.5">
           <h3 className="text-base font-semibold text-fg">This year</h3>
-          <p className="text-lg font-semibold text-fg">{paceLine(t)}</p>
+          <p className="text-lg font-semibold text-fg">
+            {t.papers > 0 ? (
+              <DetailLink kind="metric" metric="year" params={{ value: t.year }} number>
+                {paceLine(t)}
+              </DetailLink>
+            ) : (
+              paceLine(t)
+            )}
+          </p>
           <p className="text-sm text-fg-muted">
-            Last year you published {t.last_year_total} in all.
+            Last year you published{" "}
+            {t.last_year_total > 0 ? (
+              <DetailLink kind="metric" metric="year" params={{ value: t.year - 1 }} number className="text-fg">
+                {t.last_year_total}
+              </DetailLink>
+            ) : (
+              t.last_year_total
+            )}{" "}
+            in all.
             {t.under_review > 0 && (
               <>
                 {" "}

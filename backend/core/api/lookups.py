@@ -546,6 +546,19 @@ def upload_claim_file(request: HttpRequest, file: UploadedFile = File(...)):
     # common case; the same paper already used on another claim is the one worth
     # stopping.
     digest = content_digest(content)
+    # Saved to the person's proof locker too, so next time it is there.
+    locker_id = None
+    try:
+        from core.services import proof_locker
+
+        lk = (request.GET.get("locker_kind") or "ARTICLE").upper()
+        proof = proof_locker.add_existing(
+            user, storage_path=f"claims/{fname}", filename=(file.name or fname),
+            kind=lk if lk in ("ARTICLE", "REFERENCE", "OTHER") else "ARTICLE",
+        )
+        locker_id = proof.id if proof else None
+    except Exception:  # noqa: BLE001 - the locker must never stop an upload
+        logger.exception("proof_locker_save_failed")
     seen = (
         ClaimAttachment.objects.filter(content_hash=digest)
         .select_related("claim", "claim__owner")
@@ -574,6 +587,7 @@ def upload_claim_file(request: HttpRequest, file: UploadedFile = File(...)):
         # a wrong title picked up silently is worse than an empty field.
         "suggested_title": guess_title(content),
         "duplicate_of": duplicate,
+        "locker_id": locker_id,
     }
 
 

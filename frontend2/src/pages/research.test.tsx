@@ -93,12 +93,20 @@ describe("My research — Me", () => {
     expect(screen.getByText("3 papers so far in 2026. You're 2 behind last year's pace.")).toBeInTheDocument()
   })
 
-  it("opens with four figures that link to the lists behind them, and the pace sits under Present", async () => {
+  it("opens with four figures that open the papers behind them, and the pace sits under Present", async () => {
     mount("/research")
     const glance = await screen.findByRole("group", { name: "At a glance" })
-    expect(within(glance).getByRole("link", { name: /papers on your record/ }).getAttribute("href")).toBe("/papers")
-    expect(within(glance).getByRole("link", { name: /papers so far in 2026/ }).getAttribute("href")).toBe("/papers?year=2026")
-    expect(within(glance).getByText("as first author")).toBeInTheDocument()
+    // Every number is a button now: it opens the list behind it in place.
+    expect(within(glance).getByRole("button", { name: /papers on your record/ })).toBeInTheDocument()
+    expect(within(glance).getByRole("button", { name: /citations, h-index 3/ })).toBeInTheDocument()
+    expect(within(glance).getByRole("button", { name: /papers so far in 2026/ })).toBeInTheDocument()
+    expect(within(glance).getByRole("button", { name: /as first author/ })).toBeInTheDocument()
+    // The firsts, the most-cited papers, the journal and the co-author open too.
+    expect(screen.getByRole("button", { name: /Most-cited paper \(12 citations\)/ })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Transformative Approach" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "J Eng Ed" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Dr T. Jaya" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "h-index 3" })).toBeInTheDocument()
     // The pace line is part of Present, not a footnote to Future.
     const present = screen.getByRole("region", { name: /What you work on now/ })
     expect(within(present).getByText(/so far in 2026/)).toBeInTheDocument()

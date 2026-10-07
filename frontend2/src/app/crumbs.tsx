@@ -43,6 +43,7 @@ const DETAILS: Detail[] = [
   { pattern: "/papers/claims", label: "Your claims", parent: "/papers", own: true },
   { pattern: "/papers/appraisal", label: "List for appraisal", parent: "/papers", own: true },
   { pattern: "/papers/statement", label: "Payment statement", parent: "/papers", own: true },
+  { pattern: "/papers/locker", label: "Proof locker", parent: "/papers", own: true },
   { pattern: "/papers/new", label: "File a paper", parent: "/papers", own: true },
   { pattern: "/papers/:id/edit", label: "Edit paper", parent: "/papers", own: true },
   { pattern: "/papers/:id", label: "Claim", parent: "/papers", own: true },

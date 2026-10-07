@@ -3,7 +3,9 @@
  * rules the page and the cards that point at it share.
  */
 
-export type Evidence = { kind: "paper" | "journal" | "person" | "metric"; id: string; label: string }
+import type { DetailSpec } from "@/ui/detail-sheet"
+
+export type Evidence ={ kind: "paper" | "journal" | "person" | "metric"; id: string; label: string }
 
 export type TopicCount = { name: string; papers: number }
 
@@ -84,6 +86,24 @@ export function furthestStep(s: Pick<CompassState, "portrait" | "paths" | "plan"
 
 export function progressLine(p: { done: number; total: number }): string {
   return `${p.done} of ${p.total} done`
+}
+
+const METRIC_DETAIL: Record<string, DetailSpec> = {
+  papers: { kind: "metric", metric: "papers" },
+  citations: { kind: "metric", metric: "citations" },
+  h_index: { kind: "metric", metric: "h_index" },
+  q1: { kind: "metric", metric: "quartile", value: "Q1" },
+  first_author_share: { kind: "metric", metric: "first_author" },
+}
+
+/** The detail panel an evidence chip opens in place of leaving the compass,
+ *  or null when there is no panel for it (then `evidenceHref` decides). A
+ *  journal's id is the compass's own hash, so its name is what is looked up. */
+export function evidenceDetail(e: Evidence): DetailSpec | null {
+  if (e.kind === "paper") return { kind: "paper", id: e.id }
+  if (e.kind === "person") return { kind: "person", id: e.id }
+  if (e.kind === "journal") return { kind: "journal", name: e.label }
+  return METRIC_DETAIL[e.id] ?? null
 }
 
 /** Where an evidence chip leads, or null for a figure with nowhere to go. */

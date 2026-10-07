@@ -8,6 +8,7 @@ import { StageTrack, type StageInfo } from "@/ui/paper"
 import { JournalCover } from "@/ui/journal-cover"
 import { Avatar, type PersonBrief } from "@/ui/person"
 import { Picture } from "@/ui/picture"
+import { DetailLink } from "@/ui/detail-sheet"
 
 /* ------------------------------------------------------------------------ */
 /* PaperCard                                                                 */
@@ -46,6 +47,9 @@ export type PaperCardProps = {
   picture?: string | null
   /** Right-hand actions (a menu). */
   actions?: React.ReactNode
+  /** The record's id: the title then opens the paper panel, and the journal
+   *  the journal panel, instead of going anywhere (`ui/detail-sheet`). */
+  detailId?: string | null
 }
 
 function authorLine(authors: PaperAuthor[], max = 6) {
@@ -89,12 +93,29 @@ export function PaperCard({
   children,
   actions,
   picture,
+  detailId,
 }: PaperCardProps) {
   const youAt = authors ? authors.findIndex((a) => a.you) : -1
   const pos = position ?? (authors && youAt >= 0 ? { index: youAt + 1, of: authors.length } : null)
-  const meta = [journal ? unshout(journal) : journal, year].filter(Boolean).join(" · ")
+  const meta = detailId ? (
+    <>
+      {journal && (
+        <DetailLink kind="journal" name={journal}>
+          {unshout(journal)}
+        </DetailLink>
+      )}
+      {journal && year ? " · " : ""}
+      {year}
+    </>
+  ) : (
+    [journal ? unshout(journal) : journal, year].filter(Boolean).join(" · ")
+  )
   const shown = unshout(title)
-  const heading = to ? (
+  const heading = detailId ? (
+    <DetailLink kind="paper" id={detailId}>
+      {shown}
+    </DetailLink>
+  ) : to ? (
     <Link to={to} className="hover:underline hover:underline-offset-4">
       {shown}
     </Link>
@@ -254,6 +275,7 @@ export function JournalCard({
   colleagues,
   subjects,
   className,
+  detail,
 }: {
   name: string
   to?: string
@@ -264,13 +286,17 @@ export function JournalCard({
   colleagues?: number | null
   subjects?: string[]
   className?: string
+  /** The name opens the journal panel (`ui/detail-sheet`) instead of `to`. */
+  detail?: boolean
 }) {
   return (
     <article data-area="research" className={cn("panel flex gap-4 p-4", className)}>
       <JournalCover title={name} publisher={publisher} quartile={quartile} size="md" />
       <div className="min-w-0 flex-1">
         <h3 className="line-clamp-2 font-medium text-fg">
-          {to ? (
+          {detail ? (
+            <DetailLink kind="journal" name={name} />
+          ) : to ? (
             <Link to={to} className="hover:underline hover:underline-offset-4">
               {name}
             </Link>

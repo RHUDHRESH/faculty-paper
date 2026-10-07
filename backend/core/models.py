@@ -3102,3 +3102,69 @@ class AIUsage(models.Model):
             models.Index(fields=["user", "created_at"], name="aiusage_user_when"),
             models.Index(fields=["created_at", "outcome"], name="aiusage_when_outcome"),
         ]
+
+
+class JournalFlagList(models.Model):
+    """One entry on a list of journals to keep away from.
+
+    The Scopus discontinued-titles list and lists of hijacked journal websites
+    (a fake site using a real journal's name and ISSN). Loaded from a file by
+    `load_journal_flags`; nothing ships with the system, so the journal check
+    says "not loaded yet" rather than "fine" until one is. `JournalStanding`
+    keeps the dated Scopus/UGC standing used when a claim is checked; this
+    list adds the website domain a hijacked entry needs.
+    """
+
+    class Source(models.TextChoices):
+        SCOPUS_DISCONTINUED = "SCOPUS_DISCONTINUED", "Scopus discontinued list"
+        HIJACKED = "HIJACKED", "Hijacked journals list"
+        OTHER = "OTHER", "Other list"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    source = models.CharField(max_length=24, choices=Source.choices, db_index=True)
+    title = models.CharField(max_length=512, blank=True, default="")
+    issn = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    domain = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    note = models.TextField(blank=True, default="")
+    loaded_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    def __str__(self) -> str:
+        return f"{self.source}: {self.title or self.issn or self.domain}"
+
+
+class ProofFile(models.Model):
+    """One evidence file in a person's proof locker, uploaded once and reused.
+
+    The bytes live in `default_storage` at `storage_path` (claims/<uuid>.<ext>),
+    exactly where a claim upload puts them, so attaching a locker file to a
+    claim makes the same ClaimAttachment row a normal upload would.
+    `checks_json` holds the automatic checks: a list of
+    {key, status: ok|warn|bad|unknown, title, detail}.
+    """
+
+    class Kind(models.TextChoices):
+        ARTICLE = "ARTICLE", "Published article"
+        REFERENCE = "REFERENCE", "SEC reference"
+        OTHER = "OTHER", "Other"
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="proof_files")
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.ARTICLE)
+    filename = models.CharField(max_length=255)
+    storage_path = models.CharField(max_length=255)
+    content_hash = models.CharField(max_length=64)
+    size = models.IntegerField(default=0)
+    publication = models.ForeignKey(
+        "Publication", null=True, blank=True, on_delete=models.SET_NULL, related_name="proof_files"
+    )
+    doi_found = models.CharField(max_length=255, blank=True, default="")
+    title_found = models.TextField(blank=True, default="")
+    checks_json = models.TextField(default="[]")
+    checked_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "content_hash"], name="prooffile_owner_hash_unique"),
+        ]

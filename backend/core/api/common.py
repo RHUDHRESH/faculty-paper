@@ -157,9 +157,11 @@ session_auth = SessionAuth()
 
 IMPERSONATOR_KEY = "impersonator_id"
 
-#: POSTs a viewer may still make: leaving the view, and the payout
-#: calculator, which works a figure out and stores nothing.
-_WRITES_ALLOWED_WHILE_VIEWING = {"/api/admin/stop-impersonating", "/api/calculate"}
+#: POSTs a viewer may still make: leaving the view, the payout calculator,
+#: which works a figure out and stores nothing, and Ask the data's suggested
+#: questions, which count and store nothing (asking a typed question is not
+#: here: it spends the viewed person's AI allowance and writes the audit).
+_WRITES_ALLOWED_WHILE_VIEWING = {"/api/admin/stop-impersonating", "/api/calculate", "/api/insights/run"}
 
 _PASSWORD_CHANGE_EXEMPT = {"/api/auth/change-password", "/api/auth/me"}
 

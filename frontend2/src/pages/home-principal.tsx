@@ -16,6 +16,7 @@ import { Rows, Section } from "@/ui/section"
 import { InlineError, SkeletonRows } from "@/ui/state"
 import type { QueuePayload } from "@/pages/approvals-actions"
 import { YourPapers } from "@/pages/home-staff"
+import { AskTheData } from "@/pages/insights-link"
 import type { Brief } from "@/pages/principal-parts"
 import { ApprovalRow } from "@/pages/principal/approval-row"
 import { isReady } from "@/pages/principal/ready"
@@ -194,6 +195,8 @@ export function PrincipalHome() {
               <Link to="/track">Open Track</Link>
             </Button>
           </p>
+
+          <AskTheData about="A question these figures do not answer? Ask it in plain English." />
         </div>
 
         <aside aria-label="The year" className="min-w-0 lg:border-l lg:border-line lg:pl-10">

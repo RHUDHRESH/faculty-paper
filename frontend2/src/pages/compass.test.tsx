@@ -97,7 +97,8 @@ describe("Research compass", () => {
     // 1. Who you are
     expect(await screen.findByText("You make small power grids steadier.")).toBeInTheDocument()
     expect(screen.getByRole("navigation", { name: "Steps" })).toHaveTextContent("Who you are")
-    expect(screen.getByRole("link", { name: /Dr Ravi/ })).toHaveAttribute("href", "/u/u2")
+    // Evidence opens the person panel in place of leaving the compass.
+    expect(screen.getByRole("button", { name: /Dr Ravi/ })).toBeInTheDocument()
     expect(screen.getByText(/top 15 in your department/)).toBeInTheDocument()
     expect(screen.queryByText(/AI is off/)).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Remove Battery storage" }))

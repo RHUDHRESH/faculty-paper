@@ -76,7 +76,12 @@ export type FileCheck = {
   checked_at: string | null
 }
 
-export type ClaimReview = { flags: ClaimFlag[]; file_checks: FileCheck[] }
+export type ClaimReview = {
+  flags: ClaimFlag[]
+  file_checks: FileCheck[]
+  /** The claimant's proof-locker checks on the same files, by file URL. */
+  locker_checks?: Record<string, import("./filing/locker").ProofCheck[]>
+}
 
 /** In the order a reviewer is likeliest to want them. */
 export const FLAG_KINDS: { value: FlagKind; label: string; hint: string }[] = [

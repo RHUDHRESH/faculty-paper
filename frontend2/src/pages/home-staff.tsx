@@ -15,6 +15,7 @@ import {
   PaidList,
   useOwnPapers,
 } from "@/pages/home-faculty"
+import { greeting as timeGreeting } from "@/pages/home-faculty"
 import { HomeTrack } from "@/pages/home-track"
 import { CellHome } from "@/pages/home-cell"
 import { Button } from "@/ui/button"
@@ -50,7 +51,10 @@ import { Meta, PageTitle, SectionTitle, Sub } from "@/ui/text"
 /* Shared parts                                                              */
 /* ------------------------------------------------------------------------ */
 
-export function greeting(name: string | undefined): string {
+/** "Hello, Ravi". A placeholder office seat ("Director (local)") is not a
+ *  person, so it gets the time of day instead of a made-up first name. */
+export function greeting(name: string | undefined, placeholder?: boolean): string {
+  if (placeholder) return timeGreeting()
   const first = firstName(name)
   return first ? `Hello, ${first}` : "Home"
 }
@@ -224,16 +228,18 @@ export function HomeHead({
   sentence,
   picture,
   actions,
+  placeholder,
 }: {
   name: string | undefined
   sentence: React.ReactNode
   picture: string
   actions?: React.ReactNode
+  placeholder?: boolean
 }) {
   return (
     <header className="flex items-start justify-between gap-8">
       <div className="min-w-0">
-        <PageTitle>{greeting(name)}</PageTitle>
+        <PageTitle>{greeting(name, placeholder)}</PageTitle>
         <Sub className="mt-2 max-w-xl">{sentence}</Sub>
         {actions && <div className="mt-5 flex flex-wrap gap-2">{actions}</div>}
       </div>
@@ -350,9 +356,15 @@ type StageCounts = {
   }
 }
 
-type FaultsSummary = { total: number; urgent: number; checked_at: string }
+type FaultsSummary = { total: number; urgent: number; actionable?: number; legacy?: number; checked_at: string }
 type RequestsSummary = { pending: number }
-type DuplicatesSummary = { summary: { open: number; at_issue: number } }
+type DuplicatesSummary = { summary: { open: number; open_actionable?: number; open_legacy?: number; at_issue: number } }
+
+/** A home counts what somebody can act on now. Problems on claims already paid
+ *  (mostly the old ERP's) are still on the full list, and said quietly here. */
+export function fromBefore(n: number, otherwise: string): string {
+  return n > 0 ? `${otherwise}. ${n.toLocaleString("en-IN")} more from before this system` : otherwise
+}
 
 /** "Every payment in the ledger since Jan 2024", or nothing without a ledger. */
 export function collegeSince(ym: string | null | undefined): string | undefined {
@@ -396,14 +408,19 @@ function AdminHome() {
   // health panel already carries these, so only the desk roles get the line.
   const also = [
     { n: requests.data?.pending ?? 0, one: "profile correction", many: "profile corrections", to: "/requests" },
-    { n: duplicates.data?.summary.open ?? 0, one: "possible duplicate payment", many: "possible duplicate payments", to: "/duplicates" },
-    { n: faults.data?.total ?? 0, one: "fault", many: "faults", to: "/faults" },
+    {
+      n: duplicates.data?.summary.open_actionable ?? duplicates.data?.summary.open ?? 0,
+      one: "possible duplicate payment", many: "possible duplicate payments", to: "/duplicates",
+    },
+    { n: faults.data?.actionable ?? faults.data?.total ?? 0, one: "fault", many: "faults", to: "/faults" },
   ].filter((x) => x.n > 0)
+  const before = (duplicates.data?.summary.open_legacy ?? 0) + (faults.data?.legacy ?? 0)
 
   return (
     <div className="page space-y-10">
       <HomeHead
         name={me?.name}
+        placeholder={me?.placeholder}
         picture={isAdmin ? "spot-home-admin" : "spot-audit"}
         sentence={
           isAdmin
@@ -454,6 +471,15 @@ function AdminHome() {
             </span>
           ))}
           .
+          {before > 0 && (
+            <span className="text-sm">
+              {" "}
+              <Link to="/faults" className="underline-offset-4 hover:underline">
+                {before.toLocaleString("en-IN")} from before this system
+              </Link>
+              .
+            </span>
+          )}
         </p>
       )}
 
@@ -497,7 +523,13 @@ export type BudgetSummary = {
  * for somebody who sits at one. `/api/claims?mine=1` is theirs alone, and the
  * amounts on it are theirs (`hod.for_head`, `core.visibility`).
  */
-export function YourPapers({
+export function YourPapers({ note }: { note?: string }) {
+  // A placeholder office seat files nothing of its own.
+  const { me } = useAuth()
+  return me?.placeholder ? null : <OwnPapers note={note} />
+}
+
+function OwnPapers({
   note = "What you have filed yourself. Another officer, or the super admin, decides each one, never you.",
 }: {
   note?: string

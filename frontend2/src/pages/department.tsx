@@ -212,7 +212,7 @@ export function Department() {
           what="the department"
           message={
             noDepartment
-              ? "This account has no department set, so there is nothing to show. Ask the research cell to set it."
+              ? "This account has no department set, so there is nothing to show. Ask the research office to set it."
               : "The server did not answer."
           }
           onRetry={noDepartment ? false : () => void brief.refetch()}
@@ -591,7 +591,7 @@ function FacultyTab({
         sortDir={dir}
         onSort={onSort}
         caption={`Papers by faculty member, ${b.year}`}
-        empty={{ title: "Nobody is on the department's roll", message: "Faculty appear here once the research cell adds them to the department." }}
+        empty={{ title: "Nobody is on the department's roll", message: "Faculty appear here once the research office adds them to the department." }}
       />
     </Section>
   )

@@ -76,7 +76,7 @@ TABLES: list[Table] = [
           ("claim", "kind", "filename", "ref_number", "content_hash"),
           order="-created_at", group="The scheme"),
     Table("ClaimNote", "Notes on tickets", "Notes between the principal and the "
-          "research cell about one ticket. Never visible to the claimant.",
+          "research office about one ticket. Never visible to the claimant.",
           ("claim", "author", "body", "resolved_at"),
           order="-created_at", group="The scheme"),
     Table("PaidLedger", "Payment ledger", "One row per payment made, including the "

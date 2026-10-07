@@ -61,7 +61,7 @@ def _match_q(doi: str | None, eid: str | None, title_key: str) -> Q:
 
 
 def _claim_answer(c: Claim) -> dict[str, Any]:
-    stage = faculty_stage(c.status, rejected_outright=bool(c.rejected_outright), ticket_number=c.ticket_number)
+    stage = faculty_stage(c.status, rejected_outright=bool(c.rejected_outright), ticket_number=c.ticket_number, status_note=c.status_note)
     base = {
         "claim_id": c.id,
         "ticket_number": c.ticket_number,

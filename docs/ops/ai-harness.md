@@ -198,6 +198,7 @@ answer is ever stored.
 | Claim pre-check (`ai_precheck`) | `review.precheck`, `review.precheck.draft` | considered, fast |
 | Batch anomaly check (`batch_check_ai`) | `batch.check` | considered |
 | Research helper (`research_helper`) | `research.rank`, `research.draft` | considered, fast; harness cache |
+| Research compass (`compass`) | `compass.portrait`, `compass.paths`, `compass.plan`, `compass.ask` | considered, fast (ask, 20 a day); harness cache, kept in `CompassState` |
 
 Three notes from moving the last three. Where a feature already has validators that
 count what they drop, the schema passes entries through (`ai_harness.Raw`) and the

@@ -28,7 +28,7 @@ const SUPER_ADMIN: Me = {
   department: null,
 }
 
-const CELL: Me = { ...SUPER_ADMIN, id: "u-cell", role: "RESEARCH_CELL", name: "Research Cell" }
+const CELL: Me = { ...SUPER_ADMIN, id: "u-cell", role: "RESEARCH_CELL", name: "Research Office" }
 const COORDINATOR: Me = {
   ...SUPER_ADMIN,
   id: "u-coord",
@@ -184,7 +184,7 @@ describe("AccountEditor — the role", () => {
     expect(within(dialog).queryByText(/Replace them\?/)).toBeNull()
   })
 
-  it("lets the research cell appoint a head without sending the quota it may not touch", async () => {
+  it("lets the research office appoint a head without sending the quota it may not touch", async () => {
     // The quota is super-admin-only on the server, which refuses the whole
     // request if the field is present -- even unchanged. An empty quota must
     // compare equal to an empty quota.
@@ -313,7 +313,7 @@ describe("AccountEditor — research faculty", () => {
     expect(within(dialog).getByText(/old rule of 4 papers a year/)).toBeInTheDocument()
   })
 
-  it("stays closed to the research cell, which clears the claims the threshold decides", async () => {
+  it("stays closed to the research office, which clears the claims the threshold decides", async () => {
     mountPerson(CELL, account({ faculty_type: "RESEARCH" }))
     const { dialog } = await openEditor()
     expect(within(dialog).getByRole("checkbox", { name: /Research faculty/ })).toBeDisabled()

@@ -825,7 +825,7 @@ export function NewConversation({
           <DialogDescription>
             {lane === "direct"
               ? "Private to the people you name. Nobody else can open it."
-              : "A quiet line to the research cell. Your colleagues cannot see it."}{" "}
+              : "A quiet line to the research office. Your colleagues cannot see it."}{" "}
             For the whole college, post in{" "}
             <Link to="/discussions" onClick={onClose} className="text-accent underline-offset-4 hover:underline">
               Discussions
@@ -869,7 +869,7 @@ export function NewConversation({
                 <Building2 className="size-4 shrink-0 text-accent" aria-hidden />
                 The research office
               </div>
-              <p className="text-xs text-fg-muted">Only you and the research cell can see it.</p>
+              <p className="text-xs text-fg-muted">Only you and the research office can see it.</p>
             </div>
           )}
 

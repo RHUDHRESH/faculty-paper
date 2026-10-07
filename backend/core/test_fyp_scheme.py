@@ -252,7 +252,7 @@ class RosterUploadTests(TestCase):
     """The office's upload: same importer, over HTTP, behind the office's door."""
 
     def setUp(self):
-        self.office = _person("cell@test.edu", "Research Cell", role=Role.RESEARCH_CELL)
+        self.office = _person("cell@test.edu", "Research Office", role=Role.RESEARCH_CELL)
         self.faculty = _person("fac@test.edu", "A Faculty", staff_id="TSCH001")
         self.client = Client()
 

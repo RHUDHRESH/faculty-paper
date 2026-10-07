@@ -32,11 +32,12 @@ from core.models import AttachmentCheck, AuditLog, Claim, ClaimFlag, ClaimStatus
 from core.services import rbac
 from core.services import flags as flag_service
 from core.services.content_check import enqueue_file_check
+from core.visibility import ERP_CLOSED_NOTE
 
 # ---------- discrepancy flags ----------
 
 _NOT_YOURS = (
-    "Flags are raised and reviewed by the research cell, the coordinator, the "
+    "Flags are raised and reviewed by the research office, the coordinator, the "
     "Principal and the super admin."
 )
 #: Long enough that the next reader has something to go on.
@@ -430,13 +431,17 @@ def archive_claims(
     # What the record holds, whatever status or flag filter is chosen (each
     # figure on the page is a link that sets one). Counts only.
     everyone = _search_queryset(user, q=q, status=None, year=year, department=department).exclude(owner=user)
+    # ERP claims closed as handled in the old system are neither moving nor
+    # refused here: counted apart.
+    erp_closed = everyone.filter(status=ClaimStatus.REJECTED, status_note=ERP_CLOSED_NOTE).count()
     by_status: dict[tuple[str, bool], int] = {}
-    for st, outright, n in everyone.order_by().values_list("status", "rejected_outright").annotate(n=Count("id")).values_list(
-        "status", "rejected_outright", "n"
-    ):
+    for st, outright, n in everyone.exclude(status=ClaimStatus.REJECTED, status_note=ERP_CLOSED_NOTE).order_by().values_list(
+        "status", "rejected_outright"
+    ).annotate(n=Count("id")).values_list("status", "rejected_outright", "n"):
         by_status[(st, bool(outright))] = by_status.get((st, bool(outright)), 0) + n
     summary = {
-        "all": sum(by_status.values()),
+        "all": sum(by_status.values()) + erp_closed,
+        "closed_old_system": erp_closed,
         "paid": sum(n for (st, _), n in by_status.items() if st == ClaimStatus.PAID),
         "sent_back": sum(n for (st, o), n in by_status.items() if st == ClaimStatus.REJECTED and not o),
         "not_accepted": sum(n for (st, o), n in by_status.items() if st == ClaimStatus.REJECTED and o),
@@ -444,7 +449,9 @@ def archive_claims(
             Exists(ClaimFlag.objects.filter(claim=OuterRef("pk"), resolved_at__isnull=True))
         ).count(),
     }
-    summary["moving"] = summary["all"] - summary["paid"] - summary["sent_back"] - summary["not_accepted"]
+    summary["moving"] = (
+        summary["all"] - summary["paid"] - summary["sent_back"] - summary["not_accepted"] - erp_closed
+    )
     return {
         "total": qs.count(),
         "limit": limit,

@@ -17,7 +17,6 @@ import json
 import time
 import uuid as uuid_lib
 from typing import Any, Optional
-from django.db import transaction
 from django.db.models import Count, Sum
 from django.http import HttpRequest, StreamingHttpResponse
 from django.utils import timezone
@@ -153,22 +152,7 @@ def set_my_interests(request: HttpRequest, payload: InterestsIn):
     leave it half-applied if one of them failed.
     """
     user = require_user(request)
-    wanted = []
-    for raw in payload.domains[:20]:
-        name = (raw or "").strip()
-        if name and name not in wanted:
-            wanted.append(name)
-
-    with transaction.atomic():
-        ResearchInterest.objects.filter(user=user).exclude(domain__in=wanted).delete()
-        existing = set(
-            ResearchInterest.objects.filter(user=user).values_list("domain", flat=True)
-        )
-        ResearchInterest.objects.bulk_create(
-            [ResearchInterest(user=user, domain=d) for d in wanted if d not in existing],
-            ignore_conflicts=True,
-        )
-    return {"domains": wanted}
+    return {"domains": discover_service.replace_interests(user, payload.domains)}
 
 
 @api.post("/discover/venues", auth=session_auth)

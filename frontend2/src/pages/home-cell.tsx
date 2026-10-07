@@ -8,7 +8,7 @@ import { useApi } from "@/lib/query"
 import { cn } from "@/lib/cn"
 import { ClaimNo, ClaimNoLegend, daysText, useHashScroll, Waited } from "@/pages/cell/parts"
 import { HomeTrack } from "@/pages/home-track"
-import { greeting, QueueRow, Waiting, YourPapers } from "@/pages/home-staff"
+import { fromBefore, greeting, QueueRow, Waiting, YourPapers } from "@/pages/home-staff"
 import { homeTrack } from "@/app/home-data"
 import type { QueueClaim } from "@/pages/clearing-actions"
 import { isReady } from "@/pages/cell/clearing-rows"
@@ -74,7 +74,7 @@ type Today = {
   came_back: BackRow[]
   came_back_count: number
   watched_waiting: number
-  flags: { open: number; open_on_paid: number }
+  flags: { open: number; open_on_paid: number; legacy?: number }
   month: {
     month: string
     received: number
@@ -123,8 +123,8 @@ export function CellHome() {
   const d = q.data
 
   const requests = useApi<{ pending: number }>(HOME_DATA.pendingRequests.key, HOME_DATA.pendingRequests.path)
-  const duplicates = useApi<{ summary: { open: number } }>(HOME_DATA.openDuplicates.key, HOME_DATA.openDuplicates.path)
-  const faults = useApi<{ total: number }>(HOME_DATA.faults.key, HOME_DATA.faults.path)
+  const duplicates = useApi<{ summary: { open: number; open_actionable?: number; open_legacy?: number } }>(HOME_DATA.openDuplicates.key, HOME_DATA.openDuplicates.path)
+  const faults = useApi<{ total: number; actionable?: number; legacy?: number }>(HOME_DATA.faults.key, HOME_DATA.faults.path)
   const overview = useApi<Overview>(["coordination", "overview"], "/api/coordination/overview", { enabled: coordinator })
 
   // The same two requests the strip and the queue make, so nothing is asked twice.
@@ -146,7 +146,7 @@ export function CellHome() {
   return (
     <div className="page space-y-10">
       <PageHeader
-        title={greeting(me?.name)}
+        title={greeting(me?.name, me?.placeholder)}
         spot="spot-audit"
         action={
           <Button kind="primary" asChild>
@@ -352,10 +352,9 @@ export function CellHome() {
           <QueueRow
             icon={Flag}
             label="Open flags"
-            count={d?.flags.open ?? null}
-            detail={d ? (d.flags.open_on_paid > 0 ? `${d.flags.open_on_paid.toLocaleString("en-IN")} on claims already paid` : "None on claims already paid") : undefined}
+            count={d ? d.flags.open - (d.flags.legacy ?? 0) : null}
+            detail={d ? fromBefore(d.flags.legacy ?? 0, "Questions on claims not yet paid") : undefined}
             to="/flags"
-            tone={d && d.flags.open_on_paid > 0 ? "caution" : undefined}
             loading={q.isLoading}
           />
           <QueueRow
@@ -370,8 +369,8 @@ export function CellHome() {
           <QueueRow
             icon={Copy}
             label="Possible duplicate payments"
-            count={duplicates.data?.summary.open ?? null}
-            detail="The same paper may have been paid twice"
+            count={duplicates.data ? (duplicates.data.summary.open_actionable ?? duplicates.data.summary.open) : null}
+            detail={fromBefore(duplicates.data?.summary.open_legacy ?? 0, "The same paper may have been paid twice")}
             to="/duplicates"
             loading={duplicates.isLoading}
           />
@@ -386,8 +385,8 @@ export function CellHome() {
           <QueueRow
             icon={AlertTriangle}
             label="Faults"
-            count={faults.data?.total ?? null}
-            detail="Things the system could not finish"
+            count={faults.data ? (faults.data.actionable ?? faults.data.total) : null}
+            detail={fromBefore(faults.data?.legacy ?? 0, "Things the system could not finish")}
             to="/faults"
             loading={faults.isLoading}
           />

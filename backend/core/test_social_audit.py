@@ -62,7 +62,7 @@ class SocialAuditTests(TestCase):
         theirs = theirs.get("results", theirs) if isinstance(theirs, dict) else theirs
         self.assertEqual(len(theirs), 0)
 
-    def test_scout_without_claude_says_so_and_queues_nothing(self):
+    def test_scout_without_claude_points_to_the_compass_and_queues_nothing(self):
         from unittest import mock
 
         from core.models import ScoutRun
@@ -70,21 +70,25 @@ class SocialAuditTests(TestCase):
         self.c.force_login(self.a)
         with mock.patch("core.services.ai.provider_name", return_value="none"):
             r = self.c.post("/api/scout", "{}", content_type="application/json")
-        self.assertEqual(r.status_code, 503)
-        self.assertIn("not switched on", r.json()["detail"])
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json(), {"available": False, "moved_to": "/compass"})
         self.assertFalse(ScoutRun.objects.exists())
 
     def test_a_run_nobody_picked_up_stops_spinning(self):
         from datetime import timedelta
+        from unittest import mock
 
         from django.utils import timezone
 
         from core.models import ScoutRun
+        from core.services import anthropic_provider
 
         run = ScoutRun.objects.create(user=self.a)
         ScoutRun.objects.filter(pk=run.pk).update(created_at=timezone.now() - timedelta(hours=1))
         self.c.force_login(self.a)
-        self.assertEqual(self.c.get("/api/scout").json()["status"], "failed")
+        with mock.patch("core.services.ai.provider_name", return_value="anthropic"), \
+                mock.patch.object(anthropic_provider, "missing_settings", return_value=[]):
+            self.assertEqual(self.c.get("/api/scout").json()["status"], "failed")
 
     def test_faculty_can_open_a_colleague_profile(self):
         self.c.force_login(self.a)

@@ -131,7 +131,7 @@ export function Flags() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="Flags are raised and reviewed by the research cell, the coordinator, the Principal and the super admin. By the college's rule they are not shown to the Director, Finance or the claimant."
+          message="Flags are raised and reviewed by the research office, the coordinator, the Principal and the super admin. By the college's rule they are not shown to the Director, Finance or the claimant."
         />
       </div>
     )
@@ -263,7 +263,7 @@ export function Flags() {
             title="Could not load the flags"
             message={
               error?.status === 403
-                ? "Not allowed. Flags are for the research cell, the coordinator, the Principal and the super admin."
+                ? "Not allowed. Flags are for the research office, the coordinator, the Principal and the super admin."
                 : "The server did not answer. Nothing has been resolved or changed."
             }
             onRetry={error?.status === 403 ? false : () => refetch()}

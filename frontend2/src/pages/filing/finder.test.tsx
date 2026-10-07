@@ -22,7 +22,7 @@ describe("the filing form, the moment a paper is picked", () => {
     expect(screen.getByText(/It is under review/)).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Open that claim" })).toHaveAttribute("href", "/papers/c1")
     // No desk, no colleague.
-    expect(document.body.textContent).not.toMatch(/research cell|principal|director|finance|clearing/i)
+    expect(document.body.textContent).not.toMatch(/research office|principal|director|finance|clearing/i)
   })
 
   it("says a paper that was paid, with no claim to open when it was paid in the old workbook", () => {

@@ -36,7 +36,7 @@ def _require_calculator(request: HttpRequest) -> User:
     if user.role not in CALCULATOR_ROLES:
         raise HttpError(
             403,
-            "The calculator is for the research cell, the Principal, the Director and Finance.",
+            "The calculator is for the research office, the Principal, the Director and Finance.",
         )
     return user
 

@@ -42,6 +42,7 @@ from core.models import Claim, ClaimAction, ClaimStatus, PaidLedger, User
 from core.services import claim_numbers, rbac
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.verify import check_already_paid
+from core.visibility import ERP_CLOSED_NOTE
 
 #: Steps that end with the paper sent back or refused, and carry a reason.
 _SEND_BACK_ACTIONS = ("REJECT", "REJECT_OUTRIGHT", "PRINCIPAL_SEND_BACK", "DIRECTOR_SEND_BACK")
@@ -101,6 +102,8 @@ def _visible_others(user: User):
 
 def _tally(qs) -> dict[str, int]:
     """How the journal's claims ended, in one query."""
+    # ERP claims closed as handled in the old system were never decided here.
+    qs = qs.exclude(status_note=ERP_CLOSED_NOTE, status=ClaimStatus.REJECTED)
     sent = Q(status=ClaimStatus.REJECTED)
     return qs.order_by().aggregate(
         total=Count("id"),
@@ -263,7 +266,7 @@ def bulk_hold(request: HttpRequest, payload: BulkHoldIn):
     """
     user = require_user(request)
     if not rbac.sits_at_a_desk(user.role):
-        raise HttpError(403, "Only the research cell and the Principal hold claims.")
+        raise HttpError(403, "Only the research office and the Principal hold claims.")
     reason = (payload.reason or "").strip()
     if len(reason) < 10:
         raise HttpError(400, "Say why they are on hold (10+ characters). The desk reads it later")

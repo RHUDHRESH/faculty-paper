@@ -364,7 +364,7 @@ export function PaperDetail() {
           tone="critical"
           title={
             sentBackByPrincipal && claimStatus(claim) !== "REJECTED"
-              ? "The Principal sent this back to the research cell"
+              ? "The Principal sent this back to the research office"
               : claim.rejected_outright
                 ? "Not accepted: why"
                 : "Sent back to you: what to fix"
@@ -1055,7 +1055,7 @@ function ticketDates(c: Claim): TicketDate[] {
   if (c.record?.imported) return importedDates(c.record)
   const all: TicketDate[] = [
     { label: "Filed", who: null, at: c.submitted_at || "" },
-    { label: "Checked by the research cell", who: c.cleared_by_name, at: c.cleared_at || "" },
+    { label: "Checked by the research office", who: c.cleared_by_name, at: c.cleared_at || "" },
     {
       label: "Approved by the Principal",
       who: c.principal_approved_by_name,
@@ -1229,7 +1229,7 @@ function actionSentence(a: ClaimAction): string {
       case "PRINCIPAL_APPROVE":
         return `${who} approved it`
       case "PRINCIPAL_SEND_BACK":
-        return `${who} sent it back to the research cell`
+        return `${who} sent it back to the research office`
       case "SECOND_APPROVE":
         return `${who} gave the second approval`
       case "MARK_PAID":
@@ -1371,7 +1371,7 @@ function Notes({ claimId }: { claimId: string }) {
                   n.author_role ? roleLabel(n.author_role) : null,
                   formatDateTime(n.created_at),
                   n.resolved_at
-                    ? `closed by ${n.resolved_by_name || "the research cell"}`
+                    ? `closed by ${n.resolved_by_name || "the research office"}`
                     : null,
                 ]
                   .filter(Boolean)
@@ -1451,7 +1451,7 @@ function roleLabel(role: string) {
   return (
     {
       SUPER_ADMIN: "Administrator",
-      RESEARCH_CELL: "Research cell",
+      RESEARCH_CELL: "Research office",
       RESEARCH_COORDINATOR: "Research coordinator",
       PRINCIPAL: "Principal",
     }[role] || role.toLowerCase().replace(/_/g, " ")

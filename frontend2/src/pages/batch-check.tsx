@@ -321,7 +321,7 @@ function Rules({ rules }: { rules: Rules }) {
     <div className="mt-1 max-w-prose space-y-2 text-sm text-fg-muted">
       <p>
         The list comes from the college's own records: amounts, dates, the calculator and the ledger. It never looks at
-        the research cell's notes. Nothing here authorises, blocks or pays; you decide.
+        the research office's notes. Nothing here authorises, blocks or pays; you decide.
       </p>
       <ul className="list-disc space-y-1 pl-5">
         <li>

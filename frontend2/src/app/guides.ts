@@ -82,7 +82,7 @@ const APPRAISAL: Guide = {
 const CLEAR: Guide = {
   id: "clear-a-claim",
   title: "Clear a claim",
-  when: "A faculty claim is waiting at the research cell desk.",
+  when: "A faculty claim is waiting at the research office desk.",
   steps: [
     "Open Clearing. The oldest claim is at the top.",
     "Open a claim. Compare what the faculty member wrote with what the record says: Scopus indexing, quartile for that year, college affiliation and author position.",
@@ -136,10 +136,10 @@ const QUOTA: Guide = {
 const APPROVE: Guide = {
   id: "approve-claims",
   title: "Approve cleared claims",
-  when: "The research cell has checked claims and they are waiting for you.",
+  when: "The research office has checked claims and they are waiting for you.",
   steps: [
     "Open Approvals. The oldest claim is first.",
-    "Open a claim to see what the research cell checked and the amount.",
+    "Open a claim to see what the research office checked and the amount.",
     "Press Approve, or Send back with a reason, or Hold if you need to ask something.",
   ],
   to: "/approvals",
@@ -320,8 +320,8 @@ export const ROLE_INTRO: Record<Role, string> = {
   FACULTY: "Home tells you in one sentence whether anything is needed from you and when your money is due. You file your papers here and can always see how far each claim has come.",
   HOD: "You see how your department is doing against its target, and you file your own papers like anyone else.",
   RESEARCH_CELL: "You are the first desk. You check each claim against the record before it goes to the Principal.",
-  RESEARCH_COORDINATOR: "You clear claims beside the research cell, and you own the research threshold and final-year project rules.",
-  PRINCIPAL: "You approve claims the research cell has cleared, and you report the college's research upward.",
+  RESEARCH_COORDINATOR: "You clear claims at the research office, and you own the research threshold and final-year project rules.",
+  PRINCIPAL: "You approve claims the research office has cleared, and you report the college's research upward.",
   DIRECTOR: "You authorise approved claims against the budget, so Finance can pay them.",
   FINANCE: "You pay what the Director authorised and keep the ledger matching the accounts.",
   SUPER_ADMIN: "You keep people, data and money right, and the system running.",

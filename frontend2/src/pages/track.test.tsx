@@ -13,12 +13,12 @@ import { AdminHub, MoneyHub } from "@/pages/hub"
 import { Track } from "@/pages/track"
 import { fakeApi, failing, HOD, FINANCE, renderWithProviders } from "@/test/harness"
 
-const CELL: Me = { id: "u-cell", email: "c@example.edu", name: "Research Cell", role: "RESEARCH_CELL", department: null }
+const CELL: Me = { id: "u-cell", email: "c@example.edu", name: "Research Office", role: "RESEARCH_CELL", department: null }
 const SUPER: Me = { id: "u-admin", email: "a@example.edu", name: "Admin", role: "SUPER_ADMIN", department: null }
 
 const AGEING = { week: 1, fortnight: 0, month: 0, older: 1 }
 const STAGES = [
-  { key: "submitted", label: "Submitted", caption: "Waiting for the research cell to clear it", count: 2, amount: 90000, flagged: 1, oldest_days: 41, average_days: 20, ageing: AGEING },
+  { key: "submitted", label: "Submitted", caption: "Waiting for the research office to clear it", count: 2, amount: 90000, flagged: 1, oldest_days: 41, average_days: 20, ageing: AGEING },
   { key: "checked", label: "Being checked", caption: "With the Principal", count: 1, amount: 30000, flagged: 0, oldest_days: 3, average_days: 3, ageing: { week: 1, fortnight: 0, month: 0, older: 0 } },
   { key: "paid", label: "Paid", caption: "Paid out", count: 4, amount: 250000, flagged: 0, oldest_days: null, average_days: null, ageing: null },
   { key: "sent_back", label: "Sent back", caption: "With the claimant", count: 1, amount: 0, flagged: 0, oldest_days: 2, average_days: 2, ageing: { week: 1, fortnight: 0, month: 0, older: 0 } },
@@ -185,7 +185,7 @@ describe("Track", () => {
     expect(line).toHaveTextContent("3 claims are being checked by the college, the longest for 91 days")
     expect(line).toHaveTextContent("1 is approved and being paid; 16 are complete")
     expect(line).toHaveTextContent("You are not in the chain")
-    expect(line.textContent).not.toMatch(/principal|director|finance|research cell|₹/i)
+    expect(line.textContent).not.toMatch(/principal|director|finance|research office|₹/i)
     // A finished claim reads "Complete", not the days since an import.
     expect(screen.queryByText("7 days")).toBeNull()
     expect(screen.getByText("Complete", { selector: "span" })).toBeInTheDocument()

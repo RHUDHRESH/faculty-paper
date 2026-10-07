@@ -137,7 +137,7 @@ class TheSettingsScreenBelongsToTheOffice(TestCase):
             data=json.dumps(
                 {
                     "college_name": "Saveetha Engineering College",
-                    "sign_in_note": "Passwords are issued by the research cell.",
+                    "sign_in_note": "Passwords are issued by the research office.",
                     "support_email": "researchcell@saveetha.ac.in",
                 }
             ),

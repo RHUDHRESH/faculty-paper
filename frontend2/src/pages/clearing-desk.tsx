@@ -253,7 +253,7 @@ export function JournalWatchList() {
       <div>
         <SectionTitle id="watch-h">Journal watch-list</SectionTitle>
         <p className="mt-1 text-sm text-fg-muted">
-          Journals the research cell wants to look at twice: suspected clones, venues about to be discontinued,
+          Journals the research office wants to look at twice: suspected clones, venues about to be discontinued,
           publishers with complaints. Every claim in one carries a warning, and batch clearing skips it.
         </p>
       </div>

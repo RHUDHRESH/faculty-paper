@@ -548,7 +548,7 @@ class SendBackDraftTests(PrecheckBase):
         self.assertEqual(out["reason"], reason)
         self.assertEqual((out["source"], out["model"], out["host"]), ("ai", SMALL, "ai.example.test"))
         self.assertEqual(out["keys"], ["affiliation"])
-        self.assertIn("Do not mention AI, the research cell", net.calls[1]["messages"][0]["content"])
+        self.assertIn("Do not mention AI, the research office", net.calls[1]["messages"][0]["content"])
         self.assertEqual(self.snapshot(claim), before)
         self.assertEqual(AuditLog.objects.filter(action=ai_precheck.AUDIT_DRAFT).count(), 1)
 
@@ -560,7 +560,7 @@ class SendBackDraftTests(PrecheckBase):
             out = self._post(self.cell, f"/api/claims/{claim.id}/ai-precheck/send-back-draft").json()
         self.assertEqual(out["source"], "template")
         self.assertIn("is not in the text", out["reason"])
-        self.assertNotRegex(out["reason"].lower(), r"research cell|\bai\b")
+        self.assertNotRegex(out["reason"].lower(), r"research (?:office|cell)|\bai\b")
 
 
 class FeedbackTests(PrecheckBase):

@@ -50,7 +50,7 @@ export function Calculator() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="The incentive calculator is for the research cell, the Principal, the Director and Finance. When you file a paper, the form shows the estimate."
+          message="The incentive calculator is for the research office, the Principal, the Director and Finance. When you file a paper, the form shows the estimate."
         />
         <p className="mt-4">
           <Button asChild>

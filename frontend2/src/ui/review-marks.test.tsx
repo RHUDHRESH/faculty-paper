@@ -101,7 +101,7 @@ describe("composeSendBackReason", () => {
   it("leaves out staff-only marks, notes, OK marks and resolved marks, and names no desk", () => {
     const text = composeSendBackReason(
       [
-        mark({ body: "Ask the research cell about this", audience: "STAFF" }),
+        mark({ body: "Ask the research office about this", audience: "STAFF" }),
         mark({ body: "Looks fine", kind: "OK", audience: "CLAIMANT" }),
         mark({ body: "For my own memory", kind: "NOTE", audience: "CLAIMANT" }),
         mark({ body: "Already sorted", resolved_at: "2026-09-30T11:00:00Z" }),
@@ -110,7 +110,7 @@ describe("composeSendBackReason", () => {
       []
     )
     expect(text).toContain("1. paper.pdf, page 1: Fix the DOI.")
-    for (const left of ["research cell", "Looks fine", "own memory", "sorted"]) {
+    for (const left of ["research office", "Looks fine", "own memory", "sorted"]) {
       expect(text).not.toContain(left)
     }
     expect(text).not.toMatch(/reject|ticket|verify/i)

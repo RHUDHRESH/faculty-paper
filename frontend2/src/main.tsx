@@ -146,6 +146,7 @@ const Policy = page(() => import("@/pages/policy"), "Policy")
 const Profile = page(() => import("@/pages/profile"), "Profile")
 const Research = page(() => import("@/pages/research"), "Research")
 const Scout = page(() => import("@/pages/scout"), "Scout")
+const Compass = page(() => import("@/pages/compass"), "Compass")
 const Setup = page(() => import("@/pages/setup"), "Setup")
 const InstitutionSettings = page(() => import("@/pages/institution-settings"), "InstitutionSettings")
 const WallOfFame = page(() => import("@/pages/wall"), "WallOfFame")
@@ -196,6 +197,7 @@ const PRELOADS: [string, Page][] = [
   ["/u/:id", PublicProfile],
   ["/research", Research],
   ["/scout", Scout],
+  ["/compass", Compass],
   ["/leaderboard", Leaderboard],
   ["/wall", WallOfFame],
   ["/calendar", Calendar],
@@ -309,7 +311,7 @@ function Home() {
       return (
         <NotBuilt
           name="Home"
-          needs="This account has no role on it, so there is no home page to show. An account is given a role when it is created; if this one has lost it, the research cell can put it back."
+          needs="This account has no role on it, so there is no home page to show. An account is given a role when it is created; if this one has lost it, the research office can put it back."
         />
       )
   }
@@ -423,6 +425,7 @@ function App() {
           ))}
           <Route path="/discover" element={<Discover />} />
           <Route path="/scout" element={<Scout />} />
+          <Route path="/compass" element={<Compass />} />
           <Route path="/collaborate" element={<Collaborate />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/discussions" element={<Feed />} />

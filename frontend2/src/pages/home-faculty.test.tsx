@@ -242,7 +242,7 @@ describe("FacultyHome", () => {
     expect(within(section).getByText("₹1,05,000")).toBeInTheDocument()
     expect(within(section).getByText(/Taking longer than usual/)).toBeInTheDocument()
     // The college's rule: a claimant is never told which desk holds it.
-    for (const desk of [/principal/i, /director/i, /finance/i, /research cell/i]) {
+    for (const desk of [/principal/i, /director/i, /finance/i, /research office/i]) {
       expect(screen.queryByText(desk)).toBeNull()
     }
     expect(within(section).getByRole("link", { name: /A finite element study/ })).toHaveAttribute("href", "/papers/c2")
@@ -436,7 +436,7 @@ describe("work assigned to a faculty member", () => {
     expect(within(section).getByText(/by 1 Dec 2026/)).toBeInTheDocument()
     // Neither money nor a desk: this is the claimant's own home screen.
     expect(section.textContent).not.toContain("₹")
-    for (const desk of [/principal/i, /director/i, /finance/i, /research cell/i]) {
+    for (const desk of [/principal/i, /director/i, /finance/i, /research office/i]) {
       expect(within(section).queryByText(desk)).toBeNull()
     }
   })

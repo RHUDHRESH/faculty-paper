@@ -20,7 +20,7 @@ from ninja import Schema
 from ninja.errors import HttpError
 from core import visibility
 from core.models import AuditLog, DuplicateFinding
-from core.services import rbac
+from core.services import legacy, rbac
 
 # ---------- duplicate findings ----------
 
@@ -72,6 +72,8 @@ def list_duplicate_findings(
     _add_faces(page, rows_of)
 
     everything = DuplicateFinding.objects.filter(kind=kind or "SAME_PERSON")
+    # `open` stays every open finding; Home headlines the actionable part.
+    open_actionable, open_legacy = legacy.open_duplicates_split(kind or "SAME_PERSON")
     return {
         "total": total,
         "limit": limit,
@@ -98,6 +100,8 @@ def list_duplicate_findings(
         ],
         "summary": {
             "open": everything.filter(status=DuplicateFinding.Status.OPEN).count(),
+            "open_actionable": open_actionable,
+            "open_legacy": open_legacy,
             "confirmed": everything.filter(status=DuplicateFinding.Status.CONFIRMED).count(),
             "dismissed": everything.filter(status=DuplicateFinding.Status.DISMISSED).count(),
             "recovered": everything.filter(status=DuplicateFinding.Status.RECOVERED).count(),

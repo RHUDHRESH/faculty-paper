@@ -106,6 +106,9 @@ def _me_dict(request: HttpRequest, u: User) -> dict[str, Any]:
     data = _user_dict(u)
     data["google"] = _google_link(u)
     data["welcome_seen"] = u.welcome_seen_at is not None
+    # An office login with a made-up address (`director@saveetha.local`) is a
+    # seat, not a person: the UI greets it without a name.
+    data["placeholder"] = (u.email or "").rsplit("@", 1)[-1].lower().endswith(".local")
     real = impersonator_of(request)
     if real:
         data["impersonated_by"] = {"id": real.id, "name": real.name, "email": real.email}

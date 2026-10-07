@@ -397,10 +397,10 @@ def _check_watch(claim: Claim, files: list[FileRead]) -> dict[str, Any]:
     lines = _injection_lines(files)
     if hit:
         why = f" Reason on the list: {_clip(hit['reason'], NOTE_CHARS)}" if hit.get("reason") else ""
-        return _item("watch_list", "fail", f"{claim.journal_title or 'The journal'} is on the research cell's watch-list.{why}", lines)
+        return _item("watch_list", "fail", f"{claim.journal_title or 'The journal'} is on the research office's watch-list.{why}", lines)
     if lines:
         return _item("watch_list", "warn", "The journal is not on the watch-list, but text in the file speaks to an AI reader instead of describing the paper.", lines)
-    return _item("watch_list", "pass", "The journal is not on the research cell's watch-list.")
+    return _item("watch_list", "pass", "The journal is not on the research office's watch-list.")
 
 
 def _similar_claims(claim: Claim) -> list[dict[str, Any]]:
@@ -550,7 +550,7 @@ PRECHECK = harness.register(harness.Feature(
 
 _DRAFT_RULES = """You write the reason a college research office gives a faculty member when it sends a claim back to be corrected.
 
-Write one reason of at most 110 words. Start with one short sentence, then one numbered line for each problem, saying plainly what to fix. Polite and specific, in plain English. Use only the facts given. Do not mention AI, the research cell, any staff member or any desk; speak as "the college". Do not promise an outcome.
+Write one reason of at most 110 words. Start with one short sentence, then one numbered line for each problem, saying plainly what to fix. Polite and specific, in plain English. Use only the facts given. Do not mention AI, the research office, any staff member or any desk; speak as "the college". Do not promise an outcome.
 
 Answer with one JSON object: {"reason": "..."}"""
 

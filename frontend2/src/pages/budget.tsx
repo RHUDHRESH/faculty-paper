@@ -157,7 +157,7 @@ export function Budget() {
       <div className="page py-8">
         <ErrorState
           title="Not open to this account"
-          message="The budget is money. Finance, the Principal and the research cell can read it; a head of department cannot."
+          message="The budget is money. Finance, the Principal and the research office can read it; a head of department cannot."
         />
       </div>
     )
@@ -201,7 +201,7 @@ export function Budget() {
           title={`Could not load the budget for FY ${fy}`}
           message={
             error?.status === 403
-              ? "Not allowed. Finance, the Principal and the research cell can read this."
+              ? "Not allowed. Finance, the Principal and the research office can read this."
               : "The server did not answer, so every figure below is unknown rather than zero. No allocation has been changed."
           }
           onRetry={error?.status === 403 ? false : () => void refetch()}

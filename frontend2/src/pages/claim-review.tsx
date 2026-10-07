@@ -543,7 +543,7 @@ export function ClaimFlagsPanel({
         </div>
       </div>
       <Meta className="block text-pretty">
-        Seen by the research cell, the coordinator, the Principal and the super admin. Not seen by
+        Seen by the research office, the coordinator, the Principal and the super admin. Not seen by
         the claimant, the Director or Finance. A flag never holds the claim back.
       </Meta>
 

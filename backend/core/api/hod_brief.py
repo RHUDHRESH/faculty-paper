@@ -116,7 +116,7 @@ def build_brief(user: User, year: Optional[int] = None) -> dict[str, Any]:
     department = hod.department_of(user)
     if not department:
         raise HttpError(400, "This account has no department set, so there is nothing to show. "
-                             "Ask the research cell to set it.")
+                             "Ask the research office to set it.")
     snap = hod_record.snapshot(department, year, today)
     elapsed = _elapsed(year, today)
     months_left = _months_left(year, today)
@@ -772,7 +772,7 @@ def _own_department(user: User) -> str:
     department = hod.department_of(user)
     if not department:
         raise HttpError(400, "This account has no department set, so there is nothing to show. "
-                             "Ask the research cell to set it.")
+                             "Ask the research office to set it.")
     return department
 
 

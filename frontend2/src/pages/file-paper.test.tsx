@@ -370,6 +370,22 @@ describe("choosing the paper and confirming the conditions", { timeout: 20_000 }
     screen.getAllByRole("checkbox").forEach((b) => expect(b).not.toBeChecked())
   })
 
+  it("saves no draft for merely opening ?publication= and walking away", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const { calls } = mount({ pull: PULL, route: "/papers/new?publication=p1" })
+    await screen.findByRole("heading", { level: 1, name: "Confirm three things about this paper" })
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(calls.filter((c) => c.path === "/api/claims" && c.method === "POST")).toHaveLength(0)
+  })
+
+  it("starts the draft once the conditions are ticked", async () => {
+    const { user, calls } = mount({ pull: PULL, route: "/papers/new?publication=p1" })
+    await passTheGate(user)
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/claims" && c.method === "POST")).toBe(true), {
+      timeout: 5000,
+    })
+  })
+
   it("never remembers the rules as read", async () => {
     localStorage.setItem("claim-rules-read", "1")
     const { user } = mount({ pull: PULL })

@@ -58,7 +58,7 @@ function mount(me: Me, today: unknown = TODAY) {
     fakeApi({
       "/api/auth/me": () => me,
       "/api/cell/today": () => today,
-      "/api/coordination/overview": () => ({ reviewers: [{ user_id: "u-cell", name: "Priya Cell", role_label: "Research cell", open: 1, cleared_this_week: 2 }] }),
+      "/api/coordination/overview": () => ({ reviewers: [{ user_id: "u-cell", name: "Priya Cell", role_label: "Research office", open: 1, cleared_this_week: 2 }] }),
       "/api/track": () => ({ stages: [], results: [] }),
       "/api/admin/faults": () => ({ total: 0 }),
       "/api/admin/profile-requests": () => ({ pending: 0 }),
@@ -118,6 +118,20 @@ describe("the first desk's home", () => {
     mount(COORD)
     expect(await screen.findByRole("link", { name: /2 are not given to anyone/ })).toHaveAttribute("href", "/coordination")
     expect(await screen.findByText("Who holds what")).toBeInTheDocument()
+  })
+
+  it("greets a placeholder office seat by the time of day and hides its own papers", async () => {
+    mount({ ...COORD, email: "coord@saveetha.local", name: "Research Coordinator (local)", placeholder: true })
+    expect(await screen.findByRole("heading", { level: 1, name: /^Good (morning|afternoon|evening)$/ })).toBeInTheDocument()
+    await screen.findByText("Who holds what")
+    expect(screen.queryByText(/Hello/)).toBeNull()
+    expect(screen.queryByRole("region", { name: "Your own papers" })).toBeNull()
+  })
+
+  it("greets a real coordinator by name and keeps their own papers", async () => {
+    mount(COORD)
+    expect(await screen.findByRole("heading", { level: 1, name: "Hello, Ravi" })).toBeInTheDocument()
+    expect(await screen.findByRole("region", { name: "Your own papers" })).toBeInTheDocument()
   })
 
   it("says so when nothing is waiting", async () => {

@@ -150,7 +150,7 @@ describe("HodHome", () => {
     const line = await screen.findByText(/3 claims are being checked by the college/)
     expect(line).toHaveTextContent("the longest for 91 days")
     expect(line).toHaveTextContent("16 are complete")
-    expect(line.textContent).not.toMatch(/₹|principal|director|finance|research cell/i)
+    expect(line.textContent).not.toMatch(/₹|principal|director|finance|research office/i)
   })
 
   it("does not show all-years or claim-based rank figures", async () => {
@@ -189,7 +189,7 @@ describe("HodHome, the head's own papers", () => {
     const mine = await screen.findByRole("region", { name: "Your own papers" })
     expect(await within(mine).findAllByText("Being checked")).not.toHaveLength(0)
     expect(within(mine).getByText(/waiting 12 days/i)).toBeInTheDocument()
-    for (const desk of [/principal/i, /director/i, /finance/i, /research cell/i]) {
+    for (const desk of [/principal/i, /director/i, /finance/i, /research office/i]) {
       expect(within(mine).queryByText(desk)).toBeNull()
     }
   })

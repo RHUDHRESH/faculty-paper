@@ -825,7 +825,7 @@ def _to_check(
     status = affiliation["status"]
     if status == "other":
         out.append({"key": "affiliation", "text": f"The paper names “{affiliation['text']}”, not "
-                    f"{college_name}. The research cell sends these back."})
+                    f"{college_name}. The research office sends these back."})
     elif status == "no":
         out.append({"key": "affiliation", "text": f"None of the printed affiliations name {college_name}."})
     elif status == "unknown" and authors:

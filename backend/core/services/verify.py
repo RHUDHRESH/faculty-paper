@@ -59,6 +59,7 @@ def check_already_paid(
     # duplicate past those rows produced no warning at all.
     matches: list[dict[str, Any]] = []
     seen: set[str] = set()
+    my_id = (staff_id or "").strip().lower()
 
     def add(
         source: str,
@@ -69,10 +70,18 @@ def check_already_paid(
         reference: str | None = None,
         who: str | None = None,
         when: str | None = None,
+        payee_id: str | None = None,
+        exact: bool = False,
     ) -> None:
         if obj_id not in seen:
             seen.add(obj_id)
+            mine = bool(my_id) and (payee_id or "").strip().lower() == my_id
             matches.append({
+                # Same DOI or same normalised title: the same paper, whoever
+                # was paid. A colleague's merely similar title is only a note.
+                "exact": exact,
+                "mine": mine,
+                "blocks": exact or mine,
                 "source": source,
                 "id": obj_id,
                 "title": paper_title,
@@ -89,13 +98,15 @@ def check_already_paid(
             "reference": c.ticket_number,
             "who": c.owner.name if c.owner_id else None,
             "when": c.payout_month.strftime("%Y-%m") if c.payout_month else None,
+            "payee_id": c.staff_id or (c.owner.staff_id if c.owner_id else None),
         }
 
     def from_prior(m) -> dict:
         return {
-            "reference": m.claim_ref,
+            "reference": erp_reference(m.claim_ref),
             "who": m.faculty_name,
             "when": m.paid_at.strftime("%Y-%m") if m.paid_at else None,
+            "payee_id": m.employee_id,
         }
 
     def paid_claims():
@@ -108,17 +119,17 @@ def check_already_paid(
         d = normalize_doi(doi)
         if d:
             for m in PriorPayment.objects.filter(doi__iexact=d)[:10]:
-                add("prior", m.id, m.paper_title, m.amount_paid, **from_prior(m))
+                add("prior", m.id, m.paper_title, m.amount_paid, exact=True, **from_prior(m))
             for c in paid_claims().filter(doi__iexact=d)[:10]:
-                add("claim", c.id, c.paper_title, c.remuneration, **from_claim(c))
+                add("claim", c.id, c.paper_title, c.remuneration, exact=True, **from_claim(c))
     if title:
         nt = normalize_title(title)
         if nt:
             # Exact normalized-title hits are indexed lookups on both tables.
             for m in PriorPayment.objects.filter(normalized_title=nt)[:10]:
-                add("prior", m.id, m.paper_title, m.amount_paid, **from_prior(m))
+                add("prior", m.id, m.paper_title, m.amount_paid, exact=True, **from_prior(m))
             for c in paid_claims().filter(normalized_title=nt)[:10]:
-                add("claim", c.id, c.paper_title, c.remuneration, **from_claim(c))
+                add("claim", c.id, c.paper_title, c.remuneration, exact=True, **from_claim(c))
             # Rough matching runs only over DB-narrowed candidates: rows that
             # share at least one of the title's most distinctive tokens.
             tokens = sorted(title_tokens(title), key=len, reverse=True)[:3]
@@ -133,11 +144,36 @@ def check_already_paid(
                 )
                 for m in prior_candidates:
                     if m.id not in seen and titles_rough_match(title, m.paper_title):
-                        add("prior", m.id, m.paper_title, m.amount_paid, **from_prior(m))
+                        add("prior", m.id, m.paper_title, m.amount_paid,
+                            exact=normalize_title(m.paper_title or "") == nt, **from_prior(m))
                 for c in paid_claims().filter(cond)[:50]:
                     if c.id not in seen and titles_rough_match(title, c.paper_title):
-                        add("claim", c.id, c.paper_title, c.remuneration, **from_claim(c))
-    return {"warning": len(matches) > 0, "matches": matches[:15]}
+                        add("claim", c.id, c.paper_title, c.remuneration,
+                            exact=normalize_title(c.paper_title or "") == nt, **from_claim(c))
+    # Exact and own matches first: they are the ones that stop a filing.
+    matches.sort(key=lambda m: not m["blocks"])
+    # `warning`: anything worth a look (the desk reads every match).
+    # `block`: the same paper, or one paid to the claimant themselves.
+    return {
+        "warning": len(matches) > 0,
+        "block": any(m["blocks"] for m in matches),
+        "matches": matches[:15],
+    }
+
+
+def erp_reference(ref: str | None) -> str | None:
+    """The old ERP's claim number as a person would say it: "ERP #2467", not
+    the spreadsheet float "2467.0" the import kept."""
+    text = (ref or "").strip()
+    if not text:
+        return None
+    try:
+        num = float(text)
+        if num.is_integer():
+            text = str(int(num))
+    except ValueError:
+        pass
+    return f"ERP #{text}"
 
 
 def check_journal_standing(

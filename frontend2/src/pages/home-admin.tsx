@@ -238,7 +238,7 @@ export function AdminHome() {
 
   return (
     <div className="page space-y-10">
-      <PageHeader title={greeting(me?.name)} spot="spot-home-admin" action={setup ? undefined : <FindButton />} />
+      <PageHeader title={greeting(me?.name, me?.placeholder)} spot="spot-home-admin" action={setup ? undefined : <FindButton />} />
 
       {!start.data && !start.isError ? (
         // Which of the two homes this is depends on /start, so wait for it

@@ -20,6 +20,8 @@
  *   empty-header   a Table column whose header is "" or null.
  *   dash-cell      a table cell that prints a lone dash for a missing value;
  *                  say "Not recorded" (or use the kit's Table, which does).
+ *   retired-desk   "research cell" in UI copy. That desk is now called
+ *                  "the research office"; the role enum may stay.
  */
 import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
@@ -49,6 +51,7 @@ const RULES = {
     const emptyTh = count(s, /<th\b[^>]*>\s*<\/th>/g) + count(s, /<th\b[^>]*\/>/g)
     return Math.max(0, tables - heads) + emptyTh
   },
+  "retired-desk": (s) => count(s, /research cell/gi),
   "empty-header": (s) => count(s, /\bheader:\s*(""|''|null|<>\s*<\/>)/g),
   "dash-cell": (s) => count(s, /<td\b[^>]*>[^<]*\|\|\s*"(—|-)"/g) + count(s, /<td\b[^>]*>\s*(—|-)\s*<\/td>/g),
 }

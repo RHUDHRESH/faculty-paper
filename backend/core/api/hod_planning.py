@@ -64,7 +64,7 @@ def _no_department() -> HttpError:
     return HttpError(
         400,
         "This account has no department set, so there is nothing to show. "
-        "Ask the research cell to set it.",
+        "Ask the research office to set it.",
     )
 
 

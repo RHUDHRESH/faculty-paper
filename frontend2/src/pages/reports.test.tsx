@@ -347,7 +347,7 @@ describe("the three questions a review meeting asks", () => {
     // A bucket says there is a problem. Only a ticket, a desk and a number of
     // days can be chased.
     expect(screen.getByText("57 days")).toBeInTheDocument()
-    expect(screen.getByText(/The research cell/)).toBeInTheDocument()
+    expect(screen.getByText(/The research office/)).toBeInTheDocument()
   })
 
   it("measures concentration from a year holding enough papers to have one", async () => {

@@ -307,7 +307,7 @@ export function Art({ name, className }: { name: ArtName; className?: string }) 
 // the sign-in page cannot quietly go on describing the old one.
 const DESK: Record<StageName, string> = {
   Filed: "You file the paper.",
-  Checked: "The research cell checks it.",
+  Checked: "The research office checks it.",
   Approved: "The Principal agrees the spend.",
   Authorised: "The Director authorises it.",
   Paid: "Finance pays the incentive.",

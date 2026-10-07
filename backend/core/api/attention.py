@@ -23,7 +23,7 @@ from ninja.errors import HttpError
 
 from core.api.common import api, require_user, session_auth
 from core.models import DuplicateFinding, FormulaConfig, ProfileChangeRequest, Role
-from core.services import claim_fixes, data_fixes, rbac, readiness
+from core.services import claim_fixes, data_fixes, legacy, rbac, readiness
 
 #: A backup older than this is reported; the scheduled one runs daily.
 BACKUP_STALE_DAYS = readiness.BACKUP_MAX_DAYS
@@ -38,12 +38,12 @@ _ORDER = {"critical": 0, "warning": 1, "info": 2}
 _FAULT_VIEW: dict[str, tuple[str, str, str, str]] = {
     "stale_submitted": (
         "Claims waiting to be cleared for over 14 days",
-        "Nobody at the research cell has touched them since they were filed. Each claimant is waiting.",
+        "Nobody at the research office has touched them since they were filed. Each claimant is waiting.",
         "/clearing", "Open claims",
     ),
     "stale_cleared": (
         "Claims waiting for the Principal for over 14 days",
-        "The research cell cleared them, and the Principal has not approved them yet.",
+        "The research office cleared them, and the Principal has not approved them yet.",
         "/track?stage=checked", "See on Track",
     ),
     "no_quartile": (
@@ -87,10 +87,11 @@ def attention_items() -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     ok: list[str] = []
 
-    def add(key, job, severity, title, why, to, count=None, action="Open", unit=None):
+    def add(key, job, severity, title, why, to, count=None, action="Open", unit=None, legacy=0):
         items.append({
             "key": key, "job": job, "severity": severity, "title": title,
             "why": why, "to": to, "count": count, "action": action, "unit": unit,
+            "legacy": legacy,
         })
 
     # ---- keep money right ----
@@ -100,24 +101,28 @@ def attention_items() -> dict[str, Any]:
             "/policy", action="Publish a policy")
     else:
         ok.append("A policy version is active")
-    dup = DuplicateFinding.objects.filter(status=DuplicateFinding.Status.OPEN).count()
+    # Only findings with a payment made through this app are today's work; the
+    # old-ERP ones are counted apart (`legacy`) and still listed on the page.
+    dup, dup_old = legacy.open_duplicates_split()
     if dup:
         add("duplicates", "money", "warning", "Possible duplicate payments" if dup != 1 else "A possible duplicate payment",
             "One person may have been paid twice for the same paper. Confirm or dismiss each one.",
-            "/duplicates", dup, "Review them", "payments")
+            "/duplicates", dup, "Review them", "payments", legacy=dup_old)
     else:
-        ok.append("No unreviewed duplicate payments")
+        ok.append("No unreviewed duplicate payments"
+                  + (f" ({dup_old:,} from before this system)" if dup_old else ""))
 
     # ---- faults (data gaps, stalled work, money that does not add up) ----
     faults = _faults_now()
     for g in faults["groups"]:
         for f in g["faults"]:
-            if f["count"] and f["severity"] in ("critical", "warning"):
+            if f["actionable"] and f["severity"] in ("critical", "warning"):
                 view = _FAULT_VIEW.get(f["key"])
                 title, why, to, action = view or (f["title"], f["detail"], "/faults", "Open faults")
                 add(f"fault_{f['key']}", "running" if g["key"] != "data" else "people",
-                    f["severity"], title, why, to, f["count"], action, _FAULT_UNIT.get(f["key"], "records"))
-    if not faults["urgent"]:
+                    f["severity"], title, why, to, f["actionable"], action, _FAULT_UNIT.get(f["key"], "records"),
+                    legacy=f["legacy"])
+    if not faults["urgent_actionable"]:
         ok.append("No urgent faults")
 
     # ---- keep data right ----

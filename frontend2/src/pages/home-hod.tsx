@@ -109,7 +109,7 @@ export function HodHome() {
           what="the department's year"
           message={
             brief.error?.status === 400 || brief.error?.status === 403
-              ? "This account is not set up as the head of a department. Ask the research cell to set the department."
+              ? "This account is not set up as the head of a department. Ask the research office to set the department."
               : "The server did not answer."
           }
           onRetry={brief.error?.status === 400 || brief.error?.status === 403 ? false : () => void brief.refetch()}

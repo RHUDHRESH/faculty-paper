@@ -62,7 +62,7 @@ const ROLE_LABEL: Record<Role, string> = {
   PRINCIPAL: "Principal",
   DIRECTOR: "Director",
   FINANCE: "Finance",
-  RESEARCH_CELL: "Research cell",
+  RESEARCH_CELL: "Research office",
   RESEARCH_COORDINATOR: "Research coordinator",
   SUPER_ADMIN: "Super admin",
 }
@@ -451,7 +451,7 @@ function AdminPeople({ issue }: { issue: boolean }) {
         error?.status === 403 ? (
           <ErrorState
             title="Not visible to this account"
-            message="This directory is only open to the research cell and system admins."
+            message="This directory is only open to the research office and system admins."
           />
         ) : (
           <ErrorState

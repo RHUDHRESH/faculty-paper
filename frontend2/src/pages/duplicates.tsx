@@ -190,7 +190,7 @@ export function Duplicates() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="The research cell and the Principal review these. They are not shown to the Director or Finance."
+          message="The research office and the Principal review these. They are not shown to the Director or Finance."
         />
       </div>
     )
@@ -277,7 +277,7 @@ export function Duplicates() {
           title="Could not load the findings"
           message={
             error?.status === 403
-              ? "Not allowed. The research cell and the Principal review these."
+              ? "Not allowed. The research office and the Principal review these."
               : "The server did not answer."
           }
           onRetry={error?.status === 403 ? false : () => refetch()}

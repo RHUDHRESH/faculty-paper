@@ -122,7 +122,7 @@ export function PrincipalHome() {
 
   return (
     <div className="page space-y-14">
-      <PageHeader title={salutation(me?.name)} action={action} />
+      <PageHeader title={me?.placeholder ? dayPart() : salutation(me?.name)} action={action} />
 
       {/* The answer and the desk's print side by side, so the page is not spent
           on a header that is only a picture's height. */}

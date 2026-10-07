@@ -137,7 +137,7 @@ export function ErpRemark() {
         </h2>
         <p className="mt-0.5 text-sm text-fg-muted">
           {n > 0
-            ? `Put ${n === 1 ? "it" : "them"} back to Checked: the Principal approves an amount, the Director authorises it and Finance pays it in the run.${held ? ` ${held.toLocaleString("en-IN")} stay held for the research cell.` : ""}`
+            ? `Put ${n === 1 ? "it" : "them"} back to Checked: the Principal approves an amount, the Director authorises it and Finance pays it in the run.${held ? ` ${held.toLocaleString("en-IN")} stay held for the research office.` : ""}`
             : `Last run: ${last?.changed.toLocaleString("en-IN")} claims. You can put them back.`}
         </p>
       </div>
@@ -167,7 +167,7 @@ export function ErpRemark() {
           <DialogBody className="space-y-4">
             <People rows={p.will_change} />
             {p.held.length > 0 && (
-              <Details count={p.held.length} label="held for the research cell">
+              <Details count={p.held.length} label="held for the research office">
                 <People rows={p.held} why />
               </Details>
             )}

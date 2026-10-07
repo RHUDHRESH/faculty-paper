@@ -193,7 +193,7 @@ def pack_row_edit(request: HttpRequest, claim_id: str, payload: PackRowEditIn):
     if not (rbac.can_clear_claims(user.role) or rbac.can_manage_users(user.role)):
         raise HttpError(
             403,
-            "Correcting a submission row is the research cell's to do.",
+            "Correcting a submission row is the research office's to do.",
         )
 
     field = (payload.field or "").strip()

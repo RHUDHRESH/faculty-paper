@@ -91,7 +91,7 @@ export function DirectorHome() {
   return (
     <div className="page space-y-14">
       <PageHeader
-        title={greeting(me?.name)}
+        title={greeting(me?.name, me?.placeholder)}
         action={
           n > 0 && allFetched ? (
             <Button kind="primary" size="lg" onClick={() => setBatchOpen(true)}>

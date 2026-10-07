@@ -439,7 +439,7 @@ export function Audit() {
             <ErrorState
               art="closed-gate"
               title="Not open to this account"
-              message="Open to the research cell, system admins, the Principal, the Director and Finance."
+              message="Open to the research office, system admins, the Principal, the Director and Finance."
             />
           ) : (
             <ErrorState

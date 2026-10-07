@@ -68,7 +68,7 @@ CAPABILITIES: list[Capability] = [
     # ---- money ---------------------------------------------------------
     cap("Clear a submitted ticket", "POST", "/api/claims/{claim}/clear",
         ADMINS,
-        "Checking a claim is the research cell's job; the principal oversees "
+        "Checking a claim is the research office's job; the principal oversees "
         "rather than checks, and finance pays what it is told to pay.",
         {"expected_amount": 1}, "Money"),
     cap("Approve the spend", "POST", "/api/claims/{claim}/principal-approve",
@@ -159,7 +159,7 @@ CAPABILITIES: list[Capability] = [
     cap("Set verified values by hand", "POST",
         "/api/admin/claims/{claim}/set-verified",
         ADMINS,
-        "Overriding what the index said is the research cell's judgement, and "
+        "Overriding what the index said is the research office's judgement, and "
         "it is recorded against them.",
         {"snip": 1.0, "note": "matched against the publisher page"}, "Policy"),
 
@@ -260,7 +260,7 @@ CAPABILITIES: list[Capability] = [
         None, "Reading"),
     cap("Read notes on a ticket", "GET", "/api/claims/{claim}/notes",
         ADMINS | {PRINCIPAL},
-        "Between the principal and the research cell. Never the claimant, "
+        "Between the principal and the research office. Never the claimant, "
         "never finance.",
         None, "Reading"),
 

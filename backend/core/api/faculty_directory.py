@@ -504,7 +504,7 @@ def faculty_gaps(request: HttpRequest, per: int = 8):
 
 def _stage_for(viewer: User, c: Claim) -> str:
     if viewer.id == c.owner_id or viewer.role == Role.FACULTY:
-        return faculty_stage(c.status, rejected_outright=bool(c.rejected_outright), ticket_number=c.ticket_number)
+        return faculty_stage(c.status, rejected_outright=bool(c.rejected_outright), ticket_number=c.ticket_number, status_note=c.status_note)
     if viewer.role == Role.HOD:
         return hod.progress_of(c.status)
     if c.status == ClaimStatus.REJECTED and c.rejected_outright:

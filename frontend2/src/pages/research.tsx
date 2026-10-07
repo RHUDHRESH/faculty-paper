@@ -25,6 +25,7 @@ import { Timeline, type TimelineEvent, type TimelineKind } from "@/ui/timeline"
 import { toast } from "@/ui/toast"
 import { ChoiceChips } from "@/pages/record-bits"
 import { ResearchHelper } from "@/pages/research-helper"
+import { CompassCard } from "@/pages/compass-parts"
 import { unshout } from "@/lib/names"
 /**
  * My research (docs/ux/05): one page, two tabs. "Me" validates the past
@@ -103,7 +104,6 @@ export type MyResearch = {
     same_date_last_year: number
     last_year_total: number
     target: number | null
-    quota: number | null
     under_review: number
     drafts: number
   }
@@ -154,7 +154,9 @@ export function Research() {
         ? "Paste an abstract or an idea, and find journals and colleagues at the college that fit."
         : mine.isLoading
         ? "Reading your record…"
-        : (mine.data?.headline ?? "We will learn your topics from your papers' keywords once your record is matched.")
+        : mine.data?.headline
+          ? "Your record, what you work on now and ideas for what's next."
+          : "We will learn your topics from your papers' keywords once your record is matched."
 
   return (
     <div className="page space-y-10" data-area="research">
@@ -214,6 +216,10 @@ function MeTab({ q }: { q: Q<MyResearch> }) {
 
   return (
     <>
+      <div className="space-y-6">
+        {d?.headline && <p className="display max-w-[30ch] text-balance text-3xl leading-tight text-fg">{d.headline}</p>}
+        <CompassCard variant="research" />
+      </div>
       <Answer
         items={[
           {
@@ -588,18 +594,19 @@ function ThisYear({ t }: { t: MyResearch["this_year"] }) {
     method: "PUT",
     invalidates: [["research", "me"], ["goals"]],
   })
-  const target = t.quota ?? t.target
+  // Only your own target: the API sends no college quota here.
+  const target = t.target
   const ring =
     target != null
       ? {
           metric: "PAPERS",
-          label: t.quota != null ? "Research quota" : "Personal target",
+          label: "Personal target",
           target,
           done: t.papers,
           available: true,
           fraction: target ? t.papers / target : 0,
           met: t.papers >= target,
-          built_in: t.quota != null,
+          built_in: false,
         }
       : null
   return (
@@ -635,8 +642,7 @@ function ThisYear({ t }: { t: MyResearch["this_year"] }) {
         </div>
         <div className="flex shrink-0 items-center gap-4">
           {ring && <GoalRing goal={ring} size={88} />}
-          {t.quota == null &&
-            (editing ? (
+          {editing ? (
               <form
                 className="flex items-end gap-2"
                 onSubmit={(e) => {
@@ -670,7 +676,7 @@ function ThisYear({ t }: { t: MyResearch["this_year"] }) {
               <Button kind="quiet" onClick={() => setEditing(true)}>
                 {t.target ? "Edit my target" : "Set a target, only you see it"}
               </Button>
-            ))}
+            )}
         </div>
       </div>
     </div>

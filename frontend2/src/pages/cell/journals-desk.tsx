@@ -244,7 +244,7 @@ export function JournalsDesk({ showMoney }: { showMoney: boolean }) {
     <div className="page space-y-10">
       <PageHeader
         title="Journals"
-        sub="The venues the research cell doubts, why, and the claims that touches. Below, every journal the college has published in."
+        sub="The venues the research office doubts, why, and the claims that touches. Below, every journal the college has published in."
         action={
           <Button kind="primary" onClick={() => setAdding(true)}>
             <Eye aria-hidden />

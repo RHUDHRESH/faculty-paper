@@ -1131,7 +1131,7 @@ def principal_approve(request: HttpRequest, claim_id: str, payload: ActionIn):
         if claim.status != ClaimStatus.CLEARED:
             raise HttpError(
                 400,
-                "Only a ticket the research cell has cleared can be approved"
+                "Only a ticket the research office has cleared can be approved"
                 f" — this one is {claim.status}",
             )
         _refuse_if_held(claim)

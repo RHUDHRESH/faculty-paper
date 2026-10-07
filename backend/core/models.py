@@ -1403,7 +1403,7 @@ class ProfileChangeRequest(models.Model):
     """
 
     class State(models.TextChoices):
-        PENDING = "PENDING", "Waiting for the research cell"
+        PENDING = "PENDING", "Waiting for the research office"
         APPROVED = "APPROVED", "Applied"
         DECLINED = "DECLINED", "Declined"
 
@@ -2974,6 +2974,32 @@ class ScoutRun(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class CompassState(models.Model):
+    """One person's research compass (core.services.compass), kept between visits.
+
+    The portrait and the paths are worth keeping because a model wrote them
+    and asking again costs a call; each carries the hash of the facts it was
+    made from, so one made before the record changed is not shown as current.
+    The plan is kept for a different reason: it is the person's own, ticks and
+    all, and a new paper on the record must not wipe out what they have done.
+    ``facts_hash`` is the hash of the facts last seen. JSON as text, like
+    ``ScoutRun``. Carries no money.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="compass")
+    portrait_json = models.TextField(blank=True, default="")
+    paths_json = models.TextField(blank=True, default="")
+    chosen_path = models.CharField(max_length=32, blank=True, default="")
+    plan_json = models.TextField(blank=True, default="")
+    facts_hash = models.CharField(max_length=64, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"Compass of {self.user_id}"
 
 
 class AIPrecheck(models.Model):

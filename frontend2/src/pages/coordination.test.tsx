@@ -19,14 +19,14 @@ const OVERVIEW = {
   desk_open: 3,
   unassigned: 2,
   held: 0,
-  reviewers: [{ user_id: "u-cell", name: "Ravi Cell", role_label: "Research cell", open: 1, cleared_this_week: 2, decided_this_week: 2, median_days: 3.5 }],
+  reviewers: [{ user_id: "u-cell", name: "Ravi Cell", role_label: "Research office", open: 1, cleared_this_week: 2, decided_this_week: 2, median_days: 3.5 }],
   throughput: [{ week_start: "2026-09-21", received: 4, decided: 2, cleared: 2 }],
   ageing: [
     { bucket: "a week or less", count: 1, breach: false },
     { bucket: "over 30 days", count: 2, breach: true },
   ],
   breaches: { count: 2, oldest_days: 91, rows: [] },
-  stages: [{ key: "research", label: "With the research cell", count: 3, over_sla: 2, oldest_days: 91, on_hold: 0 }],
+  stages: [{ key: "research", label: "With the research office", count: 3, over_sla: 2, oldest_days: 91, on_hold: 0 }],
 }
 
 const ROWS = [
@@ -41,7 +41,7 @@ function mount(route = "/", me: Me = COORD) {
       "/api/auth/me": () => me,
       "/api/coordination/overview": () => OVERVIEW,
       "/api/coordination/claims": (p) => ({ total: ROWS.length, results: p.includes("scope=breach") ? [ROWS[0]] : ROWS }),
-      "/api/coordination/reviewers": () => [{ user_id: "u-cell", name: "Ravi Cell", role_label: "Research cell", desks: ["supervisor"] }],
+      "/api/coordination/reviewers": () => [{ user_id: "u-cell", name: "Ravi Cell", role_label: "Research office", desks: ["supervisor"] }],
       "/api/coordination/assign": () => ({ assigned: 2, unassigned: 0, skipped: [], claim_ids: ["c1", "c2"], assignee: { user_id: "u-cell", name: "Ravi Cell" } }),
       "/api/admin/clearing-report": () => ({
         month: "2026-09", received: 9, cleared: 4, sent_back: 1, not_accepted: 0, amount_cleared: 12000, median_days: 3.5, within_week: 4, decided: 5, waiting_now: 3,
@@ -60,7 +60,7 @@ describe("coordination, desk", () => {
     mount()
     expect(await screen.findByRole("link", { name: "2 Not given to anyone" })).toHaveAttribute("href", "/coordination?scope=unassigned#assign")
     expect(screen.getByRole("link", { name: "2 Waiting over 14 days, oldest 91 days" })).toHaveAttribute("href", "/coordination?scope=breach#assign")
-    expect(screen.getByRole("link", { name: "3 Waiting at the research cell" })).toHaveAttribute("href", "/clearing")
+    expect(screen.getByRole("link", { name: "3 Waiting at the research office" })).toHaveAttribute("href", "/clearing")
   })
 
   it("opens the list a figure pointed at, and names the count on the button", async () => {

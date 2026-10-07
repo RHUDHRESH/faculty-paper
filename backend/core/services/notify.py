@@ -191,7 +191,7 @@ EMAIL_ACTIONS: dict[str, str] = {
 #: Words that would tell a claimant which desk, or who, is holding their
 #: paper. A sentence carrying one is left out of a claimant's email.
 DESK_WORDS = ("principal", "director", "finance", "hod", "head of department",
-              "research cell", "coordinator", "supervisor", "clearing", "desk",
+              "research office", "research cell", "coordinator", "supervisor", "clearing", "desk",
               "admin", "officer")
 _DESK_RE = re.compile(r"\b(" + "|".join(re.escape(w) for w in DESK_WORDS) + r")\b", re.I)
 

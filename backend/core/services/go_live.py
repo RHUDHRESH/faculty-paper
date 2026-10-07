@@ -71,7 +71,7 @@ def _desks_step() -> dict[str, Any]:
     desks = readiness._desk_checks()
     empty = [d for d in desks if not d["ok"]]
     if not empty:
-        return _step("desks", title, "done", "Research cell, Principal, Director and Finance each have someone.",
+        return _step("desks", title, "done", "Research office, Principal, Director and Finance each have someone.",
                      "/people", "See who")
     names = [d["label"].replace(" desk has someone", "") for d in empty]
     listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]

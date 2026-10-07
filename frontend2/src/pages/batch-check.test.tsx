@@ -244,7 +244,7 @@ describe("Check this batch", () => {
     await screen.findByText(/worth a look/)
     await userEvent.click(screen.getByRole("button", { name: /how this is decided/i }))
     expect(screen.getByText(/at least ₹1,000 and 5% away/)).toBeInTheDocument()
-    expect(screen.getByText(/never looks at the research cell's notes/)).toBeInTheDocument()
+    expect(screen.getByText(/never looks at the research office's notes/)).toBeInTheDocument()
     for (const word of ["Authorise", "Pay", "Approve", "Block", "Hold"]) {
       expect(screen.queryByRole("button", { name: new RegExp(`^${word}`) })).toBeNull()
     }

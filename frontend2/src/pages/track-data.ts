@@ -69,7 +69,7 @@ export type TrackPayload = {
  *  A head's four stages (review, approved, completed, sent back) are in the
  *  same lists: the server sends only the ones that role has. */
 export const MAIN_STAGES = ["submitted", "checked", "approved", "authorised", "paid", "review", "completed"]
-export const SIDE_STAGES = ["sent_back", "on_hold", "not_accepted"]
+export const SIDE_STAGES = ["sent_back", "on_hold", "not_accepted", "closed_old"]
 
 export function days(n: number | null | undefined): string {
   if (n == null) return ""

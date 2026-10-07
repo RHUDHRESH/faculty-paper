@@ -53,7 +53,7 @@ class DirectoryFixture(TestCase):
     def setUpTestData(cls):
         cls.year = timezone.localdate().year
         cls.admin = _person("fd-admin@test.edu", "Office Admin", Role.SUPER_ADMIN)
-        cls.cell = _person("fd-cell@test.edu", "Research Cell", Role.RESEARCH_CELL, department="Research")
+        cls.cell = _person("fd-cell@test.edu", "Research Office", Role.RESEARCH_CELL, department="Research")
         cls.principal = _person("fd-prin@test.edu", "Principal", Role.PRINCIPAL, department="Admin")
         cls.director = _person("fd-dir@test.edu", "Director", Role.DIRECTOR, department="Admin")
         cls.finance = _person("fd-fin@test.edu", "Finance", Role.FINANCE, department="Accounts")

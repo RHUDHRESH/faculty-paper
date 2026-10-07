@@ -28,7 +28,7 @@ from core.services import coordination as svc, rbac
 def _coordinator(request: HttpRequest) -> User:
     user = require_user(request)
     if not svc.can_coordinate(user.role):
-        raise HttpError(403, "Only the research cell, the research coordinator and the super admin use this.")
+        raise HttpError(403, "Only the research office, the research coordinator and the super admin use this.")
     return user
 
 

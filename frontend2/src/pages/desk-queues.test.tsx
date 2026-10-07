@@ -138,7 +138,7 @@ const row = (no: string) => document.querySelector(`[data-claim="${no}"]`) as HT
 describe("the approvals queue", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("shows amounts and the research cell's flags to the Principal", async () => {
+  it("shows amounts and the research office's flags to the Principal", async () => {
     await openApprovals()
     // The claim that needs her eyes is in its own lane and says why, in words, on its row.
     const look = within(screen.getByRole("region", { name: "Needs a look" }))

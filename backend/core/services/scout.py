@@ -80,12 +80,14 @@ def profile_of(user: User, college: picture._College | None = None) -> dict[str,
 
 
 def colleague_candidates(
-    user: User, college: picture._College, *, limit: int = MAX_CANDIDATES
+    user: User, college: picture._College, *, limit: int = MAX_CANDIDATES, other_departments_only: bool = True
 ) -> list[dict[str, Any]]:
     """College members in other departments whose topics touch and extend mine.
 
     Score = shared topics (common ground) + half the topics they have that I
     do not (what they bring). People I already write with are left out.
+    ``other_departments_only=False`` keeps my own department's people too (the
+    compass weighs a near colleague and a far one side by side).
     """
     def topics_of(uid: str) -> Counter:
         c: Counter = Counter()
@@ -106,9 +108,9 @@ def colleague_candidates(
     my_dept = picture._fold(user.department or "")
     out = []
     for uid, other in college.users.items():
-        if uid == user.id or uid in already or not other.is_active:
+        if uid == user.id or uid in already or not other.active:
             continue
-        if my_dept and picture._fold(other.department or "") == my_dept:
+        if other_departments_only and my_dept and picture._fold(other.department or "") == my_dept:
             continue
         theirs = topics_of(uid)
         shared = [k for k in theirs if k in mine]

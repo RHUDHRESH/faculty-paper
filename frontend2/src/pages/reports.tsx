@@ -269,7 +269,7 @@ type AreasPayload = {
  * differently from the ticket sends the chaser to the same wrong place.
  */
 const DESKS = [
-  { status: "SUBMITTED", desk: "The research cell" },
+  { status: "SUBMITTED", desk: "The research office" },
   { status: "CLEARED", desk: "The Principal" },
   { status: "PRINCIPAL_APPROVED", desk: "The Director" },
   { status: "DIRECTOR_APPROVED", desk: "Finance" },
@@ -570,7 +570,7 @@ function CollegeReports() {
           title={error?.status === 403 ? "Not visible to this account" : "Could not load the report"}
           message={
             error?.status === 403
-              ? "This report is only open to the research cell, the Principal, Finance and system admins."
+              ? "This report is only open to the research office, the Principal, Finance and system admins."
               : "The server did not answer. Nothing has been lost."
           }
           onRetry={error?.status === 403 ? false : () => refetch()}

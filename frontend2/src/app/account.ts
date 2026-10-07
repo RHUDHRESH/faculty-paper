@@ -18,7 +18,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   PRINCIPAL: "Principal",
   DIRECTOR: "Director",
   FINANCE: "Finance",
-  RESEARCH_CELL: "Research cell",
+  RESEARCH_CELL: "Research office",
   RESEARCH_COORDINATOR: "Research coordinator",
   SUPER_ADMIN: "Super admin",
 }

@@ -507,7 +507,7 @@ function GeneralQuery() {
         error?.status === 403 ? (
           <ErrorState
             title="Not available for this account"
-            message="This query is open to the research cell, the Principal, Finance and system admins."
+            message="This query is open to the research office, the Principal, Finance and system admins."
           />
         ) : (
           <ErrorState

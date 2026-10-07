@@ -181,7 +181,7 @@ function PlainJournals() {
           <ErrorState
             art="closed-gate"
             title="Not visible to this account"
-            message="This list is open to heads of department, the principal, finance and the research cell — not to faculty accounts."
+            message="This list is open to heads of department, the principal, finance and the research office — not to faculty accounts."
           />
         ) : (
           <ErrorState
@@ -375,7 +375,7 @@ export function JournalRecord() {
           <ErrorState
             art="closed-gate"
             title="Not visible to this account"
-            message="This record is open to heads of department, the principal, finance and the research cell — not to faculty accounts."
+            message="This record is open to heads of department, the principal, finance and the research office — not to faculty accounts."
           />
         </div>
       )

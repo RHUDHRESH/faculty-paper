@@ -17,7 +17,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 from ninja.errors import HttpError
 from core.models import Claim, ClaimStatus, Role, User
-from core.services import claim_fixes, rbac, safeguards
+from core.services import claim_fixes, legacy, rbac, safeguards
 from core.services.aggregate_cache import cached
 
 #: The claim-shaped safeguard checks the Faults screen lists (the rest live on
@@ -364,11 +364,31 @@ def _faults_now() -> dict[str, Any]:
         ],
     })
 
+    # What is from before this system: found on a claim already paid, or on an
+    # ERP claim closed as handled there. Still counted in `count` and listed in
+    # full; `actionable` is what a home headlines. People gaps are always live.
+    for g in groups:
+        for f in g["faults"]:
+            qs = S.get(f["key"])
+            old = 0
+            if f["count"] and qs is not None and qs.model is Claim:
+                old = min(f["count"], qs.filter(legacy.claim_q()).count())
+            f["legacy"] = old
+            f["actionable"] = f["count"] - old
+
     total = sum(f["count"] for g in groups for f in g["faults"])
     urgent = sum(
         f["count"] for g in groups for f in g["faults"] if f["severity"] == "critical"
     )
-    return {"groups": groups, "total": total, "urgent": urgent, "checked_at": now.isoformat()}
+    old = sum(f["legacy"] for g in groups for f in g["faults"])
+    return {
+        "groups": groups, "total": total, "urgent": urgent,
+        "actionable": total - old, "legacy": old,
+        "urgent_actionable": sum(
+            f["actionable"] for g in groups for f in g["faults"] if f["severity"] == "critical"
+        ),
+        "checked_at": now.isoformat(),
+    }
 
 
 

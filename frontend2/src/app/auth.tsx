@@ -25,6 +25,8 @@ export type Me = {
   must_change_password?: boolean
   /** False until they close the first-sign-in welcome. */
   welcome_seen?: boolean
+  /** An office seat with a made-up `.local` address, not a person: greet it without a name. */
+  placeholder?: boolean
   /** Set while a super admin is viewing as this account. */
   impersonated_by?: { id: string; name: string; email: string } | null
 }

@@ -61,6 +61,7 @@ import {
   type FormState,
   type PaperEvidence,
   type PatchForm,
+  splitPriorMatches,
   type PriorCheckResult,
   type VerifyResult,
 } from "./filing/types"
@@ -696,7 +697,19 @@ export function FilePaper() {
     setSavingState("pending")
   }
 
+  /** What the page fills in by itself (a paper picked from the record, a DOI
+   *  lookup): shown, not saved. Opening "File it" and walking away used to
+   *  leave a draft behind; the draft starts with the person's own first
+   *  change or tick, and carries all of this with it. */
+  const prefillForm: PatchForm = (updater) => {
+    setForm((prev) => ({ ...prev, ...(typeof updater === "function" ? updater(prev) : updater) }))
+  }
+
+  /** Set while the conditions say this article is already claimed or paid. */
+  const duplicateShownRef = useRef(false)
+
   async function save() {
+    if (duplicateShownRef.current && phase === "confirm") return
     setSavingState("saving")
     try {
       const payload = buildPayload(form, { submit: false, ownerId: filingFor?.id })
@@ -786,7 +799,8 @@ export function FilePaper() {
       setLookupRes(res)
       if (res.ok && res.paper) {
         const { patch, filled: names } = applyLookup(formRef.current, res, { overwrite: true })
-        if (Object.keys(patch).length) patchForm(patch)
+        // Saved only onto a draft that already exists or is about to.
+        if (Object.keys(patch).length) (claimIdRef.current || dirtyRef.current ? patchForm : prefillForm)(patch)
         setFilled(names)
         setIndexedYear(res.paper.publication_year)
         setIndexedYearSource(res.field_sources.publication_year || null)
@@ -1021,7 +1035,7 @@ export function FilePaper() {
   function choosePulled(p: PulledPaper) {
     setPicked(p)
     const total = p.total_authors || p.authors.length || 1
-    patchForm({
+    prefillForm({
       paperTitle: p.title,
       doi: p.doi || "",
       journalTitle: p.venue || "",
@@ -1196,7 +1210,8 @@ export function FilePaper() {
   const problems = readiness(form, rules, {
     calc,
     calcFailed,
-    priorWarning: Boolean(priorCheck?.warning),
+    // Only the same paper; a colleague's similar title is a note on the form.
+    priorWarning: splitPriorMatches(priorCheck).hard.length > 0,
     indexedYear,
     indexedYearSource,
     carried,
@@ -1535,10 +1550,14 @@ export function FilePaper() {
   if (phase === "confirm") {
     const eid = picked?.eid || (lookupRes?.ok ? lookupRes.paper?.eid : null) || null
     const position = picked?.author_position && picked.total_authors ? `author ${picked.author_position} of ${picked.total_authors}` : null
-    const priorHit = priorCheck?.warning ? priorCheck.matches[0] : null
+    const priorSplit = splitPriorMatches(priorCheck)
+    const priorHit = priorSplit.hard[0] ?? null
+    const priorNear = priorSplit.soft[0] ?? null
     const ev = paperEvidence && paperEvidence.publication_id === picked?.publication_id ? paperEvidence : null
     const rival = ev?.existing_claim && ev.existing_claim.id !== claimIdRef.current ? ev.existing_claim : null
     const ledgerPaid = ev?.paid_ledger ?? null
+    // Viewing a paper that is already claimed must never save a draft of it.
+    duplicateShownRef.current = Boolean(rival || ledgerPaid || priorHit)
     const affiliation = ev
       ? ev.affiliation_found
         ? " Your affiliation on it reads as this college."
@@ -1571,6 +1590,11 @@ export function FilePaper() {
             tone: "critical",
             text: `A claim for this article is on record${priorHit.who ? ` by ${priorHit.who}` : ""}${priorHit.when ? ` (${priorHit.when})` : ""}${priorHit.reference ? `, ${priorHit.reference}` : ""}.`,
           }
+        : priorNear
+          ? {
+              tone: "neutral",
+              text: `A colleague was paid for a similar title: “${priorNear.title || "untitled"}”${priorNear.who ? ` (${priorNear.who}${priorNear.when ? `, ${priorNear.when}` : ""})` : ""}. Check it is not the same paper.`,
+            }
         : priorCheck
           ? { tone: "positive", text: `✓ No claim found for this ${form.doi.trim() ? "DOI" : "title"} in our records.` }
           : { tone: "neutral", text: "Checking our records…" },
@@ -1647,6 +1671,8 @@ export function FilePaper() {
             setTicks(t)
             setTicksFor(articleKey)
             setPhase("form")
+            // The first tick is the person's own act: the draft starts here.
+            patchForm({})
             // Land on the first section that still needs the person. A paper
             // chosen from the record arrives with its title, journal and
             // authors filled in, so section 1 is already done; opening on it

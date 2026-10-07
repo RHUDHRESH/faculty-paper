@@ -6,7 +6,7 @@ import { explainSignInError } from "@/pages/sign-in"
 describe("explainSignInError", () => {
   it("rephrases the server's refusals", () => {
     expect(explainSignInError("Invalid credentials")).toMatch(/do not match/)
-    expect(explainSignInError("Invalid credentials. Forgotten your password? The research cell can reset it for you.")).toMatch(/lock/)
+    expect(explainSignInError("Invalid credentials. Forgotten your password? The research office can reset it for you.")).toMatch(/lock/)
     expect(explainSignInError("Too many failed sign-ins — locked for about 5 more minutes.")).toBe(
       "Too many failed sign-ins. Locked for about 5 more minutes."
     )

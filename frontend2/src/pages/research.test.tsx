@@ -40,7 +40,7 @@ const ME: MyResearch = {
     inside: [{ key: "u:t", user_id: "t", name: "Dr T. Jaya", department: "ECE", papers_together: 3, last_year_together: 2025, institutions: [] }],
     outside: [],
   },
-  this_year: { year: 2026, papers: 3, same_date_last_year: 5, last_year_total: 9, target: 8, quota: null, under_review: 1, drafts: 0 },
+  this_year: { year: 2026, papers: 3, same_date_last_year: 5, last_year_total: 9, target: 8, under_review: 1, drafts: 0 },
   ideas: [
     { kind: "topic", id: "speech", title: "Speech assessment", reason: "14 papers here in the last 12 months.", source: "counted", to: "/search?scope=topics&q=Speech" },
   ],
@@ -136,5 +136,25 @@ describe("This year", () => {
     expect(paceLine({ ...t, papers: 0, same_date_last_year: 4 })).toBe("No papers yet in 2026. Last year you had 4 by now.")
     expect(paceLine({ ...t, papers: 6, same_date_last_year: 4 })).toBe("6 papers so far in 2026. You're 2 ahead of last year's pace.")
     expect(paceLine({ ...t, papers: 1, same_date_last_year: 1 })).toBe("1 paper so far in 2026. Same pace as last year.")
+  })
+})
+
+describe("My research — your compass", () => {
+  it("shows the headline and where you are on your compass, linking to it", async () => {
+    mount("/research", {
+      "/api/compass/summary": () => ({ headline: "You make small grids steadier.", path_name: "Q1 specialist", progress: { done: 2, total: 5 }, next_action: null }),
+    })
+    const card = await screen.findByRole("region", { name: "Your compass" })
+    expect(within(card).getByText("You make small grids steadier.")).toBeInTheDocument()
+    expect(within(card).getByText("Your path: Q1 specialist · 2 of 5 done")).toBeInTheDocument()
+    expect(within(card).getByRole("link", { name: "Open your compass" })).toHaveAttribute("href", "/compass")
+  })
+
+  it("invites you to start when there is no compass yet", async () => {
+    mount("/research", {
+      "/api/compass/summary": () => ({ headline: null, path_name: null, progress: null, next_action: null }),
+    })
+    expect(await screen.findByText("See who you are as a researcher and where you could go")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Start your compass" })).toHaveAttribute("href", "/compass")
   })
 })

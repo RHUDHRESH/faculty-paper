@@ -27,7 +27,7 @@ export function actionSentence(a: ClaimAction): string {
       case "PRINCIPAL_APPROVE":
         return `${who} approved it`
       case "PRINCIPAL_SEND_BACK":
-        return `${who} sent it back to the research cell`
+        return `${who} sent it back to the research office`
       case "SECOND_APPROVE":
         return `${who} gave the second approval`
       case "MARK_PAID":

@@ -152,13 +152,13 @@ export function FlagsSection({ claimId }: { claimId: string }) {
   const settled = flags.filter((f) => !f.open)
   return (
     <section className="space-y-2">
-      <SectionTitle>Flags from the research cell</SectionTitle>
+      <SectionTitle>Flags from the research office</SectionTitle>
       {isLoading ? (
         <SkeletonText lines={2} />
       ) : isError ? (
         <p className="text-sm text-fg-muted">Could not load the flags. Open /flags to check before approving.</p>
       ) : flags.length === 0 ? (
-        <p className="text-sm text-fg-muted">None raised. The research cell cleared it without a doubt on record.</p>
+        <p className="text-sm text-fg-muted">None raised. The research office cleared it without a doubt on record.</p>
       ) : (
         <ul className="space-y-3">
           {[...open, ...settled].map((f) => (
@@ -385,7 +385,7 @@ export function RejectDialog({
   async function submit() {
     try {
       await reject.mutateAsync({ note: trimmed })
-      toast.ok(`Sent back to the research cell${claim.ticket_number ? `. ${claim.ticket_number}` : ""}`)
+      toast.ok(`Sent back to the research office${claim.ticket_number ? `. ${claim.ticket_number}` : ""}`)
       onOpenChange(false)
       onRejected()
     } catch (err) {
@@ -403,7 +403,7 @@ export function RejectDialog({
         <DialogBody>
           <Field
             label="Reason"
-            hint="It goes back to the research cell with this note. Say what to check again. Ctrl and Enter sends it."
+            hint="It goes back to the research office with this note. Say what to check again. Ctrl and Enter sends it."
             error={tooShort ? "At least 5 characters." : undefined}
           >
             <Textarea
@@ -537,7 +537,7 @@ export function actionSentence(a: ClaimAction): string {
       case "PRINCIPAL_APPROVE":
         return `${who} approved it`
       case "PRINCIPAL_SEND_BACK":
-        return `${who} sent it back to the research cell`
+        return `${who} sent it back to the research office`
       case "SECOND_APPROVE":
         return `${who} gave the second approval`
       case "MARK_PAID":

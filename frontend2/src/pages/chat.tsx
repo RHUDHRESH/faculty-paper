@@ -344,6 +344,9 @@ export function ChatPage() {
             }
           : c
       )
+      // The inbox on the left still read "No messages yet" for this thread
+      // until its next poll: the last message there is the one just sent.
+      void qc.invalidateQueries({ queryKey: ["dm", "inbox"] })
     },
     onError: (_err, { temp }) => {
       qc.setQueryData<Conversation>(["dm", "conversation", id], (c) =>

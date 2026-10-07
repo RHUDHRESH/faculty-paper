@@ -128,7 +128,7 @@ def _answer_journal(title: str, asker: User) -> str:
             "We hold no SCImago or SNIP record for this journal, so there is no "
             "quartile and nothing can be priced against it. That does not mean "
             "the journal is not indexed — it means our reference data does not "
-            "recognise this ISSN, which is worth telling the research cell."
+            "recognise this ISSN, which is worth telling the research office."
         )
     else:
         standing = []

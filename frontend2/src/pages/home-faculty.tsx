@@ -31,6 +31,7 @@ import { Celebrations } from "@/ui/celebrations"
 import { PageHeader } from "@/ui/page-header"
 import { Avatar, type PersonBrief } from "@/ui/person"
 import { Details, Rows, Section } from "@/ui/section"
+import { CompassCard } from "@/pages/compass-parts"
 import { ClaimThresholdNote, ThresholdCard, type ThresholdSummary } from "@/ui/research-threshold"
 
 /**
@@ -391,7 +392,10 @@ export function FacultyHome() {
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-2">
         <ResearchSection rec={rec} failed={home.isError} onRetry={() => void home.refetch()} />
-        <Suggestion />
+        <div className="space-y-10">
+          <Suggestion />
+          <CompassCard variant="home" />
+        </div>
       </div>
     </div>
   )

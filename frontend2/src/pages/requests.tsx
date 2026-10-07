@@ -116,7 +116,7 @@ export function Requests() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="Only the research cell and a super admin can decide profile requests."
+          message="Only the research office and a super admin can decide profile requests."
         />
       </div>
     )
@@ -162,7 +162,7 @@ export function Requests() {
           title="Could not load the queue"
           message={
             error instanceof ApiError && error.status === 403
-              ? "Not allowed. Only the research cell and a super admin can open this."
+              ? "Not allowed. Only the research office and a super admin can open this."
               : "The server did not answer. Nothing has been lost or decided."
           }
           onRetry={error instanceof ApiError && error.status === 403 ? false : () => refetch()}

@@ -21,6 +21,8 @@ export type AttentionItem = {
   count: number | null
   action: string
   unit: string | null
+  /** Found on claims already paid or settled in the old ERP: listed, not headlined. */
+  legacy?: number
 }
 
 export type Attention = { checked_at: string; items: AttentionItem[]; ok: string[] }
@@ -88,6 +90,13 @@ export function AttentionRow({ item, primary = false }: { item: AttentionItem; p
         <p className="mt-0.5 line-clamp-1 text-sm text-fg-muted" title={item.why}>
           {item.why}
         </p>
+        {item.legacy ? (
+          <p className="mt-0.5 text-xs text-fg-muted">
+            <Link to={item.to} className="underline-offset-4 hover:underline">
+              {item.legacy.toLocaleString("en-IN")} more from before this system
+            </Link>
+          </p>
+        ) : null}
       </div>
       {item.count != null && (
         <span className="shrink-0 text-right max-sm:ml-auto">

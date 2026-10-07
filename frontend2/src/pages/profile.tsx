@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react"
-import { Camera, Check, Circle, LoaderCircle, Lock, X } from "lucide-react"
+import { Camera, Check, Circle, LoaderCircle, Lock, Plus, X } from "lucide-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 
 import {
@@ -1111,9 +1111,20 @@ export function Interests() {
     invalidates: [["me", "interests"]],
   })
 
-  function persist() {
+  // What your own papers are about, offered while nothing is chosen: an
+  // empty "what you work on" matched nobody, though the record knew.
+  const research = useApi<{ topics: { id: string; label: string }[] }>(["research", "me"], "/api/me/research", {
+    enabled: !!interests.data && interests.data.domains.length === 0,
+    retry: false,
+  })
+  const fromPapers = (research.data?.topics ?? [])
+    .map((t) => t.label)
+    .filter((t) => !current.includes(t))
+    .slice(0, 8)
+
+  function persist(next: string[] = current) {
     save.mutate(
-      { domains: current },
+      { domains: next },
       {
         onSuccess: (data) => {
           setSelected(data.domains)
@@ -1170,6 +1181,30 @@ export function Interests() {
             ))}
           </div>
 
+          {current.length === 0 && fromPapers.length > 0 && (
+            <div className="space-y-2" role="group" aria-label="From your papers">
+              <p className="text-sm text-fg-muted">From your papers:</p>
+              <div className="flex flex-wrap gap-2">
+                {fromPapers.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    disabled={save.isPending}
+                    onClick={() => persist([...current, t])}
+                    aria-label={`Add ${t}`}
+                    className="inline-flex max-w-full items-center gap-1 rounded-sm bg-surface py-1 pl-1.5 pr-2.5 text-sm text-fg shadow-[inset_0_0_0_1px_var(--color-control-edge)] hover:bg-accent-wash hover:text-accent"
+                  >
+                    <Plus className="size-3.5 shrink-0" aria-hidden />
+                    <span className="truncate">{t}</span>
+                  </button>
+                ))}
+                <Button size="sm" disabled={save.isPending} onClick={() => persist(fromPapers)}>
+                  Add all
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-3">
             <Combobox
               value={null}
@@ -1186,7 +1221,7 @@ export function Interests() {
               aria-label="Add a domain"
               className="w-full max-w-xs"
             />
-            <Button kind="primary" size="sm" onClick={persist} disabled={!dirty || save.isPending}>
+            <Button kind="primary" size="sm" onClick={() => persist()} disabled={!dirty || save.isPending}>
               {save.isPending && <LoaderCircle className="animate-spin" />}
               {save.isPending ? "Saving…" : "Save"}
             </Button>

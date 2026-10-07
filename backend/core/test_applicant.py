@@ -26,7 +26,7 @@ from core.services.applicant import payout_outlook
 from core.test_flags import MediaMixin, _pdf, _scanned_pdf
 
 #: Words that would tell a faculty member which desk or person holds a claim.
-DESK_WORDS = re.compile(r"research cell|principal|director|finance|clearing|head of department|\bHOD\b", re.I)
+DESK_WORDS = re.compile(r"research office|research cell|principal|director|finance|clearing|head of department|\bHOD\b", re.I)
 
 COLLEGE_LINE = "Asha Faculty, Department of CSE, Saveetha Engineering College, Chennai"
 

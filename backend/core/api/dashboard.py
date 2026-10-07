@@ -116,7 +116,7 @@ def _pipeline_stages(qs) -> list[dict[str, Any]]:
     now = timezone.now()
     stages = [
         ("DRAFT", "Draft", "started, not yet submitted"),
-        ("SUBMITTED", "Awaiting clearance", "with the research cell"),
+        ("SUBMITTED", "Awaiting clearance", "with the research office"),
         ("CLEARED", "Awaiting payment", "with finance"),
         ("PAID", "Paid", "settled"),
         ("REJECTED", "Returned", "sent back to the claimant"),

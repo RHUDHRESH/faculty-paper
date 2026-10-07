@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  Compass,
   FilePlusCorner,
   Lightbulb,
   MessageCircle,
@@ -260,12 +261,25 @@ const PAGES: NavItem[] = [
     keywords: ["ideas", "topics", "what is new", "ai"],
   },
   {
+    to: "/compass",
+    label: "Research compass",
+    icon: Compass,
+    group: "Research",
+    area: "research",
+    purpose: "See who you are as a researcher, where you could go and what to do next.",
+    keywords: [
+      "compass", "scout", "who am i", "path", "plan", "next steps", "strengths", "journals to aim for",
+      "collaborators", "goals", "ai",
+    ],
+  },
+  {
+    // The older web scout. Where it cannot run, it sends the reader to the compass.
     to: "/scout",
     label: "Research scout",
     icon: Telescope,
-    group: "Research",
-    area: "research",
-    keywords: ["scout", "web", "calls", "funding", "special issue", "next", "collaborators", "claude", "ai"],
+    findOnly: true,
+    purpose: "Search the web for open calls and directions from your papers.",
+    keywords: ["scout", "web", "calls", "funding", "special issue", "claude"],
   },
 
   // PEOPLE. Who to work with absorbs Colleagues (now Search, people scope)
@@ -829,7 +843,7 @@ const PAGES: NavItem[] = [
 const PURPOSE: Record<string, string> = {
   "/clearing": "Check each filed claim against the record, then clear it or send it back.",
   "/coordination": "Who is holding which claims, how long they have waited, and who to reassign them to.",
-  "/approvals": "Approve the claims the research cell has cleared.",
+  "/approvals": "Approve the claims the research office has cleared.",
   "/authorisations": "Authorise the claims the Principal approved, against the budget.",
   "/payments": "Pay what the Director authorised, and keep the vouchers.",
   "/department": "Your department's papers, standing and targets.",
@@ -1038,7 +1052,7 @@ export const DOOR_LABELS: Record<string, string> = Object.fromEntries(DOORS.map(
 
 /** The pages an office role reaches through the folded Research group. */
 const RESEARCH_PAGES = [
-  "/papers", "/papers/new", "/research", "/discover", "/scout",
+  "/papers", "/papers/new", "/research", "/discover", "/compass", "/scout",
   "/collaborate", "/messages", "/discussions", "/leaderboard",
 ]
 

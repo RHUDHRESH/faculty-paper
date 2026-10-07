@@ -77,7 +77,7 @@ def _claim_item(c: Claim, viewer: User) -> dict[str, Any]:
     own = c.owner_id == viewer.id
     if own or viewer.role == Role.FACULTY:
         status = faculty_stage(c.status, rejected_outright=c.rejected_outright,
-                               ticket_number=c.ticket_number)
+                               ticket_number=c.ticket_number, status_note=c.status_note)
     elif viewer.role == Role.HOD:
         status = hod.progress_of(c.status)
     else:

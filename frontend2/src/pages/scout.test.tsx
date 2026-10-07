@@ -80,3 +80,19 @@ describe("sentenceEnd", () => {
     expect(sentenceEnd("Just one sentence here.")).toBe(-1)
   })
 })
+
+import { Route, Routes } from "react-router-dom"
+
+describe("Research scout where it cannot run", () => {
+  it("sends the reader to the compass", async () => {
+    vi.mocked(api).mockImplementation(fakeApi({ "/api/scout": () => ({ available: false, moved_to: "/compass" }) }))
+    renderWithProviders(
+      <Routes>
+        <Route path="/scout" element={<Scout />} />
+        <Route path="/compass" element={<p>Compass page</p>} />
+      </Routes>,
+      { route: "/scout" }
+    )
+    expect(await screen.findByText("Compass page")).toBeInTheDocument()
+  })
+})

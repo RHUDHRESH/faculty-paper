@@ -31,7 +31,7 @@ SLA_DAYS = 14
 REVIEW_ROLES = tuple(dict.fromkeys((*rbac.ADMIN_ROLES, Role.PRINCIPAL)))
 
 ROLE_LABEL = {
-    Role.RESEARCH_CELL: "Research cell",
+    Role.RESEARCH_CELL: "Research office",
     Role.RESEARCH_COORDINATOR: "Research coordinator",
     Role.SUPER_ADMIN: "Administrator",
     Role.PRINCIPAL: "Principal",
@@ -145,7 +145,7 @@ def open_claims():
 
 
 STAGES = [
-    (ClaimStatus.SUBMITTED, "research", "With the research cell"),
+    (ClaimStatus.SUBMITTED, "research", "With the research office"),
     (ClaimStatus.CLEARED, "principal", "Waiting for the Principal"),
     (ClaimStatus.PRINCIPAL_APPROVED, "director", "Waiting for the Director"),
     (ClaimStatus.DIRECTOR_APPROVED, "finance", "Waiting for Finance"),

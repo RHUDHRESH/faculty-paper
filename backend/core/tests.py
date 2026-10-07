@@ -2094,7 +2094,7 @@ class PaymentLifecycleTests(TestCase):
         """RESEARCH_CELL is folded into the admin role everywhere else, and the
         research cell's own login still carries it."""
         cell = User.objects.create_user(
-            email="life-cell@test.edu", password="pass", name="Research Cell",
+            email="life-cell@test.edu", password="pass", name="Research Office",
             role=Role.RESEARCH_CELL,
         )
         claim = Claim.objects.create(
@@ -3365,7 +3365,7 @@ class IdentityBoundaryTests(TestCase):
         same mistake one desk over: the research cell clears the claims these
         fields decide the outcome of."""
         cell = User.objects.create_user(
-            email="cell@test.edu", password="pass", name="Research Cell",
+            email="cell@test.edu", password="pass", name="Research Office",
             role=Role.RESEARCH_CELL,
         )
         self.client.force_login(cell)
@@ -3382,7 +3382,7 @@ class IdentityBoundaryTests(TestCase):
     def test_the_research_cell_can_still_move_a_department_and_stand_an_account_down(self):
         """Routing and account state are not identity, and are its job."""
         cell = User.objects.create_user(
-            email="cell2@test.edu", password="pass", name="Research Cell",
+            email="cell2@test.edu", password="pass", name="Research Office",
             role=Role.RESEARCH_CELL,
         )
         self.client.force_login(cell)
@@ -4151,7 +4151,7 @@ class FiveStepChainTests(TestCase):
         ):
             title, body = api_module._faculty_status_copy(status)
             self.assertEqual(title, stage, status)
-            for desk in ("Principal", "Director", "Finance", "research cell"):
+            for desk in ("Principal", "Director", "Finance", "research office"):
                 self.assertNotIn(desk, title + body, status)
 
     def test_approved_is_still_not_payable_until_the_director_authorises(self):
@@ -10984,7 +10984,7 @@ class WalkthroughTest(TestCase):
         mk = User.objects.create_user
         self.faculty = mk(email="w-fac@sec.edu", password="x", name="Dr S Kanagamalliga",
                           role=Role.FACULTY, department="ECE", staff_id="SEC1042")
-        self.cell = mk(email="w-cell@sec.edu", password="x", name="Research Cell",
+        self.cell = mk(email="w-cell@sec.edu", password="x", name="Research Office",
                        role=Role.RESEARCH_CELL)
         self.principal = mk(email="w-prin@sec.edu", password="x", name="Principal",
                             role=Role.PRINCIPAL)
@@ -11095,7 +11095,7 @@ class WalkthroughTest(TestCase):
         self.assertEqual(res.status_code, 200, res.content[:300])
         claim.refresh_from_db()
         self.say()
-        self.say(f"  1b. RESEARCH CELL verifies by hand    -> {claim.quartile}, SNIP {claim.snip}")
+        self.say(f"  1b. RESEARCH OFFICE verifies by hand    -> {claim.quartile}, SNIP {claim.snip}")
         self.say(f"      the formula now says Rs {claim.remuneration:,.2f}")
         self.say(f"      why: {claim.remuneration_note or claim.calc_error or 'n/a'}")
         self.say(f"      sec_refs={claim.sec_refs!r} category={claim.remuneration_category!r}")
@@ -11119,7 +11119,7 @@ class WalkthroughTest(TestCase):
         )
         self.assertEqual(res.status_code, 200, res.content[:300])
         claim.refresh_from_db()
-        self.say(f"\n  3. RESEARCH CELL clears it            -> {claim.status}")
+        self.say(f"\n  3. RESEARCH OFFICE clears it            -> {claim.status}")
         self.assertEqual(claim.status, ClaimStatus.CLEARED)
 
         # 4. Finance cannot jump the queue.

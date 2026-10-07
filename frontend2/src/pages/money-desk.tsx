@@ -89,7 +89,7 @@ export function MoneyDesk({ role }: { role: "DIRECTOR" | "FINANCE" }) {
   if (!me || !GROUPS[role]) {
     return (
       <div className="page py-8">
-        <ErrorState title="Not open to this account" message="Ask the research cell if you think it should be yours." />
+        <ErrorState title="Not open to this account" message="Ask the research office if you think it should be yours." />
       </div>
     )
   }

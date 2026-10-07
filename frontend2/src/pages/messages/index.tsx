@@ -474,7 +474,7 @@ function OfficePane() {
       <p className="flex items-center gap-1.5 border-b border-line px-4 py-1.5 text-xs text-fg-muted">
         <Lock className="size-3 shrink-0" aria-hidden />
         {isOffice
-          ? "Each conversation can be read by the research cell and the person who asked."
+          ? "Each conversation can be read by the research office and the person who asked."
           : "Only you and the research office can read this."}
       </p>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">

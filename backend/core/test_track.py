@@ -112,7 +112,7 @@ class TheBoard(TrackBase):
         self.assertEqual(
             {k: v["count"] for k, v in b.items()},
             {"submitted": 3, "checked": 1, "approved": 1, "authorised": 1, "paid": 1,
-             "sent_back": 1, "on_hold": 1, "not_accepted": 1},
+             "sent_back": 1, "on_hold": 1, "not_accepted": 1, "closed_old": 0},
         )
         self.assertEqual(sum(v["count"] for v in b.values()), body["total_claims"])
         self.assertEqual(body["total_claims"], 10)
@@ -253,9 +253,9 @@ class TheHeadSeesOnlyTheirDepartmentAndNoMoney(TrackBase):
 
     def test_a_head_learns_neither_the_desk_nor_the_hold_nor_the_payment(self):
         body = self.get(self.head, "?limit=100").json()
-        self.assertEqual([s["key"] for s in body["stages"]], ["review", "approved", "completed", "sent_back"])
+        self.assertEqual([s["key"] for s in body["stages"]], ["review", "approved", "completed", "sent_back", "closed_old"])
         labels = {r["stage_label"] for r in body["results"]}
-        self.assertLessEqual(labels, {"Under review", "Approved", "Completed", "Sent back"})
+        self.assertLessEqual(labels, {"Under review", "Approved", "Completed", "Sent back", "Closed (old system)"})
         self.assertNotIn("On hold", labels)
         self.assertNotIn("Paid", json.dumps(body))
         self.assertNotIn("Waiting for the file", json.dumps(body))
@@ -280,6 +280,44 @@ class TheOfficersOwnClaims(TrackBase):
         self.assertTrue(rows[0]["is_mine"])
         # The claimant rules would have stripped the stage; this is a tracking row.
         self.assertEqual(rows[0]["stage"], "submitted")
+
+
+class ClaimsClosedInTheOldSystem(TrackBase):
+    """`close_erp_imported` closes ERP claims the old system handled. They were
+    neither refused nor are they waiting, so Track must not call them "Not
+    accepted": the claimant already reads "Closed (old system)", and so must
+    every desk."""
+
+    def setUp(self):
+        super().setUp()
+        import io
+
+        from django.core.management import call_command
+
+        self.erp = Claim.objects.create(
+            owner=self.faculty, status=ClaimStatus.SUBMITTED, paper_title="An old ERP paper", journal_title="J",
+            ticket_number="ERP-RAW-77", publication_year=2024, submitted_at=timezone.now() - timedelta(days=200),
+        )
+        call_command("close_erp_imported", "--apply", stdout=io.StringIO())
+
+    def test_it_reads_closed_old_system_and_is_counted_apart_from_refusals(self):
+        body = self.get(self.admin, "?limit=100").json()
+        row = next(r for r in body["results"] if r["id"] == self.erp.id)
+        self.assertEqual((row["stage"], row["stage_label"]), ("closed_old", "Closed (old system)"))
+        self.assertNotEqual(row["amount_note"], "Not priced yet")
+        b = self.board(body)
+        self.assertEqual(b["closed_old"]["count"], 1)
+        self.assertEqual(b["closed_old"]["label"], "Closed (old system)")
+        self.assertIsNone(b["closed_old"]["ageing"])
+        self.assertEqual(b["not_accepted"]["count"], 1)  # the real refusal, and only it
+
+    def test_it_is_not_moving(self):
+        body = self.get(self.admin, "?moving=1&limit=100").json()
+        self.assertNotIn(self.erp.id, [r["id"] for r in body["results"]])
+
+    def test_a_head_reads_the_same_words(self):
+        rows = {r["id"]: r for r in self.get(self.head, "?limit=100").json()["results"]}
+        self.assertEqual(rows[self.erp.id]["stage_label"], "Closed (old system)")
 
 
 class TheAdminHub(TrackBase):

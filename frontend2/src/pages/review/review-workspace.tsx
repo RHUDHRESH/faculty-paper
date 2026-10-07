@@ -446,7 +446,7 @@ function Frame({ queue, children }: { queue: QueueName; children: React.ReactNod
 const KEYS: [string, string][] = [
   ["j", "Next claim in the queue"],
   ["k", "Previous claim in the queue"],
-  ["c", "Clear this claim (the research cell)"],
+  ["c", "Clear this claim (the research office)"],
   ["a", "Approve this claim (the Principal)"],
   ["s", "Send this claim back"],
   ["h", "Hold this claim"],

@@ -152,7 +152,7 @@ export function MonthlyReport() {
                   <Table rows={r.by_person} columns={people} getKey={(p) => p.name} maxHeight="none" caption="Decisions by person" />
                 )}
               </Section>
-              <Section title="How long the waiting claims have waited" sub="Claims at the research cell now, whatever month is chosen.">
+              <Section title="How long the waiting claims have waited" sub="Claims at the research office now, whatever month is chosen.">
                 <Table rows={r.ageing} columns={waiting} getKey={(a) => a.bucket} maxHeight="none" caption="Waiting claims by age" />
               </Section>
             </div>

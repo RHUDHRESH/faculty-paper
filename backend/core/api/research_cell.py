@@ -31,7 +31,7 @@ from core.services.normalize import normalize_issn
 def _desk_user(request: HttpRequest):
     user = require_user(request)
     if not rbac.can_clear_claims(user.role):
-        raise HttpError(403, "Only the research cell can use this.")
+        raise HttpError(403, "Only the research office can use this.")
     return user
 
 
@@ -344,6 +344,7 @@ def cell_today(request: HttpRequest):
     """
     from core.models import ClaimFlag
     from core.services import coordination as coord
+    from core.services import legacy
 
     user = _desk_user(request)
     now = timezone.now()
@@ -429,6 +430,9 @@ def cell_today(request: HttpRequest):
         "flags": {
             "open": others.count(),
             "open_on_paid": others.filter(claim__status=ClaimStatus.PAID).count(),
+            # Open on claims already paid or closed in the old system: still
+            # listed, but nobody's work today.
+            "legacy": others.filter(legacy.claim_q("claim__")).count(),
         },
         "month": {k: month[k] for k in ("month", "received", "cleared", "sent_back", "not_accepted", "median_days", "within_week", "decided")},
     }

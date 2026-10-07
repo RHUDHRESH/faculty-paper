@@ -11,7 +11,7 @@ import { Callout, InlineError } from "@/ui/state"
 import { formatBytes, SummaryRow } from "./bits"
 import { readableDate } from "./identifiers"
 import { PROBLEM_STYLE, zeroReason, type Problem } from "./readiness"
-import type { CalcResult, FilingRules, FormState, PriorCheckResult } from "./types"
+import { splitPriorMatches, type CalcResult, type DuplicateMatch, type FilingRules, type FormState, type PriorCheckResult } from "./types"
 
 /** The form stores the policy's own tokens; a person reads these. */
 const TYPE_TEXT: Record<string, string> = {
@@ -329,6 +329,22 @@ export function EstimateDetail({
   )
 }
 
+function PriorMatchList({ matches }: { matches: DuplicateMatch[] }) {
+  return (
+    <ul className="mt-2 space-y-1">
+      {matches.map((m, i) => (
+        <li key={i} className="text-sm">
+          {m.title && <span className="block">{m.title}</span>}
+          <span className="text-fg-muted">
+            {[m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"}
+            {m.amount != null && <> — {money(m.amount)}</>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 /** Whether this paper was paid for before, said either way. */
 export function PriorCheckLine({
   priorCheck,
@@ -339,24 +355,19 @@ export function PriorCheckLine({
   busy: boolean
   onRecheck: () => void
 }) {
+  const { hard, soft } = splitPriorMatches(priorCheck)
   return (
     <div className="space-y-2">
-      {priorCheck?.warning && (
+      {hard.length > 0 && (
         <Callout tone="critical" title="This paper may already have been paid">
           <p>Check the matches below before filing — you can still go ahead once you have.</p>
-          {priorCheck.matches.length > 0 && (
-            <ul className="mt-2 space-y-1">
-              {priorCheck.matches.map((m, i) => (
-                <li key={i} className="text-sm">
-                  {m.title && <span className="block">{m.title}</span>}
-                  <span className="text-fg-muted">
-                    {[m.reference, m.who, m.when].filter(Boolean).join(" · ") || "A prior payment"}
-                    {m.amount != null && <> — {money(m.amount)}</>}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <PriorMatchList matches={hard} />
+        </Callout>
+      )}
+      {soft.length > 0 && (
+        <Callout tone="caution" title="A colleague was paid for a similar title">
+          <p>Check it is not the same paper. If it is a different paper, carry on.</p>
+          <PriorMatchList matches={soft} />
         </Callout>
       )}
       <div className="flex flex-wrap items-center gap-2 text-sm">

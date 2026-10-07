@@ -71,7 +71,7 @@ export function AdminDirectory() {
   if (me && !pagesFor(me.role).some((p) => p.to === "/admin")) {
     return (
       <div className="page py-8">
-        <ErrorState art="closed-gate" title="Not open to this account" message="Ask the research cell if you think it should be yours." />
+        <ErrorState art="closed-gate" title="Not open to this account" message="Ask the research office if you think it should be yours." />
       </div>
     )
   }

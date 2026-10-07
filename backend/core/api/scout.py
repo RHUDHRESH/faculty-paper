@@ -2,6 +2,11 @@
 
 See core.services.scout. One fresh answer per person is reused for 24 hours;
 at most ``scout.DAILY_LIMIT`` runs per person per day. No money, no usage.
+
+The scout searches the web through Claude and so cannot run on any other
+provider. There, both routes answer ``{"available": false, "moved_to":
+"/compass"}`` with a 200, and the screen goes to the research compass, which
+works on every provider and with none.
 """
 
 from __future__ import annotations
@@ -21,9 +26,16 @@ from core.services import scout
 
 STUCK_AFTER = timedelta(minutes=15)
 
+#: What the scout says where it cannot run: where its work is done instead.
+MOVED = {"available": False, "moved_to": "/compass"}
+
 
 class ScoutIn(Schema):
     refresh: bool = False
+
+
+def _on_claude() -> bool:
+    return scout.ai.provider_name() == "anthropic" and not scout.anthropic_provider.missing_settings()
 
 
 def _latest(user) -> ScoutRun | None:
@@ -43,6 +55,8 @@ def _latest(user) -> ScoutRun | None:
 @api.get("/scout", auth=session_auth)
 def scout_latest(request: HttpRequest):
     user = require_user(request)
+    if not _on_claude():
+        return dict(MOVED)
     return hod.without_money(scout.as_payload(_latest(user), user))
 
 
@@ -51,8 +65,8 @@ def scout_start(request: HttpRequest, payload: ScoutIn | None = None):
     user = require_user(request)
     # Say so now, rather than queue a run that can only fail in the worker and
     # leave the page on "Scouting..." -- and spend one of today's runs doing it.
-    if scout.ai.provider_name() != "anthropic" or scout.anthropic_provider.missing_settings():
-        raise HttpError(503, "The research scout is not switched on here yet. The research office can turn it on.")
+    if not _on_claude():
+        return dict(MOVED)
     latest = _latest(user)
     if latest and latest.status in (ScoutRun.Status.QUEUED, ScoutRun.Status.RUNNING):
         return scout.as_payload(latest, user)

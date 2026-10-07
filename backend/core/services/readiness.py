@@ -28,7 +28,7 @@ WORKER_SILENT_MINUTES = 30
 #: held by the super admin, the coordinator or the old research cell role;
 #: the other three each have one role.
 DESKS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("clearing", "Research cell", (Role.SUPER_ADMIN, Role.RESEARCH_COORDINATOR, Role.RESEARCH_CELL)),
+    ("clearing", "Research office", (Role.SUPER_ADMIN, Role.RESEARCH_COORDINATOR, Role.RESEARCH_CELL)),
     ("principal", "Principal", (Role.PRINCIPAL,)),
     ("director", "Director", (Role.DIRECTOR,)),
     ("finance", "Finance", (Role.FINANCE,)),

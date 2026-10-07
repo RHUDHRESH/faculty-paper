@@ -41,6 +41,7 @@ from core import hod
 from core.api.common import api, require_user, session_auth
 from core.models import Claim, ClaimFlag, ClaimStatus, Role
 from core.services import data_fixes, rbac
+from core.visibility import ERP_CLOSED_STAGE, is_erp_closed
 
 #: The accounts workbook pays some papers nothing on purpose.
 _COUNT_ONLY = re.compile(r"only for count|no\s*re[nm]u", re.I)
@@ -59,6 +60,8 @@ def _amount_note(c: Claim, stage: str) -> tuple[str, str | None]:
             return "\u20b90", "counted only"
         imported = (c.ticket_number or "").startswith("ERP-")
         return "Not recorded", "in the old ERP" if imported else None
+    if stage == "closed_old":
+        return "Not paid here", "handled in the old ERP"
     if c.quota_applied:
         return "\u20b90", "inside the research threshold"
     if c.calc_error:
@@ -70,8 +73,8 @@ TRACK_ROLES = (*rbac.ADMIN_ROLES, Role.PRINCIPAL, Role.DIRECTOR, Role.FINANCE, R
 
 #: (key, label, who has it). The main path, in order.
 MAIN_STAGES = (
-    ("submitted", "Submitted", "Waiting for the research cell to clear it"),
-    ("checked", "Being checked", "Cleared by the research cell, waiting for the Principal"),
+    ("submitted", "Submitted", "Waiting for the research office to clear it"),
+    ("checked", "Being checked", "Cleared by the research office, waiting for the Principal"),
     ("approved", "Approved", "Approved by the Principal, waiting for the Director"),
     ("authorised", "Authorised", "Authorised by the Director, waiting for Finance to pay"),
     ("paid", "Paid", "Paid out"),
@@ -81,15 +84,21 @@ SIDE_STAGES = (
     ("sent_back", "Sent back", "With the claimant to correct and send again"),
     ("on_hold", "On hold", "Paused at a desk, with a reason. The desk queue still counts it"),
     ("not_accepted", "Not accepted", "Refused for good"),
+    # Closed by `close_erp_imported`: the old system settled these, so they
+    # are neither a refusal nor waiting, and are called what the claimant
+    # already reads (`visibility.ERP_CLOSED_STAGE`).
+    ("closed_old", ERP_CLOSED_STAGE, "Handled in the old ERP, not paid through this app"),
 )
 STAGE_LABEL = {k: label for k, label, _ in (*MAIN_STAGES, *SIDE_STAGES)}
 
-#: What a head sees: the words `hod.PROGRESS` uses, four steps.
+#: What a head sees: the words `hod.PROGRESS` uses, four steps, and the same
+#: closed-in-the-old-system stage everybody else reads.
 HOD_STAGES = (
     ("review", "Under review", "With the college"),
     ("approved", "Approved", "Approved, payment in progress"),
     ("completed", "Completed", "Finished"),
     ("sent_back", "Sent back", "With the claimant to correct"),
+    ("closed_old", ERP_CLOSED_STAGE, "Handled in the old ERP"),
 )
 HOD_LABEL = {k: label for k, label, _ in HOD_STAGES}
 
@@ -111,22 +120,27 @@ _HOD_OF_STAGE = {
     "submitted": "review", "checked": "review", "on_hold": "review",
     "approved": "approved", "authorised": "approved",
     "paid": "completed", "sent_back": "sent_back", "not_accepted": "sent_back",
+    "closed_old": "closed_old",
 }
 #: Stages where nobody at a desk is holding the claim: it has finished, or it
 #: is with the claimant. `moving=1` leaves these out of the list so a home
 #: page can ask "what has waited longest" without a paid claim answering.
-_NOT_MOVING = ("paid", "completed", "not_accepted", "sent_back")
+_NOT_MOVING = ("paid", "completed", "not_accepted", "sent_back", "closed_old")
+#: Finished stages: no age worth a bucket.
+_FINISHED = ("paid", "completed", "not_accepted", "closed_old")
 _HOLDABLE = (ClaimStatus.SUBMITTED, ClaimStatus.CLEARED, ClaimStatus.HOD_APPROVED,
              ClaimStatus.RESEARCH_APPROVED)
 
 _LIGHT = (
-    "id", "status", "on_hold", "rejected_outright", "remuneration",
+    "id", "status", "status_note", "on_hold", "rejected_outright", "remuneration",
     "submitted_at", "created_at", "cleared_at", "principal_approved_at",
     "director_approved_at", "paid_at", "held_at", "updated_at", "owner__department",
 )
 
 
-def _stage_of(status: str, on_hold: bool, rejected_outright: bool) -> str:
+def _stage_of(status: str, on_hold: bool, rejected_outright: bool, status_note: str | None = None) -> str:
+    if is_erp_closed(status, status_note):
+        return "closed_old"
     if status == ClaimStatus.REJECTED:
         return "not_accepted" if rejected_outright else "sent_back"
     if on_hold and status in _HOLDABLE:
@@ -161,7 +175,7 @@ def _scope(user):
             raise HttpError(
                 400,
                 "This account has no department set, so there is nothing to show. "
-                "Ask the research cell to set it.",
+                "Ask the research office to set it.",
             )
         return qs.filter(owner__department__iexact=department)
     return qs
@@ -262,7 +276,7 @@ def track(
     skip = {s.strip() for s in (exclude or "").split(",") if s.strip()}
     picked: list[tuple[str, int, dict]] = []  # (days, sort key, row) for the list
     for r in rows:
-        st = _stage_of(r["status"], r["on_hold"], r["rejected_outright"])
+        st = _stage_of(r["status"], r["on_hold"], r["rejected_outright"], r["status_note"])
         since = _since(st, r)
         if is_head:
             st = _HOD_OF_STAGE[st]
@@ -275,7 +289,7 @@ def track(
         if sees_flags and r["id"] in flagged:
             slot["flagged"] += 1
         # Ageing means waiting. A finished claim has no age worth a bucket.
-        if st not in ("paid", "completed", "not_accepted"):
+        if st not in _FINISHED:
             slot["ageing"][_bucket(days)] += 1
             slot["_days"].append(days or 0)
         if (moving and st in _NOT_MOVING) or st in skip:
@@ -288,7 +302,7 @@ def track(
         ds = s.pop("_days")
         s["oldest_days"] = max(ds) if ds else None
         s["average_days"] = round(sum(ds) / len(ds)) if ds else None
-        if s["key"] in ("paid", "completed", "not_accepted"):
+        if s["key"] in _FINISHED:
             s["ageing"] = None
         if sees_money:
             s["amount"] = round(s["amount"], 2)
@@ -529,7 +543,7 @@ def why_amount(request: HttpRequest, claim_id: str):
         for r in sheet_rows
     ]
     message = None
-    note, reason = _amount_note(c, _stage_of(c.status, c.on_hold, c.rejected_outright))
+    note, reason = _amount_note(c, _stage_of(c.status, c.on_hold, c.rejected_outright, c.status_note))
     if not priced:
         if not c.remuneration and reason and reason == "counted only":
             message = (

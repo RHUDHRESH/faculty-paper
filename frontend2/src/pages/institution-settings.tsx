@@ -123,7 +123,7 @@ export function InstitutionSettings() {
               value={signInNote}
               onChange={(e) => setSignInNote(e.target.value)}
               maxLength={300}
-              placeholder="Passwords are issued by the research cell. Call ext. 214 to reset."
+              placeholder="Passwords are issued by the research office. Call ext. 214 to reset."
             />
           </Field>
           <Field label="Support email (optional)">

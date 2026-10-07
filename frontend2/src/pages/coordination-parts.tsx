@@ -84,7 +84,7 @@ export function Summary({ o }: { o: Overview }) {
   return (
     <Answer
       items={[
-        { label: "Waiting at the research cell", value: o.desk_open, to: "/clearing", zero: "Nothing is waiting" },
+        { label: "Waiting at the research office", value: o.desk_open, to: "/clearing", zero: "Nothing is waiting" },
         { label: "Not given to anyone", value: o.unassigned, to: "/coordination?scope=unassigned#assign", zero: "Every claim is given", tone: "caution" },
         {
           label: o.breaches.count > 0 ? `Waiting over ${o.sla_days} days, oldest ${days(o.breaches.oldest_days)}` : `Waiting over ${o.sla_days} days`,
@@ -122,7 +122,7 @@ export function Workload({ o }: { o: Overview }) {
     <section aria-labelledby="workload-h" className="min-w-0">
       <SectionTitle id="workload-h">Workload per reviewer</SectionTitle>
       <p className="mt-1 text-sm text-fg-muted">
-        Open is what has been given to the person and is still waiting at the research cell. Median days is from filing to
+        Open is what has been given to the person and is still waiting at the research office. Median days is from filing to
         decision over the last 30 days.
       </p>
       {o.reviewers.length === 0 ? (
@@ -188,7 +188,7 @@ export function Throughput({ o }: { o: Overview }) {
     <section aria-labelledby="through-h" className="min-w-0 overflow-x-clip">
       <SectionTitle id="through-h">Throughput per week</SectionTitle>
       <p className="mt-1 text-sm text-fg-muted">
-        In the last {pts.length} weeks {total.r} claims came in and the research cell decided {total.d}. Decided is cleared,
+        In the last {pts.length} weeks {total.r} claims came in and the research office decided {total.d}. Decided is cleared,
         sent back or not accepted.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
@@ -279,7 +279,7 @@ export function Ageing({ o }: { o: Overview }) {
     <section aria-labelledby="age-h" className="min-w-0">
       <SectionTitle id="age-h">How long they have waited</SectionTitle>
       <p className="mt-1 text-sm text-fg-muted">
-        Claims waiting at the research cell. Anything past {o.sla_days} days is over the service level.
+        Claims waiting at the research office. Anything past {o.sla_days} days is over the service level.
       </p>
       <ul className="mt-3 space-y-2">
         {o.ageing.map((a) => (
@@ -577,7 +577,7 @@ function ShareEvenly({
   const open = Object.fromEntries(people.map((p) => [p.user_id, p.open]))
   // Start with the people whose job it is to clear: the cell and the coordinator.
   const [chosen, setChosen] = useState<string[] | null>(null)
-  const defaults = options.filter((o) => /research cell|research coordinator/i.test(o.hint ?? "")).map((o) => o.value)
+  const defaults = options.filter((o) => /research office|research coordinator/i.test(o.hint ?? "")).map((o) => o.value)
   const ids = chosen ?? defaults
   const plan = planShare(rows, ids, open)
   const given = [...plan.values()].reduce((s, a) => s + a.length, 0)
@@ -777,7 +777,7 @@ export function ResearchPanel() {
 
       <Section
         title="Journal watch-list"
-        sub="Journals the research cell looks at twice. The list, with why each is watched and the claims it touches, is on Journals."
+        sub="Journals the research office looks at twice. The list, with why each is watched and the claims it touches, is on Journals."
         action={
           <Link to="/journals" className="font-medium text-accent underline underline-offset-2">
             Open Journals

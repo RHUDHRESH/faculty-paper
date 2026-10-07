@@ -47,7 +47,7 @@ function mount(me: Me, watch: unknown[] = [WATCH]) {
   renderWithProviders(<Journals />)
 }
 
-describe("journals for the research cell", () => {
+describe("journals for the research office", () => {
   it("leads with the watch-list: why, who, and the claims it touches", async () => {
     mount(CELL)
     const watched = (await screen.findByRole("heading", { name: "On the watch-list" })).closest("section")!

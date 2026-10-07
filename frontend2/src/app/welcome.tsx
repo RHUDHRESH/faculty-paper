@@ -46,7 +46,7 @@ export function Welcome() {
     <Dialog open={open} onOpenChange={(v) => !v && close()}>
       <DialogContent size="lg" data-testid="welcome">
         <DialogHeader>
-          <DialogTitle>Welcome, {first}</DialogTitle>
+          <DialogTitle>{me.placeholder ? "Welcome" : `Welcome, ${first}`}</DialogTitle>
           <DialogDescription>{ROLE_INTRO[me.role]}</DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">

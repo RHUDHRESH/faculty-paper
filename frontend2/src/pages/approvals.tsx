@@ -441,7 +441,7 @@ export function Approvals() {
                 Director to authorise, then Finance pays it. Each claim is checked again as it is approved.
               </p>
               <p>
-                Days in amber have waited over 14 days; in red, over 30. Send back goes to the research cell with your reason, never to the
+                Days in amber have waited over 14 days; in red, over 30. Send back goes to the research office with your reason, never to the
                 claimant.
               </p>
               <p>

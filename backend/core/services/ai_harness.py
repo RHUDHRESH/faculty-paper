@@ -1017,7 +1017,7 @@ class NoFlagText(_SentenceGuard):
 
 
 _DESKS = re.compile(
-    r"\b(?:research cell|research coordinator|coordinator|admin(?:istrat\w+)? office|principal|director|"
+    r"\b(?:research office|research cell|research coordinator|coordinator|admin(?:istrat\w+)? office|principal|director|"
     r"finance (?:office|team|desk)|accounts (?:office|team|desk)|head of (?:the )?department|hod)\b",
     re.IGNORECASE,
 )

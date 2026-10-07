@@ -281,7 +281,7 @@ class BellFaceAndDeskWordingTests(TestCase):
         from core.models import ClaimStatus
 
         banned = ("principal", "director", "finance", "hod", "head of department",
-                  "research cell", "supervisor", "clearing", "desk", "admin")
+                  "research office", "research cell", "supervisor", "clearing", "desk", "admin")
         copies = [desks._HOLD_COPY, desks._RESUME_COPY]
         for status in ClaimStatus.values:
             for prev in ClaimStatus.values:

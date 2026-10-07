@@ -927,7 +927,9 @@ function Standing({ p, isNew }: { p: RecordPaper; isNew: boolean }) {
       )}
       {state === "ineligible" && (
         <span className="text-sm text-fg-muted">
-          Not eligible: {p.total_authors} authors, and the scheme pays up to {maxAuthors(p.ineligible_reason) ?? "a limited number of"}.
+          {p.ineligible_reason === "Retracted"
+            ? "Not eligible: the title says this paper was retracted."
+            : `Not eligible: ${p.total_authors} authors, and the scheme pays up to ${maxAuthors(p.ineligible_reason) ?? "a limited number of"}.`}
         </span>
       )}
     </div>

@@ -10,6 +10,7 @@ The data is built by `harvest_publications` / `match_authors`
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Optional
 
 from django.db.models import Prefetch, Q
@@ -21,12 +22,13 @@ from ninja.errors import HttpError
 
 from core import hod
 from core.api.common import api, require_user, session_auth
-from core.models import (AuditLog, Authorship, Claim, ClaimStatus, PaidLedger, Publication, PublicationMetrics,
-                         Role, User)
+from core.models import (AuditLog, Authorship, Claim, ClaimStatus, PaidLedger, PriorPayment, Publication,
+                         PublicationMetrics, Role, User)
 from core.services import coauthors as graph
 from core.services import publications as pubs
 from core.services.normalize import normalize_doi, normalize_title
 from core.services.remuneration import MAX_ELIGIBLE_AUTHORS
+from core.services.retraction import looks_retracted
 from core.visibility import faculty_stage
 
 SORTS = {
@@ -256,6 +258,23 @@ class _LedgerIndex:
                 self.by_doi.setdefault(doi.lower(), row)
             if title:
                 self.by_title.setdefault(title, row)
+        # My own payments from the old ERP: paid before the ledger existed, so
+        # only the prior-payment sheet knows. Mine by staff id only -- names on
+        # that sheet are typed by hand and shared between colleagues.
+        if self.my_ids:
+            pq = Q()
+            for sid in self.my_ids:
+                pq |= Q(employee_id__iexact=sid)
+            for m in PriorPayment.objects.filter(pq).only(
+                    "id", "employee_id", "paper_title", "normalized_title", "doi", "amount_paid", "paid_at"):
+                row = SimpleNamespace(claim_id=None, staff_id=m.employee_id, amount=m.amount_paid,
+                                      payout_month=m.paid_at.date() if m.paid_at else None)
+                doi = normalize_doi(m.doi or "")
+                title = m.normalized_title or normalize_title(m.paper_title or "")
+                if doi:
+                    self.by_doi.setdefault(doi.lower(), row)
+                if title:
+                    self.by_title.setdefault(title, row)
 
     def is_mine(self, row) -> bool:
         """The row pays me (not a co-author) -- only then may its amount be shown."""
@@ -273,7 +292,9 @@ def claim_state(p: dict, index: _ClaimIndex, ledger: Optional[_LedgerIndex] = No
     rule the filing page's Scopus pull uses, so every count agrees."""
     c = index.find(p)
     total = p.get("total_authors") or 0
-    eligible = total <= MAX_ELIGIBLE_AUTHORS
+    retracted = looks_retracted(p.get("title"))
+    eligible = total <= MAX_ELIGIBLE_AUTHORS and not retracted
+    reason = None if eligible else ("Retracted" if retracted else f"More than {MAX_ELIGIBLE_AUTHORS} authors")
     claim = None
     if c is not None:
         paid = c.status == ClaimStatus.PAID
@@ -284,15 +305,14 @@ def claim_state(p: dict, index: _ClaimIndex, ledger: Optional[_LedgerIndex] = No
         # (hod.for_head keeps figures only on rows naming the viewer).
         claim = {"id": c.id, "owner_id": c.owner_id,
                  "stage": faculty_stage(c.status, rejected_outright=bool(c.rejected_outright),
-                                        ticket_number=c.ticket_number),
+                                        ticket_number=c.ticket_number, status_note=c.status_note),
                  "days_waiting": days_waiting(c.status, c.submitted_at),
                  **({"amount": c.remuneration} if paid else {})}
     elif ledger is not None and (row := ledger.find(p)) is not None:
         claim = {"id": row.claim_id, "stage": "Paid", "days_waiting": None,
                  **({"amount": row.amount, "owner_id": ledger.user_id} if ledger.is_mine(row) else {}),
                  "paid_month": row.payout_month.isoformat()[:7] if row.payout_month else None}
-    return {"claim": claim, "eligible": eligible,
-            "ineligible_reason": None if eligible else f"More than {MAX_ELIGIBLE_AUTHORS} authors"}
+    return {"claim": claim, "eligible": eligible, "ineligible_reason": reason}
 
 
 def unclaimed_count(user: User) -> int:

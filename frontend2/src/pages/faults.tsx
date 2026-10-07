@@ -155,7 +155,7 @@ export function Faults() {
           <ErrorState
             art="closed-gate"
             title="Not open to this account"
-            message="Open to the research cell, system admins and the Principal."
+            message="Open to the research office, system admins and the Principal."
           />
         ) : (
           <ErrorState

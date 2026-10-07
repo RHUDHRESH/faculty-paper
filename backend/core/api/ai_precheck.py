@@ -37,7 +37,7 @@ class FeedbackIn(Schema):
 def _gate(request: HttpRequest, claim_id: str) -> tuple[User, Claim]:
     user = require_user(request)
     if user.role not in _ALLOWED:
-        raise HttpError(403, "The AI check is for the research cell.")
+        raise HttpError(403, "The AI check is for the research office.")
     claim = Claim.objects.select_related("owner").filter(pk=claim_id).first()
     if claim is None:
         raise HttpError(404, "Claim not found.")

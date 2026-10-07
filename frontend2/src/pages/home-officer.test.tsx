@@ -109,7 +109,7 @@ describe("an officer's home", () => {
     mount(PRINCIPAL, <PrincipalHome />)
     const mine = await screen.findByRole("region", { name: "Your own papers" })
     expect(await within(mine).findAllByText("Being checked")).not.toHaveLength(0)
-    for (const desk of [/principal/i, /director/i, /finance/i, /research cell/i]) {
+    for (const desk of [/principal/i, /director/i, /finance/i, /research office/i]) {
       expect(within(mine).queryByText(desk)).toBeNull()
     }
   })

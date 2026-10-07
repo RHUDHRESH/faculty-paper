@@ -22,7 +22,7 @@ import type { Me } from "@/app/auth"
 const OFFICE: Me = {
   id: "u-cell",
   email: "cell@example.edu",
-  name: "Research Cell",
+  name: "Research Office",
   role: "RESEARCH_CELL",
   department: null,
 }

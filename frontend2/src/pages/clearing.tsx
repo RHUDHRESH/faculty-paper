@@ -221,7 +221,7 @@ export function Clearing() {
   if (!allowed) {
     return (
       <div className="page py-8">
-        <ErrorState title="Not open to this account" message="Only the research cell and a super admin can clear claims." />
+        <ErrorState title="Not open to this account" message="Only the research office and a super admin can clear claims." />
       </div>
     )
   }

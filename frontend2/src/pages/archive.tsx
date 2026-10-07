@@ -186,7 +186,7 @@ export function PastClaims() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="Past claims are for the research cell, the coordinator, the Principal and the super admin, who can reopen any claim and flag it."
+          message="Past claims are for the research office, the coordinator, the Principal and the super admin, who can reopen any claim and flag it."
         />
       </div>
     )

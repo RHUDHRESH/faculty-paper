@@ -499,7 +499,8 @@ def prior_check(request: HttpRequest, payload: PriorCheckIn):
     result = check_already_paid(
         title=payload.title,
         doi=payload.doi,
-        staff_id=payload.staff_id,
+        # Whose payment a match is decides whether it stops the filing.
+        staff_id=payload.staff_id or require_user(request).staff_id,
         exclude_claim_id=payload.exclude_claim_id,
     )
     return result

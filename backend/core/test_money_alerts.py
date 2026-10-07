@@ -18,7 +18,7 @@ from core.models import ClaimStatus, Notification, NotificationPreference, Socia
 from core.test_chain_rules import ChainBase
 
 EMAIL_ON = {"EMAIL_HOST": "smtp.test", "APP_BASE_URL": "https://app.test"}
-DESK_WORDS = ("principal", "director", "finance", "research cell", "coordinator", "supervisor")
+DESK_WORDS = ("principal", "director", "finance", "research office", "research cell", "coordinator", "supervisor")
 
 
 class MoneyBase(ChainBase):

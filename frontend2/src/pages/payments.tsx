@@ -68,9 +68,9 @@ export { newRequestKey, type PayCheck, type PayProblem } from "@/pages/pay-dialo
 // Never names the cause beyond "high value": the other cause of a second
 // signature is a review flag, and Finance never sees flags.
 function heldReason(c: PayoutClaim): string {
-  if (c.calc_error) return "No amount could be worked out for this claim. The research cell can correct it."
+  if (c.calc_error) return "No amount could be worked out for this claim. The research office can correct it."
   const clearedBy = c.cleared_by_name || "the person who cleared it"
-  return `Needs a second approver, someone other than ${clearedBy}. The research cell or a super admin can give it.`
+  return `Needs a second approver, someone other than ${clearedBy}. The research office or a super admin can give it.`
 }
 
 type SortKey = "waiting" | "amount"

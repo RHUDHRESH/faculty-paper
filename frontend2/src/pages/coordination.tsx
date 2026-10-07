@@ -39,7 +39,7 @@ const TABS = [
 type Tab = (typeof TABS)[number]["id"]
 
 const SUB: Record<Tab, string> = {
-  desk: "Is the desk on time, and who holds what? Give claims out, and see how fast the research cell is moving.",
+  desk: "Is the desk on time, and who holds what? Give claims out, and see how fast the research office is moving.",
   report: "What the desk decided in a month, and how fast. For the Principal and for NAAC.",
   research: "The rules the coordinator looks after: research faculty, final-year project teams and the journal watch-list.",
 }
@@ -57,7 +57,7 @@ export function Coordination() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="Coordination is for the research coordinator, the research cell and the super admin."
+          message="Coordination is for the research coordinator, the research office and the super admin."
         />
       </div>
     )

@@ -12,6 +12,8 @@ citations earned by the papers published in each year.
 from __future__ import annotations
 
 import json
+import threading
+import time
 from collections import Counter, defaultdict
 from datetime import date
 from typing import Any, Iterable, Optional
@@ -128,13 +130,34 @@ def _signature() -> tuple:
     )
 
 
-def shared_college() -> _College:
-    import time
+_REBUILD = threading.Lock()
 
+
+def _rebuild_quietly(sig: tuple) -> None:
+    """Build a fresh copy off the request path and swap it in. On the free
+    host a build takes far longer than a person should wait, and when the
+    signature has not moved the copy in hand is still right."""
+    from django.db import close_old_connections
+
+    try:
+        college = _College()
+        _SHARED.update(sig=sig, at=time.monotonic(), college=college)
+    finally:
+        close_old_connections()
+        _REBUILD.release()
+
+
+def shared_college() -> _College:
     sig = _signature()
     now = time.monotonic()
-    if _SHARED["college"] is None or _SHARED["sig"] != sig or now - _SHARED["at"] > _MAX_AGE:
+    if _SHARED["college"] is None or _SHARED["sig"] != sig:
+        # Nothing yet, or the record changed: build now, so nobody is shown
+        # numbers from before a harvest or a match.
         _SHARED.update(sig=sig, at=now, college=_College())
+    elif now - _SHARED["at"] > _MAX_AGE and _REBUILD.acquire(blocking=False):
+        # Only old: keep answering from this copy while a new one is built.
+        _SHARED["at"] = now
+        threading.Thread(target=_rebuild_quietly, args=(sig,), daemon=True, name="college-rebuild").start()
     return _SHARED["college"]
 
 

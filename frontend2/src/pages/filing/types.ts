@@ -148,11 +148,25 @@ export type DuplicateMatch = {
   /** The matched paper's own title: a reference and a month name a row in
    *  somebody's ledger; the title is what a claimant recognises. */
   title?: string | null
+  /** Same DOI or same normalised title, or paid to the claimant: the same
+   *  paper. Otherwise a colleague's similar title, a note only. */
+  blocks?: boolean
 }
 
 export type PriorCheckResult = {
   warning: boolean
+  /** Any match that stops the filing. Absent from older servers: then every
+   *  match counts. */
+  block?: boolean
   matches: DuplicateMatch[]
+}
+
+/** The matches that stop a filing, and the ones that are only worth a look. */
+export function splitPriorMatches(res: PriorCheckResult | null): { hard: DuplicateMatch[]; soft: DuplicateMatch[] } {
+  if (!res?.warning) return { hard: [], soft: [] }
+  const hard = res.matches.filter((m) => m.blocks ?? true)
+  const soft = res.matches.filter((m) => !(m.blocks ?? true))
+  return { hard, soft }
 }
 
 /**

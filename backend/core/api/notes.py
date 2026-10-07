@@ -102,7 +102,7 @@ def add_claim_note(request: HttpRequest, claim_id: str, payload: ClaimNoteIn):
 def resolve_claim_note(request: HttpRequest, note_id: str):
     user = require_user(request)
     if user.role not in rbac.ADMIN_ROLES:
-        raise HttpError(403, "Only the research cell closes a note")
+        raise HttpError(403, "Only the research office closes a note")
     note = get_object_or_404(ClaimNote.objects.select_related("claim"), pk=note_id)
     _refuse_own_claim(user, note.claim)
     note.resolved_at = timezone.now()
@@ -151,7 +151,7 @@ def lookup_ticket(request: HttpRequest, q: str):
                 # faculty member -- is told the stage, never the desk's status.
                 "status": faculty_stage(
                     c.status, rejected_outright=bool(c.rejected_outright),
-                    ticket_number=c.ticket_number,
+                    ticket_number=c.ticket_number, status_note=c.status_note,
                 ) if (user.role == Role.FACULTY or c.owner_id == user.id) else c.status,
                 "owner_name": c.owner.name,
                 "remuneration": c.remuneration,

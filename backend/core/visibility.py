@@ -218,10 +218,23 @@ _NOTE_FOR_THE_CLAIMANT = {"REJECT", "REJECT_OUTRIGHT"}
 THE_COLLEGE = "The college"
 
 
+#: The note on an ERP-imported claim closed by `close_erp_imported`: settled
+#: in the old system, so neither a refusal nor a decision of this app's.
+ERP_CLOSED_NOTE = "Handled in the old ERP; not paid through this app."
+ERP_CLOSED_STAGE = "Closed (old system)"
+
+
+def is_erp_closed(status: str | None, status_note: str | None) -> bool:
+    return status == ClaimStatus.REJECTED and status_note == ERP_CLOSED_NOTE
+
+
 def faculty_stage(
-    status: str | None, *, rejected_outright: bool = False, ticket_number: str | None = None
+    status: str | None, *, rejected_outright: bool = False, ticket_number: str | None = None,
+    status_note: str | None = None,
 ) -> str:
     """The stage a claimant is shown. A hold does not change it."""
+    if is_erp_closed(status, status_note):
+        return ERP_CLOSED_STAGE
     if status == ClaimStatus.REJECTED and rejected_outright:
         return "Not accepted"
     if status == ClaimStatus.DRAFT and ticket_number:
@@ -269,6 +282,7 @@ def _claim_for_claimant(claim: dict) -> dict:
         status,
         rejected_outright=bool(claim.get("rejected_outright")),
         ticket_number=claim.get("ticket_number"),
+        status_note=claim.get("status_note"),
     )
     claim["days_waiting"] = days_waiting(status, claim.get("submitted_at"))
     owner_name = claim.get("owner_name")

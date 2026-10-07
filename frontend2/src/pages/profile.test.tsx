@@ -311,3 +311,26 @@ describe("Profile — what you change and what the office keeps", () => {
     await waitFor(() => expect(writes("/api/auth/google/link", "DELETE")).toHaveLength(1))
   })
 })
+
+describe("what you work on, from your papers", () => {
+  const RESEARCH = { topics: [{ id: "mg", label: "Microgrids", papers: 6, recent: 2 }, { id: "bs", label: "Battery storage", papers: 3, recent: 1 }] }
+
+  it("offers your paper topics in one click when nothing is chosen, and saves through the interests endpoint", async () => {
+    const user = mount(me(), {
+      "/api/me/research": () => RESEARCH,
+      "/api/me/interests": () => ({ domains: [] }),
+    })
+    const group = await screen.findByRole("group", { name: "From your papers" })
+    await user.click(within(group).getByRole("button", { name: "Add Microgrids" }))
+    await waitFor(() => expect(writes("/api/me/interests", "PUT")).toEqual([{ domains: ["Microgrids"] }]))
+  })
+
+  it("adds them all at once", async () => {
+    const user = mount(me(), { "/api/me/research": () => RESEARCH })
+    const group = await screen.findByRole("group", { name: "From your papers" })
+    await user.click(within(group).getByRole("button", { name: "Add all" }))
+    await waitFor(() =>
+      expect(writes("/api/me/interests", "PUT")).toEqual([{ domains: ["Microgrids", "Battery storage"] }])
+    )
+  })
+})

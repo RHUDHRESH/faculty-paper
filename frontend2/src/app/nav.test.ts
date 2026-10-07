@@ -205,7 +205,7 @@ describe("the office sidebar", () => {
     }
   })
 
-  it("shows the super admin four admin sections and a research cell member only what is theirs", () => {
+  it("shows the super admin four admin sections and a research office member only what is theirs", () => {
     expect(hubSections("admin", "SUPER_ADMIN").map((s) => s.title)).toEqual(["People and roles", "Data", "Money", "System"])
     const cell = hubSections("admin", "RESEARCH_CELL").flatMap((s) => s.items.map((p) => p.to))
     expect(cell).toEqual(expect.arrayContaining(["/people", "/imports", "/policy", "/faults", "/audit"]))
@@ -263,7 +263,7 @@ describe("the Convocation sidebar", () => {
     expect(items.map((i) => i.label)).toEqual([
       "Search", "Home",
       "My papers", "File a paper",
-      "My research", "Discover", "Research scout",
+      "My research", "Discover", "Research compass",
       "Who to work with", "Messages", "Discussions",
       "Leaderboard",
       "Calendar",

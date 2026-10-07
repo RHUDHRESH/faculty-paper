@@ -43,14 +43,14 @@ describe("re-mark the old-ERP claims marked Paid in error", () => {
   it("says how many, previews exactly those, and shows the held ones apart with their reasons", async () => {
     mount({})
     expect(await screen.findByText(/2 claims are marked Paid but were never priced/)).toBeInTheDocument()
-    expect(screen.getByText(/2 stay held for the research cell/)).toBeInTheDocument()
+    expect(screen.getByText(/2 stay held for the research office/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "Preview 2 claims" }))
     const dialog = await screen.findByRole("dialog")
     expect(within(dialog).getByText("Paper 1")).toBeInTheDocument()
     expect(within(dialog).getByText("Paper 2")).toBeInTheDocument()
     // Held claims are behind a Details, with a way in, and are not in the list to change.
     expect(within(dialog).queryByText("Paper 3")).toBeNull()
-    await userEvent.click(within(dialog).getByRole("button", { name: /held for the research cell/ }))
+    await userEvent.click(within(dialog).getByRole("button", { name: /held for the research office/ }))
     expect(within(dialog).getByText("possible repeat")).toBeInTheDocument()
     expect(within(dialog).getByText("rejected on the accounts sheet")).toBeInTheDocument()
   })

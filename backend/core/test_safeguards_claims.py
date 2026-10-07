@@ -21,7 +21,7 @@ from core.test_chain_rules import ChainBase
 
 DOI = "10.1000/safeguard.claims.1"
 TITLE = "A Sufficiently Long Title About Adaptive Control Of Chillers"
-DESK_WORDS = ("research cell", "research supervisor", "coordinator", "principal", "director", "finance", "clearing desk")
+DESK_WORDS = ("research office", "research cell", "research supervisor", "coordinator", "principal", "director", "finance", "clearing desk")
 
 
 def draft_payload(**extra):

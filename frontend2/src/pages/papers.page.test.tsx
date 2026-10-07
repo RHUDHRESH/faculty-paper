@@ -28,6 +28,7 @@ const RECORD: RecordPaper[] = [
   paper("moving", { claim: { id: "c1", stage: "Under review", days_waiting: 12 } }),
   paper("done", { claim: { id: "c2", stage: "Paid", days_waiting: null, amount: 1600, paid_month: "2026-03" } }),
   paper("many", { eligible: false, ineligible_reason: "More than 10 authors", total_authors: 14 }),
+  paper("gone", { title: "RETRACTED: A withdrawn study", eligible: false, ineligible_reason: "Retracted" }),
   // The same paper listed twice (two uploads of one title).
   paper("z1", { title: "A ZIGBEE Security System", claim: { id: null, stage: "Paid", days_waiting: null } }),
   paper("z2", { title: "A zigbee security system!", claim: { id: null, stage: "Paid", days_waiting: null } }),
@@ -56,7 +57,7 @@ describe("My papers", () => {
   it("opens with the answer in a sentence: what to file, what is with the college, what is paid", async () => {
     mount()
     expect(
-      await screen.findByText("7 papers on your record. 2 papers are ready to file, 1 is with the college, 3 have been paid.")
+      await screen.findByText("8 papers on your record. 2 papers are ready to file, 1 is with the college, 3 have been paid.")
     ).toBeTruthy()
     // The statement and the forms are buttons one press away, not four figures.
     expect(await screen.findByRole("link", { name: "Payment statement" })).toBeTruthy()
@@ -72,11 +73,11 @@ describe("My papers", () => {
   it("counts the tabs from the same rows as the sentence", async () => {
     mount()
     const state = await screen.findByRole("tablist", { name: "Claim state" })
-    expect(within(state).getByRole("tab", { name: /^All\s*7$/ })).toBeTruthy()
+    expect(within(state).getByRole("tab", { name: /^All\s*8$/ })).toBeTruthy()
     expect(within(state).getByRole("tab", { name: /^Ready to file\s*2$/ })).toBeTruthy()
     expect(within(state).getByRole("tab", { name: /^With the college\s*1$/ })).toBeTruthy()
     expect(within(state).getByRole("tab", { name: /^Paid\s*3$/ })).toBeTruthy()
-    expect(within(state).getByRole("tab", { name: /^Not eligible\s*1$/ })).toBeTruthy()
+    expect(within(state).getByRole("tab", { name: /^Not eligible\s*2$/ })).toBeTruthy()
   })
 
   it("puts one 'File it' on each unclaimed paper and names the state of the rest", async () => {
@@ -87,6 +88,7 @@ describe("My papers", () => {
     expect(screen.getByText("Paid Mar 2026")).toBeTruthy()
     expect(screen.getByText("₹1,600 to you")).toBeTruthy()
     expect(screen.getByText(/Not eligible: 14 authors, and the scheme pays up to 10/)).toBeTruthy()
+    expect(screen.getByText("Not eligible: the title says this paper was retracted.")).toBeTruthy()
   })
 
   it("flags the same paper listed twice and offers to report it", async () => {
@@ -98,7 +100,7 @@ describe("My papers", () => {
   it("never names the desk holding a claim", async () => {
     mount()
     await screen.findByText("Title open-1")
-    expect(document.body.textContent).not.toMatch(/research cell|principal|director|finance|clearing/i)
+    expect(document.body.textContent).not.toMatch(/research office|principal|director|finance|clearing/i)
   })
 
   it("says sole author once, not 'first author of 1'", () => {

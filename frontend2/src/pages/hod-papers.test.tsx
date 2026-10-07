@@ -155,7 +155,7 @@ describe("One paper", () => {
       "/api/hod/papers/c1": () => ({ ...PAPER, source: undefined, ticket_number: "FP-2026-000001", progress: "Under review", publication_type: "Article", issn: "1234-5678" }),
     })
     expect(await screen.findByText("Under review")).toBeInTheDocument()
-    expect(document.body.textContent).not.toMatch(/principal|director|finance|research cell|₹/i)
+    expect(document.body.textContent).not.toMatch(/principal|director|finance|research office|₹/i)
   })
 
   it("explains a paper that is not from the department, with no retry that cannot help", async () => {

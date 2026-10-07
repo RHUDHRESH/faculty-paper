@@ -438,6 +438,39 @@ def suggest_directions(
     }
 
 
+#: The most domains one person may follow, and the column's width.
+MAX_INTERESTS = 20
+MAX_DOMAIN_CHARS = 160
+
+
+def replace_interests(user, domains: list[str]) -> list[str]:
+    """Replace a person's whole set of research interests; the set as kept.
+
+    A whole-set write rather than add and remove: the screens that write it
+    (My research's domains, the compass's topics step) are multi-selects, and
+    two round trips per tick would leave a set half-applied if one failed.
+    Blank and repeated entries are dropped, and at most `MAX_INTERESTS` kept.
+    """
+    from django.db import transaction
+
+    from core.models import ResearchInterest
+
+    wanted: list[str] = []
+    for raw in domains[:MAX_INTERESTS]:
+        name = (raw or "").strip()[:MAX_DOMAIN_CHARS]
+        if name and name not in wanted:
+            wanted.append(name)
+
+    with transaction.atomic():
+        ResearchInterest.objects.filter(user=user).exclude(domain__in=wanted).delete()
+        existing = set(ResearchInterest.objects.filter(user=user).values_list("domain", flat=True))
+        ResearchInterest.objects.bulk_create(
+            [ResearchInterest(user=user, domain=d) for d in wanted if d not in existing],
+            ignore_conflicts=True,
+        )
+    return wanted
+
+
 def research_domains(query: str = "", limit: int = 40) -> list[str]:
     """The vocabulary of interest domains, taken from our own Scimago rows.
 

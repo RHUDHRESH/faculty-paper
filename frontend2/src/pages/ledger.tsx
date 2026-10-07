@@ -184,7 +184,7 @@ export function Ledger() {
         <ErrorState
           art="closed-gate"
           title="Not open to this account"
-          message="The ledger shows what each person was paid. Finance, the Principal and the research cell can read it."
+          message="The ledger shows what each person was paid. Finance, the Principal and the research office can read it."
         />
       </div>
     )
@@ -350,7 +350,7 @@ export function Ledger() {
               title="Could not load the ledger"
               message={
                 error?.status === 403
-                  ? "Not allowed. Finance, the Principal and the research cell can read the ledger."
+                  ? "Not allowed. Finance, the Principal and the research office can read the ledger."
                   : "The server did not answer. No payment has been lost; this screen only reads."
               }
               onRetry={error?.status === 403 ? false : () => refetch()}

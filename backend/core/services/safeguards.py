@@ -335,7 +335,7 @@ def check_claimed_twice() -> list[Check]:
                                      resolved_at__isnull=True, auto_key__startswith="coauthor:")
     g = Check("coauthor_claims", "Papers claimed twice", "Co-authors who have both claimed the same paper", "info",
               scope="claims",
-              help="Allowed: the scheme pays each author by position. Listed so the research cell confirms the "
+              help="Allowed: the scheme pays each author by position. Listed so the research office confirms the "
                    "positions agree before either is paid.",
               fix_to="/flags", fix_label="Open flags")
     g.count = flags.count()

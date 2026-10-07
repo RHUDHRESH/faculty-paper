@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 import { BookOpen, ExternalLink, Globe, MessageSquare, RefreshCw, Telescope } from "lucide-react"
-import { Link } from "react-router-dom"
+import { Link, Navigate } from "react-router-dom"
 
 import { useApi, useApiMutation } from "@/lib/query"
 import { Button } from "@/ui/button"
@@ -47,6 +47,9 @@ export type ScoutRun = {
   result?: ScoutResult
   error?: string
   code?: string
+  /** False where the scout cannot run: the compass does this job there. */
+  available?: boolean
+  moved_to?: string
 }
 
 const KIND: Record<string, string> = {
@@ -250,6 +253,8 @@ export function Scout() {
         { id: "people", n: r.web.external_people.length, one: "Person beyond the college", many: "People beyond the college", zero: "Nobody beyond the college" },
       ]
     : []
+
+  if (data?.available === false) return <Navigate to={data.moved_to || "/compass"} replace />
 
   return (
     <div className="page space-y-8" data-area="research">

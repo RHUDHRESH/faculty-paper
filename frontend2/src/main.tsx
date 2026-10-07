@@ -146,6 +146,7 @@ const PeoplePasswords = page(() => import("@/pages/people"), "PeoplePasswords")
 const Policy = page(() => import("@/pages/policy"), "Policy")
 const Profile = page(() => import("@/pages/profile"), "Profile")
 const Research = page(() => import("@/pages/research"), "Research")
+const Events = page(() => import("@/pages/events"), "Events")
 const Scout = page(() => import("@/pages/scout"), "Scout")
 const Compass = page(() => import("@/pages/compass"), "Compass")
 const JournalCheck = page(() => import("@/pages/journal-check"), "JournalCheckPage")
@@ -200,6 +201,7 @@ const PRELOADS: [string, Page][] = [
   ["/messages", Messages],
   ["/u/:id", PublicProfile],
   ["/research", Research],
+  ["/events", Events],
   ["/scout", Scout],
   ["/compass", Compass],
   ["/journal-check", JournalCheck],
@@ -427,6 +429,7 @@ function App() {
           <Route path="/payments" element={<Payments />} />
           <Route path="/payments/done" element={<PaymentsDone />} />
           <Route path="/research" element={<Research />} />
+          <Route path="/events" element={<Events />} />
           {Object.entries(REDIRECTS).map(([from, to]) => (
             <Route key={from} path={from} element={<Navigate to={to} replace />} />
           ))}

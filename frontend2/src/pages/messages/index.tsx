@@ -136,8 +136,8 @@ function InboxPane({ onNew }: { onNew: () => void }) {
 
   return (
     <>
-      <header className="flex items-center justify-between gap-2 px-4 pb-2 pt-1 md:pt-4">
-        <h1 className="display text-[1.75rem] leading-9">Messages</h1>
+      <header className="flex items-center justify-between gap-2 px-4 pb-2 pt-1 md:pt-3">
+        <h1 className="display text-[1.375rem] leading-8">Messages</h1>
         <Button kind="primary" size="sm" onClick={onNew} className="hidden md:inline-flex">
           <PenLine />
           New
@@ -153,7 +153,7 @@ function InboxPane({ onNew }: { onNew: () => void }) {
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search people and messages"
           aria-label="Search people and messages"
-          className="w-full pl-9"
+          className="h-9 w-full pl-9 text-sm"
         />
       </div>
 
@@ -201,7 +201,7 @@ function InboxPane({ onNew }: { onNew: () => void }) {
                       )}
                     </span>
                     <span className="flex items-center gap-2">
-                      <span className={cn("min-w-0 flex-1 truncate text-sm", r.unread ? "text-fg" : "text-fg-muted")}>
+                      <span className={cn("min-w-0 flex-1 truncate text-[13px]", r.unread ? "text-fg" : "text-fg-muted")}>
                         {r.last
                           ? `${r.last.mine ? "You: " : ""}${r.last.body ? toDisplay(r.last.body).text : "A message was removed"}`
                           : "No messages yet"}
@@ -225,7 +225,7 @@ function InboxLink({ to, children }: { to: string; children: React.ReactNode }) 
       to={to}
       className={({ isActive }) =>
         cn(
-          "flex items-center gap-3 px-4 py-2.5 transition-colors duration-[var(--dur-1)] ease-out",
+          "flex items-center gap-3 px-4 py-2 transition-colors duration-[var(--dur-1)] ease-out",
           isActive ? "bg-[var(--area-people-wash)] shadow-[inset_3px_0_0_var(--area-people)]" : "hover:bg-hover"
         )
       }
@@ -253,11 +253,11 @@ function OfficeAvatar({ size = "md" }: { size?: "md" | "lg" }) {
       className={cn(
         "grid shrink-0 place-items-center rounded-full",
         OFFICE_NAVY,
-        size === "lg" ? "size-12" : "size-10"
+        size === "lg" ? "size-10" : "size-8"
       )}
       aria-hidden
     >
-      <Building2 className={size === "lg" ? "size-6" : "size-5"} />
+      <Building2 className={size === "lg" ? "size-5" : "size-4"} />
     </span>
   )
 }
@@ -292,7 +292,7 @@ function OfficeRow({ rows }: { rows: InboxRow[] }) {
           )}
         </span>
         <span className="flex items-center gap-2">
-          <span className={cn("min-w-0 flex-1 truncate text-sm", unread ? "text-fg" : "text-fg-muted")}>
+          <span className={cn("min-w-0 flex-1 truncate text-[13px]", unread ? "text-fg" : "text-fg-muted")}>
             {latest ? (latest.last?.body ? `${latest.last.mine ? "You: " : ""}${latest.last.body}` : latest.title) : isOffice ? "No questions right now" : "Ask about your claims"}
           </span>
           {unread > 0 ? (
@@ -362,8 +362,8 @@ function StartPane({ onNew }: { onNew: () => void }) {
   const worked = useCoauthors(6)
   return (
     <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10 text-center">
-      <Picture name="empty-no-messages" className="h-40 w-60" eager />
-      <h2 className="display mt-4 text-2xl">
+      <Picture name="empty-no-messages" className="h-32 w-48" eager />
+      <h2 className="display mt-3 text-xl">
         {me?.name ? `Hello, ${firstName(me.name)}` : "Start a conversation"}
       </h2>
       <p className="mt-1 max-w-sm text-sm text-fg-muted">Private between the two of you.</p>
@@ -411,9 +411,9 @@ function InboxSuggestions() {
           <li key={p.id}>
             <Link
               to={`/messages?to=${p.id}`}
-              className="flex items-center gap-3 px-4 py-2.5 transition-colors duration-[var(--dur-1)] ease-out hover:bg-hover"
+              className="flex items-center gap-3 px-4 py-2 transition-colors duration-[var(--dur-1)] ease-out hover:bg-hover"
             >
-              <Avatar person={p} size="md" />
+              <Avatar person={p} size="sm" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{p.name}</span>
                 <Meta className="block truncate text-xs">

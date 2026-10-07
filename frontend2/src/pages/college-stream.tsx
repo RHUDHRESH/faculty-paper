@@ -208,7 +208,7 @@ function namedIds(text: string, picked: Candidate[]): string[] {
  * colleague, so it says so above the box; a private word is a Message, offered
  * beside it. A failed post keeps what was typed.
  */
-function InlineNote({
+export function InlineNote({
   item,
   draft,
   onCancel,

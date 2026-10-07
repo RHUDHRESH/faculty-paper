@@ -8,6 +8,7 @@ import { useApi } from "@/lib/query"
 import { cn } from "@/lib/cn"
 import { ClaimNo, ClaimNoLegend, daysText, useHashScroll, Waited } from "@/pages/cell/parts"
 import { HomeTrack } from "@/pages/home-track"
+import { ComingUpEvents } from "@/pages/home-events"
 import { fromBefore, greeting, QueueRow, Waiting, YourPapers } from "@/pages/home-staff"
 import { AskTheData } from "@/pages/insights-link"
 import { homeTrack } from "@/app/home-data"
@@ -417,6 +418,8 @@ export function CellHome() {
           </p>
         </section>
       )}
+
+      <ComingUpEvents />
 
       {can(me?.role).fileOwnPapers && <YourPapers />}
     </div>

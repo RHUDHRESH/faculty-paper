@@ -2,10 +2,11 @@
 
 One list, in the order the work is done on a fresh host or a first install:
 load the college's record (a restore or the three imports), put someone at each
-desk, hand out the first passwords, publish a policy, take a backup. Email and the
-Scopus key follow as optional steps. Every step is answered from state that
-already exists (the user table, the restore run, the policy table, the readiness
-checks), and every step names the page where it is done. Nothing here writes.
+desk, hand out the first passwords, publish a policy, take a backup. The photos and
+files the rows name, email and the Scopus key follow as optional steps. Every step
+is answered from state that already exists (the user table, the restore run, the
+policy table, the readiness checks, the stored files), and every step names the
+page where it is done. Nothing here writes.
 
 The readiness checks answer "is the system healthy right now"; this answers
 "what is left to do before people can sign in", so the two share their desk,
@@ -16,10 +17,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.utils import timezone
 
-from core.models import Publication, Role, User
-from core.services import readiness
+from core.models import ClaimAttachment, Publication, Role, User
+from core.services import media_import, readiness
 from core.services.issue_passwords import HASHER, HOLDING_SUFFIX
 
 
@@ -108,6 +110,43 @@ def _passwords_step() -> dict[str, Any]:
                  "Issue passwords")
 
 
+#: How many photos, and how many claim files, are looked for on each check.
+#: A restore brings every row and no file, so a few are enough to tell.
+_FILE_SAMPLE = 12
+
+
+def _spread(names: list[str], n: int) -> list[str]:
+    """n names spread evenly through a sorted list, so the same ones are asked each time."""
+    if len(names) <= n:
+        return names
+    return [names[i * len(names) // n] for i in range(n)]
+
+
+def _files_step() -> dict[str, Any]:
+    """Are the photos and claim files the rows name actually here? (media_import.py loads them.)"""
+    title = "Photos and files"
+    photos = sorted(set(User.objects.filter(photo__startswith="avatars/").values_list("photo", flat=True)))
+    prefix = f"{settings.MEDIA_URL}claims/"
+    claim_files = sorted({
+        url[len(settings.MEDIA_URL):]
+        for url in ClaimAttachment.objects.filter(url__startswith=prefix).values_list("url", flat=True)
+    })
+    names = _spread(photos, _FILE_SAMPLE) + _spread(claim_files, _FILE_SAMPLE)
+    to = "/admin/start"
+    if not names:
+        return _step("files", title, "done", "No photos or files are recorded yet.", to, "Add photos and files", False)
+    missing = len(names) - len(media_import.existing_names(names))
+    if missing:
+        return _step(
+            "files", title, "todo",
+            f"{missing:,} of {len(names):,} photos and files checked are missing from this server. "
+            "Upload the media zip so faces and claim files appear.",
+            to, "Add photos and files", False,
+        )
+    return _step("files", title, "done", f"The {len(names):,} photos and files checked are all here.", to,
+                 "Add more", False)
+
+
 def _from_check(key: str, title: str, check: dict[str, Any], required: bool) -> dict[str, Any]:
     ok = bool(check["ok"])
     return _step(key, title, "done" if ok else "todo", check["detail"], check["to"], check["fix"], required)
@@ -120,6 +159,7 @@ def summary() -> dict[str, Any]:
         _passwords_step(),
         _from_check("policy", "Publish a policy", readiness._policy_check(), True),
         _from_check("backup", "Have a recent backup", readiness._backup_check(), True),
+        _files_step(),
         _from_check("email", "Set up email", readiness._email_check(), False),
         _from_check("scopus", "Add the Scopus key", readiness._scopus_check(), False),
     ]

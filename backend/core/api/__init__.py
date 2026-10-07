@@ -28,6 +28,8 @@ from core.api.principal_reports import *  # noqa: F401,F403
 from core.api.dashboard import *  # noqa: F401,F403
 from core.api.discussions import *  # noqa: F401,F403
 from core.api.calendar import *  # noqa: F401,F403
+from core.api.events import *  # noqa: F401,F403
+from core.api.google_calendar import *  # noqa: F401,F403
 from core.api.notes import *  # noqa: F401,F403
 from core.api.accreditation import *  # noqa: F401,F403
 from core.api.data_removal import *  # noqa: F401,F403
@@ -47,6 +49,7 @@ from core.api.finance import *  # noqa: F401,F403
 from core.api.payout_statements import *  # noqa: F401,F403
 from core.api.institution import *  # noqa: F401,F403
 from core.api.restore import *  # noqa: F401,F403
+from core.api.media_import import *  # noqa: F401,F403
 from core.api.data_health import *  # noqa: F401,F403
 from core.api.scopus_profiles import *  # noqa: F401,F403
 from core.api.my_payments import *  # noqa: F401,F403

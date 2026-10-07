@@ -7,12 +7,16 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query"
-import { CollegePapers, PeopleToFollow, type Draft } from "@/pages/college-stream"
+import { congratulate, InlineNote, useCollege, type CollegePaper, type Draft } from "@/pages/college-stream"
 import { AskQuestion } from "@/pages/ask-question"
+import { Rail } from "@/pages/discussions-rail"
+import { Badge, PaperEventCard, RisingCard } from "@/pages/stream"
+import { KIND_LABEL, KINDS, kindOf, parseEvent, whenLabel, withEvent, type PostKind } from "@/pages/post-kinds"
+import { DetailLink } from "@/ui/detail-sheet"
 import { patchPost, prependPost } from "@/pages/feed-cache"
 import { Picture, topicPicture } from "@/ui/picture"
 import { ForYouList } from "@/pages/for-you"
-import { FollowedFilters, FollowTopicButton } from "@/pages/follow-topics"
+import { FollowTopicButton } from "@/pages/follow-topics"
 import { ReactionBar, type ReactionKind } from "@/pages/reactions"
 import {
   ArrowLeft,
@@ -20,8 +24,12 @@ import {
   FileText,
   Flag,
   ImagePlus,
+  CalendarDays,
+  Check,
   Link2,
+  MapPin,
   MessageCircle,
+  PartyPopper,
   MoreHorizontal,
   Pencil,
   PenLine,
@@ -35,7 +43,7 @@ import { api, ApiError } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
-import { segmentClass } from "@/ui/toggle"
+import { chipClass, FilterChip, Segmented, segmentClass } from "@/ui/toggle"
 import { Composer, renderBody, type Candidate, type MentionKind, type ResolvedMention } from "@/ui/composer"
 import {
   ConfirmDialog,
@@ -155,7 +163,7 @@ type PaperOption = {
   doi?: string | null
 }
 
-type Tab = "everyone" | "for-you" | "following" | "department" | "threads" | "reported"
+type Tab = "everyone" | "for-you" | "following" | "department" | "reported"
 
 /** A filter to one subject area or journal (`?topic=` / `?journal=`). */
 export type About = { topic?: string | null; journal?: string | null }
@@ -174,8 +182,8 @@ const POLL_MS = 60_000
 const MAX_BYTES = 10 * 1024 * 1024
 
 function readTab(value: string | null): Tab {
-  return value === "following" || value === "department" || value === "reported" || value === "for-you" ||
-    value === "threads"
+  // "threads" was a tab once; it is the Questions switch now and lands on Everyone.
+  return value === "following" || value === "department" || value === "reported" || value === "for-you"
     ? value
     : "everyone"
 }
@@ -191,7 +199,7 @@ function feedPath(tab: string, cursor: string | null, author?: string, about?: A
 
 /** The feed, or one author's posts. `author` is how a profile lists more;
  *  `about` narrows it to one followed subject area or journal. */
-export function useFeed(tab: Exclude<Tab, "reported" | "for-you" | "threads">, author?: string, about?: About) {
+export function useFeed(tab: Exclude<Tab, "reported" | "for-you">, author?: string, about?: About) {
   return useInfiniteQuery<FeedPage, ApiError, InfiniteData<FeedPage>, readonly unknown[], string | null>({
     queryKey: ["feed", tab, author ?? null, about?.topic ?? null, about?.journal ?? null],
     queryFn: ({ pageParam }) => api<FeedPage>(feedPath(tab, pageParam, author, about)),
@@ -238,7 +246,10 @@ export function Feed() {
   const moderator = me?.role === "SUPER_ADMIN"
   const [params, setParams] = useSearchParams()
   const tab = readTab(params.get("tab"))
+  // "Questions" is a switch on the same page; `?tab=threads` is the old link to it.
+  const questions = params.get("questions") === "1" || params.get("tab") === "threads"
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  const [asking, setAsking] = useState(false)
 
   const reports = useApi<{ results: Report[] }>(["feed-reports"], "/api/feed/reports", {
     enabled: moderator,
@@ -248,44 +259,51 @@ export function Feed() {
   const about: About = { topic: params.get("topic"), journal: params.get("journal") }
   const share = params.get("share")
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "everyone", label: "Everyone" },
-    { key: "for-you", label: "For you" },
-    { key: "following", label: "Following" },
-    ...(me?.department ? [{ key: "department" as Tab, label: "My department" }] : []),
-    { key: "threads", label: "Threads" },
+  const tabs: { id: string; label: string }[] = [
+    { id: "everyone", label: "Everyone" },
+    { id: "for-you", label: "For you" },
+    ...(me?.department ? [{ id: "department", label: "My department" }] : []),
+    { id: "following", label: "Following" },
     ...(moderator
-      ? [
-          {
-            key: "reported" as Tab,
-            label: `Reported${reports.data?.results.length ? ` (${reports.data.results.length})` : ""}`,
-          },
-        ]
+      ? [{ id: "reported", label: `Reported${reports.data?.results.length ? ` (${reports.data.results.length})` : ""}` }]
       : []),
   ]
+
+  function change(update: (next: URLSearchParams) => void) {
+    setParams((prev) => {
+      const next = new URLSearchParams(prev)
+      update(next)
+      return next
+    })
+  }
 
   const [draft, setDraft] = useState<(Draft & { n: number }) | null>(null)
   function focusComposer() {
     setDraft({ text: "", people: [], n: Date.now() })
   }
-  const lively = tab === "everyone" && !about.topic && !about.journal
+  const seeQuestions = () =>
+    change((n) => {
+      n.set("questions", "1")
+      n.delete("tab")
+    })
 
   return (
-    <div className="page max-w-5xl space-y-6">
+    <div className="page max-w-6xl space-y-6">
       <PageHeader
         title="Discussions"
-        sub="Celebrate a colleague, ask a question, answer one."
+        sub="What colleagues are publishing, asking and announcing. Say well done, ask, or share your own."
         spot="spot-discussions"
       />
 
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
-        <div className="min-w-0 space-y-6">
-          {tab !== "reported" && tab !== "threads" && (
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-x-10 gap-y-10 lg:grid-cols-[minmax(0,1fr)_19rem]">
+        <div className="min-w-0 space-y-5">
+          {tab !== "reported" && !questions && (
             <PostComposer
               tab={tab === "for-you" ? "everyone" : tab}
               textareaRef={composerRef}
               draft={draft}
               shareId={share}
+              onAsk={() => setAsking(true)}
               onShared={() =>
                 setParams((prev) => {
                   const next = new URLSearchParams(prev)
@@ -296,55 +314,52 @@ export function Feed() {
             />
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div
-              role="tablist"
-              aria-label="Which posts"
-              className="well inline-flex max-w-full gap-0.5 overflow-x-auto p-1"
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <Segmented
+              label="Which posts"
+              value={questions ? "" : tab}
+              onChange={(id) =>
+                change((n) => {
+                  n.delete("questions")
+                  if (id === "everyone") n.delete("tab")
+                  else n.set("tab", id)
+                })
+              }
+              items={tabs}
+              className="max-w-full overflow-x-auto"
+            />
+            <FilterChip
+              on={questions}
+              onClick={() =>
+                change((n) => {
+                  n.delete("tab")
+                  if (questions) n.delete("questions")
+                  else n.set("questions", "1")
+                })
+              }
             >
-              {tabs.map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === t.key}
-                  onClick={() =>
-                    setParams((prev) => {
-                      const next = new URLSearchParams(prev)
-                      if (t.key === "everyone") next.delete("tab")
-                      else next.set("tab", t.key)
-                      return next
-                    })
-                  }
-                  className={segmentClass(tab === t.key, "h-8 rounded-control")}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+              Questions
+            </FilterChip>
           </div>
 
-          {tab !== "reported" && tab !== "for-you" && tab !== "threads" && <FollowedFilters about={about} />}
-
-          {tab === "reported" ? (
+          {questions ? (
+            <ThreadList onAsk={() => setAsking(true)} />
+          ) : tab === "reported" ? (
             <ReportsQueue query={reports} />
-          ) : tab === "threads" ? (
-            <ThreadList />
           ) : tab === "for-you" ? (
             <ForYouList />
           ) : (
             <FeedList tab={tab} onWrite={focusComposer} department={me?.department ?? null} about={about} />
           )}
-
-          {lively && <CollegePapers />}
         </div>
 
         {tab !== "reported" && (
-          <aside aria-label="People to follow" className={cn("min-w-0 lg:pt-1", !lively && "max-lg:hidden")}>
-            <PeopleToFollow />
+          <aside aria-label="Beside the feed" className="min-w-0 lg:pt-1">
+            <Rail about={about} onSeeQuestions={seeQuestions} />
           </aside>
         )}
       </div>
+      {asking && <AskQuestion onClose={() => setAsking(false)} />}
     </div>
   )
 }
@@ -366,17 +381,16 @@ type ThreadBrief = {
 
 /** The open discussion threads (a question to everybody, a department's
  *  thread), reachable from the feed rather than only from a notification. */
-export function ThreadList() {
-  const [asking, setAsking] = useState(false)
+export function ThreadList({ onAsk }: { onAsk: () => void }) {
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button kind="primary" size="sm" onClick={() => setAsking(true)}>
+      <div className="flex items-center justify-between gap-3">
+        <Meta className="text-sm">Questions colleagues have asked, newest first.</Meta>
+        <Button kind="primary" size="sm" onClick={onAsk}>
           <MessageCircle aria-hidden className="size-4" /> Ask a question
         </Button>
       </div>
       <Threads />
-      {asking && <AskQuestion onClose={() => setAsking(false)} />}
     </div>
   )
 }
@@ -451,7 +465,7 @@ function FeedList({
   department,
   about,
 }: {
-  tab: Exclude<Tab, "reported" | "for-you" | "threads">
+  tab: Exclude<Tab, "reported" | "for-you">
   onWrite: () => void
   department: string | null
   about: About
@@ -497,17 +511,20 @@ function FeedList({
       )
     }
     if (tab === "everyone") {
-      // The college stream below keeps the page alive; this is one quiet line.
+      // The record's own cards keep the page alive; this is one quiet line above them.
       return (
-        <div className="flex items-center gap-4 border-y border-line py-4">
-          <Picture name="empty-no-messages" className="hidden size-16 shrink-0 sm:block" />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">Nobody has posted yet</p>
-            <Meta className="block text-sm">Be the first: congratulate a colleague below, or share your own news.</Meta>
+        <div>
+          <div className="flex items-center gap-4 border-y border-line py-4">
+            <Picture name="empty-no-messages" className="hidden size-16 shrink-0 sm:block" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">No posts from colleagues yet</p>
+              <Meta className="block text-sm">Be the first: say well done to a colleague, or share your own news.</Meta>
+            </div>
+            <Button kind="default" size="sm" onClick={onWrite} className="shrink-0">
+              Write a post
+            </Button>
           </div>
-          <Button kind="default" size="sm" onClick={onWrite} className="shrink-0">
-            Write a post
-          </Button>
+          <Stream posts={[]} hasMore={false} />
         </div>
       )
     }
@@ -531,11 +548,15 @@ function FeedList({
 
   return (
     <div>
-      <div>
-        {posts.map((p) => (
-          <PostCard key={p.id} post={p} />
-        ))}
-      </div>
+      {tab === "everyone" && !filtered ? (
+        <Stream posts={posts} hasMore={!!feed.hasNextPage} />
+      ) : (
+        <div>
+          {posts.map((p) => (
+            <PostCard key={p.id} post={p} />
+          ))}
+        </div>
+      )}
       <div className="flex justify-center border-t border-line pt-4">
         {feed.hasNextPage ? (
           <Button
@@ -550,6 +571,48 @@ function FeedList({
           <Meta className="text-xs">You are all caught up.</Meta>
         )}
       </div>
+    </div>
+  )
+}
+
+/** The most auto-written paper cards among the posts at one time. */
+const MAX_PAPER_CARDS = 8
+
+type StreamItem =
+  | { key: string; at: number; post: FeedPost }
+  | { key: string; at: number; paper: CollegePaper }
+  | { key: string; at: number; rising: true }
+
+/**
+ * Real posts and the record's own cards, newest first. A paper a colleague
+ * filed shows as a card with Congratulate unless somebody has already posted
+ * about that paper. While older posts are still to be loaded, only cards newer
+ * than the oldest post loaded are shown, so the order never jumps on "Show older".
+ */
+function Stream({ posts, hasMore }: { posts: FeedPost[]; hasMore: boolean }) {
+  const college = useCollege()
+  const oldest = posts.length ? Date.parse(posts[posts.length - 1].created_at) : 0
+  const shared = new Set(posts.map((p) => p.paper?.id).filter(Boolean))
+  const items: StreamItem[] = posts.map((post) => ({ key: post.id, at: Date.parse(post.created_at), post }))
+  const papers = (college.data?.papers ?? [])
+    .filter((c) => !shared.has(c.paper.id))
+    .map((paper) => ({ key: `paper-${paper.paper.id}`, at: Date.parse(paper.filed_at), paper }))
+    .filter((c) => !hasMore || c.at >= oldest)
+    .slice(0, MAX_PAPER_CARDS)
+  items.push(...papers)
+  items.sort((a, b) => b.at - a.at)
+  items.splice(Math.min(3, items.length), 0, { key: "rising", at: 0, rising: true })
+  return (
+    <div>
+      {items.map((it) =>
+        "post" in it ? (
+          <PostCard key={it.key} post={it.post} />
+        ) : "paper" in it ? (
+          <PaperEventCard key={it.key} item={it.paper} />
+        ) : (
+          <RisingCard key={it.key} />
+        )
+      )}
     </div>
   )
 }
@@ -578,13 +641,16 @@ function PostComposer({
   textareaRef,
   shareId,
   onShared,
+  onAsk,
   draft: seed,
 }: {
-  tab: Exclude<Tab, "reported" | "for-you" | "threads">
+  tab: Exclude<Tab, "reported" | "for-you">
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   /** `?share=<paper id>`: "Share to the feed" from a paper or a notification. */
   shareId?: string | null
   onShared?: () => void
+  /** "Ask a question" is a thread, not a post: the page opens its own dialog. */
+  onAsk: () => void
   /** Words handed in from elsewhere on the page (Congratulate, Write): opens the box with them. */
   draft?: (Draft & { n: number }) | null
 }) {
@@ -594,6 +660,9 @@ function PostComposer({
   const [picked, setPicked] = useState<Candidate[]>([])
   // One quiet line until somebody means to write.
   const [open, setOpen] = useState(!!shareId)
+  const [kind, setKind] = useState<PostKind | null>(null)
+  const [when, setWhen] = useState("")
+  const [where, setWhere] = useState("")
   const section = useRef<HTMLElement>(null)
   useEffect(() => {
     if (!seed) return
@@ -700,11 +769,12 @@ function PostComposer({
     },
   })
 
-  const hasSomething = !!text.trim() || !!file || !!paper || !!link.trim()
+  const hasSomething =
+    kind === "event" ? !!text.trim() : !!text.trim() || !!file || !!paper || !!link.trim()
 
   function send() {
     if (!hasSomething || !me) return
-    const body = text.trim()
+    const body = kind === "event" ? withEvent(text, { when, where }) : text.trim()
     const form = new FormData()
     form.set("body", body)
     form.set("visibility", visibility)
@@ -749,8 +819,26 @@ function PostComposer({
     setLinkOpen(false)
     setPaper(null)
     setFileError(null)
+    setKind(null)
+    setWhen("")
+    setWhere("")
     setOpen(false)
   }
+
+  /** A chip: what is being written changes the words offered and the fields shown. */
+  function pickKind(k: PostKind) {
+    if (k === "question") {
+      onAsk()
+      return
+    }
+    setKind(k)
+    setOpen(true)
+    if (k === "kudos") setText((t) => t || "Well done ")
+    if (k === "event") setLinkOpen(true)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+  const placeholder =
+    KINDS.find((k) => k.key === kind)?.placeholder ?? "Share a paper, a seminar or a question. Type @ to name a colleague."
 
   function choose(f: File | undefined) {
     if (!f) return
@@ -764,9 +852,25 @@ function PostComposer({
 
   const department = me?.department
 
+  const chips = (
+    <div role="group" aria-label="What are you posting" className="flex flex-wrap gap-1.5">
+      {KINDS.map((k) => (
+        <button
+          key={k.key}
+          type="button"
+          aria-pressed={kind === k.key}
+          onClick={() => pickKind(k.key)}
+          className={chipClass(kind === k.key)}
+        >
+          {k.label}
+        </button>
+      ))}
+    </div>
+  )
+
   if (!open) {
     return (
-      <section aria-label="Write a post" ref={section}>
+      <section aria-label="Write a post" ref={section} className="panel space-y-3 px-3 py-3 sm:px-4">
         <button
           type="button"
           aria-label="Start a post"
@@ -774,12 +878,13 @@ function PostComposer({
             setOpen(true)
             requestAnimationFrame(() => textareaRef.current?.focus())
           }}
-          className="flex w-full items-center gap-3 rounded-full bg-surface py-1.5 pl-1.5 pr-4 text-left text-sm text-fg-muted shadow-raise ring-1 ring-inset ring-control-edge transition-[background-color,box-shadow] duration-[var(--dur-1)] ease-out hover:bg-hover hover:text-fg hover:ring-field active:shadow-press"
+          className="flex w-full items-center gap-3 rounded-full bg-sunken py-1.5 pl-1.5 pr-4 text-left text-sm text-fg-muted ring-1 ring-inset ring-control-edge transition-[background-color,box-shadow] duration-[var(--dur-1)] ease-out hover:bg-hover hover:text-fg hover:ring-field"
         >
           <Avatar person={meAsAuthor(me)} size="sm" />
           <span className="min-w-0 flex-1 truncate">Share a paper, a seminar or a question</span>
           <PenLine className="size-4 shrink-0" aria-hidden />
         </button>
+        {chips}
       </section>
     )
   }
@@ -795,13 +900,18 @@ function PostComposer({
           const active = document.activeElement
           if (section.current?.contains(active)) return
           if (active?.closest("[role=menu],[role=listbox],[role=dialog],[data-radix-popper-content-wrapper]")) return
-          if (!text.trim() && !file && !paper && !link.trim() && !linkOpen && !shareId) setOpen(false)
+          if (!text.trim() && !file && !paper && !link.trim() && !linkOpen && !shareId && !kind) setOpen(false)
         }, 150)
       }}
       onKeyDown={(e) => {
-        if (e.key === "Escape" && !text.trim() && !file && !paper && !link.trim()) setOpen(false)
+        if (e.key === "Escape" && !text.trim() && !file && !paper && !link.trim()) {
+          setKind(null)
+          setLinkOpen(false)
+          setOpen(false)
+        }
       }}
     >
+      {chips}
       <div className="flex gap-3">
         <Avatar person={meAsAuthor(me)} size="md" className="hidden sm:inline-flex" />
         <Composer
@@ -818,7 +928,7 @@ function PostComposer({
           maxRows={12}
           menu="below"
           offer={FEED_MENTIONS}
-          placeholder="Share a paper, a seminar or a question. Type @ to name a colleague."
+          placeholder={placeholder}
           prompt="Keep typing a colleague's name, a department or a journal."
           textareaRef={textareaRef}
           toolbar={
@@ -874,13 +984,51 @@ function PostComposer({
         />
       </div>
 
-      {(linkOpen || file || paper || fileError) && (
+      {(linkOpen || file || paper || fileError || kind === "paper" || kind === "event") && (
         <div className="space-y-2 sm:pl-13">
+          {kind === "paper" && !paper && (
+            <PaperPicker
+              label="Choose one of your papers"
+              papers={papers.data?.results ?? []}
+              record={record.data?.publications ?? []}
+              loading={papers.isLoading}
+              onPick={setPaper}
+              onPickRecord={(r) => {
+                const where = [r.venue, r.year].filter(Boolean).join(", ")
+                setText((t) => t.trim() || `New paper out: “${r.title}”${where ? ` (${where})` : ""}.`)
+                const card = recordAsPaper(r)
+                if (card) setPaper(card)
+                else if (r.doi) {
+                  setLink(`https://doi.org/${r.doi}`)
+                  setLinkOpen(true)
+                }
+              }}
+            />
+          )}
+          {kind === "event" && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label="Date and time">
+                <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+              </Field>
+              <Field label="Place">
+                <Input value={where} onChange={(e) => setWhere(e.target.value)} placeholder="Seminar hall, Block C" />
+              </Field>
+            </div>
+          )}
+          {kind === "event" && (
+            <p className="text-sm text-fg-muted">
+              This goes to Discussions.{" "}
+              <Link to="/events?add=1" className="text-accent underline-offset-2 hover:underline">
+                Add it to the events list
+              </Link>{" "}
+              so people can say they are going and add it to their calendar.
+            </p>
+          )}
           {linkOpen && (
             <Input
               value={link}
               onChange={(e) => setLink(e.target.value)}
-              placeholder="https://doi.org/…"
+              placeholder={kind === "event" ? "Link to join or register (optional)" : "https://doi.org/…"}
               aria-label="Link"
               inputMode="url"
             />
@@ -987,7 +1135,9 @@ export function PaperPicker({
   loading,
   onPick,
   onPickRecord,
+  label,
 }: {
+  label?: string
   papers: PaperOption[]
   record?: RecordOption[]
   loading: boolean
@@ -1002,8 +1152,9 @@ export function PaperPicker({
       <Menu>
         <Tooltip content="Share one of your papers">
           <MenuTrigger asChild>
-            <Button kind="quiet" size="icon" type="button" aria-label="Attach one of my papers">
+            <Button kind={label ? "default" : "quiet"} size={label ? "sm" : "icon"} type="button" aria-label="Attach one of my papers">
               <FileText />
+              {label}
             </Button>
           </MenuTrigger>
         </Tooltip>
@@ -1022,8 +1173,9 @@ export function PaperPicker({
     <Menu>
       <Tooltip content="Point the post at one of your papers">
         <MenuTrigger asChild>
-          <Button kind="quiet" size="icon" type="button" aria-label="Attach one of my papers">
+          <Button kind={label ? "default" : "quiet"} size={label ? "sm" : "icon"} type="button" aria-label="Attach one of my papers">
             <FileText />
+            {label}
           </Button>
         </MenuTrigger>
       </Tooltip>
@@ -1093,11 +1245,21 @@ export function PostCard({ post, open = false }: { post: FeedPost; open?: boolea
   const author = post.author
   const departmentOnly = post.visibility === "DEPARTMENT"
   const pending = post.pending === true
+  const kind = kindOf(post)
+  const event = parseEvent(post.body)
+  const mine = !!me && author?.id === me.id
+  const [congratulating, setCongratulating] = useState(false)
+  const [congratulated, setCongratulated] = useState<string | null>(null)
+  const asPaper: CollegePaper | null =
+    post.paper && author && !mine
+      ? { paper: { ...post.paper, coauthors: post.paper.coauthors ?? [], doi: post.paper.doi ?? null }, owner: author, filed_at: post.created_at }
+      : null
 
   return (
     <article
       aria-busy={pending}
       className={cn("space-y-3 border-b border-line py-5 last:border-b-0", pending && "opacity-70")}
+      data-kind={kind ?? "post"}
     >
       <header className="flex items-start gap-3">
         <Link to={author ? `/u/${author.id}` : "#"} tabIndex={-1} aria-hidden className="shrink-0">
@@ -1106,7 +1268,7 @@ export function PostCard({ post, open = false }: { post: FeedPost; open?: boolea
         <div className="min-w-0 flex-1">
           <PersonLink id={author?.id} name={author?.name} className="text-base" />
           <Meta className="block text-xs">
-            {[author?.designation, author?.department].filter(Boolean).join(" · ")}
+            {[author?.department, author?.designation].filter(Boolean).join(" · ")}
             {author?.designation || author?.department ? " · " : ""}
             {pending ? (
               "posting…"
@@ -1124,6 +1286,7 @@ export function PostCard({ post, open = false }: { post: FeedPost; open?: boolea
             </span>
           )}
         </div>
+        {kind && <Badge>{KIND_LABEL[kind]}</Badge>}
         {!pending && (
           <PostMenu
             post={post}
@@ -1147,15 +1310,45 @@ export function PostCard({ post, open = false }: { post: FeedPost; open?: boolea
       {editing ? (
         <EditPost post={post} onDone={() => setEditing(false)} />
       ) : (
-        post.body && (
-          <div className="whitespace-pre-wrap break-words text-base leading-relaxed">
-            {renderBody(post.body, post.mentions)}
+        event.text && (
+          <div className={cn("whitespace-pre-wrap break-words leading-relaxed", kind === "event" ? "text-base font-medium" : "text-base")}>
+            {renderBody(event.text, post.mentions)}
           </div>
         )
       )}
 
+      {event.info && <EventBlock info={event.info} />}
       {post.link_url && <LinkCard url={post.link_url} />}
       {post.paper && <PaperCard paper={post.paper} />}
+      {asPaper && !pending && !editing && (
+        <div>
+          {congratulated ? (
+            <p className="flex items-center gap-1.5 px-2 text-sm text-positive" role="status">
+              <Check className="size-4" aria-hidden />
+              Posted, and {author?.name} has been told.{" "}
+              <Link to={`/discussions/p/${congratulated}`} className="text-accent underline-offset-4 hover:underline">
+                See your post
+              </Link>
+            </p>
+          ) : (
+            <Button kind="default" size="sm" aria-expanded={congratulating} onClick={() => setCongratulating((c) => !c)}>
+              <PartyPopper />
+              Congratulate
+            </Button>
+          )}
+        </div>
+      )}
+      {asPaper && congratulating && !congratulated && (
+        <InlineNote
+          item={asPaper}
+          draft={congratulate(asPaper)}
+          onCancel={() => setCongratulating(false)}
+          onPosted={(id) => {
+            setCongratulated(id)
+            setCongratulating(false)
+          }}
+        />
+      )}
       {post.attachment && <Attachment attachment={post.attachment} />}
 
       <ReactionBar
@@ -1274,6 +1467,31 @@ function EditPost({ post, onDone }: { post: FeedPost; onDone: () => void }) {
   )
 }
 
+/** The When and Where of an event post, read back out of its words (`post-kinds.ts`). */
+function EventBlock({ info }: { info: { when: string; where: string } }) {
+  if (!info.when && !info.where) return null
+  return (
+    <dl className="grid gap-x-4 gap-y-1 rounded-md bg-accent-wash px-3 py-2.5 text-sm sm:grid-cols-[auto_1fr]">
+      {info.when && (
+        <>
+          <dt className="flex items-center gap-1.5 text-fg-muted">
+            <CalendarDays className="size-4" aria-hidden /> When
+          </dt>
+          <dd className="font-medium">{whenLabel(info.when)}</dd>
+        </>
+      )}
+      {info.where && (
+        <>
+          <dt className="flex items-center gap-1.5 text-fg-muted">
+            <MapPin className="size-4" aria-hidden /> Where
+          </dt>
+          <dd className="font-medium">{info.where}</dd>
+        </>
+      )}
+    </dl>
+  )
+}
+
 function LinkCard({ url }: { url: string }) {
   let host = url
   try {
@@ -1308,7 +1526,9 @@ export function PaperCard({ paper }: { paper: NonNullable<FeedPost["paper"]> }) 
         className="size-14 shrink-0 rounded-md bg-surface/60 p-1"
       />
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium">{unshout(paper.title)}</span>
+        <DetailLink kind="paper" id={paper.id} className="block text-sm font-medium leading-snug">
+          {unshout(paper.title)}
+        </DetailLink>
         <Meta className="block text-xs">
           {[paper.journal_title, paper.publication_year, paper.quartile].filter(Boolean).join(" · ")}
         </Meta>

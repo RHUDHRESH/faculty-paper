@@ -33,6 +33,7 @@ import { PageHeader } from "@/ui/page-header"
 import { Avatar, type PersonBrief } from "@/ui/person"
 import { Details, Rows, Section } from "@/ui/section"
 import { CompassCard } from "@/pages/compass-parts"
+import { EventsOnHome } from "@/pages/home-events"
 import { ClaimThresholdNote, ThresholdCard, type ThresholdSummary } from "@/ui/research-threshold"
 
 /**
@@ -398,6 +399,9 @@ export function FacultyHome() {
           <CompassCard variant="home" />
         </div>
       </div>
+
+      {/* After the jobs: what is on at the college, and what colleagues have published. Each hides when it has nothing to say. */}
+      <EventsOnHome />
     </div>
   )
 }

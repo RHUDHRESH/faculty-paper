@@ -8,6 +8,8 @@ import { api } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { ChooseDesk } from "@/pages/admin-desks"
+import { JournalListsImport } from "@/pages/journal-lists-import"
+import { MediaImport } from "@/pages/media-import"
 import { Button } from "@/ui/button"
 import { PageHeader } from "@/ui/page-header"
 import { Details } from "@/ui/section"
@@ -141,6 +143,8 @@ function StepRow({ step, n, next }: { step: StartStep; n: number; next: boolean 
         </div>
       ) : step.key === "backup" && !done ? (
         <BackupButton primary={next} className="max-sm:ml-11" />
+      ) : step.key === "files" ? (
+        <FilesAction step={step} />
       ) : (
         <Button asChild size="sm" kind={next ? "primary" : done ? "quiet" : "default"} className="max-sm:ml-11">
           <Link to={step.to} aria-label={`${step.action}: ${step.title}`}>
@@ -187,6 +191,34 @@ function BackupButton({ primary, className }: { primary: boolean; className?: st
   )
 }
 
+/**
+ * The photos and files step. The zip picker sits in the row while files are
+ * missing, and behind "Add more" once they are here.
+ *
+ * It starts open when the files are missing and stays as it was when the upload
+ * turns the step done: closing it then would take the result of the upload off
+ * the page the moment it appeared.
+ */
+function FilesAction({ step }: { step: StartStep }) {
+  const qc = useQueryClient()
+  const done = step.state === "done"
+  const [open, setOpen] = useState(!done)
+  return (
+    <>
+      {done ? (
+        <Button size="sm" kind="quiet" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="max-sm:ml-11">
+          {open ? "Hide" : step.action}
+        </Button>
+      ) : null}
+      {open ? (
+        <div className="w-full max-w-xl pl-11">
+          <MediaImport onDone={() => void qc.invalidateQueries({ queryKey: ["admin"] })} />
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 export function AdminStart() {
   const { me } = useAuth()
   const q = useStart(me?.role === "SUPER_ADMIN")
@@ -211,12 +243,25 @@ export function AdminStart() {
       ) : (
         <StartList data={d} />
       )}
+      {me?.role === "SUPER_ADMIN" ? (
+        <section className="space-y-3" aria-labelledby="journal-lists-title">
+          <SectionTitle id="journal-lists-title">Journal safety lists</SectionTitle>
+          <p className="max-w-xl text-sm text-fg-muted">
+            "Check a journal" can warn about journals Scopus has dropped and journals that fake websites copy. It needs
+            these two lists to say so; until they are loaded it says unknown.
+          </p>
+          <div className="max-w-xl">
+            <JournalListsImport />
+          </div>
+        </section>
+      ) : null}
       <Details label="the steps for a new host">
         <ol className="list-decimal space-y-1.5 pl-5 text-sm text-fg-muted">
           <li>Deploy. The tables are built when it starts.</li>
           <li>Open the site and make the first administrator (Set up). Use an email that is not in the export.</li>
           <li>Imports, then Restore a previous installation. Choose the file and type RESTORE.</li>
-          <li>Come back here. Each step turns done as the system sees it.</li>
+          <li>Come back here and add the photos and files from the media zip, so faces and claim files appear.</li>
+          <li>Each step turns done as the system sees it.</li>
         </ol>
       </Details>
     </div>

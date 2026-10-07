@@ -9,6 +9,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import { api } from "@/lib/api"
 import { FacultyHome, greeting, homeSentence, monthOnly, reasonOf, type HomeRecord } from "@/pages/home-faculty"
+import { NOTHING_NEW, SEMINAR, WORKSHOP, highlights, summary } from "@/test/events-fixtures"
 import { FACULTY, failing, fakeApi, ledgerOf, renderWithProviders } from "@/test/harness"
 
 /**
@@ -204,6 +205,40 @@ describe("FacultyHome", () => {
     expect(await screen.findByText("An unfiled lattice paper")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "File it" })).toHaveAttribute("href", "/papers/new?publication=p1")
     expect(screen.getByRole("link", { name: /all 10 unfiled papers/i })).toHaveAttribute("href", "/papers?filter=unclaimed")
+  })
+
+  it("puts what is coming up, and what the college published, after the jobs", async () => {
+    mount([claim()], [], {
+      "/api/events/summary": () => summary([SEMINAR, WORKSHOP]),
+      "/api/research/highlights": () => highlights({ period: "month", label: "Past month" }),
+    })
+    const coming = await screen.findByRole("region", { name: "Coming up" })
+    const month = await screen.findByRole("region", { name: "In the college this month" })
+    const research = screen.getByRole("heading", { name: "Your research" })
+    const after = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(after(research, coming)).toBe(true)
+    expect(after(research, month)).toBe(true)
+    expect(within(coming).getAllByRole("link", { name: /Seminar Hall 2|Library/ })).toHaveLength(2)
+  })
+
+  it("draws neither card, and no error, when nothing is coming and nothing is new", async () => {
+    mount([claim()], [], {
+      "/api/events/summary": () => summary([]),
+      "/api/research/highlights": () => NOTHING_NEW,
+    })
+    await screen.findByRole("button", { name: "20 papers" })
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith(expect.stringContaining("/api/events/summary")))
+    expect(screen.queryByRole("region", { name: "Coming up" })).toBeNull()
+    expect(screen.queryByRole("region", { name: "In the college this month" })).toBeNull()
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("keeps Home whole when the events request fails", async () => {
+    mount([claim()], [], { "/api/events/summary": failing(500), "/api/research/highlights": failing(500) })
+    await screen.findByRole("button", { name: "20 papers" })
+    await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith(expect.stringContaining("/api/events/summary")))
+    expect(screen.queryByRole("region", { name: "Coming up" })).toBeNull()
+    expect(screen.queryByRole("alert")).toBeNull()
   })
 
   it("greets by the time of day in India", () => {

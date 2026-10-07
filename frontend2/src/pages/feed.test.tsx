@@ -85,7 +85,7 @@ describe("Feed", () => {
         ],
       }),
     })
-    await user.click(await screen.findByRole("tab", { name: "Threads" }))
+    await user.click(await screen.findByRole("button", { name: "Questions" }))
     const row = (await screen.findByRole("link", { name: /Which journal for signal processing/ })) as HTMLElement
     expect(row.querySelector("img")).not.toBeNull()
     expect(row).toHaveTextContent("Asked by Dr Lila Rao")
@@ -96,10 +96,10 @@ describe("Feed", () => {
   it("keeps People to follow beside the posts and has one title with one sentence of purpose", async () => {
     mount([], { "/api/feed/college": () => ({ papers: [], people: [{ id: "u-x", name: "Dr New", initials: "DN", photo_url: null, department: "CSE", designation: null, papers: 3 }] }) })
     expect(screen.getByRole("heading", { level: 1, name: "Discussions" })).toBeInTheDocument()
-    expect(await screen.findByRole("complementary", { name: "People to follow" })).toHaveTextContent("Dr New")
+    expect(await screen.findByRole("complementary", { name: "Beside the feed" })).toHaveTextContent("Dr New")
   })
 
-  it("lists public discussion threads under a Threads tab", async () => {
+  it("lists public discussion threads under the Questions switch", async () => {
     const user = mount([], {
       "/api/threads": () => ({
         results: [
@@ -110,13 +110,13 @@ describe("Feed", () => {
         ],
       }),
     })
-    await user.click(await screen.findByRole("tab", { name: "Threads" }))
-    const link = await screen.findByRole("link", { name: /Which journals turn papers around fastest/ })
+    await user.click(await screen.findByRole("button", { name: "Questions" }))
+    const [link] = await screen.findAllByRole("link", { name: /Which journals turn papers around fastest/ })
     expect(link).toHaveAttribute("href", "/discussions/t1")
     expect(screen.queryByText("A private chat")).toBeNull()
   })
 
-  it("lets anybody ask a question for everybody from the Threads tab", async () => {
+  it("lets anybody ask a question for everybody from the Questions switch", async () => {
     const user = mount([])
     // The table helper answers by path only; this one needs the verb too.
     vi.mocked(api).mockImplementation(async (path: string, opts?: { method?: string }) => {
@@ -125,7 +125,7 @@ describe("Feed", () => {
       if (String(path) === "/api/auth/me") return FACULTY
       return { results: [], next: null }
     })
-    await user.click(await screen.findByRole("tab", { name: "Threads" }))
+    await user.click(await screen.findByRole("button", { name: "Questions" }))
     await user.click(await screen.findByRole("button", { name: "Ask a question" }))
     const dialog = await screen.findByRole("dialog")
     const post = within(dialog).getByRole("button", { name: "Post the question" })
@@ -157,7 +157,7 @@ describe("Feed", () => {
 
   it("invites the first post when nobody has posted yet", async () => {
     mount([])
-    expect(await screen.findByText("Nobody has posted yet")).toBeInTheDocument()
+    expect(await screen.findByText("No posts from colleagues yet")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Write a post" })).toBeInTheDocument()
   })
 
@@ -166,7 +166,7 @@ describe("Feed", () => {
       // Never answers: whatever appears, appeared optimistically.
       "/api/feed/posts": () => new Promise(() => {}),
     })
-    await screen.findByText("Nobody has posted yet")
+    await screen.findByText("No posts from colleagues yet")
     await user.click(screen.getByRole("button", { name: "Start a post" }))
     await user.type(screen.getByRole("combobox", { name: "Write a post" }), "Hello, college")
     await user.click(screen.getByRole("button", { name: "Post" }))
@@ -180,7 +180,7 @@ describe("Feed", () => {
 
   it("sends a department-only post when My department is chosen", async () => {
     const user = mount([], { "/api/feed/posts": () => new Promise(() => {}) })
-    await screen.findByText("Nobody has posted yet")
+    await screen.findByText("No posts from colleagues yet")
     await user.click(screen.getByRole("button", { name: "Start a post" }))
     await user.type(screen.getByRole("combobox", { name: "Write a post" }), "Lab keys are with me")
     await user.click(screen.getByRole("radio", { name: /Mechanical Engineering only/ }))
@@ -226,5 +226,75 @@ describe("Feed", () => {
       method: "POST",
       json: { body: "Count me in", mention_ids: [] },
     })
+  })
+})
+
+describe("Discussions, reworked", () => {
+  const college = (extra = {}) => ({
+    "/api/feed/college": () => ({
+      papers: [
+        { paper: { id: "pp1", title: "Thin films for solar cells", journal_title: "J Solar", publication_year: 2026, quartile: "Q1", doi: null, coauthors: [] },
+          owner: RAVI, filed_at: new Date().toISOString() },
+      ],
+      people: [],
+    }),
+    "/api/leaderboard": () => ({ rows: [{ rank: 1, person: { ...RAVI, id: "u-r2", name: "Meena Iyer" }, value: 5 }] }),
+    ...extra,
+  })
+
+  it("is never dead: record cards and Most improved show among the posts", async () => {
+    mount([post()], college())
+    expect(await screen.findByText("Seminar on thin films, Friday at 3")).toBeInTheDocument()
+    expect(await screen.findByText("Thin films for solar cells")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Congratulate" })).toBeInTheDocument()
+    expect(await screen.findByRole("region", { name: "Most improved" })).toHaveTextContent("Meena Iyer")
+  })
+
+  it("keeps the empty feed alive with the record's cards", async () => {
+    mount([], college())
+    expect(await screen.findByText("No posts from colleagues yet")).toBeInTheDocument()
+    expect(await screen.findByText("Thin films for solar cells")).toBeInTheDocument()
+  })
+
+  it("offers four kinds of post and changes the box for each", async () => {
+    const user = mount([], college())
+    for (const name of ["Ask a question", "Share a paper", "Announce a seminar or event", "Say well done"]) {
+      expect(await screen.findByRole("button", { name })).toBeInTheDocument()
+    }
+    await user.click(screen.getByRole("button", { name: "Say well done" }))
+    const box = await screen.findByRole("combobox", { name: "Write a post" })
+    expect(box).toHaveValue("Well done ")
+    expect(box).toHaveAttribute("placeholder", expect.stringContaining("worth celebrating"))
+    await user.click(screen.getByRole("button", { name: "Announce a seminar or event" }))
+    expect(screen.getByLabelText("Date and time")).toBeInTheDocument()
+    expect(screen.getByLabelText("Place")).toBeInTheDocument()
+  })
+
+  it("posts an event with a readable block in its words", async () => {
+    const user = mount([], college({ "/api/feed/posts": () => new Promise(() => {}) }))
+    await user.click(await screen.findByRole("button", { name: "Announce a seminar or event" }))
+    await user.type(screen.getByRole("combobox", { name: "Write a post" }), "Thin films talk")
+    await user.type(screen.getByLabelText("Date and time"), "2026-10-17T15:00")
+    await user.type(screen.getByLabelText("Place"), "Block C")
+    await user.click(screen.getByRole("button", { name: "Post" }))
+    const [, init] = sent("/api/feed/posts")[0] as [string, { body: FormData }]
+    expect(init.body.get("body")).toBe("Thin films talk\n\n— Event —\nWhen: 2026-10-17 15:00\nWhere: Block C")
+  })
+
+  it("shows an event post as a card with its when and where", async () => {
+    mount([post({ body: "Talk\n\n— Event —\nWhen: 2026-10-17 15:00\nWhere: Block C" })], college())
+    expect(await screen.findByText("Block C")).toBeInTheDocument()
+    expect(screen.getByText("Event")).toBeInTheDocument()
+    expect(screen.queryByText(/— Event —/)).toBeNull()
+  })
+
+  it("filters: Questions switch lists threads, My department asks that tab", async () => {
+    const user = mount([], college({ "/api/threads": () => ({ results: [] }) }))
+    const questions = await screen.findByRole("button", { name: "Questions" })
+    await user.click(questions)
+    expect(questions).toHaveAttribute("aria-pressed", "true")
+    expect(await screen.findByText("No open questions yet")).toBeInTheDocument()
+    await user.click(screen.getByRole("radio", { name: "My department" }))
+    await waitFor(() => expect(sent("/api/feed?").some(([p]) => String(p).includes("tab=department"))).toBe(true))
   })
 })

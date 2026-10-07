@@ -647,6 +647,12 @@ CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "")
 
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
 
+# "Connect Google Calendar" (core/services/google_calendar.py) is the one place
+# a code exchange happens, so it is the one place that needs the client's
+# secret. From the environment only; with it empty the calendar page offers the
+# plain subscribe link instead and the connect endpoints answer "not switched on".
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+
 # Optional. Set to a Workspace domain to refuse anything else even where an
 # account exists with, say, a gmail address.
 GOOGLE_HOSTED_DOMAIN = os.getenv("GOOGLE_HOSTED_DOMAIN", "")

@@ -156,7 +156,7 @@ Hello, Super                                                       [ drawing ]
   (next)  2  Put someone at every desk            Nobody holds Director.   [Choose the Director]
   (todo)  3  Give people their first password     412 people have none     [Issue passwords]
   ...
-  Also: Set up email, Add the Scopus key (optional)
+  Also: Photos and files, Set up email, Add the Scopus key (optional)
 ```
 
 ### Admin directory
@@ -188,7 +188,10 @@ row's tooltip and the page's own header, not repeated text.
   state (done, next, to do, working), a fact line, and one button that opens the page where the
   step is done. Restore progress shows on the step while a restore runs. Reached from Home while
   incomplete, from the Admin directory always, and from Ctrl K ("set up", "new host", "move
-  host", "first run").
+  host", "first run"). **Photos and files** is an optional step under "Also": the restore brings
+  every row and no file, so it checks a few photos and claim files and, while any are missing,
+  holds the zip picker in its own row (`POST /api/admin/media-import`, super admin only; the
+  same service as `manage.py import_media`). It never changes the "N of M" count.
 - **Admin directory.** Four groups, a name and a number each, a filter field. The readiness
   list and the old-ERP queue leave this page: the first is Home and the checklist; the second is
   the top of Fix imported claims.

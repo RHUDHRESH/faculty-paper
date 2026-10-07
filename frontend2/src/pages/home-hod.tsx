@@ -5,6 +5,7 @@ import { BellRing, Download } from "lucide-react"
 import { useAuth } from "@/app/auth"
 import { homeTrack } from "@/app/home-data"
 import { useApi } from "@/lib/query"
+import { ComingUpEvents } from "@/pages/home-events"
 import { HomeHead, YourPapers } from "@/pages/home-staff"
 import {
   groupDraft,
@@ -205,6 +206,8 @@ export function HodHome() {
       )}
 
       <Celebrations />
+
+      <ComingUpEvents />
 
       <YourPapers note="What you have filed yourself, with your own amounts. Your department's figures carry none." />
 

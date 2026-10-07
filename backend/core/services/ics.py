@@ -62,6 +62,8 @@ def vevent(
     ends_at: Optional[time] = None,
     description: Optional[str] = None,
     categories: Optional[str] = None,
+    location: Optional[str] = None,
+    url: Optional[str] = None,
 ) -> list[str]:
     lines = ["BEGIN:VEVENT", f"UID:{uid}@{DOMAIN}", "DTSTAMP:" + timezone.now().astimezone(dt_tz.utc).strftime("%Y%m%dT%H%M%SZ")]
     if starts_at is None:
@@ -80,14 +82,30 @@ def vevent(
         lines.append("DESCRIPTION:" + escape(description))
     if categories:
         lines.append("CATEGORIES:" + escape(categories))
+    if location:
+        lines.append("LOCATION:" + escape(location))
+    if url:
+        # A URI is not TEXT: its commas and semicolons are its own.
+        lines.append("URL:" + url)
     lines.append("END:VEVENT")
     return lines
 
 
 def from_event(e: Any) -> list[str]:
+    """What a calendar app shows: the title, when, where, and who is speaking.
+
+    The speaker and the organiser have no field of their own in iCalendar that
+    every app shows, so they go in the description, which every app does show.
+    """
+    about = [
+        e.description,
+        f"Speaker: {e.speaker}" if e.speaker else None,
+        f"Organised by: {e.organiser}" if e.organiser else None,
+    ]
     return vevent(
         f"event-{e.id}", e.title, e.starts_on, e.ends_on, e.starts_at, e.ends_at,
-        e.description, e.get_kind_display(),
+        "\n".join(x for x in about if x), e.get_kind_display(),
+        location=e.venue, url=e.link,
     )
 
 

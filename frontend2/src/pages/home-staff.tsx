@@ -16,6 +16,7 @@ import {
   useOwnPapers,
 } from "@/pages/home-faculty"
 import { greeting as timeGreeting } from "@/pages/home-faculty"
+import { ComingUpEvents } from "@/pages/home-events"
 import { HomeTrack } from "@/pages/home-track"
 import { CellHome } from "@/pages/home-cell"
 import { Button } from "@/ui/button"
@@ -489,6 +490,8 @@ function AdminHome() {
           onRetry={() => faults.refetch()}
         />
       )}
+
+      <ComingUpEvents />
 
       {/* The office's work first; an officer's own research after it. */}
       {can(me?.role).fileOwnPapers && <YourPapers />}

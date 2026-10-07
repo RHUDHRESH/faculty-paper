@@ -235,6 +235,46 @@ describe("the office sidebar", () => {
   })
 })
 /**
+ * Seminars, workshops and calls for papers were "practically invisible": the
+ * only place they could be was the calendar. The page that shows them is in the
+ * Research group, directly under My research, for everybody who has that group,
+ * and a person looking for one by name or by job finds it in Ctrl K.
+ */
+describe("Events and research", () => {
+  const ROLES = ["FACULTY", "HOD", "PRINCIPAL", "DIRECTOR", "FINANCE", "RESEARCH_CELL", "RESEARCH_COORDINATOR", "SUPER_ADMIN"] as const
+
+  it("sits right under My research in the Research group, for every role", () => {
+    for (const role of ROLES) {
+      const research = navFor(role).filter((i) => i.group === "Research")
+      const at = research.findIndex((i) => i.to === "/research")
+      expect(at, `${role} has My research`).toBeGreaterThanOrEqual(0)
+      expect(research[at + 1]?.to, role).toBe("/events")
+      expect(research[at + 1]?.label, role).toBe("Events and research")
+    }
+  })
+
+  it("is not a find-only page: it is in the sidebar, with the research colour", () => {
+    const item = NAV.find((i) => i.to === "/events")
+    expect(item?.findOnly).toBeFalsy()
+    expect(item?.area).toBe("research")
+    expect(item?.roles).toBeUndefined() // everybody signed in
+  })
+
+  it("is found in Ctrl K by what people call these things", () => {
+    for (const role of ROLES) {
+      const page = pagesFor(role).find((i) => i.to === "/events")
+      expect(page, role).toBeDefined()
+      const words = [page!.label, ...(page!.keywords ?? [])].join(" ").toLowerCase()
+      for (const word of ["seminar", "workshop", "conference", "call for papers", "fdp", "going", "showcase"]) {
+        expect(words, `${role} ${word}`).toContain(word)
+      }
+      expect(page!.purpose).toBeTruthy()
+      expect(page!.purpose).not.toMatch(/ — /)
+    }
+  })
+})
+
+/**
  * The sidebar says how much is waiting at the reader's own desk, so the queue
  * is one glance away from any page -- and says nothing about anybody else's.
  */
@@ -271,7 +311,7 @@ describe("the Convocation sidebar", () => {
     expect(items.map((i) => i.label)).toEqual([
       "Search", "Home",
       "My papers", "File a paper",
-      "My research", "Discover", "Check a journal", "Research compass",
+      "My research", "Events and research", "Discover", "Check a journal", "Research compass",
       "Who to work with", "Messages", "Discussions",
       "Leaderboard",
       "Calendar",

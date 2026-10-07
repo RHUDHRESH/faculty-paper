@@ -60,6 +60,12 @@ services:
         value: saveetha.ac.in
       - key: GOOGLE_OAUTH_CLIENT_ID
         value: 635082195334-p8h4j4o75r9jqk24hsfq6bbom0s8fjei.apps.googleusercontent.com
+      # "Connect Google Calendar": the same OAuth client's secret (Google Cloud
+      # console -> Google Auth platform -> Clients). Secret; paste it in the
+      # Render dashboard. Without it the Calendar page offers the plain
+      # "Add to Google Calendar" subscribe link instead (docs/ops/go-live.md, 2b).
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
       # AI: Groq over its OpenAI-compatible API (models fixed below). Paste the
       # Groq key into AI_API_KEY in the Render dashboard; without it every AI
       # panel shows its counted version. Previously:

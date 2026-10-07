@@ -36,6 +36,14 @@ pypdf>=6.0
 # dependency was dropped or pinned differently.
 google-auth>=2.35
 PyJWT[crypto]>=2.9
+
+# "Connect Google Calendar" (core/services/google_calendar.py): Google's own
+# OAuth helper and Calendar client, so no hand-rolled token or REST code.
+# cryptography encrypts the stored refresh token (Fernet). It arrived through
+# PyJWT[crypto]; declared because this code imports it directly.
+google-auth-oauthlib>=1.2
+google-api-python-client>=2.150
+cryptography>=43
 requests>=2.32
 anthropic>=0.75
 

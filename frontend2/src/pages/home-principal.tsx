@@ -15,6 +15,7 @@ import { reviewLink, waitingLabel } from "@/ui/queue"
 import { Rows, Section } from "@/ui/section"
 import { InlineError, SkeletonRows } from "@/ui/state"
 import type { QueuePayload } from "@/pages/approvals-actions"
+import { ComingUpEvents } from "@/pages/home-events"
 import { YourPapers } from "@/pages/home-staff"
 import { AskTheData } from "@/pages/insights-link"
 import type { Brief } from "@/pages/principal-parts"
@@ -203,6 +204,8 @@ export function PrincipalHome() {
           <YearColumn b={b} isError={brief.isError} onRetry={() => brief.refetch()} />
         </aside>
       </div>
+
+      <ComingUpEvents />
 
       <YourPapers />
 

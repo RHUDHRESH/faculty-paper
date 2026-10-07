@@ -1,9 +1,15 @@
 """Get the college running: the ordered checklist for a fresh install or a host move."""
+import shutil
+import tempfile
+
+from django.conf import settings
 from django.core.cache import cache
-from django.test import Client, TestCase
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from core.models import FormulaConfig, Publication, Role, User
+from core.models import Claim, ClaimAttachment, ClaimStatus, FormulaConfig, Publication, Role, User
 from core.services.issue_passwords import HASHER
 
 
@@ -27,13 +33,14 @@ class GoLive(TestCase):
     def test_a_fresh_install_starts_with_the_record(self):
         body, by = self.steps()
         self.assertEqual([s["key"] for s in body["steps"]],
-                         ["record", "desks", "passwords", "policy", "backup", "email", "scopus"])
+                         ["record", "desks", "passwords", "policy", "backup", "files", "email", "scopus"])
         self.assertEqual(body["next"], "record")
         self.assertFalse(body["complete"])
         self.assertEqual(body["total"], 5)
         self.assertEqual(by["record"]["state"], "todo")
         self.assertEqual(by["record"]["to"], "/imports")
         self.assertFalse(by["email"]["required"])
+        self.assertFalse(by["files"]["required"])
 
     def test_loading_people_moves_the_next_step_on(self):
         make(Role.FACULTY, 2)
@@ -76,6 +83,69 @@ class GoLive(TestCase):
         other.force_login(make(Role.RESEARCH_COORDINATOR, 9))
         self.assertEqual(other.get("/api/admin/start").status_code, 403)
         self.assertEqual(Client().get("/api/admin/start").status_code, 401)
+
+
+class PhotosAndFiles(TestCase):
+    """After a restore the rows name photos and claim files that are not on the new host yet."""
+
+    def setUp(self):
+        cache.clear()
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        override = override_settings(MEDIA_ROOT=tmp)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.c = Client()
+        self.c.force_login(make(Role.SUPER_ADMIN, 1))
+
+    def step(self):
+        body = self.c.get("/api/admin/start").json()
+        return body, next(s for s in body["steps"] if s["key"] == "files")
+
+    def test_nothing_recorded_means_nothing_to_load(self):
+        _, step = self.step()
+        self.assertEqual(step["state"], "done")
+        self.assertIn("No photos or files are recorded", step["fact"])
+
+    def test_a_photo_on_record_with_no_file_asks_for_the_zip_without_holding_the_college_back(self):
+        name = f"avatars/{'a' * 32}.jpg"
+        make(Role.FACULTY, 2, photo=name)
+        missing, step = self.step()
+        self.assertEqual(step["state"], "todo")
+        self.assertIn("1 of 1", step["fact"])
+        self.assertIn("media zip", step["fact"])
+        self.assertFalse(step["required"])
+        # It is an extra: with the file in place, the count and the next step are exactly the same.
+        default_storage.save(name, ContentFile(b"\xff\xd8\xff"))
+        present, _ = self.step()
+        self.assertEqual(
+            (missing["total"], missing["done"], missing["next"], missing["complete"]),
+            (present["total"], present["done"], present["next"], present["complete"]),
+        )
+
+    def test_it_turns_done_once_the_files_are_there(self):
+        name = f"avatars/{'a' * 32}.jpg"
+        make(Role.FACULTY, 2, photo=name)
+        default_storage.save(name, ContentFile(b"\xff\xd8\xff"))
+        _, step = self.step()
+        self.assertEqual(step["state"], "done")
+        self.assertIn("all here", step["fact"])
+
+    def test_a_claim_file_that_is_missing_counts_too(self):
+        owner = make(Role.FACULTY, 2)
+        claim = Claim.objects.create(owner=owner, status=ClaimStatus.SUBMITTED, paper_title="A paper")
+        ClaimAttachment.objects.create(
+            claim=claim, kind="PUBLISHED_PAPER", url=f"{settings.MEDIA_URL}claims/{'b' * 32}.pdf"
+        )
+        _, step = self.step()
+        self.assertEqual(step["state"], "todo")
+
+    def test_only_a_handful_is_checked_however_many_photos_there_are(self):
+        for n in range(30):
+            make(Role.FACULTY, 100 + n, photo=f"avatars/{n:032x}.jpg")
+        _, step = self.step()
+        self.assertEqual(step["state"], "todo")
+        self.assertIn("of 12 photos", step["fact"])
 
 
 class FindAnything(TestCase):

@@ -23,6 +23,7 @@ the service named, never into chat or email.
    - **AI_API_KEY**: the new Groq key. Provider and models are already set.
    - **S3_BUCKET_NAME** `saveetha-publications`, **S3_ENDPOINT_URL**, **AWS_ACCESS_KEY_ID**,
      **AWS_SECRET_ACCESS_KEY**: from R2. Leave all four empty to keep files in the database.
+   - **GOOGLE_OAUTH_CLIENT_SECRET**: optional, for one-click Google Calendar (section 2b below).
    - **SENTRY_DSN**, the **EMAIL_*** fields, **SCOPUS_API_KEY**, **OPENALEX_API_KEY**: optional.
    - Leave **ANTHROPIC_API_KEY**, **WHATSAPP_*** empty.
 5. **Apply.** The first build takes about 10 minutes. It's done when
@@ -43,6 +44,70 @@ the service named, never into chat or email.
 3. **Google sign-in**: Google Cloud console → Credentials → OAuth client `635082195334-…` →
    *Authorised JavaScript origins* → add `https://saveetha-publications.onrender.com`. Then
    **Publish app** on the consent screen.
+
+### Photos and files
+The restore loads every record but none of the files they point to, so people show as initials
+and claim attachments are broken until the files are added. The files are on the project
+machine, in `backend\media`. One zip puts them back.
+
+1. Make the zip. In PowerShell, from the project folder (use today's date):
+   ```
+   Compress-Archive -Path backend\media\avatars,backend\media\claims,backend\media\feed,backend\media\site -DestinationPath data\media-2026-10-07.zip
+   ```
+   That is about 800 files and 10 MB. Windows PowerShell writes the folder names with
+   backslashes inside the zip; the upload accepts that.
+2. Open **Admin → Get the college running**. Under *Also*, the **Photos and files** row has the
+   picker. Choose the zip, leave *Overwrite files that already exist* off, press **Add the files**.
+   It takes a few seconds and keeps this page's result on screen: how many were added, how many
+   were already there, and the name and reason for any file it refused.
+3. Run it again any time. A file that is already on the server is skipped, so a second run says
+   *Nothing new*. Tick *Overwrite* only to replace the copies on the server with the ones in the
+   zip. The row turns done when the photos and files the records name are there.
+
+Only the folders `avatars`, `claims`, `feed` and `site` are read. Limits: 150 MB a zip, 20 MB
+a file, 5,000 files; split a bigger set into two zips. On a machine with a shell the same
+thing is `python manage.py import_media data\media-2026-10-07.zip` (add `--overwrite` to
+replace).
+
+## 2b. One-click Google Calendar (optional, about 10 minutes)
+Until this is done the Calendar page still works: **Add to Google Calendar** subscribes to the
+person's own feed link, and Google refreshes that about once a day. Once it is done, each person
+gets **Connect Google Calendar**: one click, a calendar called "Saveetha Publications" appears in
+their Google account, and it follows every change here (plus a daily pass at 05:30). The app asks
+for the narrowest calendar permission Google offers, `calendar.app.created`: it can only touch the
+calendar it made and cannot read anyone's other calendars. It also learns which Google account was
+connected (`openid` and email, already used for sign-in).
+
+Use the **same project and the same web client** as Google sign-in (`635082195334-…`).
+1. **Enable the API.** Google Cloud console → **APIs & Services → Library** → *Google Calendar
+   API* → **Enable**.
+2. **Add the redirect address.** **Google Auth platform → Clients** → open the web client →
+   *Authorised redirect URIs* → **Add URI**:
+   `https://saveetha-publications.onrender.com/api/calendar/google/callback`
+   Save. It must match exactly (no trailing slash, `https`). The *Authorised JavaScript origins*
+   from section 2 stay as they are.
+3. **Copy the client secret** from the same page (**Add secret** if none is shown; Google shows a
+   new secret only once). Never paste it into chat or into a file in the repository.
+4. **Allow the permission.** **Google Auth platform → Data Access → Add or remove scopes** → tick
+   `…/auth/calendar.app.created` (and keep `openid` and `…/auth/userinfo.email`) → **Update**, **Save**.
+5. **Avoid Google's review.** **Google Auth platform → Audience**:
+   - If the project belongs to the college's Google Workspace organisation, choose **Internal**.
+     Only college accounts can connect, and Google does not review an Internal app. This is the
+     simplest route, and it matches sign-in, which already accepts only `saveetha.ac.in`.
+   - If the project is a personal one, Internal is greyed out. Keep **External**, **In production**:
+     people then see "Google hasn't verified this app" and press *Advanced → Go to … (unsafe)*, up to
+     100 people, until Google verifies the app.
+6. **Give Render the secret.** Render → `saveetha-publications-api` → **Environment** → add
+   **GOOGLE_OAUTH_CLIENT_SECRET** = the secret → **Save, rebuild and deploy** (or *Restart*).
+   `GOOGLE_OAUTH_CLIENT_ID` is already set by the blueprint.
+7. **Try it.** Sign in, open **Calendar**: the button now says **Connect Google Calendar**. Click it,
+   choose a Google account, **Allow**. You land back on Calendar with "Connected as …", and a calendar
+   called "Saveetha Publications" is in Google Calendar. **Disconnect** removes that calendar again and
+   revokes the permission.
+
+If a person's Google access ends (they removed it in their Google account, or the secret changed) the
+page says "Google no longer lets us in" with a **Connect again** button; nothing else breaks. Changing
+`DJANGO_SECRET_KEY` makes every stored Google token unreadable, so everyone connects again once.
 
 ## 3. Keeping it healthy
 - **Always on:** the `keep-alive` GitHub workflow pings `/api/health` every 4 minutes. If the

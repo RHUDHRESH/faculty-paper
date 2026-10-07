@@ -145,11 +145,11 @@ const CHAT_POLL_MS = 12_000
 export const INBOX_POLL_MS = 30_000
 
 export function Faces({ people }: { people: PersonBrief[] }) {
-  if (people.length <= 1) return <Avatar person={people[0]} size="md" />
+  if (people.length <= 1) return <Avatar person={people[0]} size="sm" />
   return (
-    <span className="relative inline-flex size-10 shrink-0" aria-hidden>
-      <Avatar person={people[0]} size="sm" className="absolute left-0 top-0 ring-2 ring-bg" />
-      <Avatar person={people[1]} size="sm" className="absolute bottom-0 right-0 ring-2 ring-bg" />
+    <span className="relative inline-flex size-8 shrink-0" aria-hidden>
+      <Avatar person={people[0]} size="xs" className="absolute left-0 top-0 ring-2 ring-bg" />
+      <Avatar person={people[1]} size="xs" className="absolute bottom-0 right-0 ring-2 ring-bg" />
     </span>
   )
 }
@@ -432,11 +432,11 @@ export function ChatPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-line px-4 py-3">
+      <header className="flex items-center gap-3 border-b border-line px-4 py-2">
         <BackToMessages />
         <Faces people={c.people} />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-base font-semibold">
+          <h1 className="truncate text-sm font-semibold">
             {other ? <PersonLink id={other.id} name={other.name} className="font-[inherit]" /> : c.title}
           </h1>
           <Meta className="block truncate text-xs">
@@ -530,7 +530,7 @@ export function ChatPage() {
             <Tooltip content="Mention a person, paper or journal — or @agent to ask the assistant.">
               <Button
                 kind="quiet"
-                size="md"
+                size="sm"
                 type="button"
                 aria-label="Mention a person, paper or journal — or @agent to ask the assistant."
                 onClick={() => {
@@ -558,7 +558,7 @@ export function ChatPage() {
             placeholder="Write a message…"
             className="min-w-0 flex-1"
           />
-          <Button kind="primary" size="md" type="submit" disabled={!text.trim()} aria-label="Send">
+          <Button kind="primary" size="sm" type="submit" disabled={!text.trim()} aria-label="Send">
             <Send />
             <span className="hidden sm:inline">Send</span>
           </Button>
@@ -714,7 +714,7 @@ function MessageRow({
         {m.body && (
           <div
             className={cn(
-              "whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm leading-relaxed",
+              "whitespace-pre-wrap break-words rounded-2xl px-3 py-1.5 text-sm leading-snug",
               m.mine
                 ? cn("bg-accent text-accent-fg [&_a]:text-accent-fg", last && "rounded-br-md", !first && "rounded-tr-md")
                 : cn("bg-sunken text-fg", last && "rounded-bl-md", !first && "rounded-tl-md"),

@@ -85,6 +85,7 @@ ACTION_WORDS: dict[str, str] = {
     "BACKUP_SKIPPED": "skipped a backup",
     "RESTORE_QUEUED": "started a restore",
     "RESTORE_DONE": "finished a restore",
+    "MEDIA_IMPORTED": "loaded photos and files from a zip",
     "JOB_RETRY": "ran a job again",
     "CLAIM_CONDITIONS_ACCEPTED": "ticked the filing conditions",
     "CLAIM_FILES_CHECK": "checked a claim's files",

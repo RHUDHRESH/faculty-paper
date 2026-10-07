@@ -286,6 +286,10 @@ API equivalents: `POST /api/admin/backups` → `{job_id}`; poll
 5. Sign in with a restored account (passwords are restored as they were), run
    *Data health → Run now*, and compare counts with the old site. Deactivate
    the temporary restore account.
+6. The restore loads records, not files: photos and claim PDFs are still on the old machine.
+   Add them from a zip of its `media` folders (*Admin -> Get the college running -> Photos and
+   files*, or `POST /api/admin/media-import`, or `manage.py import_media`). How to make the
+   zip is in `docs/ops/go-live.md`.
 
 Local check of the same round trip (SQLite):
 

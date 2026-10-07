@@ -1844,6 +1844,14 @@ class CalendarEvent(models.Model):
         SUBMISSION_WINDOW = "SUBMISSION_WINDOW", "Submission window"
         DEADLINE = "DEADLINE", "Deadline"
         MEETING = "MEETING", "Meeting"
+        #: The five below are what the Events page is for (core/api/events.py):
+        #: things a teacher might go to, or send a paper to.
+        SEMINAR = "SEMINAR", "Seminar"
+        WORKSHOP = "WORKSHOP", "Workshop"
+        CONFERENCE = "CONFERENCE", "Conference"
+        FDP = "FDP", "Faculty development programme"
+        #: `starts_on` is the day submissions close.
+        CALL_FOR_PAPERS = "CALL_FOR_PAPERS", "Call for papers"
         OTHER = "OTHER", "Something else"
 
     id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
@@ -1882,6 +1890,15 @@ class CalendarEvent(models.Model):
     starts_at = models.TimeField(blank=True, null=True)
     ends_at = models.TimeField(blank=True, null=True)
 
+    #: What a seminar, workshop or conference needs to say. All optional, and
+    #: empty on every calendar entry made before the Events page existed.
+    venue = models.CharField(max_length=255, blank=True, null=True)
+    speaker = models.CharField(max_length=255, blank=True, null=True)
+    organiser = models.CharField(max_length=255, blank=True, null=True)
+    #: Where to register or read more. Only ever a web address
+    #: (core/api/events.py checks), because it is drawn as a link.
+    link = models.URLField(max_length=500, blank=True, null=True)
+
     #: Where it came from, when it came from somewhere.
     thread = models.ForeignKey(
         Thread, null=True, blank=True, on_delete=models.SET_NULL, related_name="events"
@@ -1904,6 +1921,28 @@ class CalendarEvent(models.Model):
         return f"{self.starts_on} {self.title[:40]}"
 
 
+class EventRsvp(models.Model):
+    """"I'm going": one person, one event, once.
+
+    Only a count and a flag are ever shown. It is not an attendance register,
+    and it asks nobody for anything: a colleague can see how many are going,
+    not who.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    event = models.ForeignKey(CalendarEvent, on_delete=models.CASCADE, related_name="rsvps")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="event_rsvps")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["event", "user"], name="one_rsvp_per_person_per_event")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} -> {self.event_id}"
+
+
 class CalendarFeed(models.Model):
     """The secret in somebody's calendar subscription URL.
 
@@ -1918,6 +1957,48 @@ class CalendarFeed(models.Model):
 
     def __str__(self) -> str:
         return f"feed {self.user_id}"
+
+
+class GoogleCalendarLink(models.Model):
+    """One person's connection to a calendar of their own on Google.
+
+    "Connect Google Calendar" makes a secondary calendar called "Saveetha
+    Publications" in the person's Google account and keeps it in step with what
+    they see here (core/services/google_calendar.py). The scope asked for is
+    `calendar.app.created`, so this app can only ever touch calendars it made.
+
+    `refresh_token_enc` is the long-lived Google token, Fernet-encrypted with a
+    key derived from SECRET_KEY: a copy of the database alone does not carry
+    anyone's Google access. `event_map` is {our key: {"id": Google's event id,
+    "hash": a hash of what was sent}}, which is what lets a sync create only
+    what is new, patch only what changed and delete only what went.
+    """
+
+    id = models.CharField(primary_key=True, max_length=32, default=cuid, editable=False)
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="google_calendar_link")
+    google_email = models.CharField(max_length=254, blank=True, default="")
+    calendar_id = models.CharField(max_length=255, blank=True, default="")
+    refresh_token_enc = models.TextField()
+    scope = models.TextField(blank=True, default="")
+    event_map = models.JSONField(default=dict, blank=True)
+    last_synced_at = models.DateTimeField(blank=True, null=True)
+    last_error = models.TextField(blank=True, default="")
+    #: Google refused the token (revoked, expired, or unreadable): nothing is
+    #: sent until the person connects again. Kept apart from `last_error` so a
+    #: passing "Google is busy" never looks like a lost connection.
+    needs_reconnect = models.BooleanField(default=False)
+    #: A sync is running, and since when. Taken and let go with one UPDATE
+    #: (core/services/google_calendar.py), so a Sync now and a queued task
+    #: cannot both send the same new event; a lock older than ten minutes is
+    #: a crashed run's and is ignored.
+    sync_started_at = models.DateTimeField(blank=True, null=True)
+    #: Somebody asked for a sync while one was running: go round again, or the
+    #: edit that triggered it is missed until tomorrow.
+    resync = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"google calendar {self.user_id}"
 
 
 class ResearchInterest(models.Model):

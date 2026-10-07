@@ -5,13 +5,14 @@ import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { cn } from "@/lib/cn"
 import { useApi } from "@/lib/query"
 import { Button } from "@/ui/button"
-import { chipClass, segmentClass } from "@/ui/toggle"
+import { FilterChip, Segmented } from "@/ui/toggle"
 import { PageHeader } from "@/ui/page-header"
 import { SectionTitle } from "@/ui/text"
 import { Avatar, initialsOf } from "@/ui/person"
 import { EmptyState, ErrorState, SkeletonRows } from "@/ui/state"
 
-import { DayDialog, EventDetails, EventDialog, GoogleMenu, type Prefill } from "./calendar/dialogs"
+import { DayDialog, EventDialog, EventSheet, type Prefill } from "./calendar/dialogs"
+import { GoogleStrip, useGoogleStatus } from "./calendar/google"
 import {
   type CalItem,
   type CalendarPayload,
@@ -21,7 +22,7 @@ import {
   addDays,
   addMonths,
   agendaWindow,
-  dayLabel,
+  clock,
   iso,
   kindStyle,
   monthLabel,
@@ -29,14 +30,21 @@ import {
   overlaps,
   parse,
   relative,
+  shortDay,
+  rangeLabel,
   toItems,
+  wantsConnect,
   weekDays,
 } from "./calendar/model"
-import { AgendaView, CompactMonth, MonthView, WeekView } from "./calendar/views"
+import { usePhone } from "./calendar/use-phone"
+import { AgendaView, CompactMonth, KindLegend, MonthView, WeekView } from "./calendar/views"
 
 /**
  * The calendar: month, week and agenda, with college dates, the record's
  * dates and my own reminders layered and switchable. docs/ux/12-calendar.md.
+ *
+ * Above the grid, one strip says where this calendar can go next (Google
+ * Calendar, Outlook, Apple) and does it in one click.
  */
 
 type View = "month" | "week" | "agenda"
@@ -49,17 +57,11 @@ const LAYERS: { key: Layer | "all"; label: string }[] = [
   { key: "mine", label: "My reminders" },
 ]
 
-function usePhone(): boolean {
-  const query = "(max-width: 47.99rem)"
-  const [phone, setPhone] = useState(() => window.matchMedia(query).matches)
-  useEffect(() => {
-    const m = window.matchMedia(query)
-    const on = () => setPhone(m.matches)
-    m.addEventListener?.("change", on)
-    return () => m.removeEventListener?.("change", on)
-  }, [])
-  return phone
-}
+const VIEWS = [
+  { id: "month", label: "Month" },
+  { id: "week", label: "Week" },
+  { id: "agenda", label: "Agenda" },
+]
 
 export function Calendar() {
   const phone = usePhone()
@@ -73,6 +75,7 @@ export function Calendar() {
   const [open, setOpen] = useState<CalItem | null>(null)
   const [moreDay, setMoreDay] = useState<string | null>(null)
   const [selected, setSelected] = useState(params.get("date") ?? today)
+  const google = useGoogleStatus()
 
   function go(next: Partial<{ view: View; date: string }>) {
     setParams(
@@ -147,6 +150,9 @@ export function Calendar() {
 
   const title = view === "week" ? weekTitle(anchor) : monthLabel(anchor)
   const add = (date: string, time?: string) => setAdding({ date, time })
+  // While connecting Google is the thing to do, it is the page's one primary
+  // button, and "Add event" steps back to an ordinary one (ui/CONVENTIONS.md).
+  const connectFirst = wantsConnect(google.data)
 
   return (
     <div className="page space-y-4">
@@ -163,8 +169,8 @@ export function Calendar() {
               </button>
               <span>
                 {next.start <= today && next.end > today
-                  ? `closes ${dayLabel(next.end, true)} (${relative(next.end, today)})`
-                  : `${dayLabel(next.start, true)} (${relative(next.start, today)})`}
+                  ? `closes ${shortDay(next.end)} (${relative(next.end, today)})`
+                  : `${shortDay(next.start)} (${relative(next.start, today)})`}
               </span>
             </span>
           ) : (
@@ -172,12 +178,19 @@ export function Calendar() {
           )
         }
         action={
-          <Button kind="primary" size="md" className="max-md:hidden" onClick={() => add(view === "month" ? selectedIn(anchor, today) : today)}>
+          <Button
+            kind={connectFirst ? "default" : "primary"}
+            size="md"
+            className="max-md:hidden"
+            onClick={() => add(view === "month" ? selectedIn(anchor, today) : today)}
+          >
             <Plus />
             Add event
           </Button>
         }
       />
+
+      <GoogleStrip />
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="flex items-center gap-1">
@@ -201,44 +214,20 @@ export function Calendar() {
         >
           Today
         </Button>
-        <div role="tablist" aria-label="View" className="well inline-flex gap-0.5 p-0.5">
-          {(["month", "week", "agenda"] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              role="tab"
-              aria-selected={view === v}
-              onClick={() => go({ view: v })}
-              className={segmentClass(view === v, cn("capitalize", view === v && "text-[var(--area-time)]"))}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-        <div className="ml-auto">
-          <GoogleMenu />
-        </div>
+        <Segmented label="View" value={view} onChange={(id) => go({ view: id as View })} items={VIEWS} />
       </div>
 
       {/* Layers. */}
       <div role="group" aria-label="Show" className="flex flex-wrap gap-2">
-        {LAYERS.map((l) => {
-          const on = l.key === "all" ? layers.size === ALL_LAYERS.length : layers.has(l.key) && layers.size < ALL_LAYERS.length
-          return (
-            <button
-              key={l.key}
-              type="button"
-              aria-pressed={on}
-              onClick={() => toggle(l.key)}
-              className={chipClass(
-                on,
-                on ? "bg-[var(--area-time-wash)] text-[var(--area-time)] ring-[var(--area-time)] hover:bg-[var(--area-time-wash)]" : undefined
-              )}
-            >
-              {l.label}
-            </button>
-          )
-        })}
+        {LAYERS.map((l) => (
+          <FilterChip
+            key={l.key}
+            on={l.key === "all" ? layers.size === ALL_LAYERS.length : layers.has(l.key) && layers.size < ALL_LAYERS.length}
+            onClick={() => toggle(l.key)}
+          >
+            {l.label}
+          </FilterChip>
+        ))}
       </div>
 
       {isLoading ? (
@@ -255,7 +244,10 @@ export function Calendar() {
           <AgendaView items={items} from={agendaFrom} to={agendaTo} today={today} onOpen={setOpen} />
         )
       ) : view === "week" ? (
-        <WeekView anchor={anchor} today={today} items={items} onOpen={setOpen} onAdd={add} />
+        <div className="space-y-3">
+          <WeekView anchor={anchor} today={today} items={items} onOpen={setOpen} onAdd={add} />
+          <KindLegend items={items.filter((i) => overlaps(i, from, to))} />
+        </div>
       ) : phone ? (
         <CompactMonth
           anchor={anchor}
@@ -267,9 +259,10 @@ export function Calendar() {
           onAdd={add}
         />
       ) : (
-        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_17rem]">
-          <div className="min-w-0 space-y-4">
+        <div className="grid items-start gap-6 2xl:grid-cols-[minmax(0,1fr)_17rem]">
+          <div className="min-w-0 space-y-3">
             <MonthView anchor={anchor} today={today} items={items} onOpen={setOpen} onAdd={add} onMore={setMoreDay} />
+            <KindLegend items={items.filter((i) => overlaps(i, from, to))} />
             {!items.some((i) => overlaps(i, iso(anchor).slice(0, 8) + "01", iso(new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)))) && <QuietMonth onAdd={() => add(selectedIn(anchor, today))} />}
           </div>
           <UpNext items={items} today={today} horizon={horizon} onOpen={setOpen} />
@@ -292,6 +285,7 @@ export function Calendar() {
           existing={editing}
           prefill={adding ?? { date: today }}
           visibilities={data?.visibilities ?? ["PRIVATE"]}
+          kinds={data?.kinds ?? []}
           onClose={() => {
             setAdding(null)
             setEditing(null)
@@ -299,7 +293,7 @@ export function Calendar() {
         />
       )}
       {open && !editing && (
-        <EventDetails
+        <EventSheet
           item={open}
           onClose={() => setOpen(null)}
           onEdit={(e) => {
@@ -328,7 +322,11 @@ function NextIcon({ kind }: { kind: string }) {
   return <Icon className="size-4 shrink-0" style={{ color: colour }} aria-hidden />
 }
 
-/** The next few things from today, beside the month on wide screens. */
+/**
+ * The next few things from today, beside the month on very wide screens. On a
+ * laptop the month gets the whole width instead: a column of seven can show a
+ * title only if it is given room, and the same list is a tap away in Agenda.
+ */
 function UpNext({ items, today, horizon, onOpen }: { items: CalItem[]; today: string; horizon: string; onOpen: (i: CalItem) => void }) {
   const ahead = items.filter((i) => i.end >= today && i.start <= horizon).slice(0, 8)
   const days: [string, CalItem[]][] = []
@@ -339,7 +337,7 @@ function UpNext({ items, today, horizon, onOpen }: { items: CalItem[]; today: st
     else days.push([day, [i]])
   }
   return (
-    <aside aria-labelledby="up-next" className="hidden xl:block">
+    <aside aria-labelledby="up-next" className="hidden 2xl:block">
       <SectionTitle id="up-next">Up next</SectionTitle>
       <p className="text-sm text-fg-muted">The next 30 days</p>
       {days.length === 0 ? (
@@ -349,7 +347,7 @@ function UpNext({ items, today, horizon, onOpen }: { items: CalItem[]; today: st
           {days.map(([day, list]) => (
             <li key={day}>
               <p className={cn("text-xs font-medium", day === today ? "text-[var(--area-time)]" : "text-fg-muted")}>
-                {day === today ? "Today" : relative(day, today).replace(/^in /, "In ")} · {dayLabel(day, true)}
+                {day === today ? "Today" : relative(day, today).replace(/^in /, "In ")} · {shortDay(day)}
               </p>
               <ul className="mt-1 divide-y divide-line/60 border-y border-line/60">
                 {list.map((i) => {
@@ -367,7 +365,7 @@ function UpNext({ items, today, horizon, onOpen }: { items: CalItem[]; today: st
                         )}
                         <span className="min-w-0 flex-1">
                           <span className="line-clamp-2 text-sm">{i.title}</span>
-                          <span className="block text-xs text-fg-muted">{i.kindLabel}{i.startTime ? ` · ${i.startTime}` : ""}</span>
+                          <span className="block text-xs text-fg-muted">{i.kindLabel}{i.startTime ? ` · ${clock(i.startTime)}` : i.start !== i.end ? ` · ${rangeLabel(i.start, i.end)}` : ""}</span>
                         </span>
                       </button>
                     </li>

@@ -37,7 +37,7 @@ from core.models import (
     User,
 )
 from core import discussions
-from core.services import ics, rbac
+from core.services import google_calendar, ics, rbac
 from core.services.record_dates import filing_recorded, ledger_month_recorded
 
 # ---------- the calendar ----------
@@ -135,6 +135,15 @@ def _visible_events(user: User):
     else:
         condition |= Q(visibility=Thread.Visibility.OFFICE, created_by=user)
     return CalendarEvent.objects.filter(condition)
+
+
+def _events_in_window(user: User, first: date, last: date):
+    """The events this person may see that touch [first, last]. A span is not just its first day."""
+    return (
+        _visible_events(user)
+        .filter(starts_on__lte=last)
+        .filter(Q(ends_on__isnull=True, starts_on__gte=first) | Q(ends_on__gte=first))
+    )
 
 
 @api.get("/calendar", auth=session_auth)
@@ -503,11 +512,7 @@ def feed(request: HttpRequest, token: str):
     user = row.user
     today = timezone.localdate()
     first, last = today - timedelta(days=365), today + timedelta(days=365)
-    events = (
-        _visible_events(user)
-        .filter(starts_on__lte=last)
-        .filter(Q(ends_on__isnull=True, starts_on__gte=first) | Q(ends_on__gte=first))
-    )
+    events = _events_in_window(user, first, last)
     body = ics.calendar(
         [ics.from_event(e) for e in events] + [ics.from_record(r) for r in _record(user, first, last)],
         name="Publications calendar",
@@ -591,6 +596,7 @@ def create_event(request: HttpRequest, payload: EventIn):
             kind=Post.Kind.SYSTEM,
         )
 
+    google_calendar.event_changed(event)
     return _event_dict(event)
 
 
@@ -622,6 +628,7 @@ def update_event(request: HttpRequest, event_id: str, payload: EventIn):
     if event.created_by_id == user.id:
         event.claim = _own_claim(user, payload.claim_id)
     event.save()
+    google_calendar.event_changed(event)
     return _event_dict(event)
 
 
@@ -634,7 +641,10 @@ def delete_event(request: HttpRequest, event_id: str):
         if e.status_code == 403:
             raise HttpError(403, "Only the office, or whoever added it, can remove an event.")
         raise
+    # Who had it on their Google calendar has to be worked out before it is gone.
+    audience = google_calendar.linked_audience(event)
     event.delete()
+    google_calendar.enqueue_sync(audience)
     return {"ok": True}
 
 

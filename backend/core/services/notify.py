@@ -38,7 +38,7 @@ import logging
 import re
 from datetime import timedelta
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterable
 
 from django.conf import settings
 from django.core import signing
@@ -151,6 +151,11 @@ KINDS: dict[str, Kind] = {
         Kind("target", "Department targets",
              "When a department crosses half, three quarters or all of its target.",
              _REMINDERS, "updates", IN_APP, "principal"),
+        Kind("event", "Seminars and events",
+             "When a seminar, workshop, conference, programme or call for papers is "
+             "posted for the whole college or for your department. Once per event, "
+             "never again when it is edited.",
+             "Events", "updates", IN_APP),
         Kind("moderation", "Your posts and reports",
              "When a post of yours is hidden, or a report reaches you. "
              "This one cannot be switched off.",
@@ -184,6 +189,7 @@ EMAIL_ACTIONS: dict[str, str] = {
     "endorsement": "See your profile",
     "badge": "See your badges",
     "target": "See the department",
+    "event": "See the event",
     "moderation": "See what happened",
     GENERAL: "Open in the app",
 }
@@ -495,6 +501,55 @@ def notify(
 
         whatsapp.send_alert(user, note.title, note.body or "")
     return note
+
+
+def notify_many(
+    users: Iterable[User],
+    kind: str,
+    title: str | None = None,
+    body: str | None = "",
+    href: str | None = None,
+    *,
+    actor: User | None = None,
+) -> int:
+    """`notify` for a whole group at once: a department, or the college.
+
+    The same rules, in a few queries rather than three per person -- told one
+    at a time, a college-wide seminar held its request open for seconds on the
+    free host. Somebody who switched the kind off, or whose account is closed,
+    is left out. Somebody who asked for email (or a kind that also goes by
+    WhatsApp) is handed to `notify`, which knows how; everybody else gets their
+    alert in one batch insert. Returns how many were told.
+    """
+    people = [u for u in users if getattr(u, "active", True)]
+    if not people:
+        return 0
+    if kind not in KINDS:
+        logger.warning("notify_many: unknown kind %r, filed as general", kind)
+        kind = GENERAL
+    spec = KINDS[kind]
+    chosen = dict(
+        NotificationPreference.objects.filter(kind=kind, user__in=people).values_list("user_id", "level")
+    )
+    entry = _actor_entry(actor)
+    title = (title or spec.label)[:255]
+    rows: list[Notification] = []
+    told = 0
+    for person in people:
+        level = chosen.get(person.pk, spec.default)
+        if level == OFF:
+            continue
+        if level == EMAIL or spec.whatsapp:
+            told += notify(person, kind, title, body, href, actor=actor) is not None
+            continue
+        rows.append(
+            Notification(
+                user=person, kind=kind, title=title, body=body or None, href=href,
+                actors=[entry] if entry else [],
+            )
+        )
+    Notification.objects.bulk_create(rows, batch_size=500)
+    return told + len(rows)
 
 
 def _join_group(user, kind, group_key, entry, verb, title, body, href):

@@ -10,6 +10,7 @@ import { paperTitle } from "@/lib/names"
 import { useApi } from "@/lib/query"
 import { AuthoriseDialog, BulkAuthoriseDialog, thresholdClause, type AuthClaim } from "@/pages/authorise-dialogs"
 import { BudgetStrip, budgetLine, claimsWord } from "@/pages/budget-strip"
+import { ComingUpEvents } from "@/pages/home-events"
 import { greeting, YourPapers, type BudgetSummary, type Claim } from "@/pages/home-staff"
 import { MonthPaperwork, useNewestMonth } from "@/pages/month-paperwork"
 import { MoneyThread } from "@/pages/money-thread"
@@ -193,6 +194,8 @@ export function DirectorHome() {
       <Details label="what the college researches" className="border-t border-line pt-6">
         <ResearchAreas />
       </Details>
+
+      <ComingUpEvents />
 
       {/* The Director's own research, after the authorising: another officer
           authorises the Director's own papers, never the Director. */}

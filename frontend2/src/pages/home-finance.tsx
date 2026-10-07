@@ -7,6 +7,7 @@ import { formatCount } from "@/lib/count"
 import { paperTitle } from "@/lib/names"
 import { useApi } from "@/lib/query"
 import { BudgetStrip, budgetLine, claimsWord } from "@/pages/budget-strip"
+import { ComingUpEvents } from "@/pages/home-events"
 import { greeting, YourPapers } from "@/pages/home-staff"
 import { MonthPaperwork } from "@/pages/month-paperwork"
 import { MoneyThread } from "@/pages/money-thread"
@@ -175,6 +176,8 @@ export function FinanceHome() {
       </Section>
 
       <MonthPaperwork title="This month's paper" />
+
+      <ComingUpEvents />
 
       <YourPapers />
 

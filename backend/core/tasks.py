@@ -312,3 +312,12 @@ def run_offsite_backup(kind: str = "daily") -> dict:
     from core.services import backup
 
     return backup.store_offsite(kind)
+
+
+def sync_google_calendars(user_ids: list[str] | None = None) -> dict:
+    """Daily (schedule "google-calendar-sync-daily"), and after a calendar edit:
+    bring each connected person's Google calendar in line with their page here.
+    `user_ids` limits it to the people an edit touched; nothing means everyone."""
+    from core.services import google_calendar
+
+    return google_calendar.sync_all(user_ids)

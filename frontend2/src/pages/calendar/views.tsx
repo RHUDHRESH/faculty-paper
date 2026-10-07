@@ -6,6 +6,7 @@ import { Avatar, initialsOf } from "@/ui/person"
 import {
   type CalItem,
   WEEKDAYS,
+  clock,
   dayLabel,
   iso,
   kindStyle,
@@ -13,6 +14,8 @@ import {
   monthWeeks,
   overlaps,
   parse,
+  relative,
+  shortDay,
   timeLabel,
   weekDays,
 } from "./model"
@@ -55,7 +58,7 @@ export function EventChip({
       )}
     >
       <Icon className="size-3 shrink-0" style={{ color: colour }} aria-hidden strokeWidth={1.75} />
-      {item.startTime && <span className="shrink-0 tabular text-fg-muted">{item.startTime}</span>}
+      {item.startTime && <span className="shrink-0 tabular text-fg-muted">{clock(item.startTime, true)}</span>}
       <span className="truncate">{item.title}</span>
     </button>
   )
@@ -116,11 +119,16 @@ export function MonthView({
                   onClick={() => onAdd(day)}
                   style={{ gridColumn: col + 1, gridRow: "1 / -1" }}
                   className={cn(
-                    "cursor-pointer border-r border-line px-1.5 pt-1 last:border-r-0 hover:bg-hover/60",
+                    "group relative cursor-pointer border-r border-line px-1.5 pt-1 last:border-r-0 hover:bg-hover/60",
                     outside && "bg-sunken/60",
                     isToday && "bg-[var(--area-time-wash)]/50 shadow-[inset_0_2px_0_var(--area-time)]"
                   )}
                 >
+                  {/* A hint that a day is somewhere to add to; the button below is the real control. */}
+                  <Plus
+                    aria-hidden
+                    className="pointer-events-none absolute right-1.5 top-1.5 size-3.5 text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                  />
                   <button
                     type="button"
                     aria-label={`Add an event on ${dayLabel(day, true)}`}
@@ -372,7 +380,7 @@ export function WeekView({
         <div>
           {hours.map((h) => (
             <div key={h} style={{ height: HOUR_PX }} className="-mt-px pr-1 text-right text-[11px] tabular text-fg-subtle">
-              {String(h).padStart(2, "0")}:00
+              {clock(`${h}:00`, true)}
             </div>
           ))}
         </div>
@@ -448,10 +456,35 @@ export function AgendaRow({ item, onOpen }: { item: CalItem; onOpen: Open }) {
           <span className="block text-base leading-5">{item.title}</span>
           <span className="block text-xs text-fg-muted">
             {timeLabel(item)} · {item.kindLabel}
+            {item.event?.venue ? ` · ${item.event.venue}` : ""}
           </span>
         </span>
       </button>
     </li>
+  )
+}
+
+/**
+ * What the colours and shapes on the grid mean, for the kinds that are on it.
+ * A tint says nothing to somebody who cannot tell it apart, and nothing at all
+ * to somebody who has never been told: the shape and the word beside it do.
+ */
+export function KindLegend({ items }: { items: CalItem[] }) {
+  const seen = new Map<string, CalItem>()
+  for (const i of items) if (!seen.has(i.kindLabel)) seen.set(i.kindLabel, i)
+  if (seen.size === 0) return null
+  return (
+    <ul aria-label="What the symbols mean" className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-fg-muted">
+      {[...seen.entries()].map(([label, i]) => {
+        const { icon: Icon, colour } = kindStyle(i.kind)
+        return (
+          <li key={label} className="inline-flex items-center gap-1.5">
+            <Icon className="size-3.5" style={{ color: colour }} aria-hidden strokeWidth={1.75} />
+            {label}
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -476,14 +509,20 @@ export function AgendaView({
   }
   const sorted = [...days.entries()].sort(([a], [b]) => a.localeCompare(b))
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {sorted.map(([day, list]) => (
-        <section key={day} aria-label={dayLabel(day, true)}>
-          <h3 className={cn("mb-1 flex items-center gap-2 text-sm font-semibold", day === today && "text-[var(--area-time)]")}>
-            {dayLabel(day, true)}
-            {day === today && <span className="rounded-full bg-[var(--area-time-wash)] px-2 text-xs">Today</span>}
+        <section key={day} aria-label={dayLabel(day, true)} className="sm:grid sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:gap-x-4">
+          <h3 className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm sm:mb-0 sm:block sm:pt-2.5">
+            <span className={cn("font-semibold", day === today && "text-[var(--area-time)]")}>{shortDay(day)}</span>
+            {day === today ? (
+              <span className="rounded-full bg-[var(--area-time-wash)] px-2 py-0.5 text-xs font-medium text-[var(--area-time)] sm:mt-1 sm:block sm:w-fit">
+                Today
+              </span>
+            ) : (
+              <span className="text-xs font-normal text-fg-muted sm:mt-0.5 sm:block">{relative(day, today)}</span>
+            )}
           </h3>
-          <ul className="divide-y divide-line rounded-panel bg-surface ring-1 ring-line">
+          <ul className="divide-y divide-line overflow-hidden rounded-panel bg-surface ring-1 ring-line">
             {list.map((i) => (
               <AgendaRow key={i.key} item={i} onOpen={onOpen} />
             ))}

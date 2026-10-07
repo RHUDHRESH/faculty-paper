@@ -42,6 +42,26 @@ class DatabaseStorage(Storage):
     def exists(self, name):
         return self._model().objects.filter(name=name).exists()
 
+    def existing(self, names):
+        """Which of these names are held, in one query (see core/services/media_import.py)."""
+        return set(self._model().objects.filter(name__in=list(names)).values_list("name", flat=True))
+
+    def put_many(self, items):
+        """File many (name, bytes) pairs under exactly those names, replacing any already held.
+
+        `save` costs a handful of round trips a file, which across the network to
+        the database is what turns an import of eight hundred photos into a
+        timeout. This is one statement per call, and it never renames: `save`
+        would call a second file with a held name something else.
+        """
+        model = self._model()
+        model.objects.bulk_create(
+            [model(name=name, content=data, size=len(data)) for name, data in items],
+            update_conflicts=True,
+            unique_fields=["name"],
+            update_fields=["content", "size"],
+        )
+
     def delete(self, name):
         self._model().objects.filter(name=name).delete()
 

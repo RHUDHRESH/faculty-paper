@@ -37,10 +37,10 @@ from core.services import restore as svc
 MAX_BYTES = 90 * 1024 * 1024  # the real export is ~28 MB gzipped
 
 
-def _super_admin(request: HttpRequest):
+def _super_admin(request: HttpRequest, what: str = "restore an export"):
     user = require_user(request)
     if user.role != Role.SUPER_ADMIN:
-        raise HttpError(403, "Only a super admin may restore an export")
+        raise HttpError(403, f"Only a super admin may {what}")
     return user
 
 

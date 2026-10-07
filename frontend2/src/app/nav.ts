@@ -26,6 +26,7 @@ import {
   type LucideIcon,
   MessagesSquare,
   Network,
+  Presentation,
   Receipt,
   Search,
   Settings2,
@@ -251,6 +252,22 @@ const PAGES: NavItem[] = [
     keywords: [
       "areas", "field", "trends", "breakthroughs", "programme", "college", "college's research",
       "growing", "fading", "departments", "goals", "targets", "this year", "progress", "research helper", "where to publish", "which journal",
+    ],
+  },
+  {
+    // Seminars, workshops and calls for papers, and the college's recent
+    // papers: "practically invisible" while the only place for either was the
+    // calendar or a search. Everybody signed in, so no `roles`.
+    to: "/events",
+    label: "Events and research",
+    icon: Presentation,
+    group: "Research",
+    area: "research",
+    purpose: "See the seminars, workshops and calls for papers coming up, and what your colleagues have published lately.",
+    keywords: [
+      "seminar", "workshop", "conference", "fdp", "faculty development programme", "call for papers", "cfp",
+      "guest lecture", "talk", "what is on", "events", "going", "register", "add to my calendar", "deadline",
+      "showcase", "research showcase", "new papers", "q1", "most cited", "new names", "first paper", "college news",
     ],
   },
   {
@@ -1096,7 +1113,7 @@ export const DOOR_LABELS: Record<string, string> = Object.fromEntries(DOORS.map(
 
 /** The pages an office role reaches through the folded Research group. */
 const RESEARCH_PAGES = [
-  "/papers", "/papers/new", "/research", "/discover", "/journal-check", "/compass", "/scout",
+  "/papers", "/papers/new", "/research", "/events", "/discover", "/journal-check", "/compass", "/scout",
   "/collaborate", "/messages", "/discussions", "/leaderboard",
 ]
 
